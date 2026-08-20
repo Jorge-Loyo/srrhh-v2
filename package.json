@@ -1,0 +1,30 @@
+{
+  "name": "srrhh-v2",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Sistema de Recursos Humanos - Gobierno de la Ciudad de Buenos Aires",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @srrhh/api exec prisma generate --schema=../../prisma/schema.prisma",
+    "db:migrate": "pnpm --filter @srrhh/api exec prisma migrate dev --schema=../../prisma/schema.prisma",
+    "db:push": "pnpm --filter @srrhh/api exec prisma db push --schema=../../prisma/schema.prisma",
+    "db:studio": "pnpm --filter @srrhh/api exec prisma studio --schema=../../prisma/schema.prisma",
+    "db:seed": "tsx --env-file=apps/api/.env prisma/seed.ts",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

@@ -1,0 +1,31 @@
+import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { AppShell } from '../shared/components/layout/AppShell'
+import { LoginPage } from '../modules/auth/pages/LoginPage'
+
+// Páginas placeholder — se implementan en cada sprint
+const Placeholder = ({ title }: { title: string }) => (
+  <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+    <h2 className="font-primary text-xl font-bold text-gray-700 mb-2">{title}</h2>
+    <p className="text-sm text-gray-400">Módulo en desarrollo</p>
+  </div>
+)
+
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <AppShell />,
+    children: [
+      { index: true, element: <Navigate to="/padron" replace /> },
+      { path: 'padron', element: <Placeholder title="Padrón Semanal" /> },
+      { path: 'personas', element: <Placeholder title="Personas" /> },
+      { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
+      { path: 'cargos', element: <Placeholder title="Cargos" /> },
+      { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
+      { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
+      { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },
+      { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
+      { path: 'admin/usuarios', element: <Placeholder title="Administración de Usuarios" /> },
+    ],
+  },
+  { path: '/login', element: <LoginPage /> },
+])

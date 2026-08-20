@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: srrhh_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: srrhh_user
+      POSTGRES_PASSWORD: srrhh_pass
+      POSTGRES_DB: srrhh_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U srrhh_user -d srrhh_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: srrhh_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres:5432/srrhh_db
+      JWT_SECRET: dev-secret-minimo-32-caracteres-cambiar
+      JWT_ACCESS_EXPIRES: 15m
+      JWT_REFRESH_EXPIRES: 7d
+      PYTHON_SERVICE_URL: http://dotaneitor:5001
+      PORT: 3000
+      NODE_ENV: development
+      CORS_ORIGINS: http://localhost:5173
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+
+  dotaneitor:
+    build:
+      context: ./services/dotaneitor
+      dockerfile: Dockerfile
+    container_name: srrhh_dotaneitor
+    restart: unless-stopped
+    ports:
+      - '5001:5001'
+
+volumes:
+  postgres_data:

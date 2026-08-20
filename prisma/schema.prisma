@@ -1,0 +1,479 @@
+// =============================================================================
+// SRRHH v2 — Schema de Base de Datos
+// Sistema de Recursos Humanos - Gobierno de la Ciudad de Buenos Aires
+// =============================================================================
+// Fuente de verdad del modelo de datos. Ver Doc/Contrato_Datos.md
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum EstadoCargo {
+  vigente
+  no_vigente
+}
+
+enum EstadoSnapshot {
+  pendiente
+  aprobado
+  rechazado
+}
+
+enum TipoDiff {
+  nuevo
+  modificado
+  eliminado
+}
+
+enum TipoConcurso {
+  cph
+  ceetps
+  sin_concurso
+}
+
+enum EstadoConcursoCph {
+  no_iniciado
+  activo
+  finalizado
+  suspendido
+  desierto
+}
+
+enum EstadoConcursoCeetps {
+  sin_autorizar
+  autorizado
+  en_proceso
+  finalizado
+  desierto
+}
+
+enum RolUsuario {
+  admin
+  editor
+  viewer
+  director
+  concursales_cph
+  concursales_ceetps
+}
+
+// =============================================================================
+// TABLAS DE REFERENCIA (Catalogos)
+// =============================================================================
+
+model Hospital {
+  id                  String   @id @default(uuid()) @db.Uuid
+  sigla               String   @unique @db.VarChar(20)
+  nombre              String   @db.VarChar(200)
+  universoTotalizador String?  @map("universo_totalizador") @db.VarChar(100)
+  tipo                String?  @db.VarChar(100)
+  monovalencia        String?  @db.VarChar(100)
+  activo              Boolean  @default(true)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  cargos           Cargo[]
+  concursos        Concurso[]
+  concursosCph     ConcursoCph[]
+  concursosCeetps  ConcursoCeetps[]
+  usuarios         Usuario[]
+
+  @@map("hospitales")
+}
+
+model Escalafon {
+  id        String   @id @default(uuid()) @db.Uuid
+  codigo    String   @unique @db.VarChar(20)
+  nombre    String   @db.VarChar(100)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  codigosRegistro  CodigoRegistro[]
+  cargos           Cargo[]
+  concursosCeetps  ConcursoCeetps[]
+
+  @@map("escalafones")
+}
+
+model CodigoRegistro {
+  id          String   @id @default(uuid()) @db.Uuid
+  codigo      String   @unique @db.VarChar(10)
+  literal     String   @db.VarChar(100)
+  escalafonId String   @map("escalafon_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  escalafon Escalafon @relation(fields: [escalafonId], references: [id])
+  cargos    Cargo[]
+
+  @@map("codigos_registro")
+}
+
+// =============================================================================
+// ENTIDADES PRINCIPALES
+// =============================================================================
+
+model Persona {
+  id                   String    @id @default(uuid()) @db.Uuid
+  cuil                 String    @unique @db.VarChar(11)
+  numeroDoc            String?   @map("numero_doc") @db.VarChar(20)
+  tipoDoc              String?   @map("tipo_doc") @db.VarChar(10)
+  apellidoNombre       String    @map("apellido_nombre") @db.VarChar(200)
+  fechaNacimiento      DateTime? @map("fecha_nacimiento") @db.Date
+  sexo                 String?   @db.VarChar(10)
+  especialidadPrincipal String?  @map("especialidad_principal") @db.VarChar(200)
+  activo               Boolean   @default(true)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  ocupaciones              Ocupacion[]
+  concursos                Concurso[]
+  concursosCphDesignado    ConcursoCph[]    @relation("PersonaDesignadaCph")
+  concursosCeetpsDesignado ConcursoCeetps[] @relation("PersonaDesignadaCeetps")
+  padronHistorico          PadronHistorico[]
+
+  @@index([numeroDoc])
+  @@map("personas")
+}
+
+model Cargo {
+  id                String       @id @default(uuid()) @db.Uuid
+  idSial            String       @unique @map("id_sial") @db.VarChar(50)
+  hospitalId        String       @map("hospital_id") @db.Uuid
+  escalafonId       String       @map("escalafon_id") @db.Uuid
+  codigoRegistroId  String?      @map("codigo_registro_id") @db.Uuid
+  literalPuesto     String?      @map("literal_puesto") @db.VarChar(200)
+  especialidad      String?      @db.VarChar(200)
+  agrupador         String?      @db.VarChar(150)
+  unificadorPuesto  String?      @map("unificador_puesto") @db.VarChar(200)
+  regimen           String?      @db.VarChar(50)
+  estado            EstadoCargo  @default(vigente)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
+
+  // Relaciones
+  hospital        Hospital        @relation(fields: [hospitalId], references: [id])
+  escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
+  codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  ocupaciones     Ocupacion[]
+  concursos       Concurso[]
+  concursosCph    ConcursoCph[]
+  concursosCeetps ConcursoCeetps[]
+  padronHistorico PadronHistorico[]
+
+  @@index([hospitalId])
+  @@index([escalafonId])
+  @@index([estado])
+  @@map("cargos")
+}
+
+model Ocupacion {
+  id               String    @id @default(uuid()) @db.Uuid
+  personaId        String    @map("persona_id") @db.Uuid
+  cargoId          String    @map("cargo_id") @db.Uuid
+  idSialRol        String    @unique @map("id_sial_rol") @db.VarChar(50)
+  cuilYRol         String?   @map("cuil_y_rol") @db.VarChar(80)
+  situacionRevista String?   @map("situacion_revista") @db.VarChar(50)
+  estadoPersona    String?   @map("estado_persona") @db.VarChar(50)
+  desde            DateTime? @db.Date
+  hasta            DateTime? @db.Date
+  snapshotId       String?   @map("snapshot_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  persona  Persona         @relation(fields: [personaId], references: [id])
+  cargo    Cargo           @relation(fields: [cargoId], references: [id])
+  snapshot PadronSnapshot? @relation(fields: [snapshotId], references: [id])
+
+  @@index([personaId])
+  @@index([cargoId])
+  @@index([hasta])
+  @@map("ocupaciones")
+}
+
+// =============================================================================
+// PADRON SEMANAL
+// =============================================================================
+
+model PadronSnapshot {
+  id             String         @id @default(uuid()) @db.Uuid
+  fechaAsignada  DateTime       @unique @map("fecha_asignada") @db.Date
+  filename       String         @db.VarChar(200)
+  totalRegistros Int            @map("total_registros")
+  procesadoPorId String?        @map("procesado_por") @db.Uuid
+  estado         EstadoSnapshot @default(pendiente)
+  aprobadoPorId  String?        @map("aprobado_por") @db.Uuid
+  aprobadoAt     DateTime?      @map("aprobado_at") @db.Timestamptz
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relaciones
+  procesadoPor    Usuario?          @relation("SnapshotProcesadoPor", fields: [procesadoPorId], references: [id])
+  aprobadoPor     Usuario?          @relation("SnapshotAprobadoPor", fields: [aprobadoPorId], references: [id])
+  diffs           PadronDiff[]
+  ocupaciones     Ocupacion[]
+  padronHistorico PadronHistorico[]
+
+  @@map("padron_snapshots")
+}
+
+model PadronDiff {
+  id            String   @id @default(uuid()) @db.Uuid
+  snapshotId    String   @map("snapshot_id") @db.Uuid
+  tipo          TipoDiff
+  idSialRol     String   @map("id_sial_rol") @db.VarChar(50)
+  campo         String?  @db.VarChar(100)
+  valorAnterior String?  @map("valor_anterior") @db.Text
+  valorNuevo    String?  @map("valor_nuevo") @db.Text
+  aprobado      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relaciones
+  snapshot PadronSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@map("padron_diff")
+}
+
+model PadronHistorico {
+  id               String   @id @default(uuid()) @db.Uuid
+  snapshotId       String   @map("snapshot_id") @db.Uuid
+  fechaAsignada    DateTime @map("fecha_asignada") @db.Date
+  personaId        String   @map("persona_id") @db.Uuid
+  cargoId          String   @map("cargo_id") @db.Uuid
+  idSialRol        String   @map("id_sial_rol") @db.VarChar(50)
+  escalafon        String?  @db.VarChar(50)
+  hospitalSigla    String?  @map("hospital_sigla") @db.VarChar(20)
+  literalPuesto    String?  @map("literal_puesto") @db.VarChar(200)
+  especialidad     String?  @db.VarChar(200)
+  agrupador        String?  @db.VarChar(150)
+  estadoPersona    String?  @map("estado_persona") @db.VarChar(50)
+  situacionRevista String?  @map("situacion_revista") @db.VarChar(50)
+
+  // Relaciones
+  snapshot PadronSnapshot @relation(fields: [snapshotId], references: [id])
+  persona  Persona        @relation(fields: [personaId], references: [id])
+  cargo    Cargo          @relation(fields: [cargoId], references: [id])
+
+  @@index([snapshotId])
+  @@index([fechaAsignada])
+  @@index([personaId])
+  @@map("padron_historico")
+}
+
+// =============================================================================
+// CONCURSOS
+// =============================================================================
+
+model Concurso {
+  id             String       @id @default(uuid()) @db.Uuid
+  personaId      String?      @map("persona_id") @db.Uuid
+  cargoId        String       @map("cargo_id") @db.Uuid
+  hospitalId     String       @map("hospital_id") @db.Uuid
+  origen         String       @db.VarChar(50)
+  fechaVacante   DateTime     @map("fecha_vacante") @db.Date
+  motivo         String?      @db.VarChar(200)
+  expediente     String?      @db.VarChar(150)
+  tipoConcurso   TipoConcurso @map("tipo_concurso")
+  registradoPorId String?     @map("registrado_por") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relaciones
+  persona       Persona?         @relation(fields: [personaId], references: [id])
+  cargo         Cargo            @relation(fields: [cargoId], references: [id])
+  hospital      Hospital         @relation(fields: [hospitalId], references: [id])
+  registradoPor Usuario?         @relation(fields: [registradoPorId], references: [id])
+  concursoCph   ConcursoCph?
+  concursoCeetps ConcursoCeetps?
+
+  @@index([hospitalId])
+  @@index([tipoConcurso])
+  @@map("concursos")
+}
+
+model ConcursoCph {
+  id                    String           @id @default(uuid()) @db.Uuid
+  concursoId            String           @unique @map("concurso_id") @db.Uuid
+  cargoId               String           @map("cargo_id") @db.Uuid
+  hospitalId            String           @map("hospital_id") @db.Uuid
+  estado                EstadoConcursoCph @default(no_iniciado)
+  subEstado             String?          @map("sub_estado") @db.VarChar(50)
+  especialidadSolicitada String?         @map("especialidad_solicitada") @db.VarChar(200)
+  eeBaja                String?          @map("ee_baja") @db.VarChar(150)
+  eeConcurso            String?          @map("ee_concurso") @db.VarChar(150)
+  fechaAutorizacion     DateTime?        @map("fecha_autorizacion") @db.Date
+  sorteoJurado          DateTime?        @map("sorteo_jurado") @db.Date
+  disposicion           String?          @db.VarChar(100)
+  fechaInscDesde        DateTime?        @map("fecha_insc_desde") @db.Date
+  fechaInscHasta        DateTime?        @map("fecha_insc_hasta") @db.Date
+  fechaExamen           DateTime?        @map("fecha_examen") @db.Date
+  fechaOrdenMerito      DateTime?        @map("fecha_orden_merito") @db.Date
+  fechaIfacs            DateTime?        @map("fecha_ifacs") @db.Date
+  fechaInsal            DateTime?        @map("fecha_insal") @db.Date
+  eeDesignacion         String?          @map("ee_designacion") @db.VarChar(150)
+  fechaAptoMedico       DateTime?        @map("fecha_apto_medico") @db.Date
+  fechaIte              DateTime?        @map("fecha_ite") @db.Date
+  resolucionDesignacion String?          @map("resolucion_designacion") @db.VarChar(100)
+  personaDesignadaId    String?          @map("persona_designada_id") @db.Uuid
+  suspendido            Boolean          @default(false)
+  observaciones         String?          @db.Text
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  concurso         Concurso  @relation(fields: [concursoId], references: [id])
+  cargo            Cargo     @relation(fields: [cargoId], references: [id])
+  hospital         Hospital  @relation(fields: [hospitalId], references: [id])
+  personaDesignada Persona?  @relation("PersonaDesignadaCph", fields: [personaDesignadaId], references: [id])
+
+  @@index([hospitalId])
+  @@index([estado])
+  @@map("concursos_cph")
+}
+
+model ConcursoCeetps {
+  id                    String              @id @default(uuid()) @db.Uuid
+  concursoId            String              @unique @map("concurso_id") @db.Uuid
+  cargoId               String              @map("cargo_id") @db.Uuid
+  hospitalId            String              @map("hospital_id") @db.Uuid
+  escalafonId           String              @map("escalafon_id") @db.Uuid
+  estado                EstadoConcursoCeetps @default(sin_autorizar)
+  expedienteConcurso    String?             @map("expediente_concurso") @db.VarChar(150)
+  puestoSolicitado      String?             @map("puesto_solicitado") @db.VarChar(200)
+  dispoLlamado          String?             @map("dispo_llamado") @db.VarChar(500)
+  fechaIfacs            DateTime?           @map("fecha_ifacs") @db.Date
+  fechaInsal            DateTime?           @map("fecha_insal") @db.Date
+  expedienteDesignacion String?             @map("expediente_designacion") @db.VarChar(150)
+  dispoDesignacion      String?             @map("dispo_designacion") @db.VarChar(500)
+  resolucionDesignacion String?             @map("resolucion_designacion") @db.VarChar(500)
+  personaDesignadaId    String?             @map("persona_designada_id") @db.Uuid
+  observaciones         String?             @db.Text
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  concurso         Concurso  @relation(fields: [concursoId], references: [id])
+  cargo            Cargo     @relation(fields: [cargoId], references: [id])
+  hospital         Hospital  @relation(fields: [hospitalId], references: [id])
+  escalafon        Escalafon @relation(fields: [escalafonId], references: [id])
+  personaDesignada Persona?  @relation("PersonaDesignadaCeetps", fields: [personaDesignadaId], references: [id])
+
+  @@index([hospitalId])
+  @@index([escalafonId])
+  @@index([estado])
+  @@map("concursos_ceetps")
+}
+
+// =============================================================================
+// SEGURIDAD Y AUDITORIA
+// =============================================================================
+
+model Usuario {
+  id           String     @id @default(uuid()) @db.Uuid
+  username     String     @unique @db.VarChar(64)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  rol          RolUsuario
+  hospitalId   String?    @map("hospital_id") @db.Uuid
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  hospital              Hospital?        @relation(fields: [hospitalId], references: [id])
+  refreshTokens         RefreshToken[]
+  snapshotsProcesados   PadronSnapshot[] @relation("SnapshotProcesadoPor")
+  snapshotsAprobados    PadronSnapshot[] @relation("SnapshotAprobadoPor")
+  concursosRegistrados  Concurso[]
+  auditLogs             AuditLog[]
+
+  @@map("usuarios")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  usuarioId String    @map("usuario_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(128)
+  familyId  String    @map("family_id") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  revocado  Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relaciones
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  usuarioId  String?  @map("usuario_id") @db.Uuid
+  accion     String   @db.VarChar(32)
+  entidad    String   @db.VarChar(64)
+  entidadId  String?  @map("entidad_id") @db.VarChar(64)
+  cambios    Json?
+  ip         String?  @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relaciones
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@index([entidad])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// TABLAS DE REFERENCIA (Mapeos Dotaneitor)
+// =============================================================================
+
+model RefAgrupador {
+  id         String  @id @default(uuid()) @db.Uuid
+  cruce      String  @unique @db.VarChar(300)
+  escalafon  String  @db.VarChar(150)
+  litPuesto  String  @map("lit_puesto") @db.VarChar(200)
+  agrupador  String  @db.VarChar(150)
+  activo     Boolean @default(true)
+
+  @@map("ref_agrupadores")
+}
+
+model RefUnificadorPuesto {
+  id         String  @id @default(uuid()) @db.Uuid
+  cruce      String  @unique @db.VarChar(400)
+  litCodReg  String  @map("lit_cod_reg") @db.VarChar(150)
+  litPuesto  String  @map("lit_puesto") @db.VarChar(200)
+  unificador String  @db.VarChar(200)
+  activo     Boolean @default(true)
+
+  @@map("ref_unificadores_puesto")
+}
+
+model RefEspecialidadCuil {
+  id           String  @id @default(uuid()) @db.Uuid
+  tipo         String  @db.VarChar(20) // cph, suplentes, residentes
+  cuil         String  @db.VarChar(11)
+  cuilYRol     String? @map("cuil_y_rol") @db.VarChar(50)
+  especialidad String  @db.VarChar(200)
+  activo       Boolean @default(true)
+
+  @@index([tipo, cuil])
+  @@map("ref_especialidades_cuil")
+}
