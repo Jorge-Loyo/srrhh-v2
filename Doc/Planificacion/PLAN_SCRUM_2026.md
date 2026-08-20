@@ -4,6 +4,8 @@
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
 > Última actualización: 2026-09
+>
+> 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
 ---
 
