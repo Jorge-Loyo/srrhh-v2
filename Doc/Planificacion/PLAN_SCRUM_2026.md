@@ -4,34 +4,36 @@
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
 > Última actualización: 2026-09
+>
+> 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
 ---
 
 ## ESTADO ACTUAL
 
-| Sprint | Estado | Completado |
-| ------ | ------ | ---------- |
-| Sprint 0 — Infraestructura | ✅ Completado | S0-1, S0-2, S0-3, S0-8, S0-9 |
-| Sprint 1 — Autenticación | 🔄 En curso | — |
-| Sprint 2 — Dotaneitor + Padrón | ⏳ Pendiente | — |
-| Sprint 3 — Personas y Cargos | ⏳ Pendiente | — |
-| Sprint 4 — Concursos CPH | ⏳ Pendiente | — |
-| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente | — |
-| Sprint 6 — KPIs + Deploy | ⏳ Pendiente | — |
+| Sprint                              | Estado        | Completado                   |
+| ----------------------------------- | ------------- | ---------------------------- |
+| Sprint 0 — Infraestructura          | ✅ Completado | S0-1, S0-2, S0-3, S0-8, S0-9 |
+| Sprint 1 — Autenticación            | 🔄 En curso   | —                            |
+| Sprint 2 — Dotaneitor + Padrón      | ⏳ Pendiente  | —                            |
+| Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —                            |
+| Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —                            |
+| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —                            |
+| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente  | —                            |
 
 ---
 
 ## 1. CONTEXTO DEL EQUIPO
 
-| Parámetro          | Valor                                         |
-| ------------------ | --------------------------------------------- |
+| Parámetro          | Valor                                                |
+| ------------------ | ---------------------------------------------------- |
 | Equipo             | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend) |
-| Capacidad          | 30h/semana por dev = 60h/semana totales       |
-| Duración de sprint | 1–2 semanas según complejidad                 |
-| Ceremonia          | Review + Retro semanal                        |
-| Herramienta        | Notion                                        |
-| Sin daily          | Comunicación asíncrona                        |
-| Deadline MVP       | Sin fecha fija — prioridad: calidad por etapa |
+| Capacidad          | 30h/semana por dev = 60h/semana totales              |
+| Duración de sprint | 1–2 semanas según complejidad                        |
+| Ceremonia          | Review + Retro semanal                               |
+| Herramienta        | Notion                                               |
+| Sin daily          | Comunicación asíncrona                               |
+| Deadline MVP       | Sin fecha fija — prioridad: calidad por etapa        |
 
 ### Definición de Done (DoD)
 
@@ -101,14 +103,13 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ### Actores del sistema
 
-| Actor              | Rol                                                |
-| ------------------ | -------------------------------------------------- |
-| admin              | Configuración, usuarios, carga masiva              |
-| editor             | Lectura + escritura en todos los módulos           |
-| viewer             | Solo lectura                                       |
-| director           | Solo lectura de su hospital                        |
-| concursales_cph    | Lectura total + escritura concursos CPH y bajas    |
-| concursales_ceetps | Lectura total + escritura concursos CEETPS y bajas |
+| Actor               | Rol                                                | Ejemplos                 |
+| ------------------- | -------------------------------------------------- | ------------------------ |
+| admin               | Configuración, usuarios, carga masiva              | Agus, Jorge              |
+| editor              | Lectura + escritura en todos los módulos           | Lucas y equipo           |
+| director y usuarios | Solo lectura de su de nicho                        | Autoridades Superiores   |
+| concursales_cph     | Lectura total + escritura concursos CPH y bajas    | Alexis, Rijana e eequipo |
+| concursales_ceetps  | Lectura total + escritura concursos CEETPS y bajas | Alexi, Laura e Equipo    |
 
 ---
 
@@ -121,19 +122,19 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Entorno de desarrollo 100% funcional y Dotaneitor documentado.
 
-| #     | Tarea                                                                  | Dev   | Est. | Prioridad  |
-| ----- | ---------------------------------------------------------------------- | ----- | ---- | ---------- |
-| S0-1  | Levantar PostgreSQL con Docker (WSL), verificar conexión               | Jorge   | 2h   | 🔴 Crítico | ✅ |
-| S0-2  | Ejecutar `prisma migrate dev` — primera migración                      | Jorge   | 2h   | 🔴 Crítico | ✅ |
-| S0-3  | Verificar que API arranca y responde `/health`                         | Jorge   | 1h   | 🔴 Crítico | ✅ |
-| S0-4  | Verificar que Web arranca y muestra LoginPage                          | Agustin | 1h   | 🔴 Crítico | ⏳ |
-| S0-5  | Leer y documentar código Dotaneitor: endpoints, lógica, inputs/outputs | Agustin | 8h   | 🔴 Crítico | ⏳ |
-| S0-6  | Mapear columnas del Excel de padrón → campos del schema Prisma         | Agustin | 4h   | 🔴 Crítico | ⏳ |
-| S0-7  | Identificar deuda técnica y optimizaciones del Dotaneitor              | Agustin | 4h   | 🟡 Medio   | ⏳ |
-| S0-8  | Crear `services/dotaneitor/` con Dockerfile y README                   | Jorge   | 4h   | 🔴 Crítico | ✅ |
-| S0-9  | Seed de datos de prueba: hospitales, escalafones, usuario admin        | Jorge   | 4h   | 🟡 Medio   | ✅ |
-| S0-10 | Documentar hallazgos Dotaneitor en `Doc/Dotaneitor_Analisis.md`        | Agustin | 3h   | 🟡 Medio   | ⏳ |
-| S0-11 | Configurar GitHub Actions: lint + build en PR                          | Jorge   | 3h   | 🟢 Bajo    | ⏳ |
+| #     | Tarea                                                                  | Dev     | Est. | Prioridad  |
+| ----- | ---------------------------------------------------------------------- | ------- | ---- | ---------- | --- |
+| S0-1  | Levantar PostgreSQL con Docker (WSL), verificar conexión               | Jorge   | 2h   | 🔴 Crítico | ✅  |
+| S0-2  | Ejecutar `prisma migrate dev` — primera migración                      | Jorge   | 2h   | 🔴 Crítico | ✅  |
+| S0-3  | Verificar que API arranca y responde `/health`                         | Jorge   | 1h   | 🔴 Crítico | ✅  |
+| S0-4  | Verificar que Web arranca y muestra LoginPage                          | Agustin | 1h   | 🔴 Crítico | ⏳  |
+| S0-5  | Leer y documentar código Dotaneitor: endpoints, lógica, inputs/outputs | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S0-6  | Mapear columnas del Excel de padrón → campos del schema Prisma         | Agustin | 4h   | 🔴 Crítico | ⏳  |
+| S0-7  | Identificar deuda técnica y optimizaciones del Dotaneitor              | Agustin | 4h   | 🟡 Medio   | ⏳  |
+| S0-8  | Crear `services/dotaneitor/` con Dockerfile y README                   | Jorge   | 4h   | 🔴 Crítico | ✅  |
+| S0-9  | Seed de datos de prueba: hospitales, escalafones, usuario admin        | Jorge   | 4h   | 🟡 Medio   | ✅  |
+| S0-10 | Documentar hallazgos Dotaneitor en `Doc/Dotaneitor_Analisis.md`        | Agustin | 3h   | 🟡 Medio   | ⏳  |
+| S0-11 | Configurar GitHub Actions: lint + build en PR                          | Jorge   | 3h   | 🟢 Bajo    | ✅  |
 
 **Criterio de éxito:**
 
@@ -153,8 +154,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 > **Nota:** S1-8 (seed hospitales/escalafones/admin) fue adelantado y completado en Sprint 0 como S0-9.
 
-| #     | Tarea                                                         | Dev   | Est. | Prioridad  |
-| ----- | ------------------------------------------------------------- | ----- | ---- | ---------- |
+| #     | Tarea                                                         | Dev     | Est. | Prioridad  |
+| ----- | ------------------------------------------------------------- | ------- | ---- | ---------- |
 | S1-1  | Completar `auth.service.ts`: login con bcrypt + JWT           | Jorge   | 4h   | 🔴 Crítico |
 | S1-2  | Refresh token: rotación + detección de reutilización          | Jorge   | 6h   | 🔴 Crítico |
 | S1-3  | Endpoint `POST /api/v1/auth/logout` — revocar token           | Jorge   | 2h   | 🔴 Crítico |
@@ -180,8 +181,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Dotaneitor optimizado y conectado al flujo de padrón de SRRHH v2.
 
-| #     | Tarea                                                                     | Dev   | Est. | Prioridad  |
-| ----- | ------------------------------------------------------------------------- | ----- | ---- | ---------- |
+| #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
+| ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
 | S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico |
 | S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico |
 | S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico |
@@ -209,8 +210,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulos de personas y cargos completamente funcionales.
 
-| #     | Tarea                                                           | Dev   | Est. | Prioridad  |
-| ----- | --------------------------------------------------------------- | ----- | ---- | ---------- |
+| #     | Tarea                                                           | Dev     | Est. | Prioridad  |
+| ----- | --------------------------------------------------------------- | ------- | ---- | ---------- |
 | S3-1  | `GET /api/v1/personas` paginado con full-text search PostgreSQL | Jorge   | 6h   | 🔴 Crítico |
 | S3-2  | `GET /api/v1/personas/:id` con ocupaciones activas              | Jorge   | 3h   | 🔴 Crítico |
 | S3-3  | Filtros personas: hospital, escalafón, activo, búsqueda libre   | Jorge   | 4h   | 🟡 Medio   |
@@ -237,8 +238,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo de seguimiento CPH completamente funcional.
 
-| #     | Tarea                                                         | Dev   | Est. | Prioridad  |
-| ----- | ------------------------------------------------------------- | ----- | ---- | ---------- |
+| #     | Tarea                                                         | Dev     | Est. | Prioridad  |
+| ----- | ------------------------------------------------------------- | ------- | ---- | ---------- |
 | S4-1  | `GET /api/v1/concursos-cph` paginado con filtros              | Jorge   | 5h   | 🔴 Crítico |
 | S4-2  | `GET /api/v1/concursos-cph/:id` detalle completo              | Jorge   | 3h   | 🔴 Crítico |
 | S4-3  | `PATCH /api/v1/concursos-cph/:id` actualizar campos por fase  | Jorge   | 6h   | 🔴 Crítico |
@@ -265,8 +266,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo CEETPS y flujo baja → concurso funcional.
 
-| #    | Tarea                                                              | Dev   | Est. | Prioridad  |
-| ---- | ------------------------------------------------------------------ | ----- | ---- | ---------- |
+| #    | Tarea                                                              | Dev     | Est. | Prioridad  |
+| ---- | ------------------------------------------------------------------ | ------- | ---- | ---------- |
 | S5-1 | `GET/PATCH /api/v1/concursos-ceetps` con filtros                   | Jorge   | 6h   | 🔴 Crítico |
 | S5-2 | ConcursosCeetpsPage: tabla con estado, escalafón, filtros          | Agustin | 10h  | 🔴 Crítico |
 | S5-3 | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG              | Agustin | 10h  | 🔴 Crítico |
@@ -290,15 +291,15 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Dashboard operativo con KPIs reales y sistema listo para producción.
 
-| #    | Tarea                                                                           | Dev   | Est. | Prioridad  |
-| ---- | ------------------------------------------------------------------------------- | ----- | ---- | ---------- |
-| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge          | 6h   | 🔴 Crítico |
-| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin        | 6h   | 🔴 Crítico |
-| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge          | 6h   | 🔴 Crítico |
-| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin        | 4h   | 🟡 Medio   |
-| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin        | 6h   | 🟡 Medio   |
-| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge          | 4h   | 🟡 Medio   |
-| S6-7 | Preparar docker-compose de producción                                           | Jorge          | 4h   | 🔴 Crítico |
+| #    | Tarea                                                                           | Dev             | Est. | Prioridad  |
+| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- |
+| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico |
+| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico |
+| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico |
+| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   |
+| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   |
+| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   |
+| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico |
 | S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico |
 
 **Criterio de éxito:**
