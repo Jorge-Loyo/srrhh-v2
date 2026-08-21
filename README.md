@@ -76,3 +76,5 @@ srrhh-v2/
 ## Planificación
 
 Ver `Doc/Planificacion/PLAN_SCRUM_2026.md`
+
+Gestión de tareas en [Notion](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
