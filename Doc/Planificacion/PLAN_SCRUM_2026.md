@@ -11,7 +11,7 @@
 
 | Sprint | Estado | Completado |
 | ------ | ------ | ---------- |
-| Sprint 0 — Infraestructura | ✅ Completado | S0-1, S0-2, S0-3, S0-8, S0-9 |
+| Sprint 0 — Infraestructura | 🔄 En curso | S0-1, S0-2, S0-3, S0-8, S0-9, S0-4, S0-5, S0-6, S0-7, S0-10 (falta S0-11) |
 | Sprint 1 — Autenticación | 🔄 En curso | — |
 | Sprint 2 — Dotaneitor + Padrón | ⏳ Pendiente | — |
 | Sprint 3 — Personas y Cargos | ⏳ Pendiente | — |
@@ -126,13 +126,13 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S0-1  | Levantar PostgreSQL con Docker (WSL), verificar conexión               | Jorge   | 2h   | 🔴 Crítico | ✅ |
 | S0-2  | Ejecutar `prisma migrate dev` — primera migración                      | Jorge   | 2h   | 🔴 Crítico | ✅ |
 | S0-3  | Verificar que API arranca y responde `/health`                         | Jorge   | 1h   | 🔴 Crítico | ✅ |
-| S0-4  | Verificar que Web arranca y muestra LoginPage                          | Agustin | 1h   | 🔴 Crítico | ⏳ |
-| S0-5  | Leer y documentar código Dotaneitor: endpoints, lógica, inputs/outputs | Agustin | 8h   | 🔴 Crítico | ⏳ |
-| S0-6  | Mapear columnas del Excel de padrón → campos del schema Prisma         | Agustin | 4h   | 🔴 Crítico | ⏳ |
-| S0-7  | Identificar deuda técnica y optimizaciones del Dotaneitor              | Agustin | 4h   | 🟡 Medio   | ⏳ |
+| S0-4  | Verificar que Web arranca y muestra LoginPage                          | Agustin | 1h   | 🔴 Crítico | ✅ |
+| S0-5  | Leer y documentar código Dotaneitor: endpoints, lógica, inputs/outputs | Agustin | 8h   | 🔴 Crítico | ✅ |
+| S0-6  | Mapear columnas del Excel de padrón → campos del schema Prisma         | Agustin | 4h   | 🔴 Crítico | ✅ |
+| S0-7  | Identificar deuda técnica y optimizaciones del Dotaneitor              | Agustin | 4h   | 🟡 Medio   | ✅ |
 | S0-8  | Crear `services/dotaneitor/` con Dockerfile y README                   | Jorge   | 4h   | 🔴 Crítico | ✅ |
 | S0-9  | Seed de datos de prueba: hospitales, escalafones, usuario admin        | Jorge   | 4h   | 🟡 Medio   | ✅ |
-| S0-10 | Documentar hallazgos Dotaneitor en `Doc/Dotaneitor_Analisis.md`        | Agustin | 3h   | 🟡 Medio   | ⏳ |
+| S0-10 | Documentar hallazgos Dotaneitor en `Doc/Dotaneitor_Analisis.md`        | Agustin | 3h   | 🟡 Medio   | ✅ |
 | S0-11 | Configurar GitHub Actions: lint + build en PR                          | Jorge   | 3h   | 🟢 Bajo    | ⏳ |
 
 **Criterio de éxito:**
@@ -180,6 +180,11 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Dotaneitor optimizado y conectado al flujo de padrón de SRRHH v2.
 
+> **Ver `Doc/Dotaneitor_Analisis.md`** (secciones 6 y 7 para el mapeo de columnas y la deuda
+> técnica de Sprint 0; sección 4.1 para los pasos 14-17 y sección 6.4 para la propuesta de campos
+> nuevos en Persona/Cargo/Ocupacion, agregados el 2026-08-21 — nuevos requisitos de Agustin, ya
+> acordados con Jorge en lo arquitectónico, que dan origen a S2-13 a S2-17 abajo).
+
 | #     | Tarea                                                                     | Dev   | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ----- | ---- | ---------- |
 | S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico |
@@ -194,6 +199,14 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico |
 | S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   |
 | S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico |
+| S2-13 | Schema: tablas `ref_*` para sacar datos hardcodeados de Dotaneitor (abreviaturas técnicas/título, correcciones LIT_PUESTO/especialidad, especialidad por puesto, conectores, sufijos ordinales) — `Dotaneitor_Analisis.md` §4.1 paso 14 | Jorge | A estimar | 🔴 Crítico |
+| S2-14 | Schema + lógica: tablas catálogo `Especialidad` y `Puesto` (¿FK desde `Cargo` o catálogo de apoyo? — a definir) y Dotaneitor escribe directo en catálogos de bajo riesgo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`) — §4.1 paso 15 | Jorge | A estimar | 🔴 Crítico |
+| S2-15 | Campo `Especialidad.prioritaria` + lógica de columna `PRIORITARIAS` en Dotaneitor (depende de S2-14) — §4.1 paso 16 | Jorge | A estimar | 🟡 Medio |
+| S2-16 | Generar el Excel al final del pipeline (no on-demand en `/descargar`) + archivar cada corrida en carpeta (repo en local / servidor en prod, `RP_`/`RC_` + fecha) + campo(s) nuevos en `PadronSnapshot` para referenciarlos — §4.1 paso 17 | Jorge | A estimar | 🟡 Medio |
+| S2-17 | Schema: 33 campos nuevos en `Persona` (7) / `Cargo` (7) / `Ocupacion` (19) para las columnas del padrón que hoy no tienen destino — propuesta completa lista para revisar en `Dotaneitor_Analisis.md` §6.4. Incluye confirmar 5 campos de confianza media y decidir el caso especial de `DIA` (días de guardia, no es un campo simple) | Jorge | A estimar | 🟡 Medio |
+
+> S2-1 a S2-12 suman 76h de las 120h de capacidad del sprint → quedan ~44h de margen antes de
+> tener que estimar S2-13 a S2-17 y ver si entran en las 2 semanas o corren a Sprint 3.
 
 **Criterio de éxito:**
 
@@ -201,6 +214,8 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 - Dotaneitor optimizado y documentado
 - `padron_historico` se popula correctamente al aprobar
 - Bloqueo de doble carga funciona
+- Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*`
+- Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después
 
 ---
 
@@ -357,6 +372,7 @@ Producción:
 | 2026-09 | UUID como PK en todas las tablas                | Sin autoincremental, distribuible                     |
 | 2026-09 | Soft delete en todas las tablas                 | Histórico inmutable, nunca DELETE en producción       |
 | 2026-09 | Producción en servidor propio                   | A definir en Sprint 6                                 |
+| 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff` | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1) |
 
 ---
 
