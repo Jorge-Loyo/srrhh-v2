@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, Navigate } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 
 const NAV_ITEMS = [
@@ -12,11 +12,9 @@ const NAV_ITEMS = [
 
 export function AppShell() {
   const { user, logout } = useAuth()
-  const navigate = useNavigate()
 
   if (!user) {
-    navigate('/login')
-    return null
+    return <Navigate to="/login" replace />
   }
 
   return (
