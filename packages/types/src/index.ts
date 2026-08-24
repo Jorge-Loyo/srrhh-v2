@@ -15,9 +15,11 @@ export enum EstadoCargo {
 }
 
 export enum EstadoSnapshot {
+  PROCESANDO = 'procesando',
   PENDIENTE = 'pendiente',
   APROBADO = 'aprobado',
   RECHAZADO = 'rechazado',
+  ERROR = 'error',
 }
 
 export enum TipoDiff {
@@ -132,11 +134,10 @@ export interface PadronSnapshot {
   filename: string
   totalRegistros: number
   estado: EstadoSnapshot
+  pasoActual: string | null
+  errorMsg: string | null
   aprobadoAt: string | null
   createdAt: string
-  // Devuelto por GET /padron/snapshots (listSnapshotsService) — null si nadie
-  // procesó/aprobó todavía ese snapshot (procesadoPorId/aprobadoPorId son
-  // opcionales en el schema).
   procesadoPor: { username: string } | null
   aprobadoPor: { username: string } | null
 }

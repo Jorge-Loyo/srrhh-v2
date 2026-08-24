@@ -24,9 +24,11 @@ enum EstadoCargo {
 }
 
 enum EstadoSnapshot {
+  procesando
   pendiente
   aprobado
   rechazado
+  error
 }
 
 enum TipoDiff {
@@ -260,6 +262,8 @@ model PadronSnapshot {
   estado               EstadoSnapshot @default(pendiente)
   aprobadoPorId        String?        @map("aprobado_por") @db.Uuid
   aprobadoAt           DateTime?      @map("aprobado_at") @db.Timestamptz
+  pasoActual           String?        @map("paso_actual") @db.VarChar(100)
+  errorMsg             String?        @map("error_msg") @db.Text
   // S2-16: rutas de archivos generados por el pipeline
   archivoResultadoPath String?        @map("archivo_resultado_path") @db.VarChar(500)
   archivoCalidadPath   String?        @map("archivo_calidad_path") @db.VarChar(500)

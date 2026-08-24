@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | 🚧 Frenado — esperando a Jorge | S2-2 a S2-8, S2-10 a S2-17 (✅) — falta S2-1 (parcial, 3/9) y S2-9; ambas bloqueadas por S2-18/S2-19 (nuevas, para Jorge) |
+| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-2 a S2-8, S2-10 a S2-19 (✅) — falta S2-1 (parcial, 3/9) y S2-9 (desbloqueadas) |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -214,31 +214,20 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S2-15 | Campo `Especialidad.prioritaria Boolean @default(false)` | Jorge | — | 🟡 Medio | ✅ |
 | S2-16 | Campos `archivoResultadoPath` y `archivoCalidadPath` en `PadronSnapshot` | Jorge | — | 🟡 Medio | ✅ |
 | S2-17 | Schema: 7 campos nuevos en `Persona` (contacto/domicilio/antigüedad), 7 en `Cargo` (repartición/clasificaciones SIAL), 19 en `Ocupacion` (jefatura/comisión/bloqueo/documentación/`diasGuardia String[]`) | Jorge | — | 🟡 Medio | ✅ |
-| S2-18 | **Nuevo, pedido por Agustin (2026-08-24):** `POST /padron/upload` hoy es un único request bloqueante — Node espera secuencialmente los pasos internos de Dotaneitor (`normalizar`→`procesar`→`cruzar`→`diff`, hasta 4 min de polling cada uno) y recién responde al final, sin exponer progreso intermedio. S2-9 pide "ver estado del job", pero no hay nada que consultar mientras corre. Se necesita: (1) que `POST /upload` dispare el pipeline en background y devuelva de inmediato con un identificador para pollear, (2) un estado intermedio en `EstadoSnapshot` (ej. `procesando`, hoy el enum solo tiene `pendiente`/`aprobado`/`rechazado`), (3) idealmente, qué paso interno está corriendo (subiendo/normalizando/procesando/cruzando/calculando diff) para una barra de progreso real, no una falsa. | Jorge | A estimar | 🔴 Crítico — bloquea S2-9 | ⏳ |
-| S2-19 | **Nuevo, hallazgo crítico de Agustin (2026-08-24), bloquea el core de S2-1:** Dotaneitor (`main.py`) sigue escrito 100% contra `mysql.connector`, pero este proyecto no tiene MySQL en ningún lado (solo Postgres) — y `docker-compose.yml` ni siquiera le pasa una variable de conexión a la base al servicio `dotaneitor:` (a diferencia de `api:`, que sí tiene `DATABASE_URL`). Los endpoints `/procesar`, `/cruzar` y **`/diff`** (que `padron.service.ts` ya llama en el flujo real) no tienen con qué conectarse hoy — el criterio de éxito "subir Excel → ver diff → aprobar" no puede funcionar tal cual está. Además hay una decisión de arquitectura sin resolver: `/diff` originalmente comparaba contra `dot_resultado` (tabla plana MySQL), concepto que no existe en el modelo relacional nuevo. Dos opciones: **(A)** Dotaneitor sigue calculando el diff, adaptado para reconstruir un estado comparable desde Postgres (`Cargo`+`Ocupacion` → algo diffeable); **(B)** Dotaneitor deja de calcular diff — solo entrega datos limpios (como ya hacen `/procesar`/`/cruzar`) y **Node calcula el diff** comparando contra Postgres vía Prisma (que de hecho ya hace búsquedas similares en `aprobarSnapshotService`). Afecta directamente el diseño de `padron.service.ts` que Jorge ya construyó asumiendo que Python devuelve el diff armado — necesita su decisión antes de tocarlo. | Jorge + Agustin | A estimar | 🔴 Crítico — bloquea el core de S2-1 | ⏳ |
+| S2-18 | Upload async: `POST /upload` dispara pipeline en background y devuelve inmediato con `snapshotId`. `EstadoSnapshot` con `procesando`/`error`. Campo `pasoActual` para progreso granular. `GET /snapshots/:id/estado` para polling. Cleanup al arrancar. | Jorge | 4h | 🔴 Crítico | ✅ |
+| S2-19 | Dotaneitor migrado de MySQL a Postgres (SQLAlchemy). Decisión arquitectural: diff calculado por Node (Opción B). `/diff`, `/guardar-bd`, `/historial` eliminados. `calcularDiff()` en Node pagina `/preview` y compara contra Cargo+Ocupacion en Postgres. | Jorge | 8h | 🔴 Crítico | ✅ |
 
 > S2-2 a S2-8 y S2-12 a S2-17 completados por Jorge (commit `0c9d49e`). S2-10 y S2-11 completados y
-> verificados por Agustin (2026-08-24, ruta directa por URL ya que la navegación real llega con
-> S2-9). Al revisar el merge, Agustin corrigió 5 errores de tipado que `tsc` no había podido
-> detectar hasta ahora (`tx` implícito en `auth.service.ts`, narrowing de `hospital`/`escalafon` en
-> `padron.service.ts`), más un desfasaje real entre `packages/types` y lo que el backend devuelve
-> de verdad (`PadronSnapshot` sin `procesadoPor`/`aprobadoPor`, `SnapshotDiffResponse.snapshot`
-> prometiendo campos que `getSnapshotDiffService` no manda) — mismo motivo de siempre: nadie podía
-> correr `tsc` limpio contra Prisma hasta el fix de configuración de Sprint 1.
+> verificados por Agustin (2026-08-24). S2-19 completado por Jorge (commit `8031bbf`): Dotaneitor
+> migrado a Postgres, diff calculado por Node. S2-18 completado por Jorge (commit `b30cfa0`): upload
+> async, estados `procesando`/`error`, `pasoActual`, endpoint de polling, cleanup al arrancar.
 
-### 🚧 Qué falta y depende de Jorge
+### 🚧 Qué falta para cerrar Sprint 2
 
-Todo lo que **no** dependía de una respuesta de Jorge ya está hecho. Quedan dos cosas, las dos
-esperando su decisión — ver el detalle completo en las filas **S2-18** y **S2-19** de la tabla de
-arriba:
-
-| Pendiente | Resumen | Bloquea |
+| Pendiente | Resumen | Desbloqueado por |
 |---|---|---|
-| **S2-18** | `POST /padron/upload` es un único request bloqueante (varios minutos), sin progreso intermedio que consultar. Falta: que dispare el pipeline en background + un estado `procesando` en `EstadoSnapshot` + idealmente qué paso interno está corriendo. | S2-9 (PadronPage) |
-| **S2-19** ⚠️ más crítico | Dotaneitor sigue escrito contra `mysql.connector`, pero el proyecto no tiene MySQL (solo Postgres) y `docker-compose.yml` ni le pasa una `DATABASE_URL` al servicio. `/procesar`, `/cruzar` y `/diff` no tienen con qué conectarse hoy — el flujo "subir → diff → aprobar" no puede probarse de punta a punta. Además falta decidir si el diff lo sigue calculando Dotaneitor (adaptado a Postgres) o pasa a calcularlo Node vía Prisma. | 6 de los 9 hallazgos de S2-1 (Dotaneitor) |
-
-**Una vez resueltos:** retomar S2-1 (los 6 hallazgos restantes: `mysql.connector`, `/guardar-bd`,
-`COL_MAP`, recuperación de sesión, staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`) y S2-9 (PadronPage).
+| **S2-1** (6/9 restantes) | Hallazgos Dotaneitor: `COL_MAP` hardcodeado → tablas `ref_*`, recuperación de sesión, staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, y otros. | S2-19 ✅ |
+| **S2-9** | PadronPage: subir archivo + barra de progreso con polling a `/estado` | S2-18 ✅ |
 
 **Criterio de éxito:**
 
