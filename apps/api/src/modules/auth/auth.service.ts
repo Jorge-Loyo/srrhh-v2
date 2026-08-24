@@ -13,11 +13,11 @@ function hashToken(token: string) {
 
 function refreshExpiresAt() {
   // JWT_REFRESH_EXPIRES es "7d", "30d", etc.
-  const match = env.JWT_REFRESH_EXPIRES.match(/^(\d+)([dhm])$/)
+  const match = env.JWT_REFRESH_EXPIRES.match(/^(\d+)([dhms])$/)
   if (!match) throw new Error('JWT_REFRESH_EXPIRES inválido')
   const value = parseInt(match[1]!)
   const unit = match[2]!
-  const ms = unit === 'd' ? value * 86400000 : unit === 'h' ? value * 3600000 : value * 60000
+  const ms = unit === 'd' ? value * 86400000 : unit === 'h' ? value * 3600000 : unit === 'm' ? value * 60000 : value * 1000
   return new Date(Date.now() + ms)
 }
 
@@ -72,28 +72,31 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
 export async function refreshTokenService(body: RefreshBody, signToken: (payload: object) => string) {
   const tokenHash = hashToken(body.refreshToken)
 
-  // Update atómico: marca el token como revocado solo si todavía no lo estaba.
-  // Evita la race condition donde dos requests con el mismo token pasan el
-  // chequeo antes de que ninguna confirme la revocación.
-  const updated = await prisma.refreshToken.updateMany({
-    where: { tokenHash, revocado: false },
-    data: { revocado: true },
+  // Transacción atómica: revoca el token y lo lee en una sola operación.
+  // Evita la ventana de inconsistencia entre el updateMany y el findUnique
+  // separados (si el findUnique fallaba después del updateMany, el token
+  // quedaba revocado pero el usuario recibía 401 sin poder continuar).
+  const stored = await prisma.$transaction(async (tx) => {
+    const updated = await tx.refreshToken.updateMany({
+      where: { tokenHash, revocado: false },
+      data: { revocado: true },
+    })
+
+    if (updated.count === 0) {
+      // Reutilización detectada — revocar toda la familia
+      const existing = await tx.refreshToken.findUnique({ where: { tokenHash } })
+      if (existing) {
+        await tx.refreshToken.updateMany({
+          where: { familyId: existing.familyId },
+          data: { revocado: true },
+        })
+      }
+      throw AppError.unauthorized('Refresh token inválido o reutilizado — sesión revocada')
+    }
+
+    return tx.refreshToken.findUnique({ where: { tokenHash } })
   })
 
-  // Si no se actualizó ninguna fila: el token no existe o ya estaba revocado.
-  if (updated.count === 0) {
-    // Puede ser reutilización — revocar toda la familia por las dudas.
-    const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } })
-    if (stored) {
-      await prisma.refreshToken.updateMany({
-        where: { familyId: stored.familyId },
-        data: { revocado: true },
-      })
-    }
-    throw AppError.unauthorized('Refresh token inválido o reutilizado — sesión revocada')
-  }
-
-  const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } })
   if (!stored) throw AppError.unauthorized('Refresh token inválido')
 
   if (stored.expiresAt < new Date()) {

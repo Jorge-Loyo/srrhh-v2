@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09
+> Última actualización: 2026-09 (Sprint 2 Jorge completado y revisado)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | ⏳ Pendiente  | —             |
+| Sprint 2 — Dotaneitor + Padrón      | 🔄 En curso   | S2-2 a S2-8, S2-12 a S2-17 (Jorge ✅) — S2-1, S2-9, S2-10, S2-11 (Agustin ⏳) |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -197,26 +197,25 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico |
-| S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico |
-| S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico |
-| S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico |
-| S2-5  | Endpoint `GET /api/v1/padron/snapshots/:id/diff` paginado                 | Jorge   | 4h   | 🔴 Crítico |
-| S2-6  | Endpoint `POST /api/v1/padron/snapshots/:id/aprobar`                      | Jorge   | 8h   | 🔴 Crítico |
-| S2-7  | Lógica de aprobación: actualizar ocupaciones, personas, cargos, historico | Jorge   | 10h  | 🔴 Crítico |
-| S2-8  | Endpoint `POST /api/v1/padron/snapshots/:id/rechazar`                     | Jorge   | 2h   | 🔴 Crítico |
-| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico |
-| S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico |
-| S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   |
-| S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico |
-| S2-13 | Schema: tablas `ref_*` para sacar datos hardcodeados de Dotaneitor (abreviaturas técnicas/título, correcciones LIT_PUESTO/especialidad, especialidad por puesto, conectores, sufijos ordinales) — `Dotaneitor_Analisis.md` §4.1 paso 14 | Jorge | A estimar | 🔴 Crítico |
-| S2-14 | Schema + lógica: tablas catálogo `Especialidad` y `Puesto` (¿FK desde `Cargo` o catálogo de apoyo? — a definir) y Dotaneitor escribe directo en catálogos de bajo riesgo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`) — §4.1 paso 15 | Jorge | A estimar | 🔴 Crítico |
-| S2-15 | Campo `Especialidad.prioritaria` + lógica de columna `PRIORITARIAS` en Dotaneitor (depende de S2-14) — §4.1 paso 16 | Jorge | A estimar | 🟡 Medio |
-| S2-16 | Generar el Excel al final del pipeline (no on-demand en `/descargar`) + archivar cada corrida en carpeta (repo en local / servidor en prod, `RP_`/`RC_` + fecha) + campo(s) nuevos en `PadronSnapshot` para referenciarlos — §4.1 paso 17 | Jorge | A estimar | 🟡 Medio |
-| S2-17 | Schema: 33 campos nuevos en `Persona` (7) / `Cargo` (7) / `Ocupacion` (19) para las columnas del padrón que hoy no tienen destino — propuesta completa lista para revisar en `Dotaneitor_Analisis.md` §6.4. Incluye confirmar 5 campos de confianza media y decidir el caso especial de `DIA` (días de guardia, no es un campo simple) | Jorge | A estimar | 🟡 Medio |
+| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | ⏳ |
+| S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico | ✅ |
+| S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico | ✅ |
+| S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico | ✅ |
+| S2-5  | Endpoint `GET /api/v1/padron/snapshots/:id/diff` paginado                 | Jorge   | 4h   | 🔴 Crítico | ✅ |
+| S2-6  | Endpoint `POST /api/v1/padron/snapshots/:id/aprobar`                      | Jorge   | 8h   | 🔴 Crítico | ✅ |
+| S2-7  | Lógica de aprobación: actualizar ocupaciones, personas, cargos, historico | Jorge   | 10h  | 🔴 Crítico | ✅ |
+| S2-8  | Endpoint `POST /api/v1/padron/snapshots/:id/rechazar`                     | Jorge   | 2h   | 🔴 Crítico | ✅ |
+| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | ⏳ |
+| S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico | ⏳ |
+| S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   | ⏳ |
+| S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico | ✅ |
+| S2-13 | Schema: 7 tablas `ref_*` nuevas — `ref_abreviaturas_tecnicas`, `ref_abreviaturas_titulo`, `ref_correcciones_lit_puesto`, `ref_correcciones_especialidad`, `ref_especialidad_por_puesto`, `ref_conectores_minuscula`, `ref_sufijos_ordinales` | Jorge | — | 🔴 Crítico | ✅ |
+| S2-14 | Schema: catálogos `Especialidad` y `Puesto` como tablas de apoyo (sin FK desde `Cargo` — texto libre se mantiene); Dotaneitor escribe directo en catálogos de bajo riesgo | Jorge | — | 🔴 Crítico | ✅ |
+| S2-15 | Campo `Especialidad.prioritaria Boolean @default(false)` | Jorge | — | 🟡 Medio | ✅ |
+| S2-16 | Campos `archivoResultadoPath` y `archivoCalidadPath` en `PadronSnapshot` | Jorge | — | 🟡 Medio | ✅ |
+| S2-17 | Schema: 7 campos nuevos en `Persona` (contacto/domicilio/antigüedad), 7 en `Cargo` (repartición/clasificaciones SIAL), 19 en `Ocupacion` (jefatura/comisión/bloqueo/documentación/`diasGuardia String[]`) | Jorge | — | 🟡 Medio | ✅ |
 
-> S2-1 a S2-12 suman 76h de las 120h de capacidad del sprint → quedan ~44h de margen antes de
-> tener que estimar S2-13 a S2-17 y ver si entran en las 2 semanas o corren a Sprint 3.
+> S2-2 a S2-8 y S2-12 a S2-17 completados por Jorge (commit `0c9d49e`). Pendiente Agustin: S2-1, S2-9, S2-10, S2-11.
 
 **Criterio de éxito:**
 
@@ -226,6 +225,18 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 - Bloqueo de doble carga funciona
 - Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*`
 - Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después
+
+**Hallazgos de revisión (Jorge, Sprint 2 — revisión completa post-implementación):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`refreshTokenService`: ventana de inconsistencia** — `updateMany` atómico + `findUnique` separados: si el `findUnique` fallaba después del `updateMany`, el token quedaba revocado pero el usuario recibía 401 sin poder continuar. | 🟡 Media | ✅ **Corregido** — ambas operaciones envueltas en `$transaction` atómica. |
+| 2 | **`padronRoutes` sin `requireRole`** — cualquier usuario autenticado (incluso `viewer`/`director`) podía subir, aprobar o rechazar un padrón. | 🟡 Media | ✅ **Corregido** — `requireRole([ADMIN, EDITOR])` agregado como `preHandler` en `POST /upload`, `POST /aprobar`, `POST /rechazar`. |
+| 3 | **`throw { statusCode: 400 }` objeto literal** en `padron.routes.ts` — el `errorHandler` no lo reconocía y devolvía 500 en vez de 400. | 🟡 Media | ✅ **Corregido** — reemplazado por `AppError.badRequest('Archivo requerido')`. |
+| 4 | **`auditLog`: `entidadId` incorrecto para rutas anidadas** — `parts[4]` devolvía `'snapshots'` en vez del UUID para `/api/v1/padron/snapshots/:id/aprobar`. | 🟢 Baja | ✅ **Corregido** — regex UUID para encontrar el ID en cualquier posición de la URL. |
+| 5 | **N queries de catálogo en `aprobarSnapshotService`** — `findUnique` de hospital/escalafón por cada registro nuevo, sin caché. | 🟢 Baja | ✅ **Corregido** — `hospitalCache` y `escalafonCache` (`Map`) antes del loop. |
+| 6 | **`idSialRol.split('-')[0]`** — frágil si el formato cambia o si `idSial` contiene guiones. | 🟢 Baja | ✅ **Corregido** — `cargoId` obtenido desde `tx.ocupacion.findUnique({ where: { idSialRol } })` (FK directa). |
+| 7 | **`refreshExpiresAt` no soporta `'s'`** — regex `[dhm]` no incluía segundos, rompía tests de integración con expiración rápida. | 🟢 Baja | ✅ **Corregido** — regex extendida a `[dhms]`. |
 
 ---
 
@@ -385,6 +396,7 @@ Producción:
 | 2026-09 | Soft delete en todas las tablas                 | Histórico inmutable, nunca DELETE en producción       |
 | 2026-09 | Producción en servidor propio                   | A definir en Sprint 6                                 |
 | 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff` | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1) |
+| 2026-09 | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`) | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente |
 
 ---
 
