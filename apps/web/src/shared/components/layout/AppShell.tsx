@@ -1,5 +1,6 @@
-import { Outlet, NavLink } from 'react-router-dom'
+import { Outlet, NavLink, Link } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
+import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
 
 const NAV_ITEMS = [
   { to: '/padron', label: 'Padrón Semanal' },
@@ -12,6 +13,12 @@ const NAV_ITEMS = [
 
 export function AppShell() {
   const { user, logout } = useAuth()
+  // S2-11: si hay algún snapshot pendiente de revisión, se avisa en el header
+  // sin importar en qué página esté parado el usuario. En teoría nunca hay
+  // más de uno a la vez (S2-12 bloquea subir un padrón nuevo mientras hay uno
+  // pendiente), pero el chequeo no asume esa invariante por las dudas.
+  const { data: snapshots } = useSnapshots()
+  const haySnapshotPendiente = snapshots?.some((s) => s.estado === 'pendiente') ?? false
 
   // AppShell solo se monta detrás de <ProtectedRoute>, que ya garantiza sesión
   // activa — este chequeo es un guard defensivo para TypeScript, no un flujo
@@ -76,10 +83,15 @@ export function AppShell() {
 
       {/* Contenido principal */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-header bg-white border-b border-gray-200 flex items-center px-6 shrink-0">
+        <header className="h-header bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
           <h1 className="font-primary font-bold text-gray-800 text-lg">
             Sistema de Recursos Humanos
           </h1>
+          {haySnapshotPendiente && (
+            <Link to="/padron" className="badge-warning hover:opacity-80 transition-opacity">
+              ● Padrón pendiente de revisión
+            </Link>
+          )}
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">

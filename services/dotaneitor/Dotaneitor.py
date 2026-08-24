@@ -1,21 +1,15 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+# Nota (hallazgo #2/#9 de Doc/Dotaneitor_Analisis.md, aplicado en S2-1): este
+# archivo tenía además una clase DotacionGUI (Tkinter) de ~600 líneas sin
+# ningún uso en el microservicio — main.py mockeaba tkinter entero solo para
+# poder importar DotacionAutomation sin arrastrarla. Se sacó de acá (la app de
+# escritorio standalone con GUI vive en su repo original, dotacion-rrhh); esto
+# es ahora solo el módulo de lógica de negocio, y ya no depende de tkinter.
 import pandas as pd
-import openpyxl
-from pathlib import Path
-import os
-import json
-import shutil
-from datetime import datetime
-from threading import Thread
+import numpy as np
 import traceback
 
-from normalizador_cargos import NormalizadorCargos
-from especialidades import (
-    completar_especialidad, resumen_cobertura,
-    limpiar_especialidad_indebida, filas_especialidad_sin_puesto,
-)
-from especialidad_por_agrupador import completar_especialidad_por_agrupador, sin_tilde_mayuscula, sin_tilde
+from especialidades import limpiar_especialidad_indebida, filas_especialidad_sin_puesto
+from especialidad_por_agrupador import sin_tilde_mayuscula, sin_tilde
 
 # Columnas "nucleo" para la hoja 'Completitud por fila' del reporte de calidad: definidas a mano
 # con el usuario, porque el resto de las columnas (COMISION, BLOQ MOTIVO, ESCRITORIO, etc.) son
@@ -368,65 +362,59 @@ class DotacionAutomation:
         return lineas
     
     def _calcular_jefe_escalafon(self, df):
-        """Calcula la columna Jefe ESCALAFON según reglas de negocio"""
-        result = []
-        
-        for idx, row in df.iterrows():
-            j_cat = row.get('JCAT')
-            cod_reg = row.get('COD_REG')
-            escritorio = row.get('ESCRITORIO')
-            
-            # Si no tiene J_CAT, no es jefe
-            if pd.isna(j_cat) or j_cat == '':
-                result.append(None)
-                continue
-            
-            # Convertir COD_REG a int para comparación (puede ser '37' o 37 o '17B')
-            try:
-                cod_reg = int(str(cod_reg).replace('B', '').strip()) if not pd.isna(cod_reg) else None
-            except:
-                cod_reg = None
-            
-            has_escritorio = not pd.isna(escritorio) and escritorio != ''
-            
-            if cod_reg == 37:
-                if not has_escritorio:
-                    result.append('Jefe CPH POF')
-                else:
-                    result.append('Jefe CPH POU')
-            elif cod_reg == 85:
-                result.append('Jefe Tecnico')
-            elif cod_reg == 87:
-                result.append('Jefe Enfermeria')
-            elif cod_reg == 83:
-                result.append('Jefe Administrativo')
-            else:
-                result.append(None)
-        
-        return result
-    
+        """Calcula la columna Jefe ESCALAFON según reglas de negocio (vectorizado —
+        ver hallazgo #7 de Doc/Dotaneitor_Analisis.md: antes recorría las 48k filas
+        una por una con .iterrows(), igual que el resto de procesar() ya evita a
+        propósito desde los pasos 5-7 (cruces por diccionario + .map())."""
+        j_cat_vacio = df['JCAT'].isna() | (df['JCAT'].astype(str) == '')
+
+        # COD_REG a numero limpio (puede venir '37', 37, '17B', etc.) — NaN si no parsea
+        cod_reg_num = pd.to_numeric(
+            df['COD_REG'].astype(str).str.replace('B', '', regex=False).str.strip(),
+            errors='coerce',
+        )
+
+        has_escritorio = df['ESCRITORIO'].notna() & (df['ESCRITORIO'].astype(str) != '')
+
+        condiciones = [
+            j_cat_vacio,  # sin JCAT -> no es jefe, tiene prioridad sobre lo demas
+            (cod_reg_num == 37) & ~has_escritorio,
+            (cod_reg_num == 37) & has_escritorio,
+            cod_reg_num == 85,
+            cod_reg_num == 87,
+            cod_reg_num == 83,
+        ]
+        valores = [None, 'Jefe CPH POF', 'Jefe CPH POU', 'Jefe Tecnico', 'Jefe Enfermeria', 'Jefe Administrativo']
+
+        return np.select(condiciones, valores, default=None)
+
     def _calcular_estado(self, df):
-        """Calcula la columna estado según reglas de negocio"""
-        result = []
-        
-        for idx, row in df.iterrows():
-            sit_rev = row.get('SIT_REV')
-            bloq_desde = row.get('BLOQ_DESDE')
-            
-            # Si tiene bloq_desde con valor, es bloqueado
-            if not pd.isna(bloq_desde) and bloq_desde != '':
-                result.append('Bloqueado')
-            # Si tiene retención de cargo en SIT_REV
-            elif not pd.isna(sit_rev) and 'retencion' in str(sit_rev).lower().replace('á', 'a'):
-                result.append('Retencion de Cargo')
-            # Si tiene comisión en SIT_REV
-            elif not pd.isna(sit_rev) and 'comision' in str(sit_rev).lower().replace('ó', 'o'):
-                result.append('Comision')
-            # Por defecto, activo
-            else:
-                result.append('Activo')
-        
-        return result
+        """Calcula la columna estado según reglas de negocio (vectorizado — ver
+        hallazgo #7 de Doc/Dotaneitor_Analisis.md).
+
+        De paso corrige un bug real encontrado al vectorizar: la version anterior
+        sacaba la tilde 'á' antes de buscar 'retencion' en SIT_REV, pero la palabra
+        es "retención" (con 'ó', no 'á') — el reemplazo no hacia nada y el ESTADO
+        'Retencion de Cargo' nunca matcheaba contra datos reales con tilde, caia
+        siempre en 'Activo' en silencio. Se usa sin_tilde() (ya importado, cubre
+        todas las vocales) para ambos chequeos en vez de un .replace() de una sola
+        letra elegida a mano."""
+        bloqueado = df['BLOQ_DESDE'].notna() & (df['BLOQ_DESDE'].astype(str) != '')
+
+        sit_rev_valido = df['SIT_REV'].notna()
+        # fillna ANTES de astype(str): sin_tilde() no tiene guard para no-strings
+        # (mismo contrato que el resto del código: el caller filtra antes de
+        # llamarla), y astype(str) por si solo puede dejar NaN como float en
+        # vez de convertirlo a texto segun la version de pandas.
+        sit_rev_norm = df['SIT_REV'].fillna('').astype(str).str.lower().map(sin_tilde)
+
+        retencion = sit_rev_valido & sit_rev_norm.str.contains('retencion', na=False)
+        comision = sit_rev_valido & sit_rev_norm.str.contains('comision', na=False)
+
+        condiciones = [bloqueado, retencion, comision]
+        valores = ['Bloqueado', 'Retencion de Cargo', 'Comision']
+
+        return np.select(condiciones, valores, default='Activo')
     
     def _forzar_mayusculas(self, df):
         """Fuerza a MAYUSCULA COMPLETA y SIN TILDE el contenido de COLUMNAS_MAYUSCULA_FORZADA (ver
@@ -758,599 +746,3 @@ class DotacionAutomation:
         except Exception as e:
             return False, f"Error al generar el reporte de calidad: {str(e)}"
 
-
-class DotacionGUI:
-    """Interfaz gráfica para la automatización de dotación"""
-    
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Automatización de Dotación")
-        self.root.geometry("1050x700")
-        self.root.minsize(850, 550)
-        self.root.resizable(True, True)
-
-        self.automation = DotacionAutomation()
-        self.normalizador = NormalizadorCargos()
-        self.ruta_cargos = tk.StringVar()
-        self.ruta_archivos_dotacion = tk.StringVar()
-        self.config_path = self._obtener_config_path()
-        self.config_data = self._cargar_config()
-
-        self._crear_interfaz()
-
-    def _obtener_config_path(self):
-        """Devuelve la ruta del archivo de configuracion (ultimas carpetas usadas)"""
-        base = Path(os.getenv('APPDATA', str(Path.home())))
-        carpeta = base / 'Dotaneitor'
-        carpeta.mkdir(parents=True, exist_ok=True)
-        return carpeta / 'config.json'
-
-    def _cargar_config(self):
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
-    def _guardar_config(self):
-        try:
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(self.config_data, f)
-        except Exception:
-            pass
-    
-    def _crear_interfaz(self):
-        """Crea los elementos de la interfaz gráfica"""
-        
-        # Frame principal
-        main_frame = ttk.Frame(self.root, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Título + Ayuda
-        frame_titulo = ttk.Frame(main_frame)
-        frame_titulo.pack(fill=tk.X, pady=(0, 20))
-
-        titulo = ttk.Label(frame_titulo, text="DOTANEITOR", font=("Arial", 14, "bold"))
-        titulo.pack(side=tk.LEFT)
-
-        ttk.Button(frame_titulo, text="¿Qué hace cada botón?", command=self._mostrar_ayuda).pack(side=tk.RIGHT)
-
-        # Sección: Cargar Cargos_salud.xlsx
-        frame_cargos = ttk.LabelFrame(main_frame, text="1. Cargos_salud", padding="10")
-        frame_cargos.pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Button(frame_cargos, text="Seleccionar archivo",
-                  command=self._seleccionar_cargos).pack(side=tk.LEFT, padx=(0, 10))
-
-        self.label_cargos = ttk.Label(frame_cargos, text="No seleccionado", foreground="gray")
-        self.label_cargos.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        # Sección: Normalizar Cargos_Salud
-        frame_normalizar = ttk.LabelFrame(main_frame, text="2. Normalizar Cargos_Salud", padding="10")
-        frame_normalizar.pack(fill=tk.X, pady=(0, 15))
-
-        self.btn_normalizar = ttk.Button(frame_normalizar, text="Normalizar",
-                  command=self._normalizar_cargos)
-        self.btn_normalizar.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.label_normalizar = ttk.Label(frame_normalizar, text="Sin normalizar", foreground="gray")
-        self.label_normalizar.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        # Sección: Cargar Archivos para Dotación
-        frame_archivos = ttk.LabelFrame(main_frame, text="3. Archivos para Dotación", padding="10")
-        frame_archivos.pack(fill=tk.X, pady=(0, 15))
-
-        ttk.Button(frame_archivos, text="Seleccionar archivo",
-                  command=self._seleccionar_archivos_dotacion).pack(side=tk.LEFT, padx=(0, 10))
-
-        self.label_archivos = ttk.Label(frame_archivos, text="No seleccionado", foreground="gray")
-        self.label_archivos.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        # Sección: Procesar
-        frame_procesar = ttk.Frame(main_frame)
-        frame_procesar.pack(fill=tk.X, pady=(0, 10))
-
-        self.btn_procesar = ttk.Button(frame_procesar, text="Procesar", command=self._procesar,
-                  style="Accent.TButton")
-        self.btn_procesar.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.btn_cruzar = ttk.Button(frame_procesar, text="Cruzar", command=self._cruzar_especialidades)
-        self.btn_cruzar.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.btn_guardar = ttk.Button(frame_procesar, text="Guardar resultado",
-                  command=self._guardar_resultado)
-        self.btn_guardar.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.btn_reporte_calidad = ttk.Button(frame_procesar, text="Exportar reporte de calidad",
-                  command=self._exportar_reporte_calidad)
-        self.btn_reporte_calidad.pack(side=tk.LEFT)
-
-        self.botones_accion = [
-            self.btn_normalizar, self.btn_procesar, self.btn_cruzar, self.btn_guardar, self.btn_reporte_calidad
-        ]
-
-        # Barra de progreso
-        self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
-        self.progress.pack(fill=tk.X, pady=(0, 15))
-
-        # Notebook con pestañas de Estado y Vista previa
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-
-        self._crear_tab_estado()
-        self._crear_tab_preview()
-
-        # Footer
-        footer = ttk.Label(main_frame, text="Automatización v1.1", foreground="gray", font=("Arial", 8))
-        footer.pack(pady=(10, 0))
-
-    def _mostrar_ayuda(self):
-        """Abre un modal con una explicacion breve de que hace cada boton"""
-        ventana = tk.Toplevel(self.root)
-        ventana.title("Ayuda - Qué hace cada botón")
-        ventana.geometry("600x550")
-        ventana.transient(self.root)
-        ventana.grab_set()
-
-        boton_cerrar = ttk.Button(ventana, text="Cerrar", command=ventana.destroy)
-        boton_cerrar.pack(side=tk.BOTTOM, pady=10)
-
-        frame = ttk.Frame(ventana, padding="15")
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = ttk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        texto = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set, padx=8, pady=8)
-        texto.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=texto.yview)
-
-        texto.tag_config('titulo', font=('Arial', 10, 'bold'), spacing1=12)
-
-        secciones = [
-            ("1. Seleccionar Cargos_Salud",
-             "Elegís el archivo del padrón (Cargos_salud_AAAAMMDD.xlsx). Si ya habías procesado "
-             "algo antes, se limpia el resultado anterior para no confundirlo con uno nuevo."),
-            ("2. Normalizar",
-             "Limpia el texto de Cargos_Salud: acentos rotos, mayúsculas/minúsculas prolijas, "
-             "espacios de más, formato de fechas/teléfono/mail, y unifica nombres de puestos "
-             "escritos de varias formas distintas. Sobrescribe el archivo original, pero antes "
-             "guarda una copia de respaldo con fecha y hora en la misma carpeta. Es opcional, "
-             "pero sin este paso aparecen muchos más problemas de cruce al Procesar."),
-            ("3. Seleccionar Archivos para Dotación",
-             "Elegís ARCHIVOS PARA DOTACION.xlsx, con las tablas de referencia para los cruces: "
-             "AGRUPADOR, UNIFICADOR DE PUESTOS, SIGLAS y las hojas de ESPECIALIDADES."),
-            ("Procesar",
-             "El paso principal: cruza los dos archivos y arma la Dotación en memoria (todavía "
-             "no se guarda a disco). Muestra en la pestaña Estado qué no encontró coincidencia, "
-             "y en Vista previa las primeras filas del resultado."),
-            ("Cruzar",
-             "Completa los huecos de la columna ESPECIALIDAD en dos pasadas, sin pisar nunca un "
-             "valor que ya esté cargado. Primero cruza por CUIL contra las hojas de "
-             "especialidades de ARCHIVOS PARA DOTACION. Después, para el resto del universo con "
-             "especialidad definida (AGRUPADOR Médico / No médico / Residente), completa lo que "
-             "siga vacío usando lo que ya está cargado en el propio archivo (CUIL de la misma "
-             "persona, y si no, el valor más frecuente para ese mismo puesto). Lo que ni así se "
-             "puede derivar (puestos genéricos como \"Profesional Guardia Médico\") queda vacío "
-             "a propósito, documentado en el reporte de calidad. Se usa después de Procesar."),
-            ("Guardar resultado",
-             "Exporta el resultado final (procesado, y cruzado si se usó ese botón) a un Excel "
-             "nuevo, con nombre y carpeta a elección."),
-            ("Exportar reporte de calidad",
-             "Exporta un Excel aparte con el detalle de todo lo que no cerró en los cruces "
-             "(SIGLA / UNIFICADOR DE PUESTOS / AGRUPADOR sin coincidencia, ESPECIALIDAD vaciada "
-             "o sin puesto): una hoja Resumen con la cantidad de casos, y una hoja Detalle fila "
-             "por fila con quién está afectado. Sirve para ir a completar los mapeos que faltan "
-             "en ARCHIVOS PARA DOTACION."),
-        ]
-
-        for titulo_seccion, descripcion in secciones:
-            texto.insert(tk.END, titulo_seccion + "\n", 'titulo')
-            texto.insert(tk.END, descripcion + "\n")
-
-        texto.config(state=tk.DISABLED)
-
-    def _crear_tab_estado(self):
-        """Crea la pestaña de log de estado"""
-        frame_status = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(frame_status, text="Estado")
-
-        scrollbar = ttk.Scrollbar(frame_status)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.text_status = tk.Text(frame_status, height=10, width=80,
-                                   yscrollcommand=scrollbar.set, state=tk.DISABLED)
-        self.text_status.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.text_status.yview)
-
-        self.text_status.tag_config('warning', foreground='#b36b00')
-        self.text_status.tag_config('success', foreground='#1a7a1a')
-        self.text_status.tag_config('error', foreground='#b30000')
-
-    def _crear_tab_preview(self):
-        """Crea la pestaña de vista previa del resultado procesado"""
-        frame_preview = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(frame_preview, text="Vista previa")
-
-        self.label_preview_info = ttk.Label(
-            frame_preview,
-            text="Procesa los archivos para ver una vista previa del resultado.",
-            foreground="gray"
-        )
-        self.label_preview_info.pack(anchor=tk.W, pady=(0, 10))
-
-        tree_frame = ttk.Frame(frame_preview)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-
-        vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
-        hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
-
-        self.tree_preview = ttk.Treeview(
-            tree_frame, yscrollcommand=vsb.set, xscrollcommand=hsb.set, show='headings'
-        )
-        vsb.config(command=self.tree_preview.yview)
-        hsb.config(command=self.tree_preview.xview)
-
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.tree_preview.pack(fill=tk.BOTH, expand=True)
-    
-    def _seleccionar_cargos(self):
-        """Abre diálogo para seleccionar archivo Cargos_salud.xlsx"""
-        archivo = filedialog.askopenfilename(
-            title="Seleccionar Cargos_salud.xlsx",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialdir=self.config_data.get('carpeta_cargos', str(Path.home()))
-        )
-
-        if archivo:
-            self.ruta_cargos.set(archivo)
-            self.label_cargos.config(text=Path(archivo).name, foreground="black")
-            self._agregar_log(f"✓ Cargado: {Path(archivo).name}")
-            self.config_data['carpeta_cargos'] = str(Path(archivo).parent)
-            self._guardar_config()
-            self.label_normalizar.config(text="Sin normalizar", foreground="gray")
-            self._limpiar_resultado()
-
-    def _normalizar_cargos(self):
-        """Normaliza el archivo Cargos_Salud seleccionado y sobreescribe el original"""
-        ruta = self.ruta_cargos.get()
-        if not ruta:
-            messagebox.showerror("Error", "Primero selecciona el archivo Cargos_Salud")
-            return
-
-        confirmar = messagebox.askyesno(
-            "Confirmar normalización",
-            f"Esto va a sobreescribir el archivo original:\n{ruta}\n\n"
-            "Se guarda antes una copia de respaldo en la misma carpeta.\n\n¿Continuar?"
-        )
-        if not confirmar:
-            return
-
-        self._deshabilitar_botones()
-        Thread(target=self._normalizar_cargos_thread, args=(ruta,), daemon=True).start()
-
-    def _normalizar_cargos_thread(self, ruta):
-        try:
-            self.progress.start(10)
-            self._agregar_log("Leyendo Cargos_Salud...")
-            try:
-                df = pd.read_excel(ruta, sheet_name='Sheet1', dtype=str)
-            except PermissionError:
-                raise RuntimeError(
-                    f"No se pudo leer el archivo porque está abierto en otro programa (ej. Excel).\n"
-                    f"Cerralo e intentá de nuevo:\n{ruta}"
-                )
-            except ValueError as e:
-                raise RuntimeError(f"El archivo no tiene la hoja 'Sheet1' esperada ({e})")
-
-            self._agregar_log("Normalizando columnas...")
-            df_normalizado = self.normalizador.normalizar(df)
-
-            marca_tiempo = datetime.now().strftime('%Y%m%d_%H%M%S')
-            ruta_path = Path(ruta)
-            ruta_backup = ruta_path.with_name(f"{ruta_path.stem}_backup_{marca_tiempo}{ruta_path.suffix}")
-            try:
-                shutil.copy2(ruta, ruta_backup)
-            except PermissionError:
-                raise RuntimeError(
-                    f"No se pudo crear la copia de respaldo porque el archivo está abierto en otro "
-                    f"programa (ej. Excel). Cerralo e intentá de nuevo:\n{ruta}"
-                )
-            self._agregar_log(f"Copia de respaldo creada: {ruta_backup.name}", 'success')
-
-            try:
-                df_normalizado.to_excel(ruta, index=False, sheet_name='Sheet1')
-            except PermissionError:
-                raise RuntimeError(
-                    f"No se pudo sobreescribir el archivo porque está abierto en otro programa "
-                    f"(ej. Excel). Cerralo e intentá de nuevo. La copia de respaldo ya se creó: "
-                    f"{ruta_backup.name}"
-                )
-            self._agregar_log(f"✓ Archivo normalizado y sobreescrito: {ruta_path.name}", 'success')
-
-            for linea in self.normalizador.generar_lineas_reporte():
-                self._agregar_log(linea, 'warning' if 'No se detectaron' not in linea else None)
-
-            self.label_normalizar.config(text="Normalizado", foreground="#1a7a1a")
-            messagebox.showinfo("Listo", f"Cargos_Salud normalizado.\nRespaldo: {ruta_backup.name}")
-        except Exception as e:
-            self._agregar_log(f"✗ Error al normalizar: {str(e)}", 'error')
-            messagebox.showerror("Error", f"Error al normalizar:\n{str(e)}")
-        finally:
-            self.progress.stop()
-            self._habilitar_botones()
-
-    def _seleccionar_archivos_dotacion(self):
-        """Abre diálogo para seleccionar ARCHIVOS PARA DOTACION.xlsx"""
-        archivo = filedialog.askopenfilename(
-            title="Seleccionar ARCHIVOS PARA DOTACION.xlsx",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialdir=self.config_data.get('carpeta_dotacion', str(Path.home()))
-        )
-
-        if archivo:
-            self.ruta_archivos_dotacion.set(archivo)
-            self.label_archivos.config(text=Path(archivo).name, foreground="black")
-            self._agregar_log(f"✓ Cargado: {Path(archivo).name}")
-            self.config_data['carpeta_dotacion'] = str(Path(archivo).parent)
-            self._guardar_config()
-            self._limpiar_resultado()
-    
-    def _procesar(self):
-        """Procesa los archivos"""
-        if not self.ruta_cargos.get() or not self.ruta_archivos_dotacion.get():
-            messagebox.showerror("Error", "Por favor selecciona ambos archivos")
-            return
-        
-        # Ejecutar en thread para no bloquear la interfaz
-        self._deshabilitar_botones()
-        Thread(target=self._procesar_thread, daemon=True).start()
-
-    def _procesar_thread(self):
-        """Thread para procesar sin bloquear la GUI"""
-        try:
-            self.progress.start(10)
-            self._agregar_log("Cargando archivos...")
-
-            # Cargar archivos
-            exito, mensaje = self.automation.cargar_archivos(
-                self.ruta_cargos.get(),
-                self.ruta_archivos_dotacion.get()
-            )
-
-            if not exito:
-                self._agregar_log(f"✗ Error: {mensaje}", 'error')
-                messagebox.showerror("Error", mensaje)
-                return
-
-            self._agregar_log(mensaje)
-            self._agregar_log("Procesando transformaciones...")
-
-            # Procesar
-            exito, mensaje = self.automation.procesar()
-
-            if not exito:
-                self._agregar_log(f"✗ Error: {mensaje}", 'error')
-                messagebox.showerror("Error", mensaje)
-                return
-
-            self._agregar_log(f"✓ {mensaje}", 'success')
-
-            for linea in self.automation.generar_lineas_reporte_calidad():
-                tag = 'warning' if linea.startswith('[!]') else 'success'
-                self._agregar_log(linea, tag)
-
-            self._actualizar_preview()
-            messagebox.showinfo("Éxito", mensaje)
-
-        except Exception as e:
-            self._agregar_log(f"✗ Error inesperado: {str(e)}", 'error')
-            messagebox.showerror("Error", f"Error inesperado: {str(e)}")
-        finally:
-            self.progress.stop()
-            self._habilitar_botones()
-
-    def _actualizar_preview(self):
-        """Llena la pestaña de vista previa con las primeras filas del resultado"""
-        df = self.automation.resultado_df
-        if df is None:
-            return
-
-        for item in self.tree_preview.get_children():
-            self.tree_preview.delete(item)
-
-        columnas = list(df.columns)
-        self.tree_preview['columns'] = columnas
-        for col in columnas:
-            self.tree_preview.heading(col, text=col)
-            self.tree_preview.column(col, width=140, stretch=False)
-
-        muestra = df.head(20).fillna('')
-        for _, row in muestra.iterrows():
-            valores = [str(v) for v in row.tolist()]
-            self.tree_preview.insert('', tk.END, values=valores)
-
-        self.label_preview_info.config(
-            text=f"Mostrando las primeras {len(muestra)} filas de {len(df)} registros procesados."
-        )
-        self.notebook.select(1)
-
-    def _cruzar_especialidades(self):
-        """Completa los huecos de ESPECIALIDAD cruzando por CUIL + Codigo de Registro"""
-        if self.automation.resultado_df is None:
-            messagebox.showwarning("Advertencia", "Primero debe procesar los datos")
-            return
-        if not self.ruta_archivos_dotacion.get():
-            messagebox.showerror("Error", "Primero selecciona el archivo ARCHIVOS PARA DOTACION.xlsx")
-            return
-
-        self._deshabilitar_botones()
-        Thread(target=self._cruzar_especialidades_thread, daemon=True).start()
-
-    def _cruzar_especialidades_thread(self):
-        try:
-            self.progress.start(10)
-            self._agregar_log("Cruzando especialidades por CUIL (solo se completan los huecos)...")
-
-            resultado_completado, consolidador, completados = completar_especialidad(
-                self.automation.resultado_df,
-                self.ruta_archivos_dotacion.get(),
-                columna_especialidad='ESPECIALIDAD',
-                columna_cuil='CUIL',
-                columna_cod_reg='CODIGO DE REGISTRO',
-            )
-
-            for linea in consolidador.generar_lineas_reporte():
-                self._agregar_log(linea)
-            self._agregar_log(
-                f"✓ Huecos completados en ESPECIALIDAD por CUIL (hojas de referencia): {completados}", 'success'
-            )
-
-            # Segunda pasada: para el resto del universo con especialidad definida (AGRUPADOR
-            # Medico / No medico / cualquier Residente), completa lo que siga vacío usando lo que
-            # ya está cargado en el propio archivo (CUIL de la misma persona, y si no, la moda
-            # empirica por LITERAL PUESTO) — ver especialidad_por_agrupador.py.
-            self._agregar_log(
-                "Completando ESPECIALIDAD restante para AGRUPADOR Medico/No medico/Residente "
-                "(a partir de los casos ya cargados en el propio archivo)..."
-            )
-            resultado_completado, resumen_agrupador, detalle_sin_resolver = completar_especialidad_por_agrupador(
-                resultado_completado
-            )
-            self._agregar_log(
-                f"✓ Huecos completados por AGRUPADOR: "
-                f"{resumen_agrupador['cuil'] + resumen_agrupador['puesto']} "
-                f"({resumen_agrupador['cuil']} por CUIL, {resumen_agrupador['puesto']} por puesto)",
-                'success'
-            )
-
-            # Los huecos que se acaban de completar (ambos pasos) vienen sin forzar mayuscula; se
-            # re-fuerza para que queden consistentes con el resto de ESPECIALIDAD (ver
-            # COLUMNAS_MAYUSCULA_FORZADA)
-            self.automation.resultado_df = self.automation._forzar_mayusculas(resultado_completado)
-
-            for linea in resumen_cobertura(
-                self.automation.resultado_df, columna_especialidad='ESPECIALIDAD', columna_cod_reg='CODIGO DE REGISTRO'
-            ):
-                self._agregar_log(linea)
-
-            self.automation.detalle_calidad[
-                'ESPECIALIDAD no derivable (AGRUPADOR Medico/No medico/Residente, sin dato suficiente)'
-            ] = detalle_sin_resolver
-            if resumen_agrupador['sin_resolver']:
-                self._agregar_log(
-                    f"[!] ESPECIALIDAD sin poder derivar: {resumen_agrupador['sin_resolver']} fila(s) de "
-                    f"puestos genéricos (ej. Profesional Guardia Médico) o con muy poca referencia — se "
-                    f"aceptan vacías, quedan documentadas en el reporte de calidad para revisión manual",
-                    'warning'
-                )
-
-            detalle_sin_puesto = filas_especialidad_sin_puesto(self.automation.resultado_df).rename(
-                columns={'ESPECIALIDAD': 'VALOR'}
-            )
-            self.automation.detalle_calidad['ESPECIALIDAD sin LITERAL PUESTO (revisar manualmente)'] = detalle_sin_puesto
-            if len(detalle_sin_puesto):
-                ids = detalle_sin_puesto['CUIL Y ROL'].tolist()
-                muestra = ', '.join(ids[:5])
-                extra = f' (y {len(ids) - 5} mas)' if len(ids) > 5 else ''
-                self._agregar_log(
-                    f"[!] ESPECIALIDAD sin LITERAL PUESTO: {len(ids)} fila(s) tienen "
-                    f"especialidad cargada pero no tienen puesto, revisar (CUIL Y ROL): {muestra}{extra}",
-                    'warning'
-                )
-
-            self._actualizar_preview()
-            messagebox.showinfo("Éxito", "Cruce de especialidades completado")
-
-        except Exception as e:
-            self._agregar_log(f"✗ Error al cruzar especialidades: {str(e)}", 'error')
-            messagebox.showerror("Error", f"Error al cruzar especialidades:\n{str(e)}")
-        finally:
-            self.progress.stop()
-            self._habilitar_botones()
-
-    def _guardar_resultado(self):
-        """Guarda el resultado en Excel"""
-        if self.automation.resultado_df is None:
-            messagebox.showwarning("Advertencia", "Primero debe procesar los datos")
-            return
-
-        archivo_salida = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx")],
-            initialfile="Dotacion_procesada.xlsx",
-            initialdir=self.config_data.get('carpeta_salida', str(Path.home()))
-        )
-
-        if archivo_salida:
-            exito, mensaje = self.automation.guardar_resultado(archivo_salida)
-            self._agregar_log(mensaje, 'success' if exito else 'error')
-            if exito:
-                self.config_data['carpeta_salida'] = str(Path(archivo_salida).parent)
-                self._guardar_config()
-                messagebox.showinfo("Éxito", mensaje)
-            else:
-                messagebox.showerror("Error", mensaje)
-
-    def _exportar_reporte_calidad(self):
-        """Exporta a Excel el detalle fila por fila de todos los problemas de calidad
-        detectados (resumen + detalle), para revisar o repartir sin depender del log de la app"""
-        if self.automation.resultado_df is None:
-            messagebox.showwarning("Advertencia", "Primero debe procesar los datos")
-            return
-
-        archivo_salida = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx")],
-            initialfile="Reporte_calidad.xlsx",
-            initialdir=self.config_data.get('carpeta_salida', str(Path.home()))
-        )
-
-        if archivo_salida:
-            exito, mensaje = self.automation.generar_reporte_calidad_excel(archivo_salida)
-            self._agregar_log(mensaje, 'success' if exito else 'error')
-            if exito:
-                self.config_data['carpeta_salida'] = str(Path(archivo_salida).parent)
-                self._guardar_config()
-                messagebox.showinfo("Éxito", mensaje)
-            else:
-                messagebox.showerror("Error", mensaje)
-
-    def _deshabilitar_botones(self):
-        """Deshabilita los botones de accion mientras corre un thread en background,
-        para evitar clicks fuera de orden que pisen resultado_df a mitad de camino."""
-        for boton in self.botones_accion:
-            boton.config(state=tk.DISABLED)
-
-    def _habilitar_botones(self):
-        for boton in self.botones_accion:
-            boton.config(state=tk.NORMAL)
-
-    def _limpiar_resultado(self):
-        """Descarta el resultado procesado previo (si lo hubiera) para no dejar datos
-        obsoletos de un archivo distinto al recien seleccionado."""
-        self.automation.resultado_df = None
-        for item in self.tree_preview.get_children():
-            self.tree_preview.delete(item)
-        self.tree_preview['columns'] = ()
-        self.label_preview_info.config(
-            text="Procesa los archivos para ver una vista previa del resultado.", foreground="gray"
-        )
-
-    def _agregar_log(self, mensaje, tag=None):
-        """Agrega un mensaje al área de estado"""
-        self.text_status.config(state=tk.NORMAL)
-        if tag:
-            self.text_status.insert(tk.END, f"• {mensaje}\n", tag)
-        else:
-            self.text_status.insert(tk.END, f"• {mensaje}\n")
-        self.text_status.see(tk.END)
-        self.text_status.config(state=tk.DISABLED)
-        self.root.update()
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = DotacionGUI(root)
-    root.mainloop()
