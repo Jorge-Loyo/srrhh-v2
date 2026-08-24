@@ -45,6 +45,12 @@ services:
       dockerfile: Dockerfile
     container_name: srrhh_dotaneitor
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres:5432/srrhh_db
+      CORS_ORIGINS: ''
     ports:
       - '5001:5001'
 

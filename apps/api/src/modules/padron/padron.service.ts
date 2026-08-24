@@ -6,9 +6,6 @@ import { env } from '../../config/env.js'
 import type { MultipartFile } from '@fastify/multipart'
 import type { DiffQuery } from './padron.schema.js'
 
-import { Prisma } from '@prisma/client'
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
-
 type PrismaTx = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
 const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000 })
@@ -32,7 +29,185 @@ async function getSnapshotOrThrow(id: string) {
   return snapshot
 }
 
-// ─── S2-12: bloqueo doble carga ───────────────────────────────────────────────
+// ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
+// Columnas del resultado de Dotaneitor que se comparan campo a campo.
+// Clave: nombre en el DataFrame Python (snake_case del COL_MAP). Valor: campo
+// en Cargo u Ocupacion para saber dónde vive ese dato en el modelo relacional.
+const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
+  literal_puesto:        'cargo',
+  especialidad:          'cargo',
+  agrupador:             'cargo',
+  unificador_de_puestos: 'cargo',
+  situacion_de_revista:  'ocupacion',
+  estado:                'ocupacion',
+}
+
+type RegistroPython = Record<string, unknown>
+
+async function fetchAllPreview(sessionId: string): Promise<RegistroPython[]> {
+  const limit = 500
+  let page = 1
+  const all: RegistroPython[] = []
+  while (true) {
+    const { data } = await python.get<{ rows: RegistroPython[]; total: number }>(
+      '/preview', { params: { session_id: sessionId, page, limit } }
+    )
+    all.push(...data.rows)
+    if (all.length >= data.total) break
+    page++
+  }
+  return all
+}
+
+function strVal(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  return String(v).trim()
+}
+
+async function calcularDiff(sessionId: string) {
+  const registros = await fetchAllPreview(sessionId)
+
+  // Mapa id_sial -> registro Python
+  const nuevosMap = new Map<string, RegistroPython>()
+  for (const r of registros) {
+    const idSial = strVal(r['ID SIAL'] ?? r['id_sial'])
+    if (idSial) nuevosMap.set(idSial, r)
+  }
+
+  // Estado actual en Postgres: Cargo + Ocupacion activa (hasta IS NULL)
+  const cargosActuales = await prisma.cargo.findMany({
+    where: { estado: 'vigente' },
+    select: {
+      idSial: true,
+      literalPuesto: true,
+      especialidad: true,
+      agrupador: true,
+      unificadorPuesto: true,
+      ocupaciones: {
+        where: { hasta: null },
+        select: { idSialRol: true, situacionRevista: true, estadoPersona: true, cuilYRol: true },
+        take: 1,
+      },
+    },
+  })
+
+  const actualesMap = new Map<string, typeof cargosActuales[number]>()
+  for (const c of cargosActuales) actualesMap.set(c.idSial, c)
+
+  const nuevosIds   = new Set(nuevosMap.keys())
+  const actualesIds = new Set(actualesMap.keys())
+
+  type DiffEntry = {
+    snapshotId: string
+    tipo: 'nuevo' | 'modificado' | 'eliminado'
+    idSialRol: string
+    campo: string | null
+    valorAnterior: string | null
+    valorNuevo: string | null
+  }
+
+  const diffs: Omit<DiffEntry, 'snapshotId'>[] = []
+
+  // Nuevos
+  for (const idSial of nuevosIds) {
+    if (actualesIds.has(idSial)) continue
+    const r = nuevosMap.get(idSial)!
+    const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
+    const idSialRol = cuilYRol ? `${idSial}-${cuilYRol}` : idSial
+    diffs.push({
+      tipo: 'nuevo',
+      idSialRol,
+      campo: null,
+      valorAnterior: null,
+      valorNuevo: JSON.stringify({
+        id_sial:        idSial,
+        cuil_y_rol:     cuilYRol,
+        ayn:            strVal(r['AYN'] ?? r['ayn']),
+        siglas:         strVal(r['SIGLAS'] ?? r['siglas']),
+        escalafon:      strVal(r['ESCALAFON'] ?? r['escalafon']),
+        literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
+        especialidad:   strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
+        tipo_hospital_sigla: strVal(r['TIPO DE HOSPITAL / SIGLA'] ?? r['tipo_hospital_sigla']),
+        situacion_de_revista: strVal(r['SITUACION DE REVISTA'] ?? r['situacion_de_revista']),
+        estado:         strVal(r['ESTADO'] ?? r['estado']),
+        agrupador:      strVal(r['AGRUPADOR'] ?? r['agrupador']),
+        unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
+      }),
+    })
+  }
+
+  // Eliminados
+  for (const idSial of actualesIds) {
+    if (nuevosIds.has(idSial)) continue
+    const actual = actualesMap.get(idSial)!
+    const ocup = actual.ocupaciones[0]
+    const idSialRol = ocup?.idSialRol ?? idSial
+    diffs.push({
+      tipo: 'eliminado',
+      idSialRol,
+      campo: null,
+      valorAnterior: JSON.stringify({
+        id_sial:        idSial,
+        cuil_y_rol:     ocup?.cuilYRol ?? null,
+        literal_puesto: actual.literalPuesto,
+        especialidad:   actual.especialidad,
+        agrupador:      actual.agrupador,
+        situacion_de_revista: ocup?.situacionRevista ?? null,
+        estado:         ocup?.estadoPersona ?? null,
+      }),
+      valorNuevo: null,
+    })
+  }
+
+  // Modificados
+  const CAMPO_CARGO_MAP: Record<string, keyof typeof cargosActuales[number]> = {
+    literal_puesto:        'literalPuesto',
+    especialidad:          'especialidad',
+    agrupador:             'agrupador',
+    unificador_de_puestos: 'unificadorPuesto',
+  }
+  const CAMPO_OCUP_MAP: Record<string, string> = {
+    situacion_de_revista: 'situacionRevista',
+    estado:               'estadoPersona',
+  }
+
+  for (const idSial of nuevosIds) {
+    if (!actualesIds.has(idSial)) continue
+    const r      = nuevosMap.get(idSial)!
+    const actual = actualesMap.get(idSial)!
+    const ocup   = actual.ocupaciones[0]
+    const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
+    const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
+
+    for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
+      const vNuevo = strVal(r[colPython.toUpperCase().replace(/_/g, ' ')] ?? r[colPython])
+      let vAnterior = ''
+      if (tabla === 'cargo') {
+        const key = CAMPO_CARGO_MAP[colPython]
+        vAnterior = strVal(key ? actual[key] : null)
+      } else {
+        const key = CAMPO_OCUP_MAP[colPython]
+        vAnterior = strVal(key && ocup ? (ocup as Record<string, unknown>)[key] : null)
+      }
+      if (vNuevo !== vAnterior) {
+        diffs.push({
+          tipo: 'modificado',
+          idSialRol,
+          campo: colPython,
+          valorAnterior: vAnterior || null,
+          valorNuevo:    vNuevo   || null,
+        })
+      }
+    }
+  }
+
+  const totalNuevos      = diffs.filter((d) => d.tipo === 'nuevo').length
+  const totalEliminados  = diffs.filter((d) => d.tipo === 'eliminado').length
+  const totalModificados = new Set(diffs.filter((d) => d.tipo === 'modificado').map((d) => d.idSialRol)).size
+  const totalCampos      = diffs.filter((d) => d.tipo === 'modificado').length
+
+  return { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos }
+}
 
 async function assertNoPendiente() {
   const pendiente = await prisma.padronSnapshot.findFirst({
@@ -42,7 +217,9 @@ async function assertNoPendiente() {
   if (pendiente) throw AppError.snapshotPendiente()
 }
 
-// ─── S2-2 + S2-3 + S2-4: upload → Python → guardar diff ─────────────────────
+// ─── S2-12: bloqueo doble carga ───────────────────────────────────────────────
+
+// ─── S2-2 + S2-3 + S2-4 + S2-19: upload → Python → diff Node → guardar ──────────
 
 export async function uploadPadronService(
   file: MultipartFile,
@@ -81,10 +258,9 @@ export async function uploadPadronService(
     const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
     await pollJob(cruzarJob.job_id)
 
-    const { data: diffData } = await python.post('/diff', {
-      session_id: sessionId,
-      fecha_asignada: fechaAsignada,
-    })
+    // S2-19: diff calculado por Node contra Postgres (no más /diff en Python)
+    const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
+      await calcularDiff(sessionId)
 
     const snapshot = await prisma.$transaction(async (tx: PrismaTx) => {
       const snap = await tx.padronSnapshot.create({
@@ -97,52 +273,10 @@ export async function uploadPadronService(
         },
       })
 
-      const diffsToCreate: {
-        snapshotId: string
-        tipo: 'nuevo' | 'modificado' | 'eliminado'
-        idSialRol: string
-        campo: string | null
-        valorAnterior: string | null
-        valorNuevo: string | null
-      }[] = []
-
-      for (const r of diffData.nuevos ?? []) {
-        diffsToCreate.push({
-          snapshotId: snap.id,
-          tipo: 'nuevo',
-          idSialRol: r.id_sial,
-          campo: null,
-          valorAnterior: null,
-          valorNuevo: JSON.stringify(r),
+      if (diffs.length > 0) {
+        await tx.padronDiff.createMany({
+          data: diffs.map((d) => ({ ...d, snapshotId: snap.id })),
         })
-      }
-
-      for (const r of diffData.eliminados ?? []) {
-        diffsToCreate.push({
-          snapshotId: snap.id,
-          tipo: 'eliminado',
-          idSialRol: r.id_sial,
-          campo: null,
-          valorAnterior: JSON.stringify(r),
-          valorNuevo: null,
-        })
-      }
-
-      for (const r of diffData.modificados ?? []) {
-        for (const cambio of r.cambios ?? []) {
-          diffsToCreate.push({
-            snapshotId: snap.id,
-            tipo: 'modificado',
-            idSialRol: r.id_sial,
-            campo: cambio.campo,
-            valorAnterior: cambio.antes ?? null,
-            valorNuevo: cambio.despues ?? null,
-          })
-        }
-      }
-
-      if (diffsToCreate.length > 0) {
-        await tx.padronDiff.createMany({ data: diffsToCreate })
       }
 
       return snap
@@ -153,10 +287,10 @@ export async function uploadPadronService(
       fechaAsignada,
       totalRegistros,
       resumen: {
-        nuevos: diffData.total_nuevos ?? 0,
-        modificados: diffData.total_modificados ?? 0,
-        eliminados: diffData.total_eliminados ?? 0,
-        camposModificados: diffData.total_campos_modificados ?? 0,
+        nuevos: totalNuevos,
+        modificados: totalModificados,
+        eliminados: totalEliminados,
+        camposModificados: totalCampos,
       },
     }
   } finally {
