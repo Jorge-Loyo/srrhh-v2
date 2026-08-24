@@ -1,4 +1,4 @@
-import { Outlet, NavLink, Navigate } from 'react-router-dom'
+import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 
 const NAV_ITEMS = [
@@ -13,8 +13,11 @@ const NAV_ITEMS = [
 export function AppShell() {
   const { user, logout } = useAuth()
 
+  // AppShell solo se monta detrás de <ProtectedRoute>, que ya garantiza sesión
+  // activa — este chequeo es un guard defensivo para TypeScript, no un flujo
+  // real (si llega a pasar, ProtectedRoute ya redirigió a /login).
   if (!user) {
-    return <Navigate to="/login" replace />
+    return null
   }
 
   return (

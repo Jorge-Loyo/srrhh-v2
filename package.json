@@ -16,6 +16,8 @@
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@prisma/client": "5.22.0",
+    "prisma": "5.22.0",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
   },
