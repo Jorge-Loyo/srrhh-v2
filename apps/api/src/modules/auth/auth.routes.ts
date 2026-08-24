@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { loginSchema } from './auth.schema.js'
-import { loginService } from './auth.service.js'
+import { loginSchema, refreshSchema } from './auth.schema.js'
+import { loginService, refreshTokenService, logoutService } from './auth.service.js'
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/login', async (request, reply) => {
@@ -9,8 +9,15 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ data: result })
   })
 
-  app.post('/logout', async (_request, reply) => {
-    // TODO: revocar refresh token
+  app.post('/refresh', async (request, reply) => {
+    const body = refreshSchema.parse(request.body)
+    const result = await refreshTokenService(body, (payload) => app.jwt.sign(payload))
+    return reply.send({ data: result })
+  })
+
+  app.post('/logout', async (request, reply) => {
+    const body = refreshSchema.parse(request.body)
+    await logoutService(body)
     return reply.send({ data: { ok: true } })
   })
 }

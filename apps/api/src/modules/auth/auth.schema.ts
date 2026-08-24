@@ -10,3 +10,4 @@ export const refreshSchema = z.object({
 })
 
 export type LoginBody = z.infer<typeof loginSchema>
+export type RefreshBody = z.infer<typeof refreshSchema>

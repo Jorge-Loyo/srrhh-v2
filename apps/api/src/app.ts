@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit'
 import { env } from './config/env.js'
 import { errorHandler } from './shared/errors/error.handler.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
+import { auditLog } from './shared/middleware/audit.middleware.js'
 import { personasRoutes } from './modules/personas/personas.routes.js'
 import { cargosRoutes } from './modules/cargos/cargos.routes.js'
 import { padronRoutes } from './modules/padron/padron.routes.js'
@@ -39,6 +40,9 @@ await app.register(jwt, {
 
 // Error handler global
 app.setErrorHandler(errorHandler)
+
+// Audit log en todas las rutas autenticadas
+app.addHook('preHandler', auditLog)
 
 // Health check (público)
 app.get('/health', async () => ({
