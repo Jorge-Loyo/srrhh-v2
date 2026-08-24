@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-1 a S2-8, S2-10 a S2-19 (✅) — falta solo S2-9 |
+| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo | S2-1 a S2-19 (✅) |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -205,7 +205,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S2-6  | Endpoint `POST /api/v1/padron/snapshots/:id/aprobar`                      | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-7  | Lógica de aprobación: actualizar ocupaciones, personas, cargos, historico | Jorge   | 10h  | 🔴 Crítico | ✅ |
 | S2-8  | Endpoint `POST /api/v1/padron/snapshots/:id/rechazar`                     | Jorge   | 2h   | 🔴 Crítico | ✅ |
-| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | ⏳ Desbloqueada — S2-18 ✅ |
+| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | ✅ |
 | S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico | ✅ (ruta directa por URL — entrada vía lista llega con S2-9) |
 | S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   | ✅ |
 | S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico | ✅ |
@@ -221,21 +221,31 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 > verificados por Agustin (2026-08-24). S2-19 completado por Jorge (commit `8031bbf`): Dotaneitor
 > migrado a Postgres, diff calculado por Node. S2-18 completado por Jorge (commit `b30cfa0`): upload
 > async, estados `procesando`/`error`, `pasoActual`, endpoint de polling, cleanup al arrancar.
+> S2-9 completado y verificado por Agustin (2026-08-24): `PadronPage` (formulario de subida
+> admin/editor, barra de progreso con polling a `/estado` traduciendo `pasoActual` a texto amigable,
+> manejo de `estado: error` con `errorMsg`, historial de snapshots), reemplaza el `Placeholder` en
+> `router.tsx`. De paso se agregaron los botones Aprobar/Rechazar a `PadronDiffPage` (llaman a
+> `POST /snapshots/:id/aprobar` y `/rechazar`, solo visibles para admin/editor y solo con snapshot
+> `pendiente`) — sin esto el criterio de éxito "subir → ver diff → aprobar → datos en BD" no era
+> alcanzable desde la UI aunque cada tarea individual estuviera ✅. Verificado con Chrome headless vía
+> CDP (red mockeada): flujo feliz completo (subida → progreso → pendiente → link a diff → aprobar →
+> vuelta al listado), escenario de error (corta el polling, muestra `errorMsg`), rol viewer (sin
+> formulario de subida ni botones de decisión), rechazar. Sin errores de consola en ningún caso.
+> `tsc --noEmit` limpio en `apps/web` y `apps/api`.
 
-### 🚧 Qué falta para cerrar Sprint 2
+### ✅ Sprint 2 cerrado
 
-Solo **S2-9** — PadronPage: subir archivo + barra de progreso con polling a `/estado`
-(desbloqueada, S2-18 ✅). S2-1 quedó completa (8/9, el único hallazgo restante es informativo, sin
-acción pendiente).
+Todas las tareas completas (S2-1 a S2-19). S2-1 quedó en 8/9 hallazgos resueltos — el restante
+(staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`) es informativo, sin acción pendiente.
 
 **Criterio de éxito:**
 
-- Flujo completo: subir Excel → ver diff → aprobar → datos en BD
-- Dotaneitor optimizado y documentado
-- `padron_historico` se popula correctamente al aprobar
-- Bloqueo de doble carga funciona
-- Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*`
-- Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después
+- Flujo completo: subir Excel → ver diff → aprobar → datos en BD — ✅
+- Dotaneitor optimizado y documentado — ✅
+- `padron_historico` se popula correctamente al aprobar — ✅ (S2-7, Jorge)
+- Bloqueo de doble carga funciona — ✅ (S2-12, Jorge)
+- Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*` — ✅ (S2-13, Jorge)
+- Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después — ✅ (S2-16, Jorge)
 
 **Hallazgos de revisión (Jorge, Sprint 2 — revisión completa post-implementación):**
 
