@@ -9,14 +9,19 @@ import {
   uploadPadronService,
   listSnapshotsService,
   getSnapshotDiffService,
+  getSnapshotEstadoService,
   aprobarSnapshotService,
   rechazarSnapshotService,
+  cleanupSnapshotsProcesando,
 } from './padron.service.js'
 
 export async function padronRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } }) // 50 MB
 
   app.addHook('preHandler', authenticate)
+
+  // Cleanup al arrancar: snapshots que quedaron en procesando por reinicio
+  await cleanupSnapshotsProcesando()
 
   // GET /snapshots — listar todos los snapshots
   app.get('/snapshots', async (_request, reply) => {
@@ -45,6 +50,12 @@ export async function padronRoutes(app: FastifyInstance) {
     const result = await uploadPadronService(file, fecha, user.id)
 
     return reply.status(202).send({ data: result })
+  })
+
+  // GET /snapshots/:id/estado — S2-18: polling de estado del pipeline
+  app.get<{ Params: { id: string } }>('/snapshots/:id/estado', async (request, reply) => {
+    const result = await getSnapshotEstadoService(request.params.id)
+    return reply.send({ data: result })
   })
 
   // GET /snapshots/:id/diff — S2-5

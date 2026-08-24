@@ -210,16 +210,88 @@ async function calcularDiff(sessionId: string) {
 }
 
 async function assertNoPendiente() {
-  const pendiente = await prisma.padronSnapshot.findFirst({
-    where: { estado: 'pendiente' },
+  const bloqueante = await prisma.padronSnapshot.findFirst({
+    where: { estado: { in: ['pendiente', 'procesando'] } },
     select: { id: true, fechaAsignada: true },
   })
-  if (pendiente) throw AppError.snapshotPendiente()
+  if (bloqueante) throw AppError.snapshotPendiente()
 }
 
-// ─── S2-12: bloqueo doble carga ───────────────────────────────────────────────
+async function setPaso(snapshotId: string, paso: string) {
+  await prisma.padronSnapshot.update({
+    where: { id: snapshotId },
+    data: { pasoActual: paso },
+  })
+}
 
-// ─── S2-2 + S2-3 + S2-4 + S2-19: upload → Python → diff Node → guardar ──────────
+// ─── S2-18: cleanup al arrancar — marcar como error snapshots que quedaron procesando ───
+
+export async function cleanupSnapshotsProcesando() {
+  const { count } = await prisma.padronSnapshot.updateMany({
+    where: { estado: 'procesando' },
+    data: { estado: 'error', errorMsg: 'Proceso interrumpido al reiniciar el servidor', pasoActual: null },
+  })
+  if (count > 0) console.warn(`[padron] cleanup: ${count} snapshot(s) marcados como error por reinicio`)
+}
+
+// ─── S2-18: pipeline en background ───────────────────────────────────────────
+
+async function runPipeline(
+  snapshotId: string,
+  sessionId: string,
+  fechaAsignada: string,
+) {
+  try {
+    await setPaso(snapshotId, 'normalizar')
+    const { data: normJob } = await python.post('/normalizar', { session_id: sessionId })
+    await pollJob(normJob.job_id)
+
+    await setPaso(snapshotId, 'procesar')
+    const { data: procJob } = await python.post('/procesar', {
+      session_id: sessionId,
+      fecha_asignada: fechaAsignada,
+    })
+    await pollJob(procJob.job_id)
+
+    await setPaso(snapshotId, 'cruzar')
+    const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
+    await pollJob(cruzarJob.job_id)
+
+    await setPaso(snapshotId, 'diff')
+    const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
+      await calcularDiff(sessionId)
+
+    await setPaso(snapshotId, 'guardando')
+    await prisma.$transaction(async (tx: PrismaTx) => {
+      if (diffs.length > 0) {
+        await tx.padronDiff.createMany({
+          data: diffs.map((d) => ({ ...d, snapshotId })),
+        })
+      }
+      await tx.padronSnapshot.update({
+        where: { id: snapshotId },
+        data: {
+          estado: 'pendiente',
+          pasoActual: null,
+          totalRegistros: totalNuevos + totalEliminados + totalModificados,
+        },
+      })
+    })
+
+    console.info(`[padron] pipeline completado snapshotId=${snapshotId} nuevos=${totalNuevos} eliminados=${totalEliminados} modificados=${totalModificados} campos=${totalCampos}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await prisma.padronSnapshot.update({
+      where: { id: snapshotId },
+      data: { estado: 'error', errorMsg: msg, pasoActual: null },
+    }).catch(() => {})
+    console.error(`[padron] pipeline error snapshotId=${snapshotId}:`, msg)
+  } finally {
+    python.post('/session/delete', { session_id: sessionId }).catch(() => {})
+  }
+}
+
+// ─── S2-2 + S2-3 + S2-4 + S2-18 + S2-19: upload → dispara pipeline async ────
 
 export async function uploadPadronService(
   file: MultipartFile,
@@ -237,6 +309,8 @@ export async function uploadPadronService(
   const { data: sessionData } = await python.post('/session')
   const sessionId: string = sessionData.session_id
 
+  // Upload sincrónico para obtener totalRegistros antes de responder
+  let totalRegistros = 0
   try {
     const form = new FormData()
     form.append('session_id', sessionId)
@@ -244,58 +318,39 @@ export async function uploadPadronService(
     const { data: uploadData } = await python.post('/upload-cargos', form, {
       headers: form.getHeaders(),
     })
-    const totalRegistros: number = uploadData.rows ?? 0
-
-    const { data: normJob } = await python.post('/normalizar', { session_id: sessionId })
-    await pollJob(normJob.job_id)
-
-    const { data: procJob } = await python.post('/procesar', {
-      session_id: sessionId,
-      fecha_asignada: fechaAsignada,
-    })
-    await pollJob(procJob.job_id)
-
-    const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
-    await pollJob(cruzarJob.job_id)
-
-    // S2-19: diff calculado por Node contra Postgres (no más /diff en Python)
-    const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
-      await calcularDiff(sessionId)
-
-    const snapshot = await prisma.$transaction(async (tx: PrismaTx) => {
-      const snap = await tx.padronSnapshot.create({
-        data: {
-          fechaAsignada: fechaDate,
-          filename: file.filename,
-          totalRegistros,
-          procesadoPorId: usuarioId,
-          estado: 'pendiente',
-        },
-      })
-
-      if (diffs.length > 0) {
-        await tx.padronDiff.createMany({
-          data: diffs.map((d) => ({ ...d, snapshotId: snap.id })),
-        })
-      }
-
-      return snap
-    })
-
-    return {
-      snapshotId: snapshot.id,
-      fechaAsignada,
-      totalRegistros,
-      resumen: {
-        nuevos: totalNuevos,
-        modificados: totalModificados,
-        eliminados: totalEliminados,
-        camposModificados: totalCampos,
-      },
-    }
-  } finally {
+    totalRegistros = uploadData.rows ?? 0
+  } catch (err) {
     python.post('/session/delete', { session_id: sessionId }).catch(() => {})
+    throw err
   }
+
+  // Crear snapshot en estado procesando
+  const snapshot = await prisma.padronSnapshot.create({
+    data: {
+      fechaAsignada: fechaDate,
+      filename: file.filename,
+      totalRegistros,
+      procesadoPorId: usuarioId,
+      estado: 'procesando',
+      pasoActual: 'normalizar',
+    },
+  })
+
+  // Disparar pipeline en background — no await
+  void runPipeline(snapshot.id, sessionId, fechaAsignada)
+
+  return { snapshotId: snapshot.id, fechaAsignada, totalRegistros }
+}
+
+// ─── S2-18: polling de estado ─────────────────────────────────────────────────
+
+export async function getSnapshotEstadoService(id: string) {
+  const snapshot = await prisma.padronSnapshot.findUnique({
+    where: { id },
+    select: { id: true, estado: true, pasoActual: true, errorMsg: true, totalRegistros: true },
+  })
+  if (!snapshot) throw AppError.notFound('Snapshot no encontrado')
+  return snapshot
 }
 
 // ─── S2-5: listar snapshots + diff paginado ───────────────────────────────────
@@ -309,6 +364,8 @@ export async function listSnapshotsService() {
       filename: true,
       totalRegistros: true,
       estado: true,
+      pasoActual: true,
+      errorMsg: true,
       aprobadoAt: true,
       createdAt: true,
       procesadoPor: { select: { username: true } },
