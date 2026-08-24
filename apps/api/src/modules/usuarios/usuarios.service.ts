@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt'
-import { Prisma } from '@prisma/client'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CreateUsuarioBody } from './usuarios.schema.js'
@@ -13,7 +13,7 @@ const USUARIO_SELECT = {
   hospitalId: true,
   activo: true,
   createdAt: true,
-} satisfies Prisma.UsuarioSelect
+} as const
 
 export async function listUsuarios() {
   return prisma.usuario.findMany({
@@ -37,7 +37,7 @@ export async function createUsuario(body: CreateUsuarioBody) {
       select: USUARIO_SELECT,
     })
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (error instanceof PrismaClientKnownRequestError && error.code === 'P2002') {
       const campo = (error.meta?.target as string[] | undefined)?.[0] ?? 'username/email'
       throw AppError.conflict(`Ya existe un usuario con ese ${campo}`)
     }
