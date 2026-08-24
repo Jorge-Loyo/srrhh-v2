@@ -65,9 +65,14 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    const rt = getRefreshToken()
+    if (rt) apiClient.post('/api/v1/auth/logout', { refreshToken: rt }).catch(() => {})
     setAccessToken(null)
     setRefreshToken(null)
     persistUser(null)
+    // Resetear la promesa para que restoreSession corra de nuevo si el usuario
+    // vuelve a loguearse en la misma pestaña sin recargar.
+    restoreSessionPromise = null
     set({ user: null })
     window.location.href = '/login'
   },

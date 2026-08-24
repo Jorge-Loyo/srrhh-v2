@@ -1,5 +1,8 @@
 import axios from 'axios'
 
+// ── Base URL — única fuente de verdad para apiClient y rawClient ───────────────
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+
 // ── Access token: solo en memoria (vive lo que dura la pestaña) ───────────────
 let accessToken: string | null = null
 
@@ -28,7 +31,7 @@ export function getRefreshToken(): string | null {
 }
 
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3000',
+  baseURL: API_BASE_URL,
   withCredentials: true,
 })
 
@@ -54,7 +57,7 @@ export function setOnSessionExpired(cb: () => void) {
 // así se ejercita la rotación de refresh token en cualquier request, no solo
 // en el login. Usa un axios "pelado" (sin estos interceptors) para el propio
 // POST /auth/refresh, para no entrar en loop si ese request también da 401.
-const rawClient = axios.create({ baseURL: apiClient.defaults.baseURL })
+const rawClient = axios.create({ baseURL: API_BASE_URL })
 
 let refreshInFlight: Promise<string | null> | null = null
 
