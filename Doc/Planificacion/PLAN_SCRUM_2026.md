@@ -197,7 +197,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 3/9 hallazgos resueltos (GUI muerta, performance, CORS) — resto bloqueado por S2-19 |
+| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 3/9 hallazgos resueltos (GUI muerta, performance, CORS) — S2-19 ✅, desbloqueados los 6 restantes |
 | S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico | ✅ |
 | S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico | ✅ |
@@ -205,7 +205,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S2-6  | Endpoint `POST /api/v1/padron/snapshots/:id/aprobar`                      | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-7  | Lógica de aprobación: actualizar ocupaciones, personas, cargos, historico | Jorge   | 10h  | 🔴 Crítico | ✅ |
 | S2-8  | Endpoint `POST /api/v1/padron/snapshots/:id/rechazar`                     | Jorge   | 2h   | 🔴 Crítico | ✅ |
-| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | 🚧 Bloqueada por S2-18 |
+| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | ⏳ Desbloqueada — S2-18 ✅ |
 | S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico | ✅ (ruta directa por URL — entrada vía lista llega con S2-9) |
 | S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   | ✅ |
 | S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico | ✅ |
@@ -249,6 +249,14 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | 5 | **N queries de catálogo en `aprobarSnapshotService`** — `findUnique` de hospital/escalafón por cada registro nuevo, sin caché. | 🟢 Baja | ✅ **Corregido** — `hospitalCache` y `escalafonCache` (`Map`) antes del loop. |
 | 6 | **`idSialRol.split('-')[0]`** — frágil si el formato cambia o si `idSial` contiene guiones. | 🟢 Baja | ✅ **Corregido** — `cargoId` obtenido desde `tx.ocupacion.findUnique({ where: { idSialRol } })` (FK directa). |
 | 7 | **`refreshExpiresAt` no soporta `'s'`** — regex `[dhm]` no incluía segundos, rompía tests de integración con expiración rápida. | 🟢 Baja | ✅ **Corregido** — regex extendida a `[dhms]`. |
+
+**Hallazgos de revisión (Agustin, sobre S2-18/S2-19 de Jorge — 2026-08-24):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`runPipeline()` sobreescribe `totalRegistros`** con el conteo del diff (`totalNuevos + totalEliminados + totalModificados`) al terminar con éxito, en vez de dejar el valor original (filas del Excel subido, fijado una sola vez al crear el snapshot). `PadronDiffPage.tsx` muestra ese campo como "X registros procesados" asumiendo que es el conteo del archivo — con el bug, muestra el conteo del diff en su lugar, un dato distinto. | 🟢 Baja | ✅ **Corregido** — se sacó la sobreescritura de `totalRegistros` de la transacción final de `runPipeline()` en `padron.service.ts`. |
+
+Revisado también en detalle sin encontrar problemas: la construcción de `idSialRol` en `calcularDiff()` (usa `cuilYRol` completo en vez de solo el número de rol — distinto a lo documentado en `Dotaneitor_Analisis.md` §6.3, pero internamente consistente entre creación y lectura, no rompe nada), y el manejo de errores/estados de `runPipeline()` (marca `error` correctamente ante cualquier falla del pipeline).
 
 ---
 
