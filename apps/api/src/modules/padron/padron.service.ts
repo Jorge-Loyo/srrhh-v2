@@ -264,7 +264,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           hospital = found ?? await tx.hospital.create({
             data: { sigla: siglaKey, nombre: siglaKey, tipo: datos.tipo_hospital_sigla ?? null },
           })
-          hospitalCache.set(siglaKey, hospital)
+          hospitalCache.set(siglaKey, hospital!)
         }
 
         // Escalafon — con caché
@@ -275,7 +275,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           escalafon = found ?? await tx.escalafon.create({
             data: { codigo: escalafonKey, nombre: escalafonKey },
           })
-          escalafonCache.set(escalafonKey, escalafon)
+          escalafonCache.set(escalafonKey, escalafon!)
         }
 
         let persona = datos.cuil
@@ -292,8 +292,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           cargo = await tx.cargo.create({
             data: {
               idSial: datos.id_sial,
-              hospitalId: hospital.id,
-              escalafonId: escalafon.id,
+              hospitalId: hospital!.id,
+              escalafonId: escalafon!.id,
               literalPuesto: datos.literal_puesto ?? null,
               especialidad: datos.especialidad ?? null,
               agrupador: datos.agrupador ?? null,

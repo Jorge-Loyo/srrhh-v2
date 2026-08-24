@@ -5,6 +5,10 @@ import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
 import type { LoginBody, RefreshBody } from './auth.schema.js'
 
+// Mismo patrón que padron.service.ts: Prisma.TransactionClient no está
+// exportado en esta versión (5.22.0), así que se arma el tipo a mano.
+type PrismaTx = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function hashToken(token: string) {
@@ -76,7 +80,7 @@ export async function refreshTokenService(body: RefreshBody, signToken: (payload
   // Evita la ventana de inconsistencia entre el updateMany y el findUnique
   // separados (si el findUnique fallaba después del updateMany, el token
   // quedaba revocado pero el usuario recibía 401 sin poder continuar).
-  const stored = await prisma.$transaction(async (tx) => {
+  const stored = await prisma.$transaction(async (tx: PrismaTx) => {
     const updated = await tx.refreshToken.updateMany({
       where: { tokenHash, revocado: false },
       data: { revocado: true },
