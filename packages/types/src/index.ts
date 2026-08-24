@@ -243,6 +243,7 @@ export interface AprobarSnapshotRequest {
 
 export interface AuthResponse {
   accessToken: string
+  refreshToken: string
   user: Usuario
 }
 
