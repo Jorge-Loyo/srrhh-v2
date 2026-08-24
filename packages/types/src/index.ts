@@ -134,6 +134,11 @@ export interface PadronSnapshot {
   estado: EstadoSnapshot
   aprobadoAt: string | null
   createdAt: string
+  // Devuelto por GET /padron/snapshots (listSnapshotsService) — null si nadie
+  // procesó/aprobó todavía ese snapshot (procesadoPorId/aprobadoPorId son
+  // opcionales en el schema).
+  procesadoPor: { username: string } | null
+  aprobadoPor: { username: string } | null
 }
 
 export interface PadronDiff {
@@ -145,6 +150,7 @@ export interface PadronDiff {
   valorAnterior: string | null
   valorNuevo: string | null
   aprobado: boolean
+  createdAt: string
 }
 
 export interface Concurso {
@@ -273,7 +279,9 @@ export interface DiffSummary {
 }
 
 export interface SnapshotDiffResponse {
-  snapshot: PadronSnapshot
+  // Subconjunto de PadronSnapshot: getSnapshotDiffService devuelve solo estos
+  // campos (no aprobadoAt/createdAt/procesadoPor/aprobadoPor).
+  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado'>
   summary: DiffSummary
   diffs: PaginatedResponse<PadronDiff>
 }

@@ -35,20 +35,12 @@ from especialidad_por_agrupador import (
     sin_tilde_mayuscula,
 )
 
-# ── Dotaneitor.py: importar solo la clase de lógica, sin la GUI ───────────────
+# ── Dotaneitor.py: módulo de lógica de negocio ─────────────────────────────────
+# Ya no hace falta mockear tkinter: la clase GUI (DotacionGUI) se sacó de
+# Dotaneitor.py en S2-1 (ver Doc/Dotaneitor_Analisis.md hallazgos #2/#9) — ese
+# archivo es ahora solo lógica y no importa tkinter en absoluto.
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-
-# Mock completo de tkinter para que Dotaneitor.py importe sin levantar GUI
-import types as _types
-for _mod in ['tkinter', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.ttk']:
-    _m = _types.ModuleType(_mod)
-    sys.modules.setdefault(_mod, _m)
-import tkinter as _tk
-for _attr in ['StringVar','Text','END','DISABLED','NORMAL','BOTH','X','Y','W',
-              'LEFT','RIGHT','BOTTOM','WORD','VERTICAL','HORIZONTAL']:
-    if not hasattr(_tk, _attr):
-        setattr(_tk, _attr, object)
 
 from Dotaneitor import DotacionAutomation, COLUMNAS_NUCLEO_COMPLETITUD, COLUMNAS_MAYUSCULA_FORZADA  # noqa: E402
 
@@ -72,10 +64,19 @@ SESSION_TTL = 7200  # segundos (2 horas)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title='Dotaneitor', version='1.0')
+
+# CORS: Node -> Python es server-to-server, CORS no aplica ahí (es un mecanismo
+# de navegador). El único caso que esto restringe de verdad es que un browser
+# llame a Dotaneitor directo, algo que la regla de arquitectura del README dice
+# que nunca debería pasar ("el frontend nunca habla directamente con este
+# servicio"). Antes era allow_origins=['*'] (hallazgo #8 de
+# Doc/Dotaneitor_Analisis.md); ahora sale de env, vacío por default, mismo
+# patrón que CORS_ORIGINS en apps/api.
+CORS_ORIGINS = [o.strip() for o in os.getenv('CORS_ORIGINS', '').split(',') if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_methods=['*'],
+    allow_origins=CORS_ORIGINS,
+    allow_methods=['GET', 'POST'],
     allow_headers=['*'],
 )
 
