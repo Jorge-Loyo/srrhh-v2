@@ -1,6 +1,8 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
+import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
+import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -12,19 +14,24 @@ const Placeholder = ({ title }: { title: string }) => (
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: <AppShell />,
+    element: <ProtectedRoute />,
     children: [
-      { index: true, element: <Navigate to="/padron" replace /> },
-      { path: 'padron', element: <Placeholder title="Padrón Semanal" /> },
-      { path: 'personas', element: <Placeholder title="Personas" /> },
-      { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
-      { path: 'cargos', element: <Placeholder title="Cargos" /> },
-      { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
-      { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
-      { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },
-      { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
-      { path: 'admin/usuarios', element: <Placeholder title="Administración de Usuarios" /> },
+      {
+        path: '/',
+        element: <AppShell />,
+        children: [
+          { index: true, element: <Navigate to="/padron" replace /> },
+          { path: 'padron', element: <Placeholder title="Padrón Semanal" /> },
+          { path: 'personas', element: <Placeholder title="Personas" /> },
+          { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
+          { path: 'cargos', element: <Placeholder title="Cargos" /> },
+          { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
+          { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
+          { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },
+          { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
+          { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
+        ],
+      },
     ],
   },
   { path: '/login', element: <LoginPage /> },

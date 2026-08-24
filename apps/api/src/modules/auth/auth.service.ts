@@ -15,8 +15,8 @@ function refreshExpiresAt() {
   // JWT_REFRESH_EXPIRES es "7d", "30d", etc.
   const match = env.JWT_REFRESH_EXPIRES.match(/^(\d+)([dhm])$/)
   if (!match) throw new Error('JWT_REFRESH_EXPIRES inválido')
-  const value = parseInt(match[1])
-  const unit = match[2]
+  const value = parseInt(match[1]!)
+  const unit = match[2]!
   const ms = unit === 'd' ? value * 86400000 : unit === 'h' ? value * 3600000 : value * 60000
   return new Date(Date.now() + ms)
 }

@@ -14,7 +14,7 @@
 | Sprint                              | Estado        | Completado    |
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
-| Sprint 1 — Autenticación            | 🔄 En curso   | —             |
+| Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
 | Sprint 2 — Dotaneitor + Padrón      | ⏳ Pendiente  | —             |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
@@ -150,22 +150,21 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Login funcional con roles, usuarios reales en BD.
-**Estado:** 🔄 En curso
+**Estado:** ✅ Completado
 
 > **Nota:** S1-8 (seed hospitales/escalafones/admin) fue adelantado y completado en Sprint 0 como S0-9.
 
-| #     | Tarea                                                         | Dev     | Est. | Prioridad  |
-| ----- | ------------------------------------------------------------- | ------- | ---- | ---------- |
 | #     | Tarea                                                         | Dev     | Est. | Prioridad  |     |
+| ----- | ------------------------------------------------------------- | ------- | ---- | ---------- | --- |
 | S1-1  | Completar `auth.service.ts`: login con bcrypt + JWT           | Jorge   | 4h   | 🔴 Crítico | ✅  |
 | S1-2  | Refresh token: rotación + detección de reutilización          | Jorge   | 6h   | 🔴 Crítico | ✅  |
 | S1-3  | Endpoint `POST /api/v1/auth/logout` — revocar token           | Jorge   | 2h   | 🔴 Crítico | ✅  |
 | S1-4  | Middleware `authenticate` + `requireRole` integrados en rutas | Jorge   | 3h   | 🔴 Crítico | ✅  |
-| S1-5  | CRUD usuarios: listar, crear, activar/desactivar (solo admin) | Agustin | 6h   | 🔴 Crítico |     |
-| S1-6  | LoginPage: conectar con API real, manejo de errores           | Agustin | 3h   | 🔴 Crítico |     |
-| S1-7  | ProtectedRoute: redirigir a /login si no autenticado          | Agustin | 2h   | 🔴 Crítico |     |
+| S1-5  | CRUD usuarios: listar, crear, activar/desactivar (solo admin) | Agustin | 6h   | 🔴 Crítico | ✅  |
+| S1-6  | LoginPage: conectar con API real, manejo de errores           | Agustin | 3h   | 🔴 Crítico | ✅  |
+| S1-7  | ProtectedRoute: redirigir a /login si no autenticado          | Agustin | 2h   | 🔴 Crítico | ✅  |
 | S1-8  | Seed: hospitales reales + escalafones + usuario admin inicial | Jorge   | 4h   | 🟡 Medio   | ✅  |
-| S1-9  | Página Admin/Usuarios: tabla + formulario crear usuario       | Agustin | 6h   | 🟡 Medio   |     |
+| S1-9  | Página Admin/Usuarios: tabla + formulario crear usuario       | Agustin | 6h   | 🟡 Medio   | ✅  |
 | S1-10 | Audit log: middleware registra toda escritura automáticamente | Jorge   | 3h   | 🟡 Medio   | ✅  |
 
 **Criterio de éxito:**
@@ -174,6 +173,15 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 - Refresh token rota correctamente
 - Admin puede crear usuarios con roles
 - Toda escritura queda en `audit_logs`
+
+**Hallazgos de revisión (Agustin, 2026-08-24 — revisión completa de Sprint 1 ya cerrado):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`audit_log` nunca escribía nada.** `app.ts` registraba `auditLog` como hook `preHandler` a nivel raíz, y Fastify corre los hooks de raíz *antes* que los `preHandler` de cada plugin de rutas (donde vive `authenticate`, quien recién ahí popula `request.user`). Resultado: `request.user` siempre era `undefined` cuando `auditLog` corría, así que el `if (!user) return` cortaba en el 100% de las requests desde que se implementó — pese a estar marcada ✅. Verificado empíricamente con logs en el servidor real. | 🔴 Alta | ✅ **Corregido** — `auditLog` pasó de `preHandler` a `onResponse` en `app.ts` (para ese punto del ciclo de vida todos los `preHandler`, incluidos los de plugins anidados, ya terminaron). Re-verificado: `request.user` llega poblado. |
+| 2 | **Race condition teórica en la rotación de refresh token** (`auth.service.ts:refreshTokenService`). Lee el token, chequea `revocado`, y recién después lo marca revocado — son pasos separados, no atómicos. Si el mismo refresh token llega dos veces casi simultáneo (dos tabs, bug de cliente), ambas requests podrían pasar el chequeo antes de que ninguna confirme la revocación, rotando el mismo token dos veces y debilitando la garantía de "un solo uso". | 🟡 Media | ⏳ **Pendiente — a revisar por Jorge.** Se arregla con una transacción o un update condicional atómico (`UPDATE ... WHERE token_hash = ? AND revocado = false`). No se tocó: es lógica de seguridad sensible del módulo de auth. |
+| 3 | **Timing side-channel menor en el login** (`auth.service.ts:loginService`). Si el usuario no existe, la función devuelve rápido (sin `bcrypt.compare`); si existe pero la contraseña es incorrecta, corre bcrypt (~100ms). En teoría permite distinguir usuarios válidos por el tiempo de respuesta. | 🟢 Baja | ⏳ **Pendiente — a revisar por Jorge.** Severidad baja para una herramienta interna GCBA; se arregla corriendo siempre un bcrypt "dummy" cuando el usuario no existe, para igualar el tiempo de respuesta. |
+| 4 | **Multi-tab**: el `refreshToken` vive en `localStorage` (compartido entre pestañas del mismo origen), pero cada pestaña tiene su propio estado de módulo en memoria (`useAuth`/`api-client`, sin coordinación entre pestañas). Si dos pestañas refrescan casi al mismo tiempo, podría dispararse la detección de reutilización de tokens y cerrar sesión en ambas. | 🟢 Baja | ⏳ **Limitación conocida**, trade-off ya aceptado junto con la decisión de usar `localStorage` en vez de cookie httpOnly (ver nota de S1-6/S1-7 más arriba en el historial de trabajo). Se resolvería con `BroadcastChannel` o eventos de `storage` para coordinar pestañas — no priorizado por ahora. |
 
 ---
 
