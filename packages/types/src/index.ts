@@ -237,6 +237,14 @@ export interface AprobarSnapshotRequest {
   excluidos?: string[] // IDs de diffs a excluir
 }
 
+export interface CreateUsuarioRequest {
+  username: string
+  email: string
+  password: string
+  rol: RolUsuario
+  hospitalId?: string
+}
+
 // -----------------------------------------------------------------------------
 // DTOs — Responses
 // -----------------------------------------------------------------------------

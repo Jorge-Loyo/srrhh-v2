@@ -41,8 +41,16 @@ await app.register(jwt, {
 // Error handler global
 app.setErrorHandler(errorHandler)
 
-// Audit log en todas las rutas autenticadas
-app.addHook('preHandler', auditLog)
+// Audit log en todas las rutas autenticadas.
+// Va como onResponse, NO preHandler: este hook está registrado en el
+// root de la app, así que como preHandler corría ANTES que el
+// `authenticate` de cada plugin de rutas (que es quien popula
+// request.user vía jwtVerify) — el audit log nunca veía un usuario y
+// nunca escribía nada. Fastify garantiza que todos los preHandler (los
+// del root y los de cada plugin anidado) terminan antes de cualquier
+// onResponse, así que acá request.user ya está seteado si la request
+// pasó la autenticación.
+app.addHook('onResponse', auditLog)
 
 // Health check (público)
 app.get('/health', async () => ({
