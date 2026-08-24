@@ -101,10 +101,28 @@ def get_session(session_id: str) -> dict:
         xlsx_files = list(folder.glob('*.xlsx')) if folder.exists() else []
         if not xlsx_files:
             raise HTTPException(404, 'Sesión no encontrada')
+
+        # Recuperación tras reinicio del contenedor (hallazgo #3 de
+        # Doc/Dotaneitor_Analisis.md): sessions[] es en memoria y se pierde,
+        # pero resultado.parquet (escrito por /procesar y /cruzar) sobrevive
+        # en disco. Si existe, se reconstruye el objeto automation con ese
+        # DataFrame en vez de forzar a repetir /procesar (el paso caro, hasta
+        # 48k filas). No se puede distinguir desde el parquet solo si ya
+        # pasó por /cruzar también (ambos pasos escriben el mismo archivo) —
+        # se recupera como solo-procesado a propósito: /cruzar es idempotente
+        # (nunca pisa un valor ya cargado), así que repetirlo de más es
+        # inofensivo, mientras que asumir cruzado=True de más podría dar por
+        # completa una especialidad que en realidad nunca se cruzó.
+        resultado_df = _load_df(session_id)
+        automation = None
+        if resultado_df is not None:
+            automation = DotacionAutomationBD()
+            automation.resultado_df = resultado_df
+
         s = {
-            'automation':  None,
+            'automation':  automation,
             'normalizado': False,
-            'procesado':   False,
+            'procesado':   automation is not None,
             'cruzado':     False,
             'cargos_path': str(xlsx_files[0]),
             'last_access': time(),
