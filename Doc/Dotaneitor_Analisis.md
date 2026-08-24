@@ -2,10 +2,12 @@
 
 > Documento de trabajo de Agustin (S0-5 / S0-6 / S0-7 / S0-10 del Sprint 0).
 > Fuente: lectura completa de `services/dotaneitor/` (7 módulos Python, ~3300 líneas) el 2026-08-21.
-> Última actualización: 2026-08-21
-> Estado: S0-5, S0-6, S0-7 y S0-10 (Sprint 0) cerradas. Sección 4.1 agrega requisitos nuevos para
-> Sprint 2 (sin datos hardcodeados + Dotaneitor alimenta tablas secundarias) — todavía sin
-> implementar, solo documentados como pedido de Agustin.
+> Última actualización: 2026-08-24
+> Estado: S0-5, S0-6, S0-7 y S0-10 (Sprint 0) cerradas. Sección 4.1: pasos 14-17 implementados por
+> Jorge en Sprint 2 (S2-13 a S2-19). Sección 7 (deuda técnica): 7 de 9 hallazgos resueltos —
+> Dotaneitor migrado a Postgres (S2-19), GUI muerta eliminada, performance vectorizada, CORS
+> restringido. Quedan sin resolver solo #3 (recuperación de sesión parcial) y #5 (staleness de
+> `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo).
 
 ---
 
@@ -431,6 +433,10 @@ no es un simple "agregar columna".
    migración a Postgres y la dejó a medio camino). Tal cual está el código hoy, instalar
    dependencias y arrancar el server rompe en el import. Bloqueante para levantar el servicio, no
    solo para Sprint 2.
+   ✅ **Resuelto (S2-19, Jorge, 2026-08-24):** `main.py` migrado de `mysql.connector` a
+   SQLAlchemy + Postgres. Sin `import mysql` en ningún lado. Nota aparte: la migración en sí dejó
+   un bug más grave (dos `app = FastAPI(...)` de nivel de módulo, el archivo viejo completo pegado
+   después del nuevo) — ver el hallazgo de Agustin en `PLAN_SCRUM_2026.md`, sección Sprint 2.
 2. **44% de `Dotaneitor.py` (595 de 1356 líneas) es la GUI Tkinter** (`DotacionGUI`), sin ningún
    uso en el microservicio — `main.py` mockea el módulo `tkinter` completo para poder importar la
    clase de lógica sin arrastrarla. Candidato a separar `DotacionAutomation` a su propio archivo y
@@ -447,6 +453,8 @@ no es un simple "agregar columna".
 4. El propio README marca `/guardar-bd` como "a eliminar" (la aprobación la va a manejar Node vía
    `POST /api/v1/padron/snapshots/:id/aprobar`), pero hoy sigue implementado con toda su lógica de
    historial contra MySQL (`dot_resultado_historico`, `dot_resultado_historial_cambios`).
+   ✅ **Resuelto (S2-19, 2026-08-24):** `/guardar-bd`, `/historial` y `/ultima-actualizacion`
+   eliminados de `main.py` — la aprobación la maneja Node como estaba previsto.
 5. `MAPEO_ESPECIALIDAD_POR_PUESTO` (`especialidad_por_agrupador.py`) es un diccionario estático
    calculado una vez a mano sobre una corrida de referencia puntual (2026-08-03/04). El propio
    comentario del código avisa que si cambia algo en `normalizador_cargos.py` /
@@ -454,6 +462,9 @@ no es un simple "agregar columna".
    desactualizados y conviene recalcularlo.
 6. `COL_MAP` (sección 6) es un mapeo a tabla plana, no al modelo relacional actual — hay que
    decidir su reemplazo como parte de S0-6/Sprint 2, no reutilizarlo tal cual.
+   ✅ **Resuelto (S2-19, 2026-08-24):** `COL_MAP` desapareció junto con `/diff`/`/guardar-bd` — el
+   diff ahora lo calcula Node (`calcularDiff()` en `padron.service.ts`) directo contra Postgres,
+   sin pasar por ningún mapeo a tabla plana intermedio.
 7. **Performance — loops fila por fila sobre las 48k filas completas** (`Dotaneitor.py:370-429`):
    `_calcular_jefe_escalafon()` y `_calcular_estado()` recorren `df.iterrows()` entero, una vez
    cada uno, en cada `/procesar`. Es el mismo patrón que el resto de `procesar()` evita a propósito
