@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-2 a S2-8, S2-10 a S2-19 (✅) — falta S2-1 (parcial, 3/9) y S2-9 (desbloqueadas) |
+| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-2 a S2-8, S2-10 a S2-19 (✅) — falta S2-1 (7/9, quedan 2 menores) y S2-9 |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -197,7 +197,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 3/9 hallazgos resueltos (GUI muerta, performance, CORS) — S2-19 ✅, desbloqueados los 6 restantes |
+| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 7/9 hallazgos resueltos — quedan #3 (recuperación de sesión) y #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo) |
 | S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico | ✅ |
 | S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico | ✅ |
@@ -226,7 +226,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | Pendiente | Resumen | Desbloqueado por |
 |---|---|---|
-| **S2-1** (6/9 restantes) | Hallazgos Dotaneitor: `COL_MAP` hardcodeado → tablas `ref_*`, recuperación de sesión, staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, y otros. | S2-19 ✅ |
+| **S2-1** (2/9 restantes — 7 ya resueltos, incluidos vía S2-19) | Recuperación de sesión parcial tras reinicio del contenedor, y staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO` (informativo, sin acción concreta pendiente). | S2-19 ✅ |
 | **S2-9** | PadronPage: subir archivo + barra de progreso con polling a `/estado` | S2-18 ✅ |
 
 **Criterio de éxito:**
@@ -254,9 +254,14 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | # | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| 1 | **`runPipeline()` sobreescribe `totalRegistros`** con el conteo del diff (`totalNuevos + totalEliminados + totalModificados`) al terminar con éxito, en vez de dejar el valor original (filas del Excel subido, fijado una sola vez al crear el snapshot). `PadronDiffPage.tsx` muestra ese campo como "X registros procesados" asumiendo que es el conteo del archivo — con el bug, muestra el conteo del diff en su lugar, un dato distinto. | 🟢 Baja | ✅ **Corregido** — se sacó la sobreescritura de `totalRegistros` de la transacción final de `runPipeline()` en `padron.service.ts`. |
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`services/dotaneitor/main.py` tenía DOS `app = FastAPI(...)` de nivel de módulo** (línea 59 la nueva, línea 618 la vieja) — el commit de S2-19 agregó el código migrado a Postgres pero nunca borró el archivo original de antes de la migración, solo lo dejó pegado después. En Python, la segunda asignación de `app` pisa a la primera: **`uvicorn main:app` corría el objeto viejo**, con las 11 rutas viejas basadas en `mysql.connector` (que ni siquiera tiene variables de conexión configuradas en `docker-compose.yml`) — y `/diff`, `/guardar-bd`, `/historial`, `/ultima-actualizacion`, que se suponía habían sido eliminados, seguían activos. Todo el trabajo de S2-19 (`DotacionAutomationBD` con SQLAlchemy/Postgres, las rutas nuevas) quedaba registrado en un `app` huérfano, nunca sirviéndose. No se detecta revisando el diff línea por línea (la lógica nueva era correcta en sí misma) — solo corriendo el archivo real o buscando duplicados de nivel de módulo. | 🔴 **Alta** — invalidaba S2-19 en runtime pese a verse correcto en el código | ✅ **Corregido** — se borró la sección vieja completa (antes línea 557 en adelante, ~1000 líneas: `import mysql.connector`, el segundo `app = FastAPI`, `/diff`, `/guardar-bd`, `/historial`, `/ultima-actualizacion`, `COL_MAP`). El archivo quedó en 556 líneas, un solo `app`, 11 rutas, 0 referencias a `mysql`. Verificado con `ast.parse` + `py_compile`. |
+| 2 | **`runPipeline()` sobreescribe `totalRegistros`** con el conteo del diff (`totalNuevos + totalEliminados + totalModificados`) al terminar con éxito, en vez de dejar el valor original (filas del Excel subido, fijado una sola vez al crear el snapshot). `PadronDiffPage.tsx` muestra ese campo como "X registros procesados" asumiendo que es el conteo del archivo — con el bug, muestra el conteo del diff en su lugar, un dato distinto. | 🟢 Baja | ✅ **Corregido** — se sacó la sobreescritura de `totalRegistros` de la transacción final de `runPipeline()` en `padron.service.ts`. |
 
 Revisado también en detalle sin encontrar problemas: la construcción de `idSialRol` en `calcularDiff()` (usa `cuilYRol` completo en vez de solo el número de rol — distinto a lo documentado en `Dotaneitor_Analisis.md` §6.3, pero internamente consistente entre creación y lectura, no rompe nada), y el manejo de errores/estados de `runPipeline()` (marca `error` correctamente ante cualquier falla del pipeline).
+
+⚠️ **Importante para Jorge:** el hallazgo #1 significa que hasta este fix, S2-19 nunca corrió de verdad en ningún entorno donde se haya levantado el servidor — vale la pena que lo confirme corriendo `docker-compose up` y probando el flujo completo una vez que traiga este cambio.
 
 ---
 
