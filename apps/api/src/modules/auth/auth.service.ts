@@ -15,8 +15,8 @@ function refreshExpiresAt() {
   // JWT_REFRESH_EXPIRES es "7d", "30d", etc.
   const match = env.JWT_REFRESH_EXPIRES.match(/^(\d+)([dhm])$/)
   if (!match) throw new Error('JWT_REFRESH_EXPIRES inválido')
-  const value = parseInt(match[1])
-  const unit = match[2]
+  const value = parseInt(match[1]!)
+  const unit = match[2]!
   const ms = unit === 'd' ? value * 86400000 : unit === 'h' ? value * 3600000 : value * 60000
   return new Date(Date.now() + ms)
 }
@@ -43,10 +43,12 @@ function buildUserPayload(usuario: { id: string; username: string; rol: string; 
 export async function loginService(body: LoginBody, signToken: (payload: object) => string) {
   const usuario = await prisma.usuario.findUnique({ where: { username: body.username } })
 
-  if (!usuario || !usuario.activo) throw AppError.unauthorized('Credenciales inválidas')
+  // Siempre correr bcrypt para igualar el tiempo de respuesta independientemente
+  // de si el usuario existe — evita timing side-channel que permitiría enumerar usuarios.
+  const hashToCompare = usuario?.passwordHash ?? '$2b$12$invalidhashpaddingtomatch.cost'
+  const valid = await bcrypt.compare(body.password, hashToCompare)
 
-  const valid = await bcrypt.compare(body.password, usuario.passwordHash)
-  if (!valid) throw AppError.unauthorized('Credenciales inválidas')
+  if (!usuario || !usuario.activo || !valid) throw AppError.unauthorized('Credenciales inválidas')
 
   const familyId = crypto.randomUUID()
   const accessToken = signToken(buildUserPayload(usuario))
@@ -70,26 +72,33 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
 export async function refreshTokenService(body: RefreshBody, signToken: (payload: object) => string) {
   const tokenHash = hashToken(body.refreshToken)
 
-  const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+  // Update atómico: marca el token como revocado solo si todavía no lo estaba.
+  // Evita la race condition donde dos requests con el mismo token pasan el
+  // chequeo antes de que ninguna confirme la revocación.
+  const updated = await prisma.refreshToken.updateMany({
+    where: { tokenHash, revocado: false },
+    data: { revocado: true },
+  })
 
+  // Si no se actualizó ninguna fila: el token no existe o ya estaba revocado.
+  if (updated.count === 0) {
+    // Puede ser reutilización — revocar toda la familia por las dudas.
+    const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+    if (stored) {
+      await prisma.refreshToken.updateMany({
+        where: { familyId: stored.familyId },
+        data: { revocado: true },
+      })
+    }
+    throw AppError.unauthorized('Refresh token inválido o reutilizado — sesión revocada')
+  }
+
+  const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } })
   if (!stored) throw AppError.unauthorized('Refresh token inválido')
 
-  // Detección de reutilización: si ya fue revocado, revocar toda la familia
-  if (stored.revocado) {
-    await prisma.refreshToken.updateMany({
-      where: { familyId: stored.familyId },
-      data: { revocado: true },
-    })
-    throw AppError.unauthorized('Refresh token reutilizado — sesión revocada')
-  }
-
   if (stored.expiresAt < new Date()) {
-    await prisma.refreshToken.update({ where: { id: stored.id }, data: { revocado: true } })
     throw AppError.unauthorized('Refresh token expirado')
   }
-
-  // Revocar el token usado
-  await prisma.refreshToken.update({ where: { id: stored.id }, data: { revocado: true } })
 
   const usuario = await prisma.usuario.findUnique({ where: { id: stored.usuarioId } })
   if (!usuario || !usuario.activo) throw AppError.unauthorized('Usuario inactivo')

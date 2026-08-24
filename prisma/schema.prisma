@@ -127,17 +127,25 @@ model CodigoRegistro {
 // =============================================================================
 
 model Persona {
-  id                   String    @id @default(uuid()) @db.Uuid
-  cuil                 String    @unique @db.VarChar(11)
-  numeroDoc            String?   @map("numero_doc") @db.VarChar(20)
-  tipoDoc              String?   @map("tipo_doc") @db.VarChar(10)
-  apellidoNombre       String    @map("apellido_nombre") @db.VarChar(200)
-  fechaNacimiento      DateTime? @map("fecha_nacimiento") @db.Date
-  sexo                 String?   @db.VarChar(10)
-  especialidadPrincipal String?  @map("especialidad_principal") @db.VarChar(200)
-  activo               Boolean   @default(true)
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                    String    @id @default(uuid()) @db.Uuid
+  cuil                  String    @unique @db.VarChar(11)
+  numeroDoc             String?   @map("numero_doc") @db.VarChar(20)
+  tipoDoc               String?   @map("tipo_doc") @db.VarChar(10)
+  apellidoNombre        String    @map("apellido_nombre") @db.VarChar(200)
+  fechaNacimiento       DateTime? @map("fecha_nacimiento") @db.Date
+  sexo                  String?   @db.VarChar(10)
+  especialidadPrincipal String?   @map("especialidad_principal") @db.VarChar(200)
+  // S2-17: contacto y domicilio
+  telefono              String?   @db.VarChar(20)
+  mailPersonal          String?   @map("mail_personal") @db.VarChar(255)
+  mailLaboral           String?   @map("mail_laboral") @db.VarChar(255)
+  domicilio             String?   @db.VarChar(255)
+  localidad             String?   @db.VarChar(150)
+  provincia             String?   @db.VarChar(100)
+  antiguedadDesde       DateTime? @map("antiguedad_desde") @db.Date
+  activo                Boolean   @default(true)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relaciones
   ocupaciones              Ocupacion[]
@@ -161,6 +169,14 @@ model Cargo {
   agrupador         String?      @db.VarChar(150)
   unificadorPuesto  String?      @map("unificador_puesto") @db.VarChar(200)
   regimen           String?      @db.VarChar(50)
+  // S2-17: repartición y clasificaciones SIAL
+  codigoRepa        String?      @map("codigo_repa") @db.VarChar(20)
+  descripcionRepa   String?      @map("descripcion_repa") @db.VarChar(200)
+  codAgrupamiento   String?      @map("cod_agrupamiento") @db.VarChar(20)
+  agrupamiento      String?      @db.VarChar(150)
+  codFamilia        String?      @map("cod_familia") @db.VarChar(20)
+  litFamilia        String?      @map("lit_familia") @db.VarChar(150)
+  puestoCodigoSial  String?      @map("puesto_codigo_sial") @db.VarChar(20)
   estado            EstadoCargo  @default(vigente)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
@@ -186,15 +202,39 @@ model Ocupacion {
   id               String    @id @default(uuid()) @db.Uuid
   personaId        String    @map("persona_id") @db.Uuid
   cargoId          String    @map("cargo_id") @db.Uuid
-  idSialRol        String    @unique @map("id_sial_rol") @db.VarChar(50)
-  cuilYRol         String?   @map("cuil_y_rol") @db.VarChar(80)
-  situacionRevista String?   @map("situacion_revista") @db.VarChar(50)
-  estadoPersona    String?   @map("estado_persona") @db.VarChar(50)
-  desde            DateTime? @db.Date
-  hasta            DateTime? @db.Date
-  snapshotId       String?   @map("snapshot_id") @db.Uuid
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  idSialRol             String    @unique @map("id_sial_rol") @db.VarChar(50)
+  cuilYRol              String?   @map("cuil_y_rol") @db.VarChar(80)
+  situacionRevista      String?   @map("situacion_revista") @db.VarChar(50)
+  estadoPersona         String?   @map("estado_persona") @db.VarChar(50)
+  desde                 DateTime? @db.Date
+  hasta                 DateTime? @db.Date
+  // S2-17: jefatura
+  codigoJefaturas       String?   @map("codigo_jefaturas") @db.VarChar(10)
+  jefeEscalafon         String?   @map("jefe_escalafon") @db.VarChar(50)
+  documentacionJefatura String?   @map("documentacion_jefatura") @db.Text
+  comentariosJefaturas  String?   @map("comentarios_jefaturas") @db.Text
+  escritorio            String?   @db.VarChar(100)
+  pouDesde              DateTime? @map("pou_desde") @db.Date
+  documentacionPou      String?   @map("documentacion_pou") @db.Text
+  // S2-17: comisión
+  comision              String?   @db.VarChar(150)
+  repaComision          String?   @map("repa_comision") @db.VarChar(200)
+  srDocRespaldo         String?   @map("sr_doc_respaldo") @db.Text
+  srComentario          String?   @map("sr_comentario") @db.Text
+  crComentario          String?   @map("cr_comentario") @db.Text
+  // S2-17: bloqueo
+  fechaBloqueo          DateTime? @map("fecha_bloqueo") @db.Date
+  bloqueoComentario     String?   @map("bloqueo_comentario") @db.Text
+  bloqMotivo            String?   @map("bloq_motivo") @db.VarChar(200)
+  codSituacion          String?   @map("cod_situacion") @db.VarChar(10)
+  // S2-17: documentación del rol
+  documentacionDelRol   String?   @map("documentacion_del_rol") @db.Text
+  documentacionBaja     String?   @map("documentacion_baja") @db.Text
+  // S2-17: días de guardia (una fila por día en origen → array)
+  diasGuardia           String[]
+  snapshotId            String?   @map("snapshot_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relaciones
   persona  Persona         @relation(fields: [personaId], references: [id])
@@ -213,14 +253,17 @@ model Ocupacion {
 
 model PadronSnapshot {
   id             String         @id @default(uuid()) @db.Uuid
-  fechaAsignada  DateTime       @unique @map("fecha_asignada") @db.Date
-  filename       String         @db.VarChar(200)
-  totalRegistros Int            @map("total_registros")
-  procesadoPorId String?        @map("procesado_por") @db.Uuid
-  estado         EstadoSnapshot @default(pendiente)
-  aprobadoPorId  String?        @map("aprobado_por") @db.Uuid
-  aprobadoAt     DateTime?      @map("aprobado_at") @db.Timestamptz
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  fechaAsignada        DateTime       @unique @map("fecha_asignada") @db.Date
+  filename             String         @db.VarChar(200)
+  totalRegistros       Int            @map("total_registros")
+  procesadoPorId       String?        @map("procesado_por") @db.Uuid
+  estado               EstadoSnapshot @default(pendiente)
+  aprobadoPorId        String?        @map("aprobado_por") @db.Uuid
+  aprobadoAt           DateTime?      @map("aprobado_at") @db.Timestamptz
+  // S2-16: rutas de archivos generados por el pipeline
+  archivoResultadoPath String?        @map("archivo_resultado_path") @db.VarChar(500)
+  archivoCalidadPath   String?        @map("archivo_calidad_path") @db.VarChar(500)
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones
   procesadoPor    Usuario?          @relation("SnapshotProcesadoPor", fields: [procesadoPorId], references: [id])
@@ -441,6 +484,27 @@ model AuditLog {
 }
 
 // =============================================================================
+// CATALOGOS (S2-14 / S2-15)
+// =============================================================================
+
+model Especialidad {
+  id          String  @id @default(uuid()) @db.Uuid
+  nombre      String  @unique @db.VarChar(200)
+  prioritaria Boolean @default(false)
+  activo      Boolean @default(true)
+
+  @@map("especialidades")
+}
+
+model Puesto {
+  id     String  @id @default(uuid()) @db.Uuid
+  nombre String  @unique @db.VarChar(200)
+  activo Boolean @default(true)
+
+  @@map("puestos")
+}
+
+// =============================================================================
 // TABLAS DE REFERENCIA (Mapeos Dotaneitor)
 // =============================================================================
 
@@ -476,4 +540,68 @@ model RefEspecialidadCuil {
 
   @@index([tipo, cuil])
   @@map("ref_especialidades_cuil")
+}
+
+// S2-13: datos hardcodeados de Dotaneitor → tablas
+
+model RefAbreviaturaTecnica {
+  id       String  @id @default(uuid()) @db.Uuid
+  sigla    String  @unique @db.VarChar(50)
+  activo   Boolean @default(true)
+
+  @@map("ref_abreviaturas_tecnicas")
+}
+
+model RefAbreviaturaTitulo {
+  id       String  @id @default(uuid()) @db.Uuid
+  titulo   String  @unique @db.VarChar(50)
+  activo   Boolean @default(true)
+
+  @@map("ref_abreviaturas_titulo")
+}
+
+model RefCorreccionLitPuesto {
+  id          String  @id @default(uuid()) @db.Uuid
+  codReg      String? @map("cod_reg") @db.VarChar(10) // null = aplica a todos los cod_reg
+  original    String  @db.VarChar(200)
+  correccion  String  @db.VarChar(200)
+  activo      Boolean @default(true)
+
+  @@unique([codReg, original])
+  @@map("ref_correcciones_lit_puesto")
+}
+
+model RefCorreccionEspecialidad {
+  id         String  @id @default(uuid()) @db.Uuid
+  original   String  @unique @db.VarChar(200)
+  correccion String  @db.VarChar(200)
+  activo     Boolean @default(true)
+
+  @@map("ref_correcciones_especialidad")
+}
+
+model RefEspecialidadPorPuesto {
+  id           String  @id @default(uuid()) @db.Uuid
+  agrupador    String  @unique @db.VarChar(150)
+  especialidad String  @db.VarChar(200)
+  purezaPct    Int?    @map("pureza_pct") // % de pureza empírica documentado
+  activo       Boolean @default(true)
+
+  @@map("ref_especialidad_por_puesto")
+}
+
+model RefConectorMinuscula {
+  id       String  @id @default(uuid()) @db.Uuid
+  conector String  @unique @db.VarChar(30)
+  activo   Boolean @default(true)
+
+  @@map("ref_conectores_minuscula")
+}
+
+model RefSufijoOrdinal {
+  id     String  @id @default(uuid()) @db.Uuid
+  sufijo String  @unique @db.VarChar(10)
+  activo Boolean @default(true)
+
+  @@map("ref_sufijos_ordinales")
 }
