@@ -245,6 +245,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       porSialRol.set(d.idSialRol, arr)
     }
 
+    // Caché de catálogos para evitar N queries al mismo hospital/escalafon
+    const hospitalCache = new Map<string, { id: string; sigla: string }>()
+    const escalafonCache = new Map<string, { id: string; nombre: string }>()
+
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
@@ -252,22 +256,26 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       if (tipo === 'nuevo') {
         const datos = JSON.parse(cambios[0]!.valorNuevo ?? '{}')
 
-        let hospital = await tx.hospital.findUnique({ where: { sigla: datos.siglas } })
+        // Hospital — con caché
+        const siglaKey: string = datos.siglas ?? idSialRol
+        let hospital = hospitalCache.get(siglaKey)
         if (!hospital) {
-          hospital = await tx.hospital.create({
-            data: {
-              sigla: datos.siglas ?? idSialRol,
-              nombre: datos.siglas ?? idSialRol,
-              tipo: datos.tipo_hospital_sigla ?? null,
-            },
+          const found = await tx.hospital.findUnique({ where: { sigla: siglaKey } })
+          hospital = found ?? await tx.hospital.create({
+            data: { sigla: siglaKey, nombre: siglaKey, tipo: datos.tipo_hospital_sigla ?? null },
           })
+          hospitalCache.set(siglaKey, hospital)
         }
 
-        let escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon } })
+        // Escalafon — con caché
+        const escalafonKey: string = datos.escalafon ?? idSialRol
+        let escalafon = escalafonCache.get(escalafonKey)
         if (!escalafon) {
-          escalafon = await tx.escalafon.create({
-            data: { codigo: datos.escalafon ?? idSialRol, nombre: datos.escalafon ?? idSialRol },
+          const found = await tx.escalafon.findFirst({ where: { nombre: escalafonKey } })
+          escalafon = found ?? await tx.escalafon.create({
+            data: { codigo: escalafonKey, nombre: escalafonKey },
           })
+          escalafonCache.set(escalafonKey, escalafon)
         }
 
         let persona = datos.cuil
@@ -339,10 +347,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (mappedOcupacion) updateOcupacion[mappedOcupacion] = cambio.valorNuevo ?? ''
         }
 
-        const idSial = idSialRol.split('-')[0]
-        const cargo = await tx.cargo.findUnique({ where: { idSial } })
-        if (cargo && Object.keys(updateCargo).length > 0) {
-          await tx.cargo.update({ where: { id: cargo.id }, data: updateCargo })
+        // Obtener cargoId desde la ocupación (FK directa, no split frágil)
+        const ocupModif = await tx.ocupacion.findUnique({ where: { idSialRol } })
+        if (ocupModif && Object.keys(updateCargo).length > 0) {
+          await tx.cargo.update({ where: { id: ocupModif.cargoId }, data: updateCargo })
         }
         if (Object.keys(updateOcupacion).length > 0) {
           await tx.ocupacion.updateMany({ where: { idSialRol }, data: updateOcupacion })

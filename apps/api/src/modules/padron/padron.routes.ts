@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
+import { requireRole } from '../../shared/middleware/roles.middleware.js'
+import { RolUsuario } from '@srrhh/types'
+import { AppError } from '../../shared/errors/AppError.js'
 import { uploadPadronSchema, diffQuerySchema } from './padron.schema.js'
 import {
   uploadPadronService,
@@ -21,8 +24,8 @@ export async function padronRoutes(app: FastifyInstance) {
     return reply.send({ data: snapshots })
   })
 
-  // POST /upload — S2-2/S2-3/S2-4/S2-12
-  app.post('/upload', async (request, reply) => {
+  // POST /upload — S2-2/S2-3/S2-4/S2-12 (requiere editor o admin)
+  app.post('/upload', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
     const parts = request.parts()
     let fechaAsignada = ''
     let file: Awaited<ReturnType<typeof request.file>> | null = null
@@ -35,7 +38,7 @@ export async function padronRoutes(app: FastifyInstance) {
       }
     }
 
-    if (!file) throw { statusCode: 400, message: 'Archivo requerido' }
+    if (!file) throw AppError.badRequest('Archivo requerido')
 
     const { fechaAsignada: fecha } = uploadPadronSchema.parse({ fechaAsignada })
     const user = request.user as { id: string }
@@ -54,15 +57,15 @@ export async function padronRoutes(app: FastifyInstance) {
     }
   )
 
-  // POST /snapshots/:id/aprobar — S2-6/S2-7
-  app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar', async (request, reply) => {
+  // POST /snapshots/:id/aprobar — S2-6/S2-7 (requiere editor o admin)
+  app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
     const user = request.user as { id: string }
     const result = await aprobarSnapshotService(request.params.id, user.id)
     return reply.send({ data: result })
   })
 
-  // POST /snapshots/:id/rechazar — S2-8
-  app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar', async (request, reply) => {
+  // POST /snapshots/:id/rechazar — S2-8 (requiere editor o admin)
+  app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
     const result = await rechazarSnapshotService(request.params.id)
     return reply.send({ data: result })
   })
