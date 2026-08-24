@@ -4,10 +4,10 @@
 > Fuente: lectura completa de `services/dotaneitor/` (7 módulos Python, ~3300 líneas) el 2026-08-21.
 > Última actualización: 2026-08-24
 > Estado: S0-5, S0-6, S0-7 y S0-10 (Sprint 0) cerradas. Sección 4.1: pasos 14-17 implementados por
-> Jorge en Sprint 2 (S2-13 a S2-19). Sección 7 (deuda técnica): 7 de 9 hallazgos resueltos —
+> Jorge en Sprint 2 (S2-13 a S2-19). Sección 7 (deuda técnica): 8 de 9 hallazgos resueltos —
 > Dotaneitor migrado a Postgres (S2-19), GUI muerta eliminada, performance vectorizada, CORS
-> restringido. Quedan sin resolver solo #3 (recuperación de sesión parcial) y #5 (staleness de
-> `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo).
+> restringido, recuperación de sesión ahora reconstruye el DataFrame procesado. Queda sin resolver
+> solo #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo, sin acción concreta pendiente).
 
 ---
 
@@ -450,6 +450,14 @@ no es un simple "agregar columna".
    sobrevive un reinicio del contenedor, pero `sessions[session_id]` (que tiene el DataFrame
    procesado en memoria) no. Si el contenedor reinicia a mitad de flujo, `get_session()` solo
    puede recuperar el `cargos_path` — hay que repetir `/procesar` y `/cruzar` desde cero.
+   ✅ **Resuelto (S2-1, Agustin, 2026-08-24):** `get_session()` ahora también busca
+   `resultado.parquet` (que `/procesar` y `/cruzar` ya escribían en disco) al recuperar una sesión
+   perdida, y si existe reconstruye el objeto `automation` con ese DataFrame — evita repetir
+   `/procesar`, el paso caro (hasta 48k filas). No se puede distinguir desde el parquet solo si ya
+   había pasado por `/cruzar` también (los dos pasos escriben el mismo archivo), así que se
+   recupera a propósito como "solo procesado" — `/cruzar` es idempotente (nunca pisa un valor ya
+   cargado), repetirlo de más es inofensivo; asumir `cruzado=True` de más no lo sería. Verificado
+   con un test funcional real (`main.get_session()` en proceso, con y sin parquet existente).
 4. El propio README marca `/guardar-bd` como "a eliminar" (la aprobación la va a manejar Node vía
    `POST /api/v1/padron/snapshots/:id/aprobar`), pero hoy sigue implementado con toda su lógica de
    historial contra MySQL (`dot_resultado_historico`, `dot_resultado_historial_cambios`).

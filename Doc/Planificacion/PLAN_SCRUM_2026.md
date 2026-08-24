@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-2 a S2-8, S2-10 a S2-19 (✅) — falta S2-1 (7/9, quedan 2 menores) y S2-9 |
+| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-1 a S2-8, S2-10 a S2-19 (✅) — falta solo S2-9 |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -197,7 +197,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 7/9 hallazgos resueltos — quedan #3 (recuperación de sesión) y #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo) |
+| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | ✅ 8/9 — queda solo #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`), informativo, sin acción pendiente |
 | S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico | ✅ |
 | S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico | ✅ |
@@ -224,10 +224,9 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ### 🚧 Qué falta para cerrar Sprint 2
 
-| Pendiente | Resumen | Desbloqueado por |
-|---|---|---|
-| **S2-1** (2/9 restantes — 7 ya resueltos, incluidos vía S2-19) | Recuperación de sesión parcial tras reinicio del contenedor, y staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO` (informativo, sin acción concreta pendiente). | S2-19 ✅ |
-| **S2-9** | PadronPage: subir archivo + barra de progreso con polling a `/estado` | S2-18 ✅ |
+Solo **S2-9** — PadronPage: subir archivo + barra de progreso con polling a `/estado`
+(desbloqueada, S2-18 ✅). S2-1 quedó completa (8/9, el único hallazgo restante es informativo, sin
+acción pendiente).
 
 **Criterio de éxito:**
 
