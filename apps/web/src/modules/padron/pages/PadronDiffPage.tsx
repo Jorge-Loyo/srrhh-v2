@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { TipoDiff } from '@srrhh/types'
-import { useSnapshotDiff } from '../hooks/usePadron'
+import { useNavigate, useParams } from 'react-router-dom'
+import { RolUsuario, TipoDiff } from '@srrhh/types'
+import { useAuth } from '../../auth/hooks/useAuth'
+import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff } from '../hooks/usePadron'
 
 const TABS: { tipo: TipoDiff; label: string }[] = [
   { tipo: TipoDiff.NUEVO, label: 'Nuevos' },
@@ -40,15 +41,34 @@ function parseRegistro(json: string | null): RegistroPersona {
 
 export function PadronDiffPage() {
   const { snapshotId } = useParams<{ snapshotId: string }>()
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const [tab, setTab] = useState<TipoDiff>(TipoDiff.NUEVO)
   const [page, setPage] = useState(1)
   const limit = 50
 
   const { data, isLoading, isError } = useSnapshotDiff(snapshotId, { page, limit, tipo: tab })
+  const aprobar = useAprobarSnapshot()
+  const rechazar = useRechazarSnapshot()
+
+  const puedeDecidir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
 
   function cambiarTab(nuevoTab: TipoDiff) {
     setTab(nuevoTab)
     setPage(1)
+  }
+
+  async function handleAprobar() {
+    if (!snapshotId) return
+    await aprobar.mutateAsync(snapshotId)
+    navigate('/padron')
+  }
+
+  async function handleRechazar() {
+    if (!snapshotId) return
+    if (!window.confirm('¿Rechazar este padrón? Los diffs no se aplicarán a la base de datos.')) return
+    await rechazar.mutateAsync(snapshotId)
+    navigate('/padron')
   }
 
   if (isLoading) {
@@ -74,18 +94,35 @@ export function PadronDiffPage() {
               {snapshot.filename} · {snapshot.totalRegistros} registros procesados
             </p>
           </div>
-          <span
-            className={
-              snapshot.estado === 'pendiente'
-                ? 'badge-warning'
-                : snapshot.estado === 'aprobado'
-                  ? 'badge-success'
-                  : 'badge-danger'
-            }
-          >
-            {ESTADO_LABELS[snapshot.estado] ?? snapshot.estado}
-          </span>
+          <div className="flex items-center gap-3">
+            <span
+              className={
+                snapshot.estado === 'pendiente'
+                  ? 'badge-warning'
+                  : snapshot.estado === 'aprobado'
+                    ? 'badge-success'
+                    : 'badge-danger'
+              }
+            >
+              {ESTADO_LABELS[snapshot.estado] ?? snapshot.estado}
+            </span>
+            {snapshot.estado === 'pendiente' && puedeDecidir && (
+              <div className="flex gap-2">
+                <button className="btn-outline" onClick={handleRechazar} disabled={aprobar.isPending || rechazar.isPending}>
+                  Rechazar
+                </button>
+                <button className="btn-primary" onClick={handleAprobar} disabled={aprobar.isPending || rechazar.isPending}>
+                  {aprobar.isPending ? 'Aprobando...' : 'Aprobar'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+        {(aprobar.isError || rechazar.isError) && (
+          <p className="text-sm text-danger mt-2">
+            No se pudo completar la operación. Volvé a intentar en unos segundos.
+          </p>
+        )}
       </div>
 
       {/* Tabs */}

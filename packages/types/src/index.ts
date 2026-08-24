@@ -142,6 +142,20 @@ export interface PadronSnapshot {
   aprobadoPor: { username: string } | null
 }
 
+// Devuelto por GET /padron/snapshots/:id/estado (getSnapshotEstadoService) —
+// subconjunto de PadronSnapshot, para pollear mientras runPipeline() corre.
+export type SnapshotEstadoResponse = Pick<
+  PadronSnapshot,
+  'id' | 'estado' | 'pasoActual' | 'errorMsg' | 'totalRegistros'
+>
+
+// Devuelto por POST /padron/upload (uploadPadronService)
+export interface UploadPadronResponse {
+  snapshotId: string
+  fechaAsignada: string
+  totalRegistros: number
+}
+
 export interface PadronDiff {
   id: string
   snapshotId: string
