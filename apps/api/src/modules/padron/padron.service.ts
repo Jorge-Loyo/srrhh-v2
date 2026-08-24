@@ -273,7 +273,14 @@ async function runPipeline(
         data: {
           estado: 'pendiente',
           pasoActual: null,
-          totalRegistros: totalNuevos + totalEliminados + totalModificados,
+          // totalRegistros NO se toca acá: se fija una sola vez, al crear el
+          // snapshot, con la cantidad de filas del Excel subido. Sobreescribirlo
+          // acá con el conteo del diff (nuevos+eliminados+modificados) le cambia
+          // el significado — deja de responder "cuántos registros tenía el
+          // archivo" y pasa a responder "cuántos cambiaron", que es un dato
+          // distinto y ya vive aparte en el summary del diff. El frontend
+          // (PadronDiffPage) muestra este campo como "X registros procesados",
+          // asumiendo que es el conteo del archivo.
         },
       })
     })
