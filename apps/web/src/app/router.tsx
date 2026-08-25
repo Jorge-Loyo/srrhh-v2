@@ -3,6 +3,7 @@ import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
 import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
+import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -22,6 +23,10 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/padron" replace /> },
           { path: 'padron', element: <Placeholder title="Padrón Semanal" /> },
+          // S2-10: la entrada real (lista de snapshots -> click -> acá) llega
+          // con S2-9, todavía bloqueada por S2-18. Mientras tanto la página
+          // es alcanzable directo por URL para poder construirla y probarla.
+          { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <Placeholder title="Personas" /> },
           { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
           { path: 'cargos', element: <Placeholder title="Cargos" /> },

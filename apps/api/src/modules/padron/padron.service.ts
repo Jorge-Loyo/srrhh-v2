@@ -6,9 +6,6 @@ import { env } from '../../config/env.js'
 import type { MultipartFile } from '@fastify/multipart'
 import type { DiffQuery } from './padron.schema.js'
 
-import { Prisma } from '@prisma/client'
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
-
 type PrismaTx = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
 const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000 })
@@ -32,17 +29,269 @@ async function getSnapshotOrThrow(id: string) {
   return snapshot
 }
 
-// ─── S2-12: bloqueo doble carga ───────────────────────────────────────────────
-
-async function assertNoPendiente() {
-  const pendiente = await prisma.padronSnapshot.findFirst({
-    where: { estado: 'pendiente' },
-    select: { id: true, fechaAsignada: true },
-  })
-  if (pendiente) throw AppError.snapshotPendiente()
+// ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
+// Columnas del resultado de Dotaneitor que se comparan campo a campo.
+// Clave: nombre en el DataFrame Python (snake_case del COL_MAP). Valor: campo
+// en Cargo u Ocupacion para saber dónde vive ese dato en el modelo relacional.
+const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
+  literal_puesto:        'cargo',
+  especialidad:          'cargo',
+  agrupador:             'cargo',
+  unificador_de_puestos: 'cargo',
+  situacion_de_revista:  'ocupacion',
+  estado:                'ocupacion',
 }
 
-// ─── S2-2 + S2-3 + S2-4: upload → Python → guardar diff ─────────────────────
+type RegistroPython = Record<string, unknown>
+
+async function fetchAllPreview(sessionId: string): Promise<RegistroPython[]> {
+  const limit = 500
+  let page = 1
+  const all: RegistroPython[] = []
+  while (true) {
+    const { data } = await python.get<{ rows: RegistroPython[]; total: number }>(
+      '/preview', { params: { session_id: sessionId, page, limit } }
+    )
+    all.push(...data.rows)
+    if (all.length >= data.total) break
+    page++
+  }
+  return all
+}
+
+function strVal(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  return String(v).trim()
+}
+
+async function calcularDiff(sessionId: string) {
+  const registros = await fetchAllPreview(sessionId)
+
+  // Mapa id_sial -> registro Python
+  const nuevosMap = new Map<string, RegistroPython>()
+  for (const r of registros) {
+    const idSial = strVal(r['ID SIAL'] ?? r['id_sial'])
+    if (idSial) nuevosMap.set(idSial, r)
+  }
+
+  // Estado actual en Postgres: Cargo + Ocupacion activa (hasta IS NULL)
+  const cargosActuales = await prisma.cargo.findMany({
+    where: { estado: 'vigente' },
+    select: {
+      idSial: true,
+      literalPuesto: true,
+      especialidad: true,
+      agrupador: true,
+      unificadorPuesto: true,
+      ocupaciones: {
+        where: { hasta: null },
+        select: { idSialRol: true, situacionRevista: true, estadoPersona: true, cuilYRol: true },
+        take: 1,
+      },
+    },
+  })
+
+  const actualesMap = new Map<string, typeof cargosActuales[number]>()
+  for (const c of cargosActuales) actualesMap.set(c.idSial, c)
+
+  const nuevosIds   = new Set(nuevosMap.keys())
+  const actualesIds = new Set(actualesMap.keys())
+
+  type DiffEntry = {
+    snapshotId: string
+    tipo: 'nuevo' | 'modificado' | 'eliminado'
+    idSialRol: string
+    campo: string | null
+    valorAnterior: string | null
+    valorNuevo: string | null
+  }
+
+  const diffs: Omit<DiffEntry, 'snapshotId'>[] = []
+
+  // Nuevos
+  for (const idSial of nuevosIds) {
+    if (actualesIds.has(idSial)) continue
+    const r = nuevosMap.get(idSial)!
+    const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
+    const idSialRol = cuilYRol ? `${idSial}-${cuilYRol}` : idSial
+    diffs.push({
+      tipo: 'nuevo',
+      idSialRol,
+      campo: null,
+      valorAnterior: null,
+      valorNuevo: JSON.stringify({
+        id_sial:        idSial,
+        cuil_y_rol:     cuilYRol,
+        ayn:            strVal(r['AYN'] ?? r['ayn']),
+        siglas:         strVal(r['SIGLAS'] ?? r['siglas']),
+        escalafon:      strVal(r['ESCALAFON'] ?? r['escalafon']),
+        literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
+        especialidad:   strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
+        tipo_hospital_sigla: strVal(r['TIPO DE HOSPITAL / SIGLA'] ?? r['tipo_hospital_sigla']),
+        situacion_de_revista: strVal(r['SITUACION DE REVISTA'] ?? r['situacion_de_revista']),
+        estado:         strVal(r['ESTADO'] ?? r['estado']),
+        agrupador:      strVal(r['AGRUPADOR'] ?? r['agrupador']),
+        unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
+      }),
+    })
+  }
+
+  // Eliminados
+  for (const idSial of actualesIds) {
+    if (nuevosIds.has(idSial)) continue
+    const actual = actualesMap.get(idSial)!
+    const ocup = actual.ocupaciones[0]
+    const idSialRol = ocup?.idSialRol ?? idSial
+    diffs.push({
+      tipo: 'eliminado',
+      idSialRol,
+      campo: null,
+      valorAnterior: JSON.stringify({
+        id_sial:        idSial,
+        cuil_y_rol:     ocup?.cuilYRol ?? null,
+        literal_puesto: actual.literalPuesto,
+        especialidad:   actual.especialidad,
+        agrupador:      actual.agrupador,
+        situacion_de_revista: ocup?.situacionRevista ?? null,
+        estado:         ocup?.estadoPersona ?? null,
+      }),
+      valorNuevo: null,
+    })
+  }
+
+  // Modificados
+  const CAMPO_CARGO_MAP: Record<string, keyof typeof cargosActuales[number]> = {
+    literal_puesto:        'literalPuesto',
+    especialidad:          'especialidad',
+    agrupador:             'agrupador',
+    unificador_de_puestos: 'unificadorPuesto',
+  }
+  const CAMPO_OCUP_MAP: Record<string, string> = {
+    situacion_de_revista: 'situacionRevista',
+    estado:               'estadoPersona',
+  }
+
+  for (const idSial of nuevosIds) {
+    if (!actualesIds.has(idSial)) continue
+    const r      = nuevosMap.get(idSial)!
+    const actual = actualesMap.get(idSial)!
+    const ocup   = actual.ocupaciones[0]
+    const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
+    const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
+
+    for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
+      const vNuevo = strVal(r[colPython.toUpperCase().replace(/_/g, ' ')] ?? r[colPython])
+      let vAnterior = ''
+      if (tabla === 'cargo') {
+        const key = CAMPO_CARGO_MAP[colPython]
+        vAnterior = strVal(key ? actual[key] : null)
+      } else {
+        const key = CAMPO_OCUP_MAP[colPython]
+        vAnterior = strVal(key && ocup ? (ocup as Record<string, unknown>)[key] : null)
+      }
+      if (vNuevo !== vAnterior) {
+        diffs.push({
+          tipo: 'modificado',
+          idSialRol,
+          campo: colPython,
+          valorAnterior: vAnterior || null,
+          valorNuevo:    vNuevo   || null,
+        })
+      }
+    }
+  }
+
+  const totalNuevos      = diffs.filter((d) => d.tipo === 'nuevo').length
+  const totalEliminados  = diffs.filter((d) => d.tipo === 'eliminado').length
+  const totalModificados = new Set(diffs.filter((d) => d.tipo === 'modificado').map((d) => d.idSialRol)).size
+  const totalCampos      = diffs.filter((d) => d.tipo === 'modificado').length
+
+  return { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos }
+}
+
+async function assertNoPendiente() {
+  const bloqueante = await prisma.padronSnapshot.findFirst({
+    where: { estado: { in: ['pendiente', 'procesando'] } },
+    select: { id: true, fechaAsignada: true },
+  })
+  if (bloqueante) throw AppError.snapshotPendiente()
+}
+
+async function setPaso(snapshotId: string, paso: string) {
+  await prisma.padronSnapshot.update({
+    where: { id: snapshotId },
+    data: { pasoActual: paso },
+  })
+}
+
+// ─── S2-18: cleanup al arrancar — marcar como error snapshots que quedaron procesando ───
+
+export async function cleanupSnapshotsProcesando() {
+  const { count } = await prisma.padronSnapshot.updateMany({
+    where: { estado: 'procesando' },
+    data: { estado: 'error', errorMsg: 'Proceso interrumpido al reiniciar el servidor', pasoActual: null },
+  })
+  if (count > 0) console.warn(`[padron] cleanup: ${count} snapshot(s) marcados como error por reinicio`)
+}
+
+// ─── S2-18: pipeline en background ───────────────────────────────────────────
+
+async function runPipeline(
+  snapshotId: string,
+  sessionId: string,
+  fechaAsignada: string,
+) {
+  try {
+    await setPaso(snapshotId, 'normalizar')
+    const { data: normJob } = await python.post('/normalizar', { session_id: sessionId })
+    await pollJob(normJob.job_id)
+
+    await setPaso(snapshotId, 'procesar')
+    const { data: procJob } = await python.post('/procesar', {
+      session_id: sessionId,
+      fecha_asignada: fechaAsignada,
+    })
+    await pollJob(procJob.job_id)
+
+    await setPaso(snapshotId, 'cruzar')
+    const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
+    await pollJob(cruzarJob.job_id)
+
+    await setPaso(snapshotId, 'diff')
+    const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
+      await calcularDiff(sessionId)
+
+    await setPaso(snapshotId, 'guardando')
+    await prisma.$transaction(async (tx: PrismaTx) => {
+      if (diffs.length > 0) {
+        await tx.padronDiff.createMany({
+          data: diffs.map((d) => ({ ...d, snapshotId })),
+        })
+      }
+      await tx.padronSnapshot.update({
+        where: { id: snapshotId },
+        data: {
+          estado: 'pendiente',
+          pasoActual: null,
+          totalRegistros: totalNuevos + totalEliminados + totalModificados,
+        },
+      })
+    })
+
+    console.info(`[padron] pipeline completado snapshotId=${snapshotId} nuevos=${totalNuevos} eliminados=${totalEliminados} modificados=${totalModificados} campos=${totalCampos}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await prisma.padronSnapshot.update({
+      where: { id: snapshotId },
+      data: { estado: 'error', errorMsg: msg, pasoActual: null },
+    }).catch(() => {})
+    console.error(`[padron] pipeline error snapshotId=${snapshotId}:`, msg)
+  } finally {
+    python.post('/session/delete', { session_id: sessionId }).catch(() => {})
+  }
+}
+
+// ─── S2-2 + S2-3 + S2-4 + S2-18 + S2-19: upload → dispara pipeline async ────
 
 export async function uploadPadronService(
   file: MultipartFile,
@@ -60,6 +309,8 @@ export async function uploadPadronService(
   const { data: sessionData } = await python.post('/session')
   const sessionId: string = sessionData.session_id
 
+  // Upload sincrónico para obtener totalRegistros antes de responder
+  let totalRegistros = 0
   try {
     const form = new FormData()
     form.append('session_id', sessionId)
@@ -67,101 +318,39 @@ export async function uploadPadronService(
     const { data: uploadData } = await python.post('/upload-cargos', form, {
       headers: form.getHeaders(),
     })
-    const totalRegistros: number = uploadData.rows ?? 0
-
-    const { data: normJob } = await python.post('/normalizar', { session_id: sessionId })
-    await pollJob(normJob.job_id)
-
-    const { data: procJob } = await python.post('/procesar', {
-      session_id: sessionId,
-      fecha_asignada: fechaAsignada,
-    })
-    await pollJob(procJob.job_id)
-
-    const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
-    await pollJob(cruzarJob.job_id)
-
-    const { data: diffData } = await python.post('/diff', {
-      session_id: sessionId,
-      fecha_asignada: fechaAsignada,
-    })
-
-    const snapshot = await prisma.$transaction(async (tx: PrismaTx) => {
-      const snap = await tx.padronSnapshot.create({
-        data: {
-          fechaAsignada: fechaDate,
-          filename: file.filename,
-          totalRegistros,
-          procesadoPorId: usuarioId,
-          estado: 'pendiente',
-        },
-      })
-
-      const diffsToCreate: {
-        snapshotId: string
-        tipo: 'nuevo' | 'modificado' | 'eliminado'
-        idSialRol: string
-        campo: string | null
-        valorAnterior: string | null
-        valorNuevo: string | null
-      }[] = []
-
-      for (const r of diffData.nuevos ?? []) {
-        diffsToCreate.push({
-          snapshotId: snap.id,
-          tipo: 'nuevo',
-          idSialRol: r.id_sial,
-          campo: null,
-          valorAnterior: null,
-          valorNuevo: JSON.stringify(r),
-        })
-      }
-
-      for (const r of diffData.eliminados ?? []) {
-        diffsToCreate.push({
-          snapshotId: snap.id,
-          tipo: 'eliminado',
-          idSialRol: r.id_sial,
-          campo: null,
-          valorAnterior: JSON.stringify(r),
-          valorNuevo: null,
-        })
-      }
-
-      for (const r of diffData.modificados ?? []) {
-        for (const cambio of r.cambios ?? []) {
-          diffsToCreate.push({
-            snapshotId: snap.id,
-            tipo: 'modificado',
-            idSialRol: r.id_sial,
-            campo: cambio.campo,
-            valorAnterior: cambio.antes ?? null,
-            valorNuevo: cambio.despues ?? null,
-          })
-        }
-      }
-
-      if (diffsToCreate.length > 0) {
-        await tx.padronDiff.createMany({ data: diffsToCreate })
-      }
-
-      return snap
-    })
-
-    return {
-      snapshotId: snapshot.id,
-      fechaAsignada,
-      totalRegistros,
-      resumen: {
-        nuevos: diffData.total_nuevos ?? 0,
-        modificados: diffData.total_modificados ?? 0,
-        eliminados: diffData.total_eliminados ?? 0,
-        camposModificados: diffData.total_campos_modificados ?? 0,
-      },
-    }
-  } finally {
+    totalRegistros = uploadData.rows ?? 0
+  } catch (err) {
     python.post('/session/delete', { session_id: sessionId }).catch(() => {})
+    throw err
   }
+
+  // Crear snapshot en estado procesando
+  const snapshot = await prisma.padronSnapshot.create({
+    data: {
+      fechaAsignada: fechaDate,
+      filename: file.filename,
+      totalRegistros,
+      procesadoPorId: usuarioId,
+      estado: 'procesando',
+      pasoActual: 'normalizar',
+    },
+  })
+
+  // Disparar pipeline en background — no await
+  void runPipeline(snapshot.id, sessionId, fechaAsignada)
+
+  return { snapshotId: snapshot.id, fechaAsignada, totalRegistros }
+}
+
+// ─── S2-18: polling de estado ─────────────────────────────────────────────────
+
+export async function getSnapshotEstadoService(id: string) {
+  const snapshot = await prisma.padronSnapshot.findUnique({
+    where: { id },
+    select: { id: true, estado: true, pasoActual: true, errorMsg: true, totalRegistros: true },
+  })
+  if (!snapshot) throw AppError.notFound('Snapshot no encontrado')
+  return snapshot
 }
 
 // ─── S2-5: listar snapshots + diff paginado ───────────────────────────────────
@@ -175,6 +364,8 @@ export async function listSnapshotsService() {
       filename: true,
       totalRegistros: true,
       estado: true,
+      pasoActual: true,
+      errorMsg: true,
       aprobadoAt: true,
       createdAt: true,
       procesadoPor: { select: { username: true } },
@@ -245,28 +436,37 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       porSialRol.set(d.idSialRol, arr)
     }
 
+    // Caché de catálogos para evitar N queries al mismo hospital/escalafon
+    const hospitalCache = new Map<string, { id: string; sigla: string }>()
+    const escalafonCache = new Map<string, { id: string; nombre: string }>()
+
     for (const [idSialRol, cambios] of porSialRol) {
-      const tipo = cambios[0].tipo
+      if (cambios.length === 0) continue
+      const tipo = cambios[0]!.tipo
 
       if (tipo === 'nuevo') {
-        const datos = JSON.parse(cambios[0].valorNuevo ?? '{}')
+        const datos = JSON.parse(cambios[0]!.valorNuevo ?? '{}')
 
-        let hospital = await tx.hospital.findUnique({ where: { sigla: datos.siglas } })
+        // Hospital — con caché
+        const siglaKey: string = datos.siglas ?? idSialRol
+        let hospital = hospitalCache.get(siglaKey)
         if (!hospital) {
-          hospital = await tx.hospital.create({
-            data: {
-              sigla: datos.siglas ?? idSialRol,
-              nombre: datos.siglas ?? idSialRol,
-              tipo: datos.tipo_hospital_sigla ?? null,
-            },
+          const found = await tx.hospital.findUnique({ where: { sigla: siglaKey } })
+          hospital = found ?? await tx.hospital.create({
+            data: { sigla: siglaKey, nombre: siglaKey, tipo: datos.tipo_hospital_sigla ?? null },
           })
+          hospitalCache.set(siglaKey, hospital!)
         }
 
-        let escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon } })
+        // Escalafon — con caché
+        const escalafonKey: string = datos.escalafon ?? idSialRol
+        let escalafon = escalafonCache.get(escalafonKey)
         if (!escalafon) {
-          escalafon = await tx.escalafon.create({
-            data: { codigo: datos.escalafon ?? idSialRol, nombre: datos.escalafon ?? idSialRol },
+          const found = await tx.escalafon.findFirst({ where: { nombre: escalafonKey } })
+          escalafon = found ?? await tx.escalafon.create({
+            data: { codigo: escalafonKey, nombre: escalafonKey },
           })
+          escalafonCache.set(escalafonKey, escalafon!)
         }
 
         let persona = datos.cuil
@@ -283,8 +483,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           cargo = await tx.cargo.create({
             data: {
               idSial: datos.id_sial,
-              hospitalId: hospital.id,
-              escalafonId: escalafon.id,
+              hospitalId: hospital!.id,
+              escalafonId: escalafon!.id,
               literalPuesto: datos.literal_puesto ?? null,
               especialidad: datos.especialidad ?? null,
               agrupador: datos.agrupador ?? null,
@@ -331,15 +531,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
 
         for (const cambio of cambios) {
           if (!cambio.campo) continue
-          const campo = cambio.campo
-          if (camposCargo[campo]) updateCargo[camposCargo[campo]] = cambio.valorNuevo ?? ''
-          if (camposOcupacion[campo]) updateOcupacion[camposOcupacion[campo]] = cambio.valorNuevo ?? ''
+          const campo: string = cambio.campo
+          const mappedCargo = camposCargo[campo]
+          const mappedOcupacion = camposOcupacion[campo]
+          if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
+          if (mappedOcupacion) updateOcupacion[mappedOcupacion] = cambio.valorNuevo ?? ''
         }
 
-        const idSial = idSialRol.split('-')[0]
-        const cargo = await tx.cargo.findUnique({ where: { idSial } })
-        if (cargo && Object.keys(updateCargo).length > 0) {
-          await tx.cargo.update({ where: { id: cargo.id }, data: updateCargo })
+        // Obtener cargoId desde la ocupación (FK directa, no split frágil)
+        const ocupModif = await tx.ocupacion.findUnique({ where: { idSialRol } })
+        if (ocupModif && Object.keys(updateCargo).length > 0) {
+          await tx.cargo.update({ where: { id: ocupModif.cargoId }, data: updateCargo })
         }
         if (Object.keys(updateOcupacion).length > 0) {
           await tx.ocupacion.updateMany({ where: { idSialRol }, data: updateOcupacion })

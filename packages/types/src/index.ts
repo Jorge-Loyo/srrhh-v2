@@ -15,9 +15,11 @@ export enum EstadoCargo {
 }
 
 export enum EstadoSnapshot {
+  PROCESANDO = 'procesando',
   PENDIENTE = 'pendiente',
   APROBADO = 'aprobado',
   RECHAZADO = 'rechazado',
+  ERROR = 'error',
 }
 
 export enum TipoDiff {
@@ -132,8 +134,12 @@ export interface PadronSnapshot {
   filename: string
   totalRegistros: number
   estado: EstadoSnapshot
+  pasoActual: string | null
+  errorMsg: string | null
   aprobadoAt: string | null
   createdAt: string
+  procesadoPor: { username: string } | null
+  aprobadoPor: { username: string } | null
 }
 
 export interface PadronDiff {
@@ -145,6 +151,7 @@ export interface PadronDiff {
   valorAnterior: string | null
   valorNuevo: string | null
   aprobado: boolean
+  createdAt: string
 }
 
 export interface Concurso {
@@ -273,7 +280,9 @@ export interface DiffSummary {
 }
 
 export interface SnapshotDiffResponse {
-  snapshot: PadronSnapshot
+  // Subconjunto de PadronSnapshot: getSnapshotDiffService devuelve solo estos
+  // campos (no aprobadoAt/createdAt/procesadoPor/aprobadoPor).
+  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado'>
   summary: DiffSummary
   diffs: PaginatedResponse<PadronDiff>
 }

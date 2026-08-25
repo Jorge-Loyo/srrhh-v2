@@ -435,6 +435,11 @@ no es un simple "agregar columna".
    uso en el microservicio — `main.py` mockea el módulo `tkinter` completo para poder importar la
    clase de lógica sin arrastrarla. Candidato a separar `DotacionAutomation` a su propio archivo y
    sacar la GUI del servicio (o del repo del microservicio directamente).
+   ✅ **Resuelto (S2-1, 2026-08-24):** se sacó `DotacionGUI` entera de `Dotaneitor.py` (1356→748
+   líneas) — la app de escritorio standalone con GUI sigue viviendo en su repo original
+   (`dotacion-rrhh`), acá no hacía falta. De paso se limpiaron ~10 imports que solo usaba la GUI
+   (`tkinter`, `Path`, `os`, `json`, `shutil`, `datetime`, `Thread`, `NormalizadorCargos`, etc.) y
+   se simplificó `main.py`: ya no necesita mockear `tkinter` para importar `DotacionAutomation`.
 3. **Recuperación de sesión tras reinicio es parcial:** el estado del `job` persiste en disco y
    sobrevive un reinicio del contenedor, pero `sessions[session_id]` (que tiene el DataFrame
    procesado en memoria) no. Si el contenedor reinicia a mitad de flujo, `get_session()` solo
@@ -460,17 +465,31 @@ no es un simple "agregar columna".
    ("< 60 segundos para 48k registros" — `PLAN_SCRUM_2026.md` sección 8); no llegué a medir el
    tiempo real de una corrida completa sobre un archivo de ese tamaño, queda pendiente para
    cuando haya un Cargos_Salud real disponible para probar.
+   ✅ **Resuelto (S2-1, 2026-08-24):** ambas funciones vectorizadas con `np.select`. Medido en
+   48.000 filas sintéticas: `_calcular_jefe_escalafon` 1.685s→0.05s (33x), `_calcular_estado`
+   6.773s→0.18s (37x) — 8.46s combinado baja a 0.23s. Verificado contra la lógica original con 9
+   casos de borde, coincide exactamente. **De paso se encontró y corrigió un bug real:**
+   `_calcular_estado` sacaba la tilde `á` antes de buscar "retencion" en `SIT_REV`, pero la palabra
+   es "retención" (con `ó`, no `á`) — el reemplazo nunca hacía nada y `ESTADO = "Retencion de
+   Cargo"` jamás matcheaba contra datos reales con tilde, caía siempre en "Activo" en silencio.
+   Corregido usando `sin_tilde()` (ya existía en el código, cubre todas las vocales) en vez de un
+   `.replace()` de una sola letra elegida a mano.
 8. **CORS abierto** (`main.py:75-80`): `allow_origins=['*']`, `allow_methods=['*']`,
    `allow_headers=['*']` — contradice la regla del propio README ("el frontend nunca habla
    directamente con este servicio"). Severidad baja mientras el servicio solo sea alcanzable desde
    la red interna de `docker-compose` (no expuesto a internet), pero vale la pena restringirlo
    explícitamente al origen de la API Node cuando se defina el despliegue de producción (Sprint 6).
+   ✅ **Resuelto (S2-1, 2026-08-24):** `allow_origins` sale de la variable de entorno
+   `CORS_ORIGINS` (vacía por default — Node↔Python es server-to-server, CORS no aplica ahí), y
+   `allow_methods` se acotó a `GET`/`POST` (los únicos que usa el servicio).
 9. **Duplicación de lógica** entre `main.py:_cruzar_especialidades()` (usada por el endpoint
    `/cruzar`) y `Dotaneitor.py:DotacionGUI._cruzar_especialidades_thread()` (la misma lógica para
    la GUI standalone) — están escritas por separado, no comparten código más allá de las funciones
    de `especialidades.py`/`especialidad_por_agrupador.py`. Si se corrige algo en una copia hay que
    acordarse de replicarlo en la otra. Se resolvería solo si se elimina la GUI del servicio
    (hallazgo 2).
+   ✅ **Resuelto (S2-1, 2026-08-24):** se resolvió solo al sacar `DotacionGUI` (hallazgo 2) — ya
+   no hay dos copias de la lógica de cruce, solo queda la de `main.py`.
 
 ---
 
