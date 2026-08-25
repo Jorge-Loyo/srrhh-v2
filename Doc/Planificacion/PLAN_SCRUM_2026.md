@@ -429,6 +429,17 @@ con S3-7), CUIL, situación de revista y estado. Verificado con CDP: cargo ocupa
 link a la persona), cargo vacante, y error (cargo no encontrado). Sin errores de consola.
 `tsc --noEmit` limpio.
 
+**S3-10 — actualizado por Agustin sobre la base de Jorge (2026-08-25):** el `exportToCsv` de Jorge
+(página actual, CSV con BOM UTF-8) se reemplazó por `fetchAllPages()`/`downloadExcel()`
+(`shared/lib/exportExcel.ts`, recuperado del stash de la implementación descartada en el choque de
+arriba) en `PersonasPage` y `CargosPage`: exporta **todo el resultado filtrado** paginando en
+bloques de 1000 contra el mismo endpoint de la tabla, y genera un `.xlsx` real con la librería
+`xlsx` (SheetJS, dependencia nueva de `apps/web`) en vez de CSV. Se sacó `export-csv.ts` (dead code
+tras el reemplazo). Verificado con CDP capturando la descarga real (`Page.setDownloadBehavior`) y
+parseando el `.xlsx` resultante: en `PersonasPage`, 130 filas repartidas en 3 páginas de la API se
+juntaron en un solo archivo de 130 filas; en `CargosPage`, mismo resultado. Sin errores de consola.
+`tsc --noEmit` limpio.
+
 ---
 
 ### SPRINT 4 — Concursos CPH
