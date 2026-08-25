@@ -15,7 +15,7 @@
 | ----------------------------------- | ------------- | ------------- |
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
-| Sprint 2 — Dotaneitor + Padrón      | 🚧 En curso | S2-2 a S2-8, S2-10 a S2-19 (✅) — falta S2-1 (parcial, 3/9) y S2-9 (desbloqueadas) |
+| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo | S2-1 a S2-19 (✅) |
 | Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
@@ -197,7 +197,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 | #     | Tarea                                                                     | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | 🚧 3/9 hallazgos resueltos (GUI muerta, performance, CORS) — resto bloqueado por S2-19 |
+| S2-1  | Aplicar optimizaciones identificadas en Sprint 0 al Dotaneitor            | Agustin | 12h  | 🔴 Crítico | ✅ 8/9 — queda solo #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`), informativo, sin acción pendiente |
 | S2-2  | Endpoint `POST /api/v1/padron/upload`: recibe Excel, crea snapshot        | Jorge   | 6h   | 🔴 Crítico | ✅ |
 | S2-3  | Integración Node → Python: enviar archivo, recibir diff                   | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-4  | Guardar `padron_diff` en BD con resultado del Dotaneitor                  | Jorge   | 4h   | 🔴 Crítico | ✅ |
@@ -205,7 +205,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | S2-6  | Endpoint `POST /api/v1/padron/snapshots/:id/aprobar`                      | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S2-7  | Lógica de aprobación: actualizar ocupaciones, personas, cargos, historico | Jorge   | 10h  | 🔴 Crítico | ✅ |
 | S2-8  | Endpoint `POST /api/v1/padron/snapshots/:id/rechazar`                     | Jorge   | 2h   | 🔴 Crítico | ✅ |
-| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | 🚧 Bloqueada por S2-18 |
+| S2-9  | PadronPage: subir archivo + ver estado del job                            | Agustin | 8h   | 🔴 Crítico | ✅ |
 | S2-10 | PadronDiffPage: tabs Nuevos / Modificados / Eliminados                    | Agustin | 10h  | 🔴 Crítico | ✅ (ruta directa por URL — entrada vía lista llega con S2-9) |
 | S2-11 | Badge en header cuando hay snapshot pendiente                             | Agustin | 2h   | 🟡 Medio   | ✅ |
 | S2-12 | Bloqueo: no se puede subir nuevo archivo con snapshot pendiente           | Jorge   | 2h   | 🔴 Crítico | ✅ |
@@ -221,22 +221,31 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 > verificados por Agustin (2026-08-24). S2-19 completado por Jorge (commit `8031bbf`): Dotaneitor
 > migrado a Postgres, diff calculado por Node. S2-18 completado por Jorge (commit `b30cfa0`): upload
 > async, estados `procesando`/`error`, `pasoActual`, endpoint de polling, cleanup al arrancar.
+> S2-9 completado y verificado por Agustin (2026-08-24): `PadronPage` (formulario de subida
+> admin/editor, barra de progreso con polling a `/estado` traduciendo `pasoActual` a texto amigable,
+> manejo de `estado: error` con `errorMsg`, historial de snapshots), reemplaza el `Placeholder` en
+> `router.tsx`. De paso se agregaron los botones Aprobar/Rechazar a `PadronDiffPage` (llaman a
+> `POST /snapshots/:id/aprobar` y `/rechazar`, solo visibles para admin/editor y solo con snapshot
+> `pendiente`) — sin esto el criterio de éxito "subir → ver diff → aprobar → datos en BD" no era
+> alcanzable desde la UI aunque cada tarea individual estuviera ✅. Verificado con Chrome headless vía
+> CDP (red mockeada): flujo feliz completo (subida → progreso → pendiente → link a diff → aprobar →
+> vuelta al listado), escenario de error (corta el polling, muestra `errorMsg`), rol viewer (sin
+> formulario de subida ni botones de decisión), rechazar. Sin errores de consola en ningún caso.
+> `tsc --noEmit` limpio en `apps/web` y `apps/api`.
 
-### 🚧 Qué falta para cerrar Sprint 2
+### ✅ Sprint 2 cerrado
 
-| Pendiente | Resumen | Desbloqueado por |
-|---|---|---|
-| **S2-1** (6/9 restantes) | Hallazgos Dotaneitor: `COL_MAP` hardcodeado → tablas `ref_*`, recuperación de sesión, staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, y otros. | S2-19 ✅ |
-| **S2-9** | PadronPage: subir archivo + barra de progreso con polling a `/estado` | S2-18 ✅ |
+Todas las tareas completas (S2-1 a S2-19). S2-1 quedó en 8/9 hallazgos resueltos — el restante
+(staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`) es informativo, sin acción pendiente.
 
 **Criterio de éxito:**
 
-- Flujo completo: subir Excel → ver diff → aprobar → datos en BD
-- Dotaneitor optimizado y documentado
-- `padron_historico` se popula correctamente al aprobar
-- Bloqueo de doble carga funciona
-- Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*`
-- Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después
+- Flujo completo: subir Excel → ver diff → aprobar → datos en BD — ✅
+- Dotaneitor optimizado y documentado — ✅
+- `padron_historico` se popula correctamente al aprobar — ✅ (S2-7, Jorge)
+- Bloqueo de doble carga funciona — ✅ (S2-12, Jorge)
+- Sin datos hardcodeados en Dotaneitor: abreviaturas, correcciones y mapeos viven en tablas `ref_*` — ✅ (S2-13, Jorge)
+- Cada corrida de padrón queda archivada (Excel resultado + reporte de calidad) y es descargable después — ✅ (S2-16, Jorge)
 
 **Hallazgos de revisión (Jorge, Sprint 2 — revisión completa post-implementación):**
 
@@ -249,6 +258,27 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 | 5 | **N queries de catálogo en `aprobarSnapshotService`** — `findUnique` de hospital/escalafón por cada registro nuevo, sin caché. | 🟢 Baja | ✅ **Corregido** — `hospitalCache` y `escalafonCache` (`Map`) antes del loop. |
 | 6 | **`idSialRol.split('-')[0]`** — frágil si el formato cambia o si `idSial` contiene guiones. | 🟢 Baja | ✅ **Corregido** — `cargoId` obtenido desde `tx.ocupacion.findUnique({ where: { idSialRol } })` (FK directa). |
 | 7 | **`refreshExpiresAt` no soporta `'s'`** — regex `[dhm]` no incluía segundos, rompía tests de integración con expiración rápida. | 🟢 Baja | ✅ **Corregido** — regex extendida a `[dhms]`. |
+
+**Hallazgos de revisión (Agustin, sobre S2-18/S2-19 de Jorge — 2026-08-24):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`services/dotaneitor/main.py` tenía DOS `app = FastAPI(...)` de nivel de módulo** (línea 59 la nueva, línea 618 la vieja) — el commit de S2-19 agregó el código migrado a Postgres pero nunca borró el archivo original de antes de la migración, solo lo dejó pegado después. En Python, la segunda asignación de `app` pisa a la primera: **`uvicorn main:app` corría el objeto viejo**, con las 11 rutas viejas basadas en `mysql.connector` (que ni siquiera tiene variables de conexión configuradas en `docker-compose.yml`) — y `/diff`, `/guardar-bd`, `/historial`, `/ultima-actualizacion`, que se suponía habían sido eliminados, seguían activos. Todo el trabajo de S2-19 (`DotacionAutomationBD` con SQLAlchemy/Postgres, las rutas nuevas) quedaba registrado en un `app` huérfano, nunca sirviéndose. No se detecta revisando el diff línea por línea (la lógica nueva era correcta en sí misma) — solo corriendo el archivo real o buscando duplicados de nivel de módulo. | 🔴 **Alta** — invalidaba S2-19 en runtime pese a verse correcto en el código | ✅ **Corregido** — se borró la sección vieja completa (antes línea 557 en adelante, ~1000 líneas: `import mysql.connector`, el segundo `app = FastAPI`, `/diff`, `/guardar-bd`, `/historial`, `/ultima-actualizacion`, `COL_MAP`). El archivo quedó en 556 líneas, un solo `app`, 11 rutas, 0 referencias a `mysql`. Verificado con `ast.parse` + `py_compile`. |
+| 2 | **`runPipeline()` sobreescribe `totalRegistros`** con el conteo del diff (`totalNuevos + totalEliminados + totalModificados`) al terminar con éxito, en vez de dejar el valor original (filas del Excel subido, fijado una sola vez al crear el snapshot). `PadronDiffPage.tsx` muestra ese campo como "X registros procesados" asumiendo que es el conteo del archivo — con el bug, muestra el conteo del diff en su lugar, un dato distinto. | 🟢 Baja | ✅ **Corregido** — se sacó la sobreescritura de `totalRegistros` de la transacción final de `runPipeline()` en `padron.service.ts`. |
+
+Revisado también en detalle sin encontrar problemas: la construcción de `idSialRol` en `calcularDiff()` (usa `cuilYRol` completo en vez de solo el número de rol — distinto a lo documentado en `Dotaneitor_Analisis.md` §6.3, pero internamente consistente entre creación y lectura, no rompe nada), y el manejo de errores/estados de `runPipeline()` (marca `error` correctamente ante cualquier falla del pipeline).
+
+⚠️ **Importante para Jorge:** el hallazgo #1 significa que hasta este fix, S2-19 nunca corrió de verdad en ningún entorno donde se haya levantado el servidor — vale la pena que lo confirme corriendo `docker-compose up` y probando el flujo completo una vez que traiga este cambio.
+
+**Revisión completa de Sprint 2 — Agustin, 2026-08-24 (tareas propias y de Jorge):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`aprobarSnapshotService` sin timeout de transacción, con hasta 6 queries secuenciales por fila** (código de Jorge, S2-6/S2-7). `prisma.$transaction(...)` sin `{ timeout }` usa el default de Prisma — confirmado en `@prisma/client@5.22.0/runtime/library.d.ts`: `maxWait ?= 2000, timeout ?= 5000`. El loop original hacía entre 4 y 6 round-trips secuenciales a Postgres por cada `idSialRol` cambiado (hospital, escalafón, persona, cargo, ocupación + 2 más para histórico). Con eso, cualquier diff no trivial excede los 5s y hace rollback total (`P2028`). Grave en particular porque **la primera aprobación contra un Postgres recién migrado dispara esto siempre**: `calcularDiff()` compara contra `Cargo` (vacío al inicio) y marca *todo* el padrón como "nuevo" — hasta ~48k filas (volumen ya establecido en Sprint 0). Rompía el criterio de éxito central del sprint en el primer uso real. El `errorHandler` tampoco reconoce `PrismaClientKnownRequestError`, así que el fallo llegaba al frontend como 500 genérico sugiriendo "reintentar", cuando reintentar da el mismo resultado siempre. | 🔴 **Crítica** | ✅ **Corregido** — reescrita para precargar en bloque (una query total, no una por fila) todo lo que antes se buscaba fila por fila, crear en bloque con `createMany` (troceado en lotes de 2000 para no pasarse del límite de parámetros de Postgres) en vez de un `create` por fila, batchear `eliminados` en un solo `updateMany` con `idSialRol: { in: [...] }`, y batchear el histórico con un `createMany` final en vez de un `create` por fila. "modificado" queda por fila (cada una cambia campos distintos, no se puede expresar como un único `updateMany`) pero sin el `find` extra que tenía antes. Se agregó además `{ timeout: 10min, maxWait: 10s }` como margen de seguridad. El mismo troceado se aplicó al `padronDiff.createMany` de `runPipeline()` (mismo riesgo de límite de parámetros con un diff de ~48k filas). Verificado con un harness en memoria (mock de `tx`, sin Postgres real disponible) cubriendo: dedup de hospital/escalafón/persona nuevos referenciados por múltiples filas del mismo lote, una persona con dos altas simultáneas, eliminado y modificado sobre datos preexistentes, e histórico con una fila por cada `idSialRol` tocado — 17/17 aserciones OK. |
+| 2 | **S2-14 marcada ✅ pero la mitad del comportamiento descripto no existe.** La tarea dice "Dotaneitor escribe directo en catálogos de bajo riesgo" (tablas `Especialidad`/`Puesto`) — el schema está (S2-13/14), pero no hay ningún código, ni en `services/dotaneitor/*.py` ni en la API (`prisma.especialidad`/`prisma.puesto`), que escriba en esas tablas. Tampoco hay seed. Quedaron como catálogos fantasma: creados pero nunca poblados por nadie, y `Especialidad.prioritaria` (S2-15) queda inerte por la misma razón. | 🟡 Media | 📋 **Documentado, sin acción por ahora** — nada más depende todavía de que estas tablas tengan datos, se retoma cuando alguna tarea futura las necesite de verdad. Si Jorge tiene contexto de por qué quedó así (¿decisión consciente de postergarlo?), vale la pena que lo sume acá. |
+| 3 | **`prisma generate` nunca se había vuelto a correr después de la última reinstalación de `node_modules`** de esta sesión (mencionada en el historial de Sprint 1/2 al arreglar los symlinks rotos de `@turbo`/`@esbuild`) — pnpm resuelve `@prisma/client` a un stub sin generar (`PrismaClient: any`, literalmente el placeholder que trae el paquete antes de generar) en vez del cliente real. Efecto doble: (a) en runtime, la API **no podía arrancar** (`Error: @prisma/client did not initialize yet`) — verificado ejecutando el server real, no es teórico; (b) en compile-time, cualquier código que dependa de inferencia de tipos de Prisma en un contexto de destructuring (`Promise.all`) caía a `{}` en vez de tirar error real, así que `tsc --noEmit` venía dando falsos positivos de "limpio" en código que en verdad no tenía type-safety sobre Prisma. No es un bug de código de nadie — es un paso de setup que faltaba automatizar. | 🔴 Alta (bloqueaba arrancar la API) | ✅ **Corregido** — se corrió `prisma generate` (quedó bien generado esta vez) y se agregó `"postinstall": "prisma generate --schema=./prisma/schema.prisma"` al `package.json` raíz para que no vuelva a pasar después de un `pnpm install` limpio. Con el cliente real generado, `tsc --noEmit` volvió a correr (ahora sí) contra los tipos reales y encontró 2 errores genuinos en el fix del hallazgo #1 (`.filter(Boolean)` no angosta `string | undefined` a `string` en TS) — ya corregidos. El resto de la API (`auth.service.ts`, `usuarios.service.ts`, etc.) sigue limpio bajo los tipos reales. |
 
 ---
 

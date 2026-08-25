@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import FormData from 'form-data'
 import axios from 'axios'
 import { prisma } from '../../shared/prisma.js'
@@ -6,7 +7,53 @@ import { env } from '../../config/env.js'
 import type { MultipartFile } from '@fastify/multipart'
 import type { DiffQuery } from './padron.schema.js'
 
+// Formas mínimas de las filas que necesitamos de cada modelo — ver comentario
+// junto a su uso en aprobarSnapshotService() sobre por qué se anotan a mano
+// en vez de importar los tipos generados de @prisma/client.
+interface HospitalRow { id: string; sigla: string; nombre: string }
+interface EscalafonRow { id: string; nombre: string }
+interface PersonaRow { id: string; cuil: string }
+interface CargoRow { id: string; idSial: string }
+interface OcupacionFinalRow {
+  personaId: string
+  cargoId: string
+  idSialRol: string
+  estadoPersona: string | null
+  situacionRevista: string | null
+  cargo: {
+    literalPuesto: string | null
+    especialidad: string | null
+    agrupador: string | null
+    hospital: { sigla: string }
+    escalafon: { nombre: string }
+  }
+}
+
 type PrismaTx = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
+
+// Hallazgo crítico (revisión Sprint 2, 2026-08-24): prisma.$transaction sin
+// { timeout } usa el default de Prisma (5000ms — verificado contra
+// @prisma/client/runtime/library.d.ts de la versión instalada). Tanto
+// runPipeline() como aprobarSnapshotService() pueden tocar decenas de miles
+// de filas en una sola corrida (la primera aprobación contra un Postgres
+// recién migrado, en particular: Cargo empieza vacío, así que calcularDiff()
+// marca TODO el padrón — hasta ~48k filas, ver Sprint 0 — como "nuevo"). Con
+// el default de 5s cualquier transacción así hace rollback total con
+// P2028 antes de terminar. TRANSACTION_TIMEOUT_MS da un margen generoso;
+// el resto del fix (más abajo) es evitar N queries secuenciales por fila para
+// que en la práctica ni haga falta acercarse a ese límite.
+const TRANSACTION_OPTS = { timeout: 10 * 60_000, maxWait: 10_000 }
+
+// createMany / "WHERE x IN (...)" con decenas de miles de valores puede
+// superar el límite de parámetros de Postgres (65535) en una sola sentencia.
+// Prisma no siempre lo trocea por vos de forma transparente, así que se hace
+// a mano acá — barato cuando el array es chico (una sola vuelta), necesario
+// cuando es grande.
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
 
 const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000 })
 
@@ -263,9 +310,13 @@ async function runPipeline(
 
     await setPaso(snapshotId, 'guardando')
     await prisma.$transaction(async (tx: PrismaTx) => {
-      if (diffs.length > 0) {
+      // Troceado (ver comentario de TRANSACTION_OPTS): un padrón nuevo contra
+      // un Postgres recién migrado puede generar hasta ~48k diffs "nuevo" en
+      // una sola corrida — un único createMany con esa cantidad de filas
+      // arriesga pasarse del límite de parámetros de Postgres.
+      for (const lote of chunk(diffs, 2000)) {
         await tx.padronDiff.createMany({
-          data: diffs.map((d) => ({ ...d, snapshotId })),
+          data: lote.map((d) => ({ ...d, snapshotId })),
         })
       }
       await tx.padronSnapshot.update({
@@ -273,10 +324,17 @@ async function runPipeline(
         data: {
           estado: 'pendiente',
           pasoActual: null,
-          totalRegistros: totalNuevos + totalEliminados + totalModificados,
+          // totalRegistros NO se toca acá: se fija una sola vez, al crear el
+          // snapshot, con la cantidad de filas del Excel subido. Sobreescribirlo
+          // acá con el conteo del diff (nuevos+eliminados+modificados) le cambia
+          // el significado — deja de responder "cuántos registros tenía el
+          // archivo" y pasa a responder "cuántos cambiaron", que es un dato
+          // distinto y ya vive aparte en el summary del diff. El frontend
+          // (PadronDiffPage) muestra este campo como "X registros procesados",
+          // asumiendo que es el conteo del archivo.
         },
       })
-    })
+    }, TRANSACTION_OPTS)
 
     console.info(`[padron] pipeline completado snapshotId=${snapshotId} nuevos=${totalNuevos} eliminados=${totalEliminados} modificados=${totalModificados} campos=${totalCampos}`)
   } catch (err) {
@@ -422,12 +480,37 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 
 // ─── S2-6 + S2-7: aprobar snapshot ───────────────────────────────────────────
 
+const CAMPOS_CARGO: Record<string, string> = {
+  literal_puesto: 'literalPuesto',
+  especialidad: 'especialidad',
+  agrupador: 'agrupador',
+  unificador_de_puestos: 'unificadorPuesto',
+}
+const CAMPOS_OCUPACION: Record<string, string> = {
+  situacion_de_revista: 'situacionRevista',
+  estado: 'estadoPersona',
+}
+
 export async function aprobarSnapshotService(id: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 
+  // Hallazgo crítico (revisión Sprint 2, 2026-08-24): la versión anterior de
+  // esta función hacía entre 4 y 6 queries secuenciales POR CADA idSialRol
+  // cambiado, todo dentro de un único $transaction — con el default de 5s de
+  // Prisma eso hace rollback total (P2028) apenas el diff deja de ser
+  // trivial, y la primera aprobación contra un Postgres recién migrado
+  // (Cargo vacío ⇒ calcularDiff() marca TODO el padrón como "nuevo", hasta
+  // ~48k filas) lo garantiza siempre. Reescrita para precargar en bloque todo
+  // lo que antes se buscaba fila por fila, y escribir en bloque (createMany /
+  // updateMany con `in`) en vez de un create/update por fila. "modificado"
+  // sigue siendo una query por fila para Cargo/Ocupacion porque cada fila
+  // cambia campos distintos (no se puede expresar como un solo updateMany) —
+  // aceptable porque el caso que escala a decenas de miles de filas es
+  // siempre "nuevo" (carga inicial), no "modificado" (cambios semana a
+  // semana, volumen mucho menor).
   await prisma.$transaction(async (tx: PrismaTx) => {
     const porSialRol = new Map<string, typeof diffs>()
     for (const d of diffs) {
@@ -436,151 +519,206 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       porSialRol.set(d.idSialRol, arr)
     }
 
-    // Caché de catálogos para evitar N queries al mismo hospital/escalafon
-    const hospitalCache = new Map<string, { id: string; sigla: string }>()
-    const escalafonCache = new Map<string, { id: string; nombre: string }>()
-
+    const nuevos: { idSialRol: string; datos: Record<string, string> }[] = []
+    const eliminados: string[] = []
+    const modificados: { idSialRol: string; cambios: typeof diffs }[] = []
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
+      if (tipo === 'nuevo') nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'eliminado') eliminados.push(idSialRol)
+      else if (tipo === 'modificado') modificados.push({ idSialRol, cambios })
+    }
 
-      if (tipo === 'nuevo') {
-        const datos = JSON.parse(cambios[0]!.valorNuevo ?? '{}')
+    const todosLosIdSialRol = [...porSialRol.keys()]
 
-        // Hospital — con caché
-        const siglaKey: string = datos.siglas ?? idSialRol
-        let hospital = hospitalCache.get(siglaKey)
-        if (!hospital) {
-          const found = await tx.hospital.findUnique({ where: { sigla: siglaKey } })
-          hospital = found ?? await tx.hospital.create({
-            data: { sigla: siglaKey, nombre: siglaKey, tipo: datos.tipo_hospital_sigla ?? null },
-          })
-          hospitalCache.set(siglaKey, hospital!)
-        }
+    // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
+    const siglasNecesarias = [...new Set(nuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
+    const escalafonesNecesarios = [...new Set(nuevos.map((n) => n.datos.escalafon ?? n.idSialRol))]
+    const cuilsNecesarios = [...new Set(nuevos.map((n) => n.datos.cuil).filter((v): v is string => Boolean(v)))]
+    const idSialsNecesarios = [...new Set(nuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
 
-        // Escalafon — con caché
-        const escalafonKey: string = datos.escalafon ?? idSialRol
-        let escalafon = escalafonCache.get(escalafonKey)
-        if (!escalafon) {
-          const found = await tx.escalafon.findFirst({ where: { nombre: escalafonKey } })
-          escalafon = found ?? await tx.escalafon.create({
-            data: { codigo: escalafonKey, nombre: escalafonKey },
-          })
-          escalafonCache.set(escalafonKey, escalafon!)
-        }
+    // `{ in: [] }` es válido en Prisma (devuelve 0 filas) — no hace falta
+    // condicionar la query a que el array no esté vacío.
+    // Cast explícito de los resultados: en este entorno pnpm, la copia de
+    // '@prisma/client' que TypeScript resuelve para el paquete es el stub sin
+    // generar que trae el propio npm package (PrismaClient = any) en vez del
+    // cliente generado real que vive en la raíz del monorepo — @prisma/client
+    // en tiempo de ejecución sí usa el generado (por eso todo funciona
+    // corriendo), pero en tiempo de compilación tx.<modelo> resuelve a `any`,
+    // que colapsa a `{}` en este tipo de contexto (Promise.all + destructure)
+    // y tira "implicitly any" en los .map() de más abajo. Anotar el resultado
+    // a mano con la forma mínima que se usa evita depender de esa resolución
+    // rota sin tener que arreglar la instalación de pnpm para esto.
+    const [hospitalesExistentes, escalafonesExistentes, personasExistentes, cargosExistentes, ocupacionesExistentes] =
+      await Promise.all([
+        tx.hospital.findMany({ where: { sigla: { in: siglasNecesarias } } }) as Promise<HospitalRow[]>,
+        tx.escalafon.findMany({ where: { nombre: { in: escalafonesNecesarios } } }) as Promise<EscalafonRow[]>,
+        tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
+        tx.cargo.findMany({ where: { idSial: { in: idSialsNecesarios } } }) as Promise<CargoRow[]>,
+        tx.ocupacion.findMany({
+          where: { idSialRol: { in: todosLosIdSialRol } },
+          select: { idSialRol: true, cargoId: true },
+        }) as Promise<{ idSialRol: string; cargoId: string }[]>,
+      ])
 
-        let persona = datos.cuil
-          ? await tx.persona.findUnique({ where: { cuil: datos.cuil } })
-          : null
-        if (!persona && datos.cuil) {
-          persona = await tx.persona.create({
-            data: { cuil: datos.cuil, apellidoNombre: datos.ayn ?? '' },
-          })
-        }
+    const hospitalCache = new Map(hospitalesExistentes.map((h) => [h.sigla, h]))
+    const escalafonCache = new Map(escalafonesExistentes.map((e) => [e.nombre, e]))
+    const personaCache = new Map(personasExistentes.map((p) => [p.cuil, p]))
+    const cargoCache = new Map(cargosExistentes.map((c) => [c.idSial, c]))
+    const ocupacionExistenteMap = new Map(ocupacionesExistentes.map((o) => [o.idSialRol, o]))
 
-        let cargo = await tx.cargo.findUnique({ where: { idSial: datos.id_sial } })
-        if (!cargo) {
-          cargo = await tx.cargo.create({
-            data: {
-              idSial: datos.id_sial,
-              hospitalId: hospital!.id,
-              escalafonId: escalafon!.id,
-              literalPuesto: datos.literal_puesto ?? null,
-              especialidad: datos.especialidad ?? null,
-              agrupador: datos.agrupador ?? null,
-              unificadorPuesto: datos.unificador_de_puestos ?? null,
-            },
-          })
-        }
+    // ── 2. Crear en bloque hospitales / escalafones faltantes (catálogos —
+    //       cardinalidad chica, no escala con la cantidad de filas) ────────
+    for (const sigla of siglasNecesarias) {
+      if (hospitalCache.has(sigla)) continue
+      const datos = nuevos.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
+      const h = await tx.hospital.create({
+        data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla ?? null },
+      })
+      hospitalCache.set(sigla, h)
+    }
+    for (const nombre of escalafonesNecesarios) {
+      if (escalafonCache.has(nombre)) continue
+      const e = await tx.escalafon.create({ data: { codigo: nombre, nombre } })
+      escalafonCache.set(nombre, e)
+    }
 
-        if (persona) {
-          const existeOcupacion = await tx.ocupacion.findUnique({ where: { idSialRol } })
-          if (!existeOcupacion) {
-            await tx.ocupacion.create({
-              data: {
-                personaId: persona.id,
-                cargoId: cargo.id,
-                idSialRol,
-                cuilYRol: datos.cuil_y_rol ?? null,
-                situacionRevista: datos.situacion_de_revista ?? null,
-                estadoPersona: datos.estado ?? null,
-                snapshotId: id,
-              },
-            })
-          }
-        }
-      } else if (tipo === 'eliminado') {
-        await tx.ocupacion.updateMany({
-          where: { idSialRol },
-          data: { hasta: new Date() },
+    // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
+    const personasACrear = new Map<string, { id: string; cuil: string; apellidoNombre: string }>()
+    const cargosACrear = new Map<
+      string,
+      {
+        id: string
+        idSial: string
+        hospitalId: string
+        escalafonId: string
+        literalPuesto: string | null
+        especialidad: string | null
+        agrupador: string | null
+        unificadorPuesto: string | null
+      }
+    >()
+    for (const { datos } of nuevos) {
+      if (datos.cuil && !personaCache.has(datos.cuil) && !personasACrear.has(datos.cuil)) {
+        personasACrear.set(datos.cuil, { id: randomUUID(), cuil: datos.cuil, apellidoNombre: datos.ayn ?? '' })
+      }
+      if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
+        const hospital = hospitalCache.get(datos.siglas ?? '')!
+        const escalafon = escalafonCache.get(datos.escalafon ?? '')!
+        cargosACrear.set(datos.id_sial, {
+          id: randomUUID(),
+          idSial: datos.id_sial,
+          hospitalId: hospital.id,
+          escalafonId: escalafon.id,
+          literalPuesto: datos.literal_puesto ?? null,
+          especialidad: datos.especialidad ?? null,
+          agrupador: datos.agrupador ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
-      } else if (tipo === 'modificado') {
-        const camposCargo: Record<string, string> = {
-          literal_puesto: 'literalPuesto',
-          especialidad: 'especialidad',
-          agrupador: 'agrupador',
-          unificador_de_puestos: 'unificadorPuesto',
-        }
-        const camposOcupacion: Record<string, string> = {
-          situacion_de_revista: 'situacionRevista',
-          estado: 'estadoPersona',
-        }
+      }
+    }
 
-        const updateCargo: Record<string, string> = {}
-        const updateOcupacion: Record<string, string> = {}
+    for (const lote of chunk([...personasACrear.values()], 2000)) {
+      await tx.persona.createMany({ data: lote, skipDuplicates: true })
+    }
+    for (const p of personasACrear.values()) personaCache.set(p.cuil, p)
 
-        for (const cambio of cambios) {
-          if (!cambio.campo) continue
-          const campo: string = cambio.campo
-          const mappedCargo = camposCargo[campo]
-          const mappedOcupacion = camposOcupacion[campo]
-          if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
-          if (mappedOcupacion) updateOcupacion[mappedOcupacion] = cambio.valorNuevo ?? ''
-        }
+    for (const lote of chunk([...cargosACrear.values()], 2000)) {
+      await tx.cargo.createMany({ data: lote, skipDuplicates: true })
+    }
+    for (const c of cargosACrear.values()) cargoCache.set(c.idSial, c)
 
-        // Obtener cargoId desde la ocupación (FK directa, no split frágil)
-        const ocupModif = await tx.ocupacion.findUnique({ where: { idSialRol } })
-        if (ocupModif && Object.keys(updateCargo).length > 0) {
-          await tx.cargo.update({ where: { id: ocupModif.cargoId }, data: updateCargo })
-        }
-        if (Object.keys(updateOcupacion).length > 0) {
-          await tx.ocupacion.updateMany({ where: { idSialRol }, data: updateOcupacion })
-        }
+    const ocupacionesACrear: {
+      id: string
+      personaId: string
+      cargoId: string
+      idSialRol: string
+      cuilYRol: string | null
+      situacionRevista: string | null
+      estadoPersona: string | null
+      snapshotId: string
+    }[] = []
+    for (const { idSialRol, datos } of nuevos) {
+      if (ocupacionExistenteMap.has(idSialRol)) continue
+      const persona = datos.cuil ? personaCache.get(datos.cuil) : null
+      const cargo = datos.id_sial ? cargoCache.get(datos.id_sial) : null
+      if (!persona || !cargo) continue
+      ocupacionesACrear.push({
+        id: randomUUID(),
+        personaId: persona.id,
+        cargoId: cargo.id,
+        idSialRol,
+        cuilYRol: datos.cuil_y_rol ?? null,
+        situacionRevista: datos.situacion_de_revista ?? null,
+        estadoPersona: datos.estado ?? null,
+        snapshotId: id,
+      })
+    }
+    for (const lote of chunk(ocupacionesACrear, 2000)) {
+      await tx.ocupacion.createMany({ data: lote, skipDuplicates: true })
+    }
+    for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
+
+    // ── 4. Eliminados: un solo updateMany con `in` para todos ──────────────
+    for (const lote of chunk(eliminados, 2000)) {
+      if (!lote.length) continue
+      await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: new Date() } })
+    }
+
+    // ── 5. Modificados: sigue siendo por fila (cada una cambia campos
+    //       distintos), pero sin el find extra — usa la precarga del paso 1 ─
+    for (const { idSialRol, cambios } of modificados) {
+      const updateCargo: Record<string, string> = {}
+      const updateOcupacion: Record<string, string> = {}
+      for (const cambio of cambios) {
+        if (!cambio.campo) continue
+        const mappedCargo = CAMPOS_CARGO[cambio.campo]
+        const mappedOcupacion = CAMPOS_OCUPACION[cambio.campo]
+        if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
+        if (mappedOcupacion) updateOcupacion[mappedOcupacion] = cambio.valorNuevo ?? ''
       }
 
-      // Guardar en historico
-      const ocupacion = await tx.ocupacion.findUnique({ where: { idSialRol } })
-      if (ocupacion) {
-        const cargo = await tx.cargo.findUnique({
-          where: { id: ocupacion.cargoId },
-          include: { hospital: true, escalafon: true },
-        })
-        if (cargo) {
-          await tx.padronHistorico.create({
-            data: {
-              snapshotId: id,
-              fechaAsignada: snapshot.fechaAsignada,
-              personaId: ocupacion.personaId,
-              cargoId: cargo.id,
-              idSialRol,
-              escalafon: cargo.escalafon.nombre,
-              hospitalSigla: cargo.hospital.sigla,
-              literalPuesto: cargo.literalPuesto,
-              especialidad: cargo.especialidad,
-              agrupador: cargo.agrupador,
-              estadoPersona: ocupacion.estadoPersona,
-              situacionRevista: ocupacion.situacionRevista,
-            },
-          })
-        }
+      const ocupExistente = ocupacionExistenteMap.get(idSialRol)
+      if (ocupExistente && Object.keys(updateCargo).length > 0) {
+        await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }
+      if (Object.keys(updateOcupacion).length > 0) {
+        await tx.ocupacion.update({ where: { idSialRol }, data: updateOcupacion })
+      }
+    }
+
+    // ── 6. Histórico: una sola lectura en bloque del estado final de todas
+    //       las ocupaciones tocadas, y un createMany en vez de un create por
+    //       fila ────────────────────────────────────────────────────────────
+    const ocupacionesFinales = (await tx.ocupacion.findMany({
+      where: { idSialRol: { in: todosLosIdSialRol } },
+      include: { cargo: { include: { hospital: true, escalafon: true } } },
+    })) as OcupacionFinalRow[]
+    const historicoEntries = ocupacionesFinales.map((ocupacion) => ({
+      id: randomUUID(),
+      snapshotId: id,
+      fechaAsignada: snapshot.fechaAsignada,
+      personaId: ocupacion.personaId,
+      cargoId: ocupacion.cargoId,
+      idSialRol: ocupacion.idSialRol,
+      escalafon: ocupacion.cargo.escalafon.nombre,
+      hospitalSigla: ocupacion.cargo.hospital.sigla,
+      literalPuesto: ocupacion.cargo.literalPuesto,
+      especialidad: ocupacion.cargo.especialidad,
+      agrupador: ocupacion.cargo.agrupador,
+      estadoPersona: ocupacion.estadoPersona,
+      situacionRevista: ocupacion.situacionRevista,
+    }))
+    for (const lote of chunk(historicoEntries, 2000)) {
+      await tx.padronHistorico.createMany({ data: lote })
     }
 
     await tx.padronSnapshot.update({
       where: { id },
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
     })
-  })
+  }, TRANSACTION_OPTS)
 
   return { ok: true, snapshotId: id }
 }
