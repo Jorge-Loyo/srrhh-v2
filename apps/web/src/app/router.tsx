@@ -5,6 +5,7 @@ import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
+import { PersonasPage } from '../modules/personas/pages/PersonasPage'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -25,7 +26,9 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/padron" replace /> },
           { path: 'padron', element: <PadronPage /> },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
-          { path: 'personas', element: <Placeholder title="Personas" /> },
+          { path: 'personas', element: <PersonasPage /> },
+          // S3-7: el panel de detalle todavía no existe — placeholder hasta
+          // la próxima tarea. La tabla de arriba ya navega acá al hacer clic.
           { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
           { path: 'cargos', element: <Placeholder title="Cargos" /> },
           { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },

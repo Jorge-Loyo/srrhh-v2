@@ -322,7 +322,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 | S3-3  | Filtros personas: hospital, escalafón, activo, búsqueda libre   | Jorge   | 4h   | 🟡 Medio   | ✅  |
 | S3-4  | `GET /api/v1/cargos` paginado con filtros                       | Jorge   | 4h   | 🔴 Crítico | ✅  |
 | S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico | ✅  |
-| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ⏳  |
 | S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ⏳  |
 | S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
@@ -348,6 +348,21 @@ Las 5 tareas de Jorge (S3-1 a S3-5, S3-11) se implementaron y probaron contra la
 - `packages/types` ganó `PersonaDetail` y `CargoDetail` (antes no existían formas explícitas para las respuestas de detalle con relaciones expandidas) — Agustin puede tipar `PersonaDetailPanel`/`CargoDetailPanel` (S3-7/S3-9) contra estos tipos sin adivinar la forma de la respuesta.
 
 Nada de S3-6 a S3-10 (frontend) se tocó — son de Agustin. `PersonaFilters`/`CargoFilters` en `packages/types` ya reflejan exactamente los query params que aceptan los endpoints reales, así que los hooks de TanStack Query se pueden tipar contra eso directamente.
+
+**S3-6 completado y verificado por Agustin (2026-08-25):** `PersonasPage` — tabla, búsqueda con
+debounce de 300ms (`useDebouncedValue`, hook nuevo en `shared/hooks/`), y de paso los 3 filtros
+completos (hospital, escalafón, activo) en vez de solo búsqueda, ya que estaban en el contrato
+(`PersonaFilters`) aunque no nombrados en el título de la tarea. Requirió agregar
+`GET /api/v1/escalafones` (no existía — `hospitales.routes.ts` sí tenía su equivalente, este lo
+espeja) para poder poblar el dropdown de escalafón sin pedir el UUID a mano; registrado en `app.ts`.
+`useHospitales` se movió de `modules/usuarios/hooks/` a `shared/hooks/useCatalogos.ts` (ya no tiene
+sentido que viva bajo usuarios si personas/cargos también lo necesitan) — re-exportado desde su
+ubicación anterior para no romper el import existente en `AdminUsuariosPage`. Fila de la tabla
+navega a `/personas/:id` (placeholder hasta S3-7). Verificado con Chrome headless vía CDP (red
+mockeada): debounce real (tipear letra por letra dispara una sola request, no una por tecla),
+filtros combinables entre sí y con la búsqueda, paginación preservando los filtros activos,
+navegación al hacer clic en una fila, estados vacío y de error. Sin errores de consola en ningún
+caso. `tsc --noEmit` limpio en `apps/web` y `apps/api`.
 
 ---
 
