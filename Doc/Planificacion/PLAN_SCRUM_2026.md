@@ -325,7 +325,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 | S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ✅  |
-| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
+| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ✅  |
 | S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ⏳  |
 | S3-11 | Índice GIN tsvector en `personas.apellido_nombre` (migración)   | Jorge   | 3h   | 🟡 Medio   | ✅  |
 
@@ -380,6 +380,14 @@ histórico, muestra el estado vacío en vigentes). Sin errores de consola. `tsc 
 vigente/todos, default "vigentes") en vez de `activo`. Fila navega a `/cargos/:id` (placeholder
 hasta S3-9). Verificado con CDP: filtro de estado preseleccionado en "vigentes", debounce real (una
 sola request), navegación al hacer clic, estados vacío y de error. Sin errores de consola.
+`tsc --noEmit` limpio.
+
+**S3-9 completado y verificado por Agustin (2026-08-25):** `CargoDetailPanel` — reemplaza el
+placeholder en `/cargos/:id`. Datos del cargo (hospital, escalafón, régimen, especialidad,
+agrupador, unificador de puesto) + sección de ocupación actual: si `ocupacionActual` es `null`
+muestra "Cargo vacante"; si no, muestra la persona (con link directo a `/personas/:id`, cruzando
+con S3-7), CUIL, situación de revista y estado. Verificado con CDP: cargo ocupado (incluyendo el
+link a la persona), cargo vacante, y error (cargo no encontrado). Sin errores de consola.
 `tsc --noEmit` limpio.
 
 ---
