@@ -150,6 +150,14 @@ srh-v2/
 - Pull Requests obligatorios para mergear a `develop` y `main`
 - Branch protection en `main`: requiere PR + review
 
+> ⚠️ **Limitación conocida (2026-08-25):** la regla de branch protection en `main`
+> está creada en GitHub (`Settings → Branches`) pero **no se hace cumplir** —
+> GitHub Free para organizaciones no aplica branch protection en repos
+> privados, hace falta plan Team o Enterprise. Hoy esto es un acuerdo de
+> proceso (PR + review antes de mergear a `main`), no un bloqueo técnico: un
+> push directo a `main` todavía es posible. Si la organización pasa a un plan
+> pago, la regla ya existente empieza a aplicarse sola, sin reconfigurar nada.
+
 ---
 
 ## Reglas que no se negocian
