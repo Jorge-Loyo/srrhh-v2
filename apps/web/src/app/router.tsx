@@ -7,6 +7,7 @@ import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
+import { CargosPage } from '../modules/cargos/pages/CargosPage'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -29,7 +30,10 @@ export const router = createBrowserRouter([
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
-          { path: 'cargos', element: <Placeholder title="Cargos" /> },
+          { path: 'cargos', element: <CargosPage /> },
+          // S3-9: el panel de detalle todavía no existe — placeholder hasta
+          // la próxima tarea. La tabla de arriba ya navega acá al hacer clic.
+          { path: 'cargos/:id', element: <Placeholder title="Detalle Cargo" /> },
           { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
           { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
           { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },

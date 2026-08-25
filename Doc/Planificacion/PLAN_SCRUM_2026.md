@@ -324,7 +324,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 | S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico | ✅  |
 | S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ✅  |
-| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
 | S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ⏳  |
 | S3-11 | Índice GIN tsvector en `personas.apellido_nombre` (migración)   | Jorge   | 3h   | 🟡 Medio   | ✅  |
@@ -374,6 +374,13 @@ mostraba `31/12/2019`). Se arma la fecha a mano desde los componentes de calenda
 pasar por UTC. Verificado con CDP: flujo feliz (fechas correctas, ocupaciones vigentes/histórico
 separadas bien), error (persona no encontrada), y persona sin ocupaciones (oculta la sección de
 histórico, muestra el estado vacío en vigentes). Sin errores de consola. `tsc --noEmit` limpio.
+
+**S3-8 completado y verificado por Agustin (2026-08-25):** `CargosPage` — mismo patrón que
+`PersonasPage` (tabla, búsqueda debounce 300ms, filtros combinables), con `estado` (vigente/no
+vigente/todos, default "vigentes") en vez de `activo`. Fila navega a `/cargos/:id` (placeholder
+hasta S3-9). Verificado con CDP: filtro de estado preseleccionado en "vigentes", debounce real (una
+sola request), navegación al hacer clic, estados vacío y de error. Sin errores de consola.
+`tsc --noEmit` limpio.
 
 ---
 
