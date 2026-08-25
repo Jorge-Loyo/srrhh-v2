@@ -440,6 +440,19 @@ parseando el `.xlsx` resultante: en `PersonasPage`, 130 filas repartidas en 3 p�
 juntaron en un solo archivo de 130 filas; en `CargosPage`, mismo resultado. Sin errores de consola.
 `tsc --noEmit` limpio.
 
+**Hallazgo reportado por Jorge probando en `/personas` (2026-08-25):** el dropdown "Todos los
+escalafones" traía 13 opciones, 3 de ellas (`Carrera Profesional Hospitalaria`, `Carrera de
+Enfermería`, `Carrera de Técnicos de la Salud` — los 3 escalafones del seed, `prisma/seed.ts`,
+pensados como categorías del flujo de concursos CPH/CEETPS, no como valores reales de la columna
+`ESCALAFON` del padrón) con **0 cargos reales** cada una — nunca aparecen tal cual en los datos que
+procesa el Dotaneitor (que usa `Médicos`, `Escalafón General`, `CEETPS`, etc., creados on-the-fly
+por `aprobarSnapshotService` en Sprint 2). Verificado con una query directa a la BD (`cargos_count`
+por escalafón): los 10 escalafones reales tienen entre 42 y 22.504 cargos cada uno; los 3 del seed,
+0. | ✅ **Corregido** — `escalafones.routes.ts` ahora filtra `cargos: { some: {} } }` (relation
+filter de Prisma: al menos un cargo real), dejando solo lo que la columna `ESCALAFON` del padrón
+efectivamente produce. Verificado contra la API real: `GET /api/v1/escalafones` pasó de 13 a 10
+resultados, exactamente los 10 con cargos.
+
 ---
 
 ### SPRINT 4 — Concursos CPH
