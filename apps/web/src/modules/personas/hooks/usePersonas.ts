@@ -1,10 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import type { PaginatedResponse, Persona, PersonaDetail, PersonaFilters } from '@srrhh/types'
+import type { Persona, PersonaDetail, PersonaFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
-// S3-1/S3-3 (Jorge): GET /personas ya devuelve { data, meta } directo (no
-// envuelto en otro "data" — a diferencia de /padron/snapshots, acá el shape
-// completo es la respuesta).
+// S3-1 + S3-3: listado paginado con full-text search + filtros.
 export function usePersonas(filters: PersonaFilters) {
   return useQuery({
     queryKey: ['personas', filters],
@@ -14,12 +12,13 @@ export function usePersonas(filters: PersonaFilters) {
       })
       return res.data
     },
-    // mantiene la página anterior visible mientras llega la nueva — evita el
-    // parpadeo a "cargando" en cada tecla del buscador o cambio de filtro.
+    // La página anterior se sigue mostrando mientras llega la nueva — evita
+    // el parpadeo a "cargando" en cada tecla de búsqueda o cambio de página.
     placeholderData: (prev) => prev,
   })
 }
 
+// S3-2: detalle con ocupaciones.
 export function usePersona(id: string | undefined) {
   return useQuery({
     queryKey: ['personas', id],

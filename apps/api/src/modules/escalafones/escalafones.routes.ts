@@ -2,9 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { prisma } from '../../shared/prisma.js'
 
-// S3-6/S3-8 (Agustin): faltaba un endpoint para listar escalafones — hospitales.routes.ts
-// ya tenía su equivalente, este lo espeja para poder poblar el dropdown de filtro de
-// PersonasPage/CargosPage sin pedir a mano cada UUID de escalafón.
+// Necesario para los selectores de filtro de PersonasPage/CargosPage (S3-3/S3-8)
+// — no existía ningún endpoint de escalafones todavía, solo hospitales.
 export async function escalafonesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 

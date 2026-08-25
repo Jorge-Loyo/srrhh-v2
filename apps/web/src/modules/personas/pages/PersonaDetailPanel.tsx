@@ -1,143 +1,110 @@
 import { Link, useParams } from 'react-router-dom'
 import { usePersona } from '../hooks/usePersonas'
 
-// `fechaNacimiento`/`desde`/`hasta` son columnas @db.Date (sin hora) que
-// llegan serializadas como "YYYY-MM-DD..." (medianoche UTC). `new Date(iso)`
-// las parsea como UTC y `toLocaleDateString` las vuelve a mostrar en la
-// timezone local — en cualquier timezone con offset negativo (Argentina,
-// UTC-3) eso corre la fecha un día para atrás (ej. "2020-01-01" se mostraba
-// "31/12/2019"). Se arma la fecha a mano con los componentes de calendario,
-// sin pasar por UTC en ningún momento.
-function formatFecha(iso: string | null): string {
-  if (!iso) return '—'
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-  if (!y || !m || !d) return '—'
-  return new Date(y, m - 1, d).toLocaleDateString('es-AR')
+// Hallazgo de Agustin en su propia implementación de este panel (descartada
+// en el merge de S3-6/S3-10, ver PLAN_SCRUM_2026.md): formatear con
+// `new Date(iso)` + `toLocaleDateString()` corre la fecha un día para atrás
+// en Argentina (UTC-3) — `new Date("2020-01-01")` es medianoche UTC, que en
+// local es el 31/12/2019 a las 21hs. Se arma la fecha a mano desde los
+// componentes del string ISO, sin pasar por el constructor de Date.
+function formatFecha(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return y && m && d ? `${d}/${m}/${y}` : null
 }
 
+// S3-7: detalle de persona — datos personales + historial de ocupaciones
+// (vigente primero, ver orderBy de getPersonaByIdService en el backend).
 export function PersonaDetailPanel() {
   const { id } = useParams<{ id: string }>()
   const { data: persona, isLoading, isError } = usePersona(id)
 
-  if (isLoading) {
-    return <p className="text-sm text-gray-400">Cargando persona...</p>
-  }
-
-  if (isError || !persona) {
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-danger">No se pudo cargar esta persona.</p>
-        <Link to="/personas" className="btn-outline inline-block">
-          Volver a Personas
-        </Link>
-      </div>
-    )
-  }
-
-  // Ya vienen ordenadas vigentes primero (hasta ASC pone los null adelante),
-  // pero se separan en dos listas para no depender de ese orden en el render.
-  const vigentes = persona.ocupaciones.filter((o) => !o.hasta)
-  const historicas = persona.ocupaciones.filter((o) => o.hasta)
+  if (isLoading) return <p className="text-sm text-gray-400">Cargando persona...</p>
+  if (isError || !persona) return <p className="text-sm text-danger">No se pudo cargar la persona.</p>
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link to="/personas" className="text-sm text-secondary hover:underline">
-          ← Volver a Personas
-        </Link>
-      </div>
+      <Link to="/personas" className="text-sm text-secondary hover:underline">
+        ← Volver a Personas
+      </Link>
 
-      {/* Datos de la persona */}
+      {/* Panel de datos personales */}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="font-primary text-xl font-bold text-gray-900">{persona.apellidoNombre}</h1>
+          <div>
+            <h1 className="font-primary text-xl font-bold text-gray-900">{persona.apellidoNombre}</h1>
+            <p className="text-sm text-gray-500">CUIL {persona.cuil}</p>
+          </div>
           <span className={persona.activo ? 'badge-success' : 'badge-default'}>
             {persona.activo ? 'Activo' : 'Inactivo'}
           </span>
         </div>
 
-        <dl className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <dt className="text-gray-500">CUIL</dt>
-            <dd className="text-gray-800 font-medium">{persona.cuil}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-500">Documento</dt>
-            <dd className="text-gray-800 font-medium">
-              {persona.tipoDoc ?? 'DNI'} {persona.numeroDoc ?? '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-gray-500">Sexo</dt>
-            <dd className="text-gray-800 font-medium">{persona.sexo ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-500">Fecha de nacimiento</dt>
-            <dd className="text-gray-800 font-medium">{formatFecha(persona.fechaNacimiento)}</dd>
-          </div>
-          <div className="col-span-2 md:col-span-4">
-            <dt className="text-gray-500">Especialidad principal</dt>
-            <dd className="text-gray-800 font-medium">{persona.especialidadPrincipal ?? '—'}</dd>
-          </div>
+        <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+          <Dato label="Documento" value={persona.numeroDoc ? `${persona.tipoDoc ?? ''} ${persona.numeroDoc}`.trim() : null} />
+          <Dato label="Sexo" value={persona.sexo} />
+          <Dato label="Fecha de nacimiento" value={formatFecha(persona.fechaNacimiento)} />
+          <Dato label="Especialidad principal" value={persona.especialidadPrincipal} />
+          <Dato label="Teléfono" value={persona.telefono} />
+          <Dato label="Mail personal" value={persona.mailPersonal} />
+          <Dato label="Mail laboral" value={persona.mailLaboral} />
+          <Dato label="Domicilio" value={persona.domicilio} />
+          <Dato label="Localidad" value={persona.localidad} />
+          <Dato label="Provincia" value={persona.provincia} />
+          <Dato label="Antigüedad desde" value={formatFecha(persona.antiguedadDesde)} />
         </dl>
       </div>
 
-      {/* Ocupaciones vigentes */}
+      {/* Ocupaciones */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-primary text-lg font-bold text-gray-900">
-            Ocupaciones vigentes <span className="text-gray-400 font-normal">({vigentes.length})</span>
+            Ocupaciones ({persona.ocupaciones.length})
           </h2>
         </div>
-        {vigentes.length === 0 ? (
-          <p className="p-6 text-sm text-gray-400 text-center">Sin ocupaciones vigentes.</p>
-        ) : (
-          <OcupacionesTable ocupaciones={vigentes} />
+
+        {persona.ocupaciones.length === 0 && (
+          <p className="p-6 text-sm text-gray-400 text-center">Sin ocupaciones registradas.</p>
+        )}
+
+        {persona.ocupaciones.length > 0 && (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-left">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Hospital</th>
+                <th className="px-4 py-3 font-semibold">Escalafón</th>
+                <th className="px-4 py-3 font-semibold">Puesto</th>
+                <th className="px-4 py-3 font-semibold">Situación de revista</th>
+                <th className="px-4 py-3 font-semibold">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {persona.ocupaciones.map((o) => (
+                <tr key={o.id} className={o.hasta ? 'text-gray-400' : ''}>
+                  <td className="px-4 py-3 text-gray-700">{o.cargo?.hospital?.sigla ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-700">{o.cargo?.escalafon?.nombre ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-700">{o.cargo?.literalPuesto ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-700">{o.situacionRevista ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className={o.hasta ? 'badge-default' : 'badge-success'}>
+                      {o.hasta ? 'Histórica' : 'Vigente'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-
-      {/* Histórico */}
-      {historicas.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="font-primary text-lg font-bold text-gray-900">
-              Histórico <span className="text-gray-400 font-normal">({historicas.length})</span>
-            </h2>
-          </div>
-          <OcupacionesTable ocupaciones={historicas} />
-        </div>
-      )}
     </div>
   )
 }
 
-function OcupacionesTable({ ocupaciones }: { ocupaciones: NonNullable<ReturnType<typeof usePersona>['data']>['ocupaciones'] }) {
+function Dato({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <table className="w-full text-sm">
-      <thead className="bg-gray-50 text-gray-500 text-left">
-        <tr>
-          <th className="px-4 py-3 font-semibold">Hospital</th>
-          <th className="px-4 py-3 font-semibold">Escalafón</th>
-          <th className="px-4 py-3 font-semibold">Puesto</th>
-          <th className="px-4 py-3 font-semibold">Situación</th>
-          <th className="px-4 py-3 font-semibold">Desde</th>
-          <th className="px-4 py-3 font-semibold">Hasta</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100">
-        {ocupaciones.map((o) => (
-          <tr key={o.id}>
-            <td className="px-4 py-3 text-gray-600">{o.cargo?.hospital?.sigla ?? '—'}</td>
-            <td className="px-4 py-3 text-gray-600">{o.cargo?.escalafon?.nombre ?? '—'}</td>
-            <td className="px-4 py-3 font-medium text-gray-800">{o.cargo?.literalPuesto ?? '—'}</td>
-            <td className="px-4 py-3 text-gray-600">{o.situacionRevista ?? '—'}</td>
-            <td className="px-4 py-3 text-gray-600">{formatFecha(o.desde)}</td>
-            <td className="px-4 py-3 text-gray-600">
-              {o.hasta ? formatFecha(o.hasta) : <span className="badge-success">Vigente</span>}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      <dt className="text-gray-400 text-xs uppercase tracking-wide">{label}</dt>
+      <dd className="text-gray-800 font-medium">{value || '—'}</dd>
+    </div>
   )
 }
