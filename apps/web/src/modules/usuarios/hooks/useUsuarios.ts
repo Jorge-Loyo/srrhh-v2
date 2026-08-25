@@ -1,24 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CreateUsuarioRequest, Hospital, Usuario } from '@srrhh/types'
+import type { CreateUsuarioRequest, Usuario } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
+
+// useHospitales se movió a shared/hooks/useCatalogos.ts (S3-6: personas y
+// cargos también lo necesitan, no tiene sentido que vivan bajo el módulo de
+// usuarios). Se re-exporta acá para no romper el import existente.
+export { useHospitales } from '@/shared/hooks/useCatalogos'
 
 export function useUsuarios() {
   return useQuery({
     queryKey: ['usuarios'],
     queryFn: async () => {
       const res = await apiClient.get<{ data: Usuario[] }>('/api/v1/usuarios')
-      return res.data.data
-    },
-  })
-}
-
-// Lista de hospitales para el selector opcional del formulario — mismo
-// endpoint que ya usa el resto de la app (hospitales.routes.ts).
-export function useHospitales() {
-  return useQuery({
-    queryKey: ['hospitales'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ data: Hospital[] }>('/api/v1/hospitales')
       return res.data.data
     },
   })
