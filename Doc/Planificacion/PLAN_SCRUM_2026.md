@@ -523,6 +523,17 @@ Verificado contra la API real (no solo `tsc` limpio): `GET /api/v1/personas?pues
 Planta&especialidad=Cardiología` devuelve 255 resultados, los 255 con ese puesto y esa especialidad
 exactos — filtro combinado funcionando de punta a punta.
 
+**Pedido de Jorge, seguido (2026-08-25): el dropdown de puesto (276 opciones) necesitaba búsqueda,
+un `<select>` nativo obliga a scrollear a mano.** Nuevo `SearchableSelect`
+(`shared/components/ui/`) — combobox genérico: input + lista filtrada en vivo al escribir,
+clickear una opción confirma el valor, clickear afuera descarta lo tipeado sin confirmar y vuelve
+al valor real (no deja el filtro "a medio escribir"). Reemplaza el `<select>` de puesto en
+`PersonasPage`; el de especialidad (en cascada, pocas opciones por puesto) se dejó como `<select>`
+nativo, no hacía falta. Verificado con browser real: abrir el combobox lista los 276 puestos,
+escribir filtra en vivo, click confirma y dispara el filtro (probado con "Enfermero Profesional" —
+sin especialidad, no aparece el filtro en cascada — y "Médico de Planta" — sí aparece, con
+especialidades reales correctas por fila).
+
 ---
 
 ### SPRINT 4 — Concursos CPH

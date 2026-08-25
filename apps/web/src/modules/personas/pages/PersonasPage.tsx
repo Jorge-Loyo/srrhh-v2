@@ -5,6 +5,7 @@ import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { usePersonas, usePuestos } from '../hooks/usePersonas'
 
 const LIMIT = 50
@@ -148,18 +149,13 @@ export function PersonasPage() {
             <option value="true">Solo activos</option>
             <option value="false">Solo inactivos</option>
           </select>
-          <select
+          <SearchableSelect
             value={puesto}
-            onChange={(e) => cambiarPuesto(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todos los puestos</option>
-            {puestos?.map((p) => (
-              <option key={p.puesto} value={p.puesto}>
-                {p.puesto}
-              </option>
-            ))}
-          </select>
+            onChange={cambiarPuesto}
+            options={puestos?.map((p) => p.puesto) ?? []}
+            placeholder="Todos los puestos"
+            className="min-w-[240px]"
+          />
           {/* Filtro en cascada: solo aparece si hay un puesto elegido y ese
               puesto tiene especialidades reales en los datos (la mayoría de
               los puestos no médicos no tienen ninguna). */}
