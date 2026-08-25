@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EstadoCargo } from '@srrhh/types'
-import type { CargoFilters } from '@srrhh/types'
+import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
+import { apiClient } from '@/shared/lib/api-client'
+import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
-import { exportToCsv } from '@/shared/lib/export-csv'
 import { useCargos } from '../hooks/useCargos'
 
 const LIMIT = 50
@@ -42,25 +43,40 @@ export function CargosPage() {
     }
   }
 
-  // S3-10: igual que en PersonasPage, exporta la página actual — ver
-  // comentario ahí sobre por qué no exporta "todo lo filtrado".
-  function handleExport() {
-    if (!data?.data.length) return
-    exportToCsv(
-      `cargos_pagina-${page}`,
-      [
-        { key: 'idSial', label: 'ID SIAL' },
-        { key: 'literalPuesto', label: 'Puesto' },
-        { key: 'especialidad', label: 'Especialidad' },
-        { key: 'estado', label: 'Estado' },
-      ],
-      data.data.map((c) => ({
-        idSial: c.idSial,
-        literalPuesto: c.literalPuesto,
-        especialidad: c.especialidad,
-        estado: ESTADO_LABEL[c.estado],
-      }))
-    )
+  const [exportando, setExportando] = useState(false)
+  const [exportError, setExportError] = useState(false)
+
+  // S3-10: igual que en PersonasPage, exporta TODO el resultado filtrado
+  // (no solo la página visible) paginando en bloques de 1000.
+  async function handleExport() {
+    setExportando(true)
+    setExportError(false)
+    try {
+      const { page: _page, limit: _limit, ...filtrosSinPaginado } = filters
+      const cargos = await fetchAllPages<Cargo>((p, l) =>
+        apiClient
+          .get<PaginatedResponse<Cargo>>('/api/v1/cargos', { params: { ...filtrosSinPaginado, page: p, limit: l } })
+          .then((r) => r.data)
+      )
+      downloadExcel(
+        `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        cargos.map((c) => ({
+          'ID SIAL': c.idSial,
+          Puesto: c.literalPuesto ?? '',
+          Especialidad: c.especialidad ?? '',
+          Agrupador: c.agrupador ?? '',
+          'Unificador de Puesto': c.unificadorPuesto ?? '',
+          Hospital: c.hospital?.sigla ?? '',
+          Escalafón: c.escalafon?.nombre ?? '',
+          Régimen: c.regimen ?? '',
+          Estado: ESTADO_LABEL[c.estado],
+        }))
+      )
+    } catch {
+      setExportError(true)
+    } finally {
+      setExportando(false)
+    }
   }
 
   return (
@@ -68,10 +84,13 @@ export function CargosPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Cargos</h1>
-          <button className="btn-outline" onClick={handleExport} disabled={!data?.data.length}>
-            Exportar página actual (Excel)
+          <button className="btn-outline" onClick={handleExport} disabled={exportando}>
+            {exportando ? 'Exportando...' : 'Exportar a Excel'}
           </button>
         </div>
+        {exportError && (
+          <p className="text-sm text-danger">No se pudo generar el archivo. Volvé a intentar en unos segundos.</p>
+        )}
 
         <div className="flex flex-wrap gap-3">
           <input
