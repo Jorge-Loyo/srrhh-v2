@@ -323,7 +323,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 | S3-4  | `GET /api/v1/cargos` paginado con filtros                       | Jorge   | 4h   | 🔴 Crítico | ✅  |
 | S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico | ✅  |
 | S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ✅  |
-| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ⏳  |
 | S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
 | S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ⏳  |
@@ -363,6 +363,17 @@ mockeada): debounce real (tipear letra por letra dispara una sola request, no un
 filtros combinables entre sí y con la búsqueda, paginación preservando los filtros activos,
 navegación al hacer clic en una fila, estados vacío y de error. Sin errores de consola en ningún
 caso. `tsc --noEmit` limpio en `apps/web` y `apps/api`.
+
+**S3-7 completado y verificado por Agustin (2026-08-25):** `PersonaDetailPanel` — reemplaza el
+placeholder en `/personas/:id`. Datos de la persona (CUIL, documento, sexo, fecha de nacimiento,
+especialidad principal) + dos tablas de ocupaciones (vigentes y histórico, separadas por
+`hasta === null`). Encontrado y corregido en la verificación: `formatFecha` armaba la fecha con
+`new Date(iso)` (parsea como UTC medianoche) y la mostraba con `toLocaleDateString` (timezone
+local) — en Argentina (UTC-3) eso corría cualquier fecha un día para atrás (`"2020-01-01"` se
+mostraba `31/12/2019`). Se arma la fecha a mano desde los componentes de calendario del string, sin
+pasar por UTC. Verificado con CDP: flujo feliz (fechas correctas, ocupaciones vigentes/histórico
+separadas bien), error (persona no encontrada), y persona sin ocupaciones (oculta la sección de
+histórico, muestra el estado vacío en vigentes). Sin errores de consola. `tsc --noEmit` limpio.
 
 ---
 
