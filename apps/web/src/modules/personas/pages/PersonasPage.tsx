@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { PersonaFilters } from '@srrhh/types'
+import type { PaginatedResponse, Persona, PersonaFilters } from '@srrhh/types'
+import { apiClient } from '@/shared/lib/api-client'
+import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
-import { exportToCsv } from '@/shared/lib/export-csv'
 import { usePersonas } from '../hooks/usePersonas'
 
 const LIMIT = 50
@@ -38,23 +39,41 @@ export function PersonasPage() {
     }
   }
 
-  // S3-10: exporta la página actual (lo que se ve en pantalla) — con hasta
-  // 45k+ personas en la BD, traer "todo lo filtrado" de una implicaría un
-  // endpoint sin paginar aparte; se deja fuera de esta tarea 🟢 Bajo. El botón
-  // aclara el alcance para no generar la expectativa de un export completo.
-  function handleExport() {
-    if (!data?.data.length) return
-    exportToCsv(
-      `personas_pagina-${page}`,
-      [
-        { key: 'apellidoNombre', label: 'Apellido y Nombre' },
-        { key: 'cuil', label: 'CUIL' },
-        { key: 'numeroDoc', label: 'Documento' },
-        { key: 'especialidadPrincipal', label: 'Especialidad' },
-        { key: 'activo', label: 'Activo' },
-      ],
-      data.data
-    )
+  const [exportando, setExportando] = useState(false)
+  const [exportError, setExportError] = useState(false)
+
+  // S3-10: exporta TODO el resultado filtrado (no solo la página visible en
+  // pantalla) — fetchAllPages pagina en lotes de 1000 contra el mismo
+  // endpoint que ya usa la tabla, con los mismos filtros activos (page/limit
+  // se excluyen a propósito, fetchAllPages los maneja por su cuenta).
+  async function handleExport() {
+    setExportando(true)
+    setExportError(false)
+    try {
+      const { page: _page, limit: _limit, ...filtrosSinPaginado } = filters
+      const personas = await fetchAllPages<Persona>((p, l) =>
+        apiClient
+          .get<PaginatedResponse<Persona>>('/api/v1/personas', { params: { ...filtrosSinPaginado, page: p, limit: l } })
+          .then((r) => r.data)
+      )
+      downloadExcel(
+        `personas_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        personas.map((p) => ({
+          'Apellido y Nombre': p.apellidoNombre,
+          CUIL: p.cuil,
+          'Tipo Doc': p.tipoDoc ?? '',
+          Documento: p.numeroDoc ?? '',
+          Sexo: p.sexo ?? '',
+          'Fecha Nacimiento': p.fechaNacimiento ?? '',
+          'Especialidad Principal': p.especialidadPrincipal ?? '',
+          Estado: p.activo ? 'Activo' : 'Inactivo',
+        }))
+      )
+    } catch {
+      setExportError(true)
+    } finally {
+      setExportando(false)
+    }
   }
 
   return (
@@ -62,10 +81,13 @@ export function PersonasPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Personas</h1>
-          <button className="btn-outline" onClick={handleExport} disabled={!data?.data.length}>
-            Exportar página actual (Excel)
+          <button className="btn-outline" onClick={handleExport} disabled={exportando}>
+            {exportando ? 'Exportando...' : 'Exportar a Excel'}
           </button>
         </div>
+        {exportError && (
+          <p className="text-sm text-danger">No se pudo generar el archivo. Volvé a intentar en unos segundos.</p>
+        )}
 
         <div className="flex flex-wrap gap-3">
           <input
