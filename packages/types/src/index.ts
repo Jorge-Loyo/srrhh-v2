@@ -343,7 +343,21 @@ export interface ConcursoFilters {
 
 // Devuelto por GET /api/v1/personas/:id — cada Ocupacion trae `cargo`
 // expandido (y a su vez `cargo.hospital`/`cargo.escalafon`).
+//
+// Nota: `Persona` (arriba) refleja lo que devuelve GET /api/v1/personas
+// (listPersonasService) — un SELECT explícito de columnas, más liviano para
+// paginar 45k+ filas, que deliberadamente NO trae los campos de contacto/
+// domicilio (S2-17). El detalle sí usa `prisma.persona.findUnique` sin
+// `select`, así que trae el modelo completo — de ahí que estos campos vivan
+// acá y no en `Persona`.
 export interface PersonaDetail extends Persona {
+  telefono: string | null
+  mailPersonal: string | null
+  mailLaboral: string | null
+  domicilio: string | null
+  localidad: string | null
+  provincia: string | null
+  antiguedadDesde: string | null
   ocupaciones: Ocupacion[]
 }
 

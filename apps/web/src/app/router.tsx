@@ -5,6 +5,10 @@ import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
+import { PersonasPage } from '../modules/personas/pages/PersonasPage'
+import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
+import { CargosPage } from '../modules/cargos/pages/CargosPage'
+import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -25,9 +29,10 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/padron" replace /> },
           { path: 'padron', element: <PadronPage /> },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
-          { path: 'personas', element: <Placeholder title="Personas" /> },
-          { path: 'personas/:id', element: <Placeholder title="Detalle Persona" /> },
-          { path: 'cargos', element: <Placeholder title="Cargos" /> },
+          { path: 'personas', element: <PersonasPage /> },
+          { path: 'personas/:id', element: <PersonaDetailPanel /> },
+          { path: 'cargos', element: <CargosPage /> },
+          { path: 'cargos/:id', element: <CargoDetailPanel /> },
           { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
           { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
           { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },

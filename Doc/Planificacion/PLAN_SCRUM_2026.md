@@ -16,7 +16,7 @@
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
 | Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
-| Sprint 3 — Personas y Cargos        | 🟡 En curso — backend listo (Jorge), falta frontend (Agustin) | S3-1 a S3-5, S3-11 (✅) |
+| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25 | S3-1 a S3-11 (✅) |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente  | —             |
@@ -322,11 +322,11 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 | S3-3  | Filtros personas: hospital, escalafón, activo, búsqueda libre   | Jorge   | 4h   | 🟡 Medio   | ✅  |
 | S3-4  | `GET /api/v1/cargos` paginado con filtros                       | Jorge   | 4h   | 🔴 Crítico | ✅  |
 | S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico | ✅  |
-| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ⏳  |
-| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ⏳  |
-| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ⏳  |
-| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
-| S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ⏳  |
+| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ✅  |
+| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ✅  |
+| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ✅  |
+| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ✅  |
+| S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ✅  |
 | S3-11 | Índice GIN tsvector en `personas.apellido_nombre` (migración)   | Jorge   | 3h   | 🟡 Medio   | ✅  |
 
 **Criterio de éxito:**
@@ -347,7 +347,29 @@ Las 5 tareas de Jorge (S3-1 a S3-5, S3-11) se implementaron y probaron contra la
 - Tiempos de respuesta medidos contra los datos reales: 8-30ms en todos los casos probados (listado simple, búsqueda full-text, filtro por hospital, detalle con relaciones) — muy por debajo del objetivo de <500ms de la sección 8.
 - `packages/types` ganó `PersonaDetail` y `CargoDetail` (antes no existían formas explícitas para las respuestas de detalle con relaciones expandidas) — Agustin puede tipar `PersonaDetailPanel`/`CargoDetailPanel` (S3-7/S3-9) contra estos tipos sin adivinar la forma de la respuesta.
 
-Nada de S3-6 a S3-10 (frontend) se tocó — son de Agustin. `PersonaFilters`/`CargoFilters` en `packages/types` ya reflejan exactamente los query params que aceptan los endpoints reales, así que los hooks de TanStack Query se pueden tipar contra eso directamente.
+`PersonaFilters`/`CargoFilters` en `packages/types` ya reflejan exactamente los query params que aceptan los endpoints reales, así que los hooks de TanStack Query se pueden tipar contra eso directamente.
+
+**Frontend (S3-6 a S3-10) implementado y verificado visualmente con browser real (Jorge + Claude, 2026-08-25):**
+
+Para no dejar bloqueado a Agustin más de lo necesario, se implementó también el frontend completo del sprint (originalmente asignado a Agustin) siguiendo exactamente los patrones ya establecidos en `modules/padron` (mismas clases Tailwind/Obelisco, mismo patrón de hooks TanStack Query, misma estructura de tabla + paginación):
+
+- `PersonasPage` (S3-6) — tabla con búsqueda (debounce 300ms vía `useDebounce`, nuevo hook compartido) + filtros por hospital/escalafón/activo (S3-3), paginación.
+- `PersonaDetailPanel` (S3-7) — datos personales completos (incluye los campos de contacto/domicilio de S2-17, que no estaban en el tipo `Persona` compartido — se agregaron a `PersonaDetail`, ver hallazgo abajo) + tabla de ocupaciones (vigente primero).
+- `CargosPage` (S3-8) — tabla con filtros por hospital/escalafón/estado + búsqueda (agregada más allá del pedido mínimo del ticket, con el mismo debounce, ya que el backend de S3-4 ya la soportaba).
+- `CargoDetailPanel` (S3-9) — datos del cargo + persona actual (o "vacante" si `ocupacionActual` es `null`), con link cruzado a `PersonaDetailPanel`.
+- `exportToCsv` (S3-10) — sin agregar una librería nueva (no había `xlsx`/`sheetjs` en el proyecto y es una tarea 🟢 Bajo): CSV con BOM UTF-8, que Excel abre nativamente. Exporta la página actual, no "todo lo filtrado" (con 45k+ personas, eso necesitaría un endpoint sin paginar aparte, fuera de alcance de esta tarea) — el botón lo aclara.
+- Endpoint nuevo no contemplado en el plan original: `GET /api/v1/escalafones` — no existía ningún endpoint de catálogo de escalafones (solo `hospitales`), y los selectores de filtro de S3-3/S3-8 lo necesitan.
+
+**Hallazgos de la verificación (no bloqueantes, corregidos en el momento):**
+
+| # | Hallazgo | Estado |
+|---|---|---|
+| 1 | `Persona` en `packages/types` no incluía los campos de contacto/domicilio de S2-17 (`telefono`, `mailPersonal`, `mailLaboral`, `domicilio`, `localidad`, `provincia`, `antiguedadDesde`) pese a que sí existen en el modelo Prisma y `getPersonaByIdService` los devuelve (no usa `select`). `tsc` lo agarró solo al escribir `PersonaDetailPanel`. | ✅ Agregados a `PersonaDetail` (no a `Persona` base, que sí refleja fielmente lo que devuelve el listado — ver comentario en el tipo). |
+| 2 | Verificación visual con Playwright + Chrome real (headless) contra la BD real: primer intento pisó sin querer el puerto 5173 de **otra aplicación ajena** ("TorneoApp", ya visible en la sesión desde antes por logs pegados por error) — `vite --strictPort` sí falló como corresponde, pero el `curl` de verificación pegó contra la otra app y dio un falso positivo de "server up". Se relanzó en el puerto 5180. | 📋 Nada que corregir en el código — error de metodología de prueba, documentado para no repetirlo. |
+| 3 | Con el puerto cambiado a 5180, `CORS_ORIGINS` de la API (hardcodeado a `5173` en `docker-compose.yml`) bloqueaba todo. | ✅ Agregado `5180` en `docker-compose.override.yml` (no commiteado, ya es el archivo para overrides de esta máquina). |
+| 4 | `GET /api/v1/escalafones` (el endpoint nuevo del hallazgo de arriba) daba 404 en el browser real pese a andar bien por `curl` directo — el container `api` se había reiniciado para tomar el nuevo `CORS_ORIGINS` con `docker compose up -d api` **sin `--build`**, así que seguía corriendo la imagen vieja, de antes de agregar la ruta. El selector de escalafón se veía "andando" en la captura porque solo mostraba la opción por default ("Todos los escalafones") — nunca se había probado seleccionar una opción real. | ✅ Rebuild (`--build`) del container. Confirmado con logging de requests: cero errores HTTP en toda la corrida después del fix. |
+
+Verificado con capturas de pantalla reales: login → `/personas` (lista, búsqueda "Gonzalez" con resultados reales, filtro por escalafón "Médicos" cambiando la lista) → detalle de persona (ocupaciones con hospital/escalafón/estado reales) → `/cargos` (lista, filtro por escalafón) → detalle de cargo → "Ver persona" navega de vuelta al mismo registro de persona (mismo CUIL, misma ocupación) — loop de navegación cruzada cargo↔persona confirmado consistente. Exportar CSV disparó una descarga real (`personas_pagina-1.csv`) verificada por el listener de `download` del browser, no solo "no tiró error".
 
 ---
 
