@@ -453,6 +453,48 @@ filter de Prisma: al menos un cargo real), dejando solo lo que la columna `ESCAL
 efectivamente produce. Verificado contra la API real: `GET /api/v1/escalafones` pasó de 13 a 10
 resultados, exactamente los 10 con cargos.
 
+**Hallazgo reportado por Jorge en `/personas` (2026-08-25): columnas "Documento" y "Especialidad"
+siempre vacías.** Dos bugs distintos, no uno:
+
+1. **`numeroDoc`/`tipoDoc` nunca se capturaban.** El Dotaneitor real sí trae `NUM_DOC`/`TIP_DOC`
+   (renombrados a `NUMERO DOC`/`TIPO DOC` en `Dotaneitor.py`, `rename_dict`), pero `calcularDiff()`
+   en `padron.service.ts` nunca los leía del resultado de Python, así que `aprobarSnapshotService`
+   jamás tenía esos datos para escribir en `Persona`. No era falta de datos en origen, era un campo
+   faltante en el mapeo. | ✅ **Corregido** — agregados `numero_doc`/`tipo_doc` al JSON de
+   `calcularDiff()` y a la creación de `Persona` en `aprobarSnapshotService`.
+2. **`especialidadPrincipal` apuntaba al campo equivocado.** La especialidad del padrón sí se
+   capturaba, pero solo se escribía en `Cargo.especialidad` (la especialidad del puesto) —
+   `Persona.especialidadPrincipal` (lo que muestra la columna de la tabla) nunca se tocaba. |
+   ✅ **Corregido** — se usa el mismo valor como estimación inicial al crear la `Persona`. No se
+   actualiza si la especialidad del cargo cambia después (la rama "modificado" no toca campos de
+   `Persona`) — aceptable como mejor esfuerzo; en el padrón real la mayoría de las filas igual
+   vienen sin especialidad salvo en carreras que la usan (CPH, principalmente).
+
+Los dos fixes solo corrigen los **próximos** padrones — las 45.083 personas ya cargadas no se
+actualizan solas (el código solo escribe estos campos al *crear* una persona, no al encontrarla ya
+existente). **Backfill directo desde el Excel real** (`Cargos_salud_20260802.xlsx`, el mismo de
+Sprint 2), bypaseando todo el pipeline de Dotaneitor/diff/aprobar — solo `UPDATE ... FROM (VALUES
+...)` por `cuil` contra la BD real, con `COALESCE` (no pisa nada que ya tuviera un valor, no toca
+cargos/ocupaciones/histórico). De paso, mismo Excel también tiene `TELEFONO`, `MAIL_PERSONAL`,
+`MAIL_LABORAL`, `DOMICILIO`, `LOCALIDAD`, `PROVINCIA` (campos de contacto de S2-17, con el mismo
+problema — nunca se escribían), así que se backfillearon también sin costo extra. Resultado, sobre
+45.083 personas: **45.083 con `numeroDoc`** (100% — el Excel real trae DNI para toda la dotación),
+**13.423 con especialidad** (coincide con que solo ciertas carreras la usan), 40.433 con teléfono,
+37.340 con domicilio.
+
+**Falsa alarma en el camino:** verificando el resultado con `curl ... | python3 -m json.tool` en
+esta terminal Windows, "Psiquiatría" se veía como "Psiquiatr**Ã­**a" — mismo patrón visual que el
+mojibake real que ya rompió este documento una vez (ver hallazgos de Sprint 3 más arriba). Esta vez
+**no era corrupción real**: se verificó el valor crudo almacenado en Postgres directo con `pg`
+(bypaseando Prisma) y los codepoints eran correctos (`í` = `0xed`), y guardando la respuesta cruda
+de la API a un archivo y leyéndolo con una herramienta que sí maneja UTF-8 bien, también se veía
+"Psiquiatría" correcto. La causa: `python3 -m json.tool` leyendo de un pipe de stdin en este
+Windows/Git Bash, mismo tipo de problema que `Get-Content` de PowerShell sin `-Encoding utf8` — no
+es un problema del dato ni del backend, es un problema de la herramienta de verificación. Lección:
+en esta máquina, para verificar UTF-8 no confiar en pipes por `python3`/PowerShell sin encoding
+explícito — guardar a archivo y leer con una herramienta que sí lo maneje bien, o inspeccionar
+codepoints a mano.
+
 ---
 
 ### SPRINT 4 — Concursos CPH

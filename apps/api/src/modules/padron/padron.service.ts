@@ -174,6 +174,13 @@ async function calcularDiff(sessionId: string) {
         id_sial:        idSial,
         cuil_y_rol:     cuilYRol,
         ayn:            strVal(r['AYN'] ?? r['ayn']),
+        // Reportado (2026-08-25): Documento/Especialidad vacíos en /personas —
+        // numero_doc/tipo_doc nunca se capturaban acá pese a existir en el
+        // Dotaneitor real (Dotaneitor.py rename_dict: NUM_DOC -> "NUMERO DOC",
+        // TIP_DOC -> "TIPO DOC"). Se agregan para que aprobarSnapshotService
+        // pueda escribirlos en Persona al crear.
+        numero_doc:     strVal(r['NUMERO DOC'] ?? r['numero_doc']),
+        tipo_doc:       strVal(r['TIPO DOC'] ?? r['tipo_doc']),
         siglas:         strVal(r['SIGLAS'] ?? r['siglas']),
         escalafon:      strVal(r['ESCALAFON'] ?? r['escalafon']),
         literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
@@ -613,7 +620,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
-    const personasACrear = new Map<string, { id: string; cuil: string; apellidoNombre: string }>()
+    const personasACrear = new Map<
+      string,
+      { id: string; cuil: string; apellidoNombre: string; numeroDoc: string | null; tipoDoc: string | null; especialidadPrincipal: string | null }
+    >()
     const cargosACrear = new Map<
       string,
       {
@@ -630,7 +640,22 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     for (const { datos } of nuevos) {
       const cuil = cuilDe(datos)
       if (cuil && !personaCache.has(cuil) && !personasACrear.has(cuil)) {
-        personasACrear.set(cuil, { id: randomUUID(), cuil, apellidoNombre: datos.ayn ?? '' })
+        personasACrear.set(cuil, {
+          id: randomUUID(),
+          cuil,
+          apellidoNombre: datos.ayn ?? '',
+          numeroDoc: datos.numero_doc || null,
+          tipoDoc: datos.tipo_doc || null,
+          // Reportado (2026-08-25): columna "Especialidad" de PersonasPage
+          // siempre vacía — miraba Persona.especialidadPrincipal, que nunca se
+          // escribía (la especialidad del padrón iba solo a Cargo.especialidad).
+          // Se usa el mismo valor como estimación inicial al crear la persona;
+          // no se actualiza después si la especialidad del cargo cambia (la
+          // rama "modificado" de abajo no toca campos de Persona) — aceptable
+          // como mejor esfuerzo, la mayoría de las filas igual vienen vacías
+          // salvo en carreras con especialidad real (CPH, principalmente).
+          especialidadPrincipal: datos.especialidad || null,
+        })
       }
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
