@@ -336,3 +336,22 @@ export interface ConcursoFilters {
   page?: number
   limit?: number
 }
+
+// -----------------------------------------------------------------------------
+// SPRINT 3 — Detalle de persona/cargo
+// -----------------------------------------------------------------------------
+
+// Devuelto por GET /api/v1/personas/:id — cada Ocupacion trae `cargo`
+// expandido (y a su vez `cargo.hospital`/`cargo.escalafon`).
+export interface PersonaDetail extends Persona {
+  ocupaciones: Ocupacion[]
+}
+
+// Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon` siempre
+// expandidos; `ocupacionActual` es la Ocupacion vigente (hasta IS NULL) con
+// `persona` expandida, o null si el cargo está vacante.
+export interface CargoDetail extends Cargo {
+  hospital: Hospital
+  escalafon: Escalafon
+  ocupacionActual: (Ocupacion & { persona: Persona }) | null
+}

@@ -16,7 +16,7 @@
 | Sprint 0 — Infraestructura          | ✅ Completado | S0-1 a S0-11  |
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
 | Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
-| Sprint 3 — Personas y Cargos        | ⏳ Pendiente  | —             |
+| Sprint 3 — Personas y Cargos        | 🟡 En curso — backend listo (Jorge), falta frontend (Agustin) | S3-1 a S3-5, S3-11 (✅) |
 | Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente  | —             |
@@ -315,19 +315,19 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulos de personas y cargos completamente funcionales.
 
-| #     | Tarea                                                           | Dev     | Est. | Prioridad  |
-| ----- | --------------------------------------------------------------- | ------- | ---- | ---------- |
-| S3-1  | `GET /api/v1/personas` paginado con full-text search PostgreSQL | Jorge   | 6h   | 🔴 Crítico |
-| S3-2  | `GET /api/v1/personas/:id` con ocupaciones activas              | Jorge   | 3h   | 🔴 Crítico |
-| S3-3  | Filtros personas: hospital, escalafón, activo, búsqueda libre   | Jorge   | 4h   | 🟡 Medio   |
-| S3-4  | `GET /api/v1/cargos` paginado con filtros                       | Jorge   | 4h   | 🔴 Crítico |
-| S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico |
-| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico |
-| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico |
-| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico |
-| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   |
-| S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    |
-| S3-11 | Índice GIN tsvector en `personas.apellido_nombre` (migración)   | Jorge   | 3h   | 🟡 Medio   |
+| #     | Tarea                                                           | Dev     | Est. | Prioridad  |     |
+| ----- | --------------------------------------------------------------- | ------- | ---- | ---------- | --- |
+| S3-1  | `GET /api/v1/personas` paginado con full-text search PostgreSQL | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S3-2  | `GET /api/v1/personas/:id` con ocupaciones activas              | Jorge   | 3h   | 🔴 Crítico | ✅  |
+| S3-3  | Filtros personas: hospital, escalafón, activo, búsqueda libre   | Jorge   | 4h   | 🟡 Medio   | ✅  |
+| S3-4  | `GET /api/v1/cargos` paginado con filtros                       | Jorge   | 4h   | 🔴 Crítico | ✅  |
+| S3-5  | `GET /api/v1/cargos/:id` con ocupación actual                   | Jorge   | 3h   | 🔴 Crítico | ✅  |
+| S3-6  | PersonasPage: tabla con búsqueda debounce 300ms                 | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-7  | PersonaDetailPanel: panel lateral con datos + ocupaciones       | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-8  | CargosPage: tabla con filtros por hospital y escalafón          | Agustin | 8h   | 🔴 Crítico | ⏳  |
+| S3-9  | CargoDetailPanel: panel lateral con cargo + persona actual      | Agustin | 6h   | 🟡 Medio   | ⏳  |
+| S3-10 | Exportar a Excel desde PersonasPage y CargosPage                | Agustin | 4h   | 🟢 Bajo    | ⏳  |
+| S3-11 | Índice GIN tsvector en `personas.apellido_nombre` (migración)   | Jorge   | 3h   | 🟡 Medio   | ✅  |
 
 **Criterio de éxito:**
 
@@ -335,6 +335,19 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 - Filtros por hospital y escalafón funcionan
 - Panel de detalle muestra ocupaciones activas
 - Exportación a Excel disponible
+
+**Backend listo, verificado contra datos reales (Jorge + Claude, 2026-08-25) — desbloquea a Agustin para S3-6 a S3-10:**
+
+Las 5 tareas de Jorge (S3-1 a S3-5, S3-11) se implementaron y probaron contra la BD real cargada en Sprint 2 (45.083 personas, 46.889 cargos), no contra datos de prueba:
+
+- `GET /api/v1/personas` — full-text search real de Postgres (`to_tsvector('spanish', apellido_nombre) @@ plainto_tsquery(...)`, apoyado en el índice GIN de S3-11) combinado con `ILIKE` sobre `cuil`/`numero_doc` para búsquedas exactas. Probado con `search=Gonzalez`: matchea apellidos compuestos como "Alarcon Gonzalez" (623 resultados), no solo coincidencia exacta al inicio del string. Filtros `hospitalId`/`escalafonId` cruzan por la ocupación vigente (`hasta IS NULL`) vía `EXISTS` — Prisma no soporta bien mezclar `$queryRaw` con relation-filters del query builder, así que todo el listado (búsqueda + filtros + paginación) es una sola query raw parametrizada (`Prisma.sql`, sin riesgo de inyección).
+- `GET /api/v1/personas/:id` — Prisma `include` anidado (`ocupaciones.cargo.hospital`/`escalafon`), sin necesidad de raw SQL. Devuelve la forma `PersonaDetail` ya agregada a `packages/types`.
+- `GET /api/v1/cargos` — filtros por `hospitalId`/`escalafonId`/`estado` directos (son FK/enum en `Cargo`) + `search` con `OR`/`contains` sobre `idSial`/`literalPuesto`/`especialidad`/`agrupador`. `hospital`/`escalafon` siempre expandidos (necesario para la tabla del frontend).
+- `GET /api/v1/cargos/:id` — `ocupacionActual` (la fila con `hasta IS NULL`, o `null` si el cargo está vacante) con `persona` expandida. Forma `CargoDetail`, también agregada a `packages/types`.
+- Tiempos de respuesta medidos contra los datos reales: 8-30ms en todos los casos probados (listado simple, búsqueda full-text, filtro por hospital, detalle con relaciones) — muy por debajo del objetivo de <500ms de la sección 8.
+- `packages/types` ganó `PersonaDetail` y `CargoDetail` (antes no existían formas explícitas para las respuestas de detalle con relaciones expandidas) — Agustin puede tipar `PersonaDetailPanel`/`CargoDetailPanel` (S3-7/S3-9) contra estos tipos sin adivinar la forma de la respuesta.
+
+Nada de S3-6 a S3-10 (frontend) se tocó — son de Agustin. `PersonaFilters`/`CargoFilters` en `packages/types` ya reflejan exactamente los query params que aceptan los endpoints reales, así que los hooks de TanStack Query se pueden tipar contra eso directamente.
 
 ---
 
