@@ -43,7 +43,7 @@ export async function listPersonasService(query: PersonasQuery) {
   if (search) {
     const like = `%${search}%`
     conditions.push(Prisma.sql`(
-      to_tsvector('spanish', p.apellido_nombre) @@ plainto_tsquery('spanish', ${search})
+      to_tsvector('spanish_unaccent', p.apellido_nombre) @@ plainto_tsquery('spanish_unaccent', ${search})
       OR p.cuil ILIKE ${like}
       OR p.numero_doc ILIKE ${like}
     )`)

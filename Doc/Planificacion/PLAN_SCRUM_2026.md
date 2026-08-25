@@ -534,6 +534,41 @@ escribir filtra en vivo, click confirma y dispara el filtro (probado con "Enferm
 sin especialidad, no aparece el filtro en cascada — y "Médico de Planta" — sí aparece, con
 especialidades reales correctas por fila).
 
+**Pedido de Jorge, seguido (2026-08-25): "medico" no encontraba "Médico" — o se sacan los acentos
+de la base, o la búsqueda los ignora.** Se eligió lo segundo: los datos reales (nombres de puesto,
+especialidades, apellidos) siguen guardados tal cual vienen del padrón — "Médico de Planta",
+"Psiquiatría" — sacarles el acento para "facilitar la búsqueda" degradaría la calidad real del dato
+(nombres de cargos oficiales del GCBA) para resolver un problema que es de comparación, no de
+almacenamiento.
+
+- **Migración `unaccent_search`** — instala la extensión `unaccent` (contrib estándar de Postgres,
+  no hace falta nada externo) y crea una config de text search `spanish_unaccent` (copia `spanish`
+  pero encadena `unaccent` antes del stemmer). El índice GIN de `personas.apellido_nombre` (S3-11)
+  se recreó con esta config — Postgres solo usa el índice si la expresión de la query matchea
+  exactamente la del índice, así que no alcanzaba con cambiar solo la query.
+  `CREATE TEXT SEARCH CONFIGURATION` no soporta `IF NOT EXISTS` (a diferencia de
+  `EXTENSION`/`INDEX`/`TABLE`) — la migración falló en el primer intento por eso, se resolvió con
+  `prisma migrate resolve --rolled-back` (Postgres había revertido todo solo, era una transacción
+  atómica, se verificó que no quedó nada a medias) y se reescribió con un `DO` block.
+- **`listPersonasService`** — `to_tsvector('spanish', ...)` → `to_tsvector('spanish_unaccent', ...)`.
+- **`listCargosService`** — el `search` (idSial/literalPuesto/especialidad/agrupador) usaba
+  `contains`/`mode: insensitive` del query builder de Prisma, que es case-insensitive pero no saca
+  acentos, y Prisma no deja llamar `unaccent()` dentro de un `where` tipado. Se resuelve en dos
+  pasos: una query raw con `unaccent(...) ILIKE unaccent(...)` trae los `id` que matchean, esos IDs
+  alimentan el `where.id.in` de la query tipada de siempre (que sigue trayendo
+  `hospital`/`escalafon` con `include`, sin reescribir eso a mano en SQL).
+- **`SearchableSelect`** (combobox de puesto, lado cliente) — el filtro en JS usaba
+  `.toLowerCase()`, que tampoco saca acentos. Se agregó `normalize()`: `.normalize('NFD')` separa
+  cada letra acentuada en base + diacrítico, `\p{Diacritic}` (Unicode property escape nativo de JS,
+  sin librería) saca esos diacríticos sueltos.
+
+Verificado con datos reales, los tres frentes: `GET /personas?search=gonzalez` (sin acento) →
+623 resultados, exactamente los mismos que buscando "Gonzalez" con acento; `GET
+/cargos?search=medico` → 13.516 resultados, primeras filas con `literalPuesto: "Médico de Planta"`;
+combobox de puesto con browser real, escribir "medico" filtra correctamente a "Médico de Planta",
+"Médico Veterinario de Guardia/Planta", "Especialista en la Guardia Médico", "Profesional Guardia
+Médico".
+
 ---
 
 ### SPRINT 4 — Concursos CPH

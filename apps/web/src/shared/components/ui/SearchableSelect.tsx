@@ -8,6 +8,15 @@ interface SearchableSelectProps {
   className?: string
 }
 
+// Reportado por Jorge: escribir "medico" no encontraba "Médico de Planta" en
+// el dropdown — .toLowerCase() no saca acentos. NFD descompone cada letra
+// acentuada en base + diacrítico combinante (ej. "é" -> "e" + un diacrítico
+// aparte); \p{Diacritic} (Unicode property escape, JS nativo, sin librería)
+// saca esos diacríticos sueltos.
+function normalize(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+}
+
 // Combobox con búsqueda — para dropdowns de texto libre con muchas opciones
 // (ej. los 276 "puesto" distintos de PersonasPage), donde un <select> nativo
 // obliga a scrollear a mano. Escribir filtra la lista; clickear una opción
@@ -35,7 +44,8 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [value])
 
-  const filtered = query.trim() ? options.filter((o) => o.toLowerCase().includes(query.trim().toLowerCase())) : options
+  const q = normalize(query.trim())
+  const filtered = q ? options.filter((o) => normalize(o).includes(q)) : options
 
   function selectOption(opt: string) {
     onChange(opt)

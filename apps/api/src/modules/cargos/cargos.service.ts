@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CargosQuery } from './cargos.schema.js'
@@ -7,18 +7,32 @@ import type { CargosQuery } from './cargos.schema.js'
 export async function listCargosService(query: CargosQuery) {
   const { page, limit, search, hospitalId, escalafonId, estado } = query
 
+  // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
+  // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
+  // saca acentos (ILIKE de Postgres tampoco, sin ayuda). Prisma no permite
+  // llamar unaccent() dentro de un `where` tipado, así que se resuelve en
+  // dos pasos: una query raw con unaccent() para sacar los ids que
+  // matchean, y esos ids alimentan el `where.id.in` de la query tipada de
+  // abajo (que sigue trayendo hospital/escalafon con include, sin tener que
+  // reescribir eso a mano en SQL).
+  let searchIds: string[] | undefined
+  if (search) {
+    const like = `%${search}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM cargos
+      WHERE unaccent(id_sial) ILIKE unaccent(${like})
+         OR unaccent(literal_puesto) ILIKE unaccent(${like})
+         OR unaccent(especialidad) ILIKE unaccent(${like})
+         OR unaccent(agrupador) ILIKE unaccent(${like})
+    `)
+    searchIds = rows.map((r) => r.id)
+  }
+
   const where: Prisma.CargoWhereInput = {
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(estado && { estado }),
-    ...(search && {
-      OR: [
-        { idSial: { contains: search, mode: 'insensitive' } },
-        { literalPuesto: { contains: search, mode: 'insensitive' } },
-        { especialidad: { contains: search, mode: 'insensitive' } },
-        { agrupador: { contains: search, mode: 'insensitive' } },
-      ],
-    }),
+    ...(searchIds && { id: { in: searchIds } }),
   }
 
   const [total, cargos] = await Promise.all([
