@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { PaginatedResponse, Persona, PersonaFilters } from '@srrhh/types'
+import type { PaginatedResponse, PersonaListItem, PersonaFilters } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
-import { usePersonas } from '../hooks/usePersonas'
+import { usePersonas, usePuestos } from '../hooks/usePersonas'
 
 const LIMIT = 50
 
@@ -14,6 +14,8 @@ export function PersonasPage() {
   const [hospitalId, setHospitalId] = useState('')
   const [escalafonId, setEscalafonId] = useState('')
   const [activo, setActivo] = useState<'' | 'true' | 'false'>('')
+  const [puesto, setPuesto] = useState('')
+  const [especialidad, setEspecialidad] = useState('')
   const [page, setPage] = useState(1)
 
   // S3-6: debounce 300ms — no dispara un fetch por cada tecla.
@@ -26,17 +28,32 @@ export function PersonasPage() {
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(activo && { activo: activo === 'true' }),
+    ...(puesto && { puesto }),
+    ...(especialidad && { especialidad }),
   }
 
   const { data, isLoading, isFetching, isError } = usePersonas(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
+  const { data: puestos } = usePuestos()
+
+  // Filtro de especialidad en cascada: solo tiene sentido con un puesto
+  // elegido, y solo si ESE puesto realmente tiene especialidades en los
+  // datos reales (la mayoría de los puestos no médicos no tienen ninguna —
+  // ver Puesto en packages/types).
+  const especialidadesDelPuesto = puestos?.find((p) => p.puesto === puesto)?.especialidades ?? []
 
   function resetPage<T>(setter: (v: T) => void) {
     return (v: T) => {
       setter(v)
       setPage(1)
     }
+  }
+
+  function cambiarPuesto(nuevoPuesto: string) {
+    setPuesto(nuevoPuesto)
+    setEspecialidad('') // las especialidades disponibles cambian con el puesto
+    setPage(1)
   }
 
   const [exportando, setExportando] = useState(false)
@@ -51,9 +68,9 @@ export function PersonasPage() {
     setExportError(false)
     try {
       const { page: _page, limit: _limit, ...filtrosSinPaginado } = filters
-      const personas = await fetchAllPages<Persona>((p, l) =>
+      const personas = await fetchAllPages<PersonaListItem>((p, l) =>
         apiClient
-          .get<PaginatedResponse<Persona>>('/api/v1/personas', { params: { ...filtrosSinPaginado, page: p, limit: l } })
+          .get<PaginatedResponse<PersonaListItem>>('/api/v1/personas', { params: { ...filtrosSinPaginado, page: p, limit: l } })
           .then((r) => r.data)
       )
       downloadExcel(
@@ -65,6 +82,7 @@ export function PersonasPage() {
           Documento: p.numeroDoc ?? '',
           Sexo: p.sexo ?? '',
           'Fecha Nacimiento': p.fechaNacimiento ?? '',
+          Puesto: p.puesto ?? '',
           'Especialidad Principal': p.especialidadPrincipal ?? '',
           Estado: p.activo ? 'Activo' : 'Inactivo',
         }))
@@ -130,6 +148,35 @@ export function PersonasPage() {
             <option value="true">Solo activos</option>
             <option value="false">Solo inactivos</option>
           </select>
+          <select
+            value={puesto}
+            onChange={(e) => cambiarPuesto(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Todos los puestos</option>
+            {puestos?.map((p) => (
+              <option key={p.puesto} value={p.puesto}>
+                {p.puesto}
+              </option>
+            ))}
+          </select>
+          {/* Filtro en cascada: solo aparece si hay un puesto elegido y ese
+              puesto tiene especialidades reales en los datos (la mayoría de
+              los puestos no médicos no tienen ninguna). */}
+          {puesto && especialidadesDelPuesto.length > 0 && (
+            <select
+              value={especialidad}
+              onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
+              className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="">Todas las especialidades</option>
+              {especialidadesDelPuesto.map((esp) => (
+                <option key={esp} value={esp}>
+                  {esp}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -152,6 +199,7 @@ export function PersonasPage() {
                     <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
                     <th className="px-4 py-3 font-semibold">CUIL</th>
                     <th className="px-4 py-3 font-semibold">Documento</th>
+                    <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
                     <th className="px-4 py-3 font-semibold" />
@@ -163,6 +211,7 @@ export function PersonasPage() {
                       <td className="px-4 py-3 font-medium text-gray-800">{p.apellidoNombre}</td>
                       <td className="px-4 py-3 text-gray-600">{p.cuil}</td>
                       <td className="px-4 py-3 text-gray-600">{p.numeroDoc ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{p.puesto ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{p.especialidadPrincipal ?? '—'}</td>
                       <td className="px-4 py-3">
                         <span className={p.activo ? 'badge-success' : 'badge-default'}>

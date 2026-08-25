@@ -77,6 +77,22 @@ export interface Persona {
   updatedAt: string
 }
 
+// Devuelto por GET /api/v1/personas — Persona + el puesto de su ocupación
+// vigente (Cargo.literalPuesto, texto libre, `null` si no tiene ocupación
+// vigente). No es un campo de Persona en sí, por eso no vive en el tipo base.
+export interface PersonaListItem extends Persona {
+  puesto: string | null
+}
+
+// Devuelto por GET /api/v1/puestos — cada puesto real (Cargo.literalPuesto)
+// con las especialidades que efectivamente aparecen en cargos con ese
+// puesto. Alimenta el filtro en cascada de PersonasPage: la mayoría de los
+// puestos no médicos nunca tienen especialidad (`especialidades: []`).
+export interface Puesto {
+  puesto: string
+  especialidades: string[]
+}
+
 export interface Hospital {
   id: string
   sigla: string
@@ -316,6 +332,10 @@ export interface PersonaFilters {
   activo?: boolean
   hospitalId?: string
   escalafonId?: string
+  // Texto libre (Cargo.literalPuesto/especialidad no tienen catálogo/FK) —
+  // igualdad exacta contra los valores que devuelve GET /api/v1/puestos.
+  puesto?: string
+  especialidad?: string
   page?: number
   limit?: number
 }

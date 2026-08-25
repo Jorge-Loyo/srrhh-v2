@@ -17,6 +17,7 @@ interface PersonaRow {
   activo: boolean
   createdAt: Date
   updatedAt: Date
+  puesto: string | null
 }
 
 // ─── S3-1 + S3-3: listado paginado con full-text search + filtros ──────────
@@ -24,11 +25,17 @@ interface PersonaRow {
 // Se usa $queryRaw (no el query builder de Prisma) porque el criterio de
 // éxito del sprint pide full-text search real de Postgres (`to_tsvector` +
 // `plainto_tsquery`, apoyado en el índice GIN de S3-11), no un `contains`
-// (ILIKE) disfrazado. El filtro por hospital/escalafón necesita cruzar por
-// la ocupación VIGENTE de la persona (`ocupaciones.hasta IS NULL` →
-// `cargos.hospital_id`/`escalafon_id`), que sí se arma con un EXISTS.
+// (ILIKE) disfrazado. Filtros de hospital/escalafón/puesto/especialidad
+// cruzan por la ocupación VIGENTE de la persona (`hasta IS NULL`) — un
+// LEFT JOIN LATERAL en vez del EXISTS que había antes: ahora hace falta
+// igual para poder devolver `c.literal_puesto` como columna de la tabla
+// (pedido junto con el filtro de puesto), así que se reusa el mismo join
+// para filtrar en vez de mantener dos formas distintas de llegar al cargo
+// vigente. LATERAL + LIMIT 1 (no un JOIN plano) por las dudas de que algún
+// día una persona tenga más de una ocupación vigente a la vez — no debería
+// pasar por diseño, pero un JOIN plano duplicaría la fila si pasa.
 export async function listPersonasService(query: PersonasQuery) {
-  const { page, limit, search, activo, hospitalId, escalafonId } = query
+  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad } = query
   const offset = (page - 1) * limit
 
   const conditions: Prisma.Sql[] = []
@@ -44,17 +51,21 @@ export async function listPersonasService(query: PersonasQuery) {
   if (activo !== undefined) {
     conditions.push(Prisma.sql`p.activo = ${activo}`)
   }
-  if (hospitalId || escalafonId) {
-    conditions.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM ocupaciones o
-      JOIN cargos c ON c.id = o.cargo_id
-      WHERE o.persona_id = p.id AND o.hasta IS NULL
-      ${hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty}
-      ${escalafonId ? Prisma.sql`AND c.escalafon_id = ${escalafonId}::uuid` : Prisma.empty}
-    )`)
-  }
+  if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
+  if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
+  if (puesto) conditions.push(Prisma.sql`c.literal_puesto = ${puesto}`)
+  if (especialidad) conditions.push(Prisma.sql`c.especialidad = ${especialidad}`)
 
   const where = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
+
+  const joinCargoVigente = Prisma.sql`
+    LEFT JOIN LATERAL (
+      SELECT o.cargo_id FROM ocupaciones o
+      WHERE o.persona_id = p.id AND o.hasta IS NULL
+      LIMIT 1
+    ) oc ON true
+    LEFT JOIN cargos c ON c.id = oc.cargo_id
+  `
 
   const [rows, totalRows] = await Promise.all([
     prisma.$queryRaw<PersonaRow[]>(Prisma.sql`
@@ -64,14 +75,16 @@ export async function listPersonasService(query: PersonasQuery) {
         p.apellido_nombre AS "apellidoNombre",
         p.fecha_nacimiento AS "fechaNacimiento",
         p.sexo, p.especialidad_principal AS "especialidadPrincipal",
-        p.activo, p.created_at AS "createdAt", p.updated_at AS "updatedAt"
+        p.activo, p.created_at AS "createdAt", p.updated_at AS "updatedAt",
+        c.literal_puesto AS "puesto"
       FROM personas p
+      ${joinCargoVigente}
       ${where}
       ORDER BY p.apellido_nombre ASC
       LIMIT ${limit} OFFSET ${offset}
     `),
     prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-      SELECT count(*)::bigint AS count FROM personas p ${where}
+      SELECT count(*)::bigint AS count FROM personas p ${joinCargoVigente} ${where}
     `),
   ])
 

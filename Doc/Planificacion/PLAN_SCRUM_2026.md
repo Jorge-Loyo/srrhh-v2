@@ -495,6 +495,34 @@ en esta máquina, para verificar UTF-8 no confiar en pipes por `python3`/PowerSh
 explícito — guardar a archivo y leer con una herramienta que sí lo maneje bien, o inspeccionar
 codepoints a mano.
 
+**Pedido de Jorge (2026-08-25): columna "Puesto" en la tabla de `/personas`, filtro por puesto, y
+filtro de especialidad en cascada (solo si ese puesto tiene especialidades reales).** `literalPuesto`
+es texto libre en `Cargo` (sin catálogo/FK — decisión de diseño de Sprint 2), así que no hay una
+tabla de "puestos" para consultar directo.
+
+- **Nuevo endpoint `GET /api/v1/puestos`** — agrupa `cargos` por `literal_puesto` y devuelve, para
+  cada uno, el array de especialidades distintas que efectivamente aparecen ahí (`especialidades:
+  []` para la mayoría de los puestos no médicos). 276 puestos distintos en los datos reales.
+  Verificado: `Licenciado en Enfermería` y `Enfermero Profesional` → `[]`; `Médico de Planta` → ~140
+  especialidades reales (Cardiología, Pediatría, etc.).
+- **`listPersonasService` reescrito** — el filtro de hospital/escalafón pasó de un `EXISTS` a un
+  `LEFT JOIN LATERAL` a la ocupación vigente + `cargos` (con `LIMIT 1` por las dudas de que alguna
+  persona tenga más de una ocupación vigente a la vez, aunque no debería pasar por diseño) — hacía
+  falta igual para poder devolver `literal_puesto` como columna de la tabla, así que se reusa el
+  mismo join para filtrar por `puesto`/`especialidad` en vez de mantener dos caminos distintos al
+  cargo vigente.
+- **`packages/types`**: `PersonaListItem` (Persona + `puesto`, la forma real de
+  `GET /api/v1/personas` — no se agregó a `Persona` porque `puesto` no es un campo de la persona en
+  sí, es de su ocupación vigente) y `Puesto` (forma de `GET /api/v1/puestos`).
+- **Frontend**: columna "Puesto" en la tabla; selector de puesto (276 opciones); selector de
+  especialidad que solo aparece si hay un puesto elegido y ese puesto tiene especialidades reales —
+  al cambiar de puesto se resetea la especialidad elegida (las opciones válidas cambian). Excel
+  export actualizado con la columna Puesto.
+
+Verificado contra la API real (no solo `tsc` limpio): `GET /api/v1/personas?puesto=Médico de
+Planta&especialidad=Cardiología` devuelve 255 resultados, los 255 con ese puesto y esa especialidad
+exactos — filtro combinado funcionando de punta a punta.
+
 ---
 
 ### SPRINT 4 — Concursos CPH

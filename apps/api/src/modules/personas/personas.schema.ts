@@ -16,6 +16,11 @@ export const personasQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // Puesto/especialidad son texto libre en Cargo (sin catálogo, ver
+  // Doc/Planificacion/PLAN_SCRUM_2026.md) — se filtra por igualdad exacta
+  // contra el valor que ya devuelve GET /api/v1/puestos.
+  puesto: z.string().trim().min(1).optional(),
+  especialidad: z.string().trim().min(1).optional(),
 })
 
 export type PersonasQuery = z.infer<typeof personasQuerySchema>
