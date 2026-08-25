@@ -56,6 +56,7 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
         value={query}
         placeholder={placeholder}
         onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
         onChange={(e) => {
           setQuery(e.target.value)
           setOpen(true)
@@ -66,8 +67,24 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
             setQuery(value)
           }
         }}
-        className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+        // pr-8: deja lugar a la flechita de abajo — sin esto, este input se
+        // ve idéntico a un buscador de texto libre y no como un desplegable
+        // (reportado por Jorge: "parece que desapareció el dropdown").
+        className="h-10 pl-3 pr-8 border border-gray-300 rounded w-full cursor-text focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
       />
+      {/* Flechita de desplegable — puramente visual (decorativa, por eso
+          pointer-events-none y aria-hidden), el click real lo maneja el
+          input de arriba. Gira al abrir, mismo affordance que un <select>. */}
+      <svg
+        aria-hidden="true"
+        className={`absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none transition-transform ${
+          open ? 'rotate-180' : ''
+        }`}
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" />
+      </svg>
       {open && (
         <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded shadow-lg">
           {value && (
