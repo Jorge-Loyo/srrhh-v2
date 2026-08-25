@@ -4,8 +4,12 @@ import axios from 'axios'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import type { MultipartFile } from '@fastify/multipart'
 import type { DiffQuery } from './padron.schema.js'
+
+// Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
+// sobre por qué no se recibe el MultipartFile crudo acá (el stream tiene que
+// consumirse mientras el part está activo en el iterador de request.parts()).
+interface UploadedFile { buffer: Buffer; filename: string; mimetype: string }
 
 // Formas mínimas de las filas que necesitamos de cada modelo — ver comentario
 // junto a su uso en aprobarSnapshotService() sobre por qué se anotan a mano
@@ -352,7 +356,7 @@ async function runPipeline(
 // ─── S2-2 + S2-3 + S2-4 + S2-18 + S2-19: upload → dispara pipeline async ────
 
 export async function uploadPadronService(
-  file: MultipartFile,
+  file: UploadedFile,
   fechaAsignada: string,
   usuarioId: string
 ) {
@@ -362,7 +366,7 @@ export async function uploadPadronService(
   const existe = await prisma.padronSnapshot.findUnique({ where: { fechaAsignada: fechaDate } })
   if (existe) throw AppError.conflict(`Ya existe un snapshot para la fecha ${fechaAsignada}`)
 
-  const fileBuffer = await file.toBuffer()
+  const fileBuffer = file.buffer
 
   const { data: sessionData } = await python.post('/session')
   const sessionId: string = sessionData.session_id
@@ -491,6 +495,21 @@ const CAMPOS_OCUPACION: Record<string, string> = {
   estado: 'estadoPersona',
 }
 
+// Bug crítico confirmado corriendo contra datos reales (2026-08-25, sin
+// excepción — falla silenciosa): `calcularDiff()` solo guarda `cuil_y_rol`
+// ("<CUIL 11 dígitos>-<rol>") en el JSON de cada diff "nuevo" — nunca un
+// campo `cuil` suelto. Esta función leía `datos.cuil`, que por lo tanto
+// siempre era `undefined`, y el guard `if (datos.cuil && ...)` cortaba en
+// false en cada fila. Resultado: `personasACrear` y `ocupacionesACrear`
+// quedaban siempre vacíos — 0 personas, 0 ocupaciones, 0 histórico creados —
+// mientras que `cargosACrear` (que sí usa `datos.id_sial`, un campo que sí
+// existe) se poblaba bien. La transacción hacía COMMIT igual (200 OK, sin
+// error) porque no hay ningún `throw`: es un bug de datos, no de excepción.
+// `Persona.cuil` es VARCHAR(11) — el CUIL puro, sin el sufijo de rol.
+function cuilDe(datos: Record<string, string>): string | undefined {
+  return datos.cuil_y_rol ? datos.cuil_y_rol.split('-')[0] : undefined
+}
+
 export async function aprobarSnapshotService(id: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
@@ -535,7 +554,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
     const siglasNecesarias = [...new Set(nuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
     const escalafonesNecesarios = [...new Set(nuevos.map((n) => n.datos.escalafon ?? n.idSialRol))]
-    const cuilsNecesarios = [...new Set(nuevos.map((n) => n.datos.cuil).filter((v): v is string => Boolean(v)))]
+    const cuilsNecesarios = [...new Set(nuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)))]
     const idSialsNecesarios = [...new Set(nuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
 
     // `{ in: [] }` es válido en Prisma (devuelve 0 filas) — no hace falta
@@ -580,7 +599,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const nombre of escalafonesNecesarios) {
       if (escalafonCache.has(nombre)) continue
-      const e = await tx.escalafon.create({ data: { codigo: nombre, nombre } })
+      // Bug confirmado corriendo contra datos reales (aprobación P2000): `codigo`
+      // es VARCHAR(20) en el schema, pero acá se reutilizaba el nombre completo
+      // del escalafón como código — cualquier nombre real de más de 20
+      // caracteres (ej. escalafones con nombres descriptivos largos) rompía el
+      // create y tumbaba toda la transacción de aprobación. `codigo` no se lee
+      // en ningún otro lugar del repo (el lookup de esta función es por
+      // `nombre`), así que no hace falta que sea legible — solo único y corto.
+      const e = await tx.escalafon.create({
+        data: { codigo: `${nombre.slice(0, 12)}-${randomUUID().slice(0, 7)}`, nombre },
+      })
       escalafonCache.set(nombre, e)
     }
 
@@ -600,8 +628,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     >()
     for (const { datos } of nuevos) {
-      if (datos.cuil && !personaCache.has(datos.cuil) && !personasACrear.has(datos.cuil)) {
-        personasACrear.set(datos.cuil, { id: randomUUID(), cuil: datos.cuil, apellidoNombre: datos.ayn ?? '' })
+      const cuil = cuilDe(datos)
+      if (cuil && !personaCache.has(cuil) && !personasACrear.has(cuil)) {
+        personasACrear.set(cuil, { id: randomUUID(), cuil, apellidoNombre: datos.ayn ?? '' })
       }
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
@@ -641,7 +670,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }[] = []
     for (const { idSialRol, datos } of nuevos) {
       if (ocupacionExistenteMap.has(idSialRol)) continue
-      const persona = datos.cuil ? personaCache.get(datos.cuil) : null
+      const cuil = cuilDe(datos)
+      const persona = cuil ? personaCache.get(cuil) : null
       const cargo = datos.id_sial ? cargoCache.get(datos.id_sial) : null
       if (!persona || !cargo) continue
       ocupacionesACrear.push({

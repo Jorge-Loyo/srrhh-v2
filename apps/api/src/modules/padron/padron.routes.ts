@@ -33,21 +33,29 @@ export async function padronRoutes(app: FastifyInstance) {
   app.post('/upload', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
     const parts = request.parts()
     let fechaAsignada = ''
-    let file: Awaited<ReturnType<typeof request.file>> | null = null
+    let uploadedFile: { buffer: Buffer; filename: string; mimetype: string } | null = null
 
     for await (const part of parts) {
       if (part.type === 'field' && part.fieldname === 'fechaAsignada') {
         fechaAsignada = part.value as string
       } else if (part.type === 'file') {
-        file = part
+        // Hallazgo (verificación manual Sprint 2, 2026-08-25): si no se consume
+        // el stream del part 'file' MIENTRAS está activo en este iterador, el
+        // parser interno de busboy queda esperando que se drene para poder
+        // avanzar al siguiente part — y como el archivo suele ser la última
+        // parte del multipart, el `for await` nunca termina de iterar (deadlock
+        // silencioso, la request queda colgada sin loggear error ni completar).
+        // Por eso se resuelve el buffer acá mismo, no se guarda solo la
+        // referencia del part para leerlo después.
+        uploadedFile = { buffer: await part.toBuffer(), filename: part.filename, mimetype: part.mimetype }
       }
     }
 
-    if (!file) throw AppError.badRequest('Archivo requerido')
+    if (!uploadedFile) throw AppError.badRequest('Archivo requerido')
 
     const { fechaAsignada: fecha } = uploadPadronSchema.parse({ fechaAsignada })
     const user = request.user as { id: string }
-    const result = await uploadPadronService(file, fecha, user.id)
+    const result = await uploadPadronService(uploadedFile, fecha, user.id)
 
     return reply.status(202).send({ data: result })
   })

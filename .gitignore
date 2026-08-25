@@ -36,5 +36,12 @@ coverage/
 prisma/*.db
 prisma/*.db-journal
 
+# Python
+__pycache__/
+*.pyc
+
 # Misc
 *.tsbuildinfo
+
+# Docker Compose override local (conflicto de puerto con Postgres nativo)
+docker-compose.override.yml

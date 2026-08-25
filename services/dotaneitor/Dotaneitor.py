@@ -182,7 +182,14 @@ class DotacionAutomation:
                 cruce = str(row['CRUCE'])
                 agrupador_map[cruce] = row.get('AGRUPADOR')
             
-            df['AGRUPADOR'] = df['CRUCE_AGRUPADOR'].map(agrupador_map)
+            # .astype('object') defensivo: si para este archivo ningún CRUCE_AGRUPADOR
+            # matchea agrupador_map (o todos los matches son NaN), pandas infiere la
+            # columna entera como float64 (todo NaN). El assignment de más abajo
+            # (COD_SIT=32 -> "Enfermero/a ATP") escribe un string en esa columna, y
+            # pandas moderno ya no permite el upcast implícito float64->object: tira
+            # TypeError y tumba todo el pipeline. Forzar dtype object acá no cambia
+            # ningún valor, solo garantiza que la columna pueda contener strings.
+            df['AGRUPADOR'] = df['CRUCE_AGRUPADOR'].map(agrupador_map).astype('object')
 
             mask_sin_agrupador = ~df['CRUCE_AGRUPADOR'].isin(agrupador_map.keys())
             agrupador_no_encontrado = sorted(str(c) for c in df.loc[mask_sin_agrupador, 'CRUCE_AGRUPADOR'].unique())
