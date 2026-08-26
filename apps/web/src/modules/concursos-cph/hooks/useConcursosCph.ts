@@ -7,6 +7,7 @@ import type {
   SuspenderConcursoCphRequest,
 } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
+import { fetchAllPages } from '@/shared/lib/exportExcel'
 
 // S4-7: listado paginado con filtros (GET /api/v1/concursos-cph, S4-1 de Jorge).
 export function useConcursosCph(filters: ConcursoCphFilters) {
@@ -19,6 +20,28 @@ export function useConcursosCph(filters: ConcursoCphFilters) {
       return res.data
     },
     placeholderData: (prev) => prev,
+  })
+}
+
+// S4-10: trae TODOS los concursos CPH (no solo la página visible) para poder
+// calcular alertas de "sin movimiento" correctas sobre el total, no solo
+// sobre los 50 de la página actual. concursosCphQuerySchema tope `limit` en
+// 200 (a diferencia de personas/cargos) — pageSize se ajusta a eso, igual que
+// fetchAllPages ya hace para el export a Excel de PersonasPage/CargosPage.
+// Volumen esperado: decenas/pocos cientos de concursos CPH (no 45k como
+// personas), así que traer todo entero es barato.
+export function useConcursosCphAlertas() {
+  return useQuery({
+    queryKey: ['concursos-cph', 'alertas'],
+    queryFn: () =>
+      fetchAllPages<ConcursoCph>(
+        (page, limit) =>
+          apiClient
+            .get<PaginatedResponse<ConcursoCph>>('/api/v1/concursos-cph', { params: { page, limit } })
+            .then((r) => r.data),
+        200
+      ),
+    staleTime: 60_000,
   })
 }
 

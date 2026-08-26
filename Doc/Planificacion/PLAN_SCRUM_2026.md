@@ -709,7 +709,7 @@ pendientes.
 | S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico | ✅ |
 | S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ✅ |
 | S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ✅ |
-| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ⏳ |
+| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ✅ |
 | S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅ |
 
 **Criterio de éxito:**
@@ -806,7 +806,8 @@ igual que cualquier otro campo de texto) — el error solo aparece en runtime, c
 valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre se reemplazó por un
 `Set` explícito de los 14 campos de fecha del PATCH.
 
-**S4-7, S4-8 y S4-9 completados y verificados por Agustin (2026-08-26):**
+**S4-7, S4-8, S4-9 y S4-10 completados y verificados por Agustin (2026-08-26) — Sprint 4 de Agustin
+cerrado:**
 
 - `ConcursosCphPage` (S4-7) — tabla siguiendo el mismo patrón que `CargosPage`/`PersonasPage`
   (búsqueda debounce 300ms, filtros combinables, paginación). Filtros: hospital, estado, subEstado,
@@ -831,6 +832,16 @@ valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre
   legible. Desierto se muestra como estado propio (banner rojo), no como un 8º segmento al final de
   la progresión — el concurso no "llegó más lejos", se cayó. Suspendido atenúa la barra entera con
   aviso, sin ocultar en qué etapa quedó.
+- `AlertasSinMovimiento` (S4-10) — panel en `ConcursosCphPage`, arriba de la tabla/filtros. Umbrales
+  acumulativos (30+/60+/90+ días, no 3 grupos disjuntos — un concurso a 95 días cuenta en los 3).
+  Solo alertan `no_iniciado`/`activo`: `suspendido` está parado a propósito (no es una alerta, es una
+  decisión) y `finalizado`/`desierto` ya cerraron. `concursosCphQuerySchema` (backend) no tiene
+  filtro por antigüedad de `updatedAt`, así que se trae el total de concursos CPH con
+  `fetchAllPages()` (mismo helper que ya usa el export a Excel de S3-10, paginado en bloques de 200 —
+  el tope de `limit` de este endpoint, a diferencia de personas/cargos) y se calculan los buckets
+  client-side; volumen esperado (decenas/pocos cientos de concursos CPH, no 45k como personas) hace
+  esto barato. Cada bucket es clickeable y expande la lista real de concursos afectados, con link a
+  su detalle.
 
 **Verificado contra la API real, no solo `tsc --noEmit`** (reset de la base local — el historial de
 migraciones de este container había quedado inconsistente, ver hallazgo de infraestructura abajo —
@@ -858,6 +869,11 @@ seed, login real, cargo de prueba insertado a mano y borrado al final):
   silencio (vuelve `-1`, la barra queda siempre en el primer segmento) — no tira error, así que
   valía la pena confirmarlo con valores reales del backend y no solo a ojo contra el código fuente
   de `concursosCph.calc.ts`. Datos de prueba borrados al final.
+- S4-10: 3 concursos de prueba con `updated_at` backdateado a mano en la BD (10/35/95 días) para
+  poder probar el bucketing sin esperar 3 meses reales — el de 10 días no debe alertar en ningún
+  umbral, el de 35 solo en "30+", el de 95 en los 3 ("30+"/"60+"/"90+", confirma que son acumulativos
+  y no disjuntos). Confirmado con `GET /api/v1/concursos-cph?limit=200` real. Datos de prueba
+  borrados al final.
 
 **Hallazgo de infraestructura (no es un bug de código, documentado para no repetir el diagnóstico):**
 el container de Postgres nativo en WSL (Docker Engine directo, no Docker Desktop — ver
