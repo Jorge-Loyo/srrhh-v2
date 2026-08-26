@@ -138,7 +138,7 @@ export function ConcursosCphPage() {
             {data.data.length > 0 && (
               <div className="overflow-x-auto">
                 <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
-                  <thead className="bg-gray-50 text-gray-500 text-left">
+                  <thead className="bg-navy text-white text-left">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Cargo</th>

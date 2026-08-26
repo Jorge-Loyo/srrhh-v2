@@ -162,7 +162,7 @@ export function PadronPage() {
 
         {!cargandoSnapshots && snapshots && snapshots.length > 0 && (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-left">
+            <thead className="bg-navy text-white text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Fecha</th>
                 <th className="px-4 py-3 font-semibold">Archivo</th>

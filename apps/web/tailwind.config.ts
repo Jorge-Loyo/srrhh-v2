@@ -21,6 +21,8 @@ const config: Config = {
           light: '#4D94DB',
           foreground: '#FFFFFF',
         },
+        // Azul Noche — header, thead, logo sidebar
+        navy: '#1A2B4A',
         // Neutros Obelisco
         gray: {
           50: '#F3F6F9',

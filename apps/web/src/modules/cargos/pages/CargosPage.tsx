@@ -158,7 +158,7 @@ export function CargosPage() {
 
             {data.data.length > 0 && (
               <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
-                <thead className="bg-gray-50 text-gray-500 text-left">
+                <thead className="bg-navy text-white text-left">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Código Cargo</th>
                     <th className="px-4 py-3 font-semibold">Hospital</th>

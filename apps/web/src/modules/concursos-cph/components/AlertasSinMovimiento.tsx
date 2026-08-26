@@ -70,13 +70,13 @@ export function AlertasSinMovimiento() {
       {abierto && (
         <div className="border-t border-gray-100 pt-4">
           <table className="w-full text-sm">
-            <thead className="text-gray-500 text-left">
+            <thead className="bg-navy text-white text-left">
               <tr>
-                <th className="pb-2 font-semibold">Hospital</th>
-                <th className="pb-2 font-semibold">Cargo</th>
-                <th className="pb-2 font-semibold">Sub-estado</th>
-                <th className="pb-2 font-semibold">Días</th>
-                <th className="pb-2 font-semibold" />
+                <th className="px-4 py-3 font-semibold">Hospital</th>
+                <th className="px-4 py-3 font-semibold">Cargo</th>
+                <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                <th className="px-4 py-3 font-semibold">Días</th>
+                <th className="px-4 py-3 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

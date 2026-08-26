@@ -32,7 +32,7 @@ export function AppShell() {
       {/* Sidebar */}
       <aside className="w-sidebar bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
         {/* Logo */}
-        <div className="h-header flex items-center gap-3 px-4 border-b border-gray-200 bg-[#1A2B4A]">
+        <div className="h-header flex items-center gap-3 px-4 border-b border-gray-200 bg-navy">
           <div className="w-8 h-8 bg-primary rounded flex items-center justify-center font-primary font-bold text-sm shrink-0 text-black">
             BA
           </div>
@@ -80,7 +80,7 @@ export function AppShell() {
       {/* Contenido principal */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header — Azul Noche Obelisco GCBA */}
-        <header className="h-header bg-[#1A2B4A] flex items-center justify-between shrink-0">
+        <header className="h-header bg-navy flex items-center justify-between shrink-0">
           <h1 className="font-primary font-bold text-white text-lg px-6">
             Sistema de Recursos Humanos
           </h1>
