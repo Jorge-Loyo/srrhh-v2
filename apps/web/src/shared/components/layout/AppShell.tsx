@@ -3,14 +3,6 @@ import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
 
-const NAV_ITEMS = [
-  { to: '/padron', label: 'Padrón Semanal' },
-  { to: '/personas', label: 'Personas' },
-  { to: '/concursos/cph', label: 'Concursos CPH' },
-  { to: '/concursos/ceetps', label: 'Concursos CEETPS' },
-  { to: '/kpis', label: 'Tablero KPIs' },
-]
-
 const CARGOS_SUBITEMS = [
   { to: '/cargos', label: 'Ver cargos' },
   { to: '/cargos/alta', label: 'Alta de cargo' },
@@ -49,21 +41,27 @@ export function AppShell() {
 
         {/* Nav */}
         <nav className="flex-1 py-4 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `block px-4 py-2.5 text-sm font-semibold transition-colors ${
-                  isActive
-                    ? 'bg-primary text-black'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          <NavLink
+            to="/padron"
+            className={({ isActive }) =>
+              `block px-4 py-2.5 text-sm font-semibold transition-colors ${
+                isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`
+            }
+          >
+            Padrón Semanal
+          </NavLink>
+
+          <NavLink
+            to="/personas"
+            className={({ isActive }) =>
+              `block px-4 py-2.5 text-sm font-semibold transition-colors ${
+                isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`
+            }
+          >
+            Personas
+          </NavLink>
 
           {/* Grupo Cargos — desplegable con Alta, Baja y Alta por baja */}
           <button
@@ -98,6 +96,39 @@ export function AppShell() {
               ))}
             </div>
           )}
+
+          <NavLink
+            to="/concursos/cph"
+            className={({ isActive }) =>
+              `block px-4 py-2.5 text-sm font-semibold transition-colors ${
+                isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`
+            }
+          >
+            Concursos CPH
+          </NavLink>
+
+          <NavLink
+            to="/concursos/ceetps"
+            className={({ isActive }) =>
+              `block px-4 py-2.5 text-sm font-semibold transition-colors ${
+                isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`
+            }
+          >
+            Concursos CEETPS
+          </NavLink>
+
+          <NavLink
+            to="/kpis"
+            className={({ isActive }) =>
+              `block px-4 py-2.5 text-sm font-semibold transition-colors ${
+                isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`
+            }
+          >
+            Tablero KPIs
+          </NavLink>
 
           <div className="border-t border-gray-200 mt-4 pt-4">
             <NavLink
