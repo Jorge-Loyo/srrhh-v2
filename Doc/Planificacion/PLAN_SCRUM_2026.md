@@ -708,7 +708,7 @@ pendientes.
 | S4-6  | `POST /api/v1/concursos` crear concurso desde baja            | Jorge   | 4h   | 🔴 Crítico | ✅ |
 | S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico | ✅ |
 | S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ✅ |
-| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ⏳ |
+| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ✅ |
 | S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ⏳ |
 | S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅ |
 
@@ -806,7 +806,7 @@ igual que cualquier otro campo de texto) — el error solo aparece en runtime, c
 valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre se reemplazó por un
 `Set` explícito de los 14 campos de fecha del PATCH.
 
-**S4-7 y S4-8 completados y verificados por Agustin (2026-08-26):**
+**S4-7, S4-8 y S4-9 completados y verificados por Agustin (2026-08-26):**
 
 - `ConcursosCphPage` (S4-7) — tabla siguiendo el mismo patrón que `CargosPage`/`PersonasPage`
   (búsqueda debounce 300ms, filtros combinables, paginación). Filtros: hospital, estado, subEstado,
@@ -825,6 +825,12 @@ valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre
 - Nuevo `.input`/`.checkbox` en `index.css` (`@layer components`) — con 27 campos en el formulario,
   repetir la clase larga de Tailwind en cada uno (como en `AdminUsuariosPage`, que tiene 4 campos) ya
   no daba; se extrajo siguiendo el mismo criterio que ya usa el archivo para `.btn-*`/`.badge-*`.
+- `SubEstadoTimeline` (S4-9) — barra de progreso segmentada montada en el header de
+  `ConcursoCphDetail`, sobre `subEstado3` (la vista "resumida" de 8 etapas) en vez del `subEstado`
+  crudo de 19 niveles — con nombres del legacy como "H-TAD"/"K-ITE" no entra en una barra lineal
+  legible. Desierto se muestra como estado propio (banner rojo), no como un 8º segmento al final de
+  la progresión — el concurso no "llegó más lejos", se cayó. Suspendido atenúa la barra entera con
+  aviso, sin ocultar en qué etapa quedó.
 
 **Verificado contra la API real, no solo `tsc --noEmit`** (reset de la base local — el historial de
 migraciones de este container había quedado inconsistente, ver hallazgo de infraestructura abajo —
@@ -845,6 +851,13 @@ seed, login real, cargo de prueba insertado a mano y borrado al final):
   del backend).
 - Cargo, concurso y concursoCph de prueba borrados al final — la base quedó igual que antes de la
   verificación (0 concursos).
+- S4-9: segundo concurso de prueba progresado con 3 `PATCH` reales (autorización+sorteo →
+  disposición → `dispoDesierta`) — los 4 valores de `subEstado3` que devolvió el backend
+  (`A-VALID. VCTE`, `B-AUTORIZADO`, `C-INSCRIPCION`, `H-DESIERTO`) matchean exacto contra el array
+  `PASOS` del componente. Sin ese match exacto el `findIndex()` de `SubEstadoTimeline` falla en
+  silencio (vuelve `-1`, la barra queda siempre en el primer segmento) — no tira error, así que
+  valía la pena confirmarlo con valores reales del backend y no solo a ojo contra el código fuente
+  de `concursosCph.calc.ts`. Datos de prueba borrados al final.
 
 **Hallazgo de infraestructura (no es un bug de código, documentado para no repetir el diagnóstico):**
 el container de Postgres nativo en WSL (Docker Engine directo, no Docker Desktop — ver
