@@ -637,6 +637,34 @@ agrupa por prefijo, y asigna secuencial empezando en 1 por grupo (orden determin
 actualizados con el campo nuevo. Verificado contra la API real: cargo `000110898-1`
 (Bianco/Médico de Planta, sin "Guardia" en el puesto) → `codigo: "CPH-POF-000001"`.
 
+**Pedido de Jorge (2026-08-26): dos ajustes al dropdown de escalafón de `/personas`.**
+
+1. Mostrar **"CPH"** en vez de **"Médicos"** en el dropdown — cambio puramente cosmético/visual, el
+   dato real (`Escalafon.nombre = "Médicos"`) no cambia ni en la base ni en el filtro que se envía a
+   la API (sigue siendo el `id` real del escalafón). `escalafonLabel()` en `PersonasPage.tsx`.
+2. **Orden alfabético por el label mostrado**, no por `Escalafon.nombre` crudo — con el cambio
+   anterior, "CPH" quedaba huérfano bajo la M de "Médicos" en vez de ordenar bajo la C. Se ordena una
+   copia de `escalafones` con `escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')`
+   antes de mapear las `<option>`.
+
+**Mismo pedido, tercer cambio: el dropdown de Puesto ahora filtra en cascada por el Escalafón
+elegido** (antes mostraba los 276 puestos siempre, sin importar el escalafón activo).
+`GET /api/v1/puestos` acepta ahora un query param opcional `escalafonId` (zod, mismo patrón que
+`personas.schema.ts`/`cargos.schema.ts`) y agrega `AND escalafon_id = $1` al `WHERE` cuando viene
+presente. `usePuestos(escalafonId)` en el frontend lo pasa como param (y lo suma al `queryKey` para
+que React Query cachee por escalafón), y `cambiarEscalafon()` en `PersonasPage` resetea
+puesto/especialidad al cambiar de escalafón (mismo patrón ya existente en `cambiarPuesto()` con
+especialidad — las opciones válidas cambian, así que la selección previa puede dejar de existir).
+
+Verificado contra la API real (`GET /api/v1/puestos` con token real): sin filtro, 276 puestos; con
+`escalafonId` de Médicos, 62; con `escalafonId` de Docentes, 8 (Director INST. SUP. de Tecnicat.
+P/la Salud, Instructor Técnico Escuela Técnicos para la Salud, Maestro Celador Hospital Manuel
+Rocca, etc. — coincide exactamente con lo que trae `/personas?escalafonId=...` para ese escalafón).
+Verificado con browser real: dropdown de escalafón ordenado "Autoridades Superiores, Carrera
+Gerencial, CEETPS, **CPH**, Cuerpos Transitorios, Docentes, Escalafón General, Planta de Gabinete,
+Planta Transitoria, Residentes"; al elegir "Docentes", el combobox de puesto muestra exactamente los
+8 puestos esperados (screenshot verificado, tabla de personas también se filtra en consistencia).
+
 ---
 
 ### SPRINT 4 — Concursos CPH

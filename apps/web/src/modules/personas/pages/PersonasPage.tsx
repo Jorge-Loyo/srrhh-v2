@@ -10,6 +10,15 @@ import { usePersonas, usePuestos } from '../hooks/usePersonas'
 
 const LIMIT = 50
 
+// Pedido de Jorge (2026-08-26): mostrar "CPH" en vez de "Médicos" en el
+// dropdown de escalafón — solo el label visual. El value del <option> sigue
+// siendo el id real del escalafón (Escalafon.nombre en la base no cambia,
+// el filtro sigue funcionando igual) — esto no toca datos ni el back, es
+// puramente cosmético en este dropdown.
+function escalafonLabel(nombre: string): string {
+  return nombre === 'Médicos' ? 'CPH' : nombre
+}
+
 export function PersonasPage() {
   const [search, setSearch] = useState('')
   const [hospitalId, setHospitalId] = useState('')
@@ -36,7 +45,16 @@ export function PersonasPage() {
   const { data, isLoading, isFetching, isError } = usePersonas(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
-  const { data: puestos } = usePuestos()
+  // Pedido de Jorge (2026-08-26): el dropdown de puesto queda en cascada con
+  // el escalafón elegido — sin escalafón, trae todos los puestos como antes.
+  const { data: puestos } = usePuestos(escalafonId || undefined)
+
+  // Pedido de Jorge (2026-08-26): orden alfabético por el LABEL mostrado
+  // (no por Escalafon.nombre crudo) — así "CPH" ordena en la C y no se queda
+  // perdido bajo la M de "Médicos".
+  const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
+    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
+  )
 
   // Filtro de especialidad en cascada: solo tiene sentido con un puesto
   // elegido, y solo si ESE puesto realmente tiene especialidades en los
@@ -54,6 +72,17 @@ export function PersonasPage() {
   function cambiarPuesto(nuevoPuesto: string) {
     setPuesto(nuevoPuesto)
     setEspecialidad('') // las especialidades disponibles cambian con el puesto
+    setPage(1)
+  }
+
+  // Pedido de Jorge (2026-08-26): al cambiar de escalafón, la lista de
+  // puestos disponibles cambia (cascada) — el puesto/especialidad elegidos
+  // antes ya pueden no existir en el nuevo escalafón, así que se resetean
+  // (mismo patrón que cambiarPuesto con especialidad).
+  function cambiarEscalafon(nuevoEscalafonId: string) {
+    setEscalafonId(nuevoEscalafonId)
+    setPuesto('')
+    setEspecialidad('')
     setPage(1)
   }
 
@@ -130,13 +159,13 @@ export function PersonasPage() {
           </select>
           <select
             value={escalafonId}
-            onChange={(e) => resetPage(setEscalafonId)(e.target.value)}
+            onChange={(e) => cambiarEscalafon(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los escalafones</option>
-            {escalafones?.map((e) => (
+            {escalafonesOrdenados.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.nombre}
+                {escalafonLabel(e.nombre)}
               </option>
             ))}
           </select>

@@ -20,11 +20,16 @@ export function usePersonas(filters: PersonaFilters) {
 
 // Filtro por puesto + especialidad en cascada (cada puesto trae sus propias
 // especialidades reales, puede ser []). No cambia seguido, cache normal.
-export function usePuestos() {
+// Pedido de Jorge (2026-08-26): en cascada con el escalafón elegido — con
+// escalafonId, el back filtra los puestos a los que realmente existen en
+// ESE escalafón (sin escalafonId, trae todos como antes).
+export function usePuestos(escalafonId?: string) {
   return useQuery({
-    queryKey: ['puestos'],
+    queryKey: ['puestos', escalafonId],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: Puesto[] }>('/api/v1/puestos')
+      const res = await apiClient.get<{ data: Puesto[] }>('/api/v1/puestos', {
+        params: escalafonId ? { escalafonId } : undefined,
+      })
       return res.data.data
     },
   })
