@@ -569,6 +569,74 @@ combobox de puesto con browser real, escribir "medico" filtra correctamente a "M
 "Médico Veterinario de Guardia/Planta", "Especialista en la Guardia Médico", "Profesional Guardia
 Médico".
 
+**Pedido de Jorge (2026-08-26): "Quayat, Mariana Celina" en `/personas/:id` tenía Sexo, Fecha de
+nacimiento y Antigüedad vacíos.** Mismo patrón de bug que Documento/Especialidad (hallazgo del
+2026-08-25, más arriba): el Dotaneitor real trae `SEXO`, `FEC_NACIM` (sin renombrar/renombrado a
+"FECHA NACIMIENTO") y `SALUD_1ER_CARGO` (renombrado a "ANTIGÜEDAD") con cobertura casi total
+(45.076/45.083 con sexo, 45.083/45.083 con fecha), pero `calcularDiff()` nunca los capturaba. ✅
+**Corregido** — agregados al JSON de `calcularDiff()` y a la creación de `Persona` en
+`aprobarSnapshotService` (nuevo helper `parseFechaDDMMYYYY()` — el Excel trae fechas como
+`"DD/MM/YYYY"`, `new Date("DD/MM/YYYY")` las interpreta mal en Node, formato ambiguo que asume
+MM/DD). **Backfill** de las 45.083 personas ya cargadas, mismo patrón que Documento/Especialidad
+(leer el Excel real, `UPDATE ... COALESCE` por CUIL, sin tocar cargos/ocupaciones/histórico).
+Verificado: Mail personal/laboral de Quayat siguen vacíos después del backfill — se confirmó contra
+la fila cruda del Excel que genuinamente no tiene esos datos (no es un bug, es ausencia real de
+dato en el origen).
+
+**Mismo pedido, extendido a Cargo: `CargoDetailPanel` tampoco traía todo.** Revisando el cargo que
+motivó el pedido (`000110898-1`, Bianco/Médico de Planta) contra su fila cruda del Excel:
+Especialidad/Agrupador/Unificador de puesto ya se capturan bien en el código existente y están
+genuinamente vacíos en el origen para ese cargo puntual (no es un bug) — pero **Régimen nunca se
+capturaba** pese a tener 100% de cobertura en el Dotaneitor real (`Salud`/`General`/`Docente`,
+47.203/47.203 filas). ✅ **Corregido** igual que los demás — agregado a `calcularDiff()` y
+`aprobarSnapshotService`, backfill de los 46.889 cargos por `id_sial` (no por CUIL, es un campo del
+cargo).
+
+**Pedido de Jorge, mismo hilo: "código cargo" con la nomenclatura ya estipulada, para todos los
+cargos.** Investigado contra el sistema legacy que se está reemplazando
+(`C:\Desarrollo\SRH\dotacion-rrhh`, `Doc/REGLAS_NEGOCIO.MD` §3 + `AltaCargoService.js`): es un
+código interno (`{CARRERA}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos}`, ej. `CPH-POU-000056`) que **se
+generaba solo al dar de alta un cargo a mano** — no viene del padrón, y **esta función de "Alta de
+Cargo" no existe todavía en este proyecto nuevo** (no está en ningún sprint S0-S6 del plan). Gap
+real, anotado acá para retomar — ver sección de backlog.
+
+Para los 46.889 cargos ya cargados (pedido explícito de Jorge: generarlo igual, retroactivo), la
+clasificación por carrera+tipo+modalidad necesitó reconstruirse desde cero — el `Cargo` de este
+proyecto solo tiene `escalafon` (texto libre), no las categorías estructuradas
+(`carreras`/`tipos_cargo`/`modalidades`) que tiene el legacy. Decisiones tomadas junto con Jorge
+antes de generar nada (evitando adivinar en un sistema de RRHH de gobierno):
+
+| Escalafón real | Cargos | Carrera asignada | Cómo se decidió |
+|---|---|---|---|
+| Médicos | 22.504 | CPH | Mapeo directo, sin ambigüedad |
+| Escalafón General | 6.359 | EG | Mapeo directo |
+| CEETPS → Enfermería (Lic./Enfermero Prof./Auxiliar) | 11.040 | ENF | Clasificado por puesto real, no por escalafón (CEETPS mezcla ENF/TEC/EG) |
+| CEETPS → resto ("Técnico en X" / "Licenciado en [técnico]") | 3.562 | TEC | Ídem — POU solo para los 4 puestos que `REGLAS_NEGOCIO.MD` marca explícitamente (Radiología, Hemoterapia, Instrumentación Quirúrgica x2), el resto POF |
+| CEETPS → Bioterio | 4 | EG | Único puesto de CEETPS que no encajaba en ENF/TEC |
+| Residentes | 2.665 | RES | Jorge decidió generarles código igual, aunque el legacy los excluye del alta — formato propio `RES-{seq}` (el legacy no define ninguno) |
+| Docentes | 356 | DOC | Ídem, `DOC-{seq}` |
+| Carrera Gerencial | 180 | RG | Mapeo directo |
+| Planta Transitoria | 69 | EG | Confirmado por Jorge |
+| Cuerpos Transitorios | 63 | EG | Confirmado por Jorge |
+| Planta de Gabinete | 45 | EG | Confirmado por Jorge |
+| Autoridades Superiores | 42 | AS | Mapeo directo |
+
+Tipo (jefe/director/subdirector para CPH; jefe_eg/director_eg/gerencial para EG; ministro/
+subsecretaria/dir_general/dir_general_adjunta para AS) y modalidad (POU si el puesto real dice
+"Guardia", POF si dice "Planta" o no dice nada) se determinaron mirando los puestos reales de cada
+carrera contra la BD (no adivinando) — ningún puesto de los escalafones mapeados a EG tiene
+Jefe/Director/Gerencial en los datos reales, así que EG quedó sin sub-tipos, todo `EG-{seq}`.
+
+Implementación: `prisma/schema.prisma` gana `Cargo.codigo String? @unique @db.VarChar(30)`
+(migración `cargo_codigo`, columna nullable — no todo cargo futuro lo va a tener automáticamente,
+solo los que pasen por una futura función de Alta). Script de generación (`generate_codigos.mjs`,
+no versionado — es un backfill de una sola vez, no código de aplicación) clasifica cada cargo,
+agrupa por prefijo, y asigna secuencial empezando en 1 por grupo (orden determinístico por
+`id_sial`). Verificado antes de escribir nada: la suma de los 16 grupos resultantes da exactamente
+46.889, 0 cargos sin clasificar. `CargosPage`/`CargoDetailPanel` (frontend) y `packages/types`
+actualizados con el campo nuevo. Verificado contra la API real: cargo `000110898-1`
+(Bianco/Médico de Planta, sin "Guardia" en el puesto) → `codigo: "CPH-POF-000001"`.
+
 ---
 
 ### SPRINT 4 — Concursos CPH
@@ -662,6 +730,7 @@ Médico".
 | B-8 | App mobile nativa             | Segunda fase                       |
 | B-9 | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me` | Mejora de seguridad XSS — no priorizado para MVP |
+| B-11 | "Alta de Cargo" manual (crear un cargo nuevo a mano, con generación de `Cargo.codigo` según la nomenclatura de `dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD` §3) | Existe en el sistema legacy (`AltaCargoService.js`), no se portó todavía a este proyecto. Detectado el 2026-08-26 al backfillear `codigo` retroactivo para los 46.889 cargos reales (ver hallazgos de Sprint 3) — la lógica de clasificación por carrera/tipo/modalidad ya está resuelta y verificada, falta la UI + el endpoint de creación en sí |
 
 ---
 

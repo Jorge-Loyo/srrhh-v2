@@ -32,6 +32,7 @@ export function CargoDetailPanel() {
         </div>
 
         <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+          <Dato label="Código Cargo" value={cargo.codigo} />
           <Dato label="Hospital" value={`${cargo.hospital.sigla} — ${cargo.hospital.nombre}`} />
           <Dato label="Escalafón" value={cargo.escalafon.nombre} />
           <Dato label="Especialidad" value={cargo.especialidad} />

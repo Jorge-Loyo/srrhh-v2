@@ -115,6 +115,19 @@ function strVal(v: unknown): string {
   return String(v).trim()
 }
 
+// Fechas del padrón real vienen como "DD/MM/YYYY" (string) — Dotaneitor no
+// las normaliza a ISO. new Date("DD/MM/YYYY") las interpreta mal (formato
+// ambiguo, Node asume MM/DD para strings así), así que se parsean los
+// componentes a mano.
+function parseFechaDDMMYYYY(v: string | undefined): Date | null {
+  if (!v) return null
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v)
+  if (!m) return null
+  const [, d, mo, y] = m
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 async function calcularDiff(sessionId: string) {
   const registros = await fetchAllPreview(sessionId)
 
@@ -181,6 +194,15 @@ async function calcularDiff(sessionId: string) {
         // pueda escribirlos en Persona al crear.
         numero_doc:     strVal(r['NUMERO DOC'] ?? r['numero_doc']),
         tipo_doc:       strVal(r['TIPO DOC'] ?? r['tipo_doc']),
+        // Mismo hallazgo, ronda 2 (2026-08-25): sexo/fecha de nacimiento/
+        // antigüedad tampoco se capturaban. SEXO no se renombra en
+        // Dotaneitor.py; FEC_NACIM -> "FECHA NACIMIENTO"; SALUD_1ER_CARGO ->
+        // "ANTIGÜEDAD" (rename_dict). Vienen como "DD/MM/YYYY" (string) del
+        // Excel real — se parsean en aprobarSnapshotService, no acá (acá
+        // todo el JSON es string/string, sin tipos).
+        sexo:           strVal(r['SEXO'] ?? r['sexo']),
+        fecha_nacimiento: strVal(r['FECHA NACIMIENTO'] ?? r['fecha_nacimiento']),
+        antiguedad:     strVal(r['ANTIGÜEDAD'] ?? r['antiguedad']),
         siglas:         strVal(r['SIGLAS'] ?? r['siglas']),
         escalafon:      strVal(r['ESCALAFON'] ?? r['escalafon']),
         literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
@@ -190,6 +212,11 @@ async function calcularDiff(sessionId: string) {
         estado:         strVal(r['ESTADO'] ?? r['estado']),
         agrupador:      strVal(r['AGRUPADOR'] ?? r['agrupador']),
         unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
+        // Reportado (2026-08-25): "Régimen" siempre vacío en CargoDetailPanel
+        // pese a que el Dotaneitor real trae REGIMEN con 100% de cobertura
+        // (Salud/General/Docente) — nunca se capturaba acá, a diferencia de
+        // especialidad/agrupador/unificador que sí se escriben en Cargo.
+        regimen:        strVal(r['REGIMEN'] ?? r['regimen']),
       }),
     })
   }
@@ -622,7 +649,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
     const personasACrear = new Map<
       string,
-      { id: string; cuil: string; apellidoNombre: string; numeroDoc: string | null; tipoDoc: string | null; especialidadPrincipal: string | null }
+      {
+        id: string
+        cuil: string
+        apellidoNombre: string
+        numeroDoc: string | null
+        tipoDoc: string | null
+        especialidadPrincipal: string | null
+        sexo: string | null
+        fechaNacimiento: Date | null
+        antiguedadDesde: Date | null
+      }
     >()
     const cargosACrear = new Map<
       string,
@@ -635,6 +672,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         especialidad: string | null
         agrupador: string | null
         unificadorPuesto: string | null
+        regimen: string | null
       }
     >()
     for (const { datos } of nuevos) {
@@ -655,6 +693,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           // como mejor esfuerzo, la mayoría de las filas igual vienen vacías
           // salvo en carreras con especialidad real (CPH, principalmente).
           especialidadPrincipal: datos.especialidad || null,
+          sexo: datos.sexo || null,
+          fechaNacimiento: parseFechaDDMMYYYY(datos.fecha_nacimiento),
+          antiguedadDesde: parseFechaDDMMYYYY(datos.antiguedad),
         })
       }
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
@@ -669,6 +710,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           especialidad: datos.especialidad ?? null,
           agrupador: datos.agrupador ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
+          regimen: datos.regimen || null,
         })
       }
     }

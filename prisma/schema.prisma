@@ -163,6 +163,14 @@ model Persona {
 model Cargo {
   id                String       @id @default(uuid()) @db.Uuid
   idSial            String       @unique @map("id_sial") @db.VarChar(50)
+  // Código interno del sistema (distinto del id_sial, que es del SIAL del
+  // gobierno) — nomenclatura heredada del sistema legacy dotacion-rrhh
+  // (Doc/REGLAS_NEGOCIO.MD ahí, sección 3): {CARRERA}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos},
+  // ej. "CPH-POU-000056". Se genera al backfillear los cargos reales
+  // (2026-08-25) y debería generarse también en una futura función de "Alta
+  // de Cargo" manual — no existe todavía en este proyecto, ver
+  // Doc/Planificacion/PLAN_SCRUM_2026.md.
+  codigo            String?      @unique @db.VarChar(30)
   hospitalId        String       @map("hospital_id") @db.Uuid
   escalafonId       String       @map("escalafon_id") @db.Uuid
   codigoRegistroId  String?      @map("codigo_registro_id") @db.Uuid
