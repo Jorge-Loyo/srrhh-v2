@@ -113,12 +113,6 @@ export interface Escalafon {
 export interface Cargo {
   id: string
   idSial: string
-  // Código interno del sistema, nomenclatura heredada de dotacion-rrhh (ver
-  // Doc/REGLAS_NEGOCIO.MD ahí) — ej. "CPH-POU-000056". Distinto de idSial
-  // (que es del SIAL del gobierno). null en cargos que todavía no tienen uno
-  // asignado (hoy: los que entraron por el padrón semanal, sin pasar por
-  // una función de "Alta de Cargo" manual — no existe todavía en este
-  // proyecto, ver PLAN_SCRUM_2026.md).
   codigo: string | null
   hospitalId: string
   escalafonId: string
@@ -128,6 +122,14 @@ export interface Cargo {
   agrupador: string | null
   unificadorPuesto: string | null
   regimen: string | null
+  // S2-17: repartición y clasificaciones SIAL
+  codigoRepa: string | null
+  descripcionRepa: string | null
+  codAgrupamiento: string | null
+  agrupamiento: string | null
+  codFamilia: string | null
+  litFamilia: string | null
+  puestoCodigoSial: string | null
   estado: EstadoCargo
   createdAt: string
   updatedAt: string

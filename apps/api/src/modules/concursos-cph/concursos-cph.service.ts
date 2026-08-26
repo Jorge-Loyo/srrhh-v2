@@ -153,6 +153,11 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
 export async function suspenderConcursoCphService(id: string, body: SuspenderConcursoCphBody) {
   const existing = await prisma.concursoCph.findUnique({ where: { id } })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+  // Un concurso finalizado o desierto no se puede suspender ni reanudar —
+  // suspender solo tiene sentido sobre un concurso activo o no_iniciado.
+  if (existing.estado === 'finalizado' || existing.estado === 'desierto') {
+    throw AppError.conflict(`No se puede modificar el estado de un concurso ${existing.estado}`)
+  }
   if (existing.suspendido === body.suspendido) {
     throw AppError.conflict(
       body.suspendido ? 'El concurso ya está suspendido' : 'El concurso no está suspendido'
