@@ -11,6 +11,7 @@ import { getApiErrorMessage } from '@/shared/lib/utils'
 import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useConcursoCph, usePatchConcursoCph, useSuspenderConcursoCph } from '../hooks/useConcursosCph'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { SubEstadoTimeline } from '../components/SubEstadoTimeline'
 
 // Escritura: admin/editor/concursales_cph — igual que WRITE_ROLES en
 // apps/api/.../concursos-cph.routes.ts. El resto ve el formulario disabled.
@@ -170,6 +171,10 @@ export function ConcursoCphDetail() {
           </div>
         </div>
 
+        <div className="mb-4">
+          <SubEstadoTimeline subEstado3={concursoCph.subEstado3} suspendido={concursoCph.suspendido} />
+        </div>
+
         {puedeEditar && (
           <button
             type="button"
@@ -199,13 +204,13 @@ export function ConcursoCphDetail() {
               <input {...register('especialidadSolicitada')} className="input h-10 w-full" />
             </Campo>
             <Campo label="EE de baja">
-              <input {...register('eeBaja')} className="input" placeholder="Nº de expediente" />
+              <input {...register('eeBaja')} className="input h-10 w-full" placeholder="Nº de expediente" />
             </Campo>
             <Campo label="Fecha de baja">
               <input type="date" {...register('fechaBaja')} className="input h-10 w-full" />
             </Campo>
             <Campo label="EE de concurso">
-              <input {...register('eeConcurso')} className="input" placeholder="Nº de expediente" />
+              <input {...register('eeConcurso')} className="input h-10 w-full" placeholder="Nº de expediente" />
             </Campo>
             <Campo label="Fecha EE de concurso">
               <input type="date" {...register('fechaEeConcurso')} className="input h-10 w-full" />
@@ -250,7 +255,7 @@ export function ConcursoCphDetail() {
 
           <Fase titulo="Designación">
             <Campo label="EE de designación (TAD)">
-              <input {...register('eeDesignacion')} className="input" placeholder="Nº de expediente" />
+              <input {...register('eeDesignacion')} className="input h-10 w-full" placeholder="Nº de expediente" />
             </Campo>
             <Campo label="Carga de documentación">
               <input type="checkbox" {...register('cargaDocumentacion')} className="checkbox" />
