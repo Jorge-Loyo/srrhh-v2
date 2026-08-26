@@ -711,18 +711,25 @@ pendientes.
 | S4-4  | Lógica `calcSubEstado`: 18 niveles calculados automáticamente | Jorge   | 8h   | 🔴 Crítico | ✅ |
 | S4-5  | `POST /api/v1/concursos-cph/:id/suspender`                    | Jorge   | 2h   | 🟡 Medio   | ✅ |
 | S4-6  | `POST /api/v1/concursos` crear concurso desde baja            | Jorge   | 4h   | 🔴 Crítico | ✅ |
-| S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico | ⏳ |
-| S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ⏳ |
-| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ⏳ |
-| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ⏳ |
+| S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico | ✅ |
+| S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ✅ |
+| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ✅ |
+| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ✅ |
 
-**Hallazgos de revisión (Sprint 4 backend — corregidos antes de que Agustin siga con S4-7 a S4-10):**
+**Hallazgos de revisión (Sprint 4 backend, Jorge — corregidos en paralelo, mientras Agustin ya
+avanzaba con S4-7 a S4-10 sobre la versión anterior del backend):**
 
 | # | Hallazgo | Severidad | Estado |
 |---|---|---|---|
 | 1 | **`suspenderConcursoCphService` podía "des-finalizar" un concurso cerrado** — solo chequeaba `suspendido === body.suspendido` (idempotencia), pero no el `estado` actual. Un concurso `finalizado` o `desierto` podía recibir `POST /suspender` y quedar con `estado: suspendido`, pisando el estado terminal. | 🔴 Alta | ✅ **Corregido** — guard explícito: 409 si `estado` es `finalizado` o `desierto` antes de cualquier otra validación. |
 | 2 | **Bypass de rol en `POST /concursos`** — `concursales_ceetps` podía crear un concurso `tipoConcurso: cph` (y viceversa). El `requireRole` solo chequeaba que el usuario tuviera alguno de los 4 roles de escritura, sin cruzar con el tipo de concurso del body. Después de crearlo, el usuario no podía ni editarlo — estado inconsistente. | 🔴 Alta | ✅ **Corregido** — validación en el handler: `concursales_ceetps` recibe 403 si intenta crear CPH, y viceversa. `admin`/`editor` pueden crear cualquiera. |
 | 3 | **Race condition en el guard de duplicados CPH** — `createConcursoService` hacía `findFirst` (¿existe concurso abierto?) y luego `create` en pasos separados. Dos requests concurrentes podían pasar el `findFirst` antes de que ninguna hiciera el `create`, creando dos concursos CPH abiertos para el mismo cargo. | 🟡 Media | ✅ **Corregido** — partial unique index a nivel de BD (`CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado', 'desierto')`), migración `concurso_cph_unique_abierto` aplicada. El guard en el service queda como primera línea de defensa; el índice es el backstop atómico. |
+
+> Estos 3 hallazgos son sobre `suspenderConcursoCphService`/`POST /concursos` (S4-3/S4-5/S4-6) — no
+> tocan `listConcursosCphService`/`getConcursoCphByIdService` (S4-1/S4-2) ni `calcConcursoCph`
+> (S4-4), que es de donde depende el frontend de S4-7 a S4-10. No hace falta re-verificar esas 4
+> tareas contra este fix; si se toca `suspenderConcursoCphService` o `POST /concursos` de nuevo, ahí
+> sí vale la pena volver a probar el botón "Suspender/Reanudar" de `ConcursoCphDetail`.
 | S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅ |
 
 **Criterio de éxito:**
@@ -818,6 +825,87 @@ igual que cualquier otro campo de texto) — el error solo aparece en runtime, c
 (`PrismaClientValidationError: premature end of input. Expected ISO-8601 DateTime`), probando con un
 valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre se reemplazó por un
 `Set` explícito de los 14 campos de fecha del PATCH.
+
+**S4-7, S4-8, S4-9 y S4-10 completados y verificados por Agustin (2026-08-26) — Sprint 4 de Agustin
+cerrado:**
+
+- `ConcursosCphPage` (S4-7) — tabla siguiendo el mismo patrón que `CargosPage`/`PersonasPage`
+  (búsqueda debounce 300ms, filtros combinables, paginación). Filtros: hospital, estado, subEstado,
+  subEstado3, suspendido. Columna "Últ. movimiento" con badge de días desde `updatedAt`
+  (verde/naranja/rojo en 0/30/60 días) como indicador liviano de estancamiento — el sistema de
+  alertas completo con umbrales configurables y filtro dedicado sigue siendo S4-10, no implementado
+  acá.
+- `ConcursoCphDetail` (S4-8) — formulario agrupado en las mismas 6 fases que usa `calcConcursoCph`
+  internamente (Baja/apertura, Autorización, Inscripción-examen-orden de mérito, IFACS/INSAL,
+  Designación, Desierto) + observaciones. `estado`/`subEstado`/`subEstado3` se muestran como badges
+  de solo lectura (los calcula el backend, S4-4) — el form nunca los manda en el PATCH. Botón
+  suspender/reanudar. Picker de "persona designada" con búsqueda async contra
+  `GET /api/v1/personas` (debounce 300ms) en vez de un `<select>` con 45k+ opciones. Solo
+  `admin`/`editor`/`concursales_cph` pueden editar (`WRITE_ROLES`, igual que el backend) — el resto
+  ve el formulario disabled con un aviso.
+- Nuevo `.input`/`.checkbox` en `index.css` (`@layer components`) — con 27 campos en el formulario,
+  repetir la clase larga de Tailwind en cada uno (como en `AdminUsuariosPage`, que tiene 4 campos) ya
+  no daba; se extrajo siguiendo el mismo criterio que ya usa el archivo para `.btn-*`/`.badge-*`.
+- `SubEstadoTimeline` (S4-9) — barra de progreso segmentada montada en el header de
+  `ConcursoCphDetail`, sobre `subEstado3` (la vista "resumida" de 8 etapas) en vez del `subEstado`
+  crudo de 19 niveles — con nombres del legacy como "H-TAD"/"K-ITE" no entra en una barra lineal
+  legible. Desierto se muestra como estado propio (banner rojo), no como un 8º segmento al final de
+  la progresión — el concurso no "llegó más lejos", se cayó. Suspendido atenúa la barra entera con
+  aviso, sin ocultar en qué etapa quedó.
+- `AlertasSinMovimiento` (S4-10) — panel en `ConcursosCphPage`, arriba de la tabla/filtros. Umbrales
+  acumulativos (30+/60+/90+ días, no 3 grupos disjuntos — un concurso a 95 días cuenta en los 3).
+  Solo alertan `no_iniciado`/`activo`: `suspendido` está parado a propósito (no es una alerta, es una
+  decisión) y `finalizado`/`desierto` ya cerraron. `concursosCphQuerySchema` (backend) no tiene
+  filtro por antigüedad de `updatedAt`, así que se trae el total de concursos CPH con
+  `fetchAllPages()` (mismo helper que ya usa el export a Excel de S3-10, paginado en bloques de 200 —
+  el tope de `limit` de este endpoint, a diferencia de personas/cargos) y se calculan los buckets
+  client-side; volumen esperado (decenas/pocos cientos de concursos CPH, no 45k como personas) hace
+  esto barato. Cada bucket es clickeable y expande la lista real de concursos afectados, con link a
+  su detalle.
+
+**Verificado contra la API real, no solo `tsc --noEmit`** (reset de la base local — el historial de
+migraciones de este container había quedado inconsistente, ver hallazgo de infraestructura abajo —
+seed, login real, cargo de prueba insertado a mano y borrado al final):
+
+- `GET /api/v1/concursos-cph` con la base vacía → `ConcursosCphPage` muestra "Sin resultados para
+  los filtros aplicados", sin errores; selector de hospital poblado con los 35 reales del seed.
+- Creado un concurso CPH de prueba (`POST /api/v1/concursos`) → aparece en el listado con
+  `estado: no_iniciado`, `subEstado: NO INICIADO`.
+- `GET /api/v1/concursos-cph/:id` → forma exacta que espera `ConcursoCphDetail` (incluye
+  `concurso.cargo`, `concurso.persona`, `hospital`, `personaDesignada` expandidos).
+- `PATCH` con `eeConcurso`+`fechaEeConcurso`+`cargaDocumentacion:true`+`personaDesignadaId:null` →
+  `estado` pasó a `activo`, `subEstado` a `I-CARGA DOCU` — confirma que el body que arma
+  `toPatchBody()` (conversión de `''` a `null` para los campos vacíos del form) es aceptado por
+  `patchConcursoCphSchema` tal cual.
+- Suspender → `estado: suspendido`, `observaciones` guardadas. Reanudar (sin mandar `observaciones`)
+  → vuelve a `activo`, conserva `observaciones` (confirma el `if body.observaciones !== undefined`
+  del backend).
+- Cargo, concurso y concursoCph de prueba borrados al final — la base quedó igual que antes de la
+  verificación (0 concursos).
+- S4-9: segundo concurso de prueba progresado con 3 `PATCH` reales (autorización+sorteo →
+  disposición → `dispoDesierta`) — los 4 valores de `subEstado3` que devolvió el backend
+  (`A-VALID. VCTE`, `B-AUTORIZADO`, `C-INSCRIPCION`, `H-DESIERTO`) matchean exacto contra el array
+  `PASOS` del componente. Sin ese match exacto el `findIndex()` de `SubEstadoTimeline` falla en
+  silencio (vuelve `-1`, la barra queda siempre en el primer segmento) — no tira error, así que
+  valía la pena confirmarlo con valores reales del backend y no solo a ojo contra el código fuente
+  de `concursosCph.calc.ts`. Datos de prueba borrados al final.
+- S4-10: 3 concursos de prueba con `updated_at` backdateado a mano en la BD (10/35/95 días) para
+  poder probar el bucketing sin esperar 3 meses reales — el de 10 días no debe alertar en ningún
+  umbral, el de 35 solo en "30+", el de 95 en los 3 ("30+"/"60+"/"90+", confirma que son acumulativos
+  y no disjuntos). Confirmado con `GET /api/v1/concursos-cph?limit=200` real. Datos de prueba
+  borrados al final.
+
+**Hallazgo de infraestructura (no es un bug de código, documentado para no repetir el diagnóstico):**
+el container de Postgres nativo en WSL (Docker Engine directo, no Docker Desktop — ver
+`Doc/ARRANQUE_LOCAL.md`, desactualizado en la ruta del proyecto para esta máquina) tenía la tabla
+`_prisma_migrations` inconsistente: una migración a medio aplicar (`0_init`, interrumpida por un
+intento anterior) más una migración `20260821153443_init` aplicada que no existe como carpeta en el
+repo. Causa raíz probable: WSL2 apaga la VM por inactividad entre comandos — cada invocación de
+`wsl.exe` desde una terminal distinta reinicia `dockerd` en frío, y con `restart: unless-stopped` los
+containers vuelven a arrancar solos, lo que puede dejar una migración a mitad de camino si algo la
+interrumpe en el medio. Sin datos reales para perder (0 personas/cargos, solo seed base) — resuelto
+con `prisma migrate reset --force` + `pnpm db:seed`. Mitigación aplicada en esta sesión: mantener una
+sesión `wsl.exe -- sleep N` en segundo plano durante secuencias de comandos que dependen de Docker.
 
 ---
 

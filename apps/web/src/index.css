@@ -54,4 +54,16 @@
   .badge-info    { @apply badge bg-blue-100 text-blue-800; }
   .badge-default { @apply badge bg-gray-100 text-gray-700; }
   .badge-primary { @apply badge bg-yellow-100 text-yellow-800; }
+
+  /* Inputs — extraído en S4-8 (ConcursoCphDetail, 27 campos): a partir de
+     acá no vale la pena repetir la clase larga en cada input, como sí se
+     hace en formularios chicos (ver AdminUsuariosPage). Sin alto fijo a
+     propósito — h-10 se agrega en el input, no acá, porque el <textarea>
+     de "Observaciones" necesita su propio alto (rows). */
+  .input {
+    @apply px-3 border border-gray-300 rounded bg-white disabled:bg-gray-50 disabled:text-gray-500 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary;
+  }
+  .checkbox {
+    @apply h-5 w-5 rounded border-gray-300 text-secondary focus:ring-secondary;
+  }
 }

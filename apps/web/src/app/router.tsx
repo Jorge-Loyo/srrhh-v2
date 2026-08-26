@@ -9,6 +9,8 @@ import { PersonasPage } from '../modules/personas/pages/PersonasPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
 import { CargosPage } from '../modules/cargos/pages/CargosPage'
 import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
+import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
+import { ConcursoCphDetail } from '../modules/concursos-cph/pages/ConcursoCphDetail'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -33,8 +35,8 @@ export const router = createBrowserRouter([
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
           { path: 'cargos', element: <CargosPage /> },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
-          { path: 'concursos/cph', element: <Placeholder title="Concursos CPH" /> },
-          { path: 'concursos/cph/:id', element: <Placeholder title="Detalle Concurso CPH" /> },
+          { path: 'concursos/cph', element: <ConcursosCphPage /> },
+          { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
           { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },
           { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
           { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
