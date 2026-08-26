@@ -11,6 +11,7 @@ import { auditLog } from './shared/middleware/audit.middleware.js'
 import { personasRoutes } from './modules/personas/personas.routes.js'
 import { cargosRoutes } from './modules/cargos/cargos.routes.js'
 import { padronRoutes } from './modules/padron/padron.routes.js'
+import { concursosRoutes } from './modules/concursos/concursos.routes.js'
 import { concursosCphRoutes } from './modules/concursos-cph/concursos-cph.routes.js'
 import { concursosCeetpsRoutes } from './modules/concursos-ceetps/concursos-ceetps.routes.js'
 import { hospitalesRoutes } from './modules/hospitales/hospitales.routes.js'
@@ -66,6 +67,7 @@ await app.register(authRoutes, { prefix: '/api/v1/auth' })
 await app.register(personasRoutes, { prefix: '/api/v1/personas' })
 await app.register(cargosRoutes, { prefix: '/api/v1/cargos' })
 await app.register(padronRoutes, { prefix: '/api/v1/padron' })
+await app.register(concursosRoutes, { prefix: '/api/v1/concursos' })
 await app.register(concursosCphRoutes, { prefix: '/api/v1/concursos-cph' })
 await app.register(concursosCeetpsRoutes, { prefix: '/api/v1/concursos-ceetps' })
 await app.register(hospitalesRoutes, { prefix: '/api/v1/hospitales' })

@@ -208,21 +208,51 @@ export interface Concurso {
   hospital?: Hospital
 }
 
+// S4-4: estado/subEstado/subEstado3 son calculados por el backend
+// (calcConcursoCph, apps/api/.../concursos-cph/concursosCph.calc.ts) en cada
+// create/PATCH — no forman parte de PatchConcursoCphRequest más abajo.
 export interface ConcursoCph {
   id: string
   concursoId: string
+  cargoId: string
+  hospitalId: string
   estado: EstadoConcursoCph
   subEstado: string | null
+  subEstado3: string | null
   especialidadSolicitada: string | null
+  eeBaja: string | null
+  fechaBaja: string | null
   eeConcurso: string | null
+  fechaEeConcurso: string | null
   fechaAutorizacion: string | null
+  sorteoJurado: string | null
   disposicion: string | null
   fechaInscDesde: string | null
   fechaInscHasta: string | null
   fechaExamen: string | null
-  // ... más campos según necesidad
+  fechaOrdenMerito: string | null
+  fechaIfacs: string | null
+  fechaInsal: string | null
+  eeDesignacion: string | null
+  cargaDocumentacion: boolean | null
+  fechaAptoMedico: string | null
+  fechaIte: string | null
+  proyectoResolucion: boolean | null
+  resoALaFirma: boolean | null
+  resolucionDesignacion: string | null
+  fechaResolucion: string | null
+  cargoSial: string | null
+  dispoDesierta: string | null
+  fechaDispoDesierta: string | null
+  personaDesignadaId: string | null
+  suspendido: boolean
+  observaciones: string | null
   createdAt: string
   updatedAt: string
+  // Relaciones expandidas (GET /:id y listado)
+  concurso?: Concurso
+  hospital?: Hospital
+  personaDesignada?: Persona
 }
 
 export interface ConcursoCeetps {
@@ -289,6 +319,67 @@ export interface CreateUsuarioRequest {
   hospitalId?: string
 }
 
+// S4-6 — POST /api/v1/concursos. Carga manual por ahora (el disparador
+// automático "baja con genera_concurso" es S5-5, todavía no existe módulo
+// de Bajas) — de ahí que `origen` sea texto libre en vez de una FK.
+export interface CreateConcursoRequest {
+  cargoId: string
+  hospitalId: string
+  personaId?: string
+  origen: string
+  fechaVacante: string
+  motivo?: string
+  expediente?: string
+  tipoConcurso: TipoConcurso
+  // Seed inicial opcional del ConcursoCph hijo (tipoConcurso = cph)
+  especialidadSolicitada?: string
+  eeBaja?: string
+  fechaBaja?: string
+  // Seed inicial del ConcursoCeetps hijo (tipoConcurso = ceetps) — escalafonId
+  // es requerido en ese caso (ver createConcursoSchema en la API)
+  escalafonId?: string
+  puestoSolicitado?: string
+}
+
+// S4-3 — PATCH /api/v1/concursos-cph/:id. estado/subEstado/subEstado3 quedan
+// deliberadamente afuera — los calcula el backend, ver nota en ConcursoCph.
+export interface PatchConcursoCphRequest {
+  especialidadSolicitada?: string | null
+  eeBaja?: string | null
+  fechaBaja?: string | null
+  eeConcurso?: string | null
+  fechaEeConcurso?: string | null
+  fechaAutorizacion?: string | null
+  sorteoJurado?: string | null
+  disposicion?: string | null
+  fechaInscDesde?: string | null
+  fechaInscHasta?: string | null
+  fechaExamen?: string | null
+  fechaOrdenMerito?: string | null
+  fechaIfacs?: string | null
+  fechaInsal?: string | null
+  eeDesignacion?: string | null
+  cargaDocumentacion?: boolean | null
+  fechaAptoMedico?: string | null
+  fechaIte?: string | null
+  proyectoResolucion?: boolean | null
+  resoALaFirma?: boolean | null
+  resolucionDesignacion?: string | null
+  fechaResolucion?: string | null
+  cargoSial?: string | null
+  personaDesignadaId?: string | null
+  dispoDesierta?: string | null
+  fechaDispoDesierta?: string | null
+  observaciones?: string | null
+}
+
+// S4-5 — POST /api/v1/concursos-cph/:id/suspender. `suspendido` en `false`
+// reanuda — mismo endpoint para los dos sentidos.
+export interface SuspenderConcursoCphRequest {
+  suspendido?: boolean
+  observaciones?: string
+}
+
 // -----------------------------------------------------------------------------
 // DTOs — Responses
 // -----------------------------------------------------------------------------
@@ -330,6 +421,15 @@ export interface ApiError {
   details?: unknown
 }
 
+// S4-11 — GET /api/v1/kpis/concursos-cph
+export interface KpiConcursosCph {
+  total: number
+  porEstado: { estado: EstadoConcursoCph; total: number }[]
+  porSubEstado: { subEstado: string; total: number }[]
+  porSubEstado3: { subEstado3: string; total: number }[]
+  porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------
@@ -362,6 +462,20 @@ export interface ConcursoFilters {
   estado?: string
   page?: number
   limit?: number
+}
+
+// S4-1: subEstado filtra contra el valor persistido; subEstado3 se recalcula
+// en vivo en el backend al filtrar (ver SUB_ESTADO_3_SQL_PG) — depende de la
+// fecha de hoy y puede desactualizarse solo con el paso del tiempo.
+export interface ConcursoCphFilters {
+  page?: number
+  limit?: number
+  hospitalId?: string
+  estado?: EstadoConcursoCph
+  subEstado?: string
+  subEstado3?: string
+  suspendido?: boolean
+  search?: string
 }
 
 // -----------------------------------------------------------------------------

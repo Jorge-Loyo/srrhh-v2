@@ -17,7 +17,7 @@
 | Sprint 1 — Autenticación            | ✅ Completado | S1-1 a S1-10  |
 | Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
 | Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25 | S3-1 a S3-11 (✅) |
-| Sprint 4 — Concursos CPH            | ⏳ Pendiente  | —             |
+| Sprint 4 — Concursos CPH            | 🔄 Backend completo (S4-1 a S4-6, S4-11) — falta frontend (S4-7 a S4-10) | S4-1 a S4-6, S4-11 (✅) |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente  | —             |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente  | —             |
 
@@ -680,11 +680,16 @@ un util compartido (`shared/lib/escalafonLabel.ts`) en vez de duplicar la funci�
 
 Verificado con browser real (2026-08-26): tabla de `/cargos` muestra columna "Código Cargo" con
 valores reales (`CPH-POF-000001`, `EG-000001`, `CPH-POU-000001`, etc.); dropdown de escalafón con el
-mismo orden verificado en `/personas` y "CPH" en la posición correcta. ⚠️ **Pendiente de verificar**:
-la búsqueda por `codigo` (`GET /api/v1/cargos?search=CPH` sigue devolviendo 0 resultados contra la
-API real al momento de escribir esto — el contenedor `api` todavía no fue reconstruido con este
-último cambio de `cargos.service.ts`; falta correr `docker compose up -d --build api` y volver a
-probar antes de dar esto por cerrado).
+mismo orden verificado en `/personas` y "CPH" en la posición correcta.
+
+**Cierre del pendiente de verificación (Jorge + Claude, 2026-08-26):** confirmado que el contenedor
+`api` seguía corriendo la imagen vieja (`docker exec srrhh_api cat .../cargos.service.ts` no traía la
+rama `unaccent(codigo)`, pese a que `docker images` mostraba un build reciente — ese build había sido
+por un cambio anterior, no por este). `docker compose up -d --build api` reconstruyó con el código
+real. Reverificado contra la API real: `GET /api/v1/cargos?search=CPH` pasó de 0 a **22.504
+resultados**, los primeros con `codigo: "CPH-POF-000001"`, `"CPH-POU-000001"`, etc. — coincide
+exactamente con el total de cargos CPH ya conocido de Sprint 3. Sprint 3 ahora sí cerrado sin
+pendientes.
 
 ---
 
@@ -695,17 +700,17 @@ probar antes de dar esto por cerrado).
 
 | #     | Tarea                                                         | Dev     | Est. | Prioridad  |
 | ----- | ------------------------------------------------------------- | ------- | ---- | ---------- |
-| S4-1  | `GET /api/v1/concursos-cph` paginado con filtros              | Jorge   | 5h   | 🔴 Crítico |
-| S4-2  | `GET /api/v1/concursos-cph/:id` detalle completo              | Jorge   | 3h   | 🔴 Crítico |
-| S4-3  | `PATCH /api/v1/concursos-cph/:id` actualizar campos por fase  | Jorge   | 6h   | 🔴 Crítico |
-| S4-4  | Lógica `calcSubEstado`: 18 niveles calculados automáticamente | Jorge   | 8h   | 🔴 Crítico |
-| S4-5  | `POST /api/v1/concursos-cph/:id/suspender`                    | Jorge   | 2h   | 🟡 Medio   |
-| S4-6  | `POST /api/v1/concursos` crear concurso desde baja            | Jorge   | 4h   | 🔴 Crítico |
-| S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico |
-| S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico |
-| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   |
-| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   |
-| S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   |
+| S4-1  | `GET /api/v1/concursos-cph` paginado con filtros              | Jorge   | 5h   | 🔴 Crítico | ✅ |
+| S4-2  | `GET /api/v1/concursos-cph/:id` detalle completo              | Jorge   | 3h   | 🔴 Crítico | ✅ |
+| S4-3  | `PATCH /api/v1/concursos-cph/:id` actualizar campos por fase  | Jorge   | 6h   | 🔴 Crítico | ✅ |
+| S4-4  | Lógica `calcSubEstado`: 18 niveles calculados automáticamente | Jorge   | 8h   | 🔴 Crítico | ✅ |
+| S4-5  | `POST /api/v1/concursos-cph/:id/suspender`                    | Jorge   | 2h   | 🟡 Medio   | ✅ |
+| S4-6  | `POST /api/v1/concursos` crear concurso desde baja            | Jorge   | 4h   | 🔴 Crítico | ✅ |
+| S4-7  | ConcursosCphPage: tabla con sub-estado, filtros, alertas      | Agustin | 10h  | 🔴 Crítico | ⏳ |
+| S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ⏳ |
+| S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ⏳ |
+| S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ⏳ |
+| S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅ |
 
 **Criterio de éxito:**
 
@@ -713,6 +718,93 @@ probar antes de dar esto por cerrado).
 - Alexis/CPH puede ver y actualizar todos sus concursos
 - Alertas visibles para concursos estancados
 - KPIs disponibles para el tablero
+
+**Backend completo y verificado contra la BD real (Jorge + Claude, 2026-08-26) — desbloquea a
+Agustin para S4-7 a S4-10:**
+
+Antes de codear, se resolvió una decisión de diseño pendiente con Jorge: la fórmula `calcSubEstado`
+de referencia (sistema legacy, `dotacion-rrhh/app/src/modules/seguimiento-cph/seguimientoCphCalc.js`,
+ya en producción) usa varios campos que `ConcursoCph` no tenía todavía (`fechaBaja`,
+`fechaEeConcurso`, `proyectoResolucion`, `resoALaFirma`, `fechaResolucion`, `cargaDocumentacion`,
+`cargoSial`, `dispoDesierta`, `fechaDispoDesierta`). Se optó por extender el schema (migración
+`concurso_cph_calc_fields`, aplicada contra la BD real sin shadow database: `prisma migrate diff
+--from-schema-datasource` para generar el SQL sin interactividad, mismo patrón non-interactivo que
+el baseline de Sprint 2) en vez de recortar la fórmula — mantiene paridad completa con el sistema que
+se reemplaza. Se agregó también `subEstado3` (el sub-estado de 8 niveles usado para KPIs/alertas) y un
+índice sobre `subEstado`. Campos denormalizados del legacy que ya viven en relaciones del schema
+nuevo (persona/cargo/hospital vía FKs) **no** se portaron — solo los que la fórmula necesita.
+
+- **`concursosCph.calc.ts`** — puerto a TypeScript de `calcEstado`/`calcSubEstado`/`calcSubEstado3`,
+  mismos 19 niveles y mismos nombres de nivel que el legacy (`Q-DESIERTO` ... `NO INICIADO`) para no
+  perder trazabilidad. A diferencia del legacy (que dejaba al frontend calcular y mandar
+  `estado`/`sub_estado` a mano en el PUT — confirmado leyendo `SeguimientoCphEntity`/`Controller`
+  legacy, el backend nunca los recalculaba), acá el backend es la única fuente de verdad: el schema
+  Zod del PATCH (`.strict()`) ni siquiera acepta `estado`/`subEstado`/`subEstado3` en el body — se
+  recalculan siempre server-side en cada create/PATCH/suspender y se persisten (no se recalculan al
+  leer) para poder filtrar/indexar sin recorrer toda la tabla. Excepción: `subEstado3` tiene dos ramas
+  que comparan contra la fecha de hoy y se desactualizan solas con el paso del tiempo — el filtro de
+  listado (S4-1) y el agregado de KPIs (S4-11) lo recalculan en vivo con `SUB_ESTADO_3_SQL_PG` (CASE
+  SQL, réplica en Postgres del `SUB_ESTADO_3_SQL` de MySQL del legacy) en vez de confiar en el valor
+  guardado, mismo mecanismo que ahí.
+- **`GET /api/v1/concursos-cph`** (S4-1) — filtros por `hospitalId`/`estado`/`subEstado`/`subEstado3`/
+  `suspendido`/`search` (libre sobre EE de baja/concurso, especialidad solicitada, resolución,
+  observaciones). `subEstado3` resuelve ids vía `$queryRaw` antes del `where` tipado, mismo patrón que
+  `cargos.service.ts` (S3). Trae `concurso` (con `cargo`/`persona`), `hospital` y `personaDesignada`
+  expandidos.
+- **`PATCH /api/v1/concursos-cph/:id`** (S4-3) — un solo endpoint para las 6 "fases" de la tabla
+  (baja/apertura, autorización, inscripción/examen, IFACS/INSAL, designación, desierto) en vez de uno
+  por fase — todos los campos son opcionales (`.partial()`), el cliente manda solo lo que cambió en
+  esa pantalla. Recalcula y persiste `estado`/`subEstado`/`subEstado3` en cada llamada.
+- **`POST /api/v1/concursos-cph/:id/suspender`** (S4-5) — mismo endpoint reanuda si se manda
+  `suspendido: false` explícito (default `true`). Guard de idempotencia: 409 si ya está en el estado
+  pedido (evita recalcular/loggear una escritura que no cambia nada).
+- **`POST /api/v1/concursos`** (S4-6, módulo nuevo `concursos/`) — el módulo de Bajas real es Sprint 5
+  (S5-4/S5-5, todavía no existe `model Baja`), así que por ahora es carga manual: recibe
+  cargo/hospital/origen/motivo/fechaVacante y, según `tipoConcurso`, crea en cascada (una sola
+  transacción) el `ConcursoCph` (con `estado`/`subEstado` ya calculados desde el arranque — un
+  concurso recién creado sin EE de baja/concurso da `VACANTE`, verificado) o el `ConcursoCeetps`
+  (requiere `escalafonId`, validado con `.refine()` en el schema). Guard: no permite dos concursos CPH
+  abiertos (`estado NOT IN (finalizado, desierto)`) para el mismo cargo.
+- **`GET /api/v1/kpis/concursos-cph`** (S4-11) — total, agregado por `estado`, por `subEstado`
+  (`groupBy` de Prisma, valor persistido), por `subEstado3` (SQL crudo, recalculado en vivo, mismo
+  motivo que el filtro) y por hospital (`sigla`/`nombre` incluidos para no requerir un segundo fetch
+  desde el frontend). Filtro opcional `hospitalId`.
+- **Roles**: lectura para cualquier usuario autenticado (`director`/`viewer` incluidos, alineado con
+  "solo lectura de su nicho" del plan); escritura (`PATCH`/`suspender`/`POST /concursos`) requiere
+  `admin`/`editor`/`concursales_cph` (y `concursales_ceetps` también en `POST /concursos`, ya que ese
+  endpoint es compartido entre los dos tipos de concurso).
+- **`packages/types`** — `ConcursoCph` completo (antes placeholder con "...más campos según
+  necesidad"), más `ConcursoCphFilters`, `PatchConcursoCphRequest`, `SuspenderConcursoCphRequest`,
+  `CreateConcursoRequest` y `KpiConcursosCph` — listos para que Agustin tipe S4-7/S4-8 sin adivinar la
+  forma de las respuestas (mismo patrón que `PersonaDetail`/`CargoDetail` dejaron para Sprint 3).
+
+**Verificado contra la BD real, no solo `tsc --noEmit`** (login real, cargo real de Sprint 2/3,
+`docker compose up -d --build api` para asegurar que corre el código nuevo — no la imagen vieja, ver
+el hallazgo de cierre de Sprint 3 más arriba en este mismo documento):
+
+- Crear concurso CPH sobre un cargo real sin EE todavía → `estado: no_iniciado`, `subEstado: VACANTE`.
+- Segundo intento de concurso CPH sobre el mismo cargo → 409 (guard de duplicados).
+- PATCH con `eeBaja`+`fechaBaja`+`eeConcurso`+`fechaEeConcurso` → `estado: activo`,
+  `subEstado: A-CARATULADO` (transición automática, sin tocar `estado`/`subEstado` a mano).
+- PATCH con `fechaAutorizacion`+`sorteoJurado`+`disposicion` → `subEstado: C-DISPO DE LLAMADO`,
+  `subEstado3: C-INSCRIPCION`.
+- PATCH mandando `estado` a mano → 400 (rechazado por `.strict()`, confirma que no es editable).
+- Listado filtrado por `subEstado=C-DISPO DE LLAMADO` → 1 resultado, el correcto.
+- Suspender → `suspendido: true`. Suspender de nuevo → 409 (idempotencia). Reanudar
+  (`suspendido: false`) → vuelve a `activo`, conserva el `subEstado` que tenía.
+- KPI: total 1, agregado correcto por estado/subEstado/subEstado3/hospital.
+- Usuario `viewer` real (creado y desactivado después de la prueba): lee el concurso (200), no puede
+  hacer PATCH (403) — confirma que el rol se aplica de verdad, no solo que la ruta existe.
+
+**Un bug real encontrado en esta verificación (no lo agarró `tsc`):** la primera versión de
+`patchConcursoCphService` decidía si convertir un campo del body a `Date` con una heurística
+(`key.startsWith('fecha')`) — funciona para 13 de los 14 campos de fecha del PATCH, pero
+`sorteoJurado` es fecha y no arranca con ese prefijo. `tsc` no lo detecta porque
+`PatchConcursoCphBody` tipa todas las fechas como `string` (llegan como `"YYYY-MM-DD"` del cliente,
+igual que cualquier otro campo de texto) — el error solo aparece en runtime, contra Postgres real
+(`PrismaClientValidationError: premature end of input. Expected ISO-8601 DateTime`), probando con un
+valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre se reemplazó por un
+`Set` explícito de los 14 campos de fecha del PATCH.
 
 ---
 

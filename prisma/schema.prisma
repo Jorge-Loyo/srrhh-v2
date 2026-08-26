@@ -366,11 +366,21 @@ model ConcursoCph {
   concursoId            String           @unique @map("concurso_id") @db.Uuid
   cargoId               String           @map("cargo_id") @db.Uuid
   hospitalId            String           @map("hospital_id") @db.Uuid
+  // estado/subEstado/subEstado3: calculados por calcConcursoCph() (S4-4) en
+  // cada create/PATCH, no editables directamente por el cliente (ver
+  // concursos-cph.schema.ts) — se persisten igual (como el legacy) para poder
+  // filtrar/indexar sin recalcular todo en cada listado. subEstado3 puede
+  // desactualizarse solo con el paso del tiempo (dos ramas comparan contra
+  // "hoy"), por eso el listado (S4-1) lo recalcula en SQL al filtrar en vez
+  // de confiar ciegamente en el valor guardado — ver SUB_ESTADO_3_SQL_PG.
   estado                EstadoConcursoCph @default(no_iniciado)
   subEstado             String?          @map("sub_estado") @db.VarChar(50)
+  subEstado3            String?          @map("sub_estado_3") @db.VarChar(50)
   especialidadSolicitada String?         @map("especialidad_solicitada") @db.VarChar(200)
   eeBaja                String?          @map("ee_baja") @db.VarChar(150)
+  fechaBaja             DateTime?        @map("fecha_baja") @db.Date
   eeConcurso            String?          @map("ee_concurso") @db.VarChar(150)
+  fechaEeConcurso       DateTime?        @map("fecha_ee_concurso") @db.Date
   fechaAutorizacion     DateTime?        @map("fecha_autorizacion") @db.Date
   sorteoJurado          DateTime?        @map("sorteo_jurado") @db.Date
   disposicion           String?          @db.VarChar(100)
@@ -381,9 +391,19 @@ model ConcursoCph {
   fechaIfacs            DateTime?        @map("fecha_ifacs") @db.Date
   fechaInsal            DateTime?        @map("fecha_insal") @db.Date
   eeDesignacion         String?          @map("ee_designacion") @db.VarChar(150)
+  cargaDocumentacion    Boolean?         @map("carga_documentacion")
   fechaAptoMedico       DateTime?        @map("fecha_apto_medico") @db.Date
   fechaIte              DateTime?        @map("fecha_ite") @db.Date
+  proyectoResolucion    Boolean?         @map("proyecto_resolucion")
+  resoALaFirma          Boolean?         @map("reso_a_la_firma")
   resolucionDesignacion String?          @map("resolucion_designacion") @db.VarChar(100)
+  fechaResolucion       DateTime?        @map("fecha_resolucion") @db.Date
+  // Código real de cargo en SIAL — se completa cuando se da de alta la nueva
+  // ocupación en SIAL tras la designación (paso administrativo posterior a
+  // la resolución, distinto del cargoId/idSial del cargo vacante en concurso).
+  cargoSial             String?          @map("cargo_sial") @db.VarChar(50)
+  dispoDesierta         String?          @map("dispo_desierta") @db.VarChar(50)
+  fechaDispoDesierta    DateTime?        @map("fecha_dispo_desierta") @db.Date
   personaDesignadaId    String?          @map("persona_designada_id") @db.Uuid
   suspendido            Boolean          @default(false)
   observaciones         String?          @db.Text
@@ -398,6 +418,7 @@ model ConcursoCph {
 
   @@index([hospitalId])
   @@index([estado])
+  @@index([subEstado])
   @@map("concursos_cph")
 }
 
