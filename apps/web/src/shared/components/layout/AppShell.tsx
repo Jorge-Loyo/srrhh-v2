@@ -1,24 +1,32 @@
-import { Outlet, NavLink, Link } from 'react-router-dom'
+import { useState } from 'react'
+import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
 
 const NAV_ITEMS = [
   { to: '/padron', label: 'Padrón Semanal' },
   { to: '/personas', label: 'Personas' },
-  { to: '/cargos', label: 'Cargos' },
   { to: '/concursos/cph', label: 'Concursos CPH' },
   { to: '/concursos/ceetps', label: 'Concursos CEETPS' },
   { to: '/kpis', label: 'Tablero KPIs' },
 ]
 
+const CARGOS_SUBITEMS = [
+  { to: '/cargos', label: 'Ver cargos' },
+  { to: '/cargos/alta', label: 'Alta de cargo' },
+  { to: '/cargos/baja', label: 'Baja de cargo' },
+  { to: '/cargos/alta-por-baja', label: 'Alta por baja' },
+]
+
 export function AppShell() {
   const { user, logout } = useAuth()
-  // S2-11: si hay algún snapshot pendiente de revisión, se avisa en el header
-  // sin importar en qué página esté parado el usuario. En teoría nunca hay
-  // más de uno a la vez (S2-12 bloquea subir un padrón nuevo mientras hay uno
-  // pendiente), pero el chequeo no asume esa invariante por las dudas.
   const { data: snapshots } = useSnapshots()
   const haySnapshotPendiente = snapshots?.some((s) => s.estado === 'pendiente') ?? false
+  const location = useLocation()
+  // El grupo Cargos arranca abierto si la ruta actual es cualquiera de sus sub-ítems.
+  const [cargosAbierto, setCargosAbierto] = useState(
+    location.pathname.startsWith('/cargos')
+  )
 
   // AppShell solo se monta detrás de <ProtectedRoute>, que ya garantiza sesión
   // activa — este chequeo es un guard defensivo para TypeScript, no un flujo
@@ -56,6 +64,40 @@ export function AppShell() {
               {item.label}
             </NavLink>
           ))}
+
+          {/* Grupo Cargos — desplegable con Alta, Baja y Alta por baja */}
+          <button
+            type="button"
+            onClick={() => setCargosAbierto((v) => !v)}
+            className={`w-full flex items-center justify-between px-4 py-2.5 text-sm font-semibold transition-colors ${
+              location.pathname.startsWith('/cargos')
+                ? 'bg-primary text-black'
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <span>Cargos</span>
+            <span className="text-xs">{cargosAbierto ? '▲' : '▼'}</span>
+          </button>
+          {cargosAbierto && (
+            <div className="bg-gray-100 border-l-2 border-primary ml-4">
+              {CARGOS_SUBITEMS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end
+                  className={({ isActive }) =>
+                    `block px-4 py-2 text-sm transition-colors ${
+                      isActive
+                        ? 'font-bold text-secondary'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
 
           <div className="border-t border-gray-200 mt-4 pt-4">
             <NavLink
