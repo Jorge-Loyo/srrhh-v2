@@ -56,9 +56,8 @@ export const SUB_ESTADO_3_OPTIONS = [
   'H-DESIERTO',
 ]
 
-// Indicador visual liviano de "sin movimiento" — el sistema de alertas
-// completo (umbrales configurables, filtro dedicado) es S4-10, todavía no
-// implementado. Acá solo coloreamos según hace cuánto no se toca el registro.
+// Indicador visual de "sin movimiento" — usado en la tabla de ConcursosCphPage
+// y en AlertasSinMovimiento (S4-10) para colorear según hace cuánto no se toca el registro.
 export function diasSinMovimiento(updatedAt: string): number {
   const ms = Date.now() - new Date(updatedAt).getTime()
   return Math.floor(ms / (1000 * 60 * 60 * 24))

@@ -6,10 +6,10 @@ import { RolUsuario } from '@srrhh/types'
 import { createConcursoSchema } from './concursos.schema.js'
 import { createConcursoService } from './concursos.service.js'
 
-// Roles por tipo de concurso: cada rol solo puede crear el tipo que le corresponde.
-// admin/editor pueden crear cualquiera.
-const WRITE_ROLES_CPH = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CPH]
-const WRITE_ROLES_CEETPS = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CEETPS]
+// Cualquier rol de escritura puede llegar hasta acá — la validación cruzada
+// (cph solo para concursales_cph, ceetps solo para concursales_ceetps) se
+// hace en el handler después de parsear el body, porque tipoConcurso viene
+// en el body, no en la ruta.
 const WRITE_ROLES_ALL = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CPH, RolUsuario.CONCURSALES_CEETPS]
 
 export async function concursosRoutes(app: FastifyInstance) {
@@ -21,7 +21,6 @@ export async function concursosRoutes(app: FastifyInstance) {
   app.post('/', { preHandler: requireRole(WRITE_ROLES_ALL) }, async (request, reply) => {
     const body = createConcursoSchema.parse(request.body)
     const user = request.user as { id: string; rol: string }
-    // Bug 2: concursales_ceetps no puede crear CPH y viceversa
     if (body.tipoConcurso === 'cph' && user.rol === RolUsuario.CONCURSALES_CEETPS) {
       throw AppError.forbidden('concursales_ceetps no puede crear concursos CPH')
     }
