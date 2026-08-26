@@ -13,12 +13,26 @@ function formatFecha(iso: string | null | undefined): string | null {
   return y && m && d ? `${d}/${m}/${y}` : null
 }
 
+function calcEdad(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const parts = iso.slice(0, 10).split('-').map(Number)
+  const y = parts[0], m = parts[1], d = parts[2]
+  if (!y || !m || !d) return null
+  const hoy = new Date()
+  let edad = hoy.getFullYear() - y
+  if (hoy.getMonth() + 1 < m || (hoy.getMonth() + 1 === m && hoy.getDate() < d)) edad--
+  return edad
+}
+
 export function PersonaDetailPanel() {
   const { id } = useParams<{ id: string }>()
   const { data: persona, isLoading, isError } = usePersona(id)
 
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando persona...</p>
   if (isError || !persona) return <p className="text-sm text-danger p-6">No se pudo cargar la persona.</p>
+
+  const edad = calcEdad(persona.fechaNacimiento)
+  const fechaNac = formatFecha(persona.fechaNacimiento)
 
   return (
     <div className="space-y-4">
@@ -42,7 +56,7 @@ export function PersonaDetailPanel() {
           <Section title="Identificación">
             <Dato label="Documento" value={persona.numeroDoc ? `${persona.tipoDoc ?? ''} ${persona.numeroDoc}`.trim() : null} />
             <Dato label="Sexo" value={persona.sexo} />
-            <Dato label="Fecha de nacimiento" value={formatFecha(persona.fechaNacimiento)} />
+            <Dato label="Fecha de nacimiento" value={fechaNac ? `${fechaNac}${edad !== null ? ` (${edad} años)` : ''}` : null} />
             <Dato label="Especialidad principal" value={persona.especialidadPrincipal} />
             <Dato label="Antigüedad desde" value={formatFecha(persona.antiguedadDesde)} />
           </Section>
@@ -75,10 +89,10 @@ export function PersonaDetailPanel() {
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
-                <th className="px-4 py-3 font-semibold">Hospital</th>
+                <th className="px-4 py-3 font-semibold">Repartición</th>
                 <th className="px-4 py-3 font-semibold">Escalafón</th>
-                <th className="px-4 py-3 font-semibold">Cód. Registro</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
+                <th className="px-4 py-3 font-semibold">Unificador de puesto</th>
                 <th className="px-4 py-3 font-semibold">Situación de revista</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
               </tr>
@@ -86,10 +100,14 @@ export function PersonaDetailPanel() {
             <tbody className="divide-y divide-gray-100">
               {persona.ocupaciones.map((o) => (
                 <tr key={o.id} className={o.hasta ? 'text-gray-400' : ''}>
-                  <td className="px-4 py-3">{o.cargo?.hospital?.sigla ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    {o.cargo?.codigoRepa
+                      ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}`
+                      : (o.cargo?.descripcionRepa ?? o.cargo?.hospital?.sigla ?? '—')}
+                  </td>
                   <td className="px-4 py-3">{o.cargo?.escalafon?.nombre ?? '—'}</td>
-                  <td className="px-4 py-3">{o.cargo?.codigoRegistro?.codigo ?? '—'}</td>
                   <td className="px-4 py-3">{o.cargo?.literalPuesto ?? '—'}</td>
+                  <td className="px-4 py-3">{o.cargo?.unificadorPuesto ?? '—'}</td>
                   <td className="px-4 py-3">{o.situacionRevista ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span className={o.hasta ? 'badge-default' : 'badge-success'}>
