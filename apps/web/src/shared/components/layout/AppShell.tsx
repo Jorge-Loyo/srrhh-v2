@@ -32,11 +32,11 @@ export function AppShell() {
       {/* Sidebar */}
       <aside className="w-sidebar bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
         {/* Logo */}
-        <div className="h-header flex items-center gap-3 px-4 border-b border-gray-200 bg-white">
-          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center font-primary font-bold text-sm shrink-0">
+        <div className="h-header flex items-center gap-3 px-4 border-b border-gray-200 bg-[#1A2B4A]">
+          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center font-primary font-bold text-sm shrink-0 text-black">
             BA
           </div>
-          <span className="font-primary font-bold text-gray-800 text-sm leading-tight">SRRHH v2</span>
+          <span className="font-primary font-bold text-white text-sm leading-tight">SRRHH v2</span>
         </div>
 
         {/* Nav */}
@@ -71,27 +71,40 @@ export function AppShell() {
           </div>
         </nav>
 
-        {/* Usuario */}
+        {/* Separador inferior del sidebar */}
         <div className="border-t border-gray-200 p-4">
-          <p className="text-xs text-gray-500 truncate">{user.username}</p>
-          <p className="text-xs text-gray-400 capitalize mb-2">{user.rol}</p>
-          <button onClick={logout} className="text-xs text-secondary hover:underline">
-            Cerrar sesión
-          </button>
+          <p className="text-xs text-gray-400">v2.0</p>
         </div>
       </aside>
 
       {/* Contenido principal */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-header bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
-          <h1 className="font-primary font-bold text-gray-800 text-lg">
+        {/* Header — Azul Noche Obelisco GCBA */}
+        <header className="h-header bg-[#1A2B4A] flex items-center justify-between shrink-0">
+          <h1 className="font-primary font-bold text-white text-lg px-6">
             Sistema de Recursos Humanos
           </h1>
-          {haySnapshotPendiente && (
-            <Link to="/padron" className="badge-warning hover:opacity-80 transition-opacity">
-              ● Padrón pendiente de revisión
-            </Link>
-          )}
+          <div className="flex items-center h-full">
+            {haySnapshotPendiente && (
+              <Link to="/padron" className="badge-warning hover:opacity-80 transition-opacity mr-4">
+                ● Padrón pendiente de revisión
+              </Link>
+            )}
+            {/* Área de perfil — Amarillo BA */}
+            <div className="h-full bg-primary flex items-center gap-3 px-5">
+              <div className="text-right">
+                <p className="text-xs font-bold text-black leading-tight">{user.username}</p>
+                <p className="text-[10px] text-black/70 capitalize">{user.rol.replace(/_/g, ' ')}</p>
+              </div>
+              <button
+                onClick={logout}
+                title="Cerrar sesión"
+                className="w-8 h-8 rounded-full bg-black/10 hover:bg-black/20 transition-colors flex items-center justify-center text-black text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
