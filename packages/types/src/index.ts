@@ -110,6 +110,13 @@ export interface Escalafon {
   activo: boolean
 }
 
+export interface CodigoRegistro {
+  id: string
+  codigo: string
+  literal: string
+  escalafonId: string
+}
+
 export interface Cargo {
   id: string
   idSial: string
@@ -136,6 +143,7 @@ export interface Cargo {
   // Relaciones expandidas (opcionales)
   hospital?: Hospital
   escalafon?: Escalafon
+  codigoRegistro?: CodigoRegistro | null
 }
 
 export interface Ocupacion {
@@ -504,11 +512,12 @@ export interface PersonaDetail extends Persona {
   ocupaciones: Ocupacion[]
 }
 
-// Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon` siempre
-// expandidos; `ocupacionActual` es la Ocupacion vigente (hasta IS NULL) con
-// `persona` expandida, o null si el cargo está vacante.
+// Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon`/`codigoRegistro`
+// siempre expandidos; `ocupacionActual` es la Ocupacion vigente (hasta IS NULL)
+// con `persona` expandida, o null si el cargo está vacante.
 export interface CargoDetail extends Cargo {
   hospital: Hospital
   escalafon: Escalafon
+  codigoRegistro: CodigoRegistro | null
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
 }

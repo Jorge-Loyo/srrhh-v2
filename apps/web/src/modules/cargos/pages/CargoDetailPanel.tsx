@@ -37,6 +37,10 @@ export function CargoDetailPanel() {
             <Dato label="Código Cargo" value={cargo.codigo} />
             <Dato label="ID SIAL" value={cargo.idSial} />
             <Dato label="Régimen" value={cargo.regimen} />
+            <Dato
+              label="Código de Registro"
+              value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal}` : null}
+            />
           </Section>
 
           {/* Ubicación */}

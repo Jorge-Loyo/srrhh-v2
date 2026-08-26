@@ -77,6 +77,7 @@ export function PersonaDetailPanel() {
               <tr>
                 <th className="px-4 py-3 font-semibold">Hospital</th>
                 <th className="px-4 py-3 font-semibold">Escalafón</th>
+                <th className="px-4 py-3 font-semibold">Cód. Registro</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
                 <th className="px-4 py-3 font-semibold">Situación de revista</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
@@ -87,6 +88,7 @@ export function PersonaDetailPanel() {
                 <tr key={o.id} className={o.hasta ? 'text-gray-400' : ''}>
                   <td className="px-4 py-3">{o.cargo?.hospital?.sigla ?? '—'}</td>
                   <td className="px-4 py-3">{o.cargo?.escalafon?.nombre ?? '—'}</td>
+                  <td className="px-4 py-3">{o.cargo?.codigoRegistro?.codigo ?? '—'}</td>
                   <td className="px-4 py-3">{o.cargo?.literalPuesto ?? '—'}</td>
                   <td className="px-4 py-3">{o.situacionRevista ?? '—'}</td>
                   <td className="px-4 py-3">

@@ -99,7 +99,7 @@ export async function getPersonaByIdService(id: string) {
     include: {
       ocupaciones: {
         orderBy: [{ hasta: 'asc' }, { desde: 'desc' }], // vigentes (hasta null) primero
-        include: { cargo: { include: { hospital: true, escalafon: true } } },
+        include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } } },
       },
     },
   })

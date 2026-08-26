@@ -63,6 +63,7 @@ export async function getCargoByIdService(id: string) {
     include: {
       hospital: true,
       escalafon: true,
+      codigoRegistro: true,
       // Vigente = hasta IS NULL. En teoría hay una sola a la vez por cargo
       // (invariante del flujo de aprobación de padrón), take:1 es solo margen.
       ocupaciones: { where: { hasta: null }, take: 1, include: { persona: true } },
