@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09 (Sprint 2 Jorge completado y revisado)
+> Última actualización: 2026-08-26 (Sprint 4 completo — 11/11 tareas)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -17,7 +17,7 @@
 | Sprint 1 — Autenticación            | ✅ Completado                                                            | S1-1 a S1-10            |
 | Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25          | S2-1 a S2-19 (✅)       |
 | Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25                     | S3-1 a S3-11 (✅)       |
-| Sprint 4 — Concursos CPH            | 🔄 Backend completo (S4-1 a S4-6, S4-11) — falta frontend (S4-7 a S4-10) | S4-1 a S4-6, S4-11 (✅) |
+| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26           | S4-1 a S4-11 (✅)       |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                             | —                       |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                             | —                       |
 
@@ -716,6 +716,7 @@ pendientes.
 | S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ✅  |
 | S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ✅  |
 | S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ✅  |
+| S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅  |
 
 **Hallazgos de revisión (Sprint 4 backend, Jorge — corregidos en paralelo, mientras Agustin ya
 avanzaba con S4-7 a S4-10 sobre la versión anterior del backend):**
@@ -731,7 +732,6 @@ avanzaba con S4-7 a S4-10 sobre la versión anterior del backend):**
 > (S4-4), que es de donde depende el frontend de S4-7 a S4-10. No hace falta re-verificar esas 4
 > tareas contra este fix; si se toca `suspenderConcursoCphService` o `POST /concursos` de nuevo, ahí
 > sí vale la pena volver a probar el botón "Suspender/Reanudar" de `ConcursoCphDetail`.
-> | S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero | Jorge | 4h | 🟡 Medio | ✅ |
 
 **Criterio de éxito:**
 
