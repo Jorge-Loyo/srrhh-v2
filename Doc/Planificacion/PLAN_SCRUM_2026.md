@@ -42,7 +42,12 @@ Un ítem está terminado cuando:
 - [ ] Funcionalidad implementada y probada manualmente
 - [ ] Sin regresiones en módulos existentes
 - [ ] Documentación actualizada (este doc + archivos Doc/)
-- [ ] Código en rama `develop` con PR aprobado
+- [ ] Avisado por Notion/chat antes de tocar un módulo que otro dev pueda estar trabajando en paralelo
+
+> **Nota:** el DoD original decía "PR aprobado" pero el equipo nunca usó PRs (2 devs, comunicación
+> asíncrona). El choque de Sprint 3 (Jorge y Agustin implementando S3-6 a S3-10 en paralelo sin
+> coordinarse, uno se descartó) pasó exactamente por eso. Se reemplaza por la regla que sí se puede
+> cumplir: avisar antes de tocar un módulo compartido.
 
 ---
 
@@ -710,6 +715,14 @@ pendientes.
 | S4-8  | ConcursoCphDetail: formulario completo por fases              | Agustin | 12h  | 🔴 Crítico | ⏳ |
 | S4-9  | Timeline visual del sub-estado (barra de progreso)            | Agustin | 6h   | 🟡 Medio   | ⏳ |
 | S4-10 | Alertas: concursos sin movimiento > 30/60/90 días             | Agustin | 4h   | 🟡 Medio   | ⏳ |
+
+**Hallazgos de revisión (Sprint 4 backend — corregidos antes de que Agustin siga con S4-7 a S4-10):**
+
+| # | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | **`suspenderConcursoCphService` podía "des-finalizar" un concurso cerrado** — solo chequeaba `suspendido === body.suspendido` (idempotencia), pero no el `estado` actual. Un concurso `finalizado` o `desierto` podía recibir `POST /suspender` y quedar con `estado: suspendido`, pisando el estado terminal. | 🔴 Alta | ✅ **Corregido** — guard explícito: 409 si `estado` es `finalizado` o `desierto` antes de cualquier otra validación. |
+| 2 | **Bypass de rol en `POST /concursos`** — `concursales_ceetps` podía crear un concurso `tipoConcurso: cph` (y viceversa). El `requireRole` solo chequeaba que el usuario tuviera alguno de los 4 roles de escritura, sin cruzar con el tipo de concurso del body. Después de crearlo, el usuario no podía ni editarlo — estado inconsistente. | 🔴 Alta | ✅ **Corregido** — validación en el handler: `concursales_ceetps` recibe 403 si intenta crear CPH, y viceversa. `admin`/`editor` pueden crear cualquiera. |
+| 3 | **Race condition en el guard de duplicados CPH** — `createConcursoService` hacía `findFirst` (¿existe concurso abierto?) y luego `create` en pasos separados. Dos requests concurrentes podían pasar el `findFirst` antes de que ninguna hiciera el `create`, creando dos concursos CPH abiertos para el mismo cargo. | 🟡 Media | ✅ **Corregido** — partial unique index a nivel de BD (`CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado', 'desierto')`), migración `concurso_cph_unique_abierto` aplicada. El guard en el service queda como primera línea de defensa; el índice es el backstop atómico. |
 | S4-11 | `GET /api/v1/kpis/concursos-cph` para tablero                 | Jorge   | 4h   | 🟡 Medio   | ✅ |
 
 **Criterio de éxito:**
@@ -818,18 +831,26 @@ valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre
 | S5-1 | `GET/PATCH /api/v1/concursos-ceetps` con filtros                   | Jorge   | 6h   | 🔴 Crítico |
 | S5-2 | ConcursosCeetpsPage: tabla con estado, escalafón, filtros          | Agustin | 10h  | 🔴 Crítico |
 | S5-3 | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG              | Agustin | 10h  | 🔴 Crítico |
-| S5-4 | Módulo Bajas: `POST /api/v1/concursos` con origen baja             | Jorge   | 6h   | 🔴 Crítico |
-| S5-5 | Lógica: baja con `genera_concurso` → crea seguimiento automático   | Jorge   | 6h   | 🔴 Crítico |
+| S5-4 | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación | Jorge   | 6h   | 🔴 Crítico |
+| S5-5 | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente) | Jorge   | 6h   | 🔴 Crítico |
 | S5-6 | BajasPage: tabla + formulario nueva baja                           | Agustin | 8h   | 🔴 Crítico |
 | S5-7 | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja | Jorge   | 4h   | 🔴 Crítico |
 | S5-8 | `GET /api/v1/kpis/concursos-ceetps` para tablero                   | Jorge   | 3h   | 🟡 Medio   |
 | S5-9 | Alertas CEETPS: concursos sin movimiento                           | Agustin | 3h   | 🟡 Medio   |
+| S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada — necesario para cerrar el flujo concursal cuando el cargo ganado no existe todavía en el padrón | Jorge | — | 🔴 Crítico |
+
+> **Dependencia S4→S5 explícita:** S4-6 (`POST /concursos`) es carga manual por ahora porque el
+> modelo `Baja` no existe todavía — `origen` queda como texto libre. S5-4/S5-5 agregan el modelo
+> real y conectan la FK. S5-10 (Alta de Cargo) es necesario para cerrar el flujo cuando el cargo
+> ganado no existe en el padrón — sin esto, `personaDesignadaId` queda poblado pero no hay cargo
+> nuevo al que asignarla.
 
 **Criterio de éxito:**
 
 - Rijana puede gestionar concursos CEETPS desde la app
 - Una baja genera automáticamente el seguimiento correspondiente
 - El cargo se marca `no_vigente` al registrar la baja
+- Alta de Cargo manual funciona con generación de código según nomenclatura heredada
 
 ---
 
@@ -871,7 +892,7 @@ valor real en ese campo puntual. ✅ **Corregido** — la heurística por nombre
 | B-8 | App mobile nativa             | Segunda fase                       |
 | B-9 | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me` | Mejora de seguridad XSS — no priorizado para MVP |
-| B-11 | "Alta de Cargo" manual (crear un cargo nuevo a mano, con generación de `Cargo.codigo` según la nomenclatura de `dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD` §3) | Existe en el sistema legacy (`AltaCargoService.js`), no se portó todavía a este proyecto. Detectado el 2026-08-26 al backfillear `codigo` retroactivo para los 46.889 cargos reales (ver hallazgos de Sprint 3) — la lógica de clasificación por carrera/tipo/modalidad ya está resuelta y verificada, falta la UI + el endpoint de creación en sí |
+| B-11 | ~~"Alta de Cargo" manual~~ → **promovido a S5-10** | Promovido: necesario para cerrar el flujo concursal |
 
 ---
 
@@ -908,6 +929,8 @@ Producción:
 | 2026-09 | UUID como PK en todas las tablas                | Sin autoincremental, distribuible                     |
 | 2026-09 | Soft delete en todas las tablas                 | Histórico inmutable, nunca DELETE en producción       |
 | 2026-09 | Producción en servidor propio                   | A definir en Sprint 6                                 |
+| 2026-08-26 | Estimados de horas en el plan son referenciales, no compromisos — cada sprint genera trabajo de verificación/corrección no planificado que es parte normal del proceso. Los estimados no se actualizan retroactivamente. | Medir velocidad contra los estimados originales daría una imagen distorsionada del trabajo real |
+| 2026-08-26 | DoD actualizado: "PR aprobado" reemplazado por "avisar antes de tocar módulo compartido" | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa (ver choque Sprint 3) |
 | 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff` | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1) |
 | 2026-09 | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`) | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente |
 

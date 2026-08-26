@@ -419,6 +419,11 @@ model ConcursoCph {
   @@index([hospitalId])
   @@index([estado])
   @@index([subEstado])
+  // Partial unique index (no soportado por Prisma @@unique) — definido en
+  // prisma/migrations/concurso_cph_unique_abierto/migration.sql:
+  // CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado','desierto')
+  // Garantiza que no haya dos concursos CPH abiertos para el mismo cargo
+  // incluso ante requests concurrentes (race condition en createConcursoService).
   @@map("concursos_cph")
 }
 
