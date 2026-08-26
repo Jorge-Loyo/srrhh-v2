@@ -6,6 +6,7 @@ import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useCargos } from '../hooks/useCargos'
 
 const LIMIT = 50
@@ -36,6 +37,13 @@ export function CargosPage() {
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
 
+  // Pedido de Jorge (2026-08-26): mismo cambio que en PersonasPage — orden
+  // alfabético por el label mostrado (no por Escalafon.nombre crudo), para
+  // que "CPH" ordene en la C y no quede huérfano bajo la M de "Médicos".
+  const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
+    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
+  )
+
   function resetPage<T>(setter: (v: T) => void) {
     return (v: T) => {
       setter(v)
@@ -61,7 +69,7 @@ export function CargosPage() {
       downloadExcel(
         `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
         cargos.map((c) => ({
-          'ID SIAL': c.idSial,
+          'Código Cargo': c.codigo ?? '',
           Puesto: c.literalPuesto ?? '',
           Especialidad: c.especialidad ?? '',
           Agrupador: c.agrupador ?? '',
@@ -95,7 +103,7 @@ export function CargosPage() {
         <div className="flex flex-wrap gap-3">
           <input
             type="text"
-            placeholder="Buscar por ID SIAL, puesto, especialidad..."
+            placeholder="Buscar por código de cargo, puesto, especialidad..."
             value={search}
             onChange={(e) => resetPage(setSearch)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
@@ -118,9 +126,9 @@ export function CargosPage() {
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los escalafones</option>
-            {escalafones?.map((e) => (
+            {escalafonesOrdenados.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.nombre}
+                {escalafonLabel(e.nombre)}
               </option>
             ))}
           </select>
@@ -152,7 +160,7 @@ export function CargosPage() {
               <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
                 <thead className="bg-gray-50 text-gray-500 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">ID SIAL</th>
+                    <th className="px-4 py-3 font-semibold">Código Cargo</th>
                     <th className="px-4 py-3 font-semibold">Hospital</th>
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
@@ -163,7 +171,7 @@ export function CargosPage() {
                 <tbody className="divide-y divide-gray-100">
                   {data.data.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-800">{c.idSial}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{c.codigo ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.literalPuesto ?? '—'}</td>

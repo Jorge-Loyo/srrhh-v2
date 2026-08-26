@@ -665,6 +665,27 @@ Gerencial, CEETPS, **CPH**, Cuerpos Transitorios, Docentes, Escalafón General, 
 Planta Transitoria, Residentes"; al elegir "Docentes", el combobox de puesto muestra exactamente los
 8 puestos esperados (screenshot verificado, tabla de personas también se filtra en consistencia).
 
+**Pedido de Jorge (2026-08-26): en `/cargos`, reemplazar la columna "ID SIAL" de la tabla por el
+"Código Cargo"** (el generado con la nomenclatura heredada, ver más arriba) — `id_sial` deja de
+mostrarse en la tabla/Excel, pasa a mostrarse `codigo`. Extendido también, para mantener la búsqueda
+consistente con lo que ahora se ve en pantalla: `GET /api/v1/cargos?search=` ahora matchea también
+contra `unaccent(codigo)` además de `id_sial`/`literal_puesto`/`especialidad`/`agrupador` (antes solo
+se podía buscar por ID SIAL, que ya no es visible). `id_sial` no se toca en ningún otro lado — sigue
+siendo un identificador real, puede aparecer en planillas/expedientes externos.
+
+**Mismo pedido, extendido: en `/cargos`, el dropdown de escalafón también muestra "CPH" en vez de
+"Médicos" y ordena alfabéticamente por ese label** — mismo cambio ya hecho en `/personas` (ver
+arriba), esta vez replicado ahí. Se aprovechó para sacar `escalafonLabel()` de `PersonasPage.tsx` a
+un util compartido (`shared/lib/escalafonLabel.ts`) en vez de duplicar la función en las dos páginas.
+
+Verificado con browser real (2026-08-26): tabla de `/cargos` muestra columna "Código Cargo" con
+valores reales (`CPH-POF-000001`, `EG-000001`, `CPH-POU-000001`, etc.); dropdown de escalafón con el
+mismo orden verificado en `/personas` y "CPH" en la posición correcta. ⚠️ **Pendiente de verificar**:
+la búsqueda por `codigo` (`GET /api/v1/cargos?search=CPH` sigue devolviendo 0 resultados contra la
+API real al momento de escribir esto — el contenedor `api` todavía no fue reconstruido con este
+último cambio de `cargos.service.ts`; falta correr `docker compose up -d --build api` y volver a
+probar antes de dar esto por cerrado).
+
 ---
 
 ### SPRINT 4 — Concursos CPH

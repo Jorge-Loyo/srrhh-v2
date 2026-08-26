@@ -15,12 +15,19 @@ export async function listCargosService(query: CargosQuery) {
   // matchean, y esos ids alimentan el `where.id.in` de la query tipada de
   // abajo (que sigue trayendo hospital/escalafon con include, sin tener que
   // reescribir eso a mano en SQL).
+  //
+  // Pedido de Jorge (2026-08-26): CargosPage ya no muestra `idSial` en la
+  // tabla, muestra `codigo` (nomenclatura de la app) — se suma `codigo` acá
+  // para que buscar por lo que se ve en pantalla siga funcionando. `id_sial`
+  // se deja igual, sigue siendo un identificador real que puede aparecer en
+  // planillas/expedientes externos.
   let searchIds: string[] | undefined
   if (search) {
     const like = `%${search}%`
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT id FROM cargos
       WHERE unaccent(id_sial) ILIKE unaccent(${like})
+         OR unaccent(codigo) ILIKE unaccent(${like})
          OR unaccent(literal_puesto) ILIKE unaccent(${like})
          OR unaccent(especialidad) ILIKE unaccent(${like})
          OR unaccent(agrupador) ILIKE unaccent(${like})

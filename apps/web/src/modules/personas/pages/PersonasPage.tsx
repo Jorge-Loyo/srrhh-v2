@@ -6,18 +6,10 @@ import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { usePersonas, usePuestos } from '../hooks/usePersonas'
 
 const LIMIT = 50
-
-// Pedido de Jorge (2026-08-26): mostrar "CPH" en vez de "Médicos" en el
-// dropdown de escalafón — solo el label visual. El value del <option> sigue
-// siendo el id real del escalafón (Escalafon.nombre en la base no cambia,
-// el filtro sigue funcionando igual) — esto no toca datos ni el back, es
-// puramente cosmético en este dropdown.
-function escalafonLabel(nombre: string): string {
-  return nombre === 'Médicos' ? 'CPH' : nombre
-}
 
 export function PersonasPage() {
   const [search, setSearch] = useState('')
