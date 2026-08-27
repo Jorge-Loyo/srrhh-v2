@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-26 (Sprint 4 completo — 11/11 tareas)
+> Última actualización: 2026-08-27 (Sprint 3 — mejoras UX panel personas + fixes post-deploy)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -18,6 +18,7 @@
 | Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
 | Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
 | Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
+| Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
@@ -907,6 +908,60 @@ containers vuelven a arrancar solos, lo que puede dejar una migración a mitad d
 interrumpe en el medio. Sin datos reales para perder (0 personas/cargos, solo seed base) — resuelto
 con `prisma migrate reset --force` + `pnpm db:seed`. Mitigación aplicada en esta sesión: mantener una
 sesión `wsl.exe -- sleep N` en segundo plano durante secuencias de comandos que dependen de Docker.
+
+---
+
+### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
+
+**Commit:** `f178819` | **Autor:** Jorge + Claude
+
+Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos de producción.
+
+#### Ocupaciones: `cargo_desde` / `cargo_hasta`
+
+- `prisma/schema.prisma`: `cargoDesdeFecha DateTime? @map("cargo_desde") @db.Date` y `cargoHastaFecha` en `Ocupacion`
+- `ALTER TABLE ocupaciones ADD COLUMN cargo_desde date, ADD COLUMN cargo_hasta date` aplicado en BD real
+- `padron.service.ts`: campos agregados a `COLS_WATCH`, `CAMPOS_OCUPACION`, `calcularDiff` (JSON de diffs nuevos) y `aprobarSnapshotService` (creación de ocupaciones con `parseFechaDDMMYYYY`)
+- Backfill de 48.166 ocupaciones existentes desde el último Excel exportado (`fix_cargo_fechas.py`, corrido en dotaneitor)
+- `packages/types`: `Ocupacion` con `cargoDesdeFecha`/`cargoHastaFecha`; interfaz `OcupacionConCargo`
+- `PersonaDetailPanel`: muestra "Cargo desde" y "Cargo hasta" cuando tienen valor
+- **Fix crítico post-deploy**: el cliente Prisma en el contenedor no tenía los campos nuevos (no se había regenerado desde el último build). Rebuild de la imagen API con `docker compose up -d --build api` — `prisma generate` corre automáticamente en `postinstall`. Verificado: `cargoDesdeFecha` devuelve `"2025-01-07T00:00:00.000Z"` correctamente.
+
+#### Export Excel de padrón: fix `ReferenceError` en runtime
+
+- El endpoint `GET /snapshots/:id/exportar` en `padron.routes.ts` referenciaba `python` y `getSnapshotOrThrow` que son privados de `padron.service.ts` — en runtime tiraba `ReferenceError` silencioso capturado por Fastify como 500, el frontend nunca recibía el blob
+- Fix: `exportarSnapshotService` extraido al service (donde `python` y `getSnapshotOrThrow` sí están disponibles) y exportado; routes lo importa y usa
+- `usePadron.ts`: `useExportarSnapshot` ya usaba `responseType: 'blob'` correctamente — el bug era solo en el backend
+
+#### Deduplicación de ocupaciones fantasma (regla SIAL)
+
+- SIAL genera duplicados cuando una persona tiene dos filas vigentes con el mismo `codigo_repa` + `literal_puesto`, una con `codigo_jefaturas` (ej. `P60`) y otra sin — la sin jefatura es un fantasma del sistema
+- `filtrarDuplicados()` en `PersonaDetailPanel`: detecta estos grupos en las ocupaciones vigentes y oculta las sin `codigoJefaturas`. Solo afecta la visualización, no toca la BD
+- Verificado contra 10 casos reales en la DB (Directores, Sub-Directores con código P60/P61/etc.)
+- El contador "Ocupaciones (N)" en el header refleja el total filtrado, no el total crudo
+
+#### Filtros persistentes en `/personas`
+
+- `PersonasPage`: reemplazado `useState` por `useSearchParams` — todos los filtros (search, hospitalId, escalafonId, activo, puesto, especialidad, page) viven en la URL como query params
+- Cambios de filtro usan `setSearchParams` sin `replace: true` (agregan al historial); paginación usa `replace: true` (no llena el historial)
+- Link "Ver" en la tabla pasa `state: { from: searchParams.toString() }` al navegar al detalle
+- `PersonaDetailPanel`: "Volver a Personas" lee `location.state.from` y reconstruye `/personas?...` con los filtros originales. Si no hay state (acceso directo por URL), vuelve a `/personas` sin params
+
+#### Chips de filtros activos
+
+- Debajo de los controles de filtro en `PersonasPage`, aparecen burbujas con el label legible de cada filtro activo (sigla del hospital, nombre del escalafón, etc.) y un botón `×` para quitarlo individualmente
+- Con 2+ filtros activos aparece "Limpiar todo"
+- El chip de escalafón llama a `cambiarEscalafon('')` (que también limpia puesto y especialidad en cascada); el de puesto llama a `cambiarPuesto('')` (limpia especialidad)
+
+#### Puesto en header del panel de persona
+
+- El puesto de la ocupación vigente activa (no retención) aparece debajo del CUIL en el header azul del `PersonaDetailPanel`
+- Si todas las ocupaciones vigentes son retención, muestra igual la primera vigente
+
+#### Dotaneitor: reconexion automática a Postgres
+
+- `pool_pre_ping=True` en el engine de SQLAlchemy — antes de cada query verifica si la conexión sigue viva y reconecta automáticamente si Postgres se reinició (el rebuild de la API reinicia el contenedor de postgres, dejando al dotaneitor con una conexión stale)
+- Aplica en el próximo rebuild del contenedor dotaneitor
 
 ---
 
