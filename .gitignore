@@ -51,3 +51,7 @@ fix_plan.py
 check_*.py
 fix_*.py
 .commitmsg
+
+# Archivos temporales
+1
+o_ret.persona_id
