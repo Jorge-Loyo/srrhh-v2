@@ -882,10 +882,29 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
 
-    // ── 4. Eliminados: un solo updateMany con `in` para todos ──────────────
+    // ── 4. Eliminados: cerrar ocupaciones y marcar persona como inactiva ────
     for (const lote of chunk(eliminados, 2000)) {
       if (!lote.length) continue
       await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: new Date() } })
+    }
+    // Marcar como inactivas las personas cuyas ocupaciones se cerraron y ya
+    // no tienen ninguna ocupación vigente (hasta IS NULL) restante.
+    if (eliminados.length > 0) {
+      const ocupsEliminadas = await tx.ocupacion.findMany({
+        where: { idSialRol: { in: eliminados } },
+        select: { personaId: true },
+      }) as { personaId: string }[]
+      const personaIdsEliminadas = [...new Set(ocupsEliminadas.map((o) => o.personaId))]
+      // Solo marcar inactiva si realmente no le queda ninguna ocupación vigente
+      const conOcupVigente = await tx.ocupacion.findMany({
+        where: { personaId: { in: personaIdsEliminadas }, hasta: null },
+        select: { personaId: true },
+      }) as { personaId: string }[]
+      const conVigenteSet = new Set(conOcupVigente.map((o) => o.personaId))
+      const aInactivar = personaIdsEliminadas.filter((pid) => !conVigenteSet.has(pid))
+      for (const lote of chunk(aInactivar, 2000)) {
+        await tx.persona.updateMany({ where: { id: { in: lote } }, data: { activo: false } })
+      }
     }
 
     // ── 5. Modificados: sigue siendo por fila (cada una cambia campos
