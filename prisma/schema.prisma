@@ -242,6 +242,9 @@ model Ocupacion {
   documentacionBaja     String?   @map("documentacion_baja") @db.Text
   // S2-17: días de guardia (una fila por día en origen → array)
   diasGuardia           String[]
+  // cargo_desde / cargo_hasta: fechas del cargo en SIAL (CARGO_DESDE / CARGO_HASTA del Excel)
+  cargoDesdeFecha       DateTime? @map("cargo_desde") @db.Date
+  cargoHastaFecha       DateTime? @map("cargo_hasta") @db.Date
   snapshotId            String?   @map("snapshot_id") @db.Uuid
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz

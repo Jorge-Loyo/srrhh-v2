@@ -11,15 +11,15 @@
 
 ## ESTADO ACTUAL
 
-| Sprint                              | Estado                                                                   | Completado              |
-| ----------------------------------- | ------------------------------------------------------------------------ | ----------------------- |
-| Sprint 0 — Infraestructura          | ✅ Completado                                                            | S0-1 a S0-11            |
-| Sprint 1 — Autenticación            | ✅ Completado                                                            | S1-1 a S1-10            |
-| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25          | S2-1 a S2-19 (✅)       |
-| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25                     | S3-1 a S3-11 (✅)       |
-| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26           | S4-1 a S4-11 (✅)       |
-| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                             | —                       |
-| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                             | —                       |
+| Sprint                              | Estado                                                          | Completado        |
+| ----------------------------------- | --------------------------------------------------------------- | ----------------- |
+| Sprint 0 — Infraestructura          | ✅ Completado                                                   | S0-1 a S0-11      |
+| Sprint 1 — Autenticación            | ✅ Completado                                                   | S1-1 a S1-10      |
+| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
+| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
+| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
+| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
+| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
 ---
 

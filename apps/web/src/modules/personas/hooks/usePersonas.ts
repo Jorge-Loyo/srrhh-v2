@@ -38,7 +38,7 @@ export function usePuestos(escalafonId?: string) {
 // S3-2: detalle con ocupaciones.
 export function usePersona(id: string | undefined) {
   return useQuery({
-    queryKey: ['personas', id],
+    queryKey: ['personas', 'detail', id],
     queryFn: async () => {
       const res = await apiClient.get<{ data: PersonaDetail }>(`/api/v1/personas/${id}`)
       return res.data.data

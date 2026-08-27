@@ -53,6 +53,9 @@ services:
       CORS_ORIGINS: ''
     ports:
       - '5001:5001'
+    volumes:
+      - dotaneitor_exports:/app/exports
 
 volumes:
   postgres_data:
+  dotaneitor_exports:

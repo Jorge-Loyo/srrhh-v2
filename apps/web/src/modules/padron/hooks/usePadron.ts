@@ -104,3 +104,32 @@ export function useRechazarSnapshot() {
     },
   })
 }
+
+export function useDeleteSnapshot() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (snapshotId: string) => {
+      const res = await apiClient.delete(`/api/v1/padron/snapshots/${snapshotId}`)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['padron', 'snapshots'] })
+    },
+  })
+}
+
+export function useExportarSnapshot() {
+  return useMutation({
+    mutationFn: async (snapshotId: string) => {
+      const res = await apiClient.get(`/api/v1/padron/snapshots/${snapshotId}/exportar`, {
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dotacion_${snapshotId.slice(0, 8)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+  })
+}

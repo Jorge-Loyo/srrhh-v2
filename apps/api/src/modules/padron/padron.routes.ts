@@ -12,6 +12,8 @@ import {
   getSnapshotEstadoService,
   aprobarSnapshotService,
   rechazarSnapshotService,
+  deleteSnapshotService,
+  exportarSnapshotService,
   cleanupSnapshotsProcesando,
 } from './padron.service.js'
 
@@ -86,6 +88,20 @@ export async function padronRoutes(app: FastifyInstance) {
   // POST /snapshots/:id/rechazar — S2-8 (requiere editor o admin)
   app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
     const result = await rechazarSnapshotService(request.params.id)
+    return reply.send({ data: result })
+  })
+
+  // GET /snapshots/:id/exportar — descargar Excel del Dotaneitor
+  app.get<{ Params: { id: string } }>('/snapshots/:id/exportar', async (request, reply) => {
+    const { stream, snapshotId } = await exportarSnapshotService(request.params.id)
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    reply.header('Content-Disposition', `attachment; filename="dotacion_${snapshotId.slice(0, 8)}.xlsx"`)
+    return reply.send(stream)
+  })
+
+  // DELETE /snapshots/:id — eliminar snapshot en estado error o rechazado (requiere admin)
+  app.delete<{ Params: { id: string } }>('/snapshots/:id', { preHandler: requireRole([RolUsuario.ADMIN]) }, async (request, reply) => {
+    const result = await deleteSnapshotService(request.params.id)
     return reply.send({ data: result })
   })
 }

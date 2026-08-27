@@ -89,8 +89,19 @@ const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
   especialidad:          'cargo',
   agrupador:             'cargo',
   unificador_de_puestos: 'cargo',
+  codigo_repa:           'cargo',
+  descripcion_repa:      'cargo',
+  codigo_de_registro:    'cargo',
+  agrupamiento:          'cargo',
   situacion_de_revista:  'ocupacion',
   estado:                'ocupacion',
+  codigo_jefaturas:      'ocupacion',
+  jefe_escalafon:        'ocupacion',
+  comision:              'ocupacion',
+  repa_comision:         'ocupacion',
+  cod_situacion:         'ocupacion',
+  cargo_desde:           'ocupacion',
+  cargo_hasta:           'ocupacion',
 }
 
 type RegistroPython = Record<string, unknown>
@@ -147,9 +158,16 @@ async function calcularDiff(sessionId: string) {
       especialidad: true,
       agrupador: true,
       unificadorPuesto: true,
+      codigoRepa: true,
+      descripcionRepa: true,
+      agrupamiento: true,
+      codigoRegistro: { select: { codigo: true } },
       ocupaciones: {
         where: { hasta: null },
-        select: { idSialRol: true, situacionRevista: true, estadoPersona: true, cuilYRol: true },
+        select: {
+          idSialRol: true, situacionRevista: true, estadoPersona: true, cuilYRol: true,
+          codigoJefaturas: true, jefeEscalafon: true, comision: true, repaComision: true, codSituacion: true,
+        },
         take: 1,
       },
     },
@@ -212,11 +230,36 @@ async function calcularDiff(sessionId: string) {
         estado:         strVal(r['ESTADO'] ?? r['estado']),
         agrupador:      strVal(r['AGRUPADOR'] ?? r['agrupador']),
         unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
-        // Reportado (2026-08-25): "Régimen" siempre vacío en CargoDetailPanel
-        // pese a que el Dotaneitor real trae REGIMEN con 100% de cobertura
-        // (Salud/General/Docente) — nunca se capturaba acá, a diferencia de
-        // especialidad/agrupador/unificador que sí se escriben en Cargo.
         regimen:        strVal(r['REGIMEN'] ?? r['regimen']),
+        // Campos de Cargo faltantes (2026-08-25)
+        codigo_repa:    strVal(r['CODIGO REPA'] ?? r['codigo_repa']),
+        descripcion_repa: strVal(r['DESCRIPCION REPA'] ?? r['descripcion_repa']),
+        codigo_de_registro: strVal(r['CODIGO DE REGISTRO'] ?? r['codigo_de_registro']),
+        literal_cr:     strVal(r['LITERAL CR'] ?? r['literal_cr']),
+        agrupamiento:   strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
+        // Campos de Ocupacion faltantes (2026-08-25)
+        codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
+        jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
+        documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
+        comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
+        documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
+        comision:       strVal(r['COMISION'] ?? r['comision']),
+        repa_comision:  strVal(r['REPA COMISION'] ?? r['repa_comision']),
+        cod_situacion:  strVal(r['COD SITUACION'] ?? r['cod_situacion']),
+        fecha_bloqueo:  strVal(r['FECHA BLOQUEO'] ?? r['fecha_bloqueo']),
+        bloqueo_comentario: strVal(r['BLOQUEO COMENTARIO'] ?? r['bloqueo_comentario']),
+        bloq_motivo:    strVal(r['BLOQ MOTIVO'] ?? r['bloq_motivo']),
+        documentacion_del_rol: strVal(r['DOCUMENTACION DEL ROL'] ?? r['documentacion_del_rol']),
+        documentacion_baja: strVal(r['DOCUMENTACION BAJA'] ?? r['documentacion_baja']),
+        cargo_desde:    strVal(r['CARGO_DESDE'] ?? r['cargo_desde']),
+        cargo_hasta:    strVal(r['CARGO_HASTA'] ?? r['cargo_hasta']),
+        // Campos de Persona faltantes (2026-08-25)
+        telefono:       strVal(r['TELEFONO'] ?? r['telefono']),
+        mail_personal:  strVal(r['MAIL_PERSONAL'] ?? r['mail_personal']),
+        mail_laboral:   strVal(r['MAIL_LABORAL'] ?? r['mail_laboral']),
+        domicilio:      strVal(r['DOMICILIO'] ?? r['domicilio']),
+        localidad:      strVal(r['LOCALIDAD'] ?? r['localidad']),
+        provincia:      strVal(r['PROVINCIA'] ?? r['provincia']),
       }),
     })
   }
@@ -250,10 +293,18 @@ async function calcularDiff(sessionId: string) {
     especialidad:          'especialidad',
     agrupador:             'agrupador',
     unificador_de_puestos: 'unificadorPuesto',
+    codigo_repa:           'codigoRepa',
+    descripcion_repa:      'descripcionRepa',
+    agrupamiento:          'agrupamiento',
   }
   const CAMPO_OCUP_MAP: Record<string, string> = {
     situacion_de_revista: 'situacionRevista',
     estado:               'estadoPersona',
+    codigo_jefaturas:     'codigoJefaturas',
+    jefe_escalafon:       'jefeEscalafon',
+    comision:             'comision',
+    repa_comision:        'repaComision',
+    cod_situacion:        'codSituacion',
   }
 
   for (const idSial of nuevosIds) {
@@ -265,11 +316,18 @@ async function calcularDiff(sessionId: string) {
     const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
-      const vNuevo = strVal(r[colPython.toUpperCase().replace(/_/g, ' ')] ?? r[colPython])
+      const colUpper = colPython === 'codigo_de_registro'
+        ? 'CODIGO DE REGISTRO'
+        : colPython.toUpperCase().replace(/_/g, ' ')
+      const vNuevo = strVal(r[colUpper] ?? r[colPython])
       let vAnterior = ''
       if (tabla === 'cargo') {
-        const key = CAMPO_CARGO_MAP[colPython]
-        vAnterior = strVal(key ? actual[key] : null)
+        if (colPython === 'codigo_de_registro') {
+          vAnterior = strVal(actual.codigoRegistro?.codigo)
+        } else {
+          const key = CAMPO_CARGO_MAP[colPython]
+          vAnterior = strVal(key ? actual[key] : null)
+        }
       } else {
         const key = CAMPO_OCUP_MAP[colPython]
         vAnterior = strVal(key && ocup ? (ocup as Record<string, unknown>)[key] : null)
@@ -339,7 +397,10 @@ async function runPipeline(
     await pollJob(procJob.job_id)
 
     await setPaso(snapshotId, 'cruzar')
-    const { data: cruzarJob } = await python.post('/cruzar', { session_id: sessionId })
+    const { data: cruzarJob } = await python.post('/cruzar', {
+      session_id: sessionId,
+      fecha_asignada: snapshotId, // reutilizado para pasar snapshot_id al Python
+    })
     await pollJob(cruzarJob.job_id)
 
     await setPaso(snapshotId, 'diff')
@@ -362,14 +423,7 @@ async function runPipeline(
         data: {
           estado: 'pendiente',
           pasoActual: null,
-          // totalRegistros NO se toca acá: se fija una sola vez, al crear el
-          // snapshot, con la cantidad de filas del Excel subido. Sobreescribirlo
-          // acá con el conteo del diff (nuevos+eliminados+modificados) le cambia
-          // el significado — deja de responder "cuántos registros tenía el
-          // archivo" y pasa a responder "cuántos cambiaron", que es un dato
-          // distinto y ya vive aparte en el summary del diff. El frontend
-          // (PadronDiffPage) muestra este campo como "X registros procesados",
-          // asumiendo que es el conteo del archivo.
+          archivoResultadoPath: `exports/${snapshotId}/dotacion.xlsx`,
         },
       })
     }, TRANSACTION_OPTS)
@@ -519,14 +573,24 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 // ─── S2-6 + S2-7: aprobar snapshot ───────────────────────────────────────────
 
 const CAMPOS_CARGO: Record<string, string> = {
-  literal_puesto: 'literalPuesto',
-  especialidad: 'especialidad',
-  agrupador: 'agrupador',
+  literal_puesto:        'literalPuesto',
+  especialidad:          'especialidad',
+  agrupador:             'agrupador',
   unificador_de_puestos: 'unificadorPuesto',
+  codigo_repa:           'codigoRepa',
+  descripcion_repa:      'descripcionRepa',
+  agrupamiento:          'agrupamiento',
 }
 const CAMPOS_OCUPACION: Record<string, string> = {
-  situacion_de_revista: 'situacionRevista',
-  estado: 'estadoPersona',
+  situacion_de_revista:  'situacionRevista',
+  estado:                'estadoPersona',
+  codigo_jefaturas:      'codigoJefaturas',
+  jefe_escalafon:        'jefeEscalafon',
+  comision:              'comision',
+  repa_comision:         'repaComision',
+  cod_situacion:         'codSituacion',
+  cargo_desde:           'cargoDesdeFecha',
+  cargo_hasta:           'cargoHastaFecha',
 }
 
 // Bug crítico confirmado corriendo contra datos reales (2026-08-25, sin
@@ -633,17 +697,37 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const nombre of escalafonesNecesarios) {
       if (escalafonCache.has(nombre)) continue
-      // Bug confirmado corriendo contra datos reales (aprobación P2000): `codigo`
-      // es VARCHAR(20) en el schema, pero acá se reutilizaba el nombre completo
-      // del escalafón como código — cualquier nombre real de más de 20
-      // caracteres (ej. escalafones con nombres descriptivos largos) rompía el
-      // create y tumbaba toda la transacción de aprobación. `codigo` no se lee
-      // en ningún otro lugar del repo (el lookup de esta función es por
-      // `nombre`), así que no hace falta que sea legible — solo único y corto.
       const e = await tx.escalafon.create({
         data: { codigo: `${nombre.slice(0, 12)}-${randomUUID().slice(0, 7)}`, nombre },
       })
       escalafonCache.set(nombre, e)
+    }
+
+    // ── 2b. Resolver CodigoRegistro: lookup/create por código numérico ─────
+    // El Dotaneitor produce CODIGO DE REGISTRO (número) + LITERAL CR (texto).
+    // CodigoRegistro necesita escalafonId — se usa el del cargo correspondiente.
+    const codigosRegistroNecesarios = [...new Set(
+      nuevos
+        .map((n) => n.datos.codigo_de_registro)
+        .filter((v): v is string => Boolean(v))
+    )]
+    const codigosRegistroExistentes = await tx.codigoRegistro.findMany({
+      where: { codigo: { in: codigosRegistroNecesarios } },
+    }) as { id: string; codigo: string }[]
+    const codigoRegistroCache = new Map(codigosRegistroExistentes.map((cr) => [cr.codigo, cr]))
+    for (const codigo of codigosRegistroNecesarios) {
+      if (codigoRegistroCache.has(codigo)) continue
+      const datosEjemplo = nuevos.find((n) => n.datos.codigo_de_registro === codigo)!.datos
+      const escalafon = escalafonCache.get(datosEjemplo.escalafon ?? '')
+      if (!escalafon) continue
+      const cr = await tx.codigoRegistro.create({
+        data: {
+          codigo,
+          literal: datosEjemplo.literal_cr || codigo,
+          escalafonId: escalafon.id,
+        },
+      })
+      codigoRegistroCache.set(codigo, cr)
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
@@ -659,6 +743,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         sexo: string | null
         fechaNacimiento: Date | null
         antiguedadDesde: Date | null
+        telefono: string | null
+        mailPersonal: string | null
+        mailLaboral: string | null
+        domicilio: string | null
+        localidad: string | null
+        provincia: string | null
       }
     >()
     const cargosACrear = new Map<
@@ -673,6 +763,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         agrupador: string | null
         unificadorPuesto: string | null
         regimen: string | null
+        codigoRepa: string | null
+        descripcionRepa: string | null
+        agrupamiento: string | null
       }
     >()
     for (const { datos } of nuevos) {
@@ -684,18 +777,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           apellidoNombre: datos.ayn ?? '',
           numeroDoc: datos.numero_doc || null,
           tipoDoc: datos.tipo_doc || null,
-          // Reportado (2026-08-25): columna "Especialidad" de PersonasPage
-          // siempre vacía — miraba Persona.especialidadPrincipal, que nunca se
-          // escribía (la especialidad del padrón iba solo a Cargo.especialidad).
-          // Se usa el mismo valor como estimación inicial al crear la persona;
-          // no se actualiza después si la especialidad del cargo cambia (la
-          // rama "modificado" de abajo no toca campos de Persona) — aceptable
-          // como mejor esfuerzo, la mayoría de las filas igual vienen vacías
-          // salvo en carreras con especialidad real (CPH, principalmente).
           especialidadPrincipal: datos.especialidad || null,
           sexo: datos.sexo || null,
           fechaNacimiento: parseFechaDDMMYYYY(datos.fecha_nacimiento),
           antiguedadDesde: parseFechaDDMMYYYY(datos.antiguedad),
+          telefono: datos.telefono || null,
+          mailPersonal: datos.mail_personal || null,
+          mailLaboral: datos.mail_laboral || null,
+          domicilio: datos.domicilio || null,
+          localidad: datos.localidad || null,
+          provincia: datos.provincia || null,
         })
       }
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
@@ -711,6 +802,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           agrupador: datos.agrupador ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           regimen: datos.regimen || null,
+          codigoRepa: datos.codigo_repa || null,
+          descripcionRepa: datos.descripcion_repa || null,
+          agrupamiento: datos.agrupamiento || null,
+          codigoRegistroId: datos.codigo_de_registro
+            ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
+            : null,
         })
       }
     }
@@ -733,6 +830,19 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       cuilYRol: string | null
       situacionRevista: string | null
       estadoPersona: string | null
+      codigoJefaturas: string | null
+      jefeEscalafon: string | null
+      documentacionJefatura: string | null
+      comentariosJefaturas: string | null
+      documentacionPou: string | null
+      comision: string | null
+      repaComision: string | null
+      codSituacion: string | null
+      fechaBloqueo: Date | null
+      bloqueoComentario: string | null
+      bloqMotivo: string | null
+      documentacionDelRol: string | null
+      documentacionBaja: string | null
       snapshotId: string
     }[] = []
     for (const { idSialRol, datos } of nuevos) {
@@ -749,6 +859,21 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         cuilYRol: datos.cuil_y_rol ?? null,
         situacionRevista: datos.situacion_de_revista ?? null,
         estadoPersona: datos.estado ?? null,
+        codigoJefaturas: datos.codigo_jefaturas || null,
+        jefeEscalafon: datos.jefe_escalafon || null,
+        documentacionJefatura: datos.documentacion_jefatura || null,
+        comentariosJefaturas: datos.comentarios_jefaturas || null,
+        documentacionPou: datos.documentacion_pou || null,
+        comision: datos.comision || null,
+        repaComision: datos.repa_comision || null,
+        codSituacion: datos.cod_situacion || null,
+        fechaBloqueo: parseFechaDDMMYYYY(datos.fecha_bloqueo),
+        bloqueoComentario: datos.bloqueo_comentario || null,
+        bloqMotivo: datos.bloq_motivo || null,
+        documentacionDelRol: datos.documentacion_del_rol || null,
+        documentacionBaja: datos.documentacion_baja || null,
+        cargoDesdeFecha: parseFechaDDMMYYYY(datos.cargo_desde),
+        cargoHastaFecha: parseFechaDDMMYYYY(datos.cargo_hasta),
         snapshotId: id,
       })
     }
@@ -773,11 +898,28 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const mappedCargo = CAMPOS_CARGO[cambio.campo]
         const mappedOcupacion = CAMPOS_OCUPACION[cambio.campo]
         if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
-        if (mappedOcupacion) updateOcupacion[mappedOcupacion] = cambio.valorNuevo ?? ''
+        if (mappedOcupacion) {
+          const esFecha = cambio.campo === 'cargo_desde' || cambio.campo === 'cargo_hasta'
+          updateOcupacion[mappedOcupacion] = esFecha
+            ? (parseFechaDDMMYYYY(cambio.valorNuevo ?? '') ?? null)
+            : (cambio.valorNuevo ?? '')
+        }
       }
 
       const ocupExistente = ocupacionExistenteMap.get(idSialRol)
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
+        // Si cambió el código de registro, resolver el id de la relación
+        const crCambio = cambios.find((c) => c.campo === 'codigo_de_registro')
+        if (crCambio?.valorNuevo) {
+          let cr = codigoRegistroCache.get(crCambio.valorNuevo)
+          if (!cr) {
+            // Buscar en BD (puede existir de una carga anterior)
+            const found = await tx.codigoRegistro.findUnique({ where: { codigo: crCambio.valorNuevo } }) as { id: string; codigo: string } | null
+            if (found) { codigoRegistroCache.set(found.codigo, found); cr = found }
+          }
+          if (cr) updateCargo['codigoRegistroId'] = cr.id
+          delete updateCargo['codigo_de_registro']
+        }
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }
       if (Object.keys(updateOcupacion).length > 0) {
@@ -816,6 +958,33 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
     })
   }, TRANSACTION_OPTS)
+
+  return { ok: true, snapshotId: id }
+}
+
+// ─── exportar Excel del Dotaneitor ──────────────────────────────────────────
+
+export async function exportarSnapshotService(id: string) {
+  const snapshot = await getSnapshotOrThrow(id)
+  if (!snapshot.archivoResultadoPath) {
+    throw AppError.notFound('El archivo Excel no está disponible para este snapshot')
+  }
+  const fileStream = await python.get(`/${snapshot.archivoResultadoPath}`, { responseType: 'stream' })
+  return { stream: fileStream.data as NodeJS.ReadableStream, snapshotId: id }
+}
+
+// ─── borrar snapshot (solo error/rechazado) ─────────────────────────────────
+
+export async function deleteSnapshotService(id: string) {
+  const snapshot = await getSnapshotOrThrow(id)
+  if (!['error', 'rechazado'].includes(snapshot.estado)) {
+    throw AppError.conflict(`Solo se pueden eliminar snapshots en estado error o rechazado (estado actual: ${snapshot.estado})`)
+  }
+
+  await prisma.$transaction(async (tx: PrismaTx) => {
+    await tx.padronDiff.deleteMany({ where: { snapshotId: id } })
+    await tx.padronSnapshot.delete({ where: { id } })
+  })
 
   return { ok: true, snapshotId: id }
 }
