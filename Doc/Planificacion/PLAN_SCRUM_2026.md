@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-27 (Sprint 3 — mejoras UX panel personas + fixes post-deploy)
+> Última actualización: 2026-08-28 (Post-Sprint 4 (3) — mejoras UX personas/cargos)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -20,6 +20,7 @@
 | Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
 | Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
 | Sprint 3 (post-2) — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | ver detalle abajo |
+| Sprint 3 (post-3) — Mejoras UX personas/cargos | ✅ Completado — 2026-08-28 | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
@@ -1012,6 +1013,44 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 #### Link "Ver cargo" desde ocupaciones de persona
 
 - `PersonaDetailPanel` — cada ocupación tiene botón "Ver cargo" que navega a `/cargos/:id` del cargo correspondiente
+
+---
+
+### POST-SPRINT 4 (3) — Mejoras UX personas/cargos (2026-08-28)
+
+**Commit:** pendiente | **Autor:** Jorge + Claude
+
+#### Retención de cargo: "Cubre en" en `CargoDetailPanel`
+
+- `cargos.service.ts` — `getCargoByIdService`: cuando `ocupacionActual.situacionRevista === 'Retencion de Cargo'`, busca la ocupación `Activo` de esa persona en otro cargo e incluye `cargoActivo` en la respuesta
+- `packages/types` — `CargoDetail.cargoActivo: (Ocupacion & { cargo: Cargo & { hospital, escalafon } }) | null`
+- `CargoDetailPanel` — sección "Cubre en" con fondo ámbar cuando hay retención: muestra código cargo, puesto, hospital y link "Ver cargo activo". Si retiene pero no tiene cargo activo registrado, muestra "Retiene este cargo — sin cargo activo registrado"
+- Verificado con datos reales: Ferraro (CPH-POF-008656, Jefe UTI Durand) retuvo y cubre CPH-POF-022449 (Director CSMA)
+
+#### Filtro por puesto en `/cargos`
+
+- `cargos.service.ts` — `listPuestosCargosService(escalafonId?, hospitalId?)`: puestos distintos filtrados en cascada
+- `cargos.routes.ts` — `GET /api/v1/cargos/puestos` con params opcionales `escalafonId`/`hospitalId`
+- `cargos.schema.ts` — campo `puesto` opcional en query schema
+- `useCatalogos.ts` — hook `usePuestosCargos(escalafonId?, hospitalId?)`
+- `CargosPage` — `SearchableSelect` para puesto (igual que `/personas`); al cambiar hospital o escalafón se limpia el puesto (cascada); chips de filtros activos actualizados
+- `packages/types` — `CargoFilters.puesto?: string`
+
+#### Mejoras al `PersonaDetailPanel`
+
+- **ID SIAL de persona**: extraído del primer segmento de `idSialRol` (ej. `001608093` de `001608093-2-27204383680`), mostrado en sección Identificación
+- **ID SIAL Rol en cada cargo**: `001608093-2` (persona + número de cargo, sin CUIL)
+- **Código Cargo** en cada ocupación
+- **Zócalo "Datos de la persona"** sobre el header navy
+- **Zócalo "Detalle de cargos"** sobre la sección de ocupaciones
+- **Header**: `Rol actual: Director (01)` + `Especialidad: Psiquiatria` (solo si tiene)
+- **Orden de cargos**: Vigente → Retención → Histórica
+- **Sangría de color** en cada cargo: verde (activo), ámbar (retención), rojo claro (histórico). Clases CSS explícitas en `index.css` para evitar purge de Tailwind
+- **Badge "Retención"** en ámbar (`badge-amber` nuevo en `index.css`)
+- **Campos reorganizados** por columna: Código Cargo / ID SIAL Rol / Escalafón / Puesto / Especialidad — Hospital / Régimen / Situación de revista / Estado — Repartición (código + descripción unificados) / Documentación del rol / Cargo desde / Cargo hasta
+- Eliminados campos redundantes: `Estado` (igual a `Situación de revista`), `Cód. situación`
+- `Escalafón` muestra el literal del `codigoRegistro` (ej. `Nueva Carrera Prof. Hosp`); `Régimen` muestra el código (ej. `37`)
+- `Repartición` unifica código + descripción en un campo (`40220629 — UNID Psicopatología y Salud Mental`)
 
 ---
 

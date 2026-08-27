@@ -8,6 +8,7 @@ export const cargosQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  puesto: z.string().trim().min(1).optional(),
   estado: z.nativeEnum(EstadoCargo).optional(),
   ocupado: z
     .enum(['true', 'false'])

@@ -21,6 +21,7 @@ export function CargoDetailPanel() {
   const persona = ocup?.persona
   const vigente = cargo.estado === EstadoCargo.VIGENTE
   const ocupado = !!persona
+  const retenido = ocup?.situacionRevista === 'Retencion de Cargo'
 
   const desdeOcup = ocup?.cargoDesdeFecha
     ? ocup.cargoDesdeFecha.slice(0, 10)
@@ -134,6 +135,26 @@ export function CargoDetailPanel() {
                 <Dato label="Jefatura" value={`${ocup.codigoJefaturas}${ocup.jefeEscalafon ? ` — ${ocup.jefeEscalafon}` : ''}`} />
               )}
             </div>
+
+            {/* Cargo activo (cuando retiene este cargo y está activo en otro) */}
+            {retenido && cargo.cargoActivo && (
+              <div className="mt-4 pt-4 border-t border-amber-100 bg-amber-50 rounded-lg px-4 py-3">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Cubre en</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                  <Dato label="Cargo" value={cargo.cargoActivo.cargo.codigo ?? cargo.cargoActivo.cargo.idSial} />
+                  <Dato label="Puesto" value={cargo.cargoActivo.cargo.literalPuesto} />
+                  <Dato label="Hospital" value={`${cargo.cargoActivo.cargo.hospital.sigla} — ${cargo.cargoActivo.cargo.hospital.nombre}`} />
+                </div>
+                <div className="mt-2">
+                  <Link to={`/cargos/${cargo.cargoActivo.cargoId}`} className="btn-outline text-xs">
+                    Ver cargo activo
+                  </Link>
+                </div>
+              </div>
+            )}
+            {retenido && !cargo.cargoActivo && (
+              <p className="mt-3 text-xs text-amber-600 italic">Retiene este cargo — sin cargo activo registrado.</p>
+            )}
           </div>
         )}
       </div>

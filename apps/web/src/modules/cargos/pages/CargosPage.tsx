@@ -5,7 +5,8 @@ import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/useCatalogos'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useCargos } from '../hooks/useCargos'
 
@@ -22,6 +23,7 @@ export function CargosPage() {
   const search      = searchParams.get('search') ?? ''
   const hospitalId  = searchParams.get('hospitalId') ?? ''
   const escalafonId = searchParams.get('escalafonId') ?? ''
+  const puesto      = searchParams.get('puesto') ?? ''
   const estado      = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado     = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
   const page        = Number(searchParams.get('page') ?? '1')
@@ -52,6 +54,7 @@ export function CargosPage() {
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(puesto && { puesto }),
     ...(estado && { estado }),
     ...(ocupado && { ocupado: ocupado === 'true' }),
   }
@@ -59,10 +62,40 @@ export function CargosPage() {
   const { data, isLoading, isFetching, isError } = useCargos(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
+  const { data: puestos }     = usePuestosCargos(escalafonId || undefined, hospitalId || undefined)
 
   const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
   )
+
+  function cambiarEscalafon(nuevoId: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoId) next.set('escalafonId', nuevoId); else next.delete('escalafonId')
+      next.delete('puesto')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function cambiarHospital(nuevoId: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoId) next.set('hospitalId', nuevoId); else next.delete('hospitalId')
+      next.delete('puesto')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function cambiarPuesto(nuevoPuesto: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
+      next.delete('page')
+      return next
+    })
+  }
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState(false)
@@ -122,7 +155,7 @@ export function CargosPage() {
           />
           <select
             value={hospitalId}
-            onChange={(e) => setParam('hospitalId', e.target.value)}
+            onChange={(e) => cambiarHospital(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los hospitales</option>
@@ -132,7 +165,7 @@ export function CargosPage() {
           </select>
           <select
             value={escalafonId}
-            onChange={(e) => setParam('escalafonId', e.target.value)}
+            onChange={(e) => cambiarEscalafon(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los escalafones</option>
@@ -140,6 +173,13 @@ export function CargosPage() {
               <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>
             ))}
           </select>
+          <SearchableSelect
+            value={puesto}
+            onChange={cambiarPuesto}
+            options={puestos ?? []}
+            placeholder="Todos los puestos"
+            className="min-w-[220px]"
+          />
           <select
             value={estado}
             onChange={(e) => setParam('estado', e.target.value)}
@@ -172,6 +212,7 @@ export function CargosPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
+          if (puesto) chips.push({ label: puesto, key: 'puesto' })
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (chips.length === 0) return null
@@ -181,7 +222,12 @@ export function CargosPage() {
                 <span key={chip.key} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium">
                   {chip.label}
                   <button
-                    onClick={() => setParam(chip.key, '')}
+                    onClick={() => {
+                      if (chip.key === 'escalafonId') cambiarEscalafon('')
+                      else if (chip.key === 'hospitalId') cambiarHospital('')
+                      else if (chip.key === 'puesto') cambiarPuesto('')
+                      else setParam(chip.key, '')
+                    }}
                     className="ml-0.5 hover:text-secondary/60"
                     aria-label={`Quitar filtro ${chip.label}`}
                   >

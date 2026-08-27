@@ -484,6 +484,7 @@ export interface CargoFilters {
   search?: string
   hospitalId?: string
   escalafonId?: string
+  puesto?: string
   estado?: EstadoCargo
   ocupado?: boolean
   page?: number
@@ -545,4 +546,5 @@ export interface CargoDetail extends Cargo {
   codigoRegistro: CodigoRegistro | null
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
   historial: (Ocupacion & { persona: Persona })[]
+  cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
 }

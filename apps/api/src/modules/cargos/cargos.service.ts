@@ -4,8 +4,22 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { CargosQuery } from './cargos.schema.js'
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
+export async function listPuestosCargosService(escalafonId?: string, hospitalId?: string) {
+  const rows = await prisma.cargo.findMany({
+    where: {
+      literalPuesto: { not: null },
+      ...(escalafonId && { escalafonId }),
+      ...(hospitalId && { hospitalId }),
+    },
+    select: { literalPuesto: true },
+    distinct: ['literalPuesto'],
+    orderBy: { literalPuesto: 'asc' },
+  })
+  return rows.map((r) => r.literalPuesto as string)
+}
+
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, estado, ocupado } = query
+  const { page, limit, search, hospitalId, escalafonId, puesto, estado, ocupado } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -49,6 +63,7 @@ export async function listCargosService(query: CargosQuery) {
   const where: Prisma.CargoWhereInput = {
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(puesto && { literalPuesto: puesto }),
     ...(estado && { estado }),
     ...(searchIds !== undefined && { id: { in: searchIds } }),
     ...(ocupadoIds !== undefined && { id: { in: ocupadoIds } }),
@@ -94,5 +109,24 @@ export async function getCargoByIdService(id: string) {
   const { ocupaciones, ...rest } = cargo
   const ocupacionActual = ocupaciones.find((o) => o.hasta === null) ?? null
   const historial = ocupaciones.filter((o) => o.hasta !== null)
-  return { ...rest, ocupacionActual, historial }
+
+  // Si la persona retiene el cargo, buscar dónde está activa actualmente
+  let cargoActivo: Awaited<ReturnType<typeof prisma.ocupacion.findFirst>> | null = null
+  if (ocupacionActual?.situacionRevista === 'Retencion de Cargo') {
+    cargoActivo = await prisma.ocupacion.findFirst({
+      where: {
+        personaId: ocupacionActual.personaId,
+        cargoId: { not: id },
+        hasta: null,
+        situacionRevista: 'Activo',
+      },
+      include: {
+        cargo: {
+          include: { hospital: true, escalafon: true },
+        },
+      },
+    })
+  }
+
+  return { ...rest, ocupacionActual, historial, cargoActivo }
 }
