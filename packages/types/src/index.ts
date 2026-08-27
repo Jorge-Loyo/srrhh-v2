@@ -138,6 +138,7 @@ export interface Cargo {
   litFamilia: string | null
   puestoCodigoSial: string | null
   estado: EstadoCargo
+  ocupado: boolean
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
@@ -484,6 +485,7 @@ export interface CargoFilters {
   hospitalId?: string
   escalafonId?: string
   estado?: EstadoCargo
+  ocupado?: boolean
   page?: number
   limit?: number
 }
@@ -542,4 +544,5 @@ export interface CargoDetail extends Cargo {
   escalafon: Escalafon
   codigoRegistro: CodigoRegistro | null
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
+  historial: (Ocupacion & { persona: Persona })[]
 }

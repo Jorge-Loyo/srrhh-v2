@@ -146,9 +146,14 @@ export function PersonaDetailPanel() {
                         ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}`
                         : (o.cargo.descripcionRepa ?? o.cargo.hospital?.sigla ?? '—')}
                     </span>
-                    <span className={o.hasta ? 'badge-default' : esRetencion ? 'badge-warning' : 'badge-success'}>
-                      {o.hasta ? 'Histórica' : esRetencion ? 'Retención' : 'Vigente'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={o.hasta ? 'badge-default' : esRetencion ? 'badge-warning' : 'badge-success'}>
+                        {o.hasta ? 'Histórica' : esRetencion ? 'Retención' : 'Vigente'}
+                      </span>
+                      <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
+                        Ver cargo
+                      </Link>
+                    </div>
                   </div>
                   <dl className={`grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm ${esRetencion ? 'opacity-60' : ''}`}>
                     <Dato label="Escalafón" value={o.cargo.escalafon?.nombre} />

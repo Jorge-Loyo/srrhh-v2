@@ -4,6 +4,7 @@ import axios from 'axios'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
+import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import type { DiffQuery } from './padron.schema.js'
 
 // Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
@@ -792,6 +793,14 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
         const escalafon = escalafonCache.get(datos.escalafon ?? '')!
+        const prefijo = prefijoDeCargo({
+          escalafon: datos.escalafon ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+          agrupador: datos.agrupador ?? null,
+        })
+        // El código se genera después del createMany (necesita el secuencial
+        // real de la DB) — se marca con null aquí y se actualiza en el paso
+        // de asignación de códigos más abajo.
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
@@ -808,7 +817,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           codigoRegistroId: datos.codigo_de_registro
             ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
             : null,
-        })
+          _prefijo: prefijo,
+        } as never)
       }
     }
 
@@ -817,10 +827,25 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const p of personasACrear.values()) personaCache.set(p.cuil, p)
 
-    for (const lote of chunk([...cargosACrear.values()], 2000)) {
+    // Separar _prefijo (campo auxiliar) del objeto real antes del createMany
+    const cargosParaInsertar = [...cargosACrear.values()].map((c) => {
+      const { _prefijo, ...rest } = c as typeof c & { _prefijo?: string }
+      return { ...rest, _prefijo }
+    })
+    for (const lote of chunk(cargosParaInsertar.map(({ _prefijo: _, ...rest }) => rest), 2000)) {
       await tx.cargo.createMany({ data: lote, skipDuplicates: true })
     }
     for (const c of cargosACrear.values()) cargoCache.set(c.idSial, c)
+
+    // ── 3b. Asignar código a los cargos recién creados ─────────────────────
+    // Se hace cargo por cargo (no en bloque) porque cada uno necesita el
+    // secuencial correcto para su prefijo — siguienteCodigoCargo() lee el MAX
+    // actual en la misma transacción, garantizando unicidad.
+    for (const cargoData of cargosParaInsertar) {
+      if (!cargoData._prefijo) continue
+      const codigo = await siguienteCodigoCargo(cargoData._prefijo, tx)
+      await tx.cargo.update({ where: { id: cargoData.id }, data: { codigo } })
+    }
 
     const ocupacionesACrear: {
       id: string
@@ -882,20 +907,19 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
 
-    // ── 4. Eliminados: cerrar ocupaciones y marcar persona como inactiva ────
+    // ── 4. Eliminados: cerrar ocupaciones, marcar persona inactiva y cargo no_vigente
     for (const lote of chunk(eliminados, 2000)) {
       if (!lote.length) continue
       await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: new Date() } })
     }
-    // Marcar como inactivas las personas cuyas ocupaciones se cerraron y ya
-    // no tienen ninguna ocupación vigente (hasta IS NULL) restante.
     if (eliminados.length > 0) {
       const ocupsEliminadas = await tx.ocupacion.findMany({
         where: { idSialRol: { in: eliminados } },
-        select: { personaId: true },
-      }) as { personaId: string }[]
+        select: { personaId: true, cargoId: true },
+      }) as { personaId: string; cargoId: string }[]
+
+      // Personas sin ocupación vigente restante → inactivas
       const personaIdsEliminadas = [...new Set(ocupsEliminadas.map((o) => o.personaId))]
-      // Solo marcar inactiva si realmente no le queda ninguna ocupación vigente
       const conOcupVigente = await tx.ocupacion.findMany({
         where: { personaId: { in: personaIdsEliminadas }, hasta: null },
         select: { personaId: true },
@@ -904,6 +928,18 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       const aInactivar = personaIdsEliminadas.filter((pid) => !conVigenteSet.has(pid))
       for (const lote of chunk(aInactivar, 2000)) {
         await tx.persona.updateMany({ where: { id: { in: lote } }, data: { activo: false } })
+      }
+
+      // Cargos sin ocupación vigente restante → no_vigente
+      const cargoIdsEliminados = [...new Set(ocupsEliminadas.map((o) => o.cargoId))]
+      const cargosConVigente = await tx.ocupacion.findMany({
+        where: { cargoId: { in: cargoIdsEliminados }, hasta: null },
+        select: { cargoId: true },
+      }) as { cargoId: string }[]
+      const cargosConVigenteSet = new Set(cargosConVigente.map((o) => o.cargoId))
+      const cargosANoVigente = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
+      for (const lote of chunk(cargosANoVigente, 2000)) {
+        await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'no_vigente' } })
       }
     }
 

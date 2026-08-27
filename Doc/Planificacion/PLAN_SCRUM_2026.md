@@ -19,6 +19,7 @@
 | Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
 | Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
 | Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
+| Sprint 3 (post-2) — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
@@ -962,6 +963,55 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 - `pool_pre_ping=True` en el engine de SQLAlchemy — antes de cada query verifica si la conexión sigue viva y reconecta automáticamente si Postgres se reinició (el rebuild de la API reinicia el contenedor de postgres, dejando al dotaneitor con una conexión stale)
 - Aplica en el próximo rebuild del contenedor dotaneitor
+
+---
+
+### POST-SPRINT 4 (2) — Cargos: códigos, estados, UX (2026-09)
+
+**Autor:** Jorge + Claude
+
+#### Generación de códigos de cargo (`Cargo.codigo`)
+
+- `apps/api/src/shared/codigoCargo.ts` — módulo nuevo con `prefijoDeCargo()` (mapea escalafón + unificador + agrupador al prefijo correcto según `REGLAS_NEGOCIO.MD` §3) y `siguienteCodigoCargo()` (secuencial atómico por prefijo dentro de la transacción del llamador)
+- Prefijos implementados: `CPH-POF`, `CPH-POU`, `CPH-J-POF`, `CPH-J-POU`, `CPH-D`, `CPH-SD`, `ENF`, `TEC-POF`, `TEC-POU`, `EG`, `EG-J`, `EG-D`, `EG-G`, `AS-MIN`, `AS-SS`, `AS-DG`, `AS-DGA`, `RG-CG`, `SG`, `RES`, `DOC`, `PT`, `CT`, `PG`
+- `padron.service.ts` — `aprobarSnapshotService` genera código automáticamente al crear cargos nuevos (paso 3b post-`createMany`)
+- Backfill de los ~48k cargos existentes via `scripts/backfill-codigos-cargo.sql` (PL/pgSQL, idómpotente). Distribución final: CPH-POF 24.444, TEC-POF 14.991, EG 6.620, RES 4.478, DOC 579, RG-CG 201, PT 70, CT 68, PG 58, AS-DG 43
+- Fix de 196 cargos con prefijo fallback `CARGO` (escalafones `Planta Transitoria`, `Cuerpos Transitorios`, `Planta de Gabinete` no estaban en las reglas originales) — reasignados a `PT`/`CT`/`PG` via `scripts/fix-codigos-cargo-fallback.sql`
+
+#### Estados de cargo: `no_vigente` desde datos históricos
+
+- 3.713 cargos con ocupaciones todas cerradas (`hasta IS NOT NULL`) y sin ocupación vigente marcados como `no_vigente` via SQL directo
+- `padron.service.ts` — al aprobar snapshot, los cargos "eliminados" ahora también se marcan `no_vigente` si ya no tienen ocupación vigente restante (mismo patrón que el fix de `persona.activo = false` del post-sprint anterior)
+- Verificado: 0 cargos `vigente` sin ocupación activa (consistencia perfecta)
+
+#### Búsqueda por prefijo en `/personas`
+
+- `personas.service.ts` — reemplazado `plainto_tsquery` por `to_tsquery` con `:*` en cada token para que búsquedas parciales (ej. `lizarra`) matcheen `lizarraga`. Cada token del search se convierte en prefijo: `"juan pe"` → `juan:* & pe:*`
+
+#### Filtros persistentes en `/cargos` (mismo patrón que `/personas`)
+
+- `CargosPage` — `useState` → `useSearchParams`. Filtros viven en URL. Link "Ver" pasa `state: { from: searchParams.toString() }`. "Volver a Cargos" reconstruye URL desde `location.state.from`
+- Nuevo filtro "Ocupación" (Ocupados y vacantes / Solo ocupados / Solo vacantes) en frontend, schema y service
+- Chips de filtros activos con `×` y "Limpiar todo"
+
+#### Columna Ocupación en tabla de cargos
+
+- `cargos.service.ts` — `listCargosService` incluye `ocupaciones: { where: { hasta: null }, select: { id: true }, take: 1 }` y mapea a `ocupado: boolean`
+- `CargosPage` — columna "Ocupación" con badge verde (Ocupado) o naranja (Vacante)
+- `packages/types` — `Cargo.ocupado: boolean`
+
+#### Mejoras al detalle de cargo (`CargoDetailPanel`)
+
+- Encabezado: ID SIAL en gris pequeño, código cargo grande, puesto, especialidad. Dos badges: Vigente/No vigente + Ocupado/Vacante
+- Sección Clasificación solo aparece si hay al menos un campo con dato
+- Persona actual: nombre grande con DNI, badge de estado, "En el cargo desde" usa `cargoDesdeFecha` (más completo que `desde`), jefatura solo si tiene código
+- Historial de personas: tabla con todas las ocupaciones cerradas del cargo (nombre, CUIL, desde, hasta, situación de revista, link "Ver")
+- `cargos.service.ts` — `getCargoByIdService` trae todas las ocupaciones (no solo la vigente) y las separa en `ocupacionActual` + `historial`
+- `packages/types` — `CargoDetail.historial: (Ocupacion & { persona: Persona })[]`
+
+#### Link "Ver cargo" desde ocupaciones de persona
+
+- `PersonaDetailPanel` — cada ocupación tiene botón "Ver cargo" que navega a `/cargos/:id` del cargo correspondiente
 
 ---
 
