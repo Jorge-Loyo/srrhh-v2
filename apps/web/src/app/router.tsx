@@ -12,8 +12,9 @@ import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
 import { AltaCargosPage } from '../modules/cargos/pages/AltaCargosPage'
 import { AltaPorBajaPage } from '../modules/cargos/pages/AltaPorBajaPage'
 import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
+import { NuevaBajaPage } from '../modules/cargos/pages/NuevaBajaPage'
 import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
-import { ConcursoCphDetail } from '../modules/concursos-cph/pages/ConcursoCphDetail'
+import { ConcursoCphWizard } from '../modules/concursos-cph/pages/ConcursoCphWizard'
 import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
 import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
 
@@ -42,9 +43,11 @@ export const router = createBrowserRouter([
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
           { path: 'cargos/alta', element: <AltaCargosPage /> },
           { path: 'cargos/baja', element: <BajaCargosPage /> },
+          { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
           { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
-          { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
+          { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
+          { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
           { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },

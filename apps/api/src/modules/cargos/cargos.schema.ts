@@ -14,6 +14,7 @@ export const cargosQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  personaSearch: z.string().trim().min(1).optional(),
 })
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>

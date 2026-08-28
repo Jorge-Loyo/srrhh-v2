@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { EstadoConcursoCph } from '@srrhh/types'
 import type { ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
@@ -18,6 +18,7 @@ import {
 const LIMIT = 50
 
 export function ConcursosCphPage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [hospitalId, setHospitalId] = useState('')
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
@@ -53,7 +54,12 @@ export function ConcursosCphPage() {
       <AlertasSinMovimiento />
 
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-        <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
+          <button className="btn-primary" onClick={() => navigate('/concursos/cph/nuevo/wizard')}>
+            + Nuevo Concurso CPH
+          </button>
+        </div>
 
         <div className="flex flex-wrap gap-3">
           <input

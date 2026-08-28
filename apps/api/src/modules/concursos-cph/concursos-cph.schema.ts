@@ -12,6 +12,7 @@ export const concursosCphQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   hospitalId: z.string().uuid().optional(),
+  cargoId: z.string().uuid().optional(),
   estado: z.nativeEnum(EstadoConcursoCph).optional(),
   subEstado: z.string().trim().min(1).optional(),
   subEstado3: z.string().trim().min(1).optional(),

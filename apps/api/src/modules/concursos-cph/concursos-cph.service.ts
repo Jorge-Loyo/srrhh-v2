@@ -44,7 +44,7 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
 export async function listConcursosCphService(query: ConcursosCphQuery) {
-  const { page, limit, hospitalId, estado, subEstado, subEstado3, suspendido, search } = query
+  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, search } = query
   const offset = (page - 1) * limit
 
   // subEstado3 depende de la fecha de hoy (ver concursosCph.calc.ts) — el
@@ -62,6 +62,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
 
   const where: Prisma.ConcursoCphWhereInput = {
     ...(hospitalId && { hospitalId }),
+    ...(cargoId && { cargoId }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(suspendido !== undefined && { suspendido }),

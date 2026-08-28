@@ -182,21 +182,29 @@ export function PersonaDetailPanel() {
                       </Link>
                     </div>
                   </div>
-                  <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-                    <Dato label="Código Cargo" value={o.cargo.codigo} />
-                    <Dato label="Hospital" value={o.cargo.hospital?.sigla} />
-                    <Dato label="Situación de revista" value={o.situacionRevista} />
-                    <Dato label="ID SIAL Rol" value={o.idSialRol?.split('-').slice(0, 2).join('-')} />
-                    <Dato label="Repartición" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
-                    {o.documentacionDelRol && <Dato label="Documentación del rol" value={o.documentacionDelRol} />}
-                    <Dato label="Escalafón" value={o.cargo.codigoRegistro?.literal ?? o.cargo.escalafon?.nombre} />
-                    <Dato label="Cód. Registro" value={o.cargo.codigoRegistro?.codigo} />
-                    <Dato label="Puesto" value={o.cargo.literalPuesto} />
-                    {o.cargoDesdeFecha && <Dato label="Cargo desde" value={formatFecha(o.cargoDesdeFecha)} />}
-                    <Dato label="Especialidad" value={o.cargo.especialidad} />
-                    {o.comision && <Dato label="Comisión" value={o.comision} />}
-                    {o.cargoHastaFecha && <Dato label="Cargo hasta" value={formatFecha(o.cargoHastaFecha)} />}
-                  </dl>
+                  <div className="grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                    {/* Columna 1 */}
+                    <dl className="space-y-3">
+                      <Dato label="Cód. Cargo" value={o.cargo.codigo} />
+                      <Dato label="ID SIAL" value={o.idSialRol?.split('-').slice(0, 2).join('-')} />
+                      <Dato label="Escalafón" value={o.cargo.escalafon?.nombre} />
+                      <Dato label="Cód. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} — ${o.cargo.codigoRegistro.literal}` : null} />
+                    </dl>
+                    {/* Columna 2 */}
+                    <dl className="space-y-3">
+                      <Dato label="Sigla" value={o.cargo.hospital ? `${o.cargo.hospital.sigla} — ${o.cargo.hospital.nombre}` : null} />
+                      <Dato label="Puesto" value={o.cargo.literalPuesto} />
+                      <Dato label="Situación de revista" value={o.situacionRevista} />
+                      <Dato label="Documentación del rol" value={o.documentacionDelRol} />
+                    </dl>
+                    {/* Columna 3 */}
+                    <dl className="space-y-3">
+                      <Dato label="Repartición" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
+                      <Dato label="Especialidad" value={o.cargo.especialidad} />
+                      <Dato label="Desde" value={formatFecha(o.cargoDesdeFecha)} />
+                      <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />
+                    </dl>
+                  </div>
                 </div>
               )
             })}

@@ -147,9 +147,14 @@ export function ConcursoCphDetail() {
 
   return (
     <div className="space-y-6">
-      <Link to="/concursos/cph" className="text-sm text-secondary hover:underline">
-        ← Volver a Concursos CPH
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link to="/concursos/cph" className="text-sm text-secondary hover:underline">
+          ← Volver a Concursos CPH
+        </Link>
+        <Link to={`/concursos/cph/${id}/wizard`} className="btn-primary text-sm">
+          Ver flujo por etapas →
+        </Link>
+      </div>
 
       {/* Header — datos que no se editan acá (vienen de Cargo/Concurso) */}
       <div className="bg-white rounded-lg shadow-sm p-6">

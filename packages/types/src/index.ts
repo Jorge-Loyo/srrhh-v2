@@ -139,6 +139,8 @@ export interface Cargo {
   puestoCodigoSial: string | null
   estado: EstadoCargo
   ocupado: boolean
+  // Persona que ocupa el cargo actualmente (solo en listado, null si vacante)
+  personaOcupante: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)

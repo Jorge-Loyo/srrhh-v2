@@ -20,7 +20,7 @@ export async function listPuestosCargosService(escalafonId?: string, hospitalId?
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, puesto, estado, ocupado } = query
+  const { page, limit, search, hospitalId, escalafonId, puesto, estado, ocupado, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -61,13 +61,35 @@ export async function listCargosService(query: CargosQuery) {
     ocupadoIds = rows.map((r) => r.id)
   }
 
+  // Filtro personaSearch: busca por nombre o CUIL en personas con ocupación vigente
+  let personaIds: string[] | undefined
+  if (personaSearch) {
+    const like = `%${personaSearch}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT o.cargo_id AS id
+      FROM ocupaciones o
+      JOIN personas p ON p.id = o.persona_id
+      WHERE o.hasta IS NULL
+        AND (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
+          OR p.cuil ILIKE ${like})
+    `)
+    personaIds = rows.map((r) => r.id)
+  }
+
+  // Intersectar todos los filtros de id con AND
+  const idFilters: Prisma.CargoWhereInput[] = [
+    ...(searchIds  !== undefined ? [{ id: { in: searchIds  } }] : []),
+    ...(ocupadoIds !== undefined ? [{ id: { in: ocupadoIds } }] : []),
+    ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
+  ]
+
   const where: Prisma.CargoWhereInput = {
-    ...(hospitalId && { hospitalId }),
+    ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
-    ...(puesto && { literalPuesto: puesto }),
-    ...(estado && { estado }),
-    ...(searchIds !== undefined && { id: { in: searchIds } }),
-    ...(ocupadoIds !== undefined && { id: { in: ocupadoIds } }),
+    ...(puesto      && { literalPuesto: puesto }),
+    ...(estado      && { estado }),
+    ...(idFilters.length === 1 && { id: idFilters[0].id }),
+    ...(idFilters.length  > 1 && { AND: idFilters }),
   }
 
   const [total, cargos] = await Promise.all([
@@ -77,7 +99,11 @@ export async function listCargosService(query: CargosQuery) {
       include: {
         hospital: true,
         escalafon: true,
-        ocupaciones: { where: { hasta: null }, select: { id: true }, take: 1 },
+        ocupaciones: {
+          where: { hasta: null },
+          include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+          take: 1,
+        },
       },
       orderBy: { idSial: 'asc' },
       skip: (page - 1) * limit,
@@ -86,7 +112,11 @@ export async function listCargosService(query: CargosQuery) {
   ])
 
   return {
-    data: cargos.map(({ ocupaciones, ...c }) => ({ ...c, ocupado: ocupaciones.length > 0 })),
+    data: cargos.map(({ ocupaciones, ...c }) => ({
+      ...c,
+      ocupado: ocupaciones.length > 0,
+      personaOcupante: ocupaciones[0]?.persona ?? null,
+    })),
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   }
 }
