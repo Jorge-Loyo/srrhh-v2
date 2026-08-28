@@ -1,84 +1,76 @@
 import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { Cargo, CreateCargoRequest } from '@srrhh/types'
+import { apiClient } from '@/shared/lib/api-client'
+import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/useCatalogos'
 
 type TipoAlta = 'pof' | 'pou' | 'estructura'
 
-const HOSPITALES = ['HGAIP', 'HGATA', 'HGACD', 'CSMA', 'HGAVS', 'HGAON']
-
-const CARRERAS = [
-  { value: 'cph', label: 'CPH' },
-  { value: 'eg',  label: 'EG' },
-  { value: 'enf', label: 'Enfermería' },
-  { value: 'tec', label: 'Técnico' },
-  { value: 'as',  label: 'AS' },
-]
-
-const PUESTOS_MOCK: Record<string, string[]> = {
-  cph: ['Médico de Planta', 'Jefe de Servicio', 'Director', 'Subdirector'],
-  eg:  ['Gerente', 'Jefe de Departamento', 'Coordinador'],
-  enf: ['Enfermero/a', 'Jefe de Enfermería'],
-  tec: ['Técnico Radiólogo', 'Técnico de Laboratorio', 'Técnico Cardiólogo'],
-  as:  ['Asistente Social'],
-}
-
-const ESPECIALIDADES_MOCK = [
-  'Cardiología', 'Clínica Médica', 'Cirugía General', 'Pediatría',
-  'Ginecología', 'Traumatología', 'Neurología', 'No aplica',
-]
-
-interface AltaRegistrada {
-  id: number
-  fecha: string
-  tipo: TipoAlta
-  hospital: string
-  carrera: string
-  puesto: string
-  especialidad: string
-  expediente: string
-  cantidad: number
-  estado: string
-}
-
-const MOCK_HISTORIAL: AltaRegistrada[] = [
-  { id: 9, fecha: '2025-07-20', tipo: 'pof',       hospital: 'HGAIP', carrera: 'CPH', puesto: 'Médico de Planta',    especialidad: 'Cardiología',    expediente: 'EX-2025-44001122-GCABA-DGAYDRH', cantidad: 2, estado: 'Registrada' },
-  { id: 8, fecha: '2025-07-15', tipo: 'estructura', hospital: 'HGATA', carrera: 'CPH', puesto: 'Director',            especialidad: '—',              expediente: 'DEC-541/MSGC/25',                cantidad: 1, estado: 'Registrada' },
-  { id: 7, fecha: '2025-06-30', tipo: 'pou',        hospital: 'HGACD', carrera: 'CPH', puesto: 'Médico de Planta',    especialidad: 'Clínica Médica', expediente: 'EX-2025-39887654-GCABA-DGAYDRH', cantidad: 3, estado: 'Registrada' },
-  { id: 6, fecha: '2025-06-10', tipo: 'pof',        hospital: 'CSMA',  carrera: 'ENF', puesto: 'Enfermero/a',         especialidad: '—',              expediente: 'EX-2025-37654321-GCABA-DGAYDRH', cantidad: 1, estado: 'Registrada' },
-  { id: 5, fecha: '2025-05-22', tipo: 'pof',        hospital: 'HGAIP', carrera: 'TEC', puesto: 'Técnico Radiólogo',   especialidad: 'No aplica',      expediente: 'EX-2025-33112233-GCABA-DGAYDRH', cantidad: 1, estado: 'Registrada' },
-  { id: 4, fecha: '2025-04-18', tipo: 'estructura', hospital: 'HGACD', carrera: 'EG',  puesto: 'Jefe de Departamento',especialidad: '—',              expediente: 'DEC-312/MSGC/25',                cantidad: 1, estado: 'Registrada' },
-  { id: 3, fecha: '2025-03-05', tipo: 'pou',        hospital: 'HGATA', carrera: 'CPH', puesto: 'Médico de Planta',    especialidad: 'Pediatría',      expediente: 'EX-2025-28990011-GCABA-DGAYDRH', cantidad: 2, estado: 'Registrada' },
-]
-
 const TIPO_LABEL: Record<TipoAlta, string> = {
-  pof:       'Ejecución POF',
-  pou:       'Ejecución POU',
+  pof:        'Ejecución POF',
+  pou:        'Ejecución POU',
   estructura: 'Estructura',
 }
 
 const TIPO_BADGE: Record<TipoAlta, string> = {
-  pof:       'badge-info',
-  pou:       'badge-default',
+  pof:        'badge-info',
+  pou:        'badge-default',
   estructura: 'badge-warning',
+}
+
+// Mapeo tipo de alta → unificadorPuesto para que prefijoDeCargo() en el
+// backend derive el prefijo correcto (CPH-POF / CPH-POU / etc.)
+const TIPO_UNIFICADOR: Record<TipoAlta, string> = {
+  pof:        'POF',
+  pou:        'POU Guardia',
+  estructura: 'Estructura',
+}
+
+interface AltaRegistrada {
+  id: string
+  fecha: string
+  tipo: TipoAlta
+  hospitalSigla: string
+  escalafon: string
+  puesto: string
+  especialidad: string
+  expediente: string
+  cantidad: number
+  codigos: string[]
 }
 
 // ── Formulario inline ──────────────────────────────────────────────────────────
 interface FormAltaProps {
   tipo: TipoAlta
-  onRegistrar: (alta: Omit<AltaRegistrada, 'id' | 'fecha' | 'estado'>) => void
+  onRegistrar: (alta: AltaRegistrada) => void
   onCancelar: () => void
 }
-
-let nextId = MOCK_HISTORIAL.length + 1
 
 function FormAlta({ tipo, onRegistrar, onCancelar }: FormAltaProps) {
   const [expInput,      setExpInput]      = useState('')
   const [expConfirmado, setExpConfirmado] = useState(false)
   const [expediente,    setExpediente]    = useState('')
-  const [hospital,      setHospital]      = useState('')
-  const [carrera,       setCarrera]       = useState('')
+  const [hospitalId,    setHospitalId]    = useState('')
+  const [escalafonId,   setEscalafonId]   = useState('')
   const [puesto,        setPuesto]        = useState('')
   const [especialidad,  setEspecialidad]  = useState('')
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
+  const [error,         setError]         = useState<string | null>(null)
+
+  const { data: hospitales = [] } = useHospitales()
+  const { data: escalafones = [] } = useEscalafones()
+  const { data: puestos = [] }    = usePuestosCargos(escalafonId, hospitalId)
+
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: async (body: CreateCargoRequest) => {
+      const res = await apiClient.post<{ data: Cargo[] }>('/api/v1/cargos', body)
+      return res.data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cargos'] }),
+  })
 
   function confirmarExp() {
     const v = expInput.trim()
@@ -87,16 +79,44 @@ function FormAlta({ tipo, onRegistrar, onCancelar }: FormAltaProps) {
     setExpConfirmado(true)
   }
 
-  function handleRegistrar() {
-    if (!hospital || !carrera || !puesto || !desde) return
-    onRegistrar({ tipo, hospital, carrera: carrera.toUpperCase(), puesto, especialidad: especialidad || '—', expediente, cantidad })
+  async function handleRegistrar() {
+    if (!hospitalId || !escalafonId || !puesto || !desde) return
+    setError(null)
+
+    const hospital = hospitales.find((h) => h.id === hospitalId)
+    const esc      = escalafones.find((e) => e.id === escalafonId)
+
+    try {
+      const creados = await mutation.mutateAsync({
+        hospitalId,
+        escalafonId,
+        literalPuesto:    puesto,
+        especialidad:     especialidad || undefined,
+        unificadorPuesto: TIPO_UNIFICADOR[tipo],
+        expediente:       expediente || undefined,
+        desde,
+        cantidad,
+      })
+
+      onRegistrar({
+        id:            creados[0]?.id ?? crypto.randomUUID(),
+        fecha:       new Date().toISOString().slice(0, 10),
+        tipo,
+        hospitalSigla: hospital?.sigla ?? hospitalId,
+        escalafon:   esc?.nombre ?? escalafonId,
+        puesto,
+        especialidad: especialidad || '—',
+        expediente:  expediente || '—',
+        cantidad,
+        codigos:     creados.map((c) => c.codigo ?? '').filter(Boolean),
+      })
+    } catch {
+      setError('Error al registrar el cargo. Verificá los datos e intentá de nuevo.')
+    }
   }
 
-  const puestosDisponibles = carrera ? (PUESTOS_MOCK[carrera] ?? []) : []
-  const mostrarEspecialidad = (carrera === 'cph' || carrera === 'tec') && !!puesto
-  const formCompleto = expConfirmado && !!hospital && !!carrera && !!puesto && !!desde
-
-  const expLabel = tipo === 'estructura' ? 'Decreto' : 'Expediente'
+  const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!puesto && !!desde
+  const expLabel     = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura'
     ? 'Ej: DEC-541/MSGC/26'
     : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
@@ -143,54 +163,54 @@ function FormAlta({ tipo, onRegistrar, onCancelar }: FormAltaProps) {
       {/* Campos del cargo */}
       <div className={`space-y-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
 
-        {/* Hospital + Carrera */}
+        {/* Hospital + Escalafón */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Hospital <span className="text-danger">*</span></label>
-            <select value={hospital} onChange={(e) => { setHospital(e.target.value); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
+            <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
-              {HOSPITALES.map((h) => <option key={h} value={h}>{h}</option>)}
+              {hospitales.map((h) => <option key={h.id} value={h.id}>{h.sigla} — {h.nombre}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Carrera <span className="text-danger">*</span></label>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {CARRERAS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  disabled={!hospital}
-                  onClick={() => { setCarrera(c.value === carrera ? '' : c.value); setPuesto(''); setEspecialidad('') }}
-                  className={`px-3 py-1.5 rounded text-sm font-semibold border transition-colors ${
-                    c.value === carrera
-                      ? 'border-secondary bg-secondary text-white'
-                      : 'border-gray-300 text-gray-600 bg-white hover:border-secondary hover:text-secondary'
-                  } disabled:opacity-40 disabled:cursor-default`}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón <span className="text-danger">*</span></label>
+            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
+              <option value="">Seleccionar...</option>
+              {escalafones.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
           </div>
         </div>
 
-        {/* Detalle condicional */}
-        {carrera && (
+        {/* Puesto + Especialidad */}
+        {escalafonId && (
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto <span className="text-danger">*</span></label>
-              <select value={puesto} onChange={(e) => { setPuesto(e.target.value); setEspecialidad('') }} className="h-10 input w-full">
-                <option value="">Seleccionar...</option>
-                {puestosDisponibles.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              {puestos.length > 0 ? (
+                <select value={puesto} onChange={(e) => { setPuesto(e.target.value); setEspecialidad('') }} className="h-10 input w-full">
+                  <option value="">Seleccionar...</option>
+                  {puestos.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={puesto}
+                  onChange={(e) => setPuesto(e.target.value)}
+                  placeholder="Ingresar puesto manualmente"
+                  className="h-10 input w-full"
+                />
+              )}
             </div>
-            {mostrarEspecialidad && (
+            {puesto && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad</label>
-                <select value={especialidad} onChange={(e) => setEspecialidad(e.target.value)} className="h-10 input w-full">
-                  <option value="">Seleccionar...</option>
-                  {ESPECIALIDADES_MOCK.map((e) => <option key={e} value={e}>{e}</option>)}
-                </select>
+                <input
+                  type="text"
+                  value={especialidad}
+                  onChange={(e) => setEspecialidad(e.target.value)}
+                  placeholder="Ej: Cardiología (opcional)"
+                  className="h-10 input w-full"
+                />
               </div>
             )}
           </div>
@@ -212,11 +232,18 @@ function FormAlta({ tipo, onRegistrar, onCancelar }: FormAltaProps) {
           </div>
           <div className="col-span-2 flex gap-2">
             <button type="button" onClick={onCancelar} className="btn-outline flex-1">Cancelar</button>
-            <button type="button" onClick={handleRegistrar} disabled={!formCompleto} className="btn-primary flex-1 disabled:opacity-40">
-              Registrar
+            <button
+              type="button"
+              onClick={handleRegistrar}
+              disabled={!formCompleto || mutation.isPending}
+              className="btn-primary flex-1 disabled:opacity-40"
+            >
+              {mutation.isPending ? 'Registrando...' : 'Registrar'}
             </button>
           </div>
         </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
     </div>
   )
@@ -226,20 +253,10 @@ function FormAlta({ tipo, onRegistrar, onCancelar }: FormAltaProps) {
 export function AltaCargosPage() {
   const [tipoActivo, setTipoActivo] = useState<TipoAlta | null>(null)
   const [search,     setSearch]     = useState('')
-  const [historial,  setHistorial]  = useState<AltaRegistrada[]>(MOCK_HISTORIAL)
+  const [historial,  setHistorial]  = useState<AltaRegistrada[]>([])
 
-  function handleTipoClick(tipo: TipoAlta) {
-    setTipoActivo((prev) => (prev === tipo ? null : tipo))
-  }
-
-  function handleRegistrar(alta: Omit<AltaRegistrada, 'id' | 'fecha' | 'estado'>) {
-    const nueva: AltaRegistrada = {
-      ...alta,
-      id: nextId++,
-      fecha: new Date().toISOString().slice(0, 10),
-      estado: 'Registrada',
-    }
-    setHistorial((prev) => [nueva, ...prev])
+  function handleRegistrar(alta: AltaRegistrada) {
+    setHistorial((prev) => [alta, ...prev])
     setTipoActivo(null)
   }
 
@@ -247,17 +264,18 @@ export function AltaCargosPage() {
     const q = search.toLowerCase()
     return (
       !q ||
-      a.hospital.toLowerCase().includes(q) ||
-      a.carrera.toLowerCase().includes(q) ||
+      a.hospitalSigla.toLowerCase().includes(q) ||
+      a.escalafon.toLowerCase().includes(q) ||
       a.puesto.toLowerCase().includes(q) ||
       a.expediente.toLowerCase().includes(q) ||
+      a.codigos.some((c) => c.toLowerCase().includes(q)) ||
       TIPO_LABEL[a.tipo].toLowerCase().includes(q)
     )
   })
 
   const BOTONES: { tipo: TipoAlta; label: string; cls: string }[] = [
-    { tipo: 'pof',       label: 'Cargo de Ejecución POF', cls: 'btn-secondary' },
-    { tipo: 'pou',       label: 'Cargo de Ejecución POU', cls: 'btn-outline'   },
+    { tipo: 'pof',        label: 'Cargo de Ejecución POF', cls: 'btn-secondary' },
+    { tipo: 'pou',        label: 'Cargo de Ejecución POU', cls: 'btn-outline'   },
     { tipo: 'estructura', label: 'Cargo por Estructura',   cls: 'btn-outline'   },
   ]
 
@@ -273,7 +291,7 @@ export function AltaCargosPage() {
               <button
                 key={tipo}
                 type="button"
-                onClick={() => handleTipoClick(tipo)}
+                onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
                 className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}
               >
                 {tipoActivo === tipo ? `▲ ${label}` : `+ ${label}`}
@@ -292,36 +310,31 @@ export function AltaCargosPage() {
         )}
       </div>
 
-      {/* Historial */}
+      {/* Historial de la sesión */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-        <h2 className="font-primary text-base font-bold text-gray-700">Historial de altas</h2>
+        <h2 className="font-primary text-base font-bold text-gray-700">Altas registradas en esta sesión</h2>
         <input
           type="text"
-          placeholder="Buscar por hospital, carrera, puesto, expediente..."
+          placeholder="Buscar por hospital, escalafón, puesto, código, expediente..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
         />
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        {filtrados.length === 0 && (
-          <p className="p-6 text-sm text-gray-400 text-center">Sin resultados para la búsqueda.</p>
-        )}
-        {filtrados.length > 0 && (
+      {filtrados.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Fecha</th>
                 <th className="px-4 py-3 font-semibold">Tipo</th>
                 <th className="px-4 py-3 font-semibold">Hospital</th>
-                <th className="px-4 py-3 font-semibold">Carrera</th>
+                <th className="px-4 py-3 font-semibold">Escalafón</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
                 <th className="px-4 py-3 font-semibold">Especialidad</th>
+                <th className="px-4 py-3 font-semibold">Códigos generados</th>
                 <th className="px-4 py-3 font-semibold">Expediente</th>
-                <th className="px-4 py-3 font-semibold">Cant.</th>
-                <th className="px-4 py-3 font-semibold">Estado</th>
-                <th className="px-4 py-3 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -331,24 +344,26 @@ export function AltaCargosPage() {
                   <td className="px-4 py-3">
                     <span className={TIPO_BADGE[a.tipo]}>{TIPO_LABEL[a.tipo]}</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{a.hospital}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{a.carrera}</td>
-                  <td className="px-4 py-3 text-gray-600">{a.puesto}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.hospitalSigla}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.escalafon}</td>
+                  <td className="px-4 py-3 font-medium text-gray-800">{a.puesto}</td>
                   <td className="px-4 py-3 text-gray-600">{a.especialidad}</td>
+                  <td className="px-4 py-3 text-xs font-mono text-gray-700">
+                    {a.codigos.join(', ')}
+                  </td>
                   <td className="px-4 py-3 text-gray-500 text-xs font-mono">{a.expediente}</td>
-                  <td className="px-4 py-3 text-gray-600 text-center">{a.cantidad}</td>
-                  <td className="px-4 py-3">
-                    <span className="badge-success">{a.estado}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button className="btn-outline">Ver</button>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
+      )}
+
+      {historial.length === 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-8 text-center text-sm text-gray-400">
+          No hay altas registradas en esta sesión. Usá los botones de arriba para registrar un cargo nuevo.
+        </div>
+      )}
     </div>
   )
 }

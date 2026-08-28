@@ -17,3 +17,28 @@ export const cargosQuerySchema = z.object({
 })
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>
+
+const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
+
+// S5-10: Alta de Cargo manual.
+// `idSial` no se genera acá — es un identificador del sistema SIAL del GCBA
+// que solo existe para cargos que vienen del padrón. Los cargos creados
+// manualmente usan un idSial sintético generado por el backend.
+export const createCargoSchema = z.object({
+  hospitalId:       z.string().uuid(),
+  escalafonId:      z.string().uuid(),
+  codigoRegistroId: z.string().uuid().optional(),
+  literalPuesto:    z.string().trim().min(1).max(200),
+  especialidad:     z.string().trim().max(200).optional(),
+  agrupador:        z.string().trim().max(150).optional(),
+  unificadorPuesto: z.string().trim().max(200).optional(),
+  regimen:          z.string().trim().max(50).optional(),
+  // Expediente o decreto que autoriza el alta
+  expediente:       z.string().trim().max(150).optional(),
+  // Fecha desde la que rige el cargo
+  desde:            fecha.optional(),
+  // Cantidad de cargos a crear (1..50)
+  cantidad:         z.coerce.number().int().min(1).max(50).default(1),
+})
+
+export type CreateCargoBody = z.infer<typeof createCargoSchema>
