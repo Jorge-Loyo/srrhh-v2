@@ -503,6 +503,14 @@ export interface KpiConcursosCph {
   porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
 }
 
+// S5-8 — GET /api/v1/kpis/concursos-ceetps
+export interface KpiConcursosCeetps {
+  total: number
+  porEstado: { estado: EstadoConcursoCeetps; total: number }[]
+  porEscalafon: { escalafonId: string; codigo: string; nombre: string; total: number }[]
+  porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------

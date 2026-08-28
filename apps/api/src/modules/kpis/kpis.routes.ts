@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { kpisConcursosCphQuerySchema } from './kpis.schema.js'
-import { getKpisConcursosCphService } from './kpis.service.js'
+import { kpisConcursosCphQuerySchema, kpisConcursosCeetpsQuerySchema } from './kpis.schema.js'
+import { getKpisConcursosCphService, getKpisConcursosCeetpsService } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -20,6 +20,13 @@ export async function kpisRoutes(app: FastifyInstance) {
   app.get('/concursos-cph', async (request, reply) => {
     const { hospitalId } = kpisConcursosCphQuerySchema.parse(request.query)
     const data = await getKpisConcursosCphService(hospitalId)
+    return reply.send({ data })
+  })
+
+  // GET /concursos-ceetps — S5-8
+  app.get('/concursos-ceetps', async (request, reply) => {
+    const query = kpisConcursosCeetpsQuerySchema.parse(request.query)
+    const data = await getKpisConcursosCeetpsService(query)
     return reply.send({ data })
   })
 }
