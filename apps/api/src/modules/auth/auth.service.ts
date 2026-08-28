@@ -86,22 +86,31 @@ export async function refreshTokenService(body: RefreshBody, signToken: (payload
       data: { revocado: true },
     })
 
-    if (updated.count === 0) {
-      // Reutilización detectada — revocar toda la familia
-      const existing = await tx.refreshToken.findUnique({ where: { tokenHash } })
-      if (existing) {
-        await tx.refreshToken.updateMany({
-          where: { familyId: existing.familyId },
-          data: { revocado: true },
-        })
-      }
-      throw AppError.unauthorized('Refresh token inválido o reutilizado — sesión revocada')
-    }
+    if (updated.count === 0) return null // reutilización — se maneja fuera de la transacción, ver abajo
 
     return tx.refreshToken.findUnique({ where: { tokenHash } })
   })
 
-  if (!stored) throw AppError.unauthorized('Refresh token inválido')
+  if (!stored) {
+    // Reutilización detectada — revocar toda la familia. A propósito FUERA
+    // de la transacción de arriba: revocar la familia y después tirar
+    // AppError.unauthorized() *dentro* del mismo $transaction() hacía que
+    // Prisma revirtiera la transacción completa al lanzar la excepción —
+    // incluida la propia revocación de seguridad, que se suponía tenía que
+    // sobrevivir al error. Efecto real: el intento de reuso se rechazaba
+    // (401) pero la familia quedaba sin revocar, así que el refresh token
+    // legítimo (todavía vigente) seguía funcionando después — la defensa
+    // contra robo de token nunca se activaba. Encontrado verificando Sprint 1
+    // contra el comportamiento real, no solo el código (2026-08-28).
+    const existing = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+    if (existing) {
+      await prisma.refreshToken.updateMany({
+        where: { familyId: existing.familyId },
+        data: { revocado: true },
+      })
+    }
+    throw AppError.unauthorized('Refresh token inválido o reutilizado — sesión revocada')
+  }
 
   if (stored.expiresAt < new Date()) {
     throw AppError.unauthorized('Refresh token expirado')

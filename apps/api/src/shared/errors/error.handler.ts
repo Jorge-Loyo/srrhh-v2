@@ -41,6 +41,21 @@ export function errorHandler(
     })
   }
 
+  // Errores nativos de Fastify que no son de "validation" pero ya traen su
+  // propio statusCode correcto — ej. FST_ERR_CTP_EMPTY_JSON_BODY /
+  // FST_ERR_CTP_INVALID_JSON_BODY (body vacío o JSON malformado con
+  // Content-Type: application/json). Sin este caso caían al 500 genérico de
+  // abajo pese a ser errores 4xx del cliente, encontrado verificando Sprint 1
+  // con un PATCH sin body (2026-08-28).
+  if ('statusCode' in error && typeof error.statusCode === 'number' && error.statusCode < 500) {
+    return reply.status(error.statusCode).send({
+      error: {
+        code: 'code' in error && typeof error.code === 'string' ? error.code : 'BAD_REQUEST',
+        message: error.message,
+      },
+    })
+  }
+
   // Error genérico
   reply.log.error(error)
   return reply.status(500).send({
