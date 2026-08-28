@@ -868,6 +868,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       bloqMotivo: string | null
       documentacionDelRol: string | null
       documentacionBaja: string | null
+      cargoDesdeFecha: Date | null
+      cargoHastaFecha: Date | null
       snapshotId: string
     }[] = []
     for (const { idSialRol, datos } of nuevos) {
@@ -947,7 +949,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     //       distintos), pero sin el find extra — usa la precarga del paso 1 ─
     for (const { idSialRol, cambios } of modificados) {
       const updateCargo: Record<string, string> = {}
-      const updateOcupacion: Record<string, string> = {}
+      const updateOcupacion: Record<string, string | Date | null> = {}
       for (const cambio of cambios) {
         if (!cambio.campo) continue
         const mappedCargo = CAMPOS_CARGO[cambio.campo]
