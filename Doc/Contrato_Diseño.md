@@ -1,9 +1,10 @@
 # Contrato de Diseño — SRRHH v2
 
 > Define el sistema visual, patrones de UX y reglas de interfaz.
-> Basado en **Obelisco v2** — el sistema de diseño oficial del Gobierno de la Ciudad de Buenos Aires.
-> Ultima actualizacion: 2026-09
-> Estado: BORRADOR — en revision
+> Basado en los tokens de **Obelisco v2** — el sistema de diseño oficial del Gobierno de la Ciudad de Buenos Aires,
+> implementados sobre **Tailwind CSS + shadcn/ui** (no sobre Bootstrap 5).
+> Ultima actualizacion: 2026-09 (Post-Sprint 5)
+> Estado: VIGENTE
 
 ---
 
@@ -11,18 +12,19 @@
 
 | Aspecto | Especificacion |
 |---|---|
-| Sistema de diseño | **Obelisco v2** (GCBA) |
-| Framework base | Bootstrap 5 |
-| Paquete NPM | `@gcba/obelisco-v2` |
-| Documentacion | https://gcba.github.io/ |
-| Repositorio | https://github.com/gcba/Obelisco-v2 |
+| Sistema de diseño | **Obelisco v2** (GCBA) — tokens y principios visuales |
+| Implementacion | **Tailwind CSS 3.x + shadcn/ui** (no Bootstrap 5) |
+| Documentacion Obelisco | https://gcba.github.io/ |
+| Repositorio Obelisco | https://github.com/gcba/Obelisco-v2 |
 | UI Kit Figma | Obelisco Core Components + Foundations |
+
+**Nota sobre la implementacion:** Obelisco v2 publica sus tokens de diseño (colores, tipografía, espaciado) y sus principios visuales. La implementacion en este proyecto usa Tailwind CSS con esos tokens aplicados manualmente en `tailwind.config.ts` y `index.css`, y shadcn/ui como librería de componentes base. No se usa el paquete npm `@gcba/obelisco-v2` (que asume Bootstrap 5) — la decision de usar Tailwind + shadcn/ui está documentada en `Contrato_Tecnologias.md`.
 
 ---
 
 ## Principios de diseño
 
-1. **Identidad institucional** — el sistema respeta la identidad visual del GCBA usando Obelisco como base.
+1. **Identidad institucional** — el sistema respeta la identidad visual del GCBA usando los tokens de Obelisco como base.
 2. **Claridad sobre estetica** — es una herramienta de trabajo. La informacion debe ser legible y accionable.
 3. **Densidad de informacion** — los usuarios trabajan con tablas de 50k registros. El diseño debe soportar densidad.
 4. **Mobile-first** — enfoque responsive desde 320px hasta 1920px.
@@ -110,7 +112,7 @@ Tamaños estandar:
 
 ### Espaciado
 
-Sistema de 4px base (Bootstrap/Tailwind compatible):
+Sistema de 4px base (Tailwind compatible):
 
 ```
 4px   → spacing-1
@@ -126,13 +128,11 @@ Sistema de 4px base (Bootstrap/Tailwind compatible):
 ### Bordes y Sombras
 
 ```css
-/* Border radius estandar Obelisco */
 --radius-sm: 4px;    /* badges, chips */
 --radius-md: 8px;    /* botones, inputs, cards */
 --radius-lg: 12px;   /* modales, panels */
 --radius-xl: 16px;   /* hero sections */
 
-/* Sombras */
 --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
 --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
 --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
@@ -147,13 +147,11 @@ Sistema de 4px base (Bootstrap/Tailwind compatible):
 
 ```
 +---------------------------------------------------------------------+
-|  Barra de accesibilidad (opcional): atajos, selector accesibilidad  |
-+---------------------------------------------------------------------+
 |  [Logo BA]  |  Titulo Sistema  |  [Busqueda]  |  Usuario  |  Menu   |
 +---------------------------------------------------------------------+
 ```
 
-- Fondo: blanco (`--color-white`) con borde inferior gris
+- Fondo: blanco con borde inferior gris
 - Logo BA institucional a la izquierda
 - Altura: 64px desktop, 56px mobile
 - Sticky en scroll
@@ -181,48 +179,24 @@ Sistema de 4px base (Bootstrap/Tailwind compatible):
 
 ### Contenido Principal
 
-```
-+--------------------------------------------------+
-|  PageHeader                                       |
-|  Titulo de pagina + breadcrumb + acciones        |
-+--------------------------------------------------+
-|                                                  |
-|  Contenido                                       |
-|  (tablas, formularios, cards, etc.)              |
-|                                                  |
-+--------------------------------------------------+
-```
-
 - Fondo: blanco
 - Padding: 24px desktop, 16px mobile
 - Max-width contenido: 1200px (centrado en pantallas grandes)
 
 ### Footer Institucional
 
-```
-+---------------------------------------------------------------------+
-|  Servicios de Emergencia: 103 | 107 | 144 | 147                     |
-+---------------------------------------------------------------------+
-|  Enlaces      |  Gobierno    |  Comunas     |  Transparencia        |
-|  - Tramites   |  - Ministros |  - Comuna 1  |  - Datos abiertos     |
-|  - Servicios  |  - Organigr. |  - Comuna 2  |  - Presupuesto        |
-+---------------------------------------------------------------------+
-|  [Redes sociales]  |  © GCBA  |  Terminos  |  Privacidad            |
-+---------------------------------------------------------------------+
-```
-
-- Fondo: gris oscuro (`--color-gray-800`) o negro
+- Fondo: gris oscuro (`--color-gray-800`)
 - Texto: blanco/gris claro
 - 3 niveles: emergencias, enlaces, legales
 
 ---
 
-## Componentes Base (Obelisco)
+## Componentes Base
 
 ### Botones
 
 ```
-Variantes Obelisco:
+Variantes:
   btn-primary   → fondo amarillo GCBA, texto negro    (accion principal)
   btn-secondary → fondo azul GCBA, texto blanco       (accion secundaria)
   btn-outline   → borde gris/azul, fondo transparente (terciaria)
@@ -233,33 +207,11 @@ Tamaños:
   btn-sm  → altura 32px
   btn-md  → altura 40px (default)
   btn-lg  → altura 48px
-
-Estados:
-  :hover   → oscurece ligeramente
-  :focus   → outline amarillo 2px
-  :disabled → opacity 50%
-  loading  → spinner interno
 ```
+
+Definidos como `@layer components` en `index.css` para evitar repetir clases Tailwind largas en formularios con muchos campos.
 
 **Regla:** `btn-primary` (amarillo) solo para la accion principal de cada vista. Maximo uno por pantalla.
-
-### Cards
-
-```
-+----------------------------------+
-|  [Imagen 16:9] (opcional)        |
-+----------------------------------+
-|  Tag categoria                   |
-|  Titulo de la card               |
-|  Descripcion o contenido...      |
-|                                  |
-|  [Accion]              [Accion]  |
-+----------------------------------+
-```
-
-- Border-radius: 8px
-- Sombra: `--shadow-sm`, hover `--shadow-md`
-- Padding interno: 16px
 
 ### Tablas
 
@@ -276,7 +228,7 @@ Estados:
 +-----------------------------------------------------+
 ```
 
-- Header: fondo gris claro (`--color-gray-50`), texto bold
+- Header: fondo gris claro, texto bold
 - Filas: alternancia blanco / gris-50
 - Hover fila: fondo amarillo muy claro (`#FFFDE7`)
 - Bordes: 1px gris claro entre filas
@@ -300,6 +252,7 @@ Estados:
 - Labels: Open Sans 600, color gris oscuro
 - Inputs: altura 40px, border-radius 8px
 - Campos requeridos: `*` en rojo junto al label
+- Clases `.input` y `.checkbox` definidas en `@layer components` de `index.css`
 
 ### Badges / Tags
 
@@ -311,11 +264,13 @@ Estados:
   danger    → rojo      bg-red-100    text-red-800
   warning   → naranja   bg-orange-100 text-orange-800
   info      → azul      bg-blue-100   text-blue-800
+  amber     → ambar     bg-amber-100  text-amber-800  ← retencion de cargo
 ```
 
 - Border-radius: 4px
 - Padding: 4px 8px
 - Font-size: 12px, font-weight 600
+- Clases `.badge-*` definidas en `@layer components` de `index.css`
 
 ### Modales
 
@@ -343,33 +298,50 @@ Tipos:
 - Max-width: 350px
 - Apilables (max 3 visibles)
 
+### SearchableSelect (combobox)
+
+Componente custom en `shared/components/ui/SearchableSelect.tsx`. Input + lista filtrada en vivo. Normaliza acentos con `normalize('NFD')` para que "medico" encuentre "Médico". Clickear afuera descarta lo tipeado sin confirmar. Usado en selectores de puesto con 60-276 opciones.
+
 ---
 
 ## Patrones de UX por Modulo
 
 ### Padron Semanal
-- Badge amarillo en header cuando hay snapshot pendiente
+- Badge en header cuando hay snapshot pendiente
+- Barra de progreso con `pasoActual` durante el procesamiento
 - Diff en tabs: Nuevos / Modificados / Eliminados
 - Valores anteriores en rojo tachado, nuevos en verde
 - Boton "Aprobar" amarillo, requiere confirmacion modal
 
 ### Tablas de Personas / Cargos
 - Busqueda con debounce 300ms
-- Filtros en panel colapsable lateral
-- Click en fila abre panel de detalle (no navega)
-- Exportar a Excel disponible
+- Filtros en cascada: escalafon → puesto → especialidad (cada nivel limpia los siguientes)
+- Filtros persistentes en URL (`useSearchParams`)
+- Chips de filtros activos con `×` individual y "Limpiar todo"
+- Click en fila abre panel de detalle
+- Exportar a Excel disponible (todo el resultado filtrado, no solo la pagina visible)
 
-### Concursos
-- Timeline visual del estado (barra de progreso)
-- Etapa activa resaltada en amarillo
-- Edicion inline de campos
-- Alertas visuales por inactividad (30/60 dias)
+### Concursos CPH
+- Timeline visual del sub-estado 3 (barra de progreso de 8 etapas)
+- Desierto como banner rojo separado, no como etapa de la barra
+- Suspendido atenua la barra entera con aviso
+- Formulario agrupado en 6 fases (Baja/apertura, Autorizacion, Inscripcion-examen, IFACS/INSAL, Designacion, Desierto)
+- `estado`/`subEstado` como badges de solo lectura — el backend los calcula
+- Panel de alertas por inactividad (30/60/90 dias) arriba de la tabla
+
+### Concursos CEETPS
+- Mismo patron de tabla + filtros que CPH
+- Estado calculado server-side, no editable
+
+### Bajas
+- Tabla con historial + formulario de nueva baja
+- `tipoBaja` como campo libre con lista sugerida (no obligatoria)
+- Al registrar con `generaConcurso: true`, el seguimiento se crea automaticamente
 
 ### KPIs / Tablero
 - Cards con borde izquierdo amarillo
 - Skeleton loading (no spinner global)
 - Filtro por hospital afecta toda la pagina
-- Comparacion con periodo anterior
 
 ---
 
@@ -392,43 +364,22 @@ Tipos:
 
 | Breakpoint | Ancho | Uso |
 |---|---|---|
-| xs | < 576px | Mobile portrait |
-| sm | >= 576px | Mobile landscape |
-| md | >= 768px | Tablet |
-| lg | >= 992px | Desktop |
-| xl | >= 1200px | Desktop wide |
-| xxl | >= 1400px | Desktop extra wide |
-
----
-
-## Recursos y Entregables
-
-### Recursos Oficiales
-- Documentacion Obelisco: https://gcba.github.io/
-- Repositorio GitHub: https://github.com/gcba/Obelisco-v2
-- NPM: `npm install @gcba/obelisco-v2`
-- UI Kit Figma: Obelisco Core Components + Foundations
-
-### Entregables de Diseño
-1. Prototipo interactivo en Figma usando UI Kit Obelisco
-2. Especificacion de componentes custom (si los hay)
-3. Guia de estados y variantes
-
-### Entregables de Frontend
-1. Codigo fuente modularizado (HTML5 semantico, SCSS/CSS)
-2. Componentes React siguiendo tokens de Obelisco
-3. Pruebas de compatibilidad cross-browser (Chrome, Firefox, Safari, Edge)
-4. Pruebas de accesibilidad (axe, Lighthouse)
+| `sm` | 640px | Mobile landscape |
+| `md` | 768px | Tablet |
+| `lg` | 1024px | Desktop |
+| `xl` | 1280px | Desktop wide |
+| `2xl` | 1536px | Desktop extra wide |
 
 ---
 
 ## Reglas que no se negocian
 
-1. **Obelisco como base** — usar los tokens y componentes oficiales. No reinventar.
+1. **Tokens Obelisco como base** — usar los colores, tipografias y espaciados oficiales. No inventar colores primarios.
 2. **Tipografias oficiales** — Nunito para titulos, Open Sans para cuerpo. No otras.
-3. **Paleta GCBA** — amarillo y azul institucionales. No inventar colores primarios.
+3. **Paleta GCBA** — amarillo y azul institucionales.
 4. **Un solo btn-primary por vista** — el amarillo es para la accion principal.
 5. **Mobile-first** — diseñar desde 320px hacia arriba.
 6. **WCAG 2.1 AA** — accesibilidad no es opcional.
 7. **Feedback en toda accion** — ninguna accion queda sin respuesta visual.
 8. **Confirmacion para destructivas** — eliminar/rechazar requiere modal.
+9. **Clases de componentes en `@layer components`** — no repetir strings largos de Tailwind en cada instancia. Extraer a `.btn-*`, `.badge-*`, `.input`, `.checkbox` en `index.css`.

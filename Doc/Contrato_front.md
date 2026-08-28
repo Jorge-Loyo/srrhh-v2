@@ -1,8 +1,8 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09
-> Estado: BORRADOR — en revisión
+> Última actualización: 2026-09 (Post-Sprint 5)
+> Estado: VIGENTE
 
 ---
 
@@ -20,6 +20,7 @@
 | React Hook Form | 7.x | Formularios |
 | Zod | 3.x | Validación de formularios |
 | Axios | 1.x | Cliente HTTP |
+| xlsx (SheetJS) | latest | Exportación a Excel |
 
 ---
 
@@ -34,7 +35,6 @@ apps/web/
 │   │   └── App.tsx
 │   ├── modules/                    ← Un módulo por dominio (espeja el backend)
 │   │   ├── auth/
-│   │   │   ├── components/
 │   │   │   ├── hooks/
 │   │   │   │   └── useAuth.ts
 │   │   │   └── pages/
@@ -42,40 +42,71 @@ apps/web/
 │   │   ├── personas/
 │   │   │   ├── components/
 │   │   │   │   ├── PersonaTable.tsx
-│   │   │   │   ├── PersonaDetail.tsx
+│   │   │   │   ├── PersonaDetailPanel.tsx
 │   │   │   │   └── PersonaFilters.tsx
 │   │   │   ├── hooks/
-│   │   │   │   ├── usePersonas.ts      ← TanStack Query hooks
+│   │   │   │   ├── usePersonas.ts
 │   │   │   │   └── usePersona.ts
-│   │   │   ├── api/
-│   │   │   │   └── personas.api.ts     ← Funciones de fetch
 │   │   │   └── pages/
 │   │   │       └── PersonasPage.tsx
-│   │   ├── padron/
 │   │   ├── cargos/
+│   │   │   ├── components/
+│   │   │   │   └── CargoDetailPanel.tsx
+│   │   │   ├── hooks/
+│   │   │   └── pages/
+│   │   │       ├── CargosPage.tsx
+│   │   │       ├── AltaCargosPage.tsx
+│   │   │       ├── BajaCargosPage.tsx
+│   │   │       └── AltaPorBajaPage.tsx
+│   │   ├── padron/
+│   │   │   ├── hooks/
+│   │   │   │   └── usePadron.ts
+│   │   │   └── pages/
+│   │   │       ├── PadronPage.tsx
+│   │   │       └── PadronDiffPage.tsx
 │   │   ├── concursos-cph/
+│   │   │   ├── components/
+│   │   │   │   ├── SubEstadoTimeline.tsx
+│   │   │   │   └── AlertasSinMovimiento.tsx
+│   │   │   └── pages/
+│   │   │       ├── ConcursosCphPage.tsx
+│   │   │       └── ConcursoCphDetail.tsx
 │   │   ├── concursos-ceetps/
+│   │   │   └── pages/
+│   │   │       ├── ConcursosCeetpsPage.tsx
+│   │   │       └── ConcursoCeetpsDetail.tsx
 │   │   ├── bajas/
-│   │   └── kpis/
+│   │   │   └── pages/
+│   │   │       └── BajasPage.tsx
+│   │   ├── kpis/
+│   │   │   └── pages/
+│   │   │       └── KpisPage.tsx
+│   │   └── admin/
+│   │       └── pages/
+│   │           └── AdminUsuariosPage.tsx
 │   ├── shared/
 │   │   ├── components/
 │   │   │   ├── ui/                 ← Componentes shadcn/ui (copiados)
+│   │   │   │   └── SearchableSelect.tsx  ← Combobox con filtro en vivo
 │   │   │   ├── layout/
-│   │   │   │   ├── AppShell.tsx    ← Layout principal (sidebar + header)
+│   │   │   │   ├── AppShell.tsx
 │   │   │   │   ├── Sidebar.tsx
 │   │   │   │   └── Header.tsx
 │   │   │   └── common/
-│   │   │       ├── DataTable.tsx   ← Tabla genérica reutilizable
+│   │   │       ├── DataTable.tsx
 │   │   │       ├── PageHeader.tsx
 │   │   │       ├── Spinner.tsx
 │   │   │       ├── EmptyState.tsx
 │   │   │       └── ErrorBoundary.tsx
 │   │   ├── hooks/
 │   │   │   ├── useDebounce.ts
-│   │   │   └── usePagination.ts
+│   │   │   ├── usePagination.ts
+│   │   │   └── useCatalogos.ts     ← useHospitales, useEscalafones, usePuestosCargos
 │   │   ├── lib/
 │   │   │   ├── api-client.ts       ← Instancia Axios con interceptors
 │   │   │   ├── query-client.ts     ← Configuración TanStack Query
+│   │   │   ├── exportExcel.ts      ← fetchAllPages() + downloadExcel() con SheetJS
+│   │   │   ├── escalafonLabel.ts   ← escalafonLabel() — "Médicos" → "CPH", etc.
 │   │   │   └── utils.ts
 │   │   └── types/                  ← Re-exporta desde packages/types
 │   └── main.tsx
@@ -110,10 +141,9 @@ Components reciben datos como props — no hacen fetch directamente
 
 ### Query keys
 
-Las query keys son arrays tipados. Se definen en el archivo `api` del módulo:
+Las query keys son arrays tipados. Se definen en el archivo de hooks del módulo:
 
 ```typescript
-// personas/api/personas.api.ts
 export const personasKeys = {
   all: ['personas'] as const,
   list: (filters: PersonaFilters) => ['personas', 'list', filters] as const,
@@ -124,7 +154,6 @@ export const personasKeys = {
 ### Hooks de lectura
 
 ```typescript
-// personas/hooks/usePersonas.ts
 export function usePersonas(filters: PersonaFilters) {
   return useQuery({
     queryKey: personasKeys.list(filters),
@@ -137,12 +166,12 @@ export function usePersonas(filters: PersonaFilters) {
 ### Hooks de escritura
 
 ```typescript
-export function useUpdatePersona() {
+export function useUpdateConcursoCph() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: UpdatePersonaDto) => updatePersona(data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: personasKeys.all })
+    mutationFn: (data: PatchConcursoCphRequest) => patchConcursoCph(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: concursosCphKeys.all })
     },
   })
 }
@@ -156,13 +185,13 @@ Todos los formularios usan React Hook Form + Zod:
 
 ```typescript
 const schema = z.object({
-  cuil: z.string().length(11, 'CUIL debe tener 11 dígitos'),
-  apellido_nombre: z.string().min(2).max(200),
+  hospitalId: z.string().uuid(),
+  fechaBaja: z.string().min(1),
 })
 
 type FormData = z.infer<typeof schema>
 
-function PersonaForm() {
+function BajaForm() {
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
@@ -177,7 +206,6 @@ function PersonaForm() {
 ## Routing
 
 ```typescript
-// app/router.tsx
 const router = createBrowserRouter([
   {
     path: '/',
@@ -185,15 +213,21 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/padron" /> },
       { path: 'padron', element: <PadronPage /> },
+      { path: 'padron/:id/diff', element: <PadronDiffPage /> },
       { path: 'personas', element: <PersonasPage /> },
-      { path: 'personas/:id', element: <PersonaDetailPage /> },
+      { path: 'personas/:id', element: <PersonaDetailPanel /> },
       { path: 'cargos', element: <CargosPage /> },
+      { path: 'cargos/:id', element: <CargoDetailPanel /> },
+      { path: 'cargos/alta', element: <AltaCargosPage /> },
+      { path: 'cargos/baja', element: <BajaCargosPage /> },
+      { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
       { path: 'concursos/cph', element: <ConcursosCphPage /> },
-      { path: 'concursos/cph/:id', element: <ConcursoCphDetailPage /> },
+      { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
       { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
+      { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
       { path: 'bajas', element: <BajasPage /> },
       { path: 'kpis', element: <KpisPage /> },
-      { path: 'admin/usuarios', element: <UsuariosPage /> },
+      { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
     ],
   },
   { path: '/login', element: <LoginPage /> },
@@ -203,7 +237,6 @@ const router = createBrowserRouter([
 ### Protección de rutas
 
 ```typescript
-// Wrapper que verifica autenticación y rol
 function ProtectedRoute({ roles }: { roles?: Rol[] }) {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" />
@@ -211,6 +244,10 @@ function ProtectedRoute({ roles }: { roles?: Rol[] }) {
   return <Outlet />
 }
 ```
+
+### Filtros persistentes en URL
+
+Las páginas de listado (`PersonasPage`, `CargosPage`, `ConcursosCphPage`) usan `useSearchParams` en vez de `useState` para los filtros — todos los filtros viven en la URL como query params. Al navegar al detalle y volver, los filtros se restauran desde `location.state.from`.
 
 ---
 
@@ -221,23 +258,18 @@ function ProtectedRoute({ roles }: { roles?: Rol[] }) {
 | Tipo | Convención | Ejemplo |
 |---|---|---|
 | Páginas | `{Nombre}Page.tsx` | `PersonasPage.tsx` |
-| Componentes | PascalCase | `PersonaTable.tsx` |
+| Componentes | PascalCase | `PersonaDetailPanel.tsx` |
 | Hooks | `use{Nombre}.ts` | `usePersonas.ts` |
-| API functions | `{recurso}.api.ts` | `personas.api.ts` |
-| Types/DTOs | `{recurso}.types.ts` | `personas.types.ts` |
+| Types/DTOs | desde `packages/types` | — |
 
 ### Props tipadas siempre
 
 ```typescript
-// Bien
-interface PersonaTableProps {
-  personas: Persona[]
-  loading: boolean
-  onSelect: (id: string) => void
+interface PersonaDetailPanelProps {
+  personaId: string
+  onClose: () => void
 }
-
-// Mal — nunca
-function PersonaTable(props: any) { ... }
+// Nunca: function PersonaDetailPanel(props: any)
 ```
 
 ### Componentes pequeños y enfocados
@@ -245,6 +277,45 @@ function PersonaTable(props: any) { ... }
 - Un componente hace una sola cosa
 - Si un componente supera ~150 líneas, dividirlo
 - Los componentes de página orquestan — los componentes hoja renderizan
+
+---
+
+## Hooks compartidos
+
+### `useCatalogos.ts`
+
+Centraliza los hooks de catálogos usados en múltiples módulos:
+
+```typescript
+useHospitales()                          // GET /api/v1/hospitales
+useEscalafones()                         // GET /api/v1/escalafones
+usePuestosCargos(escalafonId?, hospitalId?)  // GET /api/v1/cargos/puestos
+```
+
+### `useDebounce.ts`
+
+Debounce de 300ms para inputs de búsqueda. Evita una request por tecla.
+
+### `exportExcel.ts`
+
+- `fetchAllPages(url, filters)` — pagina en bloques de 1000 contra el endpoint de listado
+- `downloadExcel(rows, filename)` — genera `.xlsx` con SheetJS y dispara la descarga
+
+---
+
+## Componentes compartidos notables
+
+### `SearchableSelect`
+
+Combobox genérico: input + lista filtrada en vivo al escribir. Normaliza acentos con `normalize('NFD')` para que "medico" encuentre "Médico". Usado en los selectores de puesto (276 opciones en `/personas`, 62 en CPH).
+
+### `SubEstadoTimeline`
+
+Barra de progreso segmentada sobre `subEstado3` (8 etapas) en `ConcursoCphDetail`. Desierto se muestra como banner rojo separado. Suspendido atenúa la barra entera.
+
+### `AlertasSinMovimiento`
+
+Panel en `ConcursosCphPage`. Umbrales acumulativos 30+/60+/90+ días desde `updatedAt`. Solo alerta concursos `no_iniciado`/`activo`. Calcula buckets client-side paginando con `fetchAllPages`.
 
 ---
 
@@ -259,8 +330,6 @@ La app debe funcionar en desktop y mobile. Breakpoints Tailwind:
 | `lg` | 1024px | Desktop |
 | `xl` | 1280px | Desktop wide |
 
-**Regla:** diseñar mobile-first. El layout base es para mobile, los breakpoints agregan complejidad para pantallas más grandes.
-
 El sidebar colapsa a un drawer en mobile. Las tablas tienen scroll horizontal en mobile.
 
 ---
@@ -271,7 +340,7 @@ El sidebar colapsa a un drawer en mobile. Las tablas tienen scroll horizontal en
 // shared/lib/api-client.ts
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
-  withCredentials: true,   // para cookies de refresh token
+  withCredentials: true,
 })
 
 // Interceptor: agrega el access token a cada request
@@ -315,3 +384,5 @@ Solo se exponen variables con prefijo `VITE_`. Nunca credenciales en el frontend
 5. **shadcn/ui primero** — antes de crear un componente custom, verificar si shadcn/ui ya lo tiene.
 6. **Zod en formularios** — ningún formulario sin validación de schema.
 7. **Mobile-first** — el diseño base es para mobile.
+8. **Filtros en URL** — las páginas de listado usan `useSearchParams`, no `useState`, para que los filtros sean compartibles y sobrevivan la navegación.
+9. **Exportación paginada** — el export a Excel usa `fetchAllPages()`, no el resultado visible en pantalla.
