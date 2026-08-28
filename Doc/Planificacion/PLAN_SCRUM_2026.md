@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-26 (Sprint 4 completo — 11/11 tareas)
+> Última actualización: 2026-09 (Post-Sprint 4 (4) — maquetas Alta/Baja/Alta por Baja + análisis concursos CPH)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -11,15 +11,19 @@
 
 ## ESTADO ACTUAL
 
-| Sprint                              | Estado                                                                   | Completado              |
-| ----------------------------------- | ------------------------------------------------------------------------ | ----------------------- |
-| Sprint 0 — Infraestructura          | ✅ Completado                                                            | S0-1 a S0-11            |
-| Sprint 1 — Autenticación            | ✅ Completado                                                            | S1-1 a S1-10            |
-| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25          | S2-1 a S2-19 (✅)       |
-| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25                     | S3-1 a S3-11 (✅)       |
-| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26           | S4-1 a S4-11 (✅)       |
-| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                             | —                       |
-| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                             | —                       |
+| Sprint                              | Estado                                                          | Completado        |
+| ----------------------------------- | --------------------------------------------------------------- | ----------------- |
+| Sprint 0 — Infraestructura          | ✅ Completado                                                   | S0-1 a S0-11      |
+| Sprint 1 — Autenticación            | ✅ Completado                                                   | S1-1 a S1-10      |
+| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
+| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
+| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
+| Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
+| Sprint 3 (post-2) — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | ver detalle abajo |
+| Sprint 3 (post-3) — Mejoras UX personas/cargos | ✅ Completado — 2026-08-28 | ver detalle abajo |
+| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09 | ver detalle abajo |
+| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
+| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
 ---
 
@@ -907,6 +911,201 @@ containers vuelven a arrancar solos, lo que puede dejar una migración a mitad d
 interrumpe en el medio. Sin datos reales para perder (0 personas/cargos, solo seed base) — resuelto
 con `prisma migrate reset --force` + `pnpm db:seed`. Mitigación aplicada en esta sesión: mantener una
 sesión `wsl.exe -- sleep N` en segundo plano durante secuencias de comandos que dependen de Docker.
+
+---
+
+### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
+
+**Commit:** `f178819` | **Autor:** Jorge + Claude
+
+Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos de producción.
+
+#### Ocupaciones: `cargo_desde` / `cargo_hasta`
+
+- `prisma/schema.prisma`: `cargoDesdeFecha DateTime? @map("cargo_desde") @db.Date` y `cargoHastaFecha` en `Ocupacion`
+- `ALTER TABLE ocupaciones ADD COLUMN cargo_desde date, ADD COLUMN cargo_hasta date` aplicado en BD real
+- `padron.service.ts`: campos agregados a `COLS_WATCH`, `CAMPOS_OCUPACION`, `calcularDiff` (JSON de diffs nuevos) y `aprobarSnapshotService` (creación de ocupaciones con `parseFechaDDMMYYYY`)
+- Backfill de 48.166 ocupaciones existentes desde el último Excel exportado (`fix_cargo_fechas.py`, corrido en dotaneitor)
+- `packages/types`: `Ocupacion` con `cargoDesdeFecha`/`cargoHastaFecha`; interfaz `OcupacionConCargo`
+- `PersonaDetailPanel`: muestra "Cargo desde" y "Cargo hasta" cuando tienen valor
+- **Fix crítico post-deploy**: el cliente Prisma en el contenedor no tenía los campos nuevos (no se había regenerado desde el último build). Rebuild de la imagen API con `docker compose up -d --build api` — `prisma generate` corre automáticamente en `postinstall`. Verificado: `cargoDesdeFecha` devuelve `"2025-01-07T00:00:00.000Z"` correctamente.
+
+#### Export Excel de padrón: fix `ReferenceError` en runtime
+
+- El endpoint `GET /snapshots/:id/exportar` en `padron.routes.ts` referenciaba `python` y `getSnapshotOrThrow` que son privados de `padron.service.ts` — en runtime tiraba `ReferenceError` silencioso capturado por Fastify como 500, el frontend nunca recibía el blob
+- Fix: `exportarSnapshotService` extraido al service (donde `python` y `getSnapshotOrThrow` sí están disponibles) y exportado; routes lo importa y usa
+- `usePadron.ts`: `useExportarSnapshot` ya usaba `responseType: 'blob'` correctamente — el bug era solo en el backend
+
+#### Deduplicación de ocupaciones fantasma (regla SIAL)
+
+- SIAL genera duplicados cuando una persona tiene dos filas vigentes con el mismo `codigo_repa` + `literal_puesto`, una con `codigo_jefaturas` (ej. `P60`) y otra sin — la sin jefatura es un fantasma del sistema
+- `filtrarDuplicados()` en `PersonaDetailPanel`: detecta estos grupos en las ocupaciones vigentes y oculta las sin `codigoJefaturas`. Solo afecta la visualización, no toca la BD
+- Verificado contra 10 casos reales en la DB (Directores, Sub-Directores con código P60/P61/etc.)
+- El contador "Ocupaciones (N)" en el header refleja el total filtrado, no el total crudo
+
+#### Filtros persistentes en `/personas`
+
+- `PersonasPage`: reemplazado `useState` por `useSearchParams` — todos los filtros (search, hospitalId, escalafonId, activo, puesto, especialidad, page) viven en la URL como query params
+- Cambios de filtro usan `setSearchParams` sin `replace: true` (agregan al historial); paginación usa `replace: true` (no llena el historial)
+- Link "Ver" en la tabla pasa `state: { from: searchParams.toString() }` al navegar al detalle
+- `PersonaDetailPanel`: "Volver a Personas" lee `location.state.from` y reconstruye `/personas?...` con los filtros originales. Si no hay state (acceso directo por URL), vuelve a `/personas` sin params
+
+#### Chips de filtros activos
+
+- Debajo de los controles de filtro en `PersonasPage`, aparecen burbujas con el label legible de cada filtro activo (sigla del hospital, nombre del escalafón, etc.) y un botón `×` para quitarlo individualmente
+- Con 2+ filtros activos aparece "Limpiar todo"
+- El chip de escalafón llama a `cambiarEscalafon('')` (que también limpia puesto y especialidad en cascada); el de puesto llama a `cambiarPuesto('')` (limpia especialidad)
+
+#### Puesto en header del panel de persona
+
+- El puesto de la ocupación vigente activa (no retención) aparece debajo del CUIL en el header azul del `PersonaDetailPanel`
+- Si todas las ocupaciones vigentes son retención, muestra igual la primera vigente
+
+#### Dotaneitor: reconexion automática a Postgres
+
+- `pool_pre_ping=True` en el engine de SQLAlchemy — antes de cada query verifica si la conexión sigue viva y reconecta automáticamente si Postgres se reinició (el rebuild de la API reinicia el contenedor de postgres, dejando al dotaneitor con una conexión stale)
+- Aplica en el próximo rebuild del contenedor dotaneitor
+
+---
+
+### POST-SPRINT 4 (2) — Cargos: códigos, estados, UX (2026-09)
+
+**Autor:** Jorge + Claude
+
+#### Generación de códigos de cargo (`Cargo.codigo`)
+
+- `apps/api/src/shared/codigoCargo.ts` — módulo nuevo con `prefijoDeCargo()` (mapea escalafón + unificador + agrupador al prefijo correcto según `REGLAS_NEGOCIO.MD` §3) y `siguienteCodigoCargo()` (secuencial atómico por prefijo dentro de la transacción del llamador)
+- Prefijos implementados: `CPH-POF`, `CPH-POU`, `CPH-J-POF`, `CPH-J-POU`, `CPH-D`, `CPH-SD`, `ENF`, `TEC-POF`, `TEC-POU`, `EG`, `EG-J`, `EG-D`, `EG-G`, `AS-MIN`, `AS-SS`, `AS-DG`, `AS-DGA`, `RG-CG`, `SG`, `RES`, `DOC`, `PT`, `CT`, `PG`
+- `padron.service.ts` — `aprobarSnapshotService` genera código automáticamente al crear cargos nuevos (paso 3b post-`createMany`)
+- Backfill de los ~48k cargos existentes via `scripts/backfill-codigos-cargo.sql` (PL/pgSQL, idómpotente). Distribución final: CPH-POF 24.444, TEC-POF 14.991, EG 6.620, RES 4.478, DOC 579, RG-CG 201, PT 70, CT 68, PG 58, AS-DG 43
+- Fix de 196 cargos con prefijo fallback `CARGO` (escalafones `Planta Transitoria`, `Cuerpos Transitorios`, `Planta de Gabinete` no estaban en las reglas originales) — reasignados a `PT`/`CT`/`PG` via `scripts/fix-codigos-cargo-fallback.sql`
+
+#### Estados de cargo: `no_vigente` desde datos históricos
+
+- 3.713 cargos con ocupaciones todas cerradas (`hasta IS NOT NULL`) y sin ocupación vigente marcados como `no_vigente` via SQL directo
+- `padron.service.ts` — al aprobar snapshot, los cargos "eliminados" ahora también se marcan `no_vigente` si ya no tienen ocupación vigente restante (mismo patrón que el fix de `persona.activo = false` del post-sprint anterior)
+- Verificado: 0 cargos `vigente` sin ocupación activa (consistencia perfecta)
+
+#### Búsqueda por prefijo en `/personas`
+
+- `personas.service.ts` — reemplazado `plainto_tsquery` por `to_tsquery` con `:*` en cada token para que búsquedas parciales (ej. `lizarra`) matcheen `lizarraga`. Cada token del search se convierte en prefijo: `"juan pe"` → `juan:* & pe:*`
+
+#### Filtros persistentes en `/cargos` (mismo patrón que `/personas`)
+
+- `CargosPage` — `useState` → `useSearchParams`. Filtros viven en URL. Link "Ver" pasa `state: { from: searchParams.toString() }`. "Volver a Cargos" reconstruye URL desde `location.state.from`
+- Nuevo filtro "Ocupación" (Ocupados y vacantes / Solo ocupados / Solo vacantes) en frontend, schema y service
+- Chips de filtros activos con `×` y "Limpiar todo"
+
+#### Columna Ocupación en tabla de cargos
+
+- `cargos.service.ts` — `listCargosService` incluye `ocupaciones: { where: { hasta: null }, select: { id: true }, take: 1 }` y mapea a `ocupado: boolean`
+- `CargosPage` — columna "Ocupación" con badge verde (Ocupado) o naranja (Vacante)
+- `packages/types` — `Cargo.ocupado: boolean`
+
+#### Mejoras al detalle de cargo (`CargoDetailPanel`)
+
+- Encabezado: ID SIAL en gris pequeño, código cargo grande, puesto, especialidad. Dos badges: Vigente/No vigente + Ocupado/Vacante
+- Sección Clasificación solo aparece si hay al menos un campo con dato
+- Persona actual: nombre grande con DNI, badge de estado, "En el cargo desde" usa `cargoDesdeFecha` (más completo que `desde`), jefatura solo si tiene código
+- Historial de personas: tabla con todas las ocupaciones cerradas del cargo (nombre, CUIL, desde, hasta, situación de revista, link "Ver")
+- `cargos.service.ts` — `getCargoByIdService` trae todas las ocupaciones (no solo la vigente) y las separa en `ocupacionActual` + `historial`
+- `packages/types` — `CargoDetail.historial: (Ocupacion & { persona: Persona })[]`
+
+#### Link "Ver cargo" desde ocupaciones de persona
+
+- `PersonaDetailPanel` — cada ocupación tiene botón "Ver cargo" que navega a `/cargos/:id` del cargo correspondiente
+
+---
+
+### POST-SPRINT 4 (3) — Mejoras UX personas/cargos (2026-08-28)
+
+**Commit:** pendiente | **Autor:** Jorge + Claude
+
+#### Retención de cargo: "Cubre en" en `CargoDetailPanel`
+
+- `cargos.service.ts` — `getCargoByIdService`: cuando `ocupacionActual.situacionRevista === 'Retencion de Cargo'`, busca la ocupación `Activo` de esa persona en otro cargo e incluye `cargoActivo` en la respuesta
+- `packages/types` — `CargoDetail.cargoActivo: (Ocupacion & { cargo: Cargo & { hospital, escalafon } }) | null`
+- `CargoDetailPanel` — sección "Cubre en" con fondo ámbar cuando hay retención: muestra código cargo, puesto, hospital y link "Ver cargo activo". Si retiene pero no tiene cargo activo registrado, muestra "Retiene este cargo — sin cargo activo registrado"
+- Verificado con datos reales: Ferraro (CPH-POF-008656, Jefe UTI Durand) retuvo y cubre CPH-POF-022449 (Director CSMA)
+
+#### Filtro por puesto en `/cargos`
+
+- `cargos.service.ts` — `listPuestosCargosService(escalafonId?, hospitalId?)`: puestos distintos filtrados en cascada
+- `cargos.routes.ts` — `GET /api/v1/cargos/puestos` con params opcionales `escalafonId`/`hospitalId`
+- `cargos.schema.ts` — campo `puesto` opcional en query schema
+- `useCatalogos.ts` — hook `usePuestosCargos(escalafonId?, hospitalId?)`
+- `CargosPage` — `SearchableSelect` para puesto (igual que `/personas`); al cambiar hospital o escalafón se limpia el puesto (cascada); chips de filtros activos actualizados
+- `packages/types` — `CargoFilters.puesto?: string`
+
+#### Mejoras al `PersonaDetailPanel`
+
+- **ID SIAL de persona**: extraído del primer segmento de `idSialRol` (ej. `001608093` de `001608093-2-27204383680`), mostrado en sección Identificación
+- **ID SIAL Rol en cada cargo**: `001608093-2` (persona + número de cargo, sin CUIL)
+- **Código Cargo** en cada ocupación
+- **Zócalo "Datos de la persona"** sobre el header navy
+- **Zócalo "Detalle de cargos"** sobre la sección de ocupaciones
+- **Header**: `Rol actual: Director (01)` + `Especialidad: Psiquiatria` (solo si tiene)
+- **Orden de cargos**: Vigente → Retención → Histórica
+- **Sangría de color** en cada cargo: verde (activo), ámbar (retención), rojo claro (histórico). Clases CSS explícitas en `index.css` para evitar purge de Tailwind
+- **Badge "Retención"** en ámbar (`badge-amber` nuevo en `index.css`)
+- **Campos reorganizados** por columna: Código Cargo / ID SIAL Rol / Escalafón / Puesto / Especialidad — Hospital / Régimen / Situación de revista / Estado — Repartición (código + descripción unificados) / Documentación del rol / Cargo desde / Cargo hasta
+- Eliminados campos redundantes: `Estado` (igual a `Situación de revista`), `Cód. situación`
+- `Escalafón` muestra el literal del `codigoRegistro` (ej. `Nueva Carrera Prof. Hosp`); `Régimen` muestra el código (ej. `37`)
+- `Repartición` unifica código + descripción en un campo (`40220629 — UNID Psicopatología y Salud Mental`)
+
+---
+
+### POST-SPRINT 4 (4) — Maquetas Alta/Baja/Alta por Baja (2026-09)
+
+**Autor:** Jorge + Claude
+
+Maquetas funcionales de las tres páginas del módulo de gestión de cargos. Sin lógica de backend — datos mock, formularios interactivos, historial ordenado. Base para implementación real en Sprint 5.
+
+#### `/cargos/alta` — Alta de Cargos
+
+- `AltaCargosPage.tsx` — reemplaza el Placeholder
+- Tres botones en el header: **Cargo de Ejecución POF**, **Cargo de Ejecución POU**, **Cargo por Estructura**
+- Al tocar un botón se despliega el formulario inline debajo (toggle: mismo botón cierra, otro botón cambia). Botón activo con `ring-2 ring-secondary`
+- Formulario por tipo: expediente/decreto (con confirmación verde) → hospital → carrera (botones CPH/EG/ENF/TEC/AS) → puesto → especialidad (condicional CPH/TEC) → fecha desde + cantidad (±) → Cancelar / Registrar
+- Al registrar: alta aparece al tope del historial, formulario se cierra
+- Historial con buscador (hospital, carrera, puesto, expediente, tipo), tabla ordenada de más reciente a más viejo, badges de tipo (Ejecución POF azul / Ejecución POU gris / Estructura naranja)
+
+#### `/cargos/baja` — Baja de Cargos
+
+- `BajaCargosPage.tsx` — reemplaza el Placeholder
+- Mismo maquetado que Alta por Baja: header con título + botón **Nueva Baja** (rojo), buscador, tabla historial
+- Columnas: Fecha, Código Cargo, Puesto, Hospital, Escalafón, Motivo, Estado
+- Estados: Pendiente (naranja) / Confirmada (verde) / Anulada (rojo)
+- 9 registros mock ordenados de más reciente a más viejo
+
+#### `/cargos/alta-por-baja` — Alta por Baja
+
+- `AltaPorBajaPage.tsx` — reemplaza el Placeholder
+- Header con título + botones **Nueva Baja** (outline) y **Nuevo Concurso** (primary)
+- Buscador por código, puesto, hospital, persona
+- Tabla con columnas: Fecha, Tipo (Baja rojo / Concurso azul), Código Cargo, Puesto, Hospital, Persona, Motivo, Estado
+- 9 registros mock ordenados de más reciente a más viejo
+
+#### Análisis de datos reales — `base_concursos_limpio.csv`
+
+Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseño del Sprint 5:
+
+| Dimensión | Hallazgo clave |
+|---|---|
+| **Volumen** | 7.471 concursos totales. 5.095 finalizados (68%), 1.302 activos (17%), 569 no iniciados (8%), 505 suspendidos (7%) |
+| **Sub-estado 3** | G-RESOLUCION 5.094 (68%), A-VALID.VCTE 1.249 (17%), B-AUTORIZADO 262, H-DESIERTO 227, D-ETAPA EVAL 220, F-PROX.A DESIG 195, E-ADJUDI 163, C-INSCRIPCION 60 |
+| **Escalafón** | POF 3.943 (53%), POU 3.096 (41%), sin dato 432 (6%) — solo CPH, confirma que el módulo es exclusivo de esa carrera |
+| **Tipo de baja** | 7.233 sin tipo registrado (97%) — el campo `tipo_de_baja` está casi vacío en los datos reales. Los 238 con dato: Cargo retenido 161, Interino 27, Jubilación 12, Cambio de Efector 10, Renuncia 9, Pase a Planta 9, otros |
+| **Cargo baja** | 1.632 concursos sin `cargo_baja` (22%) — vacantes generadas por ampliación de dotación, no por baja de persona |
+| **Tipificador origen** | Bajas 2025 1.494, Bajas 2024 1.262, Bajas 2023 1.203, Bajas 2026 878, Ampliación 2022 422, Ampliación 2026 398, Bajada Odoo 228, Art. 48, Obra, Cobertura Dotación |
+
+**Decisiones de diseño para Sprint 5 derivadas del análisis:**
+
+- El campo `tipo_de_baja` es opcional — la mayoría de los concursos reales no lo tienen. No debe ser requerido en el formulario
+- `cargo_baja` también es opcional — hay concursos por ampliación sin baja de persona asociada
+- El tipificador de origen (`tipificador_1_origen`) es un campo libre importante para trazabilidad — incluir en el modelo `Baja`
+- Los tipos de baja reales son: Cargo retenido, Interino, Jubilación, Cambio de Efector, Renuncia, Pase a Planta, CC POU a POF, CC POF a POU, Jefatura, Fallecimiento — usar como enum o lista sugerida (no obligatoria)
+- El flujo real no siempre es "baja → concurso": hay concursos por ampliación de dotación sin baja previa. El modelo debe soportar `baja_id` nullable en `ConcursoCph`
 
 ---
 

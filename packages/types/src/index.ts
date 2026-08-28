@@ -138,6 +138,7 @@ export interface Cargo {
   litFamilia: string | null
   puestoCodigoSial: string | null
   estado: EstadoCargo
+  ocupado: boolean
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
@@ -156,9 +157,31 @@ export interface Ocupacion {
   estadoPersona: string | null
   desde: string | null
   hasta: string | null
+  codigoJefaturas: string | null
+  jefeEscalafon: string | null
+  documentacionJefatura: string | null
+  comentariosJefaturas: string | null
+  comision: string | null
+  repaComision: string | null
+  codSituacion: string | null
+  documentacionDelRol: string | null
+  documentacionBaja: string | null
+  cargoDesdeFecha: string | null
+  cargoHastaFecha: string | null
+  fechaBloqueo: string | null
+  bloqueoComentario: string | null
+  bloqMotivo: string | null
+  snapshotId: string | null
+  createdAt: string
+  updatedAt: string
   // Relaciones expandidas (opcionales)
   persona?: Persona
   cargo?: Cargo
+}
+
+// Ocupacion con cargo siempre expandido — usado en PersonaDetail
+export interface OcupacionConCargo extends Ocupacion {
+  cargo: Cargo & { hospital: Hospital; escalafon: Escalafon; codigoRegistro: CodigoRegistro | null }
 }
 
 export interface PadronSnapshot {
@@ -461,7 +484,9 @@ export interface CargoFilters {
   search?: string
   hospitalId?: string
   escalafonId?: string
+  puesto?: string
   estado?: EstadoCargo
+  ocupado?: boolean
   page?: number
   limit?: number
 }
@@ -509,7 +534,7 @@ export interface PersonaDetail extends Persona {
   localidad: string | null
   provincia: string | null
   antiguedadDesde: string | null
-  ocupaciones: Ocupacion[]
+  ocupaciones: OcupacionConCargo[]
 }
 
 // Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon`/`codigoRegistro`
@@ -520,4 +545,6 @@ export interface CargoDetail extends Cargo {
   escalafon: Escalafon
   codigoRegistro: CodigoRegistro | null
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
+  historial: (Ocupacion & { persona: Persona })[]
+  cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
 }

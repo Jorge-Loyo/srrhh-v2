@@ -51,6 +51,11 @@
   .badge-success { @apply badge bg-green-100 text-green-800; }
   .badge-danger  { @apply badge bg-red-100 text-red-800; }
   .badge-warning { @apply badge bg-orange-100 text-orange-800; }
+  .badge-amber   { @apply badge bg-amber-100 text-amber-700; }
+  /* Clases de sangría de cargos — forzadas para que Tailwind las incluya en el bundle */
+  .cargo-activo   { @apply border-l-8 bg-white; border-left-color: #22c55e !important; }
+  .cargo-retenido { @apply border-l-8 bg-amber-50; border-left-color: #fbbf24 !important; }
+  .cargo-historico { @apply border-l-8 bg-red-50; border-left-color: #fca5a5 !important; }
   .badge-info    { @apply badge bg-blue-100 text-blue-800; }
   .badge-default { @apply badge bg-gray-100 text-gray-700; }
   .badge-primary { @apply badge bg-yellow-100 text-yellow-800; }

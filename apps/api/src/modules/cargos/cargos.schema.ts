@@ -8,7 +8,12 @@ export const cargosQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  puesto: z.string().trim().min(1).optional(),
   estado: z.nativeEnum(EstadoCargo).optional(),
+  ocupado: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
 })
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>

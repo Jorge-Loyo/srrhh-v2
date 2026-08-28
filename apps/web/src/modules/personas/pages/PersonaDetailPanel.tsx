@@ -1,4 +1,5 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useLocation } from 'react-router-dom'
+import type { OcupacionConCargo } from '@srrhh/types'
 import { usePersona } from '../hooks/usePersonas'
 
 // Hallazgo de Agustin en su propia implementación de este panel (descartada
@@ -24,8 +25,44 @@ function calcEdad(iso: string | null | undefined): number | null {
   return edad
 }
 
+// Regla de duplicados del sistema SIAL: cuando una persona tiene dos ocupaciones
+// vigentes con el mismo codigo_repa + literal_puesto, y una tiene codigo_jefaturas
+// con valor y la otra no, la que no tiene codigo_jefaturas es un fantasma del
+// sistema — se oculta. Aplica a ~10 casos en la DB (ej: Directores con P60).
+function filtrarDuplicados(ocupaciones: OcupacionConCargo[]): OcupacionConCargo[] {
+  // Solo considerar vigentes (hasta == null) para la detección
+  const vigentes = ocupaciones.filter((o) => !o.hasta)
+
+  // Agrupar vigentes por (codigo_repa, literal_puesto)
+  const grupos = new Map<string, OcupacionConCargo[]>()
+  for (const o of vigentes) {
+    const key = `${o.cargo.codigoRepa ?? ''}|${o.cargo.literalPuesto ?? ''}`
+    const arr = grupos.get(key) ?? []
+    arr.push(o)
+    grupos.set(key, arr)
+  }
+
+  // IDs a ocultar: en grupos de 2+ donde hay al menos uno con jefatura y al
+  // menos uno sin, ocultar los que no tienen jefatura
+  const ocultar = new Set<string>()
+  for (const grupo of grupos.values()) {
+    if (grupo.length < 2) continue
+    const conJefatura = grupo.filter((o) => o.codigoJefaturas)
+    const sinJefatura = grupo.filter((o) => !o.codigoJefaturas)
+    if (conJefatura.length > 0 && sinJefatura.length > 0) {
+      for (const o of sinJefatura) ocultar.add(o.id)
+    }
+  }
+
+  if (ocultar.size === 0) return ocupaciones
+  return ocupaciones.filter((o) => !ocultar.has(o.id))
+}
+
 export function PersonaDetailPanel() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
+  const fromParams = (location.state as { from?: string } | null)?.from
+  const volverHref = fromParams ? `/personas?${fromParams}` : '/personas'
   const { data: persona, isLoading, isError } = usePersona(id)
 
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando persona...</p>
@@ -33,19 +70,52 @@ export function PersonaDetailPanel() {
 
   const edad = calcEdad(persona.fechaNacimiento)
   const fechaNac = formatFecha(persona.fechaNacimiento)
+  const ocupacionesVisibles = filtrarDuplicados(persona.ocupaciones).sort((a, b) => {
+    const orden = (o: OcupacionConCargo) => {
+      if (o.hasta) return 2
+      if (o.situacionRevista?.toLowerCase().includes('retencion')) return 1
+      return 0
+    }
+    return orden(a) - orden(b)
+  })
+
+  // ID SIAL de la persona: primeros dos segmentos del idSialRol (ej. "001608093" de "001608093-2-27204383680")
+  const idSialPersona = persona.ocupaciones[0]?.idSialRol?.split('-')[0] ?? null
 
   return (
     <div className="space-y-4">
-      <Link to="/personas" className="inline-flex items-center gap-1 text-sm text-secondary hover:underline">
+      <Link to={volverHref} className="inline-flex items-center gap-1 text-sm text-secondary hover:underline">
         ← Volver a Personas
       </Link>
 
       {/* Datos personales */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-secondary/10 px-6 py-2">
+          <p className="text-xs font-semibold text-secondary uppercase tracking-widest">Datos de la persona</p>
+        </div>
         <div className="bg-navy px-6 py-5 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-white text-xl font-bold leading-tight">{persona.apellidoNombre}</h1>
             <p className="text-white/70 text-sm mt-0.5">CUIL {persona.cuil}</p>
+            {(() => {
+              const puestoVisible = ocupacionesVisibles.find((o) => !o.hasta && !o.situacionRevista?.toLowerCase().includes('retencion'))
+                ?? ocupacionesVisibles.find((o) => !o.hasta)
+              if (!puestoVisible) return null
+              return (
+                <>
+                  {puestoVisible.cargo.literalPuesto && (
+                    <p className="text-white/90 text-sm font-medium mt-1">
+                      <span className="text-white/50 font-normal">Rol actual: </span>{puestoVisible.cargo.literalPuesto}
+                    </p>
+                  )}
+                  {puestoVisible.cargo.especialidad && (
+                    <p className="text-white/70 text-xs mt-0.5">
+                      <span className="text-white/40 font-normal">Especialidad: </span>{puestoVisible.cargo.especialidad}
+                    </p>
+                  )}
+                </>
+              )
+            })()}
           </div>
           <span className={`mt-1 shrink-0 px-3 py-1 rounded-full text-xs font-semibold ${persona.activo ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
             {persona.activo ? 'Activo' : 'Inactivo'}
@@ -55,10 +125,15 @@ export function PersonaDetailPanel() {
         <div className="divide-y divide-gray-100">
           <Section title="Identificación">
             <Dato label="Documento" value={persona.numeroDoc ? `${persona.tipoDoc ?? ''} ${persona.numeroDoc}`.trim() : null} />
+            <Dato label="Fecha de nacimiento" value={fechaNac} />
+            {edad !== null && <Dato label="Edad" value={`${edad} años`} />}
+            <Dato label="ID SIAL" value={idSialPersona} />
+            <Dato label="Primer cargo en Salud" value={formatFecha(persona.antiguedadDesde)} />
+            {persona.antiguedadDesde && calcEdad(persona.antiguedadDesde) !== null && (
+              <Dato label="Años de antigüedad" value={`${calcEdad(persona.antiguedadDesde)} años`} />
+            )}
             <Dato label="Sexo" value={persona.sexo} />
-            <Dato label="Fecha de nacimiento" value={fechaNac ? `${fechaNac}${edad !== null ? ` (${edad} años)` : ''}` : null} />
             <Dato label="Especialidad principal" value={persona.especialidadPrincipal} />
-            <Dato label="Antigüedad desde" value={formatFecha(persona.antiguedadDesde)} />
           </Section>
 
           <Section title="Contacto">
@@ -77,47 +152,55 @@ export function PersonaDetailPanel() {
 
       {/* Ocupaciones */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-secondary/10 px-6 py-2">
+          <p className="text-xs font-semibold text-secondary uppercase tracking-widest">Detalle de cargos</p>
+        </div>
         <div className="bg-navy px-6 py-3">
           <h2 className="text-white font-semibold text-sm uppercase tracking-wide">
-            Ocupaciones ({persona.ocupaciones.length})
+            Cargos ({ocupacionesVisibles.length})
           </h2>
         </div>
 
-        {persona.ocupaciones.length === 0 ? (
+        {ocupacionesVisibles.length === 0 ? (
           <p className="p-6 text-sm text-gray-400 text-center">Sin ocupaciones registradas.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-navy text-white text-left">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Repartición</th>
-                <th className="px-4 py-3 font-semibold">Escalafón</th>
-                <th className="px-4 py-3 font-semibold">Puesto</th>
-                <th className="px-4 py-3 font-semibold">Unificador de puesto</th>
-                <th className="px-4 py-3 font-semibold">Situación de revista</th>
-                <th className="px-4 py-3 font-semibold">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {persona.ocupaciones.map((o) => (
-                <tr key={o.id} className={o.hasta ? 'text-gray-400' : ''}>
-                  <td className="px-4 py-3">
-                    {o.cargo?.codigoRepa
-                      ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}`
-                      : (o.cargo?.descripcionRepa ?? o.cargo?.hospital?.sigla ?? '—')}
-                  </td>
-                  <td className="px-4 py-3">{o.cargo?.escalafon?.nombre ?? '—'}</td>
-                  <td className="px-4 py-3">{o.cargo?.literalPuesto ?? '—'}</td>
-                  <td className="px-4 py-3">{o.cargo?.unificadorPuesto ?? '—'}</td>
-                  <td className="px-4 py-3">{o.situacionRevista ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={o.hasta ? 'badge-default' : 'badge-success'}>
-                      {o.hasta ? 'Histórica' : 'Vigente'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="divide-y divide-gray-100">
+            {ocupacionesVisibles.map((o) => {
+              const esRetencion = o.situacionRevista?.toLowerCase().includes('retencion') || o.situacionRevista?.toLowerCase().includes('retención')
+              const esHistorico = !!o.hasta
+              const borderColor = esHistorico ? 'cargo-historico' : esRetencion ? 'cargo-retenido' : 'cargo-activo'
+              return (
+                <div key={o.id} className={`px-6 py-4 ${borderColor}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div />
+                    <div className="flex items-center gap-2">
+                      <span className={o.hasta ? 'badge-default' : esRetencion ? 'badge-amber' : 'badge-success'}>
+                        {o.hasta ? 'Histórica' : esRetencion ? 'Retención' : 'Vigente'}
+                      </span>
+                      <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
+                        Ver cargo
+                      </Link>
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                    <Dato label="Código Cargo" value={o.cargo.codigo} />
+                    <Dato label="Hospital" value={o.cargo.hospital?.sigla} />
+                    <Dato label="Situación de revista" value={o.situacionRevista} />
+                    <Dato label="ID SIAL Rol" value={o.idSialRol?.split('-').slice(0, 2).join('-')} />
+                    <Dato label="Repartición" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
+                    {o.documentacionDelRol && <Dato label="Documentación del rol" value={o.documentacionDelRol} />}
+                    <Dato label="Escalafón" value={o.cargo.codigoRegistro?.literal ?? o.cargo.escalafon?.nombre} />
+                    <Dato label="Cód. Registro" value={o.cargo.codigoRegistro?.codigo} />
+                    <Dato label="Puesto" value={o.cargo.literalPuesto} />
+                    {o.cargoDesdeFecha && <Dato label="Cargo desde" value={formatFecha(o.cargoDesdeFecha)} />}
+                    <Dato label="Especialidad" value={o.cargo.especialidad} />
+                    {o.comision && <Dato label="Comisión" value={o.comision} />}
+                    {o.cargoHastaFecha && <Dato label="Cargo hasta" value={formatFecha(o.cargoHastaFecha)} />}
+                  </dl>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>

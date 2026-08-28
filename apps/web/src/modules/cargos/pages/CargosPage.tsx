@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EstadoCargo } from '@srrhh/types'
 import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/useCatalogos'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useCargos } from '../hooks/useCargos'
 
@@ -17,11 +18,34 @@ const ESTADO_LABEL: Record<EstadoCargo, string> = {
 }
 
 export function CargosPage() {
-  const [search, setSearch] = useState('')
-  const [hospitalId, setHospitalId] = useState('')
-  const [escalafonId, setEscalafonId] = useState('')
-  const [estado, setEstado] = useState<'' | EstadoCargo>('')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const search      = searchParams.get('search') ?? ''
+  const hospitalId  = searchParams.get('hospitalId') ?? ''
+  const escalafonId = searchParams.get('escalafonId') ?? ''
+  const puesto      = searchParams.get('puesto') ?? ''
+  const estado      = (searchParams.get('estado') ?? '') as '' | EstadoCargo
+  const ocupado     = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
+  const page        = Number(searchParams.get('page') ?? '1')
+
+  function setParam(key: string, value: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (value) next.set(key, value); else next.delete(key)
+      next.delete('page')
+      return next
+    })
+  }
+
+  function setPage(p: number | ((prev: number) => number)) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      const newPage = typeof p === 'function' ? p(Number(prev.get('page') ?? '1')) : p
+      if (newPage === 1) next.delete('page'); else next.set('page', String(newPage))
+      return next
+    }, { replace: true })
+  }
+
   const searchDebounced = useDebounce(search, 300)
 
   const filters: CargoFilters = {
@@ -30,32 +54,52 @@ export function CargosPage() {
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(puesto && { puesto }),
     ...(estado && { estado }),
+    ...(ocupado && { ocupado: ocupado === 'true' }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
+  const { data: puestos }     = usePuestosCargos(escalafonId || undefined, hospitalId || undefined)
 
-  // Pedido de Jorge (2026-08-26): mismo cambio que en PersonasPage — orden
-  // alfabético por el label mostrado (no por Escalafon.nombre crudo), para
-  // que "CPH" ordene en la C y no quede huérfano bajo la M de "Médicos".
   const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
   )
 
-  function resetPage<T>(setter: (v: T) => void) {
-    return (v: T) => {
-      setter(v)
-      setPage(1)
-    }
+  function cambiarEscalafon(nuevoId: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoId) next.set('escalafonId', nuevoId); else next.delete('escalafonId')
+      next.delete('puesto')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function cambiarHospital(nuevoId: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoId) next.set('hospitalId', nuevoId); else next.delete('hospitalId')
+      next.delete('puesto')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function cambiarPuesto(nuevoPuesto: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
+      next.delete('page')
+      return next
+    })
   }
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState(false)
 
-  // S3-10: igual que en PersonasPage, exporta TODO el resultado filtrado
-  // (no solo la página visible) paginando en bloques de 1000.
   async function handleExport() {
     setExportando(true)
     setExportError(false)
@@ -78,6 +122,7 @@ export function CargosPage() {
           Escalafón: c.escalafon?.nombre ?? '',
           Régimen: c.regimen ?? '',
           Estado: ESTADO_LABEL[c.estado],
+          Ocupación: c.ocupado ? 'Ocupado' : 'Vacante',
         }))
       )
     } catch {
@@ -105,43 +150,102 @@ export function CargosPage() {
             type="text"
             placeholder="Buscar por código de cargo, puesto, especialidad..."
             value={search}
-            onChange={(e) => resetPage(setSearch)(e.target.value)}
+            onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
           <select
             value={hospitalId}
-            onChange={(e) => resetPage(setHospitalId)(e.target.value)}
+            onChange={(e) => cambiarHospital(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los hospitales</option>
             {hospitales?.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.sigla}
-              </option>
+              <option key={h.id} value={h.id}>{h.sigla}</option>
             ))}
           </select>
           <select
             value={escalafonId}
-            onChange={(e) => resetPage(setEscalafonId)(e.target.value)}
+            onChange={(e) => cambiarEscalafon(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los escalafones</option>
             {escalafonesOrdenados.map((e) => (
-              <option key={e.id} value={e.id}>
-                {escalafonLabel(e.nombre)}
-              </option>
+              <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>
             ))}
           </select>
+          <SearchableSelect
+            value={puesto}
+            onChange={cambiarPuesto}
+            options={puestos ?? []}
+            placeholder="Todos los puestos"
+            className="min-w-[220px]"
+          />
           <select
             value={estado}
-            onChange={(e) => resetPage(setEstado)(e.target.value as '' | EstadoCargo)}
+            onChange={(e) => setParam('estado', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los estados</option>
             <option value={EstadoCargo.VIGENTE}>Vigente</option>
             <option value={EstadoCargo.NO_VIGENTE}>No vigente</option>
           </select>
+          <select
+            value={ocupado}
+            onChange={(e) => setParam('ocupado', e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Ocupados y vacantes</option>
+            <option value="true">Solo ocupados</option>
+            <option value="false">Solo vacantes</option>
+          </select>
         </div>
+
+        {/* Chips de filtros activos */}
+        {(() => {
+          const chips: { label: string; key: string }[] = []
+          if (search) chips.push({ label: `"${search}"`, key: 'search' })
+          if (hospitalId) {
+            const h = hospitales?.find((h) => h.id === hospitalId)
+            chips.push({ label: h?.sigla ?? hospitalId, key: 'hospitalId' })
+          }
+          if (escalafonId) {
+            const e = escalafones?.find((e) => e.id === escalafonId)
+            chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
+          }
+          if (puesto) chips.push({ label: puesto, key: 'puesto' })
+          if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
+          if (ocupado) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
+          if (chips.length === 0) return null
+          return (
+            <div className="flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <span key={chip.key} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium">
+                  {chip.label}
+                  <button
+                    onClick={() => {
+                      if (chip.key === 'escalafonId') cambiarEscalafon('')
+                      else if (chip.key === 'hospitalId') cambiarHospital('')
+                      else if (chip.key === 'puesto') cambiarPuesto('')
+                      else setParam(chip.key, '')
+                    }}
+                    className="ml-0.5 hover:text-secondary/60"
+                    aria-label={`Quitar filtro ${chip.label}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {chips.length > 1 && (
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Limpiar todo
+                </button>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -165,6 +269,7 @@ export function CargosPage() {
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
+                    <th className="px-4 py-3 font-semibold">Ocupación</th>
                     <th className="px-4 py-3 font-semibold" />
                   </tr>
                 </thead>
@@ -180,8 +285,13 @@ export function CargosPage() {
                           {ESTADO_LABEL[c.estado]}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>
+                          {c.ocupado ? 'Ocupado' : 'Vacante'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-right">
-                        <Link to={`/cargos/${c.id}`} className="btn-outline">
+                        <Link to={`/cargos/${c.id}`} state={{ from: searchParams.toString() }} className="btn-outline">
                           Ver
                         </Link>
                       </td>

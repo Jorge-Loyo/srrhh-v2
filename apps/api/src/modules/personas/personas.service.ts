@@ -42,8 +42,11 @@ export async function listPersonasService(query: PersonasQuery) {
 
   if (search) {
     const like = `%${search}%`
+    // plainto_tsquery no soporta prefijos — se arma to_tsquery con ':*' en
+    // cada token para que "lizarra" matchee "lizarraga", "lizarragui", etc.
+    const tsQuery = search.trim().split(/\s+/).map((t) => `${t}:*`).join(' & ')
     conditions.push(Prisma.sql`(
-      to_tsvector('spanish_unaccent', p.apellido_nombre) @@ plainto_tsquery('spanish_unaccent', ${search})
+      to_tsvector('spanish_unaccent', p.apellido_nombre) @@ to_tsquery('spanish_unaccent', ${tsQuery})
       OR p.cuil ILIKE ${like}
       OR p.numero_doc ILIKE ${like}
     )`)

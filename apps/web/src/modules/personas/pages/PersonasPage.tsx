@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { PaginatedResponse, PersonaListItem, PersonaFilters } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
@@ -12,13 +12,33 @@ import { usePersonas, usePuestos } from '../hooks/usePersonas'
 const LIMIT = 50
 
 export function PersonasPage() {
-  const [search, setSearch] = useState('')
-  const [hospitalId, setHospitalId] = useState('')
-  const [escalafonId, setEscalafonId] = useState('')
-  const [activo, setActivo] = useState<'' | 'true' | 'false'>('')
-  const [puesto, setPuesto] = useState('')
-  const [especialidad, setEspecialidad] = useState('')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const search       = searchParams.get('search') ?? ''
+  const hospitalId   = searchParams.get('hospitalId') ?? ''
+  const escalafonId  = searchParams.get('escalafonId') ?? ''
+  const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
+  const puesto       = searchParams.get('puesto') ?? ''
+  const especialidad = searchParams.get('especialidad') ?? ''
+  const page         = Number(searchParams.get('page') ?? '1')
+
+  function setParam(key: string, value: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (value) next.set(key, value); else next.delete(key)
+      next.delete('page')
+      return next
+    })
+  }
+
+  function setPage(p: number | ((prev: number) => number)) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      const newPage = typeof p === 'function' ? p(Number(prev.get('page') ?? '1')) : p
+      if (newPage === 1) next.delete('page'); else next.set('page', String(newPage))
+      return next
+    }, { replace: true })
+  }
 
   // S3-6: debounce 300ms — no dispara un fetch por cada tecla.
   const searchDebounced = useDebounce(search, 300)
@@ -54,28 +74,25 @@ export function PersonasPage() {
   // ver Puesto en packages/types).
   const especialidadesDelPuesto = puestos?.find((p) => p.puesto === puesto)?.especialidades ?? []
 
-  function resetPage<T>(setter: (v: T) => void) {
-    return (v: T) => {
-      setter(v)
-      setPage(1)
-    }
-  }
-
   function cambiarPuesto(nuevoPuesto: string) {
-    setPuesto(nuevoPuesto)
-    setEspecialidad('') // las especialidades disponibles cambian con el puesto
-    setPage(1)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
+      next.delete('especialidad')
+      next.delete('page')
+      return next
+    })
   }
 
-  // Pedido de Jorge (2026-08-26): al cambiar de escalafón, la lista de
-  // puestos disponibles cambia (cascada) — el puesto/especialidad elegidos
-  // antes ya pueden no existir en el nuevo escalafón, así que se resetean
-  // (mismo patrón que cambiarPuesto con especialidad).
   function cambiarEscalafon(nuevoEscalafonId: string) {
-    setEscalafonId(nuevoEscalafonId)
-    setPuesto('')
-    setEspecialidad('')
-    setPage(1)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevoEscalafonId) next.set('escalafonId', nuevoEscalafonId); else next.delete('escalafonId')
+      next.delete('puesto')
+      next.delete('especialidad')
+      next.delete('page')
+      return next
+    })
   }
 
   const [exportando, setExportando] = useState(false)
@@ -134,12 +151,12 @@ export function PersonasPage() {
             type="text"
             placeholder="Buscar por nombre, CUIL o DNI..."
             value={search}
-            onChange={(e) => resetPage(setSearch)(e.target.value)}
+            onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
           <select
             value={hospitalId}
-            onChange={(e) => resetPage(setHospitalId)(e.target.value)}
+            onChange={(e) => setParam('hospitalId', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los hospitales</option>
@@ -163,7 +180,7 @@ export function PersonasPage() {
           </select>
           <select
             value={activo}
-            onChange={(e) => resetPage(setActivo)(e.target.value as '' | 'true' | 'false')}
+            onChange={(e) => setParam('activo', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Activos e inactivos</option>
@@ -177,13 +194,10 @@ export function PersonasPage() {
             placeholder="Todos los puestos"
             className="min-w-[240px]"
           />
-          {/* Filtro en cascada: solo aparece si hay un puesto elegido y ese
-              puesto tiene especialidades reales en los datos (la mayoría de
-              los puestos no médicos no tienen ninguna). */}
           {puesto && especialidadesDelPuesto.length > 0 && (
             <select
               value={especialidad}
-              onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
+              onChange={(e) => setParam('especialidad', e.target.value)}
               className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
             >
               <option value="">Todas las especialidades</option>
@@ -195,6 +209,52 @@ export function PersonasPage() {
             </select>
           )}
         </div>
+
+        {/* Burbujas de filtros activos */}
+        {(() => {
+          const chips: { label: string; key: string }[] = []
+          if (search) chips.push({ label: `"${search}"`, key: 'search' })
+          if (hospitalId) {
+            const h = hospitales?.find((h) => h.id === hospitalId)
+            chips.push({ label: h?.sigla ?? hospitalId, key: 'hospitalId' })
+          }
+          if (escalafonId) {
+            const e = escalafones?.find((e) => e.id === escalafonId)
+            chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
+          }
+          if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
+          if (puesto) chips.push({ label: puesto, key: 'puesto' })
+          if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
+          if (chips.length === 0) return null
+          return (
+            <div className="flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <span key={chip.key} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium">
+                  {chip.label}
+                  <button
+                    onClick={() => {
+                      if (chip.key === 'escalafonId') cambiarEscalafon('')
+                      else if (chip.key === 'puesto') cambiarPuesto('')
+                      else setParam(chip.key, '')
+                    }}
+                    className="ml-0.5 hover:text-secondary/60"
+                    aria-label={`Quitar filtro ${chip.label}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {chips.length > 1 && (
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Limpiar todo
+                </button>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -236,7 +296,7 @@ export function PersonasPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Link to={`/personas/${p.id}`} className="btn-outline">
+                        <Link to={`/personas/${p.id}`} state={{ from: searchParams.toString() }} className="btn-outline">
                           Ver
                         </Link>
                       </td>

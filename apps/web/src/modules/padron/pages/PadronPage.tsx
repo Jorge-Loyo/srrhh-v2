@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EstadoSnapshot, RolUsuario } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
-import { useSnapshotEstado, useSnapshots, useUploadPadron } from '../hooks/usePadron'
+import { useSnapshotEstado, useSnapshots, useUploadPadron, useDeleteSnapshot, useExportarSnapshot } from '../hooks/usePadron'
 
 const ESTADO_BADGE: Record<string, string> = {
   procesando: 'badge-warning',
@@ -38,6 +38,7 @@ export function PadronPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const puedeSubir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
+  const esAdmin = user?.rol === RolUsuario.ADMIN
 
   const [file, setFile] = useState<File | null>(null)
   const [fechaAsignada, setFechaAsignada] = useState(hoy())
@@ -45,6 +46,8 @@ export function PadronPage() {
 
   const { data: snapshots, isLoading: cargandoSnapshots } = useSnapshots()
   const upload = useUploadPadron()
+  const deleteSnapshot = useDeleteSnapshot()
+  const exportarSnapshot = useExportarSnapshot()
   const estado = useSnapshotEstado(snapshotEnCurso ?? undefined)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -190,6 +193,28 @@ export function PadronPage() {
                       s.estado === EstadoSnapshot.RECHAZADO) && (
                       <button className="btn-outline" onClick={() => navigate(`/padron/${s.id}`)}>
                         Ver
+                      </button>
+                    )}
+                    {(s.estado === EstadoSnapshot.PENDIENTE || s.estado === EstadoSnapshot.APROBADO) && (
+                      <button
+                        className="btn-outline ml-2"
+                        disabled={exportarSnapshot.isPending}
+                        onClick={() => exportarSnapshot.mutate(s.id)}
+                      >
+                        ↓ Excel
+                      </button>
+                    )}
+                    {esAdmin && (s.estado === EstadoSnapshot.ERROR || s.estado === EstadoSnapshot.RECHAZADO) && (
+                      <button
+                        className="btn-danger ml-2"
+                        disabled={deleteSnapshot.isPending}
+                        onClick={() => {
+                          if (confirm('¿Eliminar esta subida? Esta acción no se puede deshacer.')) {
+                            deleteSnapshot.mutate(s.id)
+                          }
+                        }}
+                      >
+                        Eliminar
                       </button>
                     )}
                   </td>

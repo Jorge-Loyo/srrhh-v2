@@ -1,70 +1,96 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { EstadoCargo } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 
+function fechaCorta(v: string | null | undefined) {
+  if (!v) return '—'
+  return v.slice(0, 10)
+}
+
 export function CargoDetailPanel() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
   const { data: cargo, isLoading, isError } = useCargo(id)
+
+  const volverHref = `/cargos${location.state?.from ? `?${location.state.from}` : ''}`
 
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando cargo...</p>
   if (isError || !cargo) return <p className="text-sm text-danger p-6">No se pudo cargar el cargo.</p>
 
-  const ocup = cargo.ocupacionActual
+  const ocup    = cargo.ocupacionActual
   const persona = ocup?.persona
   const vigente = cargo.estado === EstadoCargo.VIGENTE
+  const ocupado = !!persona
+  const retenido = ocup?.situacionRevista === 'Retencion de Cargo'
+
+  const desdeOcup = ocup?.cargoDesdeFecha
+    ? ocup.cargoDesdeFecha.slice(0, 10)
+    : ocup?.desde
+    ? ocup.desde.slice(0, 10)
+    : null
 
   return (
     <div className="space-y-4">
-      <Link to="/cargos" className="inline-flex items-center gap-1 text-sm text-secondary hover:underline">
+      <Link to={volverHref} className="inline-flex items-center gap-1 text-sm text-secondary hover:underline">
         ← Volver a Cargos
       </Link>
 
       {/* Encabezado */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-navy px-6 py-5 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-white text-xl font-bold leading-tight">{cargo.idSial}</h1>
-            <p className="text-white/70 text-sm mt-0.5">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
+        <div className="bg-navy px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-white/60 text-xs font-mono mb-1">{cargo.idSial}</p>
+              <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? cargo.idSial}</h1>
+              <p className="text-white/80 text-sm mt-1">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
+              {cargo.especialidad && (
+                <p className="text-white/55 text-xs mt-0.5">{cargo.especialidad}</p>
+              )}
+            </div>
+            <div className="flex flex-col items-end gap-2 shrink-0 mt-1">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${vigente ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
+                {vigente ? 'Vigente' : 'No vigente'}
+              </span>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
+                {ocupado ? 'Ocupado' : 'Vacante'}
+              </span>
+            </div>
           </div>
-          <span className={`mt-1 shrink-0 px-3 py-1 rounded-full text-xs font-semibold ${vigente ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
-            {vigente ? 'Vigente' : 'No vigente'}
-          </span>
         </div>
 
         <div className="divide-y divide-gray-100">
-          {/* Identificación */}
           <Section title="Identificación">
-            <Dato label="Código Cargo" value={cargo.codigo} />
-            <Dato label="ID SIAL" value={cargo.idSial} />
-            <Dato label="Régimen" value={cargo.regimen} />
-            <Dato
-              label="Código de Registro"
+            <Dato label="Código Cargo"      value={cargo.codigo} />
+            <Dato label="ID SIAL"           value={cargo.idSial} />
+            <Dato label="Régimen"           value={cargo.regimen} />
+            <Dato label="Código de Registro"
               value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal}` : null}
             />
           </Section>
 
-          {/* Ubicación */}
           <Section title="Ubicación">
-            <Dato label="Hospital" value={`${cargo.hospital.sigla} — ${cargo.hospital.nombre}`} />
-            <Dato label="Escalafón" value={cargo.escalafon.nombre} />
-            <Dato
-              label="Repartición"
+            <Dato label="Hospital"    value={`${cargo.hospital.sigla} — ${cargo.hospital.nombre}`} />
+            <Dato label="Escalafón"   value={cargo.escalafon.nombre} />
+            <Dato label="Repartición"
               value={cargo.codigoRepa ? `${cargo.codigoRepa} — ${cargo.descripcionRepa}` : cargo.descripcionRepa}
             />
           </Section>
 
-          {/* Clasificación */}
-          <Section title="Clasificación">
-            <Dato label="Especialidad" value={cargo.especialidad} />
-            <Dato label="Agrupador" value={cargo.agrupador} />
-            <Dato label="Unificador de puesto" value={cargo.unificadorPuesto} />
-            <Dato
-              label="Agrupamiento"
-              value={cargo.codAgrupamiento ? `${cargo.codAgrupamiento} — ${cargo.agrupamiento}` : cargo.agrupamiento}
-            />
-            <Dato label="Familia" value={cargo.codFamilia ? `${cargo.codFamilia} — ${cargo.litFamilia}` : cargo.litFamilia} />
-            <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
-          </Section>
+          {/* Solo mostrar Clasificación si hay al menos un campo con dato */}
+          {(cargo.especialidad || cargo.agrupador || cargo.unificadorPuesto || cargo.agrupamiento) && (
+            <Section title="Clasificación">
+              <Dato label="Especialidad"        value={cargo.especialidad} />
+              <Dato label="Agrupador"           value={cargo.agrupador} />
+              <Dato label="Unificador de puesto" value={cargo.unificadorPuesto} />
+              <Dato label="Agrupamiento"
+                value={cargo.codAgrupamiento ? `${cargo.codAgrupamiento} — ${cargo.agrupamiento}` : cargo.agrupamiento}
+              />
+              <Dato label="Familia"
+                value={cargo.codFamilia ? `${cargo.codFamilia} — ${cargo.litFamilia}` : cargo.litFamilia}
+              />
+              <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
+            </Section>
+          )}
         </div>
       </div>
 
@@ -75,28 +101,105 @@ export function CargoDetailPanel() {
         </div>
 
         {!persona ? (
-          <p className="p-6 text-sm text-gray-400 text-center">Cargo vacante — sin persona asignada.</p>
+          <div className="p-6 text-center">
+            <p className="text-gray-400 text-sm">Cargo vacante — sin persona asignada.</p>
+          </div>
         ) : (
-          <div className="p-6 space-y-4">
-            <div className="flex items-center justify-between gap-4">
+          <div className="p-6">
+            {/* Cabecera de la persona */}
+            <div className="flex items-start justify-between gap-4 mb-5">
               <div>
-                <p className="font-semibold text-gray-900 text-base">{persona.apellidoNombre}</p>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  CUIL {persona.cuil} · {persona.activo ? 'Activo' : 'Inactivo'}
-                </p>
+                <p className="font-bold text-gray-900 text-lg leading-tight">{persona.apellidoNombre}</p>
+                <p className="text-sm text-gray-500 mt-0.5">CUIL {persona.cuil}</p>
+                {persona.numeroDoc && (
+                  <p className="text-xs text-gray-400 mt-0.5">DNI {persona.numeroDoc}</p>
+                )}
               </div>
-              <Link to={`/personas/${persona.id}`} className="btn-outline shrink-0">
-                Ver persona
-              </Link>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${persona.activo ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
+                  {persona.activo ? 'Activo' : 'Inactivo'}
+                </span>
+                <Link to={`/personas/${persona.id}`} className="btn-outline text-xs">
+                  Ver persona
+                </Link>
+              </div>
             </div>
-            <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 text-sm pt-4 border-t border-gray-100">
+
+            {/* Datos de la ocupación */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 text-sm border-t border-gray-100 pt-4">
+              <Dato label="En el cargo desde" value={desdeOcup} />
               <Dato label="Situación de revista" value={ocup?.situacionRevista} />
-              <Dato label="Estado" value={ocup?.estadoPersona} />
-              <Dato label="Desde" value={ocup?.desde ? new Date(ocup.desde).toLocaleDateString('es-AR') : null} />
-            </dl>
+              <Dato label="Estado"               value={ocup?.estadoPersona} />
+              <Dato label="Comisión"             value={ocup?.comision} />
+              {ocup?.codigoJefaturas && (
+                <Dato label="Jefatura" value={`${ocup.codigoJefaturas}${ocup.jefeEscalafon ? ` — ${ocup.jefeEscalafon}` : ''}`} />
+              )}
+            </div>
+
+            {/* Cargo activo (cuando retiene este cargo y está activo en otro) */}
+            {retenido && cargo.cargoActivo && (
+              <div className="mt-4 pt-4 border-t border-amber-100 bg-amber-50 rounded-lg px-4 py-3">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Cubre en</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                  <Dato label="Cargo" value={cargo.cargoActivo.cargo.codigo ?? cargo.cargoActivo.cargo.idSial} />
+                  <Dato label="Puesto" value={cargo.cargoActivo.cargo.literalPuesto} />
+                  <Dato label="Hospital" value={`${cargo.cargoActivo.cargo.hospital.sigla} — ${cargo.cargoActivo.cargo.hospital.nombre}`} />
+                </div>
+                <div className="mt-2">
+                  <Link to={`/cargos/${cargo.cargoActivo.cargoId}`} className="btn-outline text-xs">
+                    Ver cargo activo
+                  </Link>
+                </div>
+              </div>
+            )}
+            {retenido && !cargo.cargoActivo && (
+              <p className="mt-3 text-xs text-amber-600 italic">Retiene este cargo — sin cargo activo registrado.</p>
+            )}
           </div>
         )}
       </div>
+
+      {/* Historial de personas */}
+      {cargo.historial.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-navy px-6 py-3 flex items-center justify-between">
+            <h2 className="text-white font-semibold text-sm uppercase tracking-wide">
+              Historial de personas
+            </h2>
+            <span className="text-white/60 text-xs">{cargo.historial.length} registro{cargo.historial.length !== 1 ? 's' : ''}</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">CUIL</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Desde</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Hasta</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Situación</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {cargo.historial.map((h) => (
+                <tr key={h.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{h.persona.apellidoNombre}</td>
+                  <td className="px-4 py-3 text-gray-500 font-mono text-xs">{h.persona.cuil}</td>
+                  <td className="px-4 py-3 text-gray-500">
+                    {fechaCorta(h.cargoDesdeFecha ?? h.desde)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{fechaCorta(h.hasta)}</td>
+                  <td className="px-4 py-3 text-gray-500">{h.situacionRevista ?? '—'}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Link to={`/personas/${h.persona.id}`} className="btn-outline">
+                      Ver
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

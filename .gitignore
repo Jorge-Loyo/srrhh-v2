@@ -46,3 +46,12 @@ __pycache__/
 # Docker Compose override local (conflicto de puerto con Postgres nativo)
 docker-compose.override.yml
 fix_plan.py
+
+# Scripts temporales de análisis
+check_*.py
+fix_*.py
+.commitmsg
+
+# Archivos temporales
+1
+o_ret.persona_id

@@ -51,7 +51,7 @@ if not DATABASE_URL:
     raise RuntimeError('DATABASE_URL no configurada')
 
 # SQLAlchemy engine — pool pequeño, Dotaneitor no tiene carga concurrente alta
-_engine = create_engine(DATABASE_URL, pool_size=2, max_overflow=2)
+_engine = create_engine(DATABASE_URL, pool_size=2, max_overflow=2, pool_pre_ping=True)
 
 SESSION_TTL = 7200
 
@@ -480,6 +480,16 @@ async def cruzar(body: SessionBody):
         logs = _cruzar_especialidades(s['automation'])
         s['cruzado'] = True
         _save_df(body.session_id, s['automation'].resultado_df)
+
+        # Guardar Excel persistente si se pasó snapshot_id
+        if body.fecha_asignada:  # reutilizamos el campo para pasar snapshot_id
+            snapshot_id = body.fecha_asignada
+            exports_dir = BASE_DIR / 'exports' / snapshot_id
+            exports_dir.mkdir(parents=True, exist_ok=True)
+            excel_path = exports_dir / 'dotacion.xlsx'
+            s['automation'].guardar_resultado(str(excel_path))
+            logs.append({'text': f'\u2713 Excel guardado: {excel_path}', 'type': 'success'})
+
         return {'logs': logs}
 
     return {'job_id': _start_job(_run)}
@@ -513,6 +523,18 @@ def preview(
 
     rows = [{k: _safe(v) for k, v in r.items()} for r in chunk.to_dict(orient='records')]
     return {'cols': list(df.columns), 'rows': rows, 'total': total, 'page': page, 'limit': limit}
+
+
+@app.get('/exports/{snapshot_id}/dotacion.xlsx')
+def descargar_export(snapshot_id: str):
+    excel_path = BASE_DIR / 'exports' / snapshot_id / 'dotacion.xlsx'
+    if not excel_path.exists():
+        raise HTTPException(404, 'Archivo no encontrado para este snapshot')
+    return StreamingResponse(
+        open(excel_path, 'rb'),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="dotacion_{snapshot_id[:8]}.xlsx"'},
+    )
 
 
 @app.get('/descargar')

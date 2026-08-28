@@ -24,3 +24,15 @@ export function useEscalafones() {
     },
   })
 }
+
+export function usePuestosCargos(escalafonId?: string, hospitalId?: string) {
+  return useQuery({
+    queryKey: ['cargos-puestos', escalafonId, hospitalId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: string[] }>('/api/v1/cargos/puestos', {
+        params: { ...(escalafonId && { escalafonId }), ...(hospitalId && { hospitalId }) },
+      })
+      return res.data.data
+    },
+  })
+}
