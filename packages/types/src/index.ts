@@ -578,6 +578,21 @@ export interface BajaFilters {
   search?: string
 }
 
+// S5-10 — POST /api/v1/cargos (Alta de Cargo manual)
+export interface CreateCargoRequest {
+  hospitalId: string
+  escalafonId: string
+  codigoRegistroId?: string
+  literalPuesto: string
+  especialidad?: string
+  agrupador?: string
+  unificadorPuesto?: string
+  regimen?: string
+  expediente?: string
+  desde?: string
+  cantidad?: number
+}
+
 // S5-4 — POST /api/v1/bajas
 // S5-5: tipoConcurso requerido cuando generaConcurso = true
 export interface CreateBajaRequest {
