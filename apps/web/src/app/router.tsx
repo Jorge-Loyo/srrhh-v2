@@ -14,6 +14,8 @@ import { AltaPorBajaPage } from '../modules/cargos/pages/AltaPorBajaPage'
 import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
 import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
 import { ConcursoCphDetail } from '../modules/concursos-cph/pages/ConcursoCphDetail'
+import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
+import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
 
 // Páginas placeholder — se implementan en cada sprint
 const Placeholder = ({ title }: { title: string }) => (
@@ -43,7 +45,8 @@ export const router = createBrowserRouter([
           { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
           { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
-          { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },
+          { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
+          { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
           { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
           { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
         ],

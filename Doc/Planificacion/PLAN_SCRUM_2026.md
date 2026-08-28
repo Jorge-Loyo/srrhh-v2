@@ -1114,18 +1114,18 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo CEETPS y flujo baja → concurso funcional.
 
-| #     | Tarea                                                                                                                            | Dev     | Est. | Prioridad  |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S5-1  | `GET/PATCH /api/v1/concursos-ceetps` con filtros                                                                                 | Jorge   | 6h   | 🔴 Crítico |
-| S5-2  | ConcursosCeetpsPage: tabla con estado, escalafón, filtros                                                                        | Agustin | 10h  | 🔴 Crítico |
-| S5-3  | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG                                                                            | Agustin | 10h  | 🔴 Crítico |
-| S5-4  | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación                                         | Jorge   | 6h   | 🔴 Crítico |
-| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico |
-| S5-6  | BajasPage: tabla + formulario nueva baja                                                                                         | Agustin | 8h   | 🔴 Crítico |
-| S5-7  | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja                                                               | Jorge   | 4h   | 🔴 Crítico |
-| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   |
-| S5-9  | Alertas CEETPS: concursos sin movimiento                                                                                         | Agustin | 3h   | 🟡 Medio   |
-| S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada | Jorge   | —    | 🔴 Crítico |
+| #     | Tarea                                                                                                                            | Dev     | Est. | Prioridad  |     |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- | --- |
+| S5-1  | `GET/PATCH /api/v1/concursos-ceetps` con filtros                                                                                 | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-2  | ConcursosCeetpsPage: tabla con estado, escalafón, filtros                                                                        | Agustin | 10h  | 🔴 Crítico | ✅  |
+| S5-3  | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG                                                                            | Agustin | 10h  | 🔴 Crítico | ✅  |
+| S5-4  | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación                                         | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-6  | BajasPage: tabla + formulario nueva baja                                                                                         | Agustin | 8h   | 🔴 Crítico | ✅  |
+| S5-7  | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja                                                               | Jorge   | 4h   | 🔴 Crítico | ✅  |
+| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   | ✅  |
+| S5-9  | Alertas CEETPS: concursos sin movimiento                                                                                         | Agustin | 3h   | 🟡 Medio   | ✅  |
+| S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada | Jorge   | —    | 🔴 Crítico | ⏳  |
 
 > **Dependencia S4→S5 explícita:** S4-6 (`POST /concursos`) es carga manual por ahora porque el
 > modelo `Baja` no existe todavía — `origen` queda como texto libre. S5-4/S5-5 agregan el modelo
@@ -1139,6 +1139,68 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 - Una baja genera automáticamente el seguimiento correspondiente
 - El cargo se marca `no_vigente` al registrar la baja
 - Alta de Cargo manual funciona con generación de código según nomenclatura heredada
+
+**S5-2, S5-3, S5-6 y S5-9 completados y verificados por Agustin (2026-08-28):**
+
+- `ConcursosCeetpsPage` (S5-2) y `ConcursoCeetpsDetail` (S5-3) — mismo patrón que CPH
+  (`ConcursosCphPage`/`ConcursoCphDetail`, Sprint 4), adaptado al contrato más chato de CEETPS: sin
+  `subEstado`/`subEstado3` (acá `estado` solo tiene 5 valores y alcanza para la tabla), sin
+  `suspendido`. El plan habla de "formulario por fases ENF/TEC/EG" pero esas 3 carreras comparten el
+  mismo `PatchConcursoCeetpsRequest` — no hay 3 formularios distintos, la carrera ya queda fija por
+  `escalafonId` al crear el concurso. Agrupé los 10 campos en 3 fases genéricas (Convocatoria /
+  IFACS-INSAL / Designación) en vez de por carrera.
+- `AlertasSinMovimientoCeetps` (S5-9) — mismo patrón acumulativo que `AlertasSinMovimiento` (S4-10),
+  con una diferencia real: CEETPS no tiene estado `suspendido` (`EstadoConcursoCeetps` solo tiene
+  `sin_autorizar`/`autorizado`/`en_proceso`/`finalizado`/`desierto`), así que la única exclusión es
+  por los dos estados terminales.
+- `BajasPage` (S5-6) — tomé la maqueta de Jorge (`BajaCargosPage.tsx`, datos mock) y la conecté a
+  `GET/POST /api/v1/bajas` reales: filtros por hospital/estado + búsqueda, formulario de alta con
+  picker de cargo (búsqueda async contra `GET /api/v1/cargos`, no un `<select>` con 46k+ opciones) y
+  picker de persona (mismo patrón que el picker de persona designada de CPH/CEETPS), tipo de
+  baja/tipificador de origen como `<input list>` con sugerencias (no `<select>` obligatorio — 97% de
+  los datos reales no tienen tipo cargado, ver análisis CSV en POST-SPRINT 4 (4) más arriba). Sin
+  endpoint de detalle/edición en el backend todavía (`bajas.routes.ts` solo tiene `GET`/`POST`), así
+  que el botón "Ver" expande la fila in-place en vez de navegar a una ruta de detalle que no existiría
+  del otro lado.
+- Dos bugs propios encontrados y corregidos en la verificación, ninguno detectado por `tsc`: (1) un
+  `.map()` devolviendo un fragment `<>...</>` sin `key` en la lista de `BajasPage` — el shorthand no
+  acepta `key`, hacía falta `<Fragment key={b.id}>` explícito; React lo hubiera marcado con un warning
+  en consola recién al renderizar, no en el build. (2) El picker de cargo de `BajasPage` armado sin
+  debounce real (buscaba en cada tecla contra la API en vez de esperar 300ms) — quedó así de un primer
+  borrador rápido, corregido para usar `useDebounce` + `useQuery` con la key derivada del valor
+  debounced, mismo patrón que el resto de los pickers async del proyecto.
+
+**Verificado contra la API real, no solo `tsc --noEmit`** (cargos de prueba insertados a mano,
+borrados al final — sin dejar residuos):
+
+- CEETPS: creado un concurso de prueba (`POST /api/v1/concursos`, `tipoConcurso: ceetps`) →
+  `estado: sin_autorizar`. `GET` listado y detalle devuelven la forma exacta que esperan los hooks
+  (incluye `concurso.cargo`, `hospital`, `escalafon`, `personaDesignada` expandidos). `PATCH` con
+  `dispoLlamado`+`fechaIfacs` → `estado` pasa a `en_proceso` automáticamente, confirmando que
+  `calcEstadoCeetps` corre server-side igual que en CPH.
+- Bajas: creada una baja de prueba (`POST /api/v1/bajas`) sobre un cargo `vigente` → respuesta con
+  `cargo`/`hospital`/`registradoPor` expandidos, `estado: pendiente` (default del schema). Confirmado
+  con una query directa a la BD que el cargo pasó a `no_vigente` (S5-7) como efecto de la misma
+  transacción. Baja y cargo de prueba borrados al final.
+
+**Actualización (2026-08-28, mismo día): Jorge cerró S5-5 y S5-8 apenas terminé lo de arriba** — el
+hueco de "genera_concurso no hace nada" de este mismo párrafo (versión anterior) ya no existe. `S5-5`
+cambió el contrato de `POST /api/v1/bajas`: ahora `tipoConcurso` es requerido cuando
+`generaConcurso: true` (y `escalafonId` además cuando `tipoConcurso: ceetps`) — rompía mi formulario
+tal cual estaba, así que le agregué el selector de tipo de concurso (CPH/CEETPS) + escalafón
+condicional a `BajaCargosPage`, con la misma validación `.refine()` en el zod del form que ya tiene
+`createBajaSchema` del lado del backend (mejor UX, error antes de pegarle a la API).
+
+Reverificado contra la API real tras el merge: `POST /api/v1/bajas` con `generaConcurso: true` +
+`tipoConcurso: cph` → crea la baja **y** un `ConcursoCph` nuevo para el cargo (`estado: no_iniciado`,
+`subEstado: VACANTE`) en la misma request. Sin `generaConcurso` → sigue funcionando sin pedir
+`tipoConcurso` (201). Con `generaConcurso: true` y sin `tipoConcurso` → 400, confirma el guard.
+`GET /api/v1/kpis/concursos-ceetps` (S5-8) responde con la forma esperada. Datos de prueba borrados
+al final.
+
+Con esto, **Sprint 5 queda completo de punta a punta** salvo S5-10 (Alta de Cargo manual, sin
+estimación de horas en la tabla, prerequisito real para cerrar el flujo cuando el cargo ganado no
+existe en el padrón — ver nota de dependencia más arriba).
 
 ---
 
