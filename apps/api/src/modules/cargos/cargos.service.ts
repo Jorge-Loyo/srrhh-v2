@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery } from './cargos.schema.js'
+import type { CargosQuery, CreateCargoBody } from './cargos.schema.js'
+import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
 export async function listPuestosCargosService(escalafonId?: string, hospitalId?: string) {
@@ -129,4 +130,57 @@ export async function getCargoByIdService(id: string) {
   }
 
   return { ...rest, ocupacionActual, historial, cargoActivo }
+}
+
+// ─── S5-10: Alta de Cargo manual ─────────────────────────────────────────────
+export async function createCargoService(body: CreateCargoBody) {
+  const hospital = await prisma.hospital.findUnique({ where: { id: body.hospitalId } })
+  if (!hospital) throw AppError.notFound('Hospital no encontrado')
+
+  const escalafon = await prisma.escalafon.findUnique({ where: { id: body.escalafonId } })
+  if (!escalafon) throw AppError.notFound('Escalafon no encontrado')
+
+  if (body.codigoRegistroId) {
+    const cr = await prisma.codigoRegistro.findUnique({ where: { id: body.codigoRegistroId } })
+    if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
+  }
+
+  const prefijo = prefijoDeCargo({
+    escalafon: escalafon.nombre,
+    unificadorPuesto: body.unificadorPuesto ?? null,
+    agrupador: body.agrupador ?? null,
+  })
+
+  // Crear `cantidad` cargos en una sola transacción. El secuencial se
+  // incrementa dentro del loop — siguienteCodigoCargo lee el MAX en cada
+  // llamada, así que el segundo cargo ve el primero ya insertado y toma el
+  // siguiente número correctamente.
+  return prisma.$transaction(async (tx) => {
+    const creados = []
+    for (let i = 0; i < body.cantidad; i++) {
+      const codigo = await siguienteCodigoCargo(prefijo, tx)
+      // idSial sintético para cargos manuales: prefijo del código + timestamp
+      // + índice para garantizar unicidad incluso en lotes.
+      const idSial = `MANUAL-${codigo}`
+
+      const cargo = await tx.cargo.create({
+        data: {
+          idSial,
+          codigo,
+          hospitalId: body.hospitalId,
+          escalafonId: body.escalafonId,
+          codigoRegistroId: body.codigoRegistroId ?? null,
+          literalPuesto: body.literalPuesto,
+          especialidad: body.especialidad ?? null,
+          agrupador: body.agrupador ?? null,
+          unificadorPuesto: body.unificadorPuesto ?? null,
+          regimen: body.regimen ?? null,
+          estado: 'vigente',
+        },
+        include: { hospital: true, escalafon: true },
+      })
+      creados.push(cargo)
+    }
+    return creados
+  })
 }
