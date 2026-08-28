@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import FormData from 'form-data'
 import axios from 'axios'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
 import type { DiffQuery } from './padron.schema.js'
 
 // Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
@@ -837,14 +838,40 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const c of cargosACrear.values()) cargoCache.set(c.idSial, c)
 
-    // ── 3b. Asignar código a los cargos recién creados ─────────────────────
-    // Se hace cargo por cargo (no en bloque) porque cada uno necesita el
-    // secuencial correcto para su prefijo — siguienteCodigoCargo() lee el MAX
-    // actual en la misma transacción, garantizando unicidad.
-    for (const cargoData of cargosParaInsertar) {
-      if (!cargoData._prefijo) continue
-      const codigo = await siguienteCodigoCargo(cargoData._prefijo, tx)
-      await tx.cargo.update({ where: { id: cargoData.id }, data: { codigo } })
+    // ── 3b. Asignar código a los cargos recién creados — en bloque ─────────
+    // Antes: un siguienteCodigoCargo() (SELECT MAX contra toda la tabla
+    // cargos) + un update() POR CADA CARGO. Con un padrón real de decenas de
+    // miles de cargos nuevos eso son decenas de miles de scans completos de
+    // la tabla, uno por uno — degradaba de los ~35s documentados (Sprint 2,
+    // sección 8) a varios minutos, encontrado verificando Sprint 2 con un
+    // Excel real de 47k filas (2026-08-28). Ahora: un solo MAX por prefijo
+    // distinto (típicamente ~15, no 47k) vía maxSecuencialCargo(), secuencial
+    // asignado en memoria, y un UPDATE multi-fila por lote de 2000 en vez de
+    // un update por cargo — mismo patrón de batching que ya usa el resto de
+    // esta función (createMany/updateMany troceados).
+    const cargosPorPrefijo = new Map<string, typeof cargosParaInsertar>()
+    for (const c of cargosParaInsertar) {
+      if (!c._prefijo) continue
+      const lista = cargosPorPrefijo.get(c._prefijo) ?? []
+      lista.push(c)
+      cargosPorPrefijo.set(c._prefijo, lista)
+    }
+
+    const asignacionesCodigo: { id: string; codigo: string }[] = []
+    for (const [prefijo, lista] of cargosPorPrefijo) {
+      let siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
+      for (const c of lista) {
+        asignacionesCodigo.push({ id: c.id, codigo: `${prefijo}-${String(siguiente).padStart(6, '0')}` })
+        siguiente++
+      }
+    }
+
+    for (const lote of chunk(asignacionesCodigo, 2000)) {
+      await tx.$executeRaw`
+        UPDATE cargos AS c SET codigo = v.codigo, updated_at = now()
+        FROM (VALUES ${Prisma.join(lote.map((a) => Prisma.sql`(${a.id}::uuid, ${a.codigo})`))}) AS v(id, codigo)
+        WHERE c.id = v.id
+      `
     }
 
     const ocupacionesACrear: {

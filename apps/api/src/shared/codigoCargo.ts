@@ -113,8 +113,21 @@ export async function siguienteCodigoCargo(
   prefijo: string,
   tx: TxClient,
 ): Promise<string> {
-  // Busca el máximo secuencial existente para este prefijo.
-  // El patrón es: prefijo + '-' + 6 dígitos al final.
+  const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
+  return `${prefijo}-${String(siguiente).padStart(6, '0')}`
+}
+
+// Igual query que siguienteCodigoCargo pero devuelve solo el número — para
+// asignar un lote entero de códigos de un mismo prefijo en memoria (un MAX
+// por prefijo distinto, no uno por cargo). Ver aprobarSnapshotService en
+// padron.service.ts: con un padrón real de decenas de miles de cargos
+// nuevos, llamar siguienteCodigoCargo() cargo por cargo (un SELECT MAX
+// completo contra toda la tabla por cada uno) degradaba de ~35s a varios
+// minutos — encontrado verificando Sprint 2 con un Excel real de 47k filas
+// (2026-08-28). siguienteCodigoCargo() se deja igual para cargos.service.ts
+// (S5-10, alta manual, tope 50 por vez — a esa escala el costo es
+// irrelevante y no vale la pena tocar ese call site).
+export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise<number> {
   const rows = await tx.$queryRaw<{ max_seq: number | null }[]>(
     Prisma.sql`
       SELECT MAX(CAST(SUBSTRING(codigo FROM '([0-9]{6})$') AS INTEGER)) AS max_seq
@@ -123,6 +136,5 @@ export async function siguienteCodigoCargo(
         AND codigo ~ ${'^' + prefijo.replace(/-/g, '\\-') + '-[0-9]{6}$'}
     `
   )
-  const siguiente = (rows[0]?.max_seq ?? 0) + 1
-  return `${prefijo}-${String(siguiente).padStart(6, '0')}`
+  return rows[0]?.max_seq ?? 0
 }
