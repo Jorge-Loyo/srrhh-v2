@@ -1,7 +1,7 @@
 # Contrato de Tecnologías — SRRHH v2
 
 > Documento de decisiones técnicas. Toda elección de stack está justificada por los requerimientos del dominio.
-> Última actualización: 2026-09
+> Última actualización: 2026-09 (Post-Sprint 5)
 > Estado: APROBADO — no modificar sin consenso del equipo
 
 ---
@@ -33,6 +33,7 @@
 | Componentes UI | shadcn/ui | latest |
 | Formularios | React Hook Form + Zod | — |
 | Routing frontend | React Router | v7 |
+| Exportación Excel (frontend) | xlsx (SheetJS) | latest |
 | Procesamiento Excel (Dotaneitor) | Python + FastAPI | Python 3.11+ |
 | Monorepo | pnpm workspaces + Turborepo | pnpm 9 |
 | Contenedores | Docker + docker-compose | — |
@@ -47,12 +48,13 @@
 
 **Motivo principal:** el histórico de cambios del padrón va a crecer a millones de filas.
 PostgreSQL ofrece:
-- Particionado nativo por rango de fecha — la tabla de histórico se particiona por año/mes sin cambiar queries
-- `tsvector` + índices GIN para búsqueda de texto completo nativa (nombre, cargo, hospital)
-- JSONB indexable para datos semiestructurados si aparecen en el futuro
+- Particionado nativo por rango de fecha
+- `tsvector` + índices GIN para búsqueda de texto completo nativa
+- Extensión `unaccent` (contrib estándar) para búsqueda sin acentos — "medico" encuentra "Médico" sin degradar el dato almacenado
+- JSONB indexable para datos semiestructurados
 - Window functions completas para KPIs comparativos entre períodos
 
-**NoSQL descartado:** todo el dominio es relacional (persona → cargo → hospital → concurso → baja). Agregar MongoDB o similar solo agregaría complejidad sin beneficio.
+**NoSQL descartado:** todo el dominio es relacional. Agregar MongoDB solo agregaría complejidad sin beneficio.
 
 **Redis (futuro):** puede agregarse como cache de KPIs pesados en una segunda fase. No en el arranque.
 
@@ -60,7 +62,7 @@ PostgreSQL ofrece:
 
 ### Backend: Fastify sobre Express
 
-**Motivo:** Fastify es 2-3x más rápido en throughput que Express, tiene validación de schemas integrada con JSON Schema, y soporte TypeScript de primera clase. Con 100 usuarios concurrentes y queries analíticas, el performance del servidor importa.
+**Motivo:** Fastify es 2-3x más rápido en throughput que Express, tiene validación de schemas integrada con JSON Schema, y soporte TypeScript de primera clase.
 
 **Python:** el microservicio Dotaneitor (procesamiento de Excel) se mantiene en Python + FastAPI. Esa lógica es compleja, ya funciona, y Python es el lenguaje correcto para procesamiento de datos con pandas. No se reescribe.
 
@@ -68,28 +70,35 @@ PostgreSQL ofrece:
 
 ### ORM: Prisma
 
-**Motivo:** el schema de Prisma es la fuente de verdad de la base de datos. Genera:
-- Tipos TypeScript automáticamente → imposible escribir una query con una columna que no existe
-- Migraciones versionadas desde el día 1 → historial completo de cambios de esquema
-- Cliente con autocompletado completo en el IDE
+**Motivo:** el schema de Prisma es la fuente de verdad de la base de datos. Genera tipos TypeScript automáticamente y migraciones versionadas desde el día 1.
 
 **Regla:** ningún cambio de esquema se hace directamente en la BD. Todo pasa por una migración Prisma.
+
+**Nota sobre migraciones en WSL:** `prisma migrate diff` no llega a Postgres desde Windows directamente. Solución establecida: generar SQL con `prisma migrate diff --from-schema-datasource --to-schema-datamodel --script`, aplicar con `wsl -- bash -c "PGPASSWORD=... psql ..."`, registrar en `_prisma_migrations` con `prisma migrate resolve --applied`, luego rebuild del container.
 
 ---
 
 ### Frontend: TanStack Query
 
-**Motivo:** reemplaza el patrón manual de `useState(loading) + useEffect(fetch) + useState(error)` que genera el 60% del código boilerplate. TanStack Query maneja cache, revalidación, estados de carga y error, y sincronización automática.
+**Motivo:** reemplaza el patrón manual de `useState(loading) + useEffect(fetch) + useState(error)`. Maneja cache, revalidación, estados de carga y error, y sincronización automática.
 
 **Regla:** ningún fetch al backend se hace con `useEffect` directo. Todo pasa por un hook de TanStack Query.
 
 ---
 
-### Componentes UI: shadcn/ui
+### Componentes UI: shadcn/ui + Tailwind CSS
 
-**Motivo:** no es una librería de componentes — es un conjunto de componentes que se copian al proyecto. Sin dependencia externa, sin conflictos de versiones, 100% customizables. Construidos sobre Radix UI (accesibilidad) y Tailwind.
+**Motivo:** shadcn/ui no es una librería de componentes — es un conjunto de componentes que se copian al proyecto. Sin dependencia externa, sin conflictos de versiones, 100% customizables. Construidos sobre Radix UI (accesibilidad) y Tailwind.
+
+Los tokens de diseño de Obelisco v2 (colores, tipografía, espaciado) se aplican manualmente en `tailwind.config.ts` y `index.css`. No se usa el paquete `@gcba/obelisco-v2` (que asume Bootstrap 5).
 
 **Regla:** antes de crear un componente custom, verificar si shadcn/ui ya lo tiene.
+
+---
+
+### Exportación Excel: xlsx (SheetJS)
+
+**Motivo:** genera `.xlsx` real (no CSV) directamente en el browser sin dependencia de servidor. Integrado en `shared/lib/exportExcel.ts` junto con `fetchAllPages()` que pagina el resultado completo filtrado antes de exportar.
 
 ---
 
@@ -117,7 +126,9 @@ PostgreSQL ofrece:
 | Next.js | SSR no requerido, agrega complejidad sin beneficio para una app interna |
 | Nest.js | Demasiado opinionado, curva alta, Fastify es suficiente |
 | Sequelize / TypeORM | Prisma es superior en DX y type safety |
-| Redux | TanStack Query cubre el estado servidor; Zustand/Context para estado local si hace falta |
+| Redux | TanStack Query cubre el estado servidor; Zustand para estado local si hace falta |
+| Bootstrap 5 / @gcba/obelisco-v2 | Conflicto con Tailwind CSS; los tokens de Obelisco se aplican manualmente |
+| CSV export | Reemplazado por xlsx (SheetJS) — genera `.xlsx` real que Excel abre sin configuración |
 
 ---
 
@@ -134,7 +145,7 @@ srh-v2/
 ├── prisma/
 │   ├── schema.prisma       ← Fuente de verdad del esquema de BD
 │   └── migrations/         ← Historial de migraciones
-├── docker-compose.yml      ← PostgreSQL + API + Web para desarrollo local
+├── docker-compose.yml      ← PostgreSQL + API + Web + Dotaneitor para desarrollo local
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── .github/
@@ -146,7 +157,7 @@ srh-v2/
 ## Organización en GitHub
 
 - Una organización para el proyecto (no repo personal)
-- Ramas: `main` (producción), `develop` (integración), feature branches por tarea
+- Ramas: `main` (producción), `develop` (integración), feature branches por dev (`jorge`, `agustin`)
 - Pull Requests obligatorios para mergear a `develop` y `main`
 - Branch protection en `main`: requiere PR + review
 
@@ -154,9 +165,8 @@ srh-v2/
 > está creada en GitHub (`Settings → Branches`) pero **no se hace cumplir** —
 > GitHub Free para organizaciones no aplica branch protection en repos
 > privados, hace falta plan Team o Enterprise. Hoy esto es un acuerdo de
-> proceso (PR + review antes de mergear a `main`), no un bloqueo técnico: un
-> push directo a `main` todavía es posible. Si la organización pasa a un plan
-> pago, la regla ya existente empieza a aplicarse sola, sin reconfigurar nada.
+> proceso (PR + review antes de mergear a `main`), no un bloqueo técnico.
+> Si la organización pasa a un plan pago, la regla ya existente empieza a aplicarse sola.
 
 ---
 
@@ -167,3 +177,4 @@ srh-v2/
 3. **Contratos de datos** — los tipos del paquete `packages/types` son la interfaz entre front y back. Si cambia un DTO, cambia en un solo lugar.
 4. **Docker para todo** — ningún servicio corre "a mano" en producción.
 5. **Variables de entorno** — ninguna credencial en el código. Todo en `.env` con `.env.example` documentado.
+6. **`prisma generate` en postinstall** — `"postinstall": "prisma generate --schema=./prisma/schema.prisma"` en `package.json` raíz. Nunca más un cliente Prisma sin generar después de `pnpm install`.
