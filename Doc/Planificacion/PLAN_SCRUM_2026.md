@@ -1120,10 +1120,10 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 | S5-2  | ConcursosCeetpsPage: tabla con estado, escalafón, filtros                                                                        | Agustin | 10h  | 🔴 Crítico | ✅  |
 | S5-3  | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG                                                                            | Agustin | 10h  | 🔴 Crítico | ✅  |
 | S5-4  | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación                                         | Jorge   | 6h   | 🔴 Crítico | ✅  |
-| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico | ⏳  |
+| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico | ✅  |
 | S5-6  | BajasPage: tabla + formulario nueva baja                                                                                         | Agustin | 8h   | 🔴 Crítico | ✅  |
 | S5-7  | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja                                                               | Jorge   | 4h   | 🔴 Crítico | ✅  |
-| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   | ⏳  |
+| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   | ✅  |
 | S5-9  | Alertas CEETPS: concursos sin movimiento                                                                                         | Agustin | 3h   | 🟡 Medio   | ✅  |
 | S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada | Jorge   | —    | 🔴 Crítico | ⏳  |
 
@@ -1183,10 +1183,24 @@ borrados al final — sin dejar residuos):
   con una query directa a la BD que el cargo pasó a `no_vigente` (S5-7) como efecto de la misma
   transacción. Baja y cargo de prueba borrados al final.
 
-⚠️ **Hueco real, no mío — documentado en el propio código de Jorge** (`bajas.service.ts`): **S5-5
-(`genera_concurso` → crear seguimiento automático) todavía no está implementado.** El campo
-`generaConcurso` se guarda en la baja pero no dispara ninguna creación de `Concurso`. Quien use
-`BajasPage` hoy puede tildar "Genera concurso de reemplazo" sin que pase nada del otro lado todavía.
+**Actualización (2026-08-28, mismo día): Jorge cerró S5-5 y S5-8 apenas terminé lo de arriba** — el
+hueco de "genera_concurso no hace nada" de este mismo párrafo (versión anterior) ya no existe. `S5-5`
+cambió el contrato de `POST /api/v1/bajas`: ahora `tipoConcurso` es requerido cuando
+`generaConcurso: true` (y `escalafonId` además cuando `tipoConcurso: ceetps`) — rompía mi formulario
+tal cual estaba, así que le agregué el selector de tipo de concurso (CPH/CEETPS) + escalafón
+condicional a `BajaCargosPage`, con la misma validación `.refine()` en el zod del form que ya tiene
+`createBajaSchema` del lado del backend (mejor UX, error antes de pegarle a la API).
+
+Reverificado contra la API real tras el merge: `POST /api/v1/bajas` con `generaConcurso: true` +
+`tipoConcurso: cph` → crea la baja **y** un `ConcursoCph` nuevo para el cargo (`estado: no_iniciado`,
+`subEstado: VACANTE`) en la misma request. Sin `generaConcurso` → sigue funcionando sin pedir
+`tipoConcurso` (201). Con `generaConcurso: true` y sin `tipoConcurso` → 400, confirma el guard.
+`GET /api/v1/kpis/concursos-ceetps` (S5-8) responde con la forma esperada. Datos de prueba borrados
+al final.
+
+Con esto, **Sprint 5 queda completo de punta a punta** salvo S5-10 (Alta de Cargo manual, sin
+estimación de horas en la tabla, prerequisito real para cerrar el flujo cuando el cargo ganado no
+existe en el padrón — ver nota de dependencia más arriba).
 
 ---
 

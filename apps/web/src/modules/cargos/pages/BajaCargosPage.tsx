@@ -3,11 +3,12 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
-import { EstadoBaja, RolUsuario } from '@srrhh/types'
+import { EstadoBaja, RolUsuario, TipoConcurso } from '@srrhh/types'
 import type { Cargo, PersonaListItem } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { apiClient } from '@/shared/lib/api-client'
 import { usePersonas } from '../../personas/hooks/usePersonas'
@@ -57,17 +58,33 @@ const TIPIFICADORES_SUGERIDOS = [
 
 const LIMIT = 50
 
-const formSchema = z.object({
-  cargoId: z.string().uuid('Elegí un cargo'),
-  hospitalId: z.string().uuid(),
-  personaId: z.string().optional(),
-  fechaBaja: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Elegí una fecha'),
-  tipoBaja: z.string().optional(),
-  motivo: z.string().optional(),
-  tipificadorOrigen: z.string().optional(),
-  generaConcurso: z.boolean(),
-  observaciones: z.string().optional(),
-})
+// S5-5: si generaConcurso es true, tipoConcurso es requerido — y si
+// tipoConcurso es ceetps, escalafonId también. Mismos dos .refine() que
+// createBajaSchema en el backend (apps/api/.../bajas.schema.ts), duplicados
+// acá para dar el error en el form antes de pegarle a la API — createBajaSchema
+// ya los valida igual del otro lado, esto es solo mejor UX.
+const formSchema = z
+  .object({
+    cargoId: z.string().uuid('Elegí un cargo'),
+    hospitalId: z.string().uuid(),
+    personaId: z.string().optional(),
+    fechaBaja: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Elegí una fecha'),
+    tipoBaja: z.string().optional(),
+    motivo: z.string().optional(),
+    tipificadorOrigen: z.string().optional(),
+    generaConcurso: z.boolean(),
+    tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
+    escalafonId: z.string().optional(),
+    observaciones: z.string().optional(),
+  })
+  .refine((d) => !d.generaConcurso || !!d.tipoConcurso, {
+    message: 'Elegí el tipo de concurso',
+    path: ['tipoConcurso'],
+  })
+  .refine((d) => d.tipoConcurso !== TipoConcurso.CEETPS || !!d.escalafonId, {
+    message: 'Elegí el escalafón',
+    path: ['escalafonId'],
+  })
 type FormValues = z.infer<typeof formSchema>
 
 export function BajaCargosPage() {
@@ -92,6 +109,7 @@ export function BajaCargosPage() {
   }
   const { data, isLoading, isFetching, isError } = useBajas(filters)
   const { data: hospitales } = useHospitales()
+  const { data: escalafones } = useEscalafones()
   const createBaja = useCreateBaja()
 
   const { register, handleSubmit, reset, watch, setValue, formState } = useForm<FormValues>({
@@ -99,6 +117,8 @@ export function BajaCargosPage() {
     defaultValues: { generaConcurso: true },
   })
   const cargoSeleccionadoId = watch('cargoId')
+  const generaConcurso = watch('generaConcurso')
+  const tipoConcursoElegido = watch('tipoConcurso')
 
   function resetPage<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -119,6 +139,8 @@ export function BajaCargosPage() {
         motivo: values.motivo || undefined,
         tipificadorOrigen: values.tipificadorOrigen || undefined,
         generaConcurso: values.generaConcurso,
+        tipoConcurso: values.generaConcurso ? values.tipoConcurso : undefined,
+        escalafonId: values.tipoConcurso === TipoConcurso.CEETPS ? values.escalafonId : undefined,
         observaciones: values.observaciones || undefined,
       })
       reset({ generaConcurso: true })
@@ -259,11 +281,65 @@ export function BajaCargosPage() {
             </datalist>
           </div>
 
-          <div className="flex items-center gap-2 mt-6">
-            <input type="checkbox" {...register('generaConcurso')} className="checkbox" id="generaConcurso" />
-            <label htmlFor="generaConcurso" className="text-sm text-gray-700">
-              Genera concurso de reemplazo
-            </label>
+          <div className="sm:col-span-2 space-y-3">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" {...register('generaConcurso')} className="checkbox" id="generaConcurso" />
+              <label htmlFor="generaConcurso" className="text-sm text-gray-700">
+                Genera concurso de reemplazo
+              </label>
+            </div>
+
+            {/* S5-5: si genera concurso, el backend crea el seguimiento
+                automático — necesita saber a qué carrera (tipoConcurso), y
+                si es CEETPS, a qué escalafón. */}
+            {generaConcurso && (
+              <div className="flex flex-wrap gap-3 pl-6">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">
+                    Tipo de concurso <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    {...register('tipoConcurso')}
+                    defaultValue=""
+                    className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                  >
+                    <option value="" disabled>
+                      Elegir...
+                    </option>
+                    <option value={TipoConcurso.CPH}>CPH</option>
+                    <option value={TipoConcurso.CEETPS}>CEETPS</option>
+                  </select>
+                  {formState.errors.tipoConcurso && (
+                    <p className="text-xs text-danger mt-1">{formState.errors.tipoConcurso.message}</p>
+                  )}
+                </div>
+
+                {tipoConcursoElegido === TipoConcurso.CEETPS && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      Escalafón <span className="text-danger">*</span>
+                    </label>
+                    <select
+                      {...register('escalafonId')}
+                      defaultValue=""
+                      className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    >
+                      <option value="" disabled>
+                        Elegir...
+                      </option>
+                      {escalafones?.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {escalafonLabel(e.nombre)}
+                        </option>
+                      ))}
+                    </select>
+                    {formState.errors.escalafonId && (
+                      <p className="text-xs text-danger mt-1">{formState.errors.escalafonId.message}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="sm:col-span-2">
