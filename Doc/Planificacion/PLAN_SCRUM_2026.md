@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09 (Post-Sprint 4 (4) — maquetas Alta/Baja/Alta por Baja + análisis concursos CPH)
+> Última actualización: 2026-09 (Post-Sprint 5 — Sprint 5 completo, contratos actualizados)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -22,7 +22,7 @@
 | Sprint 3 (post-2) — Cargos: códigos, estados, UX     | ✅ Completado — 2026-09                                         | ver detalle abajo |
 | Sprint 3 (post-3) — Mejoras UX personas/cargos       | ✅ Completado — 2026-08-28                                      | ver detalle abajo |
 | Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
-| Sprint 5 — Concursos CEETPS + Bajas                  | ⏳ Pendiente                                                    | —                 |
+| Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
 | Sprint 6 — KPIs + Deploy                             | ⏳ Pendiente                                                    | —                 |
 
 ---
@@ -1114,31 +1114,47 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo CEETPS y flujo baja → concurso funcional.
 
-| #     | Tarea                                                                                                                            | Dev     | Est. | Prioridad  |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S5-1  | `GET/PATCH /api/v1/concursos-ceetps` con filtros                                                                                 | Jorge   | 6h   | 🔴 Crítico |
-| S5-2  | ConcursosCeetpsPage: tabla con estado, escalafón, filtros                                                                        | Agustin | 10h  | 🔴 Crítico |
-| S5-3  | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG                                                                            | Agustin | 10h  | 🔴 Crítico |
-| S5-4  | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación                                         | Jorge   | 6h   | 🔴 Crítico |
-| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico |
-| S5-6  | BajasPage: tabla + formulario nueva baja                                                                                         | Agustin | 8h   | 🔴 Crítico |
-| S5-7  | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja                                                               | Jorge   | 4h   | 🔴 Crítico |
-| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   |
-| S5-9  | Alertas CEETPS: concursos sin movimiento                                                                                         | Agustin | 3h   | 🟡 Medio   |
-| S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada | Jorge   | —    | 🔴 Crítico |
-
-> **Dependencia S4→S5 explícita:** S4-6 (`POST /concursos`) es carga manual por ahora porque el
-> modelo `Baja` no existe todavía — `origen` queda como texto libre. S5-4/S5-5 agregan el modelo
-> real y conectan la FK. S5-10 (Alta de Cargo) es necesario para cerrar el flujo cuando el cargo
-> ganado no existe en el padrón — sin esto, `personaDesignadaId` queda poblado pero no hay cargo
-> nuevo al que asignarla.
+| #     | Tarea                                                                                                                            | Dev     | Est. | Prioridad  |     |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- | --- |
+| S5-1  | `GET/PATCH /api/v1/concursos-ceetps` con filtros                                                                                 | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-2  | ConcursosCeetpsPage: tabla con estado, escalafón, filtros                                                                        | Agustin | 10h  | 🔴 Crítico | ✅  |
+| S5-3  | ConcursoCeetpsDetail: formulario por fases ENF/TEC/EG                                                                            | Agustin | 10h  | 🔴 Crítico | ✅  |
+| S5-4  | Módulo Bajas: `POST /api/v1/bajas` — modelo `Baja` nuevo en schema, endpoint de creación                                         | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-5  | Lógica: baja con `genera_concurso` → crea seguimiento automático (llama a `createConcursoService` internamente)                  | Jorge   | 6h   | 🔴 Crítico | ✅  |
+| S5-6  | BajasPage: tabla + formulario nueva baja                                                                                         | Agustin | 8h   | 🔴 Crítico | ✅  |
+| S5-7  | Conexión baja → cargo: marcar cargo `no_vigente` al registrar baja                                                               | Jorge   | 4h   | 🔴 Crítico | ✅  |
+| S5-8  | `GET /api/v1/kpis/concursos-ceetps` para tablero                                                                                 | Jorge   | 3h   | 🟡 Medio   | ✅  |
+| S5-9  | Alertas CEETPS: concursos sin movimiento                                                                                         | Agustin | 3h   | 🟡 Medio   | ✅  |
+| S5-10 | **Alta de Cargo manual** (B-11 promovido): crear cargo nuevo a mano con generación de `Cargo.codigo` según nomenclatura heredada | Jorge   | —    | 🔴 Crítico | ✅  |
 
 **Criterio de éxito:**
 
-- Rijana puede gestionar concursos CEETPS desde la app
-- Una baja genera automáticamente el seguimiento correspondiente
-- El cargo se marca `no_vigente` al registrar la baja
-- Alta de Cargo manual funciona con generación de código según nomenclatura heredada
+- Rijana puede gestionar concursos CEETPS desde la app — ✅
+- Una baja genera automáticamente el seguimiento correspondiente — ✅
+- El cargo se marca `no_vigente` al registrar la baja — ✅
+- Alta de Cargo manual funciona con generación de código según nomenclatura heredada — ✅
+
+**Backend (Jorge) — commits `c968744`, `c64c9a7`, `b13aebe`, `40f2251`:**
+
+- **S5-1** — `concursos-ceetps/` completo: `listConcursosCeetpsService` + `getConcursoCeetpsByIdService` + `patchConcursoCeetpsService`. `calcEstadoCeetps()` server-side en cada write. Filtros: `hospitalId`, `escalafonId`, `estado`, `search`. Include completo con relaciones expandidas. Schema Zod con `.strict()` — `estado` no editable por el cliente.
+- **S5-4** — `model Baja` + `EstadoBaja` enum (`pendiente`/`confirmada`/`anulada`) en schema Prisma. Migración `sprint5_bajas_ceetps` aplicada en BD real. Módulo `bajas/` completo (schema/service/routes). `tipoBaja` y `tipificadorOrigen` opcionales (97% vacío en datos reales). `bajaId` nullable en `Concurso`.
+- **S5-7** — integrado en `createBajaService` dentro de la misma transacción: marca `Cargo.estado = no_vigente` al registrar la baja.
+- **S5-5** — `createConcursoTx(tx, body, usuarioId, bajaId?)` extraída como función pública de `concursos.service.ts`. `createBajaService` la llama dentro de su `$transaction` cuando `generaConcurso: true`. Schema de baja actualizado con `tipoConcurso` (requerido si `generaConcurso=true`) y `escalafonId` (requerido si `tipoConcurso=ceetps`). Verificado end-to-end.
+- **S5-8** — `getKpisConcursosCeetpsService`: total, `porEstado` (groupBy Prisma), `porEscalafon` y `porHospital` (raw SQL). Filtros opcionales `hospitalId`/`escalafonId`. Endpoint `GET /api/v1/kpis/concursos-ceetps`.
+- **S5-10** — `createCargoSchema` + `createCargoService`: usa `prefijoDeCargo` + `siguienteCodigoCargo` en transacción, crea N cargos en lote con `idSial = MANUAL-{codigo}`. `POST /api/v1/cargos` con `requireRole([ADMIN, EDITOR])`. Verificado end-to-end: `cantidad=2` generó `CPH-POF-024445` y `CPH-POF-024446` correctamente.
+
+**Frontend (Agustin) — commits `aad25b3`, `5919929`:**
+
+- **S5-2** — `ConcursosCeetpsPage`: tabla con filtros por hospital/escalafón/estado, búsqueda debounce 300ms, paginación. Mismo patrón que `ConcursosCphPage`.
+- **S5-3** — `ConcursoCeetpsDetail`: formulario con los campos del modelo CEETPS (expediente, puesto solicitado, disposición de llamado, IFACS/INSAL, designación). Estado como badge de solo lectura. Solo `WRITE_ROLES` pueden editar.
+- **S5-6** — `BajaCargosPage` reescrita conectada a API real: `useBajas` hook, tabla de historial real, formulario de nueva baja con `useMutation`. Fix posterior (`5919929`) para adaptar al contrato de S5-5 (campos `tipoConcurso`/`escalafonId` condicionales).
+- **S5-9** — `AlertasSinMovimientoCeetps`: mismo patrón que `AlertasSinMovimiento` de CPH, umbrales 30+/60+/90+ días sobre concursos CEETPS `sin_autorizar`/`autorizado`/`en_proceso`.
+- **`AltaCargosPage`** — reescrita conectada a API real: `useHospitales`, `useEscalafones`, `usePuestosCargos` para selectores. `useMutation` para `POST /api/v1/cargos`. Historial de sesión muestra códigos generados.
+
+**Merges:**
+- `jorge → main`: commits S5-1/S5-4/S5-7 (merge `4470b4c`), luego S5-5/S5-8/S5-10 + contratos (merge `215e810`)
+- `Agustin → develop → main`: S5-2/S5-3/S5-6/S5-9 (merge `9d39069`)
+- `develop` sincronizado con `main` en cada ciclo
 
 ---
 
@@ -1222,6 +1238,9 @@ Producción:
 | 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de construir KPIs de dotación (S6-0a/b/c)                                                                             | Sin `cuil` no se pueden contar personas únicas por período sin join; sin índice por `cargoId` el historial de un cargo hace seq scan; sin `unificadorPuesto` no se puede analizar dotación por tipo de puesto a lo largo del tiempo |
 | 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff`             | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1)                                                               |
 | 2026-09    | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`)                                       | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente                                                                         |
+| 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                            | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                          |
+| 2026-09    | `idSial` sintético `MANUAL-{codigo}` para cargos creados manualmente vía `POST /api/v1/cargos`                                                                                                                           | `idSial` es un identificador del sistema SIAL del GCBA que solo existe para cargos del padrón; los cargos manuales necesitan un valor único que no colisione con los reales                                                        |
+| 2026-09    | Contratos (`Doc/Contrato_*.md`) actualizados a estado real Post-Sprint 5 — estado cambiado de BORRADOR a VIGENTE                                                                                                          | Los contratos estaban desactualizados desde Sprint 2; ahora reflejan el schema real, los endpoints implementados, la estructura de carpetas real y la decisión Bootstrap→Tailwind resuelta                                         |
 
 ---
 
