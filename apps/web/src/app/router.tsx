@@ -9,6 +9,9 @@ import { PersonasPage } from '../modules/personas/pages/PersonasPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
 import { CargosPage } from '../modules/cargos/pages/CargosPage'
 import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
+import { AltaCargosPage } from '../modules/cargos/pages/AltaCargosPage'
+import { AltaPorBajaPage } from '../modules/cargos/pages/AltaPorBajaPage'
+import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
 import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
 import { ConcursoCphDetail } from '../modules/concursos-cph/pages/ConcursoCphDetail'
 
@@ -35,9 +38,9 @@ export const router = createBrowserRouter([
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
           { path: 'cargos', element: <CargosPage /> },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
-          { path: 'cargos/alta', element: <Placeholder title="Alta de Cargo" /> },
-          { path: 'cargos/baja', element: <Placeholder title="Baja de Cargo" /> },
-          { path: 'cargos/alta-por-baja', element: <Placeholder title="Alta por Baja" /> },
+          { path: 'cargos/alta', element: <AltaCargosPage /> },
+          { path: 'cargos/baja', element: <BajaCargosPage /> },
+          { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
           { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
           { path: 'concursos/ceetps', element: <Placeholder title="Concursos CEETPS" /> },

@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-28 (Post-Sprint 4 (3) — mejoras UX personas/cargos)
+> Última actualización: 2026-09 (Post-Sprint 4 (4) — maquetas Alta/Baja/Alta por Baja + análisis concursos CPH)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -21,6 +21,7 @@
 | Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
 | Sprint 3 (post-2) — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | ver detalle abajo |
 | Sprint 3 (post-3) — Mejoras UX personas/cargos | ✅ Completado — 2026-08-28 | ver detalle abajo |
+| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09 | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
 | Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
 
@@ -1051,6 +1052,60 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 - Eliminados campos redundantes: `Estado` (igual a `Situación de revista`), `Cód. situación`
 - `Escalafón` muestra el literal del `codigoRegistro` (ej. `Nueva Carrera Prof. Hosp`); `Régimen` muestra el código (ej. `37`)
 - `Repartición` unifica código + descripción en un campo (`40220629 — UNID Psicopatología y Salud Mental`)
+
+---
+
+### POST-SPRINT 4 (4) — Maquetas Alta/Baja/Alta por Baja (2026-09)
+
+**Autor:** Jorge + Claude
+
+Maquetas funcionales de las tres páginas del módulo de gestión de cargos. Sin lógica de backend — datos mock, formularios interactivos, historial ordenado. Base para implementación real en Sprint 5.
+
+#### `/cargos/alta` — Alta de Cargos
+
+- `AltaCargosPage.tsx` — reemplaza el Placeholder
+- Tres botones en el header: **Cargo de Ejecución POF**, **Cargo de Ejecución POU**, **Cargo por Estructura**
+- Al tocar un botón se despliega el formulario inline debajo (toggle: mismo botón cierra, otro botón cambia). Botón activo con `ring-2 ring-secondary`
+- Formulario por tipo: expediente/decreto (con confirmación verde) → hospital → carrera (botones CPH/EG/ENF/TEC/AS) → puesto → especialidad (condicional CPH/TEC) → fecha desde + cantidad (±) → Cancelar / Registrar
+- Al registrar: alta aparece al tope del historial, formulario se cierra
+- Historial con buscador (hospital, carrera, puesto, expediente, tipo), tabla ordenada de más reciente a más viejo, badges de tipo (Ejecución POF azul / Ejecución POU gris / Estructura naranja)
+
+#### `/cargos/baja` — Baja de Cargos
+
+- `BajaCargosPage.tsx` — reemplaza el Placeholder
+- Mismo maquetado que Alta por Baja: header con título + botón **Nueva Baja** (rojo), buscador, tabla historial
+- Columnas: Fecha, Código Cargo, Puesto, Hospital, Escalafón, Motivo, Estado
+- Estados: Pendiente (naranja) / Confirmada (verde) / Anulada (rojo)
+- 9 registros mock ordenados de más reciente a más viejo
+
+#### `/cargos/alta-por-baja` — Alta por Baja
+
+- `AltaPorBajaPage.tsx` — reemplaza el Placeholder
+- Header con título + botones **Nueva Baja** (outline) y **Nuevo Concurso** (primary)
+- Buscador por código, puesto, hospital, persona
+- Tabla con columnas: Fecha, Tipo (Baja rojo / Concurso azul), Código Cargo, Puesto, Hospital, Persona, Motivo, Estado
+- 9 registros mock ordenados de más reciente a más viejo
+
+#### Análisis de datos reales — `base_concursos_limpio.csv`
+
+Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseño del Sprint 5:
+
+| Dimensión | Hallazgo clave |
+|---|---|
+| **Volumen** | 7.471 concursos totales. 5.095 finalizados (68%), 1.302 activos (17%), 569 no iniciados (8%), 505 suspendidos (7%) |
+| **Sub-estado 3** | G-RESOLUCION 5.094 (68%), A-VALID.VCTE 1.249 (17%), B-AUTORIZADO 262, H-DESIERTO 227, D-ETAPA EVAL 220, F-PROX.A DESIG 195, E-ADJUDI 163, C-INSCRIPCION 60 |
+| **Escalafón** | POF 3.943 (53%), POU 3.096 (41%), sin dato 432 (6%) — solo CPH, confirma que el módulo es exclusivo de esa carrera |
+| **Tipo de baja** | 7.233 sin tipo registrado (97%) — el campo `tipo_de_baja` está casi vacío en los datos reales. Los 238 con dato: Cargo retenido 161, Interino 27, Jubilación 12, Cambio de Efector 10, Renuncia 9, Pase a Planta 9, otros |
+| **Cargo baja** | 1.632 concursos sin `cargo_baja` (22%) — vacantes generadas por ampliación de dotación, no por baja de persona |
+| **Tipificador origen** | Bajas 2025 1.494, Bajas 2024 1.262, Bajas 2023 1.203, Bajas 2026 878, Ampliación 2022 422, Ampliación 2026 398, Bajada Odoo 228, Art. 48, Obra, Cobertura Dotación |
+
+**Decisiones de diseño para Sprint 5 derivadas del análisis:**
+
+- El campo `tipo_de_baja` es opcional — la mayoría de los concursos reales no lo tienen. No debe ser requerido en el formulario
+- `cargo_baja` también es opcional — hay concursos por ampliación sin baja de persona asociada
+- El tipificador de origen (`tipificador_1_origen`) es un campo libre importante para trazabilidad — incluir en el modelo `Baja`
+- Los tipos de baja reales son: Cargo retenido, Interino, Jubilación, Cambio de Efector, Renuncia, Pase a Planta, CC POU a POF, CC POF a POU, Jefatura, Fallecimiento — usar como enum o lista sugerida (no obligatoria)
+- El flujo real no siempre es "baja → concurso": hay concursos por ampliación de dotación sin baja previa. El modelo debe soportar `baja_id` nullable en `ConcursoCph`
 
 ---
 
