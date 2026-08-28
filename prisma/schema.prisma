@@ -89,6 +89,7 @@ model Hospital {
   concursosCph     ConcursoCph[]
   concursosCeetps  ConcursoCeetps[]
   usuarios         Usuario[]
+  bajas            Baja[]
 
   @@map("hospitales")
 }
@@ -155,6 +156,7 @@ model Persona {
   concursosCphDesignado    ConcursoCph[]    @relation("PersonaDesignadaCph")
   concursosCeetpsDesignado ConcursoCeetps[] @relation("PersonaDesignadaCeetps")
   padronHistorico          PadronHistorico[]
+  bajas                    Baja[]
 
   @@index([numeroDoc])
   @@map("personas")
@@ -201,6 +203,7 @@ model Cargo {
   concursosCph    ConcursoCph[]
   concursosCeetps ConcursoCeetps[]
   padronHistorico PadronHistorico[]
+  bajas           Baja[]
 
   @@index([hospitalId])
   @@index([escalafonId])
@@ -343,6 +346,8 @@ model Concurso {
   personaId      String?      @map("persona_id") @db.Uuid
   cargoId        String       @map("cargo_id") @db.Uuid
   hospitalId     String       @map("hospital_id") @db.Uuid
+  // bajaId nullable: hay concursos por ampliación sin baja previa (S5-4)
+  bajaId         String?      @map("baja_id") @db.Uuid
   origen         String       @db.VarChar(50)
   fechaVacante   DateTime     @map("fecha_vacante") @db.Date
   motivo         String?      @db.VarChar(200)
@@ -358,6 +363,7 @@ model Concurso {
   registradoPor Usuario?         @relation(fields: [registradoPorId], references: [id])
   concursoCph   ConcursoCph?
   concursoCeetps ConcursoCeetps?
+  baja          Baja?            @relation(fields: [bajaId], references: [id])
 
   @@index([hospitalId])
   @@index([tipoConcurso])
@@ -464,6 +470,54 @@ model ConcursoCeetps {
 }
 
 // =============================================================================
+// BAJAS (S5-4)
+// =============================================================================
+
+enum EstadoBaja {
+  pendiente
+  confirmada
+  anulada
+}
+
+model Baja {
+  id               String     @id @default(uuid()) @db.Uuid
+  cargoId          String     @map("cargo_id") @db.Uuid
+  hospitalId       String     @map("hospital_id") @db.Uuid
+  personaId        String?    @map("persona_id") @db.Uuid
+  // Fecha en que se produce la vacante
+  fechaBaja        DateTime   @map("fecha_baja") @db.Date
+  // Tipo de baja: campo libre (97% vacío en datos reales — ver análisis CSV
+  // en PLAN_SCRUM_2026.md POST-SPRINT 4 (4)). Lista sugerida en el frontend
+  // pero no obligatoria: Cargo retenido, Interino, Jubilación, etc.
+  tipoBaja         String?    @map("tipo_baja") @db.VarChar(100)
+  motivo           String?    @db.VarChar(500)
+  // Tipificador de origen (ej. "Bajas 2025", "Ampliación 2026", "Art. 48")
+  // — campo libre importante para trazabilidad, ver análisis CSV.
+  tipificadorOrigen String?   @map("tipificador_origen") @db.VarChar(200)
+  // Si genera concurso, se crea automáticamente en S5-5
+  generaConcurso   Boolean    @default(true) @map("genera_concurso")
+  estado           EstadoBaja @default(pendiente)
+  observaciones    String?    @db.Text
+  registradoPorId  String?    @map("registrado_por") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  cargo           Cargo     @relation(fields: [cargoId], references: [id])
+  hospital        Hospital  @relation(fields: [hospitalId], references: [id])
+  persona         Persona?  @relation(fields: [personaId], references: [id])
+  registradoPor   Usuario?  @relation(fields: [registradoPorId], references: [id])
+  // baja_id nullable en ConcursoCph: hay concursos por ampliación sin baja
+  // previa (22% de los datos reales — ver análisis CSV)
+  concursos       Concurso[]
+
+  @@index([cargoId])
+  @@index([hospitalId])
+  @@index([estado])
+  @@map("bajas")
+}
+
+// =============================================================================
 // SEGURIDAD Y AUDITORIA
 // =============================================================================
 
@@ -485,6 +539,7 @@ model Usuario {
   snapshotsAprobados    PadronSnapshot[] @relation("SnapshotAprobadoPor")
   concursosRegistrados  Concurso[]
   auditLogs             AuditLog[]
+  bajasRegistradas      Baja[]
 
   @@map("usuarios")
 }
