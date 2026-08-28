@@ -571,6 +571,7 @@ export interface BajaFilters {
 }
 
 // S5-4 — POST /api/v1/bajas
+// S5-5: tipoConcurso requerido cuando generaConcurso = true
 export interface CreateBajaRequest {
   cargoId: string
   hospitalId: string
@@ -580,6 +581,8 @@ export interface CreateBajaRequest {
   motivo?: string
   tipificadorOrigen?: string
   generaConcurso?: boolean
+  tipoConcurso?: TipoConcurso
+  escalafonId?: string
   observaciones?: string
 }
 
