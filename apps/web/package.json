@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint src/",
     "clean": "rm -rf dist"
   },
   "dependencies": {
