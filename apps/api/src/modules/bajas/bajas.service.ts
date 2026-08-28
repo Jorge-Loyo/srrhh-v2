@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
+import { createConcursoTx } from '../concursos/concursos.service.js'
+import { TipoConcurso } from '@srrhh/types'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -80,6 +82,33 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       where: { id: body.cargoId },
       data: { estado: 'no_vigente' },
     })
+
+    // S5-5: si genera_concurso, crear el seguimiento automáticamente
+    if (body.generaConcurso && body.tipoConcurso) {
+      // Guard CPH: no puede haber dos concursos abiertos para el mismo cargo
+      if (body.tipoConcurso === TipoConcurso.CPH) {
+        const abierto = await tx.concursoCph.findFirst({
+          where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+        })
+        if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
+      }
+
+      await createConcursoTx(
+        tx,
+        {
+          cargoId: body.cargoId,
+          hospitalId: body.hospitalId,
+          personaId: body.personaId,
+          origen: 'Baja',
+          fechaVacante: body.fechaBaja,
+          motivo: body.motivo,
+          tipoConcurso: body.tipoConcurso,
+          escalafonId: body.escalafonId,
+        },
+        usuarioId,
+        baja.id
+      )
+    }
 
     return baja
   })

@@ -503,6 +503,14 @@ export interface KpiConcursosCph {
   porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
 }
 
+// S5-8 — GET /api/v1/kpis/concursos-ceetps
+export interface KpiConcursosCeetps {
+  total: number
+  porEstado: { estado: EstadoConcursoCeetps; total: number }[]
+  porEscalafon: { escalafonId: string; codigo: string; nombre: string; total: number }[]
+  porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------
@@ -571,6 +579,7 @@ export interface BajaFilters {
 }
 
 // S5-4 — POST /api/v1/bajas
+// S5-5: tipoConcurso requerido cuando generaConcurso = true
 export interface CreateBajaRequest {
   cargoId: string
   hospitalId: string
@@ -580,6 +589,8 @@ export interface CreateBajaRequest {
   motivo?: string
   tipificadorOrigen?: string
   generaConcurso?: boolean
+  tipoConcurso?: TipoConcurso
+  escalafonId?: string
   observaciones?: string
 }
 

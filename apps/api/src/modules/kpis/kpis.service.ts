@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { SUB_ESTADO_3_SQL_PG } from '../concursos-cph/concursosCph.calc.js'
+import type { KpisConcursosCeetpsQuery } from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
 //
@@ -43,6 +44,71 @@ export async function getKpisConcursosCphService(hospitalId?: string) {
       .sort((a, b) => a.subEstado.localeCompare(b.subEstado)),
     porSubEstado3: subEstado3Rows.map((r) => ({ subEstado3: r.subEstado3, total: Number(r.total) })),
     porHospital: hospitalRows.map((r) => ({
+      hospitalId: r.hospitalId,
+      sigla: r.sigla,
+      nombre: r.nombre,
+      total: Number(r.total),
+    })),
+  }
+}
+
+// ─── S5-8: KPIs de concursos CEETPS para el tablero ─────────────────────────
+export async function getKpisConcursosCeetpsService(query: KpisConcursosCeetpsQuery) {
+  const { hospitalId, escalafonId } = query
+  const where: Prisma.ConcursoCeetpsWhereInput = {
+    ...(hospitalId && { hospitalId }),
+    ...(escalafonId && { escalafonId }),
+  }
+
+  const hospitalFilter = hospitalId
+    ? Prisma.sql`AND cc.hospital_id = ${hospitalId}::uuid`
+    : Prisma.empty
+  const escalafonFilter = escalafonId
+    ? Prisma.sql`AND cc.escalafon_id = ${escalafonId}::uuid`
+    : Prisma.empty
+
+  const [total, porEstado, porEscalafon, porHospital] = await Promise.all([
+    prisma.concursoCeetps.count({ where }),
+
+    prisma.concursoCeetps.groupBy({
+      by: ['estado'],
+      where,
+      _count: { _all: true },
+    }),
+
+    prisma.$queryRaw<{ escalafonId: string; codigo: string; nombre: string; total: bigint }[]>(
+      Prisma.sql`
+        SELECT cc.escalafon_id AS "escalafonId", e.codigo, e.nombre, count(*)::bigint AS total
+        FROM concursos_ceetps cc
+        JOIN escalafones e ON e.id = cc.escalafon_id
+        WHERE true ${hospitalFilter} ${escalafonFilter}
+        GROUP BY cc.escalafon_id, e.codigo, e.nombre
+        ORDER BY total DESC
+      `
+    ),
+
+    prisma.$queryRaw<{ hospitalId: string; sigla: string; nombre: string; total: bigint }[]>(
+      Prisma.sql`
+        SELECT cc.hospital_id AS "hospitalId", h.sigla, h.nombre, count(*)::bigint AS total
+        FROM concursos_ceetps cc
+        JOIN hospitales h ON h.id = cc.hospital_id
+        WHERE true ${hospitalFilter} ${escalafonFilter}
+        GROUP BY cc.hospital_id, h.sigla, h.nombre
+        ORDER BY total DESC
+      `
+    ),
+  ])
+
+  return {
+    total,
+    porEstado: porEstado.map((r) => ({ estado: r.estado, total: r._count._all })),
+    porEscalafon: porEscalafon.map((r) => ({
+      escalafonId: r.escalafonId,
+      codigo: r.codigo,
+      nombre: r.nombre,
+      total: Number(r.total),
+    })),
+    porHospital: porHospital.map((r) => ({
       hospitalId: r.hospitalId,
       sigla: r.sigla,
       nombre: r.nombre,
