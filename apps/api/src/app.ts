@@ -19,6 +19,7 @@ import { escalafonesRoutes } from './modules/escalafones/escalafones.routes.js'
 import { puestosRoutes } from './modules/puestos/puestos.routes.js'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes.js'
 import { kpisRoutes } from './modules/kpis/kpis.routes.js'
+import { bajasRoutes } from './modules/bajas/bajas.routes.js'
 
 const app = Fastify({
   logger: {
@@ -75,6 +76,7 @@ await app.register(escalafonesRoutes, { prefix: '/api/v1/escalafones' })
 await app.register(puestosRoutes, { prefix: '/api/v1/puestos' })
 await app.register(usuariosRoutes, { prefix: '/api/v1/usuarios' })
 await app.register(kpisRoutes, { prefix: '/api/v1/kpis' })
+await app.register(bajasRoutes, { prefix: '/api/v1/bajas' })
 
 // Start
 try {

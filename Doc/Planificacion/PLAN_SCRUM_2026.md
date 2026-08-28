@@ -11,19 +11,19 @@
 
 ## ESTADO ACTUAL
 
-| Sprint                              | Estado                                                          | Completado        |
-| ----------------------------------- | --------------------------------------------------------------- | ----------------- |
-| Sprint 0 — Infraestructura          | ✅ Completado                                                   | S0-1 a S0-11      |
-| Sprint 1 — Autenticación            | ✅ Completado                                                   | S1-1 a S1-10      |
-| Sprint 2 — Dotaneitor + Padrón      | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
-| Sprint 3 — Personas y Cargos        | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
-| Sprint 4 — Concursos CPH            | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
-| Sprint 3 (post) — Mejoras UX padrón/personas | ✅ Completado — commit f178819, 2026-08-27 | ver detalle abajo |
-| Sprint 3 (post-2) — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | ver detalle abajo |
-| Sprint 3 (post-3) — Mejoras UX personas/cargos | ✅ Completado — 2026-08-28 | ver detalle abajo |
-| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09 | ver detalle abajo |
-| Sprint 5 — Concursos CEETPS + Bajas | ⏳ Pendiente                                                    | —                 |
-| Sprint 6 — KPIs + Deploy            | ⏳ Pendiente                                                    | —                 |
+| Sprint                                               | Estado                                                          | Completado        |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ----------------- |
+| Sprint 0 — Infraestructura                           | ✅ Completado                                                   | S0-1 a S0-11      |
+| Sprint 1 — Autenticación                             | ✅ Completado                                                   | S1-1 a S1-10      |
+| Sprint 2 — Dotaneitor + Padrón                       | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
+| Sprint 3 — Personas y Cargos                         | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
+| Sprint 4 — Concursos CPH                             | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
+| Sprint 3 (post) — Mejoras UX padrón/personas         | ✅ Completado — commit f178819, 2026-08-27                      | ver detalle abajo |
+| Sprint 3 (post-2) — Cargos: códigos, estados, UX     | ✅ Completado — 2026-09                                         | ver detalle abajo |
+| Sprint 3 (post-3) — Mejoras UX personas/cargos       | ✅ Completado — 2026-08-28                                      | ver detalle abajo |
+| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
+| Sprint 5 — Concursos CEETPS + Bajas                  | ⏳ Pendiente                                                    | —                 |
+| Sprint 6 — KPIs + Deploy                             | ⏳ Pendiente                                                    | —                 |
 
 ---
 
@@ -1090,14 +1090,14 @@ Maquetas funcionales de las tres páginas del módulo de gestión de cargos. Sin
 
 Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseño del Sprint 5:
 
-| Dimensión | Hallazgo clave |
-|---|---|
-| **Volumen** | 7.471 concursos totales. 5.095 finalizados (68%), 1.302 activos (17%), 569 no iniciados (8%), 505 suspendidos (7%) |
-| **Sub-estado 3** | G-RESOLUCION 5.094 (68%), A-VALID.VCTE 1.249 (17%), B-AUTORIZADO 262, H-DESIERTO 227, D-ETAPA EVAL 220, F-PROX.A DESIG 195, E-ADJUDI 163, C-INSCRIPCION 60 |
-| **Escalafón** | POF 3.943 (53%), POU 3.096 (41%), sin dato 432 (6%) — solo CPH, confirma que el módulo es exclusivo de esa carrera |
-| **Tipo de baja** | 7.233 sin tipo registrado (97%) — el campo `tipo_de_baja` está casi vacío en los datos reales. Los 238 con dato: Cargo retenido 161, Interino 27, Jubilación 12, Cambio de Efector 10, Renuncia 9, Pase a Planta 9, otros |
-| **Cargo baja** | 1.632 concursos sin `cargo_baja` (22%) — vacantes generadas por ampliación de dotación, no por baja de persona |
-| **Tipificador origen** | Bajas 2025 1.494, Bajas 2024 1.262, Bajas 2023 1.203, Bajas 2026 878, Ampliación 2022 422, Ampliación 2026 398, Bajada Odoo 228, Art. 48, Obra, Cobertura Dotación |
+| Dimensión              | Hallazgo clave                                                                                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Volumen**            | 7.471 concursos totales. 5.095 finalizados (68%), 1.302 activos (17%), 569 no iniciados (8%), 505 suspendidos (7%)                                                                                                        |
+| **Sub-estado 3**       | G-RESOLUCION 5.094 (68%), A-VALID.VCTE 1.249 (17%), B-AUTORIZADO 262, H-DESIERTO 227, D-ETAPA EVAL 220, F-PROX.A DESIG 195, E-ADJUDI 163, C-INSCRIPCION 60                                                                |
+| **Escalafón**          | POF 3.943 (53%), POU 3.096 (41%), sin dato 432 (6%) — solo CPH, confirma que el módulo es exclusivo de esa carrera                                                                                                        |
+| **Tipo de baja**       | 7.233 sin tipo registrado (97%) — el campo `tipo_de_baja` está casi vacío en los datos reales. Los 238 con dato: Cargo retenido 161, Interino 27, Jubilación 12, Cambio de Efector 10, Renuncia 9, Pase a Planta 9, otros |
+| **Cargo baja**         | 1.632 concursos sin `cargo_baja` (22%) — vacantes generadas por ampliación de dotación, no por baja de persona                                                                                                            |
+| **Tipificador origen** | Bajas 2025 1.494, Bajas 2024 1.262, Bajas 2023 1.203, Bajas 2026 878, Ampliación 2022 422, Ampliación 2026 398, Bajada Odoo 228, Art. 48, Obra, Cobertura Dotación                                                        |
 
 **Decisiones de diseño para Sprint 5 derivadas del análisis:**
 

@@ -291,15 +291,27 @@ export interface ConcursoCph {
 export interface ConcursoCeetps {
   id: string
   concursoId: string
+  cargoId: string
+  hospitalId: string
   escalafonId: string
   estado: EstadoConcursoCeetps
   expedienteConcurso: string | null
   puestoSolicitado: string | null
+  dispoLlamado: string | null
   fechaIfacs: string | null
   fechaInsal: string | null
-  // ... más campos según necesidad
+  expedienteDesignacion: string | null
+  dispoDesignacion: string | null
+  resolucionDesignacion: string | null
+  personaDesignadaId: string | null
+  observaciones: string | null
   createdAt: string
   updatedAt: string
+  // Relaciones expandidas (GET /:id y listado)
+  concurso?: Concurso
+  hospital?: Hospital
+  escalafon?: Escalafon
+  personaDesignada?: Persona
 }
 
 export interface Usuario {
@@ -310,6 +322,34 @@ export interface Usuario {
   hospitalId: string | null
   activo: boolean
   createdAt: string
+}
+
+export enum EstadoBaja {
+  PENDIENTE = 'pendiente',
+  CONFIRMADA = 'confirmada',
+  ANULADA = 'anulada',
+}
+
+export interface Baja {
+  id: string
+  cargoId: string
+  hospitalId: string
+  personaId: string | null
+  fechaBaja: string
+  tipoBaja: string | null
+  motivo: string | null
+  tipificadorOrigen: string | null
+  generaConcurso: boolean
+  estado: EstadoBaja
+  observaciones: string | null
+  registradoPorId: string | null
+  createdAt: string
+  updatedAt: string
+  // Relaciones expandidas
+  cargo?: Cargo & { hospital: Hospital; escalafon: Escalafon }
+  hospital?: Hospital
+  persona?: Persona | null
+  registradoPor?: { username: string } | null
 }
 
 // -----------------------------------------------------------------------------
@@ -511,6 +551,51 @@ export interface ConcursoCphFilters {
   subEstado3?: string
   suspendido?: boolean
   search?: string
+}
+
+export interface ConcursoCeetpsFilters {
+  page?: number
+  limit?: number
+  hospitalId?: string
+  escalafonId?: string
+  estado?: EstadoConcursoCeetps
+  search?: string
+}
+
+export interface BajaFilters {
+  page?: number
+  limit?: number
+  hospitalId?: string
+  estado?: EstadoBaja
+  search?: string
+}
+
+// S5-4 — POST /api/v1/bajas
+export interface CreateBajaRequest {
+  cargoId: string
+  hospitalId: string
+  personaId?: string
+  fechaBaja: string
+  tipoBaja?: string
+  motivo?: string
+  tipificadorOrigen?: string
+  generaConcurso?: boolean
+  observaciones?: string
+}
+
+// S5-1 — PATCH /api/v1/concursos-ceetps/:id. `estado` queda afuera — lo
+// calcula el backend (calcEstadoCeetps), no es editable por el cliente.
+export interface PatchConcursoCeetpsRequest {
+  expedienteConcurso?: string | null
+  puestoSolicitado?: string | null
+  dispoLlamado?: string | null
+  fechaIfacs?: string | null
+  fechaInsal?: string | null
+  expedienteDesignacion?: string | null
+  dispoDesignacion?: string | null
+  resolucionDesignacion?: string | null
+  personaDesignadaId?: string | null
+  observaciones?: string | null
 }
 
 // -----------------------------------------------------------------------------
