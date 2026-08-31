@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { SUB_ESTADO_3_SQL_PG } from '../concursos-cph/concursosCph.calc.js'
-import type { KpisConcursosCeetpsQuery } from './kpis.schema.js'
+import type { KpisConcursosCeetpsQuery, KpisDotacionQuery } from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
 //
@@ -113,6 +113,93 @@ export async function getKpisConcursosCeetpsService(query: KpisConcursosCeetpsQu
       sigla: r.sigla,
       nombre: r.nombre,
       total: Number(r.total),
+    })),
+  }
+}
+
+// ─── S6-1: KPIs de dotación para el tablero ─────────────────────────────────
+//
+// "vigente" = Cargo.estado = 'vigente' (dotación autorizada, sin importar si
+// hoy tiene a alguien asignado). "vacante" = de esos, el subconjunto sin una
+// Ocupacion con hasta IS NULL (nadie ocupándolo en este momento). "carrera" =
+// Escalafon, "efector" = Hospital — terminología del padrón GCBA.
+//
+// cargos_vigentes es una CTE repetida en las tres queries (en vez de un JOIN
+// gigante con GROUP BY GROUPING SETS) para que cada resultado sea una lista
+// plana simple de consumir en el frontend, igual que porHospital/porEstado
+// en getKpisConcursosCphService/getKpisConcursosCeetpsService.
+export async function getKpisDotacionService(query: KpisDotacionQuery) {
+  const { hospitalId } = query
+  const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
+
+  const cargosVigentesCte = Prisma.sql`
+    WITH cargos_vigentes AS (
+      SELECT
+        c.id,
+        c.hospital_id,
+        c.escalafon_id,
+        EXISTS (
+          SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL
+        ) AS ocupado
+      FROM cargos c
+      WHERE c.estado = 'vigente' ${hospitalFilter}
+    )
+  `
+
+  const [totalRows, porCarrera, porEfector] = await Promise.all([
+    prisma.$queryRaw<{ total: bigint; vacantes: bigint }[]>(Prisma.sql`
+      ${cargosVigentesCte}
+      SELECT count(*)::bigint AS total, count(*) FILTER (WHERE NOT ocupado)::bigint AS vacantes
+      FROM cargos_vigentes
+    `),
+
+    prisma.$queryRaw<{ escalafonId: string; codigo: string; nombre: string; vigentes: bigint; vacantes: bigint }[]>(
+      Prisma.sql`
+        ${cargosVigentesCte}
+        SELECT
+          cv.escalafon_id AS "escalafonId", e.codigo, e.nombre,
+          count(*)::bigint AS vigentes,
+          count(*) FILTER (WHERE NOT cv.ocupado)::bigint AS vacantes
+        FROM cargos_vigentes cv
+        JOIN escalafones e ON e.id = cv.escalafon_id
+        GROUP BY cv.escalafon_id, e.codigo, e.nombre
+        ORDER BY vigentes DESC
+      `
+    ),
+
+    prisma.$queryRaw<{ hospitalId: string; sigla: string; nombre: string; vigentes: bigint; vacantes: bigint }[]>(
+      Prisma.sql`
+        ${cargosVigentesCte}
+        SELECT
+          cv.hospital_id AS "hospitalId", h.sigla, h.nombre,
+          count(*)::bigint AS vigentes,
+          count(*) FILTER (WHERE NOT cv.ocupado)::bigint AS vacantes
+        FROM cargos_vigentes cv
+        JOIN hospitales h ON h.id = cv.hospital_id
+        GROUP BY cv.hospital_id, h.sigla, h.nombre
+        ORDER BY vigentes DESC
+      `
+    ),
+  ])
+
+  const { total, vacantes } = totalRows[0] ?? { total: 0n, vacantes: 0n }
+
+  return {
+    totalVigentes: Number(total),
+    vacantes: Number(vacantes),
+    porCarrera: porCarrera.map((r) => ({
+      escalafonId: r.escalafonId,
+      codigo: r.codigo,
+      nombre: r.nombre,
+      vigentes: Number(r.vigentes),
+      vacantes: Number(r.vacantes),
+    })),
+    porEfector: porEfector.map((r) => ({
+      hospitalId: r.hospitalId,
+      sigla: r.sigla,
+      nombre: r.nombre,
+      vigentes: Number(r.vigentes),
+      vacantes: Number(r.vacantes),
     })),
   }
 }

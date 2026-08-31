@@ -23,7 +23,7 @@
 | Sprint 3 (post-3) — Mejoras UX personas/cargos       | ✅ Completado — 2026-08-28                                      | ver detalle abajo |
 | Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
-| Sprint 6 — KPIs + Deploy                             | ⏳ Pendiente                                                    | —                 |
+| Sprint 6 — KPIs + Deploy                             | 🔄 En progreso — 2026-08-31 (S6-0 y S6-1 completos)             | S6-0, S6-1 (✅)   |
 
 ---
 
@@ -1163,16 +1163,17 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Dashboard operativo con KPIs reales y sistema listo para producción.
 
-| #    | Tarea                                                                           | Dev             | Est. | Prioridad  |
-| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- |
-| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico |
-| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico |
-| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico |
-| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   |
-| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   |
-| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   |
-| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico |
-| S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico |
+| #    | Tarea                                                                           | Dev             | Est. | Prioridad  | Estado |
+| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ------ |
+| S6-0 | *(no planificada)* Prerequisito `PadronHistorico`: `cuil`/`unificadorPuesto`/índice `cargoId` | Jorge | — | 🔴 Crítico | ✅ |
+| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico | ✅ |
+| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico | ⏳ |
+| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico | ⏳ |
+| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   | ⏳ |
+| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   | ⏳ |
+| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   | ⏳ |
+| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico | ⏳ |
+| S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico | ⏳ |
 
 **Criterio de éxito:**
 
@@ -1237,6 +1238,7 @@ Producción:
 | 2026-08-26 | DoD actualizado: "PR aprobado" reemplazado por "avisar antes de tocar módulo compartido"                                                                                                                                 | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa (ver choque Sprint 3)                                                                                                                                  |
 | 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de construir KPIs de dotación (S6-0a/b/c)                                                                             | Sin `cuil` no se pueden contar personas únicas por período sin join; sin índice por `cargoId` el historial de un cargo hace seq scan; sin `unificadorPuesto` no se puede analizar dotación por tipo de puesto a lo largo del tiempo |
 | 2026-08-31 | **S6-0 resuelto**: migración `20260831140000_padron_historico_kpis_prereq` agrega `cuil`/`unificador_puesto` (nullable) + `@@index([cargoId])` + `@@index([cuil])` a `PadronHistorico`; `aprobarSnapshotService` los completa en cada fila nueva. Backfill (`scripts/backfill-padron-historico-kpis.sql`) corrido contra datos reales: 46.889/46.889 filas, 0 nulos. | Desbloquea S6-5 (gráfico evolución dotación histórica) |
+| 2026-08-31 | **S6-1 resuelto**: `GET /api/v1/kpis/dotacion` (`getKpisDotacionService`) — "vigente" = `Cargo.estado='vigente'`, "vacante" = vigente sin `Ocupacion` con `hasta IS NULL`. Devuelve `totalVigentes`, `vacantes`, `porCarrera` (por escalafón) y `porEfector` (por hospital), con filtro opcional `hospitalId`. Verificado end-to-end contra datos reales: 46.889 cargos vigentes, 0 vacantes hoy. | Alimenta S6-2 (KpisPage) |
 | 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff`             | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1)                                                               |
 | 2026-09    | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`)                                       | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente                                                                         |
 | 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                            | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                          |

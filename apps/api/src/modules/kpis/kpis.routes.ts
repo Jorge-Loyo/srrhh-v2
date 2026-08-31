@@ -1,14 +1,24 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { kpisConcursosCphQuerySchema, kpisConcursosCeetpsQuerySchema } from './kpis.schema.js'
-import { getKpisConcursosCphService, getKpisConcursosCeetpsService } from './kpis.service.js'
+import {
+  kpisConcursosCphQuerySchema,
+  kpisConcursosCeetpsQuerySchema,
+  kpisDotacionQuerySchema,
+} from './kpis.schema.js'
+import {
+  getKpisConcursosCphService,
+  getKpisConcursosCeetpsService,
+  getKpisDotacionService,
+} from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
-  app.get('/dotacion', async (_request, reply) => {
-    // TODO: Sprint 6
-    return reply.send({ data: null })
+  // GET /dotacion — S6-1
+  app.get('/dotacion', async (request, reply) => {
+    const query = kpisDotacionQuerySchema.parse(request.query)
+    const data = await getKpisDotacionService(query)
+    return reply.send({ data })
   })
 
   app.get('/concursos', async (_request, reply) => {
