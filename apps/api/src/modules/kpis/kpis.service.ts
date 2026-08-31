@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { SUB_ESTADO_3_SQL_PG } from '../concursos-cph/concursosCph.calc.js'
-import type { KpisConcursosCeetpsQuery, KpisDotacionQuery } from './kpis.schema.js'
+import type { KpisConcursosCeetpsQuery, KpisConcursosQuery, KpisDotacionQuery } from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
 //
@@ -201,5 +201,86 @@ export async function getKpisDotacionService(query: KpisDotacionQuery) {
       vigentes: Number(r.vigentes),
       vacantes: Number(r.vacantes),
     })),
+  }
+}
+
+// ─── S6-3: KPIs concursales para el tablero general ─────────────────────────
+//
+// Vista consolidada CPH + CEETPS (total por tipo) más el detalle de
+// sub-estado y "tiempo promedio por etapa" — este último solo tiene sentido
+// para CPH: es el único de los dos tipos con una escalera de sub-estados
+// (18 niveles, calcConcursoCph()) donde cada nivel tiene su propia fecha de
+// hito. CEETPS solo tiene un EstadoConcursoCeetps plano (sin_autorizar →
+// autorizado → en_proceso → finalizado), no hay una secuencia de fechas
+// intermedias que promediar.
+//
+// ETAPAS_CPH son los pares consecutivos de fecha-hito con fecha real en el
+// modelo (se salta niveles que solo tienen un campo de texto/boolean sin
+// fecha propia, como C-DISPO DE LLAMADO → disposicion o H-TAD → eeDesignacion,
+// ver calcSubEstado() en concursosCph.calc.ts). El promedio de cada etapa
+// solo cuenta concursos con ambas fechas cargadas y en orden cronológico
+// correcto (columna_hasta >= columna_desde) — evita que datos cargados fuera
+// de orden (común en carga manual) distorsionen el promedio.
+const ETAPAS_CPH: { etapa: string; desde: string; hasta: string }[] = [
+  { etapa: 'Carátula → Autorización', desde: 'fecha_ee_concurso', hasta: 'fecha_autorizacion' },
+  { etapa: 'Autorización → Sorteo de jurado', desde: 'fecha_autorizacion', hasta: 'sorteo_jurado' },
+  { etapa: 'Sorteo de jurado → Examen', desde: 'sorteo_jurado', hasta: 'fecha_examen' },
+  { etapa: 'Examen → Orden de mérito', desde: 'fecha_examen', hasta: 'fecha_orden_merito' },
+  { etapa: 'Orden de mérito → IFACS', desde: 'fecha_orden_merito', hasta: 'fecha_ifacs' },
+  { etapa: 'IFACS → INSAL', desde: 'fecha_ifacs', hasta: 'fecha_insal' },
+  { etapa: 'INSAL → Apto médico', desde: 'fecha_insal', hasta: 'fecha_apto_medico' },
+  { etapa: 'Apto médico → ITE', desde: 'fecha_apto_medico', hasta: 'fecha_ite' },
+  { etapa: 'ITE → Resolución de designación', desde: 'fecha_ite', hasta: 'fecha_resolucion' },
+]
+
+export async function getKpisConcursosService(query: KpisConcursosQuery) {
+  const { hospitalId } = query
+  const whereCph: Prisma.ConcursoCphWhereInput = hospitalId ? { hospitalId } : {}
+  const whereCeetps: Prisma.ConcursoCeetpsWhereInput = hospitalId ? { hospitalId } : {}
+  const hospitalFilterSql = hospitalId ? Prisma.sql`AND hospital_id = ${hospitalId}::uuid` : Prisma.empty
+
+  const etapaSelect = Prisma.join(
+    ETAPAS_CPH.map(
+      (e, i) => Prisma.sql`
+        AVG(${Prisma.raw(e.hasta)} - ${Prisma.raw(e.desde)}) FILTER (
+          WHERE ${Prisma.raw(e.hasta)} IS NOT NULL AND ${Prisma.raw(e.desde)} IS NOT NULL
+            AND ${Prisma.raw(e.hasta)} >= ${Prisma.raw(e.desde)}
+        ) AS "d${i}",
+        COUNT(*) FILTER (
+          WHERE ${Prisma.raw(e.hasta)} IS NOT NULL AND ${Prisma.raw(e.desde)} IS NOT NULL
+            AND ${Prisma.raw(e.hasta)} >= ${Prisma.raw(e.desde)}
+        ) AS "n${i}"
+      `
+    ),
+    ',\n'
+  )
+
+  const [totalCph, totalCeetps, porSubEstadoCph, etapaRows] = await Promise.all([
+    prisma.concursoCph.count({ where: whereCph }),
+    prisma.concursoCeetps.count({ where: whereCeetps }),
+    prisma.concursoCph.groupBy({ by: ['subEstado'], where: whereCph, _count: { _all: true } }),
+    prisma.$queryRaw<Record<string, number | bigint | null>[]>(Prisma.sql`
+      SELECT ${etapaSelect}
+      FROM concursos_cph
+      WHERE true ${hospitalFilterSql}
+    `),
+  ])
+
+  const etapaRow = etapaRows[0] ?? {}
+  const tiempoPromedioPorEtapa = ETAPAS_CPH.map((e, i) => ({
+    etapa: e.etapa,
+    diasPromedio: etapaRow[`d${i}`] !== null && etapaRow[`d${i}`] !== undefined ? Number(etapaRow[`d${i}`]) : null,
+    muestras: Number(etapaRow[`n${i}`] ?? 0),
+  }))
+
+  return {
+    totalCph,
+    totalCeetps,
+    total: totalCph + totalCeetps,
+    porSubEstadoCph: porSubEstadoCph
+      .filter((r): r is typeof r & { subEstado: string } => r.subEstado !== null)
+      .map((r) => ({ subEstado: r.subEstado, total: r._count._all }))
+      .sort((a, b) => a.subEstado.localeCompare(b.subEstado)),
+    tiempoPromedioPorEtapa,
   }
 }

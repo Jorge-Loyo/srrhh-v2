@@ -4,11 +4,13 @@ import {
   kpisConcursosCphQuerySchema,
   kpisConcursosCeetpsQuerySchema,
   kpisDotacionQuerySchema,
+  kpisConcursosQuerySchema,
 } from './kpis.schema.js'
 import {
   getKpisConcursosCphService,
   getKpisConcursosCeetpsService,
   getKpisDotacionService,
+  getKpisConcursosService,
 } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
@@ -21,9 +23,11 @@ export async function kpisRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
-  app.get('/concursos', async (_request, reply) => {
-    // TODO: Sprint 6
-    return reply.send({ data: null })
+  // GET /concursos — S6-3: vista consolidada CPH+CEETPS + tiempo promedio por etapa (CPH)
+  app.get('/concursos', async (request, reply) => {
+    const query = kpisConcursosQuerySchema.parse(request.query)
+    const data = await getKpisConcursosService(query)
+    return reply.send({ data })
   })
 
   // GET /concursos-cph — S4-11
