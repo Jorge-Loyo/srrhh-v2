@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd packages/types && pnpm build && cd ../.. && pnpm --filter @srrhh/web build",
+  "buildCommand": "pnpm --filter @srrhh/types build && pnpm --filter @srrhh/web build",
   "outputDirectory": "apps/web/dist",
   "installCommand": "npm install -g pnpm@9.15.0 && pnpm install --no-frozen-lockfile",
   "framework": null,
