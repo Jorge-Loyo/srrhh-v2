@@ -7,13 +7,14 @@ settings:
 importers:
 
   .:
-    devDependencies:
+    dependencies:
       '@prisma/client':
         specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
       prisma:
         specifier: 5.22.0
         version: 5.22.0
+    devDependencies:
       turbo:
         specifier: ^2.0.0
         version: 2.10.11
@@ -44,6 +45,12 @@ importers:
       '@srrhh/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@types/bcrypt':
+        specifier: ^5.0.2
+        version: 5.0.2
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
       axios:
         specifier: ^1.7.0
         version: 1.19.0
@@ -66,15 +73,9 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
-      '@types/bcrypt':
-        specifier: ^5.0.2
-        version: 5.0.2
       '@types/form-data':
         specifier: ^2.5.2
         version: 2.5.2
-      '@types/node':
-        specifier: ^20.19.43
-        version: 20.19.43
       prisma:
         specifier: ^5.14.0
         version: 5.22.0
