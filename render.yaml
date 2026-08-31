@@ -5,7 +5,7 @@ services:
     region: oregon
     branch: deploy
     rootDir: .
-    buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm --filter @srrhh/types build 2>/dev/null || true && cd apps/api && pnpm build && cd ../.. && pnpm exec prisma generate --schema=./prisma/schema.prisma
+    buildCommand: npm install -g pnpm@9.15.0 && pnpm install --no-frozen-lockfile && cd packages/types && pnpm build && cd ../.. && cd apps/api && pnpm build
     startCommand: node apps/api/dist/app.js
     healthCheckPath: /health
     envVars:
