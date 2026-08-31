@@ -23,7 +23,7 @@
 | Sprint 3 (post-3) — Mejoras UX personas/cargos       | ✅ Completado — 2026-08-28                                      | ver detalle abajo |
 | Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
-| Sprint 6 — KPIs + Deploy                             | ⏳ Pendiente                                                    | —                 |
+| Sprint 6 — KPIs + Deploy                             | ✅ Completo — 2026-08-31, smoke test 21/21 OK                    | S6-0 a S6-8 (✅)  |
 
 ---
 
@@ -1163,16 +1163,17 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Dashboard operativo con KPIs reales y sistema listo para producción.
 
-| #    | Tarea                                                                           | Dev             | Est. | Prioridad  |
-| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- |
-| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico |
-| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico |
-| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico |
-| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   |
-| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   |
-| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   |
-| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico |
-| S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico |
+| #    | Tarea                                                                           | Dev             | Est. | Prioridad  | Estado |
+| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ------ |
+| S6-0 | *(no planificada)* Prerequisito `PadronHistorico`: `cuil`/`unificadorPuesto`/índice `cargoId` | Jorge | — | 🔴 Crítico | ✅ |
+| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico | ✅ |
+| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico | ✅ |
+| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico | ✅ |
+| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   | ✅ |
+| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   | ✅ |
+| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   | ✅ |
+| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico | ✅ |
+| S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico | ✅ |
 
 **Criterio de éxito:**
 
@@ -1215,8 +1216,16 @@ Staging (a definir):
 
 Producción:
   → Servidor propio
-  → Infraestructura a definir en Sprint 6
+  → docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+  → prisma migrate deploy
+  → Caddy: TLS automático (Let's Encrypt) si DOMAIN es un dominio real
 ```
+
+**S6-7 (2026-08-31):** `docker-compose.prod.yml` + `apps/api/Dockerfile.prod` + `apps/web/Dockerfile.prod` +
+`Caddyfile` armados y **verificados** (build real de las 3 imágenes, container de API corriendo contra la BD
+real con login funcionando, nginx sirviendo el bundle con fallback de SPA funcionando, `caddy validate` en
+verde) — ver `Doc/DEPLOY_PRODUCCION.md` para el detalle y qué falta completar (dominio, secrets) antes de un
+deploy real.
 
 ---
 
@@ -1236,6 +1245,14 @@ Producción:
 | 2026-08-26 | Estimados de horas en el plan son referenciales, no compromisos — cada sprint genera trabajo de verificación/corrección no planificado que es parte normal del proceso. Los estimados no se actualizan retroactivamente. | Medir velocidad contra los estimados originales daría una imagen distorsionada del trabajo real                                                                                                                                     |
 | 2026-08-26 | DoD actualizado: "PR aprobado" reemplazado por "avisar antes de tocar módulo compartido"                                                                                                                                 | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa (ver choque Sprint 3)                                                                                                                                  |
 | 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de construir KPIs de dotación (S6-0a/b/c)                                                                             | Sin `cuil` no se pueden contar personas únicas por período sin join; sin índice por `cargoId` el historial de un cargo hace seq scan; sin `unificadorPuesto` no se puede analizar dotación por tipo de puesto a lo largo del tiempo |
+| 2026-08-31 | **S6-0 resuelto**: migración `20260831140000_padron_historico_kpis_prereq` agrega `cuil`/`unificador_puesto` (nullable) + `@@index([cargoId])` + `@@index([cuil])` a `PadronHistorico`; `aprobarSnapshotService` los completa en cada fila nueva. Backfill (`scripts/backfill-padron-historico-kpis.sql`) corrido contra datos reales: 46.889/46.889 filas, 0 nulos. | Desbloquea S6-5 (gráfico evolución dotación histórica) |
+| 2026-08-31 | **S6-1 resuelto**: `GET /api/v1/kpis/dotacion` (`getKpisDotacionService`) — "vigente" = `Cargo.estado='vigente'`, "vacante" = vigente sin `Ocupacion` con `hasta IS NULL`. Devuelve `totalVigentes`, `vacantes`, `porCarrera` (por escalafón) y `porEfector` (por hospital), con filtro opcional `hospitalId`. Verificado end-to-end contra datos reales: 46.889 cargos vigentes, 0 vacantes hoy. | Alimenta S6-2 (KpisPage) |
+| 2026-08-31 | **S6-3 resuelto**: `GET /api/v1/kpis/concursos` (`getKpisConcursosService`) — vista consolidada CPH+CEETPS (`totalCph`/`totalCeetps`/`total`) + `porSubEstadoCph` + `tiempoPromedioPorEtapa`. El tiempo por etapa es exclusivo de CPH: es el único tipo con escalera de sub-estados con fecha propia por nivel (CEETPS solo tiene `EstadoConcursoCeetps` plano). Se promedia `hasta - desde` por cada par consecutivo de fechas-hito con datos, excluyendo pares fuera de orden cronológico. Matemática validada con datos sintéticos en transacción con `ROLLBACK` (10 y 20 días → promedio 15, exacto); estructuralmente probado contra la BD real (0 concursos cargados localmente todavía). | Alimenta el tablero de KPIs concursales |
+| 2026-08-31 | **S6-2 resuelto**: `KpisPage` (ruta `/kpis`, reemplaza el placeholder) — cards con borde amarillo (`border-primary`) para vigentes/vacantes/concursos CPH/CEETPS, skeleton `animate-pulse` mientras cargan `useKpiDotacion`/`useKpiConcursos`, dotación por carrera/efector con barra de proporción de vacantes, concursos CPH por sub-estado y tiempo promedio por etapa. Incluye filtro por hospital (instancia base de S6-4). `tsc` limpio; sin `chromium-cli`/Playwright disponibles en este entorno para captura visual — verificado por tipos + dev server sirviendo 200. | Consume S6-1/S6-3 |
+| 2026-08-31 | **S6-6 resuelto**: `GET /api/v1/kpis/alertas` (`getKpisAlertasService`) — dos alertas nuevas, distintas de `AlertasSinMovimiento(Ceetps)` (S4-10/S5-9, que miden "sin movimiento hace N días"): "concursos vencidos" = CPH activo con `fechaInscHasta < hoy` y `fechaExamen` sin cargar (venció el plazo, no se programó examen); "bajas sin concurso" = `Baja.generaConcurso=false`, `estado=pendiente`, sin ningún `Concurso` enganchado (si `generaConcurso=true`, `createBajaService` ya crea el concurso atómicamente — no puede quedar huérfana). Sección "Alertas activas" agregada a `KpisPage` con borde rojo, oculta si no hay nada pendiente. Lógica validada con datos sintéticos en transacción `ROLLBACK` (1 caso de cada tipo, detectado correctamente). | Cierra la parte de Jorge del tablero |
+| 2026-08-31 | **S6-5 resuelto**: no existía backend para esto (el plan solo tenía a Agustin en la fila, sin un S-x de Jorge que lo alimentara) — se agregó `GET /api/v1/kpis/dotacion-historica` (`getKpisDotacionHistoricaService`) además del frontend. Un punto por `fechaAsignada` de `PadronHistorico`, `count(DISTINCT cuil)` para personas únicas (esto es exactamente lo que S6-0 desbloqueó) + `count(*)` para cargos ocupados. Filtro por hospital vía join a `cargos` (usa el `@@index([cargoId])` de S6-0). `EvolucionDotacionChart`: línea de una sola serie a mano (sin sumar librería de charts por un solo gráfico), specs de la skill de dataviz — línea 2px, área 10%, punto final ≥8px con anillo, hairlines recesivos, crosshair+tooltip on hover, rótulo directo del último valor. Verificado contra datos reales: 45.083 personas únicas / 46.889 cargos ocupados en el único snapshot local (número tiene sentido: hay personas con más de un cargo). | Cierra la parte de Agustin del tablero |
+| 2026-08-31 | **S6-8 resuelto**: smoke test completo (`scripts/smoke-test.mjs`, repetible) — health de API/Dotaneitor/web, login real, un GET representativo de los 9 módulos de rutas registrados en `app.ts` (padrón, personas, cargos, concursos-cph, concursos-ceetps, hospitales, escalafones, puestos, usuarios, bajas) + los 6 endpoints de `/kpis`, más una verificación negativa (ruta protegida sin token → 401, no 200). **21/21 OK** contra datos reales, `tsc --noEmit` limpio en `api` y `web`, `docker compose ps` con los 3 containers de dev arriba y sanos. Cierra Sprint 6 completo (S6-0 a S6-8). | Sprint 6 completo |
+| 2026-08-31 | **S6-4 resuelto** (sin código adicional): el único `hospitalId` de `KpisPage` (dropdown agregado en S6-2) ya se pasa a `useKpiDotacion`, `useKpiConcursos` y `useKpiAlertas` por igual — "filtro por hospital en todo el tablero" quedó satisfecho por construcción al diseñar los 3 hooks con la misma firma `(hospitalId?: string)`. Verificado con `curl` contra los 3 endpoints. | No había necesidad de un componente de filtro global separado — un solo `useState` alcanza porque las 3 queries viven en la misma página |
 | 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff`             | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1)                                                               |
 | 2026-09    | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`)                                       | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente                                                                         |
 | 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                            | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                          |
