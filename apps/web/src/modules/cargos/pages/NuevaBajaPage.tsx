@@ -7,7 +7,7 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
-  CEETPS_CODIGOS,
+  CEETPS_CODIGOS, CEETPS_ESCALAFON,
   evaluarCph,
   formatDateMask, dmyToIso,
 } from '../lib/bajasHelpers'

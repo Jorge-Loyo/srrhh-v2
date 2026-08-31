@@ -92,7 +92,7 @@ export async function listCargosService(query: CargosQuery) {
     ...(escalafonId && { escalafonId }),
     ...(puesto      && { literalPuesto: puesto }),
     ...(estado      && { estado }),
-    ...(idFilters.length === 1 && { id: idFilters[0].id }),
+    ...(idFilters.length === 1 && { id: idFilters[0]!.id }),
     ...(idFilters.length  > 1 && { AND: idFilters }),
   }
 
