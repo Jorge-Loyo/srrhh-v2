@@ -6,7 +6,7 @@ services:
     branch: deploy
     rootDir: .
     buildCommand: npm install -g pnpm@9.15.0 && pnpm install --no-frozen-lockfile && cd packages/types && pnpm build && cd ../.. && cd apps/api && pnpm build
-    startCommand: node apps/api/dist/app.js
+    startCommand: sh start.sh
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
