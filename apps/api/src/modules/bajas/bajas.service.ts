@@ -105,7 +105,7 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
           tipoConcurso: body.tipoConcurso,
           escalafonId: body.escalafonId,
           fechaBaja: body.fechaBaja,
-          eeBaja: body.eeBaja ?? null,
+          eeBaja: body.eeBaja,
         },
         usuarioId,
         baja.id

@@ -513,6 +513,47 @@ export interface KpiConcursosCeetps {
   porHospital: { hospitalId: string; sigla: string; nombre: string; total: number }[]
 }
 
+// S6-1 — GET /api/v1/kpis/dotacion
+export interface KpiDotacion {
+  totalVigentes: number
+  vacantes: number
+  porCarrera: { escalafonId: string; codigo: string; nombre: string; vigentes: number; vacantes: number }[]
+  porEfector: { hospitalId: string; sigla: string; nombre: string; vigentes: number; vacantes: number }[]
+}
+
+// S6-3 — GET /api/v1/kpis/concursos
+export interface KpiConcursos {
+  totalCph: number
+  totalCeetps: number
+  total: number
+  porSubEstadoCph: { subEstado: string; total: number }[]
+  tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
+}
+
+// S6-5 — GET /api/v1/kpis/dotacion-historica
+export interface KpiDotacionHistorica {
+  puntos: { fecha: string; personas: number; cargos: number }[]
+}
+
+// S6-6 — GET /api/v1/kpis/alertas
+export interface KpiAlertas {
+  concursosVencidos: {
+    id: string
+    cargoCodigo: string
+    hospitalSigla: string
+    subEstado: string | null
+    fechaInscHasta: string | null
+    diasVencido: number
+  }[]
+  bajasSinConcurso: {
+    id: string
+    cargoCodigo: string
+    hospitalSigla: string
+    fechaBaja: string
+    diasSinConcurso: number
+  }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------

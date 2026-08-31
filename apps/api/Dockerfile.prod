@@ -1,0 +1,72 @@
+# Dockerfile de PRODUCCIÓN para @srrhh/api — build multi-stage, corre el
+# JS compilado (`node dist/app.js`), no `tsx watch` como el Dockerfile de dev
+# (ver apps/api/Dockerfile, que es dev-only a propósito).
+#
+# Build context = raíz del repo, igual que el de dev (ver docker-compose.prod.yml).
+#
+# No se separa un stage "runtime" con `pnpm install --prod`: tanto `prisma`
+# (CLI, para `prisma generate`) como `typescript` (para `tsc`) son
+# devDependencies acá y en la raíz del monorepo — un install --prod las poda
+# y el postinstall (`prisma generate`) del root package.json se rompe. Más
+# simple y menos frágil: un solo stage con install completo + build, y un
+# segundo stage liviano que solo copia dist/ + node_modules ya resueltos
+# (el Prisma Client generado incluido) desde ahí.
+
+# ── Stage 1: build ───────────────────────────────────────────────────────────
+FROM node:20-alpine AS build
+
+RUN apk add --no-cache openssl
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+WORKDIR /repo
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/types/package.json packages/types/package.json
+COPY packages/utils/package.json packages/utils/package.json
+COPY prisma ./prisma
+
+# --frozen-lockfile: el build de producción no debe resolver versiones nuevas
+# silenciosamente — si el lockfile no matchea, se rompe acá, no en producción.
+# El postinstall (prisma generate) corre solo con esto.
+RUN pnpm install --frozen-lockfile
+
+COPY apps/api apps/api
+COPY packages packages
+
+WORKDIR /repo/apps/api
+RUN pnpm run build
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+# Alpine + openssl (Prisma engine los necesita) pero sin toolchain de build.
+FROM node:20-alpine AS runtime
+
+RUN apk add --no-cache openssl
+WORKDIR /repo
+
+# node_modules completo (con el Prisma Client ya generado) + el dist compilado.
+COPY --from=build /repo/node_modules /repo/node_modules
+COPY --from=build /repo/apps/api/node_modules /repo/apps/api/node_modules
+COPY --from=build /repo/apps/api/dist /repo/apps/api/dist
+COPY --from=build /repo/apps/api/package.json /repo/apps/api/package.json
+COPY --from=build /repo/prisma /repo/prisma
+# @srrhh/types (packages/types) no tiene build propio — su package.json
+# apunta "main"/"exports" directo a ./src/index.ts (fuente TS sin compilar,
+# ver ese package.json). apps/web lo resuelve fine porque Vite transpila TS
+# al vuelo; dist/app.js compilado acá lo importa vía el symlink de pnpm en
+# node_modules/@srrhh/types → packages/types, así que el .ts fuente tiene
+# que estar presente en la imagen igual, y quien lo ejecute tiene que poder
+# transpilarlo (por eso el CMD usa tsx en vez de `node` a secas — ver abajo).
+COPY --from=build /repo/packages /repo/packages
+
+WORKDIR /repo/apps/api
+EXPOSE 3000
+RUN touch .env
+
+# `node dist/app.js` a secas rompe acá: Node no puede parsear el .ts de
+# @srrhh/types al que apunta el symlink de node_modules (probado — ver
+# PLAN_SCRUM_2026.md, hallazgo S6-7). tsx sí sabe transpilar esa dependencia
+# al vuelo, y correr dist/app.js (ya compilado, no watch) con tsx no reabre
+# el modo desarrollo — solo resuelve el único import fuente que queda sin
+# compilar en todo el árbol.
+CMD ["node_modules/.bin/tsx", "dist/app.js"]
