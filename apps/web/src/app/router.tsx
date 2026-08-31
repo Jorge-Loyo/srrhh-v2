@@ -17,14 +17,7 @@ import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPag
 import { ConcursoCphWizard } from '../modules/concursos-cph/pages/ConcursoCphWizard'
 import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
 import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
-
-// Páginas placeholder — se implementan en cada sprint
-const Placeholder = ({ title }: { title: string }) => (
-  <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-    <h2 className="font-primary text-xl font-bold text-gray-700 mb-2">{title}</h2>
-    <p className="text-sm text-gray-400">Módulo en desarrollo</p>
-  </div>
-)
+import { KpisPage } from '../modules/kpis/pages/KpisPage'
 
 export const router = createBrowserRouter([
   {
@@ -50,7 +43,7 @@ export const router = createBrowserRouter([
           { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
-          { path: 'kpis', element: <Placeholder title="Tablero KPIs" /> },
+          { path: 'kpis', element: <KpisPage /> },
           { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
         ],
       },

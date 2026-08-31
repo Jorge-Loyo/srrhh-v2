@@ -1,0 +1,26 @@
+# Reverse proxy + TLS de producción. Caddy pide y renueva certificados de
+# Let's Encrypt automáticamente cuando {$DOMAIN} es un dominio real apuntando
+# a este servidor (puertos 80/443 abiertos al mundo). Si {$DOMAIN} es una IP
+# o "localhost" (deploy interno sin dominio todavía), Caddy sirve HTTP plano
+# sin intentar ACME — no hace falta tocar nada acá para ese caso, es
+# comportamiento nativo de Caddy.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# API — todo /api/* y /health van al backend Fastify.
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	# Resto — el bundle estático de React servido por el container nginx.
+	handle {
+		reverse_proxy web:80
+	}
+
+	encode gzip
+}

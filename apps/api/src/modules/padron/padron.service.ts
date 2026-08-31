@@ -26,10 +26,12 @@ interface OcupacionFinalRow {
   idSialRol: string
   estadoPersona: string | null
   situacionRevista: string | null
+  persona: { cuil: string }
   cargo: {
     literalPuesto: string | null
     especialidad: string | null
     agrupador: string | null
+    unificadorPuesto: string | null
     hospital: { sigla: string }
     escalafon: { nombre: string }
   }
@@ -1016,7 +1018,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     //       fila ────────────────────────────────────────────────────────────
     const ocupacionesFinales = (await tx.ocupacion.findMany({
       where: { idSialRol: { in: todosLosIdSialRol } },
-      include: { cargo: { include: { hospital: true, escalafon: true } } },
+      include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
     })) as OcupacionFinalRow[]
     const historicoEntries = ocupacionesFinales.map((ocupacion) => ({
       id: randomUUID(),
@@ -1025,11 +1027,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       personaId: ocupacion.personaId,
       cargoId: ocupacion.cargoId,
       idSialRol: ocupacion.idSialRol,
+      cuil: ocupacion.persona.cuil,
       escalafon: ocupacion.cargo.escalafon.nombre,
       hospitalSigla: ocupacion.cargo.hospital.sigla,
       literalPuesto: ocupacion.cargo.literalPuesto,
       especialidad: ocupacion.cargo.especialidad,
       agrupador: ocupacion.cargo.agrupador,
+      unificadorPuesto: ocupacion.cargo.unificadorPuesto,
       estadoPersona: ocupacion.estadoPersona,
       situacionRevista: ocupacion.situacionRevista,
     }))

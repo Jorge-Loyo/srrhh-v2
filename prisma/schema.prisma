@@ -318,11 +318,16 @@ model PadronHistorico {
   personaId        String   @map("persona_id") @db.Uuid
   cargoId          String   @map("cargo_id") @db.Uuid
   idSialRol        String   @map("id_sial_rol") @db.VarChar(50)
+  // Nullable: filas históricas de antes de S6-0 no lo tienen hasta que
+  // corra el backfill (scripts/backfill-cuil-padron-historico.sql). Todo
+  // registro nuevo (aprobarSnapshotService) ya lo completa siempre.
+  cuil             String?  @db.VarChar(11)
   escalafon        String?  @db.VarChar(50)
   hospitalSigla    String?  @map("hospital_sigla") @db.VarChar(20)
   literalPuesto    String?  @map("literal_puesto") @db.VarChar(200)
   especialidad     String?  @db.VarChar(200)
   agrupador        String?  @db.VarChar(150)
+  unificadorPuesto String?  @map("unificador_puesto") @db.VarChar(200)
   estadoPersona    String?  @map("estado_persona") @db.VarChar(50)
   situacionRevista String?  @map("situacion_revista") @db.VarChar(50)
 
@@ -334,6 +339,8 @@ model PadronHistorico {
   @@index([snapshotId])
   @@index([fechaAsignada])
   @@index([personaId])
+  @@index([cargoId])
+  @@index([cuil])
   @@map("padron_historico")
 }
 
