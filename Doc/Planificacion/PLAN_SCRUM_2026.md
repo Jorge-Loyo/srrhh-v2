@@ -1172,7 +1172,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 | S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   | ✅ |
 | S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   | ✅ |
 | S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   | ✅ |
-| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico | ⏳ |
+| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico | ✅ |
 | S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico | ⏳ |
 
 **Criterio de éxito:**
@@ -1216,8 +1216,16 @@ Staging (a definir):
 
 Producción:
   → Servidor propio
-  → Infraestructura a definir en Sprint 6
+  → docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+  → prisma migrate deploy
+  → Caddy: TLS automático (Let's Encrypt) si DOMAIN es un dominio real
 ```
+
+**S6-7 (2026-08-31):** `docker-compose.prod.yml` + `apps/api/Dockerfile.prod` + `apps/web/Dockerfile.prod` +
+`Caddyfile` armados y **verificados** (build real de las 3 imágenes, container de API corriendo contra la BD
+real con login funcionando, nginx sirviendo el bundle con fallback de SPA funcionando, `caddy validate` en
+verde) — ver `Doc/DEPLOY_PRODUCCION.md` para el detalle y qué falta completar (dominio, secrets) antes de un
+deploy real.
 
 ---
 

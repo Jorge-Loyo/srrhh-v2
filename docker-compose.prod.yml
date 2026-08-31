@@ -1,0 +1,108 @@
+# Stack de PRODUCCIÓN — S6-7 (borrador, ver PLAN_SCRUM_2026.md).
+#
+# Distinto de docker-compose.yml (dev) en varios puntos a propósito:
+#   - postgres/api/dotaneitor NO exponen puertos al host — solo son
+#     alcanzables dentro de la red de Docker. Caddy es el único servicio con
+#     puertos publicados (80/443).
+#   - api y web usan Dockerfile.prod (build compilado / bundle estático +
+#     nginx), no los Dockerfile de dev (tsx watch / Vite nativo en Windows).
+#   - todos los secrets/config vienen de variables de entorno (.env.production,
+#     gitignoreado — ver .env.production.example para la plantilla) en vez de
+#     estar hardcodeados como en docker-compose.yml.
+#
+# Uso:
+#   cp .env.production.example .env.production   # completar valores reales
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Placeholders que ESTE archivo no puede resolver por sí solo — quedan para
+# quien haga el deploy real: DOMAIN (dominio o IP del servidor), ACME_EMAIL,
+# DB_PASSWORD, JWT_SECRET (mínimo 32 caracteres, no reusar el de dev).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: srrhh_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: srrhh_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: srrhh_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U srrhh_user -d srrhh_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.prod
+    container_name: srrhh_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:${DB_PASSWORD}@postgres:5432/srrhh_db
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRES: 15m
+      JWT_REFRESH_EXPIRES: 7d
+      PYTHON_SERVICE_URL: http://dotaneitor:5001
+      PORT: 3000
+      NODE_ENV: production
+      CORS_ORIGINS: https://${DOMAIN}
+      LOG_LEVEL: info
+
+  dotaneitor:
+    build:
+      context: ./services/dotaneitor
+      dockerfile: Dockerfile
+    container_name: srrhh_dotaneitor
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:${DB_PASSWORD}@postgres:5432/srrhh_db
+      CORS_ORIGINS: ''
+    volumes:
+      - dotaneitor_exports:/app/exports
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.prod
+      args:
+        # Vacío = mismo origen (Caddy proxea /api/* al container api, ver
+        # Caddyfile) — solo completar si la API vive en otro dominio.
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: srrhh_web
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: srrhh_caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  dotaneitor_exports:
+  caddy_data:
+  caddy_config:
