@@ -528,6 +528,25 @@ export interface KpiConcursos {
   tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
 }
 
+// S6-6 — GET /api/v1/kpis/alertas
+export interface KpiAlertas {
+  concursosVencidos: {
+    id: string
+    cargoCodigo: string
+    hospitalSigla: string
+    subEstado: string | null
+    fechaInscHasta: string | null
+    diasVencido: number
+  }[]
+  bajasSinConcurso: {
+    id: string
+    cargoCodigo: string
+    hospitalSigla: string
+    fechaBaja: string
+    diasSinConcurso: number
+  }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------

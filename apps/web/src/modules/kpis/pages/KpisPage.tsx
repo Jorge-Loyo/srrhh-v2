@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
-import { useKpiDotacion, useKpiConcursos } from '../hooks/useKpis'
+import { useKpiDotacion, useKpiConcursos, useKpiAlertas } from '../hooks/useKpis'
 
 // S6-2: KpisPage — cards con borde amarillo (paleta Obelisco, primary =
 // #FFD600) + skeleton loading mientras cargan los agregados de S6-1/S6-3.
@@ -46,6 +47,7 @@ export function KpisPage() {
   const { data: hospitales } = useHospitales()
   const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion(hospitalId || undefined)
   const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos(hospitalId || undefined)
+  const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas(hospitalId || undefined)
 
   return (
     <div className="space-y-6">
@@ -130,6 +132,60 @@ export function KpisPage() {
           </>
         )}
       </div>
+
+      {/* ── Alertas activas (S6-6): concursos vencidos + bajas sin concurso ── */}
+      {loadingAlertas ? (
+        <SeccionSkeleton />
+      ) : (
+        (alertas?.concursosVencidos.length ?? 0) > 0 || (alertas?.bajasSinConcurso.length ?? 0) > 0 ? (
+          <div className="bg-white rounded-lg shadow-sm border-2 border-danger p-6">
+            <h2 className="font-primary text-base font-bold text-gray-900 mb-4">Alertas activas</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-2">
+                  Concursos CPH vencidos ({alertas?.concursosVencidos.length ?? 0})
+                </p>
+                <p className="text-xs text-gray-400 mb-2">
+                  Venció el plazo de inscripción sin haberse programado examen.
+                </p>
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {alertas?.concursosVencidos.map((c) => (
+                    <Link
+                      key={c.id}
+                      to={`/concursos/cph/${c.id}`}
+                      className="flex justify-between text-sm py-1.5 border-b border-gray-100 hover:bg-gray-50 rounded px-1"
+                    >
+                      <span className="text-gray-700">
+                        {c.cargoCodigo} · {c.hospitalSigla}
+                      </span>
+                      <span className="text-danger font-semibold">{c.diasVencido}d vencido</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-2">
+                  Bajas sin concurso ({alertas?.bajasSinConcurso.length ?? 0})
+                </p>
+                <p className="text-xs text-gray-400 mb-2">
+                  Vacante registrada sin ningún proceso de cobertura iniciado.
+                </p>
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {alertas?.bajasSinConcurso.map((b) => (
+                    <div key={b.id} className="flex justify-between text-sm py-1.5 border-b border-gray-100 px-1">
+                      <span className="text-gray-700">
+                        {b.cargoCodigo} · {b.hospitalSigla}
+                      </span>
+                      <span className="text-danger font-semibold">{b.diasSinConcurso}d sin concurso</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null
+      )}
 
       {/* ── Concursos: por sub-estado / tiempo promedio por etapa ─────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -1,7 +1,12 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { SUB_ESTADO_3_SQL_PG } from '../concursos-cph/concursosCph.calc.js'
-import type { KpisConcursosCeetpsQuery, KpisConcursosQuery, KpisDotacionQuery } from './kpis.schema.js'
+import type {
+  KpisConcursosCeetpsQuery,
+  KpisConcursosQuery,
+  KpisDotacionQuery,
+  KpisAlertasQuery,
+} from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
 //
@@ -282,5 +287,71 @@ export async function getKpisConcursosService(query: KpisConcursosQuery) {
       .map((r) => ({ subEstado: r.subEstado, total: r._count._all }))
       .sort((a, b) => a.subEstado.localeCompare(b.subEstado)),
     tiempoPromedioPorEtapa,
+  }
+}
+
+// ─── S6-6: Alertas activas para el tablero ──────────────────────────────────
+//
+// Dos alertas, ninguna cubierta por AlertasSinMovimiento(Ceetps) (S4-10/S5-9,
+// que son "sin movimiento hace N días" calculadas en el frontend):
+//
+// - "concursos vencidos" (CPH): venció el plazo de inscripción
+//   (fecha_insc_hasta < hoy) y todavía no se programó examen. Es un
+//   vencimiento de fecha dura, no una simple falta de movimiento — puede
+//   pasar recién abierto el concurso si alguien no actualizó a tiempo.
+// - "bajas sin concurso": baja con generaConcurso=false (si fuera true,
+//   createBajaService (S5-5) ya crea el concurso en la misma transacción —
+//   no puede quedar huérfana) y sin ningún Concurso enganchado todavía. Son
+//   vacantes que quedaron abiertas sin ningún proceso de cobertura iniciado.
+const DIA_MS = 24 * 60 * 60 * 1000
+function diasDesde(fecha: Date, hoy: Date): number {
+  return Math.floor((hoy.getTime() - fecha.getTime()) / DIA_MS)
+}
+
+export async function getKpisAlertasService(query: KpisAlertasQuery) {
+  const { hospitalId } = query
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+
+  const [concursosVencidos, bajasSinConcurso] = await Promise.all([
+    prisma.concursoCph.findMany({
+      where: {
+        estado: { notIn: ['finalizado', 'desierto', 'suspendido'] },
+        fechaInscHasta: { lt: hoy },
+        fechaExamen: null,
+        ...(hospitalId && { hospitalId }),
+      },
+      include: { hospital: { select: { sigla: true } }, cargo: { select: { codigo: true, idSial: true } } },
+      orderBy: { fechaInscHasta: 'asc' },
+    }),
+
+    prisma.baja.findMany({
+      where: {
+        generaConcurso: false,
+        estado: 'pendiente',
+        concursos: { none: {} },
+        ...(hospitalId && { hospitalId }),
+      },
+      include: { hospital: { select: { sigla: true } }, cargo: { select: { codigo: true, idSial: true } } },
+      orderBy: { fechaBaja: 'asc' },
+    }),
+  ])
+
+  return {
+    concursosVencidos: concursosVencidos.map((c) => ({
+      id: c.id,
+      cargoCodigo: c.cargo.codigo ?? c.cargo.idSial,
+      hospitalSigla: c.hospital.sigla,
+      subEstado: c.subEstado,
+      fechaInscHasta: c.fechaInscHasta,
+      diasVencido: c.fechaInscHasta ? diasDesde(c.fechaInscHasta, hoy) : 0,
+    })),
+    bajasSinConcurso: bajasSinConcurso.map((b) => ({
+      id: b.id,
+      cargoCodigo: b.cargo.codigo ?? b.cargo.idSial,
+      hospitalSigla: b.hospital.sigla,
+      fechaBaja: b.fechaBaja,
+      diasSinConcurso: diasDesde(b.fechaBaja, hoy),
+    })),
   }
 }

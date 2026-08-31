@@ -5,12 +5,14 @@ import {
   kpisConcursosCeetpsQuerySchema,
   kpisDotacionQuerySchema,
   kpisConcursosQuerySchema,
+  kpisAlertasQuerySchema,
 } from './kpis.schema.js'
 import {
   getKpisConcursosCphService,
   getKpisConcursosCeetpsService,
   getKpisDotacionService,
   getKpisConcursosService,
+  getKpisAlertasService,
 } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
@@ -34,6 +36,13 @@ export async function kpisRoutes(app: FastifyInstance) {
   app.get('/concursos-cph', async (request, reply) => {
     const { hospitalId } = kpisConcursosCphQuerySchema.parse(request.query)
     const data = await getKpisConcursosCphService(hospitalId)
+    return reply.send({ data })
+  })
+
+  // GET /alertas — S6-6: concursos vencidos + bajas sin concurso
+  app.get('/alertas', async (request, reply) => {
+    const query = kpisAlertasQuerySchema.parse(request.query)
+    const data = await getKpisAlertasService(query)
     return reply.send({ data })
   })
 

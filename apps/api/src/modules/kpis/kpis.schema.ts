@@ -24,3 +24,9 @@ export const kpisConcursosQuerySchema = z.object({
 })
 
 export type KpisConcursosQuery = z.infer<typeof kpisConcursosQuerySchema>
+
+export const kpisAlertasQuerySchema = z.object({
+  hospitalId: z.string().uuid().optional(),
+})
+
+export type KpisAlertasQuery = z.infer<typeof kpisAlertasQuerySchema>

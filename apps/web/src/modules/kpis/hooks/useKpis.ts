@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { KpiDotacion, KpiConcursos } from '@srrhh/types'
+import type { KpiDotacion, KpiConcursos, KpiAlertas } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 // S6-2: KpisPage consume estos dos endpoints (S6-1/S6-3 de Jorge) para
@@ -24,6 +24,20 @@ export function useKpiConcursos(hospitalId?: string) {
     queryKey: ['kpis', 'concursos', hospitalId],
     queryFn: async () => {
       const res = await apiClient.get<{ data: KpiConcursos }>('/api/v1/kpis/concursos', {
+        params: { ...(hospitalId && { hospitalId }) },
+      })
+      return res.data.data
+    },
+    staleTime: 60_000,
+  })
+}
+
+// S6-6: concursos vencidos + bajas sin concurso.
+export function useKpiAlertas(hospitalId?: string) {
+  return useQuery({
+    queryKey: ['kpis', 'alertas', hospitalId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: KpiAlertas }>('/api/v1/kpis/alertas', {
         params: { ...(hospitalId && { hospitalId }) },
       })
       return res.data.data
