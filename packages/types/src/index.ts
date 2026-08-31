@@ -528,6 +528,11 @@ export interface KpiConcursos {
   tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
 }
 
+// S6-5 — GET /api/v1/kpis/dotacion-historica
+export interface KpiDotacionHistorica {
+  puntos: { fecha: string; personas: number; cargos: number }[]
+}
+
 // S6-6 — GET /api/v1/kpis/alertas
 export interface KpiAlertas {
   concursosVencidos: {

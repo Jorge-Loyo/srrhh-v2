@@ -6,6 +6,7 @@ import type {
   KpisConcursosQuery,
   KpisDotacionQuery,
   KpisAlertasQuery,
+  KpisDotacionHistoricaQuery,
 } from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
@@ -352,6 +353,45 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
       hospitalSigla: b.hospital.sigla,
       fechaBaja: b.fechaBaja,
       diasSinConcurso: diasDesde(b.fechaBaja, hoy),
+    })),
+  }
+}
+
+// ─── S6-5: evolución de dotación histórica (PadronHistorico) ───────────────
+//
+// Desbloqueado por S6-0 (2026-08-31): antes de esa migración, PadronHistorico
+// no tenía `cuil` desnormalizado, así que "personas únicas por período" solo
+// se podía sacar con un JOIN a personas — acá se cuenta directo sobre la
+// columna ya poblada. Un snapshot aprobado inserta una fila de
+// PadronHistorico por cada ocupación vigente en ese momento (padron.service.ts,
+// aprobarSnapshotService) — agrupar por fechaAsignada da un punto por semana
+// de padrón procesada, no por día calendario.
+//
+// El filtro por hospital pasa por cargoId → cargos.hospital_id (join) en vez
+// de por hospitalSigla (que sí está denormalizada en la fila) para que el
+// query param sea el mismo hospitalId (uuid) que usan el resto de los
+// endpoints de /kpis — aprovecha el @@index([cargoId]) agregado en S6-0.
+export async function getKpisDotacionHistoricaService(query: KpisDotacionHistoricaQuery) {
+  const { hospitalId } = query
+  const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
+
+  const rows = await prisma.$queryRaw<{ fechaAsignada: Date; personas: bigint; cargos: bigint }[]>(Prisma.sql`
+    SELECT
+      ph.fecha_asignada AS "fechaAsignada",
+      count(DISTINCT ph.cuil)::bigint AS personas,
+      count(*)::bigint AS cargos
+    FROM padron_historico ph
+    JOIN cargos c ON c.id = ph.cargo_id
+    WHERE true ${hospitalFilter}
+    GROUP BY ph.fecha_asignada
+    ORDER BY ph.fecha_asignada
+  `)
+
+  return {
+    puntos: rows.map((r) => ({
+      fecha: r.fechaAsignada,
+      personas: Number(r.personas),
+      cargos: Number(r.cargos),
     })),
   }
 }

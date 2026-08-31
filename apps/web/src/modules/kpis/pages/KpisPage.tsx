@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
-import { useKpiDotacion, useKpiConcursos, useKpiAlertas } from '../hooks/useKpis'
+import { useKpiDotacion, useKpiConcursos, useKpiAlertas, useKpiDotacionHistorica } from '../hooks/useKpis'
+import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
 
 // S6-2: KpisPage — cards con borde amarillo (paleta Obelisco, primary =
 // #FFD600) + skeleton loading mientras cargan los agregados de S6-1/S6-3.
@@ -48,6 +49,7 @@ export function KpisPage() {
   const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion(hospitalId || undefined)
   const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos(hospitalId || undefined)
   const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas(hospitalId || undefined)
+  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined)
 
   return (
     <div className="space-y-6">
@@ -79,6 +81,17 @@ export function KpisPage() {
         <KpiCard label="Vacantes" value={dotacion?.vacantes ?? 0} loading={loadingDotacion} />
         <KpiCard label="Concursos CPH" value={concursos?.totalCph ?? 0} loading={loadingConcursos} />
         <KpiCard label="Concursos CEETPS" value={concursos?.totalCeetps ?? 0} loading={loadingConcursos} />
+      </div>
+
+      {/* ── Evolución de dotación histórica (S6-5) ────────────────────── */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución de la dotación</h2>
+        <p className="text-xs text-gray-400 mb-4">Personas únicas por fecha de padrón aprobada</p>
+        {loadingHistorica ? (
+          <div className="h-64 bg-gray-100 rounded animate-pulse" />
+        ) : (
+          <EvolucionDotacionChart data={historica} />
+        )}
       </div>
 
       {/* ── Dotación por carrera / por efector ────────────────────────── */}

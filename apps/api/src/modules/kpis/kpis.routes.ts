@@ -6,6 +6,7 @@ import {
   kpisDotacionQuerySchema,
   kpisConcursosQuerySchema,
   kpisAlertasQuerySchema,
+  kpisDotacionHistoricaQuerySchema,
 } from './kpis.schema.js'
 import {
   getKpisConcursosCphService,
@@ -13,6 +14,7 @@ import {
   getKpisDotacionService,
   getKpisConcursosService,
   getKpisAlertasService,
+  getKpisDotacionHistoricaService,
 } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
@@ -43,6 +45,13 @@ export async function kpisRoutes(app: FastifyInstance) {
   app.get('/alertas', async (request, reply) => {
     const query = kpisAlertasQuerySchema.parse(request.query)
     const data = await getKpisAlertasService(query)
+    return reply.send({ data })
+  })
+
+  // GET /dotacion-historica — S6-5: evolución de PadronHistorico
+  app.get('/dotacion-historica', async (request, reply) => {
+    const query = kpisDotacionHistoricaQuerySchema.parse(request.query)
+    const data = await getKpisDotacionHistoricaService(query)
     return reply.send({ data })
   })
 
