@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Hospital, Escalafon } from '@srrhh/types'
+import type { Hospital, Escalafon, CodigoRegistro } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 // Catálogos para selectores de filtro (PersonasPage, CargosPage, y lo que
@@ -20,6 +20,16 @@ export function useEscalafones() {
     queryKey: ['escalafones'],
     queryFn: async () => {
       const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones')
+      return res.data.data
+    },
+  })
+}
+
+export function useCodigosRegistro() {
+  return useQuery({
+    queryKey: ['codigos-registro'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CodigoRegistro[] }>('/api/v1/codigos-registro')
       return res.data.data
     },
   })

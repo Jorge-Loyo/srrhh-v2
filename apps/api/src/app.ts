@@ -15,6 +15,7 @@ import { concursosRoutes } from './modules/concursos/concursos.routes.js'
 import { concursosCphRoutes } from './modules/concursos-cph/concursos-cph.routes.js'
 import { concursosCeetpsRoutes } from './modules/concursos-ceetps/concursos-ceetps.routes.js'
 import { hospitalesRoutes } from './modules/hospitales/hospitales.routes.js'
+import { codigosRegistroRoutes } from './modules/codigos-registro/codigos-registro.routes.js'
 import { escalafonesRoutes } from './modules/escalafones/escalafones.routes.js'
 import { puestosRoutes } from './modules/puestos/puestos.routes.js'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes.js'
@@ -72,6 +73,7 @@ await app.register(concursosRoutes, { prefix: '/api/v1/concursos' })
 await app.register(concursosCphRoutes, { prefix: '/api/v1/concursos-cph' })
 await app.register(concursosCeetpsRoutes, { prefix: '/api/v1/concursos-ceetps' })
 await app.register(hospitalesRoutes, { prefix: '/api/v1/hospitales' })
+  await app.register(codigosRegistroRoutes, { prefix: '/api/v1/codigos-registro' })
 await app.register(escalafonesRoutes, { prefix: '/api/v1/escalafones' })
 await app.register(puestosRoutes, { prefix: '/api/v1/puestos' })
 await app.register(usuariosRoutes, { prefix: '/api/v1/usuarios' })

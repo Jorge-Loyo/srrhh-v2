@@ -148,7 +148,10 @@ export function ConcursosCphPage() {
                     <tr>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Cargo</th>
+                      <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Persona</th>
+                      <th className="px-4 py-3 font-semibold">Expediente</th>
+                      <th className="px-4 py-3 font-semibold">Disposición</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
@@ -164,8 +167,17 @@ export function ConcursosCphPage() {
                           <td className="px-4 py-3 text-gray-600">
                             {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
                           </td>
+                          <td className="px-4 py-3 text-gray-600 text-xs">
+                            {c.especialidadSolicitada ?? c.concurso?.cargo?.especialidad ?? '—'}
+                          </td>
                           <td className="px-4 py-3 text-gray-600">
                             {c.concurso?.persona?.apellidoNombre ?? 'Vacante'}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                            {c.eeConcurso ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500">
+                            {c.disposicion ?? '—'}
                           </td>
                           <td className="px-4 py-3">
                             <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
@@ -175,7 +187,7 @@ export function ConcursosCphPage() {
                             <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Hoy' : `${dias} días`}</span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Link to={`/concursos/cph/${c.id}`} className="btn-outline">
+                            <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">
                               Ver
                             </Link>
                           </td>

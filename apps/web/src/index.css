@@ -72,3 +72,9 @@
     @apply h-5 w-5 rounded border-gray-300 text-secondary focus:ring-secondary;
   }
 }
+
+@layer components {
+  .label {
+    @apply block text-sm font-semibold text-gray-700 mb-1;
+  }
+}

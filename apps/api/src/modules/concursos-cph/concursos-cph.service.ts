@@ -5,7 +5,7 @@ import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody 
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
 
 const include = {
-  concurso: { include: { cargo: true, persona: true } },
+  concurso: { include: { cargo: { include: { hospital: true, codigoRegistro: true } }, persona: true, baja: true } },
   hospital: true,
   personaDesignada: true,
 } satisfies Prisma.ConcursoCphInclude

@@ -61,17 +61,21 @@ export async function listCargosService(query: CargosQuery) {
     ocupadoIds = rows.map((r) => r.id)
   }
 
-  // Filtro personaSearch: busca por nombre o CUIL en personas con ocupación vigente
+  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente
   let personaIds: string[] | undefined
   if (personaSearch) {
     const like = `%${personaSearch}%`
+    // Normalizar: quitar guiones para buscar CUIL sin formato (27-12345678-9 -> 27123456789)
+    const likeNorm = `%${personaSearch.replace(/-/g, '')}%`
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT DISTINCT o.cargo_id AS id
       FROM ocupaciones o
       JOIN personas p ON p.id = o.persona_id
       WHERE o.hasta IS NULL
         AND (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
-          OR p.cuil ILIKE ${like})
+          OR p.cuil ILIKE ${likeNorm}
+          OR o.id_sial_rol ILIKE ${like}
+          OR o.cuil_y_rol  ILIKE ${like})
     `)
     personaIds = rows.map((r) => r.id)
   }
@@ -115,7 +119,9 @@ export async function listCargosService(query: CargosQuery) {
     data: cargos.map(({ ocupaciones, ...c }) => ({
       ...c,
       ocupado: ocupaciones.length > 0,
-      personaOcupante: ocupaciones[0]?.persona ?? null,
+      personaOcupante: ocupaciones[0]?.persona
+        ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
+        : null,
     })),
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   }

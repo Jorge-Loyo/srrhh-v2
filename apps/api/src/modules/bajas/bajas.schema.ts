@@ -29,6 +29,7 @@ export const createBajaSchema = z
     motivo: z.string().trim().max(500).optional(),
     tipificadorOrigen: z.string().trim().max(200).optional(),
     generaConcurso: z.boolean().default(true),
+    eeBaja: z.string().trim().max(500).optional(),
     // Requerido cuando generaConcurso = true
     tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
     // Requerido cuando tipoConcurso = ceetps

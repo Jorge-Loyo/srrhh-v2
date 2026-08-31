@@ -2,10 +2,12 @@
 // - id === 'nuevo': formulario limpio (sin datos reales aún)
 // - id === UUID:    carga el concurso real de la API
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
+import { useEscalafones, usePuestosCargos, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
+import { getEspecialidadOptions } from '@/modules/cargos/lib/bajasHelpers'
 import type { ConcursoCph } from '@srrhh/types'
 
 type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
@@ -16,6 +18,7 @@ interface Campo {
   tipo: 'texto' | 'fecha' | 'checkbox' | 'textarea'
   valor: string | boolean
   requerido?: boolean
+  readonly?: boolean
 }
 
 interface Etapa {
@@ -71,6 +74,12 @@ export function ConcursoCphWizard() {
     enabled: !esNuevo,
   })
 
+  const { data: escalafones = [] } = useEscalafones()
+  const { data: hospitales = [] } = useHospitales()
+  const { data: codigosRegistro = [] } = useCodigosRegistro()
+  const escalafonCph = escalafones.find((e) => /médico/i.test(e.nombre) && !/no\s*médico/i.test(e.nombre))
+  const { data: puestosDisponibles = [] } = usePuestosCargos(escalafonCph?.id)
+
   // Query params solo se usan en modo nuevo (vienen de NuevaBajaPage)
   const datosBaja = esNuevo ? {
     codigoCargo:    searchParams.get('codigoCargo') ?? '',
@@ -107,6 +116,14 @@ export function ConcursoCphWizard() {
     }
     if (!cphData) return null
     const c = cphData.concurso
+    const baja = (c as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } })?.baja
+    const eeBajaVal   = cphData.eeBaja   ?? baja?.observaciones ?? ''
+    const rawFechaHeader = cphData.fechaBaja ?? baja?.fechaBaja ?? ''
+    const fechaBajaVal = rawFechaHeader
+      ? (typeof rawFechaHeader === 'string'
+          ? rawFechaHeader.slice(0, 10)
+          : (rawFechaHeader as Date).toISOString().slice(0, 10))
+      : ''
     return {
       hospital:       c?.hospital?.sigla ?? '',
       hospitalNombre: c?.hospital?.nombre ?? '',
@@ -115,8 +132,8 @@ export function ConcursoCphWizard() {
       especialidad:   cphData.especialidadSolicitada ?? c?.cargo?.especialidad ?? '—',
       escalafon:      'CPH',
       personaBaja:    c?.persona?.apellidoNombre ?? '—',
-      fechaBaja:      cphData.fechaBaja ?? '',
-      eeBaja:         cphData.eeBaja ?? '',
+      fechaBaja:      fechaBajaVal,
+      eeBaja:         eeBajaVal,
       subEstado:      cphData.subEstado ?? 'VACANTE',
       subEstado3:     cphData.subEstado3 ?? '',
       suspendido:     cphData.suspendido,
@@ -135,6 +152,14 @@ export function ConcursoCphWizard() {
       if (!cphData) return false
       return (cphData as unknown as Record<string, boolean>)[key] ?? false
     }
+    const bajaDatos = (cphData?.concurso as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } } | undefined)?.baja
+    const eeBajaResuelto   = cphData?.eeBaja ?? bajaDatos?.observaciones ?? ''
+    const rawFecha = cphData?.fechaBaja ?? bajaDatos?.fechaBaja ?? ''
+    const fechaBajaResuelto = rawFecha
+      ? (typeof rawFecha === 'string'
+          ? rawFecha.slice(0, 10)
+          : (rawFecha as Date).toISOString().slice(0, 10))
+      : ''
     // Determinar estado de cada etapa según qué campos tiene completados
     const tieneAutorizacion = !!(cphData?.fechaAutorizacion || cphData?.disposicion)
     const tieneInscripcion  = !!(cphData?.fechaExamen || cphData?.fechaOrdenMerito)
@@ -155,11 +180,11 @@ export function ConcursoCphWizard() {
         estado: (esNuevo || !cphData) ? 'activa' : (cphData.eeConcurso ? 'completada' : 'activa'),
         fechaCompletada: cphData?.fechaEeConcurso ?? undefined,
         campos: [
-          { key: 'eeBaja',                label: 'EE de baja',              tipo: 'texto', valor: esNuevo ? (datosBaja?.eeBaja ?? '') : v('eeBaja') },
-          { key: 'fechaBaja',             label: 'Fecha de baja',           tipo: 'fecha', valor: esNuevo ? (datosBaja?.fechaBaja ?? '') : v('fechaBaja') },
-          { key: 'eeConcurso',            label: 'EE de concurso',          tipo: 'texto', valor: v('eeConcurso') },
-          { key: 'fechaEeConcurso',       label: 'Fecha EE de concurso',    tipo: 'fecha', valor: v('fechaEeConcurso') },
-          { key: 'especialidadSolicitada',label: 'Especialidad solicitada', tipo: 'texto', valor: esNuevo ? (datosBaja?.especialidad ?? '') : v('especialidadSolicitada') },
+          { key: 'eeBaja',                label: 'Expediente de baja',       tipo: 'texto', valor: esNuevo ? (datosBaja?.eeBaja ?? '') : (eeBajaResuelto || v('eeBaja')), readonly: true },
+          { key: 'fechaBaja',             label: 'Fecha de baja',            tipo: 'fecha', valor: esNuevo ? (datosBaja?.fechaBaja ?? '') : (fechaBajaResuelto || v('fechaBaja')), readonly: true },
+          { key: 'puesto',                label: 'Puesto',                   tipo: 'texto', valor: esNuevo ? (datosBaja?.puesto ?? '') : (cphData?.concurso?.cargo?.literalPuesto ?? ''), readonly: true },
+          { key: '__sep__',               label: '',                         tipo: 'texto', valor: '', readonly: true },
+          { key: 'eeConcurso',            label: 'Expediente de Concurso',   tipo: 'texto', valor: v('eeConcurso') },
         ],
       },
       {
@@ -229,6 +254,42 @@ export function ConcursoCphWizard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [esNuevo, cphData])
 
+  const [puestoConcurso, setPuestoConcurso] = useState('')
+  const [especialidadConcurso, setEspecialidadConcurso] = useState('')
+  const [siglaConcurso, setSiglaConcurso] = useState('')
+  const [codigoRegistroId, setCodigoRegistroId] = useState('')
+  const [pendienteAutorizacion, setPendienteAutorizacion] = useState(false)
+  const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
+  // Valores originales para detectar cambios en etapa baja
+  const originalesRef = { sigla: '', codigoRegistroId: '', puesto: '', especialidad: '' }
+  const [originales, setOriginales] = useState(originalesRef)
+  const especialidadesDisponibles = getEspecialidadOptions(puestoConcurso)
+
+  useEffect(() => {
+    if (!cphData) return
+    type CargoCph = { hospital?: { sigla?: string }; codigoRegistro?: { id?: string; literal?: string }; literalPuesto?: string; especialidad?: string }
+    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    setSiglaConcurso(cargo?.hospital?.sigla ?? '')
+    // Preferir el id directo del cargo; si no llegó aún el catálogo, buscar por literal cuando cargue
+    const crId = cargo?.codigoRegistro?.id ?? ''
+    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+    if (crId) {
+      setCodigoRegistroId(crId)
+    } else if (crLiteral && codigosRegistro.length > 0) {
+      const found = codigosRegistro.find((cr) => cr.literal === crLiteral)
+      if (found) setCodigoRegistroId(found.id)
+    }
+    setPuestoConcurso(cargo?.literalPuesto ?? '')
+    setEspecialidadConcurso(cphData.especialidadSolicitada ?? cargo?.especialidad ?? '')
+    // Guardar originales para detectar cambios
+    const resolvedCrId = crId || (crLiteral && codigosRegistro.length > 0 ? (codigosRegistro.find((cr) => cr.literal === crLiteral)?.id ?? '') : '')
+    setOriginales({
+      sigla: cargo?.hospital?.sigla ?? '',
+      codigoRegistroId: resolvedCrId,
+      puesto: cargo?.literalPuesto ?? '',
+      especialidad: cphData.especialidadSolicitada ?? cargo?.especialidad ?? '',
+    })
+  }, [cphData, codigosRegistro])
   const primeraEtapaActiva = etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja'
   const [etapaActiva, setEtapaActiva] = useState(primeraEtapaActiva)
   const [suspendido, setSuspendido]   = useState(false)
@@ -250,6 +311,25 @@ export function ConcursoCphWizard() {
   const c = concurso!
 
   function handleGuardar() {
+    if (etapaActiva === 'baja' && !esNuevo) {
+      const labelCr = (id: string) => codigosRegistro.find((cr) => cr.id === id)?.literal ?? id
+      const cambios: { campo: string; de: string; a: string }[] = []
+      if (siglaConcurso      !== originales.sigla)            cambios.push({ campo: 'Sigla',              de: originales.sigla,                          a: siglaConcurso })
+      if (codigoRegistroId   !== originales.codigoRegistroId) cambios.push({ campo: 'Código de registro', de: labelCr(originales.codigoRegistroId),        a: labelCr(codigoRegistroId) })
+      if (puestoConcurso     !== originales.puesto)           cambios.push({ campo: 'Puesto',             de: originales.puesto,                         a: puestoConcurso })
+      if (especialidadConcurso !== originales.especialidad)   cambios.push({ campo: 'Especialidad',       de: originales.especialidad,                   a: especialidadConcurso })
+      if (cambios.length > 0) {
+        setModalCambios(cambios)
+        return
+      }
+    }
+    setGuardado(true)
+    setTimeout(() => setGuardado(false), 2500)
+  }
+
+  function confirmarCambios() {
+    setModalCambios(null)
+    setPendienteAutorizacion(true)
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
   }
@@ -275,6 +355,40 @@ export function ConcursoCphWizard() {
   return (
     // Contenedor que ocupa todo el alto disponible dentro del <main> scrolleable
     <div className="flex flex-col min-h-full">
+
+      {/* ── MODAL CONFIRMACIÓN DE CAMBIOS ───────────────────────────────────────────── */}
+      {modalCambios && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-amber-500 text-xl">⚠️</span>
+              <div>
+                <h3 className="font-primary font-bold text-gray-900">Confirmar modificación</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Esta acción quedará pendiente de autorización por una autoridad superior.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm font-semibold text-gray-700 mb-3">Se modificarán los siguientes campos:</p>
+              <div className="space-y-2">
+                {modalCambios.map((c) => (
+                  <div key={c.campo} className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2.5">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{c.campo}</p>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-red-500 line-through">{c.de || <em className="not-italic text-gray-400">vacío</em>}</span>
+                      <span className="text-gray-400">→</span>
+                      <span className="text-green-700 font-medium">{c.a || <em className="not-italic text-gray-400">vacío</em>}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button className="btn-outline" onClick={() => setModalCambios(null)}>Cancelar</button>
+              <button className="btn-primary" onClick={confirmarCambios}>Confirmar y enviar a autorización</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
@@ -313,8 +427,9 @@ export function ConcursoCphWizard() {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   Baja:{' '}
-                  <span className="text-gray-600 font-medium">{c.personaBaja}</span>
-                  {' · '}{c.eeBaja}{' · '}{c.fechaBaja}
+                  {c.personaBaja !== '—' && <><span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}</>}
+                  {c.eeBaja && <>{c.eeBaja}{' '}</>}
+                  {c.fechaBaja && c.fechaBaja}
                 </p>
               </>
             )}
@@ -395,49 +510,160 @@ export function ConcursoCphWizard() {
                 </h2>
                 <p className="text-sm text-gray-500 mt-0.5">{etapa.descripcion}</p>
               </div>
-              <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
-                {ESTADO_ETAPA_CONFIG[etapa.estado].label}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
+                  {ESTADO_ETAPA_CONFIG[etapa.estado].label}
+                </span>
+                {pendienteAutorizacion && etapaActiva === 'baja' && (
+                  <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
+                )}
+              </div>
             </div>
 
-            <div className="p-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {etapa.campos.map((campo) => (
-                  <div key={campo.key} className={campo.tipo === 'textarea' ? 'sm:col-span-2' : ''}>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      {campo.label}
-                      {campo.requerido && <span className="text-danger ml-1">*</span>}
-                    </label>
-                    {campo.tipo === 'checkbox' ? (
-                      <div className="flex items-center gap-2 h-10">
+            <div className="p-6 space-y-6">
+              {etapa.id === 'baja' ? (
+                <>
+                  {/* ── Datos de la baja (readonly) ── */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Datos de la baja</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {etapa.campos.filter((c) => c.key !== '__sep__' && c.key !== 'eeConcurso').map((campo) => (
+                        <div key={campo.key} className={campo.key === 'puesto' ? 'sm:col-span-2' : ''}>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">{campo.label}</label>
+                          <input
+                            type={campo.tipo === 'fecha' ? 'date' : 'text'}
+                            defaultValue={campo.valor as string}
+                            className="input h-10 w-full bg-gray-50 text-gray-500"
+                            readOnly
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Datos del concurso (editables) ── */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Datos del concurso</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Expediente de Concurso */}
+                      {etapa.campos.filter((c) => c.key === 'eeConcurso').map((campo) => (
+                        <div key={campo.key} className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">{campo.label}</label>
+                          <input
+                            type="text"
+                            defaultValue={campo.valor as string}
+                            className="input h-10 w-full"
+                            disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          />
+                        </div>
+                      ))}
+                      {/* Sigla */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Sigla</label>
+                        <select
+                          value={siglaConcurso}
+                          onChange={(e) => setSiglaConcurso(e.target.value)}
+                          className="input h-10 w-full"
+                          disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                        >
+                          <option value="">Seleccioná...</option>
+                          {hospitales.map((h) => (
+                            <option key={h.id} value={h.sigla}>{h.sigla}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Código de registro */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Código de registro</label>
+                        <select
+                          value={codigoRegistroId}
+                          onChange={(e) => setCodigoRegistroId(e.target.value)}
+                          className="input h-10 w-full"
+                          disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                        >
+                          <option value="">Seleccioná...</option>
+                          {codigosRegistro.map((cr) => (
+                            <option key={cr.id} value={cr.id}>{cr.literal}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Puesto del concurso */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Puesto del concurso</label>
                         <input
-                          type="checkbox"
-                          defaultChecked={campo.valor as boolean}
-                          className="checkbox"
+                          list="puestos-cph-list"
+                          value={puestoConcurso}
+                          onChange={(e) => { setPuestoConcurso(e.target.value); setEspecialidadConcurso('') }}
+                          placeholder="Escribí para buscar..."
+                          className="input h-10 w-full"
                           disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                         />
-                        <span className="text-sm text-gray-500">Sí</span>
+                        <datalist id="puestos-cph-list">
+                          {puestosDisponibles.map((p) => (
+                            <option key={p} value={p} />
+                          ))}
+                        </datalist>
                       </div>
-                    ) : campo.tipo === 'textarea' ? (
-                      <textarea
-                        defaultValue={campo.valor as string}
-                        rows={3}
-                        className="input w-full py-2"
-                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                      />
-                    ) : (
-                      <input
-                        type={campo.tipo === 'fecha' ? 'date' : 'text'}
-                        defaultValue={campo.valor as string}
-                        className="input h-10 w-full"
-                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                      />
-                    )}
+                      {/* Especialidad — condicional */}
+                      {especialidadesDisponibles.length > 0 && (
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Especialidad del concurso</label>
+                          <select
+                            value={especialidadConcurso}
+                            onChange={(e) => setEspecialidadConcurso(e.target.value)}
+                            className="input h-10 w-full"
+                            disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          >
+                            <option value="">Seleccioná...</option>
+                            {especialidadesDisponibles.map((e) => (
+                              <option key={e} value={e}>{e}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {etapa.campos.map((campo) => (
+                    <div key={campo.key} className={campo.tipo === 'textarea' ? 'sm:col-span-2' : ''}>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        {campo.label}
+                        {campo.requerido && <span className="text-danger ml-1">*</span>}
+                      </label>
+                      {campo.tipo === 'checkbox' ? (
+                        <div className="flex items-center gap-2 h-10">
+                          <input
+                            type="checkbox"
+                            defaultChecked={campo.valor as boolean}
+                            className="checkbox"
+                            disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          />
+                          <span className="text-sm text-gray-500">Sí</span>
+                        </div>
+                      ) : campo.tipo === 'textarea' ? (
+                        <textarea
+                          defaultValue={campo.valor as string}
+                          rows={3}
+                          className="input w-full py-2"
+                          disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                        />
+                      ) : (
+                        <input
+                          type={campo.tipo === 'fecha' ? 'date' : 'text'}
+                          defaultValue={campo.valor as string}
+                          className={`input h-10 w-full ${campo.readonly ? 'bg-gray-50 text-gray-500' : ''}`}
+                          readOnly={campo.readonly}
+                          disabled={!campo.readonly && (etapa.estado === 'pendiente' || etapa.estado === 'bloqueada')}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-              <div className="mt-4">
+              <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Observaciones</label>
                 <textarea
                   defaultValue={etapa.id === 'ifacs_insal' ? c.observaciones : ''}
@@ -492,20 +718,45 @@ export function ConcursoCphWizard() {
           {/* Historial */}
           <div className="bg-white rounded-lg shadow-sm p-6">
             <h3 className="font-primary text-sm font-bold text-gray-700 mb-3">Historial de cambios</h3>
-            <div className="space-y-2 text-sm text-gray-500">
-              {[
-                { fecha: '2026-07-30', texto: 'IFACS registrado: IF-2026-34302887-GCABA-HGAP' },
-                { fecha: '2026-07-29', texto: 'Orden de mérito registrado' },
-                { fecha: '2026-07-14', texto: 'Examen publicado' },
-                { fecha: '2026-06-05', texto: 'Cierre de inscripción' },
-                { fecha: '2026-05-18', texto: 'Apertura de inscripción — DI-2026-133-GCABA-HGAP' },
-              ].map((h) => (
-                <div key={h.fecha + h.texto} className="flex gap-3">
-                  <span className="text-gray-300 whitespace-nowrap tabular-nums">{h.fecha}</span>
-                  <span>{h.texto}</span>
+            {(() => {
+              if (esNuevo || !cphData) return (
+                <p className="text-sm text-gray-400">Sin historial aún.</p>
+              )
+              const eventos: { fecha: string; texto: string }[] = [
+                { fecha: cphData.fechaBaja,          texto: 'Baja registrada' + (cphData.eeBaja ? `: ${cphData.eeBaja}` : '') },
+                { fecha: cphData.fechaEeConcurso,    texto: 'EE de concurso' + (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : '') },
+                { fecha: cphData.fechaAutorizacion,  texto: 'Autorización registrada' },
+                { fecha: cphData.sorteoJurado,       texto: 'Sorteo de jurado' },
+                { fecha: cphData.fechaInscDesde,     texto: 'Apertura de inscripción' + (cphData.disposicion ? ` — ${cphData.disposicion}` : '') },
+                { fecha: cphData.fechaInscHasta,     texto: 'Cierre de inscripción' },
+                { fecha: cphData.fechaExamen,        texto: 'Examen publicado' },
+                { fecha: cphData.fechaOrdenMerito,   texto: 'Orden de mérito registrado' },
+                { fecha: cphData.fechaIfacs,         texto: 'IFACS registrado' },
+                { fecha: cphData.fechaInsal,         texto: 'INSAL registrado' },
+                { fecha: cphData.fechaAptoMedico,    texto: 'Apto médico' },
+                { fecha: cphData.fechaIte,           texto: 'ITE registrado' },
+                { fecha: cphData.fechaResolucion,    texto: 'Resolución de designación' + (cphData.resolucionDesignacion ? `: ${cphData.resolucionDesignacion}` : '') },
+                { fecha: cphData.fechaDispoDesierta, texto: 'Disposición de desierto' + (cphData.dispoDesierta ? `: ${cphData.dispoDesierta}` : '') },
+              ]
+                .filter((e): e is { fecha: string; texto: string } => !!e.fecha)
+                .sort((a, b) => b.fecha.localeCompare(a.fecha))
+
+              if (eventos.length === 0) return (
+                <p className="text-sm text-gray-400">Sin eventos registrados aún.</p>
+              )
+              return (
+                <div className="space-y-2 text-sm text-gray-500">
+                  {eventos.map((h) => (
+                    <div key={h.fecha + h.texto} className="flex gap-3">
+                      <span className="text-gray-300 whitespace-nowrap tabular-nums">
+                        {h.fecha.slice(0, 10).split('-').reverse().join('/')}
+                      </span>
+                      <span>{h.texto}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )
+            })()}
           </div>
         </div>
 
