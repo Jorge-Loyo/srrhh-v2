@@ -59,7 +59,10 @@ export function AdminUsuariosPage() {
     setFormError('')
     try {
       await createUsuario.mutateAsync({
-        ...values,
+        username: values.username,
+        email: values.email,
+        password: values.password,
+        rol: values.rol,
         hospitalId: values.hospitalId || undefined,
       })
       reset()
