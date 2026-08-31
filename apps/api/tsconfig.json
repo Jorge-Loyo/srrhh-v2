@@ -4,8 +4,14 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "module": "ESNext",
+    "moduleResolution": "node",
     "target": "ES2022",
-    "noEmit": false
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "noEmit": false,
+    "strict": false,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
