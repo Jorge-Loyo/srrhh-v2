@@ -8,6 +8,7 @@ import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS,
+  CEETPS_ESCALAFON,
   evaluarCph,
   formatDateMask, dmyToIso,
 } from '../lib/bajasHelpers'
