@@ -10,6 +10,11 @@ const CARGOS_SUBITEMS = [
   { to: '/cargos/alta-por-baja', label: 'Alta por baja' },
 ]
 
+const CONFIGURACION_SUBITEMS = [
+  { to: '/configuracion/usuarios', label: 'Usuarios' },
+  { to: '/configuracion/permisos', label: 'Permisos' },
+]
+
 export function AppShell() {
   const { user, logout } = useAuth()
   const { data: snapshots } = useSnapshots()
@@ -19,6 +24,9 @@ export function AppShell() {
   const [collapsed, setCollapsed]     = useState(false)
   const [cargosAbierto, setCargosAbierto] = useState(
     location.pathname.startsWith('/cargos')
+  )
+  const [configuracionAbierto, setConfiguracionAbierto] = useState(
+    location.pathname.startsWith('/configuracion')
   )
 
   if (!user) return null
@@ -155,13 +163,38 @@ export function AppShell() {
             {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
           </NavLink>
 
-          {/* Administración */}
-          <NavLink to="/admin/usuarios"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Administración' : undefined}>
-            <span className="text-base shrink-0">⚙️</span>
-            {!collapsed && <span className="truncate">Administración</span>}
-          </NavLink>
+          {/* Configuración — admin-only (usuarios + permisos) */}
+          {user.rolSlug === 'admin' && (
+            <>
+              <button type="button"
+                onClick={() => !collapsed && setConfiguracionAbierto((v) => !v)}
+                title={collapsed ? 'Configuración' : undefined}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  location.pathname.startsWith('/configuracion') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+                }`}>
+                <span className="text-base shrink-0">⚙️</span>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left truncate">Configuración</span>
+                    <span className="text-xs">{configuracionAbierto ? '▲' : '▼'}</span>
+                  </>
+                )}
+              </button>
+              {configuracionAbierto && !collapsed && (
+                <div className="bg-gray-100 border-l-2 border-primary ml-4">
+                  {CONFIGURACION_SUBITEMS.map((item) => (
+                    <NavLink key={item.to} to={item.to} end
+                      className={({ isActive }) =>
+                        `block px-4 py-2 text-sm transition-colors ${
+                          isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                        }`}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
 
         </nav>
 

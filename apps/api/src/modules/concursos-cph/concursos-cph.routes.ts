@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema } from './concursos-cph.schema.js'
 import {
   listConcursosCphService,
@@ -10,10 +9,9 @@ import {
   suspenderConcursoCphService,
 } from './concursos-cph.service.js'
 
-// Escritura: admin/editor (convención ya usada en padronRoutes) + concursales_cph
-// (rol dedicado del módulo, ver PLAN_SCRUM_2026.md §3 — "Lectura total +
-// escritura concursos CPH y bajas"). Lectura: cualquier usuario autenticado.
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CPH]
+// Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
+// admin/editor/concursales_cph, editable en caliente). Lectura: cualquier autenticado.
+const WRITE_PERMISO = { modulo: 'concursos-cph', accion: 'editar' }
 
 export async function concursosCphRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -34,7 +32,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // PATCH /:id — S4-3: actualizar campos por fase (estado/subEstado calculados, ver S4-4)
   app.patch<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = patchConcursoCphSchema.parse(request.body)
       const data = await patchConcursoCphService(request.params.id, body)
@@ -45,7 +43,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // POST /:id/suspender — S4-5
   app.post<{ Params: { id: string } }>(
     '/:id/suspender',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = suspenderConcursoCphSchema.parse(request.body ?? {})
       const data = await suspenderConcursoCphService(request.params.id, body)

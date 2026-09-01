@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { RolUsuario, TipoDiff } from '@srrhh/types'
+import { TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff } from '../hooks/usePadron'
 
@@ -51,7 +51,7 @@ export function PadronDiffPage() {
   const aprobar = useAprobarSnapshot()
   const rechazar = useRechazarSnapshot()
 
-  const puedeDecidir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
+  const puedeDecidir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
 
   function cambiarTab(nuevoTab: TipoDiff) {
     setTab(nuevoTab)

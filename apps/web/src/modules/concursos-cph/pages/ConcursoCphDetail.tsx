@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { RolUsuario } from '@srrhh/types'
 import type { PatchConcursoCphRequest } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useDebounce } from '@/shared/hooks/useDebounce'
@@ -13,9 +12,10 @@ import { useConcursoCph, usePatchConcursoCph, useSuspenderConcursoCph } from '..
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { SubEstadoTimeline } from '../components/SubEstadoTimeline'
 
-// Escritura: admin/editor/concursales_cph — igual que WRITE_ROLES en
-// apps/api/.../concursos-cph.routes.ts. El resto ve el formulario disabled.
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CPH]
+// Escritura: admin/editor/concursales_cph — igual que el permiso concursos-cph.editar
+// por defecto en apps/api/.../concursos-cph.routes.ts (editable por el admin desde
+// /configuracion/permisos; esto es solo gating visual). El resto ve el formulario disabled.
+const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_cph']
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
 const texto = z.string()
@@ -69,7 +69,7 @@ function toPatchBody(values: FormValues): PatchConcursoCphRequest {
 export function ConcursoCphDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
-  const puedeEditar = !!user && WRITE_ROLES.includes(user.rol)
+  const puedeEditar = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
 
   const { data: concursoCph, isLoading, isError } = useConcursoCph(id)
   const patchMutation = usePatchConcursoCph(id ?? '')

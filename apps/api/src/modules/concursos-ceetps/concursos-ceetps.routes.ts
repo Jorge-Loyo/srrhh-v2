@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema } from './concursos-ceetps.schema.js'
 import {
   listConcursosCeetpsService,
@@ -9,7 +8,7 @@ import {
   patchConcursoCeetpsService,
 } from './concursos-ceetps.service.js'
 
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CEETPS]
+const WRITE_PERMISO = { modulo: 'concursos-ceetps', accion: 'editar' }
 
 export async function concursosCeetpsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -30,7 +29,7 @@ export async function concursosCeetpsRoutes(app: FastifyInstance) {
   // PATCH /:id — S5-1: actualizar campos por fase (estado calculado server-side)
   app.patch<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = patchConcursoCeetpsSchema.parse(request.body)
       const data = await patchConcursoCeetpsService(request.params.id, body)

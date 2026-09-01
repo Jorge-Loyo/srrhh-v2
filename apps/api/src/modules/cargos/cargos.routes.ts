@@ -1,11 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { cargosQuerySchema, createCargoSchema, altasQuerySchema } from './cargos.schema.js'
 import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService } from './cargos.service.js'
-
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR]
 
 export async function cargosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -32,7 +29,7 @@ export async function cargosRoutes(app: FastifyInstance) {
   })
 
   // POST / — S5-10 + S7-2: Alta de Cargo manual
-  app.post('/', { preHandler: requireRole(WRITE_ROLES) }, async (request, reply) => {
+  app.post('/', { preHandler: requirePermiso({ modulo: 'cargos', accion: 'crear' }) }, async (request, reply) => {
     const body = createCargoSchema.parse(request.body)
     const data = await createCargoService(body, (request.user as { id?: string })?.id)
     return reply.status(201).send({ data })

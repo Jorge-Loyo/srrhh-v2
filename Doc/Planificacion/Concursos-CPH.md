@@ -55,7 +55,16 @@ Antes de construir ese flujo hay dos bases previas indispensables:
 
 > **Decisiones ya tomadas con Jorge (no consultar de nuevo):**
 >
-> - Modelo de permisos: **roles fijos + matriz central en `packages/types`** (no tabla de permisos flexible)
+> - ~~Modelo de permisos: **roles fijos + matriz central en `packages/types`** (no tabla de permisos flexible)~~
+>   **⚠️ SUPERADO (2026-09-01):** se reemplazó por RBAC dinámico — roles y permisos viven en
+>   tablas (`roles`, `permisos`, `role_permisos`), editables en caliente por el admin desde
+>   `/configuracion/permisos` (crear roles, tildar/destildar permisos por módulo/acción, sin
+>   deploy). El rol `admin` queda protegido (siempre acceso total, no editable/borrable). El
+>   middleware `requirePermiso(modulo, accion)` reemplazó a `requireRole([...])` en todos los
+>   endpoints que antes lo usaban. Detalle: `apps/api/src/modules/roles/`,
+>   `apps/api/src/shared/middleware/permisos.middleware.ts`,
+>   `prisma/migrations/20260901120000_rbac_dinamico/`. Pendiente: avisarle a Jorge — este
+>   documento reflejaba la decisión conjunta original y quedó desactualizado en este punto.
 > - Menú lateral **izquierdo** (AppShell) con items filtrados por matriz; página "Sin acceso"
 > - Página de inicio: **puerto del `landing.html` del legacy** (`dotacion-rrhh/frontend/public/landing.html`) con la línea Obelisco/Tailwind. Hub de accesos en 3 columnas (Enlaces directos / Presentaciones y PowerBI / Planillas de datos — títulos adaptables) + buscador inteligente
 > - Autorizaciones: **entidad genérica `Autorizacion`** (tipo + referenciaId), item de menú "Configuración" en Admin con sub-sección "Permisos"

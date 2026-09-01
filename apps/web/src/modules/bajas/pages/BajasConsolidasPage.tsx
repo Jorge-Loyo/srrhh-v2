@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/hooks/useAuth'
-import { RolUsuario } from '@srrhh/types'
 import {
   useBajasSialSnapshots,
   useBajasSialEstado,
@@ -28,7 +27,7 @@ const ESTADO_LABEL: Record<string, string> = {
 export function BajasConsolidasPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const puedeSubir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
+  const puedeSubir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
 
   const [file, setFile] = useState<File | null>(null)
   const [fechaArchivo, setFechaArchivo] = useState(hoy())

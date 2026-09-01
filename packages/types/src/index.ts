@@ -51,13 +51,23 @@ export enum EstadoConcursoCeetps {
   DESIERTO = 'desierto',
 }
 
-export enum RolUsuario {
-  ADMIN = 'admin',
-  EDITOR = 'editor',
-  VIEWER = 'viewer',
-  DIRECTOR = 'director',
-  CONCURSALES_CPH = 'concursales_cph',
-  CONCURSALES_CEETPS = 'concursales_ceetps',
+// RBAC dinámico — reemplaza el enum fijo de roles. Los roles viven en la tabla
+// `roles` (editable por el admin desde /configuracion/permisos), no en código.
+export interface Role {
+  id: string
+  slug: string
+  nombre: string
+  descripcion: string | null
+  esSistema: boolean
+  activo: boolean
+  permisos?: { permiso: Permiso }[]
+}
+
+export interface Permiso {
+  id: string
+  modulo: string
+  accion: string
+  descripcion: string | null
 }
 
 // -----------------------------------------------------------------------------
@@ -326,7 +336,9 @@ export interface Usuario {
   id: string
   username: string
   email: string
-  rol: RolUsuario
+  rol: string // display: role.nombre (editable por el admin — no usar para gating de UI)
+  rolSlug: string // estable, usar esto para comparar en el frontend (ej. rolSlug === 'admin')
+  roleId: string
   hospitalId: string | null
   activo: boolean
   createdAt: string
@@ -396,7 +408,7 @@ export interface CreateUsuarioRequest {
   username: string
   email: string
   password: string
-  rol: RolUsuario
+  roleId: string
   hospitalId?: string
 }
 

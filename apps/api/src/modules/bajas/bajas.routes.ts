@@ -1,16 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema } from './bajas.schema.js'
 import { listBajasService, createBajaService, updateBajaService, getBajaService } from './bajas.service.js'
 
-const WRITE_ROLES = [
-  RolUsuario.ADMIN,
-  RolUsuario.EDITOR,
-  RolUsuario.CONCURSALES_CPH,
-  RolUsuario.CONCURSALES_CEETPS,
-]
+const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
 export async function bajasRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -32,7 +26,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // POST / — S5-4 + S5-7: crear baja + marcar cargo no_vigente
   app.post(
     '/',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = createBajaSchema.parse(request.body)
       const user = request.user as { id: string }
@@ -44,7 +38,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // PATCH /:id — actualizar borrador (resolucion_a_la_firma → pendiente/confirmada)
   app.patch(
     '/:id',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const body = createBajaSchema.parse(request.body)

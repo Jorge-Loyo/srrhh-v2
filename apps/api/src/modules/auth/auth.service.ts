@@ -38,14 +38,32 @@ async function createRefreshToken(usuarioId: string, familyId: string, signToken
   return raw
 }
 
-function buildUserPayload(usuario: { id: string; username: string; rol: string; hospitalId: string | null }) {
-  return { id: usuario.id, username: usuario.username, rol: usuario.rol, hospitalId: usuario.hospitalId }
+// El JWT lleva roleId + rolSlug (no la lista de permisos, que puede cambiar en
+// caliente — requirePermiso la resuelve fresca en cada request contra la BD, así
+// un cambio de permisos hecho por el admin aplica de inmediato a sesiones activas).
+function buildUserPayload(usuario: {
+  id: string
+  username: string
+  roleId: string
+  role: { slug: string }
+  hospitalId: string | null
+}) {
+  return {
+    id: usuario.id,
+    username: usuario.username,
+    roleId: usuario.roleId,
+    rolSlug: usuario.role.slug,
+    hospitalId: usuario.hospitalId,
+  }
 }
 
 // ─── login ───────────────────────────────────────────────────────────────────
 
 export async function loginService(body: LoginBody, signToken: (payload: object) => string) {
-  const usuario = await prisma.usuario.findUnique({ where: { username: body.username } })
+  const usuario = await prisma.usuario.findUnique({
+    where: { username: body.username },
+    include: { role: true },
+  })
 
   // Siempre correr bcrypt para igualar el tiempo de respuesta independientemente
   // de si el usuario existe — evita timing side-channel que permitiría enumerar usuarios.
@@ -65,7 +83,9 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
       id: usuario.id,
       username: usuario.username,
       email: usuario.email,
-      rol: usuario.rol,
+      rol: usuario.role.nombre,
+      rolSlug: usuario.role.slug,
+      roleId: usuario.roleId,
       hospitalId: usuario.hospitalId,
     },
   }
@@ -116,7 +136,10 @@ export async function refreshTokenService(body: RefreshBody, signToken: (payload
     throw AppError.unauthorized('Refresh token expirado')
   }
 
-  const usuario = await prisma.usuario.findUnique({ where: { id: stored.usuarioId } })
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: stored.usuarioId },
+    include: { role: true },
+  })
   if (!usuario || !usuario.activo) throw AppError.unauthorized('Usuario inactivo')
 
   const accessToken = signToken(buildUserPayload(usuario))
