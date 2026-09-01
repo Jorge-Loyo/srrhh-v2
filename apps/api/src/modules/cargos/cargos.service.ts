@@ -168,7 +168,7 @@ export async function getCargoByIdService(id: string) {
   return { ...rest, ocupacionActual, historial, cargoActivo }
 }
 
-// ─── S5-10 + S7-2: Alta de Cargo manual ─────────────────────────────────────
+// ─── S5-10 + S7-2 + S7-5: Alta de Cargo manual ─────────────────────────────────
 export async function createCargoService(body: CreateCargoBody, createdById?: string) {
   const hospital = await prisma.hospital.findUnique({ where: { id: body.hospitalId } })
   if (!hospital) throw AppError.notFound('Hospital no encontrado')
@@ -179,6 +179,29 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   if (body.codigoRegistroId) {
     const cr = await prisma.codigoRegistro.findUnique({ where: { id: body.codigoRegistroId } })
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
+  }
+
+  // S7-5: advertencia de duplicado estructural (409 + override)
+  // El cliente puede forzar la creación mandando `forzar: true` en el body.
+  if (!body.forzar) {
+    const duplicado = await prisma.cargo.findFirst({
+      where: {
+        hospitalId:   body.hospitalId,
+        escalafonId:  body.escalafonId,
+        literalPuesto: body.literalPuesto,
+        estado: 'vigente',
+      },
+      include: { hospital: { select: { sigla: true } }, escalafon: { select: { nombre: true } } },
+    })
+    if (duplicado) {
+      throw AppError.conflict('Ya existe un cargo vigente con la misma estructura', {
+        codigo:       duplicado.codigo,
+        literalPuesto: duplicado.literalPuesto,
+        hospital:     duplicado.hospital.sigla,
+        escalafon:    duplicado.escalafon.nombre,
+        id:           duplicado.id,
+      })
+    }
   }
 
   const prefijo = prefijoDeCargo({

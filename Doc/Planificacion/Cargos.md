@@ -12,11 +12,10 @@
 
 | Parámetro           | Valor                                                      |
 | ------------------- | ---------------------------------------------------------- |
-| Equipo              | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend)       |
-| Capacidad           | 30h/semana por dev = 60h/semana totales                    |
+| Equipo              | Jorge (Dev 1 — Full Stack)                                 |
+| Capacidad           | 30h/semana                                                 |
 | Duración del sprint | 1 semana                                                   |
-| Ceremonia           | Review + Retro semanal (sin daily, comunicación asíncrona) |
-| Coordinación        | Avisar antes de tocar un módulo compartido (regla del DoD) |
+| Ceremonia           | Review semanal                                             |
 
 ### Definición de Done (DoD)
 
@@ -24,7 +23,6 @@
 - [ ] Sin regresiones en módulos existentes
 - [ ] Migración de Prisma aplicada y verificada contra BD real
 - [ ] Documentación actualizada (`cargos_alta.md` + este plan)
-- [ ] Avisado antes de tocar un módulo que el otro dev pueda estar trabajando
 
 ---
 
@@ -81,7 +79,21 @@ Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 del con
 
 ## 5. TAREAS
 
-**Capacidad total:** 60h | **Estimado:** 56h
+**Capacidad total:** 30h | **Estimado:** 43h
+
+#### Progreso
+
+| Tarea | Estado |
+|-------|--------|
+| S7-1  | ✅ Completado — commit `32ecbe7` |
+| S7-2  | ✅ Completado — commit `32ecbe7` |
+| S7-3  | ✅ Completado — cargos preexistentes con NULL documentado |
+| S7-4  | ✅ Completado — commit `32ecbe7`, verificado end-to-end |
+| S7-5  | ⬜ Pendiente |
+| S7-6  | ⬜ Pendiente |
+| S7-7  | ⬜ Pendiente |
+| S7-8  | ⬜ Pendiente |
+| S7-9  | ⬜ Pendiente |
 
 | #    | Tarea                                                                                                                                                                                                                                                    | Dev             | Est. | Prioridad  | RF          |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ----------- |
@@ -89,11 +101,11 @@ Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 del con
 | S7-2 | Actualizar `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token JWT) en cada cargo creado del lote. Actualizar `createCargoSchema` (Zod) para que `expediente` y `desde` pasen de opcionales-descartados a persistidos. | Jorge           | 6h   | 🔴 Crítico | RF-11/12/13 |
 | S7-3 | Backfill: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde`/`createdById` NULL — documentar decisión (dato nunca persistido, no recuperable retroactivamente).                                                  | Jorge           | 1h   | 🟡 Medio   | RF-11/12    |
 | S7-4 | Endpoint `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales (`idSial LIKE 'MANUAL-%'`) con filtro por expediente y rango de fechas. Incluye usuario que registró y códigos generados.                                            | Jorge           | 6h   | 🟡 Medio   | RF-14       |
-| S7-5 | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, literalPuesto)`. Si existe, responder `409` con el cargo existente (código, puesto, hospital).                    | Jorge           | 6h   | 🟢 Bajo    | RF-15       |
-| S7-6 | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente y botones "Crear de todos modos" / "Cancelar".                                                                                                              | Agustin         | 8h   | 🟢 Bajo    | RF-15       |
-| S7-7 | Frontend: reemplazar historial de sesión por historial persistente — consumir `GET /api/v1/cargos/altas` con buscador por expediente. Mantener fallback de sesión mientras carga.                                                                        | Agustin         | 10h  | 🟡 Medio   | RF-14       |
-| S7-8 | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible.                                                                                                                      | Agustin         | 4h   | 🟡 Medio   | RF-11/12    |
-| S7-9 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en el historial y en el detalle del cargo. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅).                                             | Jorge + Agustin | 4h   | 🔴 Crítico | Todos       |
+| S7-5 | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, literalPuesto)`. Si existe, responder `409` con el cargo existente (código, puesto, hospital).                    | Jorge | 6h  | 🟢 Bajo    | RF-15    |
+| S7-6 | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente y botones "Crear de todos modos" / "Cancelar".                                                                                                              | Jorge | 8h  | 🟢 Bajo    | RF-15    |
+| S7-7 | Frontend: reemplazar historial de sesión por historial persistente — consumir `GET /api/v1/cargos/altas` con buscador por expediente.                                                                                                                    | Jorge | 10h | 🟡 Medio   | RF-14    |
+| S7-8 | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible.                                                                                                                      | Jorge | 4h  | 🟡 Medio   | RF-11/12 |
+| S7-9 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en el historial y en el detalle del cargo. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅).                                             | Jorge | 4h  | 🔴 Crítico | Todos    |
 
 ### Dependencias entre tareas
 
@@ -105,7 +117,7 @@ S7-1 (migración) ──► S7-2 (service + schema) ──► S7-3 (backfill/doc
 Todo ──► S7-9 (verificación + docs)
 ```
 
-> **División sugerida:** Jorge arranca con S7-1 → S7-2 (bloquean todo lo demás). Agustin puede adelantar S7-8 (solo lectura de campos nuevos, maquetado con datos mock) y el modal de S7-6 con datos hardcodeados mientras Jorge termina el backend.
+> S7-1 → S7-2 → S7-4 completados (commit `32ecbe7`). Continuar con S7-5 → S7-6 → S7-7 → S7-8 → S7-9.
 
 ---
 
@@ -115,6 +127,11 @@ Todo ──► S7-9 (verificación + docs)
 - [ ] La fecha "desde" queda persistida como fecha de inicio de vigencia
 - [ ] Cada alta manual registra qué usuario la hizo
 - [ ] Se puede consultar el historial de altas por expediente sin depender de la sesión
+- [ ] Intentar crear un cargo duplicado estructural muestra advertencia antes de crear
+- [x] Un cargo dado de alta manualmente guarda su expediente/decreto en BD y sobrevive a un reload
+- [x] La fecha "desde" queda persistida como fecha de inicio de vigencia
+- [x] Cada alta manual registra qué usuario la hizo
+- [x] Se puede consultar el historial de altas por expediente sin depender de la sesión
 - [ ] Intentar crear un cargo duplicado estructural muestra advertencia antes de crear
 - [ ] Contrato `cargos_alta.md` actualizado: RF-11 a RF-15 en estado ✅
 
