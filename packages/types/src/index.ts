@@ -139,6 +139,9 @@ export interface Cargo {
   puestoCodigoSial: string | null
   estado: EstadoCargo
   ocupado: boolean
+  // S7-1/S7-2: campos de trazabilidad de alta manual
+  expediente: string | null
+  fechaDesde: string | null
   // Persona que ocupa el cargo actualmente (solo en listado, null si vacante)
   personaOcupante: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> & { idSialRol: string } | null
   createdAt: string
@@ -634,6 +637,7 @@ export interface CreateCargoRequest {
   expediente?: string
   desde?: string
   cantidad?: number
+  forzar?: boolean
 }
 
 // S5-4 — POST /api/v1/bajas

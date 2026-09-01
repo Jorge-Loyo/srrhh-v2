@@ -1,8 +1,6 @@
-// Pedido de Jorge (2026-08-26): mostrar "CPH" en vez de "Médicos" en los
-// dropdowns de escalafón (primero en PersonasPage, luego en CargosPage) —
-// solo el label visual. El value real (id del escalafón) no cambia,
-// Escalafon.nombre en la base sigue siendo "Médicos" — esto no toca datos
-// ni el back, es puramente cosmético en la UI.
+// El nombre del escalafón se muestra tal cual viene de la BD.
+// Anteriormente convertía 'Médicos' → 'CPH' pero ese escalafón fue
+// renombrado a 'Carrera Profesional Hospitalaria' en BD (Sprint 7).
 export function escalafonLabel(nombre: string): string {
-  return nombre === 'Médicos' ? 'CPH' : nombre
+  return nombre
 }

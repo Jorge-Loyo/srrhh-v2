@@ -15,11 +15,13 @@ export function useHospitales() {
   })
 }
 
-export function useEscalafones() {
+export function useEscalafones(paraNuevaAlta = false) {
   return useQuery({
-    queryKey: ['escalafones'],
+    queryKey: ['escalafones', paraNuevaAlta],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones')
+      const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones', {
+        params: paraNuevaAlta ? { paraNuevaAlta: 'true' } : {},
+      })
       return res.data.data
     },
   })
@@ -43,6 +45,52 @@ export function usePuestosCargos(escalafonId?: string, hospitalId?: string) {
         params: { ...(escalafonId && { escalafonId }), ...(hospitalId && { hospitalId }) },
       })
       return res.data.data
+    },
+  })
+}
+
+export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos') {
+  return useQuery({
+    queryKey: ['puestos-cargo', escalafonId, modalidad],
+    enabled: !!escalafonId,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo', {
+        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }) },
+      })
+      return res.data.data
+    },
+  })
+}
+
+export function useEspecialidadesPuesto(escalafonId?: string, nombrePuesto?: string) {
+  return useQuery({
+    queryKey: ['especialidades-puesto', escalafonId, nombrePuesto],
+    enabled: !!escalafonId && !!nombrePuesto,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo/especialidades', {
+        params: { escalafonId, nombre: nombrePuesto },
+      })
+      return res.data.data
+    },
+  })
+}
+
+// S7-7: historial persistente de altas manuales
+export function useAltasCargos(params?: { expediente?: string; desde?: string; hasta?: string; page?: number }) {
+  return useQuery({
+    queryKey: ['cargos-altas', params],
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: Array<{
+          id: string; codigo: string | null; literalPuesto: string | null
+          expediente: string | null; fechaDesde: string | null; createdAt: string
+          hospital: { sigla: string; nombre: string }
+          escalafon: { nombre: string }
+          createdBy: { username: string } | null
+        }>
+        meta: { total: number; page: number; limit: number; pages: number }
+      }>('/api/v1/cargos/altas', { params })
+      return res.data
     },
   })
 }

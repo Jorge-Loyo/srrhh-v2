@@ -114,7 +114,8 @@ GET    /api/v1/personas/:id
 # Cargos
 GET    /api/v1/cargos               ← filtros + búsqueda unaccent
 GET    /api/v1/cargos/:id
-POST   /api/v1/cargos               ← Alta manual (ADMIN, EDITOR)
+POST   /api/v1/cargos               ← Alta manual (ADMIN, EDITOR) — persiste expediente/fechaDesde/createdById (post S7-2)
+GET    /api/v1/cargos/altas         ← Historial de altas manuales con filtros (post S7-4)
 
 # Padrón
 POST   /api/v1/padron/upload

@@ -3,8 +3,6 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { PersonasQuery } from './personas.schema.js'
 
-// Fila cruda del SELECT — columnas aliasadas a camelCase a mano porque viene
-// de $queryRaw, no del query builder de Prisma (que sí lo hace solo).
 interface PersonaRow {
   id: string
   cuil: string
@@ -20,20 +18,6 @@ interface PersonaRow {
   puesto: string | null
 }
 
-// ─── S3-1 + S3-3: listado paginado con full-text search + filtros ──────────
-//
-// Se usa $queryRaw (no el query builder de Prisma) porque el criterio de
-// éxito del sprint pide full-text search real de Postgres (`to_tsvector` +
-// `plainto_tsquery`, apoyado en el índice GIN de S3-11), no un `contains`
-// (ILIKE) disfrazado. Filtros de hospital/escalafón/puesto/especialidad
-// cruzan por la ocupación VIGENTE de la persona (`hasta IS NULL`) — un
-// LEFT JOIN LATERAL en vez del EXISTS que había antes: ahora hace falta
-// igual para poder devolver `c.literal_puesto` como columna de la tabla
-// (pedido junto con el filtro de puesto), así que se reusa el mismo join
-// para filtrar en vez de mantener dos formas distintas de llegar al cargo
-// vigente. LATERAL + LIMIT 1 (no un JOIN plano) por las dudas de que algún
-// día una persona tenga más de una ocupación vigente a la vez — no debería
-// pasar por diseño, pero un JOIN plano duplicaría la fila si pasa.
 export async function listPersonasService(query: PersonasQuery) {
   const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad } = query
   const offset = (page - 1) * limit
@@ -42,8 +26,6 @@ export async function listPersonasService(query: PersonasQuery) {
 
   if (search) {
     const like = `%${search}%`
-    // plainto_tsquery no soporta prefijos — se arma to_tsquery con ':*' en
-    // cada token para que "lizarra" matchee "lizarraga", "lizarragui", etc.
     const tsQuery = search.trim().split(/\s+/).map((t) => `${t}:*`).join(' & ')
     conditions.push(Prisma.sql`(
       to_tsvector('spanish_unaccent', p.apellido_nombre) @@ to_tsquery('spanish_unaccent', ${tsQuery})
@@ -51,9 +33,7 @@ export async function listPersonasService(query: PersonasQuery) {
       OR p.numero_doc ILIKE ${like}
     )`)
   }
-  if (activo !== undefined) {
-    conditions.push(Prisma.sql`p.activo = ${activo}`)
-  }
+  if (activo !== undefined) conditions.push(Prisma.sql`p.activo = ${activo}`)
   if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
   if (puesto) conditions.push(Prisma.sql`c.literal_puesto = ${puesto}`)
@@ -95,17 +75,41 @@ export async function listPersonasService(query: PersonasQuery) {
   return { data: rows, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
-// ─── S3-2: detalle con ocupaciones (activas e históricas) ───────────────────
 export async function getPersonaByIdService(id: string) {
   const persona = await prisma.persona.findUnique({
     where: { id },
     include: {
       ocupaciones: {
-        orderBy: [{ hasta: 'asc' }, { desde: 'desc' }], // vigentes (hasta null) primero
+        orderBy: [{ hasta: 'asc' }, { desde: 'desc' }],
         include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } } },
       },
     },
   })
   if (!persona) throw AppError.notFound('Persona no encontrada')
   return persona
+}
+
+export async function getPersonaBajasSialService(id: string) {
+  const persona = await prisma.persona.findUnique({ where: { id }, select: { cuil: true } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  // cuil en personas sin guiones (20351565064), en bajas con guiones (20-35156506-4)
+  const cuil = persona.cuil
+  const cuilConGuiones = `${cuil.slice(0, 2)}-${cuil.slice(2, 10)}-${cuil.slice(10)}`
+
+  return prisma.$queryRawUnsafe<{
+    cargo: string; lit_puesto: string | null; escalafon: string | null
+    cargo_desde: Date | null; cargo_hasta: Date | null; mot_baja: string | null
+    doc_resp_baja: string | null; desc_rep: string | null; car_codigo: string | null
+    codigo_cargo: string | null
+  }[]>(`
+    SELECT r.cargo, r.lit_puesto, r.escalafon, r.cargo_desde, r.cargo_hasta,
+           r.mot_baja, r.doc_resp_baja, r.desc_rep, r.car_codigo,
+           c.codigo as codigo_cargo
+    FROM baja_sial_registros r
+    LEFT JOIN cargos c ON c.id_sial = r.cargo
+    WHERE r.cuil = $1
+      AND r.snapshot_id = (SELECT id FROM baja_sial_snapshots WHERE estado = 'aprobado' ORDER BY fecha_archivo DESC LIMIT 1)
+    ORDER BY r.cargo
+  `, cuilConGuiones)
 }

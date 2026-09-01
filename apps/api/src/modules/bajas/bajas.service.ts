@@ -45,7 +45,72 @@ export async function listBajasService(query: BajasQuery) {
   return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
-// ─── S5-4 + S5-7: crear baja + marcar cargo no_vigente ──────────────────────
+// ─── GET /:id ───────────────────────────────────────────────────────────────────────
+export async function getBajaService(id: string) {
+  const baja = await prisma.baja.findUnique({ where: { id }, include })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+  return baja
+}
+
+// ─── PATCH /:id — actualizar borrador ──────────────────────────────────────
+export async function updateBajaService(id: string, body: CreateBajaBody) {
+  const baja = await prisma.baja.findUnique({ where: { id } })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+  if (baja.estado !== 'resolucion_a_la_firma') throw AppError.conflict('Solo se pueden editar bajas en estado resolucion_a_la_firma')
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.baja.update({
+      where: { id },
+      data: {
+        fechaBaja: body.fechaBaja ? new Date(body.fechaBaja) : baja.fechaBaja,
+        tipoBaja: body.tipoBaja ?? baja.tipoBaja,
+        motivo: body.motivo ?? baja.motivo,
+        tipificadorOrigen: body.tipificadorOrigen ?? baja.tipificadorOrigen,
+        generaConcurso: body.generaConcurso,
+        observaciones: body.observaciones ?? baja.observaciones,
+        ...(body.estado && body.estado !== 'resolucion_a_la_firma' && { estado: body.estado as never }),
+      },
+      include,
+    })
+
+    // Si pasa a pendiente/confirmada, marcar cargo no_vigente
+    if (body.estado && body.estado !== 'resolucion_a_la_firma') {
+      await tx.cargo.update({
+        where: { id: baja.cargoId },
+        data: { estado: 'no_vigente' },
+      })
+
+      if (body.generaConcurso && body.tipoConcurso) {
+        if (body.tipoConcurso === TipoConcurso.CPH) {
+          const abierto = await tx.concursoCph.findFirst({
+            where: { cargoId: baja.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+          })
+          if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
+        }
+        await createConcursoTx(
+          tx,
+          {
+            cargoId: baja.cargoId,
+            hospitalId: baja.hospitalId,
+            personaId: baja.personaId ?? undefined,
+            origen: 'Baja',
+            fechaVacante: body.fechaBaja,
+            motivo: body.motivo,
+            tipoConcurso: body.tipoConcurso,
+            escalafonId: body.escalafonId,
+            fechaBaja: body.fechaBaja,
+            eeBaja: body.eeBaja,
+          },
+          '',
+          id
+        )
+      }
+    }
+
+    return updated
+  })
+}
+
 // S5-5 (lógica genera_concurso → crear seguimiento automático) se agrega
 // en la siguiente tarea, una vez que el módulo de bajas esté integrado.
 export async function createBajaService(body: CreateBajaBody, usuarioId: string) {
@@ -66,16 +131,20 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
         cargoId: body.cargoId,
         hospitalId: body.hospitalId,
         personaId: body.personaId ?? null,
-        fechaBaja: new Date(body.fechaBaja),
+        fechaBaja: body.fechaBaja ? new Date(body.fechaBaja) : new Date(),
         tipoBaja: body.tipoBaja ?? null,
         motivo: body.motivo ?? null,
         tipificadorOrigen: body.tipificadorOrigen ?? null,
         generaConcurso: body.generaConcurso,
         observaciones: body.observaciones ?? null,
         registradoPorId: usuarioId,
+        ...(body.estado && { estado: body.estado as never }),
       },
       include,
     })
+
+    // Borrador iniciado: no tocar el cargo ni crear concurso
+    if (body.estado === 'resolucion_a_la_firma') return baja
 
     // S5-7: marcar cargo como no_vigente al registrar la baja
     await tx.cargo.update({

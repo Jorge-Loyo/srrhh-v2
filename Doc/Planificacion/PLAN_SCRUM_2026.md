@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09 (Post-Sprint 5 — Sprint 5 completo, contratos actualizados)
+> Última actualización: 2026-08-10 (Sprint 7 cerrado ✅ — post-sprint mejoras UX/datos/menú)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -24,6 +24,8 @@
 | Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
 | Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
 | Sprint 6 — KPIs + Deploy                             | ✅ Completo — 2026-08-31, smoke test 21/21 OK                    | S6-0 a S6-8 (✅)  |
+| Sprint 7 — Cargos: trazabilidad del alta manual      | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones | S7-1 a S7-10 (✅) |
+| Sprints 8–11 — Gobierno del flujo concursal          | 📋 Planificado — ver [`Concursos-CPH.md`](./Concursos-CPH.md)        | S8-1 a S11-7  |
 
 ---
 
@@ -1183,6 +1185,68 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
+### SPRINT 7 — Cargos: trazabilidad del alta manual
+
+**Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 56h
+**Objetivo:** Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 de `Doc/Contratos_Paginas/cargos_alta.md`), de modo que **todo alta de cargo quede respaldada por su acto administrativo en BD** y sea auditable.
+
+**Problema actual:** el frontend de `/cargos/alta` envía `expediente` y `desde` al backend, pero `createCargoService` los descarta silenciosamente porque el modelo `Cargo` no tiene esas columnas. El acto administrativo que respalda el alta se pierde (solo vive en el historial de sesión del frontend, que se borra al recargar).
+
+**Contexto — orígenes de alta de cargo:** un cargo solo puede crearse por **4 vías** en todo el sistema — Ejecución POF, Ejecución POU y Estructura (manuales, `/cargos/alta`) y el Padrón semanal SIAL (automática, al aprobar snapshot). La "alta con contrapartida de baja" **no es un origen de cargo**: el cargo estructural y su historia persisten, solo se reemplaza la persona que lo ocupa (movimiento de ocupación, flujo de bajas). Mapa completo en `Doc/Contratos_Paginas/cargos_alta.md`.
+
+**Alcance:**
+
+- **Dentro:** persistencia de `expediente`/`decreto` y `fechaDesde` en `cargos` (RF-11/RF-12) · auditoría del alta con usuario (RF-13) · historial persistente consultable por expediente (RF-14) · validación de duplicado estructural con advertencia (RF-15)
+- **Fuera:** origen automático (Padrón SIAL — tiene su propio flujo y documentación) · movimientos de ocupación (bajas, designaciones) · cambios en la generación de códigos de cargo (ya funciona, S5-10)
+
+| #     | Tarea                                                                                                                                                                                                     | Dev             | Est. | Prioridad  | RF          |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ----------- |
+| S7-1  | Migración Prisma: `expediente` (VARCHAR 100, nullable), `fechaDesde` (DATE, nullable) y `createdById` (UUID FK → Usuario, nullable) en `cargos`. Aplicar en BD real                                       | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
+| S7-2  | `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token) en cada cargo creado del lote                                                                                       | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
+| S7-3  | Backfill doc: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde` NULL — documentar decisión (el dato perdido no se puede recuperar)                                 | Jorge           | 2h   | 🟡 Medio   | RF-11/12    |
+| S7-4  | `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales con filtro por expediente y rango de fechas, incluye usuario y códigos generados                                                 | Jorge           | 6h   | 🟡 Medio   | RF-14       |
+| S7-5  | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, codigoRegistroId, literalPuesto)`. Responder `409` con el cargo existente | Jorge           | 6h   | 🟢 Bajo    | RF-15       |
+| S7-6  | `createCargoSchema` (Zod): `expediente` y `desde` pasan de opcionales-descartados a persistidos; tests del service                                                                                          | Jorge           | 4h   | 🔴 Crítico | RF-11/12    |
+| S7-7  | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente (código, puesto, hospital) y botones "Crear de todos modos" / "Cancelar"                                       | Agustin         | 8h   | 🟢 Bajo    | RF-15       |
+| S7-8  | Frontend: reemplazar historial de sesión por historial persistente (`GET /api/v1/cargos/altas`) con buscador por expediente. Fallback de sesión mientras carga                                              | Agustin         | 10h  | 🟡 Medio   | RF-14       |
+| S7-9  | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible                                                                          | Agustin         | 4h   | 🟡 Medio   | RF-11/12    |
+| S7-10 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en historial y detalle. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅)                    | Jorge + Agustin | 4h   | 🔴 Crítico | Todos       |
+
+**Dependencias entre tareas:**
+
+```
+S7-1 (migración) ──► S7-2 (service) ──► S7-6 (schema + tests)
+                   └─► S7-3 (backfill / doc)
+S7-2 ──► S7-4 (endpoint altas) ──► S7-8 (frontend historial)
+S7-2 ──► S7-5 (duplicados) ──► S7-7 (frontend modal 409)
+S7-2 ──► S7-9 (detalle cargo)
+Todo ──► S7-10 (verificación + docs)
+```
+
+> **División sugerida:** Jorge arranca con S7-1 → S7-2 (bloquean todo lo demás). Agustin puede adelantar S7-9 (solo lectura de campos nuevos) y el maquetado del modal de S7-7 con datos mock mientras Jorge termina el backend.
+
+**Criterio de éxito:**
+
+- Un cargo dado de alta manualmente guarda su expediente/decreto en BD y sobrevive a un reload ✅
+- La fecha "desde" queda persistida como fecha de inicio de vigencia ✅
+- Cada alta manual registra qué usuario la hizo ✅
+- Se puede consultar el historial de altas por expediente sin depender de la sesión ✅
+- Intentar crear un cargo duplicado estructural muestra advertencia antes de crear ✅
+- Contrato `cargos_alta.md` actualizado: RF-11 a RF-15 en estado ✅ ✅
+
+**Post-Sprint 7 — Mejoras UX y datos (Jorge, 2026-08-10):**
+
+- **Filtrado escalafones por tipo de alta**: `filtrarEscalafones()` con sets `ESC_POF` (4), `ESC_POU` (5), `ESC_ESTRUCTURA` (4). Escalafón General en POF/POU muestra opción única "Anexo 2" (`unificadorPuesto: 'ambos'`) en lugar de las 4 opciones de conducción — esas solo aparecen en Estructura.
+- **Puestos Anexo 2 completados**: insertados `Camillero` y `Conductor de Furgon` en BD. Lista final: 11 puestos (Ayudante de Laboratorio, Camillero, Capellan, Chofer de Ambulancia, Conductor de Furgon, Cuidador Enfermero de Animales, Hermana de Caridad, Morguero, Oxigenista, Radio Operador, Radio Operador de Emergencias).
+- **Label Hospital → Sigla**: cambiado en `FormAlta`. Endpoint devuelve 61 efectores activos ordenados por sigla.
+- **Historial reemplazado**: tabla agrupada por expediente (una fila por expediente), modal de detalle con datos del alta + tabla de cargos, botón "Descargar PDF" que genera documento A4 estilo resolución GCBA con `jspdf` + `jspdf-autotable`.
+- **Limpieza escalafones**: escalafón `CPH` duplicado (0 cargos) eliminado de BD. `Médicos` renombrado a `Carrera Profesional Hospitalaria`. Seed actualizado. Alias `Médicos→CPH` eliminado del frontend.
+- **26 puestos nuevos**: insertados para 7 escalafones sin puestos normalizados (Residentes, Docentes, Carrera Gerencial, Planta Transitoria, Cuerpos Transitorios, Planta de Gabinete, Autoridades Superiores).
+- **Menú lateral reorganizado**: orden definitivo — Tablero KPIs / Personas / Cargos▼ / Bajas / ── / Concursos CPH / Concursos CEETPS / ── / Padrón Semanal / Bajas Consolidadas / Administración. Padrón Semanal y Bajas Consolidadas movidos a sección admin (debajo del segundo divisor). Página de inicio al login: `/kpis`.
+- **Limpieza BD**: 5 bajas de prueba eliminadas + 4 concursos asociados (CPH-POF-012680, CPH-POF-015695, PT-000060, CPH-POF-004374, CPH-POF-004733). Tablas `bajas` y `concursos` en 0 registros.
+
+---
+
 ## 5. BACKLOG — Fuera de sprints actuales
 
 | #    | Tarea                                                     | Motivo de postergación                              |
@@ -1198,6 +1262,9 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 | B-9  | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me`   | Mejora de seguridad XSS — no priorizado para MVP    |
 | B-11 | ~~"Alta de Cargo" manual~~ → **promovido a S5-10**        | Promovido: necesario para cerrar el flujo concursal |
+| B-12 | Identidad del cargo en padrón SIAL por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` | **Promovido a S8-1** en `Concursos-CPH.md` (Sprint 8 — corrección de lógica de cargo) |
+| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
+| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
 
 ---
 
@@ -1258,10 +1325,15 @@ deploy real.
 | 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                            | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                          |
 | 2026-09    | `idSial` sintético `MANUAL-{codigo}` para cargos creados manualmente vía `POST /api/v1/cargos`                                                                                                                           | `idSial` es un identificador del sistema SIAL del GCBA que solo existe para cargos del padrón; los cargos manuales necesitan un valor único que no colisione con los reales                                                        |
 | 2026-09    | Contratos (`Doc/Contrato_*.md`) actualizados a estado real Post-Sprint 5 — estado cambiado de BORRADOR a VIGENTE                                                                                                          | Los contratos estaban desactualizados desde Sprint 2; ahora reflejan el schema real, los endpoints implementados, la estructura de carpetas real y la decisión Bootstrap→Tailwind resuelta                                         |
+| 2026-09    | El alta con contrapartida de baja **no es un origen de cargo**                                                                                                                                                          | El cargo estructural y su historia persisten; solo se reemplaza la persona que lo ocupa. Es un movimiento de ocupación (flujo de bajas), no un alta                                                                                |
+| 2026-09    | RF-11/RF-12 (persistir `expediente`/`fechaDesde` en `cargos`) como P1 en Sprint 7                                                                                                                                       | El acto administrativo que respalda un alta no puede vivir solo en memoria del navegador — es un dato de auditoría obligatorio                                                                                                     |
+| 2026-09    | Cargos manuales preexistentes quedan con `expediente`/`fechaDesde` NULL (S7-3)                                                                                                                                          | El dato nunca se persistió; no hay forma de recuperarlo retroactivamente. Se documenta en lugar de inventar valores                                                                                                                |
+| 2026-09    | Duplicado estructural en alta manual = advertencia (`409` + override), no bloqueo duro (S7-5/S7-7)                                                                                                                      | Puede haber casos legítimos de cargos gemelos (misma estructura, distinto financiamiento). El usuario decide                                                                                                                       |
 
----
-
-## 8. MÉTRICAS DE ÉXITO DEL MVP
+| 2026-08-10 | Escalafón General en POF/POU muestra opción única "Anexo 2" | En POF/POU el EG solo tiene puestos del Anexo 2 (11 puestos, `modalidad='ambos'`). Las opciones General/Jefe/Director/Gerencial son exclusivas de Estructura |
+| 2026-08-10 | Página de inicio al login cambiada a `/kpis` | El tablero KPIs es la vista principal operativa; Padrón y Bajas Consolidadas son vistas de administrador |
+| 2026-08-10 | Padrón Semanal y Bajas Consolidadas movidos a sección admin del menú (debajo del segundo divisor) | Son funciones de administración del sistema, no de operación diaria |
+| 2026-08-10 | Tablas `bajas` y `concursos` limpiadas (0 registros) | Todos los registros eran de prueba; el sistema queda listo para datos reales |
 
 | Métrica                                | Objetivo                          |
 | -------------------------------------- | --------------------------------- |

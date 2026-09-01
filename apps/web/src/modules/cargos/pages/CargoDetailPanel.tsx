@@ -91,6 +91,14 @@ export function CargoDetailPanel() {
               <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
             </Section>
           )}
+
+          {/* S7-8: datos de alta manual — solo si tiene expediente o fechaDesde */}
+          {(cargo.expediente || cargo.fechaDesde) && (
+            <Section title="Alta">
+              <Dato label="Expediente" value={cargo.expediente} />
+              <Dato label="Vigente desde" value={cargo.fechaDesde ? cargo.fechaDesde.slice(0, 10) : null} />
+            </Section>
+          )}
         </div>
       </div>
 
