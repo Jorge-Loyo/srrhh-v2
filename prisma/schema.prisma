@@ -21,6 +21,7 @@ datasource db {
 enum EstadoCargo {
   vigente
   no_vigente
+  validacion_vacante
 }
 
 enum EstadoSnapshot {
@@ -191,6 +192,8 @@ model Cargo {
   litFamilia        String?      @map("lit_familia") @db.VarChar(150)
   puestoCodigoSial  String?      @map("puesto_codigo_sial") @db.VarChar(20)
   estado            EstadoCargo  @default(vigente)
+  // S8A-1: fecha en que el cargo entró al estado actual (para calcular días en estado)
+  estadoDesde       DateTime?    @map("estado_desde") @db.Date
   // S7-1: trazabilidad del alta manual (RF-11/12/13)
   expediente        String?      @db.VarChar(150)
   fechaDesde        DateTime?    @map("fecha_desde") @db.Date

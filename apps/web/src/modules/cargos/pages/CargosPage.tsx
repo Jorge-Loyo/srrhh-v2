@@ -16,6 +16,7 @@ const LIMIT = 50
 const ESTADO_LABEL: Record<EstadoCargo, string> = {
   [EstadoCargo.VIGENTE]: 'Vigente',
   [EstadoCargo.NO_VIGENTE]: 'No vigente',
+  [EstadoCargo.VALIDACION_VACANTE]: 'En validación',
 }
 
 export function CargosPage() {
@@ -195,6 +196,7 @@ export function CargosPage() {
             <option value="">Todos los estados</option>
             <option value={EstadoCargo.VIGENTE}>Vigente</option>
             <option value={EstadoCargo.NO_VIGENTE}>No vigente</option>
+            <option value={EstadoCargo.VALIDACION_VACANTE}>En validación</option>
           </select>
           <select
             value={ocupado}
@@ -276,6 +278,7 @@ export function CargosPage() {
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
+                    <th className="px-4 py-3 font-semibold">Días</th>
                     <th className="px-4 py-3 font-semibold">Ocupación</th>
                     <th className="px-4 py-3 font-semibold" />
                   </tr>
@@ -288,9 +291,18 @@ export function CargosPage() {
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.literalPuesto ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className={c.estado === EstadoCargo.VIGENTE ? 'badge-success' : 'badge-default'}>
+                        <span className={
+                          c.estado === EstadoCargo.VIGENTE ? 'badge-success' :
+                          c.estado === EstadoCargo.VALIDACION_VACANTE ? 'badge-warning' :
+                          'badge-default'
+                        }>
                           {ESTADO_LABEL[c.estado]}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">
+                        {c.estadoDesde && c.estado !== EstadoCargo.VIGENTE
+                          ? `${Math.floor((Date.now() - new Date(c.estadoDesde).getTime()) / 86_400_000)}d`
+                          : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>
