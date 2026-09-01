@@ -21,6 +21,7 @@ import { KpisPage } from '../modules/kpis/pages/KpisPage'
 import { BajasPage } from '../modules/bajas/pages/BajasPage'
 import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
 import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
+import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
 
 export const router = createBrowserRouter([
   {
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
           { path: 'bajas', element: <BajasPage /> },
+          { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },
