@@ -1056,6 +1056,52 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
   return { ok: true, snapshotId: id }
 }
 
+// ─── S8A-3: detectar conflictos validacion_vacante antes de aprobar ──────────
+export async function getConflictosValidacionService(snapshotId: string) {
+  const snapshot = await getSnapshotOrThrow(snapshotId)
+  if (snapshot.estado !== 'pendiente') return { conflictos: [] }
+
+  const nuevos = await prisma.padronDiff.findMany({
+    where: { snapshotId, tipo: 'nuevo' },
+    select: { valorNuevo: true },
+  })
+
+  const idSialsNuevos = nuevos
+    .map((d) => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })
+    .filter((v): v is string => Boolean(v))
+
+  if (idSialsNuevos.length === 0) return { conflictos: [] }
+
+  const cargos = await prisma.cargo.findMany({
+    where: { idSial: { in: idSialsNuevos }, estado: 'validacion_vacante' },
+    include: {
+      hospital: { select: { sigla: true } },
+      escalafon: { select: { nombre: true } },
+      ocupaciones: {
+        where: { hasta: { not: null } },
+        include: { persona: { select: { apellidoNombre: true, cuil: true } } },
+        orderBy: { hasta: 'desc' },
+        take: 1,
+      },
+    },
+  })
+
+  const hoy = new Date()
+  return {
+    conflictos: cargos.map(({ ocupaciones, estadoDesde, ...c }) => ({
+      cargoId: c.id,
+      codigo: c.codigo,
+      literalPuesto: c.literalPuesto,
+      hospital: c.hospital.sigla,
+      escalafon: c.escalafon.nombre,
+      diasEnValidacion: estadoDesde
+        ? Math.floor((hoy.getTime() - estadoDesde.getTime()) / 86_400_000)
+        : null,
+      ultimaPersona: ocupaciones[0]?.persona ?? null,
+    })),
+  }
+}
+
 // ─── exportar Excel del Dotaneitor ──────────────────────────────────────────
 
 export async function exportarSnapshotService(id: string) {

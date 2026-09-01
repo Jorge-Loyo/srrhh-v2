@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -43,6 +43,35 @@ export async function bajasRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string }
       const body = createBajaSchema.parse(request.body)
       const data = await updateBajaService(id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // S8B: GET /validacion — cargos en validacion_vacante
+  app.get('/validacion', async (_request, reply) => {
+    const data = await listValidacionService()
+    return reply.send({ data })
+  })
+
+  // S8B: POST /validacion/:cargoId/confirmar
+  app.post(
+    '/validacion/:cargoId/confirmar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { cargoId } = request.params as { cargoId: string }
+      const { actaAdministrativa } = (request.body ?? {}) as { actaAdministrativa?: string }
+      const data = await confirmarValidacionService(cargoId, actaAdministrativa)
+      return reply.send({ data })
+    }
+  )
+
+  // S8B: POST /validacion/:cargoId/rechazar
+  app.post(
+    '/validacion/:cargoId/rechazar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { cargoId } = request.params as { cargoId: string }
+      const data = await rechazarValidacionService(cargoId)
       return reply.send({ data })
     }
   )

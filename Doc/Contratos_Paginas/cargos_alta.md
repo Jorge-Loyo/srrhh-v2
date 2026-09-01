@@ -291,3 +291,19 @@ Cargos de conducción, autoridades y cuerpos especiales creados por decreto.
 - El filtrado de escalafones usa `?paraNuevaAlta=true` — no cambiar a filtro por `cargos: { some: {} }`.
 - El filtrado de puestos por modalidad respeta la lógica inteligente: puestos propios si existen, `ambos` como fallback.
 - El campo se llama "Decreto" en Estructura y "Expediente" en POF/POU.
+
+---
+
+## Relación con el flujo `validacion_vacante` (Sprint 8)
+
+Desde Sprint 8, el padrón semanal ya no marca cargos directamente como `no_vigente` cuando una persona desaparece del Excel. En cambio los pone en estado `validacion_vacante`. Esto afecta el flujo de alta por baja:
+
+| Situación | Estado del cargo | ¿Se puede seleccionar en `/cargos/baja/nueva`? |
+|-----------|-----------------|------------------------------------------------|
+| Cargo activo con persona | `vigente` + ocupado | ✅ Sí (reemplazo de persona) |
+| Padrón detectó que la persona desapareció | `validacion_vacante` | ✅ Sí (flujo de alta por baja) |
+| Baja manual confirmada | `no_vigente` | ❌ No |
+
+**Regla:** el selector de cargo en `NuevaBajaPage` hace 2 queries paralelas (`vigente` + `validacion_vacante`) y muestra badge naranja "En validación" para los del segundo grupo.
+
+**Columna Ocupación en `CargosPage`:** el badge Ocupado/Vacante solo se muestra para cargos `vigente`. Los cargos `no_vigente` y `validacion_vacante` no muestran nada en esa columna — no tiene sentido hablar de "vacante" para un cargo que ya no está activo o está en proceso de baja.

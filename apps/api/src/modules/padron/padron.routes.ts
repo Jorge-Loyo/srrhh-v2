@@ -14,6 +14,7 @@ import {
   deleteSnapshotService,
   exportarSnapshotService,
   cleanupSnapshotsProcesando,
+  getConflictosValidacionService,
 } from './padron.service.js'
 
 export async function padronRoutes(app: FastifyInstance) {
@@ -96,6 +97,12 @@ export async function padronRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     reply.header('Content-Disposition', `attachment; filename="dotacion_${snapshotId.slice(0, 8)}.xlsx"`)
     return reply.send(stream)
+  })
+
+  // GET /snapshots/:id/conflictos-validacion — S8A-3
+  app.get<{ Params: { id: string } }>('/snapshots/:id/conflictos-validacion', async (request, reply) => {
+    const result = await getConflictosValidacionService(request.params.id)
+    return reply.send({ data: result })
   })
 
   // DELETE /snapshots/:id — eliminar snapshot en estado error o rechazado (requiere admin)

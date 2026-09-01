@@ -34,16 +34,30 @@ function ModalBuscarCargo({ onSeleccionar, onCerrar }: { onSeleccionar: (c: Carg
   const { data, isLoading } = useQuery({
     queryKey: ['cargo-modal', hospitalId, escalafonId, busqueda, personaBusq],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
-        params: {
-          limit: 30, estado: 'vigente',
-          ...(hospitalId              && { hospitalId }),
-          ...(escalafonId             && { escalafonId }),
-          ...(busqueda.length >= 2    && { search: busqueda }),
-          ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
-        },
-      })
-      return res.data
+      // S8A-4: incluir cargos vigente Y validacion_vacante
+      const [vigentes, enValidacion] = await Promise.all([
+        apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: {
+            limit: 30, estado: 'vigente',
+            ...(hospitalId              && { hospitalId }),
+            ...(escalafonId             && { escalafonId }),
+            ...(busqueda.length >= 2    && { search: busqueda }),
+            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
+          },
+        }),
+        apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: {
+            limit: 10, estado: 'validacion_vacante',
+            ...(hospitalId              && { hospitalId }),
+            ...(escalafonId             && { escalafonId }),
+            ...(busqueda.length >= 2    && { search: busqueda }),
+          },
+        }),
+      ])
+      return {
+        data: [...vigentes.data.data, ...enValidacion.data.data],
+        meta: vigentes.data.meta,
+      }
     },
     enabled: activo,
     placeholderData: (prev) => prev,
@@ -112,7 +126,12 @@ function ModalBuscarCargo({ onSeleccionar, onCerrar }: { onSeleccionar: (c: Carg
                         : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>{c.ocupado ? 'Ocupado' : 'Vacante'}</span>
+                      <span className={
+                        c.estado === 'validacion_vacante' ? 'badge-warning' :
+                        c.ocupado ? 'badge-success' : 'badge-warning'
+                      }>
+                        {c.estado === 'validacion_vacante' ? 'En validación' : c.ocupado ? 'Ocupado' : 'Vacante'}
+                      </span>
                     </td>
                   </tr>
                 ))}
