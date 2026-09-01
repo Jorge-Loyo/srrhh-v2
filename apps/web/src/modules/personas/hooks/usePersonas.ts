@@ -46,3 +46,19 @@ export function usePersona(id: string | undefined) {
     enabled: !!id,
   })
 }
+
+export function usePersonaBajasSial(id: string | undefined) {
+  return useQuery({
+    queryKey: ['personas', 'bajas-sial', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: {
+        cargo: string; lit_puesto: string | null; escalafon: string | null
+        cargo_desde: string | null; cargo_hasta: string | null; mot_baja: string | null
+        doc_resp_baja: string | null; desc_rep: string | null; car_codigo: string | null
+        codigo_cargo: string | null
+      }[] }>(`/api/v1/personas/${id}/bajas-sial`)
+      return res.data.data
+    },
+    enabled: !!id,
+  })
+}

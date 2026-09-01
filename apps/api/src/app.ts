@@ -21,6 +21,8 @@ import { puestosRoutes } from './modules/puestos/puestos.routes.js'
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes.js'
 import { kpisRoutes } from './modules/kpis/kpis.routes.js'
 import { bajasRoutes } from './modules/bajas/bajas.routes.js'
+import { bajasSialRoutes } from './modules/bajas-sial/bajas-sial.routes.js'
+import { puestosCargoRoutes } from './modules/puestos-cargo/puestos-cargo.routes.js'
 
 const app = Fastify({
   logger: {
@@ -79,6 +81,8 @@ await app.register(puestosRoutes, { prefix: '/api/v1/puestos' })
 await app.register(usuariosRoutes, { prefix: '/api/v1/usuarios' })
 await app.register(kpisRoutes, { prefix: '/api/v1/kpis' })
 await app.register(bajasRoutes, { prefix: '/api/v1/bajas' })
+await app.register(bajasSialRoutes, { prefix: '/api/v1/bajas-sial' })
+await app.register(puestosCargoRoutes, { prefix: '/api/v1/puestos-cargo' })
 
 // Start
 try {

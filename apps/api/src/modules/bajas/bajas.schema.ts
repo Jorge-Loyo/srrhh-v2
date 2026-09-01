@@ -8,7 +8,7 @@ export const bajasQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   hospitalId: z.string().uuid().optional(),
-  estado: z.enum(['pendiente', 'confirmada', 'anulada']).optional(),
+  estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
   search: z.string().trim().min(1).optional(),
 })
 
@@ -24,17 +24,16 @@ export const createBajaSchema = z
     cargoId: z.string().uuid(),
     hospitalId: z.string().uuid(),
     personaId: z.string().uuid().optional(),
-    fechaBaja: fecha,
+    fechaBaja: fecha.optional().or(z.literal('')),
     tipoBaja: z.string().trim().max(100).optional(),
     motivo: z.string().trim().max(500).optional(),
     tipificadorOrigen: z.string().trim().max(200).optional(),
     generaConcurso: z.boolean().default(true),
     eeBaja: z.string().trim().max(500).optional(),
-    // Requerido cuando generaConcurso = true
     tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
-    // Requerido cuando tipoConcurso = ceetps
     escalafonId: z.string().uuid().optional(),
     observaciones: z.string().trim().max(2000).optional(),
+    estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
   })
   .refine(
     (d) => !d.generaConcurso || !!d.tipoConcurso,

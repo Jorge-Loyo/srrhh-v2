@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
@@ -129,6 +129,8 @@ function ModalBuscarCargo({ onSeleccionar, onCerrar }: { onSeleccionar: (c: Carg
 // ── Página principal ─────────────────────────────────────────────────────────
 export function NuevaBajaPage() {
   const navigate = useNavigate()
+  const { bajaId } = useParams<{ bajaId?: string }>()
+  const modoEdicion = !!bajaId
   const [paso, setPaso] = useState<Paso>(1)
   const [modalAbierto, setModalAbierto] = useState(false)
   const [cargo, setCargo] = useState<CargoDetail | null>(null)
@@ -158,7 +160,50 @@ export function NuevaBajaPage() {
   const [observaciones, setObservaciones]       = useState('')
   const [guardando, setGuardando]               = useState(false)
   const [error, setError]                       = useState('')
-  const [camposVacios, setCamposVacios]         = useState<string[]>([])
+  const [camposVacios, setCamposVacios]         = useState<string[]>([])  
+
+  // ── Cargar baja existente en modo edición ──
+  const { data: bajaExistente } = useQuery({
+    queryKey: ['baja', bajaId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Baja }>(`/api/v1/bajas/${bajaId}`)
+      return res.data.data
+    },
+    enabled: modoEdicion,
+  })
+
+  useEffect(() => {
+    if (!bajaExistente) return
+    if (bajaExistente.tipificadorOrigen) setOrigen(bajaExistente.tipificadorOrigen)
+    if (bajaExistente.motivo) setMotivo(bajaExistente.motivo)
+    if (bajaExistente.observaciones) setObservaciones(bajaExistente.observaciones)
+    if (bajaExistente.fechaBaja) {
+      const d = new Date(bajaExistente.fechaBaja)
+      setFechaBaja(`${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`)
+    }
+    // Cargar cargo
+    if (bajaExistente.cargoId) {
+      setCargandoCargo(true)
+      apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${bajaExistente.cargoId}`)
+        .then((res) => {
+          const det = res.data.data
+          setCargo(det)
+          if (det.ocupacionActual?.persona) {
+            setNombreApellido(det.ocupacionActual.persona.apellidoNombre)
+            setCuil(det.ocupacionActual.persona.cuil)
+          }
+          if (det.codigoRegistro?.codigo) setCodigoRegistro(det.codigoRegistro.codigo)
+          setUnificador(det.unificadorPuesto ?? '')
+          setEscalfon(det.codigoRegistro?.literal ?? '')
+          const codigoCargo = (det.codigo ?? '').toUpperCase()
+          const uni = (det.unificadorPuesto ?? '').toLowerCase()
+          setPouPof(codigoCargo.includes('POF') ? 'POF' : codigoCargo.includes('POU') ? 'POU' : uni.includes('planta') ? 'POF' : uni.includes('guardia') ? 'POU' : '')
+          setPuesto(det.literalPuesto ?? '')
+          setEspecialidad(det.especialidad ?? '')
+        })
+        .finally(() => setCargandoCargo(false))
+    }
+  }, [bajaExistente])
 
   const codigoNum = Number(codigoRegistro)
   const esCeetps  = CEETPS_CODIGOS.includes(codigoNum)
@@ -217,10 +262,48 @@ export function NuevaBajaPage() {
         generaConcurso: conConcurso,
         ...(conConcurso && { tipoConcurso: 'cph' as TipoConcurso }),
       }
+      if (modoEdicion) {
+        const res = await apiClient.patch<{ data: Baja }>(`/api/v1/bajas/${bajaId}`, { ...body, estado: 'pendiente' })
+        return res.data.data
+      }
       const res = await apiClient.post<{ data: Baja }>('/api/v1/bajas', body)
       return res.data.data
     },
   })
+
+  const guardarBorrador = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = {
+        cargoId:           cargo!.id,
+        hospitalId:        cargo!.hospitalId,
+        personaId:         cargo!.ocupacionActual?.personaId ?? undefined,
+        fechaBaja:         dmyToIso(fechaBaja) ?? fechaBaja,
+        motivo:            motivo || undefined,
+        tipoBaja:          motivo || undefined,
+        tipificadorOrigen: origen || undefined,
+        eeBaja:            exBaja || undefined,
+        observaciones:     observaciones || undefined,
+        generaConcurso:    false,
+        estado:            'resolucion_a_la_firma',
+      }
+      if (modoEdicion) {
+        const res = await apiClient.patch<{ data: Baja }>(`/api/v1/bajas/${bajaId}`, body)
+        return res.data.data
+      }
+      const res = await apiClient.post<{ data: Baja }>('/api/v1/bajas', body)
+      return res.data.data
+    },
+  })
+
+  async function handleGuardarBorrador() {
+    if (!cargo) return
+    setGuardando(true); setError('')
+    try {
+      await guardarBorrador.mutateAsync()
+      navigate('/cargos/alta-por-baja')
+    } catch { setError('No se pudo guardar el borrador.') }
+    finally { setGuardando(false) }
+  }
 
   async function confirmar(conConcurso: boolean) {
     if (!cargo) return
@@ -283,7 +366,7 @@ export function NuevaBajaPage() {
         <div className="flex items-center gap-2 text-sm">
           <Link to="/cargos/alta-por-baja" className="text-secondary hover:underline">← Alta por Baja</Link>
           <span className="text-gray-300">/</span>
-          <span className="text-gray-500">Nueva Baja</span>
+          <span className="text-gray-500">{modoEdicion ? 'Editar Baja' : 'Nueva Baja'}</span>
         </div>
 
         {/* Stepper */}
@@ -309,7 +392,7 @@ export function NuevaBajaPage() {
         {paso === 1 && (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
-              <h1 className="font-primary text-lg font-bold text-gray-900">Datos de la baja</h1>
+              <h1 className="font-primary text-lg font-bold text-gray-900">{modoEdicion ? 'Editar baja' : 'Datos de la baja'}</h1>
               <p className="text-sm text-gray-500 mt-0.5">Completá todos los campos del formulario consolidado</p>
             </div>
             <div className="p-6 space-y-6">
@@ -451,8 +534,16 @@ export function NuevaBajaPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">{!cargo && 'Asigná un cargo · '}{!fechaBaja && 'Completá la fecha · '}{!motivo && 'Seleccioná un motivo'}</p>
-              <button className="btn-primary" disabled={!paso1Valido} onClick={validarYAvanzar}>Continuar →</button>
+              <p className="text-xs text-gray-400">
+                {!cargo && 'Asigna un cargo'}{!fechaBaja && ' · Completa la fecha'}{!motivo && ' · Selecciona un motivo'}
+              </p>
+              <div className="flex items-center gap-2">
+                {error && <p className="text-sm text-danger">{error}</p>}
+                <button className="btn-outline" disabled={!cargo || guardando} onClick={handleGuardarBorrador}>
+                  {guardando ? 'Guardando...' : 'Guardar borrador'}
+                </button>
+                <button className="btn-primary" disabled={!paso1Valido} onClick={validarYAvanzar}>Continuar →</button>
+              </div>
             </div>
           </div>
         )}

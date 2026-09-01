@@ -106,6 +106,7 @@ model Escalafon {
   codigosRegistro  CodigoRegistro[]
   cargos           Cargo[]
   concursosCeetps  ConcursoCeetps[]
+  puestosCargo     PuestoCargo[]
 
   @@map("escalafones")
 }
@@ -481,6 +482,7 @@ model ConcursoCeetps {
 // =============================================================================
 
 enum EstadoBaja {
+  resolucion_a_la_firma
   pendiente
   confirmada
   anulada
@@ -607,6 +609,40 @@ model Puesto {
   @@map("puestos")
 }
 
+enum ModalidadPuesto {
+  pof
+  pou
+  ambos
+}
+
+model PuestoCargo {
+  id          String          @id @default(uuid()) @db.Uuid
+  escalafonId String          @map("escalafon_id") @db.Uuid
+  modalidad   ModalidadPuesto
+  nombre      String          @db.VarChar(200)
+  activo      Boolean         @default(true)
+
+  escalafon      Escalafon            @relation(fields: [escalafonId], references: [id])
+  especialidades EspecialidadPuesto[]
+
+  @@unique([escalafonId, modalidad, nombre])
+  @@index([escalafonId, modalidad])
+  @@map("puestos_cargo")
+}
+
+model EspecialidadPuesto {
+  id           String     @id @default(uuid()) @db.Uuid
+  puestoCargId String     @map("puesto_cargo_id") @db.Uuid
+  nombre       String     @db.VarChar(200)
+  activo       Boolean    @default(true)
+
+  puesto PuestoCargo @relation(fields: [puestoCargId], references: [id], onDelete: Cascade)
+
+  @@unique([puestoCargId, nombre])
+  @@index([puestoCargId])
+  @@map("especialidades_puesto")
+}
+
 // =============================================================================
 // TABLAS DE REFERENCIA (Mapeos Dotaneitor)
 // =============================================================================
@@ -707,4 +743,92 @@ model RefSufijoOrdinal {
   activo Boolean @default(true)
 
   @@map("ref_sufijos_ordinales")
+}
+
+// =============================================================================
+// BAJAS SIAL — archivo semanal de bajas del Ministerio de Salud
+// =============================================================================
+
+model BajaSialSnapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  filename        String   @db.VarChar(255)
+  fechaArchivo    DateTime @map("fecha_archivo") @db.Date
+  totalRegistros  Int      @default(0) @map("total_registros")
+  // diferencias respecto al snapshot anterior aprobado
+  nuevas          Int      @default(0)   // registros que no estaban antes
+  salidas         Int      @default(0)   // registros que ya no están
+  modificadas     Int      @default(0)   // registros que cambiaron campos
+  estado          EstadoSnapshot @default(procesando)
+  errorMsg        String?  @map("error_msg") @db.Text
+  procesadoPorId  String?  @map("procesado_por") @db.Uuid
+  aprobadoPorId   String?  @map("aprobado_por") @db.Uuid
+  aprobadoAt      DateTime? @map("aprobado_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  diffs           BajaSialDiff[]
+  registros       BajaSialRegistro[]
+
+  @@map("baja_sial_snapshots")
+}
+
+model BajaSialDiff {
+  id          String   @id @default(uuid()) @db.Uuid
+  snapshotId  String   @map("snapshot_id") @db.Uuid
+  tipo        TipoDiff
+  cargo       String   @db.VarChar(30)   // id_sial_rol del archivo (CARGO col)
+  cuil        String   @db.VarChar(20)
+  ayn         String   @db.VarChar(200)
+  escalafon   String?  @db.VarChar(100)
+  litPuesto   String?  @map("lit_puesto") @db.VarChar(200)
+  motBaja     String?  @map("mot_baja") @db.VarChar(200)
+  cargoHasta  DateTime? @map("cargo_hasta") @db.Date
+  // triangulacion: si el CUIL existe en personas y si tiene ocupacion activa
+  existeEnPersonas   Boolean @default(false) @map("existe_en_personas")
+  tieneOcupActiva    Boolean @default(false) @map("tiene_ocup_activa")
+  campo       String?  @db.VarChar(100)  // solo para tipo=modificado
+  valorAnterior String? @map("valor_anterior") @db.Text
+  valorNuevo  String?  @map("valor_nuevo") @db.Text
+
+  snapshot    BajaSialSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([tipo])
+  @@index([cuil])
+  @@map("baja_sial_diffs")
+}
+
+model BajaSialRegistro {
+  id          String   @id @default(uuid()) @db.Uuid
+  snapshotId  String   @map("snapshot_id") @db.Uuid
+  cargo       String   @db.VarChar(30)
+  cuil        String   @db.VarChar(20)
+  ayn         String   @db.VarChar(200)
+  numDoc      String?  @map("num_doc") @db.VarChar(20)
+  sexo        String?  @db.VarChar(1)
+  fecNacim    DateTime? @map("fec_nacim") @db.Date
+  edad        Int?
+  codRep      String?  @map("cod_rep") @db.VarChar(20)
+  descRep     String?  @map("desc_rep") @db.VarChar(200)
+  escalafon   String?  @db.VarChar(100)
+  regimen     String?  @db.VarChar(100)
+  sitRev      String?  @map("sit_rev") @db.VarChar(100)
+  codReg      String?  @map("cod_reg") @db.VarChar(20)
+  litCodReg   String?  @map("lit_cod_reg") @db.VarChar(200)
+  puesto      String?  @db.VarChar(20)
+  litPuesto   String?  @map("lit_puesto") @db.VarChar(200)
+  codAgrup    String?  @map("cod_agrup") @db.VarChar(20)
+  litAgrup    String?  @map("lit_agrup") @db.VarChar(200)
+  cargoDesde  DateTime? @map("cargo_desde") @db.Date
+  cargoHasta  DateTime? @map("cargo_hasta") @db.Date
+  docRespAlta String?  @map("doc_resp_alta") @db.VarChar(200)
+  docRespBaja String?  @map("doc_resp_baja") @db.VarChar(200)
+  motBaja     String?  @map("mot_baja") @db.VarChar(200)
+  carCodigo   String?  @map("car_codigo") @db.VarChar(50)
+  funcion     String?  @map("funcion") @db.VarChar(100)
+
+  snapshot    BajaSialSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([cuil])
+  @@map("baja_sial_registros")
 }
