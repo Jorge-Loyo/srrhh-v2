@@ -30,7 +30,7 @@ export const router = createBrowserRouter([
         path: '/',
         element: <AppShell />,
         children: [
-          { index: true, element: <Navigate to="/padron" replace /> },
+          { index: true, element: <Navigate to="/kpis" replace /> },
           { path: 'padron', element: <PadronPage /> },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
