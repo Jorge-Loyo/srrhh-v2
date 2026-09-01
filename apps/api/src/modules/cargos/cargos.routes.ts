@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requireRole } from '../../shared/middleware/roles.middleware.js'
 import { RolUsuario } from '@srrhh/types'
-import { cargosQuerySchema, createCargoSchema } from './cargos.schema.js'
-import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService } from './cargos.service.js'
+import { cargosQuerySchema, createCargoSchema, altasQuerySchema } from './cargos.schema.js'
+import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService } from './cargos.service.js'
 
 const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR]
 
@@ -17,6 +17,13 @@ export async function cargosRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
+  // GET /altas — S7-4: historial persistente de altas manuales
+  app.get('/altas', async (request, reply) => {
+    const query = altasQuerySchema.parse(request.query)
+    const result = await listAltasService(query)
+    return reply.send(result)
+  })
+
   // GET / — S3-4 + S3-3: listado paginado con filtros
   app.get('/', async (request, reply) => {
     const query = cargosQuerySchema.parse(request.query)
@@ -24,10 +31,10 @@ export async function cargosRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // POST / — S5-10: Alta de Cargo manual
+  // POST / — S5-10 + S7-2: Alta de Cargo manual
   app.post('/', { preHandler: requireRole(WRITE_ROLES) }, async (request, reply) => {
     const body = createCargoSchema.parse(request.body)
-    const data = await createCargoService(body)
+    const data = await createCargoService(body, request.user?.id)
     return reply.status(201).send({ data })
   })
 

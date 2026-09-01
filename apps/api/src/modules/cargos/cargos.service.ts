@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery, CreateCargoBody } from './cargos.schema.js'
+import type { CargosQuery, CreateCargoBody, AltasQuery } from './cargos.schema.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
@@ -168,8 +168,8 @@ export async function getCargoByIdService(id: string) {
   return { ...rest, ocupacionActual, historial, cargoActivo }
 }
 
-// ─── S5-10: Alta de Cargo manual ─────────────────────────────────────────────
-export async function createCargoService(body: CreateCargoBody) {
+// ─── S5-10 + S7-2: Alta de Cargo manual ─────────────────────────────────────
+export async function createCargoService(body: CreateCargoBody, createdById?: string) {
   const hospital = await prisma.hospital.findUnique({ where: { id: body.hospitalId } })
   if (!hospital) throw AppError.notFound('Hospital no encontrado')
 
@@ -187,30 +187,28 @@ export async function createCargoService(body: CreateCargoBody) {
     agrupador: body.agrupador ?? null,
   })
 
-  // Crear `cantidad` cargos en una sola transacción. El secuencial se
-  // incrementa dentro del loop — siguienteCodigoCargo lee el MAX en cada
-  // llamada, así que el segundo cargo ve el primero ya insertado y toma el
-  // siguiente número correctamente.
   return prisma.$transaction(async (tx) => {
     const creados = []
     for (let i = 0; i < body.cantidad; i++) {
       const codigo = await siguienteCodigoCargo(prefijo, tx)
-      // idSial sintético para cargos manuales: prefijo del código + timestamp
-      // + índice para garantizar unicidad incluso en lotes.
       const idSial = `MANUAL-${codigo}`
 
       const cargo = await tx.cargo.create({
         data: {
           idSial,
           codigo,
-          hospitalId: body.hospitalId,
-          escalafonId: body.escalafonId,
+          hospitalId:       body.hospitalId,
+          escalafonId:      body.escalafonId,
           codigoRegistroId: body.codigoRegistroId ?? null,
-          literalPuesto: body.literalPuesto,
-          especialidad: body.especialidad ?? null,
-          agrupador: body.agrupador ?? null,
+          literalPuesto:    body.literalPuesto,
+          especialidad:     body.especialidad ?? null,
+          agrupador:        body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
-          regimen: body.regimen ?? null,
+          regimen:          body.regimen ?? null,
+          // S7-2: persistir acto administrativo y trazabilidad
+          expediente:       body.expediente ?? null,
+          fechaDesde:       body.desde ? new Date(body.desde) : null,
+          createdById:      createdById ?? null,
           estado: 'vigente',
         },
         include: { hospital: true, escalafon: true },
@@ -219,4 +217,36 @@ export async function createCargoService(body: CreateCargoBody) {
     }
     return creados
   })
+}
+
+// ─── S7-4: Historial persistente de altas manuales ───────────────────────────
+export async function listAltasService(query: AltasQuery) {
+  const { page, limit, expediente, desde, hasta } = query
+
+  const where: Prisma.CargoWhereInput = {
+    idSial: { startsWith: 'MANUAL-' },
+    ...(expediente && { expediente: { contains: expediente, mode: 'insensitive' } }),
+    ...(desde && { createdAt: { gte: new Date(desde) } }),
+    ...(hasta && { createdAt: { lte: new Date(hasta + 'T23:59:59') } }),
+  }
+
+  const [total, cargos] = await Promise.all([
+    prisma.cargo.count({ where }),
+    prisma.cargo.findMany({
+      where,
+      include: {
+        hospital:  { select: { sigla: true, nombre: true } },
+        escalafon: { select: { nombre: true } },
+        createdBy: { select: { username: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ])
+
+  return {
+    data: cargos,
+    meta: { total, page, limit, pages: Math.ceil(total / limit) },
+  }
 }

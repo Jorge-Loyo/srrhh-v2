@@ -191,6 +191,10 @@ model Cargo {
   litFamilia        String?      @map("lit_familia") @db.VarChar(150)
   puestoCodigoSial  String?      @map("puesto_codigo_sial") @db.VarChar(20)
   estado            EstadoCargo  @default(vigente)
+  // S7-1: trazabilidad del alta manual (RF-11/12/13)
+  expediente        String?      @db.VarChar(150)
+  fechaDesde        DateTime?    @map("fecha_desde") @db.Date
+  createdById       String?      @map("created_by_id") @db.Uuid
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
@@ -199,6 +203,7 @@ model Cargo {
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  createdBy       Usuario?        @relation("CargosCreados", fields: [createdById], references: [id])
   ocupaciones     Ocupacion[]
   concursos       Concurso[]
   concursosCph    ConcursoCph[]
@@ -549,6 +554,7 @@ model Usuario {
   concursosRegistrados  Concurso[]
   auditLogs             AuditLog[]
   bajasRegistradas      Baja[]
+  cargosCreados         Cargo[]          @relation("CargosCreados")
 
   @@map("usuarios")
 }

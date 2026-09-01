@@ -10,13 +10,13 @@
 
 ## 1. CONTEXTO
 
-| Parámetro | Valor |
-|-----------|-------|
-| Equipo | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend) |
-| Capacidad | 30h/semana por dev = 60h/semana totales |
-| Duración del sprint | 1 semana |
-| Ceremonia | Review + Retro semanal (sin daily, comunicación asíncrona) |
-| Coordinación | Avisar antes de tocar un módulo compartido (regla del DoD) |
+| Parámetro           | Valor                                                      |
+| ------------------- | ---------------------------------------------------------- |
+| Equipo              | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend)       |
+| Capacidad           | 30h/semana por dev = 60h/semana totales                    |
+| Duración del sprint | 1 semana                                                   |
+| Ceremonia           | Review + Retro semanal (sin daily, comunicación asíncrona) |
+| Coordinación        | Avisar antes de tocar un módulo compartido (regla del DoD) |
 
 ### Definición de Done (DoD)
 
@@ -32,15 +32,15 @@
 
 ### Lo que ya funciona (no tocar)
 
-| Funcionalidad | Estado | Notas |
-|---|---|---|
-| Alta manual de cargos (`POST /api/v1/cargos`) | ✅ Implementado | Genera código correlativo, crea N cargos en lote |
+| Funcionalidad                                               | Estado          | Notas                                                                         |
+| ----------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
+| Alta manual de cargos (`POST /api/v1/cargos`)               | ✅ Implementado | Genera código correlativo, crea N cargos en lote                              |
 | Filtrado de escalafones con puestos (`?paraNuevaAlta=true`) | ✅ Implementado | Filtra por `puestosCargo: { some: { activo: true } }` — muestra 6 escalafones |
-| Filtrado inteligente de puestos por modalidad | ✅ Implementado | CPH POF/POU usa puestos propios; CEETPS usa `ambos` |
-| Formulario multi-cargo con panel de pendientes | ✅ Implementado | Botones siempre habilitados, panel lateral condicional |
-| Historial de sesión con buscador | ✅ Implementado | Solo persiste en memoria del navegador |
-| Generación de código correlativo | ✅ Implementado | `prefijoDeCargo()` + `siguienteCodigoCargo()` en transacción |
-| Alias visual "Médicos" → "CPH" | ✅ Implementado | Solo en frontend, BD mantiene "Médicos" |
+| Filtrado inteligente de puestos por modalidad               | ✅ Implementado | CPH POF/POU usa puestos propios; CEETPS usa `ambos`                           |
+| Formulario multi-cargo con panel de pendientes              | ✅ Implementado | Botones siempre habilitados, panel lateral condicional                        |
+| Historial de sesión con buscador                            | ✅ Implementado | Solo persiste en memoria del navegador                                        |
+| Generación de código correlativo                            | ✅ Implementado | `prefijoDeCargo()` + `siguienteCodigoCargo()` en transacción                  |
+| Alias visual "Médicos" → "CPH"                              | ✅ Implementado | Solo en frontend, BD mantiene "Médicos"                                       |
 
 ### El problema central de este sprint
 
@@ -83,17 +83,17 @@ Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 del con
 
 **Capacidad total:** 60h | **Estimado:** 56h
 
-| # | Tarea | Dev | Est. | Prioridad | RF |
-|---|-------|-----|------|-----------|-----|
-| S7-1 | Migración Prisma: agregar `expediente` (VARCHAR 100, nullable), `fecha_desde` (DATE, nullable) y `created_by_id` (UUID FK → usuarios, nullable) a `cargos`. Aplicar en BD real. | Jorge | 4h | 🔴 Crítico | RF-11/12/13 |
-| S7-2 | Actualizar `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token JWT) en cada cargo creado del lote. Actualizar `createCargoSchema` (Zod) para que `expediente` y `desde` pasen de opcionales-descartados a persistidos. | Jorge | 6h | 🔴 Crítico | RF-11/12/13 |
-| S7-3 | Backfill: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde`/`createdById` NULL — documentar decisión (dato nunca persistido, no recuperable retroactivamente). | Jorge | 1h | 🟡 Medio | RF-11/12 |
-| S7-4 | Endpoint `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales (`idSial LIKE 'MANUAL-%'`) con filtro por expediente y rango de fechas. Incluye usuario que registró y códigos generados. | Jorge | 6h | 🟡 Medio | RF-14 |
-| S7-5 | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, literalPuesto)`. Si existe, responder `409` con el cargo existente (código, puesto, hospital). | Jorge | 6h | 🟢 Bajo | RF-15 |
-| S7-6 | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente y botones "Crear de todos modos" / "Cancelar". | Agustin | 8h | 🟢 Bajo | RF-15 |
-| S7-7 | Frontend: reemplazar historial de sesión por historial persistente — consumir `GET /api/v1/cargos/altas` con buscador por expediente. Mantener fallback de sesión mientras carga. | Agustin | 10h | 🟡 Medio | RF-14 |
-| S7-8 | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible. | Agustin | 4h | 🟡 Medio | RF-11/12 |
-| S7-9 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en el historial y en el detalle del cargo. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅). | Jorge + Agustin | 4h | 🔴 Crítico | Todos |
+| #    | Tarea                                                                                                                                                                                                                                                    | Dev             | Est. | Prioridad  | RF          |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ----------- |
+| S7-1 | Migración Prisma: agregar `expediente` (VARCHAR 100, nullable), `fecha_desde` (DATE, nullable) y `created_by_id` (UUID FK → usuarios, nullable) a `cargos`. Aplicar en BD real.                                                                          | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
+| S7-2 | Actualizar `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token JWT) en cada cargo creado del lote. Actualizar `createCargoSchema` (Zod) para que `expediente` y `desde` pasen de opcionales-descartados a persistidos. | Jorge           | 6h   | 🔴 Crítico | RF-11/12/13 |
+| S7-3 | Backfill: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde`/`createdById` NULL — documentar decisión (dato nunca persistido, no recuperable retroactivamente).                                                  | Jorge           | 1h   | 🟡 Medio   | RF-11/12    |
+| S7-4 | Endpoint `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales (`idSial LIKE 'MANUAL-%'`) con filtro por expediente y rango de fechas. Incluye usuario que registró y códigos generados.                                            | Jorge           | 6h   | 🟡 Medio   | RF-14       |
+| S7-5 | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, literalPuesto)`. Si existe, responder `409` con el cargo existente (código, puesto, hospital).                    | Jorge           | 6h   | 🟢 Bajo    | RF-15       |
+| S7-6 | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente y botones "Crear de todos modos" / "Cancelar".                                                                                                              | Agustin         | 8h   | 🟢 Bajo    | RF-15       |
+| S7-7 | Frontend: reemplazar historial de sesión por historial persistente — consumir `GET /api/v1/cargos/altas` con buscador por expediente. Mantener fallback de sesión mientras carga.                                                                        | Agustin         | 10h  | 🟡 Medio   | RF-14       |
+| S7-8 | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible.                                                                                                                      | Agustin         | 4h   | 🟡 Medio   | RF-11/12    |
+| S7-9 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en el historial y en el detalle del cargo. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅).                                             | Jorge + Agustin | 4h   | 🔴 Crítico | Todos       |
 
 ### Dependencias entre tareas
 
@@ -122,22 +122,22 @@ Todo ──► S7-9 (verificación + docs)
 
 ## 7. REGISTRO DE DECISIONES
 
-| Fecha | Decisión | Motivo |
-|-------|----------|--------|
-| 2026-09 | El alta con contrapartida de baja **no es un origen de cargo** | El cargo estructural y su historia persisten; solo se reemplaza la persona que lo ocupa. Es un movimiento de ocupación (flujo de bajas), no un alta. |
-| 2026-09 | RF-11/RF-12 como P1 (crítico) | El acto administrativo que respalda un alta no puede vivir solo en memoria del navegador — es un dato de auditoría obligatorio. |
-| 2026-09 | Cargos manuales preexistentes quedan con `expediente`/`fechaDesde`/`createdById` NULL | El dato nunca se persistió; no hay forma de recuperarlo retroactivamente. Se documenta en lugar de inventar valores. |
-| 2026-09 | Duplicado estructural = advertencia (409 + override), no bloqueo duro | Puede haber casos legítimos de cargos gemelos (misma estructura, distinto financiamiento). El usuario decide. |
-| 2026-09 | Historial persistente usa `GET /api/v1/cargos/altas` (endpoint dedicado) | Más claro que filtrar el listado general de cargos por `idSial LIKE 'MANUAL-%'`; permite agregar filtros específicos de alta (expediente, rango de fechas, usuario) sin contaminar el endpoint de cargos. |
-| 2026-09 | Filtrado de escalafones (`?paraNuevaAlta=true`) y puestos por modalidad ya resueltos | Implementados en el sprint anterior. No son parte del alcance de S7. |
+| Fecha   | Decisión                                                                              | Motivo                                                                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09 | El alta con contrapartida de baja **no es un origen de cargo**                        | El cargo estructural y su historia persisten; solo se reemplaza la persona que lo ocupa. Es un movimiento de ocupación (flujo de bajas), no un alta.                                                      |
+| 2026-09 | RF-11/RF-12 como P1 (crítico)                                                         | El acto administrativo que respalda un alta no puede vivir solo en memoria del navegador — es un dato de auditoría obligatorio.                                                                           |
+| 2026-09 | Cargos manuales preexistentes quedan con `expediente`/`fechaDesde`/`createdById` NULL | El dato nunca se persistió; no hay forma de recuperarlo retroactivamente. Se documenta en lugar de inventar valores.                                                                                      |
+| 2026-09 | Duplicado estructural = advertencia (409 + override), no bloqueo duro                 | Puede haber casos legítimos de cargos gemelos (misma estructura, distinto financiamiento). El usuario decide.                                                                                             |
+| 2026-09 | Historial persistente usa `GET /api/v1/cargos/altas` (endpoint dedicado)              | Más claro que filtrar el listado general de cargos por `idSial LIKE 'MANUAL-%'`; permite agregar filtros específicos de alta (expediente, rango de fechas, usuario) sin contaminar el endpoint de cargos. |
+| 2026-09 | Filtrado de escalafones (`?paraNuevaAlta=true`) y puestos por modalidad ya resueltos  | Implementados en el sprint anterior. No son parte del alcance de S7.                                                                                                                                      |
 
 ---
 
 ## 8. BACKLOG DEL MÓDULO (fuera de este sprint)
 
-| # | Tarea | Motivo de postergación |
-|---|-------|------------------------|
-| BC-1 | Corregir identidad del cargo en padrón SIAL: key por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` (bug C-1 de `Concursos-CPH.md`) | Pertenece al módulo Padrón, no al alta manual |
-| BC-2 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
-| BC-3 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
-| BC-4 | Filtrado por `createdById` en el historial de altas (ver altas propias vs. todas) | Mejora UX, no bloqueante para el MVP |
+| #    | Tarea                                                                                                                                                                           | Motivo de postergación                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| BC-1 | Corregir identidad del cargo en padrón SIAL: key por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` (bug C-1 de `Concursos-CPH.md`) | Pertenece al módulo Padrón, no al alta manual                  |
+| BC-2 | `fechaHasta` / supresión de cargo con acto administrativo de baja                                                                                                               | Flujo de bajas, no de altas                                    |
+| BC-3 | Vincular expediente de alta con expediente de baja (contrapartida)                                                                                                              | Requiere modelado de actos administrativos como entidad propia |
+| BC-4 | Filtrado por `createdById` en el historial de altas (ver altas propias vs. todas)                                                                                               | Mejora UX, no bloqueante para el MVP                           |
