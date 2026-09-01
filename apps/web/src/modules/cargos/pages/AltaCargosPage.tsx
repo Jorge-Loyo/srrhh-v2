@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Cargo, CreateCargoRequest } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto, useAltasCargos } from '@/shared/hooks/useCatalogos'
 
 type TipoAlta = 'pof' | 'pou' | 'estructura'
 
@@ -10,12 +10,6 @@ const TIPO_LABEL: Record<TipoAlta, string> = {
   pof:        'Ejecución POF',
   pou:        'Ejecución POU',
   estructura: 'Estructura',
-}
-
-const TIPO_BADGE: Record<TipoAlta, string> = {
-  pof:        'badge-info',
-  pou:        'badge-default',
-  estructura: 'badge-warning',
 }
 
 interface OpcionModalidad {
@@ -72,19 +66,6 @@ interface ItemPendiente {
   expediente: string
   desde: string
   cantidad: number
-}
-
-interface AltaRegistrada {
-  id: string
-  fecha: string
-  tipo: TipoAlta
-  hospitalSigla: string
-  escalafon: string
-  puesto: string
-  especialidad: string
-  expediente: string
-  cantidad: number
-  codigos: string[]
 }
 
 // ── Combobox con búsqueda ─────────────────────────────────────────────────────
@@ -308,10 +289,21 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
 export function AltaCargosPage() {
   const [tipoActivo, setTipoActivo] = useState<TipoAlta | null>(null)
   const [pendientes, setPendientes] = useState<ItemPendiente[]>([])
-  const [historial,  setHistorial]  = useState<AltaRegistrada[]>([])
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
+
+  // S7-6: estado del modal de duplicado
+  const [duplicado, setDuplicado] = useState<{
+    item: ItemPendiente
+    cargo: { id: string; codigo: string | null; literalPuesto: string | null; hospital: string; escalafon: string }
+  } | null>(null)
+
+  // S7-7: historial persistente
+  const { data: altasData, refetch: refetchAltas } = useAltasCargos(
+    search ? { expediente: search } : undefined
+  )
+  const altas = altasData?.data ?? []
 
   const queryClient = useQueryClient()
 
@@ -320,45 +312,73 @@ export function AltaCargosPage() {
       const res = await apiClient.post<{ data: Cargo[] }>('/api/v1/cargos', body)
       return res.data.data
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cargos'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cargos'] })
+      refetchAltas()
+    },
   })
 
   function handleAgregar(item: ItemPendiente) {
     setPendientes((prev) => [...prev, item])
   }
 
+  async function registrarItem(item: ItemPendiente, forzar = false) {
+    return mutation.mutateAsync({
+      hospitalId:       item.hospitalId,
+      escalafonId:      item.escalafonId,
+      literalPuesto:    item.puesto,
+      especialidad:     item.especialidad || undefined,
+      unificadorPuesto: item.unificadorPuesto,
+      agrupador:        item.agrupador,
+      expediente:       item.expediente || undefined,
+      desde:            item.desde,
+      cantidad:         item.cantidad,
+      forzar,
+    })
+  }
+
   async function handleRegistrarTodos() {
     if (pendientes.length === 0) return
     setGuardando(true); setError(null)
-    const nuevos: AltaRegistrada[] = []
     try {
       for (const item of pendientes) {
-        const creados = await mutation.mutateAsync({
-          hospitalId:       item.hospitalId,
-          escalafonId:      item.escalafonId,
-          literalPuesto:    item.puesto,
-          especialidad:     item.especialidad || undefined,
-          unificadorPuesto: item.unificadorPuesto,
-          agrupador:        item.agrupador,
-          expediente:       item.expediente || undefined,
-          desde:            item.desde,
-          cantidad:         item.cantidad,
-        })
-        nuevos.push({
-          id:            item.id,
-          fecha:         new Date().toISOString().slice(0, 10),
-          tipo:          item.tipo,
-          hospitalSigla: item.hospitalSigla,
-          escalafon:     item.escalafon,
-          puesto:        item.puesto,
-          especialidad:  item.especialidad || '—',
-          expediente:    item.expediente,
-          cantidad:      item.cantidad,
-          codigos:       creados.map((c) => c.codigo ?? '').filter(Boolean),
-        })
+        try {
+          await registrarItem(item)
+        } catch (err: unknown) {
+          // S7-6: detectar 409 y abrir modal
+          const status = (err as { response?: { status?: number; data?: { error?: { details?: unknown } } } })?.response?.status
+          if (status === 409) {
+            const details = (err as { response?: { data?: { error?: { details?: unknown } } } })?.response?.data?.error?.details as {
+              codigo: string | null; literalPuesto: string | null; hospital: string; escalafon: string; id: string
+            } | undefined
+            if (details) {
+              setDuplicado({ item, cargo: details })
+              setGuardando(false)
+              return
+            }
+          }
+          throw err
+        }
       }
-      setHistorial((prev) => [...nuevos, ...prev])
       setPendientes([])
+    } catch {
+      setError('Error al registrar. Verificá los datos e intentá de nuevo.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  async function handleForzar() {
+    if (!duplicado) return
+    setDuplicado(null)
+    setGuardando(true); setError(null)
+    try {
+      await registrarItem(duplicado.item, true)
+      setPendientes((prev) => prev.filter((p) => p.id !== duplicado.item.id))
+      // continuar con el resto si quedaron pendientes
+      if (pendientes.filter((p) => p.id !== duplicado.item.id).length > 0) {
+        await handleRegistrarTodos()
+      }
     } catch {
       setError('Error al registrar. Verificá los datos e intentá de nuevo.')
     } finally {
@@ -368,13 +388,6 @@ export function AltaCargosPage() {
 
   const totalPendientes = pendientes.reduce((acc, p) => acc + p.cantidad, 0)
 
-  const filtrados = historial.filter((a) => {
-    const q = search.toLowerCase()
-    return !q || a.hospitalSigla.toLowerCase().includes(q) || a.escalafon.toLowerCase().includes(q)
-      || a.puesto.toLowerCase().includes(q) || a.expediente.toLowerCase().includes(q)
-      || a.codigos.some((c) => c.toLowerCase().includes(q)) || TIPO_LABEL[a.tipo].toLowerCase().includes(q)
-  })
-
   const BOTONES: { tipo: TipoAlta; label: string; cls: string }[] = [
     { tipo: 'pof',        label: 'Ejecución POF', cls: 'btn-secondary' },
     { tipo: 'pou',        label: 'Ejecución POU', cls: 'btn-outline'   },
@@ -383,6 +396,28 @@ export function AltaCargosPage() {
 
   return (
     <div className="space-y-6">
+
+      {/* S7-6: Modal de duplicado estructural */}
+      {duplicado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="font-bold text-gray-900 text-base mb-1">Cargo duplicado</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Ya existe un cargo vigente con la misma estructura:
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1 mb-5">
+              <p><span className="text-gray-500">Código:</span> <span className="font-mono font-bold text-gray-800">{duplicado.cargo.codigo ?? '—'}</span></p>
+              <p><span className="text-gray-500">Puesto:</span> <span className="font-medium text-gray-800">{duplicado.cargo.literalPuesto}</span></p>
+              <p><span className="text-gray-500">Hospital:</span> {duplicado.cargo.hospital}</p>
+              <p><span className="text-gray-500">Escalafón:</span> {duplicado.cargo.escalafon}</p>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setDuplicado(null)} className="btn-outline flex-1">Cancelar</button>
+              <button type="button" onClick={handleForzar} className="btn-primary flex-1">Crear de todos modos</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-sm p-6">
 
@@ -400,36 +435,23 @@ export function AltaCargosPage() {
           </div>
         </div>
 
-        {/* Sin formulario activo y sin pendientes: mensaje simple */}
         {!tipoActivo && pendientes.length === 0 && (
           <p className="text-sm text-gray-400">Seleccioná un tipo de cargo para agregar.</p>
         )}
 
-        {/* Layout 2 columnas — solo cuando hay formulario activo o pendientes */}
         {(tipoActivo || pendientes.length > 0) && (
         <div className="flex gap-6 items-start">
-
-          {/* Izquierda: formulario */}
           <div className="flex-1 min-w-0">
             {tipoActivo && (
-              <FormAlta
-                key={tipoActivo}
-                tipo={tipoActivo}
-                onAgregar={handleAgregar}
-                onCancelar={() => setTipoActivo(null)}
-              />
+              <FormAlta key={tipoActivo} tipo={tipoActivo} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
             )}
           </div>
-
-          {/* Derecha: panel de pendientes */}
           <div className="w-72 flex-shrink-0">
             <div className="rounded-xl border border-gray-200 bg-white sticky top-4">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Cargos pendientes</span>
                 {totalPendientes > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-secondary text-white text-xs font-bold">
-                    {totalPendientes}
-                  </span>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-secondary text-white text-xs font-bold">{totalPendientes}</span>
                 )}
               </div>
               <div className="p-3 min-h-[100px]">
@@ -473,40 +495,40 @@ export function AltaCargosPage() {
         )}
       </div>
 
-      {/* Historial */}
+      {/* S7-7: Historial persistente */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-        <h2 className="font-primary text-base font-bold text-gray-700">Altas registradas en esta sesión</h2>
-        <input type="text" placeholder="Buscar por hospital, escalafón, puesto, código, expediente..."
+        <h2 className="font-primary text-base font-bold text-gray-700">Historial de altas</h2>
+        <input type="text" placeholder="Buscar por expediente..."
           value={search} onChange={(e) => setSearch(e.target.value)}
           className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
       </div>
 
-      {filtrados.length > 0 && (
+      {altas.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Fecha</th>
-                <th className="px-4 py-3 font-semibold">Tipo</th>
+                <th className="px-4 py-3 font-semibold">Código</th>
                 <th className="px-4 py-3 font-semibold">Hospital</th>
                 <th className="px-4 py-3 font-semibold">Escalafón</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
-                <th className="px-4 py-3 font-semibold">Especialidad</th>
-                <th className="px-4 py-3 font-semibold">Códigos generados</th>
                 <th className="px-4 py-3 font-semibold">Expediente</th>
+                <th className="px-4 py-3 font-semibold">Desde</th>
+                <th className="px-4 py-3 font-semibold">Registrado por</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtrados.map((a) => (
+              {altas.map((a) => (
                 <tr key={a.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{a.fecha}</td>
-                  <td className="px-4 py-3"><span className={TIPO_BADGE[a.tipo]}>{TIPO_LABEL[a.tipo]}</span></td>
-                  <td className="px-4 py-3 text-gray-600">{a.hospitalSigla}</td>
-                  <td className="px-4 py-3 text-gray-600">{a.escalafon}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{a.puesto}</td>
-                  <td className="px-4 py-3 text-gray-600">{a.especialidad}</td>
-                  <td className="px-4 py-3 text-xs font-mono text-gray-700">{a.codigos.join(', ')}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs font-mono">{a.expediente}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{a.createdAt.slice(0, 10)}</td>
+                  <td className="px-4 py-3 font-mono text-xs font-bold text-gray-800">{a.codigo ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.hospital.sigla}</td>
+                  <td className="px-4 py-3 text-gray-600">{a.escalafon.nombre === 'Médicos' ? 'CPH' : a.escalafon.nombre}</td>
+                  <td className="px-4 py-3 font-medium text-gray-800">{a.literalPuesto ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs font-mono text-gray-500">{a.expediente ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{a.fechaDesde ? a.fechaDesde.slice(0, 10) : '—'}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">{a.createdBy?.username ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -514,9 +536,9 @@ export function AltaCargosPage() {
         </div>
       )}
 
-      {historial.length === 0 && (
+      {altas.length === 0 && (
         <div className="bg-white rounded-lg shadow-sm p-8 text-center text-sm text-gray-400">
-          No hay altas registradas en esta sesión. Usá los botones de arriba para agregar cargos.
+          No hay altas registradas{search ? ` para "${search}"` : ''}.
         </div>
       )}
     </div>
