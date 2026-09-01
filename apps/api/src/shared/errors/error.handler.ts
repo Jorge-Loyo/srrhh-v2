@@ -61,7 +61,8 @@ export function errorHandler(
   return reply.status(500).send({
     error: {
       code: 'INTERNAL_ERROR',
-      message: 'Error interno del servidor',
+      message: process.env.NODE_ENV === 'development' ? (error as Error).message : 'Error interno del servidor',
+      ...(process.env.NODE_ENV === 'development' ? { stack: (error as Error).stack?.split('\n').slice(0, 5) } : {}),
     },
   })
 }

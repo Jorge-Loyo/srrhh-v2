@@ -48,8 +48,8 @@ Solo con eso en pie se puede definir el flujo completo de CPH con **autorizacion
 
 Definida como constante exportada (`MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS`). Acciones: `ver`, `crear`, `editar`, `aprobar` (concursos) / `aprobar_padron` (padrón). El código en backend (`requirePermiso`) y frontend (`can(usuario, modulo, accion)`) consulta esa matriz, no listas sueltas.
 
-| Módulo           | Acción               | admin | editor | director | viewer | concursales_cph | concursales_ceetps |
-| ---------------- | -------------------- | ----- | ------ | -------- | ------ | --------------- | ------------------ |
+| Módulo           | Acción               | admin | editor | director | viewer | concursales_cph | concursales_ceetps | Seguimiento |
+| ---------------- | -------------------- | ----- | ------ | -------- | ------ | --------------- | ------------------ | ----------- |
 | padron           | ver                  | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
 |                  | subir                | ✅    | ✅     | —        | —      | —               | —                  |
 |                  | aprobar_padron       | ✅    | ✅     | —        | —      | —               | —                  |
@@ -186,3 +186,47 @@ Cuando las 4 fases cierren, se vuelve a meter este bloque en la sección de "Spr
 
 - `P-16` (alertas como notificaciones persistidas) cerraía `B-7` solo parcialmente (queda email para segunda fase)
 - Con las autorizaciones de director, el `director` deja de ser un rol "pantalla" funcionando al flujo CPH real
+
+---
+
+## FASE 5 — Corrección de lógica de cargo (previo a Fase 1)
+
+> **Prerequisito de todo lo demás.** Antes de construir flujos concursales con autorizaciones, el modelo de datos de cargos debe ser consistente con el contrato definido en `Doc/Contrato_logica-cargo.md`. Las 4 correcciones son independientes entre sí y pueden hacerse en paralelo.
+
+### Contexto
+
+Se verificó el código contra el árbol de estados canónico del contrato (`Doc/Contrato_logica-cargo.md`) y se encontraron los siguientes incumplimientos:
+
+| # | Incumplimiento | Severidad |
+|---|---|---|
+| 1 | Identidad del cargo: al procesar diff `nuevo`, se crea cargo nuevo por `id_sial` en vez de buscar por `(hospital, escalafon, codigo_repa, literal_puesto)` | 🔴 Crítico |
+| 2 | `createBajaService` no cierra la ocupación activa al marcar el cargo `no_vigente` | 🔴 Crítico |
+| 3 | `createBajaService` crea el concurso después de marcar `no_vigente` — queda cargo `no_vigente` con concurso activo | 🔴 Crítico |
+| 4 | No se valida unicidad de ocupación activa antes de insertar nueva ocupación | 🟡 Medio |
+
+---
+
+| #   | Tarea | Archivo | Dev | Est. | Prioridad |
+|-----|---|---|---|---|---|
+| C-1 | **Identidad del cargo en el padrón**: en `aprobarSnapshotService`, al procesar diff `nuevo`, buscar cargo existente por `(hospitalId, escalafonId, codigoRepa, literalPuesto)` antes de crear uno nuevo. Si existe → crear ocupación sobre ese cargo. Si no existe → crear cargo nuevo. Eliminar la búsqueda por `idSial` como criterio de identidad estructural. | `padron.service.ts` | Jorge | 4h | 🔴 Crítico |
+| C-2 | **Cerrar ocupación activa en baja manual**: en `createBajaService`, dentro de la misma transacción, antes de marcar `cargo.estado = no_vigente`, ejecutar `ocupacion.updateMany({ where: { cargoId, hasta: null }, data: { hasta: fechaBaja } })`. | `bajas.service.ts` | Jorge | 2h | 🔴 Crítico |
+| C-3 | **Orden de operaciones en baja**: en `createBajaService`, reordenar la transacción para que la creación del concurso ocurra **antes** de marcar el cargo `no_vigente`. Agregar guard: si `cargo.estado === 'no_vigente'` al momento de crear el concurso, lanzar error 409. | `bajas.service.ts` | Jorge | 2h | 🔴 Crítico |
+| C-4 | **Unicidad de ocupación activa**: en `aprobarSnapshotService` (diff `nuevo`), antes de insertar una nueva ocupación, verificar que no exista ya una con `cargoId = X AND hasta IS NULL`. Si existe, cerrarla primero (`hasta = fechaSnapshot`) antes de crear la nueva. | `padron.service.ts` | Jorge | 3h | 🟡 Medio |
+| C-5 | **Verificación de consistencia en BD**: script SQL de auditoría que detecte: (a) cargos `no_vigente` con ocupación activa (`hasta IS NULL`), (b) cargos con más de una ocupación activa simultánea, (c) concursos activos sobre cargos `no_vigente`. Correr contra datos reales y documentar resultado. | `scripts/auditoria-cargos.sql` | Jorge | 2h | 🔴 Crítico |
+| C-6 | **Actualizar `Contrato_logica-cargo.md`**: una vez implementadas las correcciones, marcar cada regla como ✅ implementada con referencia al archivo y función que la garantiza. | `Doc/Contrato_logica-cargo.md` | Jorge | 1h | 🟡 Medio |
+
+**Criterio de éxito:**
+
+- El caso Cattaneo/Barreiro Machado produce una sola ocupación nueva sobre `RG-CG-000047`, no un cargo nuevo `RG-CG-000194`
+- Al registrar una baja manual, la ocupación activa queda cerrada (`hasta = fechaBaja`) en la misma transacción
+- No existe ningún cargo `no_vigente` con concurso activo en la BD
+- No existe ningún cargo con más de una ocupación activa simultánea
+- `scripts/auditoria-cargos.sql` devuelve 0 filas en los 3 checks
+
+**Dependencias:**
+
+```
+Fase 5 (Corrección lógica cargo) → Fase 1 (Permisos) → Fase 2 → Fase 3 → Fase 4
+```
+
+Fase 5 no depende de ninguna otra fase — puede arrancarse inmediatamente. Es prerequisito de todo lo que sigue porque el flujo concursal (Fase 4) opera sobre cargos y ocupaciones: si esos datos son inconsistentes, las autorizaciones y notificaciones se construyen sobre una base rota.

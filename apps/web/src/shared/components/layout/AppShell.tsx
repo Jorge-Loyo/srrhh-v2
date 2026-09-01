@@ -12,12 +12,14 @@ const CARGOS_SUBITEMS = [
 
 // Ítems del nav con icono (emoji ligero, sin dependencia extra)
 const NAV_ITEMS = [
-  { to: '/padron',           label: 'Padrón Semanal',    icon: '📋' },
-  { to: '/personas',         label: 'Personas',           icon: '👤' },
-  { to: '/concursos/cph',    label: 'Concursos CPH',      icon: '⚖️' },
-  { to: '/concursos/ceetps', label: 'Concursos CEETPS',   icon: '🏥' },
-  { to: '/kpis',             label: 'Tablero KPIs',       icon: '📊' },
-  { to: '/admin/usuarios',   label: 'Administración',     icon: '⚙️', divider: true },
+  { to: '/padron',                label: 'Padrón Semanal',       icon: '📋' },
+  { to: '/bajas-consolidadas',    label: 'Bajas Consolidadas',   icon: '📄' },
+  { to: '/personas',              label: 'Personas',              icon: '👤' },
+  { to: '/bajas',                 label: 'Bajas',                 icon: '🗑️' },
+  { to: '/concursos/cph',         label: 'Concursos CPH',         icon: '⚖️' },
+  { to: '/concursos/ceetps',      label: 'Concursos CEETPS',      icon: '🏥' },
+  { to: '/kpis',                  label: 'Tablero KPIs',          icon: '📊' },
+  { to: '/admin/usuarios',        label: 'Administración',        icon: '⚙️', divider: true },
 ] as const
 
 export function AppShell() {
@@ -76,8 +78,8 @@ export function AppShell() {
         {/* Nav */}
         <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
 
-          {/* Padrón y Personas */}
-          {NAV_ITEMS.slice(0, 2).map((item) => (
+          {/* Padrón, Bajas Consolidadas, Personas, Bajas */}
+          {NAV_ITEMS.slice(0, 4).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -134,7 +136,7 @@ export function AppShell() {
           )}
 
           {/* Resto de ítems */}
-          {NAV_ITEMS.slice(2).map((item) => (
+          {NAV_ITEMS.slice(4).map((item) => (
             <>
               {'divider' in item && item.divider && (
                 <div key={`div-${item.to}`} className="border-t border-gray-200 mt-2 pt-2" />

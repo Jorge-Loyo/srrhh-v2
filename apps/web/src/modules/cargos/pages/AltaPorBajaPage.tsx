@@ -5,9 +5,14 @@ import { apiClient } from '@/shared/lib/api-client'
 import type { Baja, ConcursoCph, PaginatedResponse } from '@srrhh/types'
 
 const ESTADO_CLASSES: Record<string, string> = {
+  resolucion_a_la_firma: 'badge-default',
   pendiente:  'badge-warning',
   confirmada: 'badge-success',
   anulada:    'badge-danger',
+}
+
+function fmtEstado(s: string) {
+  return s.replace(/_/g, ' ')
 }
 
 function fmtFecha(s: string | null | undefined) {
@@ -92,7 +97,7 @@ function ModalDetalleBaja({
             <Row label="Tipo de Baja" value={baja.tipoBaja} />
             <Row label="Tipificador Origen" value={baja.tipificadorOrigen} />
             <Row label="Estado" value={
-              <span className={ESTADO_CLASSES[baja.estado] ?? 'badge-default'}>{baja.estado}</span>
+              <span className={ESTADO_CLASSES[baja.estado] ?? 'badge-default'}>{fmtEstado(baja.estado)}</span>
             } />
             <Row label="Genera Concurso" value={
               baja.generaConcurso
@@ -225,16 +230,25 @@ export function AltaPorBajaPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
-                      {b.estado}
+                      {fmtEstado(b.estado)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      className="btn-outline text-xs"
-                      onClick={() => setBajaSeleccionada(b)}
-                    >
-                      Ver
-                    </button>
+                    {b.estado === 'resolucion_a_la_firma' ? (
+                      <button
+                        className="btn-primary text-xs"
+                        onClick={() => navigate(`/cargos/baja/${b.id}/editar`)}
+                      >
+                        ✏️ Editar
+                      </button>
+                    ) : (
+                      <button
+                        className="btn-outline text-xs"
+                        onClick={() => setBajaSeleccionada(b)}
+                      >
+                        Ver
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

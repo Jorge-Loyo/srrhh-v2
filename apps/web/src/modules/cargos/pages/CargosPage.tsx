@@ -9,6 +9,7 @@ import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useCargos } from '../hooks/useCargos'
+import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
 
 const LIMIT = 50
 
@@ -99,6 +100,7 @@ export function CargosPage() {
 
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState(false)
+  const [showReglas, setShowReglas] = useState(false)
 
   async function handleExport() {
     setExportando(true)
@@ -137,9 +139,14 @@ export function CargosPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Cargos</h1>
-          <button className="btn-outline" onClick={handleExport} disabled={exportando}>
-            {exportando ? 'Exportando...' : 'Exportar a Excel'}
-          </button>
+          <div className="flex gap-2">
+            <button className="btn-outline" onClick={() => setShowReglas(true)}>
+              📋 Reglas de negocio
+            </button>
+            <button className="btn-outline" onClick={handleExport} disabled={exportando}>
+              {exportando ? 'Exportando...' : 'Exportar a Excel'}
+            </button>
+          </div>
         </div>
         {exportError && (
           <p className="text-sm text-danger">No se pudo generar el archivo. Volvé a intentar en unos segundos.</p>
@@ -323,6 +330,7 @@ export function CargosPage() {
           </>
         )}
       </div>
+      {showReglas && <ReglasNegocioModal onClose={() => setShowReglas(false)} />}
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requireRole } from '../../shared/middleware/roles.middleware.js'
 import { RolUsuario } from '@srrhh/types'
 import { bajasQuerySchema, createBajaSchema } from './bajas.schema.js'
-import { listBajasService, createBajaService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService } from './bajas.service.js'
 
 const WRITE_ROLES = [
   RolUsuario.ADMIN,
@@ -22,6 +22,13 @@ export async function bajasRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
+  // GET /:id — detalle de una baja
+  app.get('/:id', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const data = await getBajaService(id)
+    return reply.send({ data })
+  })
+
   // POST / — S5-4 + S5-7: crear baja + marcar cargo no_vigente
   app.post(
     '/',
@@ -31,6 +38,18 @@ export async function bajasRoutes(app: FastifyInstance) {
       const user = request.user as { id: string }
       const data = await createBajaService(body, user.id)
       return reply.status(201).send({ data })
+    }
+  )
+
+  // PATCH /:id — actualizar borrador (resolucion_a_la_firma → pendiente/confirmada)
+  app.patch(
+    '/:id',
+    { preHandler: requireRole(WRITE_ROLES) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const body = createBajaSchema.parse(request.body)
+      const data = await updateBajaService(id, body)
+      return reply.send({ data })
     }
   )
 }

@@ -1,13 +1,7 @@
 import { Link, useParams, useLocation } from 'react-router-dom'
 import type { OcupacionConCargo } from '@srrhh/types'
-import { usePersona } from '../hooks/usePersonas'
+import { usePersona, usePersonaBajasSial } from '../hooks/usePersonas'
 
-// Hallazgo de Agustin en su propia implementación de este panel (descartada
-// en el merge de S3-6/S3-10, ver PLAN_SCRUM_2026.md): formatear con
-// `new Date(iso)` + `toLocaleDateString()` corre la fecha un día para atrás
-// en Argentina (UTC-3) — `new Date("2020-01-01")` es medianoche UTC, que en
-// local es el 31/12/2019 a las 21hs. Se arma la fecha a mano desde los
-// componentes del string ISO, sin pasar por el constructor de Date.
 function formatFecha(iso: string | null | undefined): string | null {
   if (!iso) return null
   const [y, m, d] = iso.slice(0, 10).split('-')
@@ -25,15 +19,8 @@ function calcEdad(iso: string | null | undefined): number | null {
   return edad
 }
 
-// Regla de duplicados del sistema SIAL: cuando una persona tiene dos ocupaciones
-// vigentes con el mismo codigo_repa + literal_puesto, y una tiene codigo_jefaturas
-// con valor y la otra no, la que no tiene codigo_jefaturas es un fantasma del
-// sistema — se oculta. Aplica a ~10 casos en la DB (ej: Directores con P60).
 function filtrarDuplicados(ocupaciones: OcupacionConCargo[]): OcupacionConCargo[] {
-  // Solo considerar vigentes (hasta == null) para la detección
   const vigentes = ocupaciones.filter((o) => !o.hasta)
-
-  // Agrupar vigentes por (codigo_repa, literal_puesto)
   const grupos = new Map<string, OcupacionConCargo[]>()
   for (const o of vigentes) {
     const key = `${o.cargo.codigoRepa ?? ''}|${o.cargo.literalPuesto ?? ''}`
@@ -41,9 +28,6 @@ function filtrarDuplicados(ocupaciones: OcupacionConCargo[]): OcupacionConCargo[
     arr.push(o)
     grupos.set(key, arr)
   }
-
-  // IDs a ocultar: en grupos de 2+ donde hay al menos uno con jefatura y al
-  // menos uno sin, ocultar los que no tienen jefatura
   const ocultar = new Set<string>()
   for (const grupo of grupos.values()) {
     if (grupo.length < 2) continue
@@ -53,7 +37,6 @@ function filtrarDuplicados(ocupaciones: OcupacionConCargo[]): OcupacionConCargo[
       for (const o of sinJefatura) ocultar.add(o.id)
     }
   }
-
   if (ocultar.size === 0) return ocupaciones
   return ocupaciones.filter((o) => !ocultar.has(o.id))
 }
@@ -64,6 +47,7 @@ export function PersonaDetailPanel() {
   const fromParams = (location.state as { from?: string } | null)?.from
   const volverHref = fromParams ? `/personas?${fromParams}` : '/personas'
   const { data: persona, isLoading, isError } = usePersona(id)
+  const { data: bajasSial = [] } = usePersonaBajasSial(id)
 
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando persona...</p>
   if (isError || !persona) return <p className="text-sm text-danger p-6">No se pudo cargar la persona.</p>
@@ -79,13 +63,20 @@ export function PersonaDetailPanel() {
     return orden(a) - orden(b)
   })
 
-  // ID SIAL de la persona: primeros dos segmentos del idSialRol (ej. "001608093" de "001608093-2-27204383680")
   const idSialPersona = persona.ocupaciones[0]?.idSialRol?.split('-')[0] ?? null
+
+  // IDs SIAL de ocupaciones ya en el sistema para no duplicar en la tabla de bajas
+  const idSialesEnSistema = new Set(persona.ocupaciones.map((o) => o.idSialRol?.split('-').slice(0, 2).join('-')))
+  const bajasNoEnSistema = bajasSial.filter((b) => !idSialesEnSistema.has(b.cargo))
+
+  const totalSinCodigo =
+    persona.ocupaciones.filter((o) => !o.cargo.codigo).length +
+    bajasNoEnSistema.filter((b) => !b.codigo_cargo).length
 
   return (
     <div className="space-y-4">
       <Link to={volverHref} className="inline-flex items-center gap-1 text-sm text-secondary hover:underline">
-        ← Volver a Personas
+        &larr; Volver a Personas
       </Link>
 
       {/* Datos personales */}
@@ -123,21 +114,21 @@ export function PersonaDetailPanel() {
         </div>
 
         <div className="divide-y divide-gray-100">
-          <Section title="Identificación">
+          <Section title="Identificacion">
             <Dato label="Documento" value={persona.numeroDoc ? `${persona.tipoDoc ?? ''} ${persona.numeroDoc}`.trim() : null} />
             <Dato label="Fecha de nacimiento" value={fechaNac} />
-            {edad !== null && <Dato label="Edad" value={`${edad} años`} />}
+            {edad !== null && <Dato label="Edad" value={`${edad} anos`} />}
             <Dato label="ID SIAL" value={idSialPersona} />
             <Dato label="Primer cargo en Salud" value={formatFecha(persona.antiguedadDesde)} />
             {persona.antiguedadDesde && calcEdad(persona.antiguedadDesde) !== null && (
-              <Dato label="Años de antigüedad" value={`${calcEdad(persona.antiguedadDesde)} años`} />
+              <Dato label="Anos de antiguedad" value={`${calcEdad(persona.antiguedadDesde)} anos`} />
             )}
             <Dato label="Sexo" value={persona.sexo} />
             <Dato label="Especialidad principal" value={persona.especialidadPrincipal} />
           </Section>
 
           <Section title="Contacto">
-            <Dato label="Teléfono" value={persona.telefono} />
+            <Dato label="Telefono" value={persona.telefono} />
             <Dato label="Mail personal" value={persona.mailPersonal} />
             <Dato label="Mail laboral" value={persona.mailLaboral} />
           </Section>
@@ -166,7 +157,7 @@ export function PersonaDetailPanel() {
         ) : (
           <div className="divide-y divide-gray-100">
             {ocupacionesVisibles.map((o) => {
-              const esRetencion = o.situacionRevista?.toLowerCase().includes('retencion') || o.situacionRevista?.toLowerCase().includes('retención')
+              const esRetencion = o.situacionRevista?.toLowerCase().includes('retencion') || o.situacionRevista?.toLowerCase().includes('retencion')
               const esHistorico = !!o.hasta
               const borderColor = esHistorico ? 'cargo-historico' : esRetencion ? 'cargo-retenido' : 'cargo-activo'
               return (
@@ -175,7 +166,7 @@ export function PersonaDetailPanel() {
                     <div />
                     <div className="flex items-center gap-2">
                       <span className={o.hasta ? 'badge-default' : esRetencion ? 'badge-amber' : 'badge-success'}>
-                        {o.hasta ? 'Histórica' : esRetencion ? 'Retención' : 'Vigente'}
+                        {o.hasta ? 'Historica' : esRetencion ? 'Retencion' : 'Vigente'}
                       </span>
                       <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
                         Ver cargo
@@ -183,23 +174,20 @@ export function PersonaDetailPanel() {
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
-                    {/* Columna 1 */}
                     <dl className="space-y-3">
-                      <Dato label="Cód. Cargo" value={o.cargo.codigo} />
+                      <Dato label="Cod. Cargo" value={o.cargo.codigo} />
                       <Dato label="ID SIAL" value={o.idSialRol?.split('-').slice(0, 2).join('-')} />
-                      <Dato label="Escalafón" value={o.cargo.escalafon?.nombre} />
-                      <Dato label="Cód. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} — ${o.cargo.codigoRegistro.literal}` : null} />
+                      <Dato label="Escalafon" value={o.cargo.escalafon?.nombre} />
+                      <Dato label="Cod. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} - ${o.cargo.codigoRegistro.literal}` : null} />
                     </dl>
-                    {/* Columna 2 */}
                     <dl className="space-y-3">
-                      <Dato label="Sigla" value={o.cargo.hospital ? `${o.cargo.hospital.sigla} — ${o.cargo.hospital.nombre}` : null} />
+                      <Dato label="Sigla" value={o.cargo.hospital ? `${o.cargo.hospital.sigla} - ${o.cargo.hospital.nombre}` : null} />
                       <Dato label="Puesto" value={o.cargo.literalPuesto} />
-                      <Dato label="Situación de revista" value={o.situacionRevista} />
-                      <Dato label="Documentación del rol" value={o.documentacionDelRol} />
+                      <Dato label="Situacion de revista" value={o.situacionRevista} />
+                      <Dato label="Documentacion del rol" value={o.documentacionDelRol} />
                     </dl>
-                    {/* Columna 3 */}
                     <dl className="space-y-3">
-                      <Dato label="Repartición" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} — ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
+                      <Dato label="Reparticion" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} - ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
                       <Dato label="Especialidad" value={o.cargo.especialidad} />
                       <Dato label="Desde" value={formatFecha(o.cargoDesdeFecha)} />
                       <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />
@@ -210,6 +198,99 @@ export function PersonaDetailPanel() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Historial de roles SIAL */}
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-secondary/10 px-6 py-2">
+          <p className="text-xs font-semibold text-secondary uppercase tracking-widest">Historial de roles SIAL</p>
+        </div>
+        <div className="bg-navy px-6 py-3 flex items-center justify-between">
+          <h2 className="text-white font-semibold text-sm uppercase tracking-wide">
+            Id SIAL Rol ({persona.ocupaciones.length + bajasNoEnSistema.length})
+          </h2>
+          {totalSinCodigo > 0 && (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+              &#9888; {totalSinCodigo} sin codigo de cargo asignado
+            </span>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-left text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Id SIAL Rol</th>
+                <th className="px-4 py-3 font-semibold">Cod. Cargo</th>
+                <th className="px-4 py-3 font-semibold">Puesto</th>
+                <th className="px-4 py-3 font-semibold">Escalafon</th>
+                <th className="px-4 py-3 font-semibold">Hospital</th>
+                <th className="px-4 py-3 font-semibold">Especialidad</th>
+                <th className="px-4 py-3 font-semibold">Desde</th>
+                <th className="px-4 py-3 font-semibold">Hasta</th>
+                <th className="px-4 py-3 font-semibold">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {/* Ocupaciones del sistema */}
+              {persona.ocupaciones
+                .sort((a, b) => (!a.hasta && b.hasta ? -1 : a.hasta && !b.hasta ? 1 : 0))
+                .map((o) => {
+                  const sinCodigo = !o.cargo.codigo
+                  return (
+                    <tr key={o.id} className={sinCodigo ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'}>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600">{o.idSialRol ?? '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        {sinCodigo
+                          ? <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">&#9888; Sin asignar</span>
+                          : <Link to={`/cargos/${o.cargo.id}`} className="text-secondary hover:underline font-semibold">{o.cargo.codigo}</Link>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.literalPuesto ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.escalafon?.nombre ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.hospital?.sigla ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidad ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoDesdeFecha) ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoHastaFecha) ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        {o.hasta
+                          ? <span className="badge-default text-xs">Historica</span>
+                          : <span className="badge-success text-xs">Vigente</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              {/* Roles en archivo de bajas SIAL que no estan en el sistema */}
+              {bajasNoEnSistema.map((b) => {
+                const sinCodigo = !b.codigo_cargo
+                return (
+                  <tr key={b.cargo} className={sinCodigo ? 'bg-amber-50 hover:bg-amber-100' : 'bg-red-50 hover:bg-red-100'}>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{b.cargo}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {sinCodigo
+                        ? <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">&#9888; Sin asignar</span>
+                        : <span className="text-gray-700 font-semibold">{b.codigo_cargo}</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{b.lit_puesto ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{b.escalafon ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-400">—</td>
+                    <td className="px-4 py-3 text-xs text-gray-400">—</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(b.cargo_desde) ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(b.cargo_hasta) ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                        Baja — {b.mot_baja ?? 'sin motivo'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+              {persona.ocupaciones.length === 0 && bajasNoEnSistema.length === 0 && (
+                <tr><td colSpan={9} className="px-4 py-6 text-center text-sm text-gray-400">Sin roles registrados.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )

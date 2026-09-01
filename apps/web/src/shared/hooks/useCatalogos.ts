@@ -46,3 +46,29 @@ export function usePuestosCargos(escalafonId?: string, hospitalId?: string) {
     },
   })
 }
+
+export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos') {
+  return useQuery({
+    queryKey: ['puestos-cargo', escalafonId, modalidad],
+    enabled: !!escalafonId,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo', {
+        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }) },
+      })
+      return res.data.data
+    },
+  })
+}
+
+export function useEspecialidadesPuesto(escalafonId?: string, nombrePuesto?: string) {
+  return useQuery({
+    queryKey: ['especialidades-puesto', escalafonId, nombrePuesto],
+    enabled: !!escalafonId && !!nombrePuesto,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo/especialidades', {
+        params: { escalafonId, nombre: nombrePuesto },
+      })
+      return res.data.data
+    },
+  })
+}
