@@ -22,6 +22,16 @@ interface OpcionModalidad {
 
 function opcionesModalidad(escNombre: string, tipo: TipoAlta): OpcionModalidad[] {
   const esc = escNombre.toUpperCase()
+  if (esc.includes('GENERAL') || esc === 'EG') {
+    if (tipo === 'estructura') return [
+      { label: 'General',   unificadorPuesto: 'EG' },
+      { label: 'Jefe',      unificadorPuesto: 'EG', agrupador: 'Jefe' },
+      { label: 'Director',  unificadorPuesto: 'EG', agrupador: 'Director' },
+      { label: 'Gerencial', unificadorPuesto: 'Gerencial' },
+    ]
+    // POF / POU: solo puestos Anexo 2
+    return [{ label: 'Anexo 2', unificadorPuesto: 'ambos' }]
+  }
   if (tipo === 'estructura') return [{ label: 'Estructura', unificadorPuesto: 'Estructura' }]
   if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc.includes('PROFESIONAL HOSPITALARIA')) {
     if (tipo === 'pof') return [{ label: 'Planta (POF)',  unificadorPuesto: 'POF' }]
@@ -34,12 +44,6 @@ function opcionesModalidad(escNombre: string, tipo: TipoAlta): OpcionModalidad[]
     if (tipo === 'pou') return [{ label: 'Técnico Guardia (POU)', unificadorPuesto: 'POU Guardia' }]
   }
   if (esc.includes('GENERAL') || esc === 'EG') {
-    if (tipo === 'estructura') return [
-      { label: 'General',   unificadorPuesto: 'EG' },
-      { label: 'Jefe',      unificadorPuesto: 'EG', agrupador: 'Jefe' },
-      { label: 'Director',  unificadorPuesto: 'EG', agrupador: 'Director' },
-      { label: 'Gerencial', unificadorPuesto: 'Gerencial' },
-    ]
     // POF / POU: solo puestos Anexo 2
     return [{ label: 'Anexo 2', unificadorPuesto: 'ambos' }]
   }

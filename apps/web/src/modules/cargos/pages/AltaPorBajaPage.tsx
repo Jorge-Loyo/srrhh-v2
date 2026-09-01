@@ -234,7 +234,7 @@ export function AltaPorBajaPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {b.estado === 'resolucion_a_la_firma' ? (
+                    {(b.estado as string) === 'resolucion_a_la_firma' ? (
                       <button
                         className="btn-primary text-xs"
                         onClick={() => navigate(`/cargos/baja/${b.id}/editar`)}

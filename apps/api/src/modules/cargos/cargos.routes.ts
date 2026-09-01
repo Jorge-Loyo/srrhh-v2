@@ -34,7 +34,7 @@ export async function cargosRoutes(app: FastifyInstance) {
   // POST / — S5-10 + S7-2: Alta de Cargo manual
   app.post('/', { preHandler: requireRole(WRITE_ROLES) }, async (request, reply) => {
     const body = createCargoSchema.parse(request.body)
-    const data = await createCargoService(body, request.user?.id)
+    const data = await createCargoService(body, (request.user as { id?: string })?.id)
     return reply.status(201).send({ data })
   })
 

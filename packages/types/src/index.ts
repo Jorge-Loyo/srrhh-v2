@@ -12,6 +12,7 @@
 export enum EstadoCargo {
   VIGENTE = 'vigente',
   NO_VIGENTE = 'no_vigente',
+  VALIDACION_VACANTE = 'validacion_vacante',
 }
 
 export enum EstadoSnapshot {
@@ -138,6 +139,8 @@ export interface Cargo {
   litFamilia: string | null
   puestoCodigoSial: string | null
   estado: EstadoCargo
+  // S8A-1: días en estado actual (calculado por el backend)
+  estadoDesde: string | null
   ocupado: boolean
   // S7-1/S7-2: campos de trazabilidad de alta manual
   expediente: string | null
