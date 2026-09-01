@@ -119,6 +119,14 @@ export function AppShell() {
             {!collapsed && <span className="truncate">Bajas</span>}
           </NavLink>
 
+          {/* Validación de Bajas */}
+          <NavLink to="/bajas/validacion"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Validación de Bajas' : undefined}>
+            <span className="text-base shrink-0">⚠️</span>
+            {!collapsed && <span className="truncate">Validación de Bajas</span>}
+          </NavLink>
+
           {/* Divisor — Concursos */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
 
