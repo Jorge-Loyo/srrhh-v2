@@ -101,17 +101,17 @@ export function BajasPage() {
                     <tr key={i} className="hover:bg-gray-50">
                       {/* Columna fija */}
                       <td className="px-4 py-3 font-mono text-xs sticky left-0 z-10 bg-white hover:bg-gray-50 whitespace-nowrap border-r border-gray-100">
-                        {r.codigo_cargo
-                          ? <span className="text-gray-700 font-semibold">{r.codigo_cargo}</span>
+                        {(r as unknown as Record<string, unknown>)['codigo_cargo']
+                          ? <span className="text-gray-700 font-semibold">{String((r as unknown as Record<string, unknown>)['codigo_cargo'])}</span>
                           : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-400 whitespace-nowrap">{r.cargo}</td>
                       <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{r.ayn}</td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">{r.cuil}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{r.lit_cod_reg ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{(r as unknown as Record<string, unknown>)['lit_cod_reg'] as string ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{r.lit_puesto ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{r.especialidad ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{r.sigla ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{(r as unknown as Record<string, unknown>)['especialidad'] as string ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{(r as unknown as Record<string, unknown>)['sigla'] as string ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{r.desc_rep ?? '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap"><MotivoBadge mot={r.mot_baja} /></td>
                       <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">

@@ -938,10 +938,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
 
-    // ── 4. Eliminados: cerrar ocupaciones, marcar persona inactiva y cargo no_vigente
+    // ── 4. Eliminados: cerrar ocupaciones, marcar persona inactiva y cargo validacion_vacante
+    // S8A-2: el padrón NUNCA marca no_vigente directamente — pasa a
+    // validacion_vacante para que el operador confirme o rechace la baja.
+    const fechaPadron = snapshot.fechaAsignada
     for (const lote of chunk(eliminados, 2000)) {
       if (!lote.length) continue
-      await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: new Date() } })
+      await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: fechaPadron } })
     }
     if (eliminados.length > 0) {
       const ocupsEliminadas = await tx.ocupacion.findMany({
@@ -961,16 +964,19 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         await tx.persona.updateMany({ where: { id: { in: lote } }, data: { activo: false } })
       }
 
-      // Cargos sin ocupación vigente restante → no_vigente
+      // Cargos sin ocupación vigente restante → validacion_vacante + estadoDesde
       const cargoIdsEliminados = [...new Set(ocupsEliminadas.map((o) => o.cargoId))]
       const cargosConVigente = await tx.ocupacion.findMany({
         where: { cargoId: { in: cargoIdsEliminados }, hasta: null },
         select: { cargoId: true },
       }) as { cargoId: string }[]
       const cargosConVigenteSet = new Set(cargosConVigente.map((o) => o.cargoId))
-      const cargosANoVigente = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
-      for (const lote of chunk(cargosANoVigente, 2000)) {
-        await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'no_vigente' } })
+      const cargosAValidacion = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
+      for (const lote of chunk(cargosAValidacion, 2000)) {
+        await tx.cargo.updateMany({
+          where: { id: { in: lote } },
+          data: { estado: 'validacion_vacante', estadoDesde: fechaPadron },
+        })
       }
     }
 

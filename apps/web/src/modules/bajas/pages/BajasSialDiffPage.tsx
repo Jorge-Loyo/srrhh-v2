@@ -158,16 +158,16 @@ export function BajasSialDiffPage() {
                       : <span className="text-xs text-gray-400">—</span>}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                    {d.cod_registro ?? <span className="text-gray-300">—</span>}
+                    {(d as unknown as Record<string, unknown>)['cod_registro'] as string ?? <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                    {d.cod_reg ?? <span className="text-gray-300">—</span>}
+                    {(d as unknown as Record<string, unknown>)['cod_reg'] as string ?? <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600">
-                    {d.hospital ?? <span className="text-gray-300">—</span>}
+                    {(d as unknown as Record<string, unknown>)['hospital'] as string ?? <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600">
-                    {d.especialidad ?? <span className="text-gray-300">—</span>}
+                    {(d as unknown as Record<string, unknown>)['especialidad'] as string ?? <span className="text-gray-300">—</span>}
                   </td>
                 </tr>
               ))}
