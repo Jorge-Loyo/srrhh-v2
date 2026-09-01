@@ -111,6 +111,72 @@ export async function updateBajaService(id: string, body: CreateBajaBody) {
   })
 }
 
+// ─── S8B: Validación de Bajas ───────────────────────────────────────────────
+
+export async function listValidacionService() {
+  const cargos = await prisma.cargo.findMany({
+    where: { estado: 'validacion_vacante' },
+    include: {
+      hospital: { select: { sigla: true, nombre: true } },
+      escalafon: { select: { nombre: true } },
+      ocupaciones: {
+        where: { hasta: { not: null } },
+        include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+        orderBy: { hasta: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: { estadoDesde: 'asc' },
+  })
+
+  const hoy = new Date()
+  return cargos.map(({ ocupaciones, estadoDesde, ...c }) => ({
+    ...c,
+    estadoDesde: estadoDesde?.toISOString().slice(0, 10) ?? null,
+    diasEnValidacion: estadoDesde
+      ? Math.floor((hoy.getTime() - estadoDesde.getTime()) / 86_400_000)
+      : null,
+    ultimaOcupacion: ocupaciones[0] ?? null,
+  }))
+}
+
+export async function confirmarValidacionService(cargoId: string, actaAdministrativa?: string) {
+  const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
+  if (!cargo) throw AppError.notFound('Cargo no encontrado')
+  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no está en validacion_vacante (estado actual: ${cargo.estado})`)
+
+  return prisma.cargo.update({
+    where: { id: cargoId },
+    data: {
+      estado: 'no_vigente',
+      estadoDesde: new Date(),
+      ...(actaAdministrativa && { expediente: actaAdministrativa }),
+    },
+  })
+}
+
+export async function rechazarValidacionService(cargoId: string) {
+  const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
+  if (!cargo) throw AppError.notFound('Cargo no encontrado')
+  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no está en validacion_vacante (estado actual: ${cargo.estado})`)
+
+  return prisma.$transaction(async (tx) => {
+    // Reabrir la última ocupación cerrada
+    const ultimaOcup = await tx.ocupacion.findFirst({
+      where: { cargoId, hasta: { not: null } },
+      orderBy: { hasta: 'desc' },
+    })
+    if (ultimaOcup) {
+      await tx.ocupacion.update({ where: { id: ultimaOcup.id }, data: { hasta: null } })
+      await tx.persona.update({ where: { id: ultimaOcup.personaId }, data: { activo: true } })
+    }
+    return tx.cargo.update({
+      where: { id: cargoId },
+      data: { estado: 'vigente', estadoDesde: null },
+    })
+  })
+}
+
 // S5-5 (lógica genera_concurso → crear seguimiento automático) se agrega
 // en la siguiente tarea, una vez que el módulo de bajas esté integrado.
 export async function createBajaService(body: CreateBajaBody, usuarioId: string) {
