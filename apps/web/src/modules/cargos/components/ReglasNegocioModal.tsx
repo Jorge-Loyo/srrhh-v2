@@ -344,6 +344,14 @@ export function ReglasNegocioModal({ onClose }: Props) {
         {/* Body scrollable */}
         <div className="flex-1 overflow-y-auto">
 
+          {/* ── SECCIÓN 0: Cómo crear cargos ── */}
+          <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">
+              Cómo se crean cargos en el sistema
+            </h3>
+            <ComoCrearCargos />
+          </div>
+
           {/* ── SECCIÓN 1: Árbol universal ── */}
           <div className="px-6 pt-5 pb-4 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">
@@ -437,6 +445,176 @@ export function ReglasNegocioModal({ onClose }: Props) {
 }
 
 // ── Ciclo de vida ────────────────────────────────────────────────────────────
+
+function ComoCrearCargos() {
+  const [activo, setActivo] = useState(0)
+
+  const OPCIONES = [
+    {
+      id: 'pof', titulo: 'Ejecución POF', subtitulo: 'Planta Orgánica Funcional', color: 'blue' as Color,
+      ruta: '/cargos/alta', boton: '+ Ejecución POF',
+      escalafones: ['CPH (Médicos)', 'Carrera de Enfermería', 'CEETPS (Técnicos)', 'Escalafón General'],
+      codigos: ['CPH-POF-XXXXXX', 'ENF-XXXXXX', 'TEC-POF-XXXXXX', 'EG-XXXXXX'],
+      flujo: [
+        'Ir a /cargos/alta y clickear “+ Ejecución POF”',
+        'Ingresar el número de expediente y confirmar',
+        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Puesto (combobox con búsqueda en tiempo real)',
+        'Seleccionar Especialidad si el puesto la requiere',
+        'Ingresar fecha Desde y cantidad (máx. 50)',
+        'Clickear “+ Agregar” → se acumula en el panel derecho',
+        'Repetir para más cargos del mismo expediente',
+        'Clickear “Registrar (N)” para enviar todos a la API',
+      ],
+      nota: 'El formulario permanece abierto tras agregar. Hospital, escalafón y fecha se mantienen para agilizar la carga múltiple.',
+    },
+    {
+      id: 'pou', titulo: 'Ejecución POU', subtitulo: 'Planta Orgánica de Urgencia', color: 'orange' as Color,
+      ruta: '/cargos/alta', boton: '+ Ejecución POU',
+      escalafones: ['CPH (Médicos)', 'CEETPS — solo Radiología, Hemoterapia, Anat. Patol., Instrumentación'],
+      codigos: ['CPH-POU-XXXXXX', 'TEC-POU-XXXXXX'],
+      flujo: [
+        'Ir a /cargos/alta y clickear “+ Ejecución POU”',
+        'Ingresar expediente y confirmar',
+        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Puesto de guardia',
+        'Seleccionar Especialidad si aplica',
+        'Ingresar fecha Desde y cantidad',
+        'Agregar al panel y registrar',
+      ],
+      nota: 'Para CPH POU los puestos son: Especialista en la Guardia Médico, Profesional Guardia Médico, Biquímico de Guardia, etc.',
+    },
+    {
+      id: 'estructura', titulo: 'Estructura', subtitulo: 'Cargos de conducción y autoridades', color: 'purple' as Color,
+      ruta: '/cargos/alta', boton: '+ Estructura',
+      escalafones: ['CPH (Jefe de Sección/Unidad/División/Departamento, Director)', 'Escalafón General (Jefe, Director, Gerencial)', 'Régimen Gerencial', 'Autoridades Superiores'],
+      codigos: ['CPH-J-POF-XXXXXX', 'CPH-D-XXXXXX', 'EG-J-XXXXXX', 'RG-CG-XXXXXX', 'AS-DG-XXXXXX'],
+      flujo: [
+        'Ir a /cargos/alta y clickear “+ Estructura”',
+        'Ingresar número de decreto y confirmar (campo dice “Decreto”)',
+        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Puesto de conducción (solo muestra modalidad=ambos)',
+        'Ingresar fecha Desde y cantidad',
+        'Agregar al panel y registrar',
+      ],
+      nota: 'Solo muestra puestos con modalidad=“ambos” (cargos de conducción). POF y POU nunca muestran estos puestos.',
+    },
+    {
+      id: 'padron', titulo: 'Padrón SIAL', subtitulo: 'Importación automática semanal', color: 'green' as Color,
+      ruta: null, boton: null,
+      escalafones: ['Todos los escalafones (automático)'],
+      codigos: ['Código generado por prefijoDeCargo()'],
+      flujo: [
+        'El sistema procesa el Excel semanal del SIAL (Dotaneitor)',
+        'Detecta id_sial_rol nuevos que no existen en la BD',
+        'Busca cargo por (hospital, escalafón, codigo_repa, literal_puesto)',
+        'Si no existe el cargo: lo crea con estado=vigente y crea la ocupación',
+        'Si existe el cargo sin ocupación activa: crea la ocupación',
+        'Si existe con ocupación activa: actualiza datos de la persona',
+      ],
+      nota: 'Flujo automático, sin intervención manual. Los cargos creados por el padrón pueden diferir de los manuales si el literal_puesto no coincide exactamente.',
+    },
+  ]
+
+  const op = OPCIONES[activo]
+
+  return (
+    <div>
+      <div className="flex gap-1 flex-wrap mb-4">
+        {OPCIONES.map((o, i) => (
+          <button key={o.id} onClick={() => setActivo(i)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+              i === activo
+                ? `${NODE_BG[o.color]} ${NODE_BORDER[o.color]} ${TEXT[o.color]}`
+                : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
+            }`}>
+            {o.titulo}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-3">
+          <div className={`rounded-lg border p-3 ${NODE_BG[op.color]} ${NODE_BORDER[op.color]}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className={`text-xs font-bold ${TEXT[op.color]}`}>{op.titulo}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">{op.subtitulo}</p>
+              </div>
+              {op.ruta && (
+                <span className={`text-[10px] font-mono px-2 py-1 rounded border ${NODE_BORDER[op.color]} ${TEXT[op.color]} flex-shrink-0`}>
+                  {op.ruta}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Pasos</p>
+            <ol className="space-y-1.5">
+              {op.flujo.map((paso, i) => (
+                <li key={i} className="flex gap-2 text-xs text-gray-700">
+                  <span className={`flex-shrink-0 w-4 h-4 rounded-full text-[10px] font-bold flex items-center justify-center ${NODE_BG[op.color]} ${TEXT[op.color]}`}>
+                    {i + 1}
+                  </span>
+                  {paso}
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {op.nota && (
+            <div className="rounded border border-yellow-200 bg-yellow-50 px-3 py-2">
+              <p className="text-[10px] text-yellow-700">⚠️ {op.nota}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Escalafones disponibles</p>
+            <div className="space-y-1">
+              {op.escalafones.map((e, i) => (
+                <div key={i} className="flex gap-1.5 text-xs text-gray-600">
+                  <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${DOT[op.color]}`} />
+                  {e}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Códigos generados</p>
+            <div className="flex flex-wrap gap-1.5">
+              {op.codigos.map((c) => (
+                <span key={c} className={`font-mono text-[10px] px-2 py-0.5 rounded-full border ${BADGE[op.color]}`}>{c}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className={`rounded-lg border p-3 ${NODE_BG[op.color]} ${NODE_BORDER[op.color]}`}>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Reglas del formulario</p>
+            <ul className="space-y-1">
+              {[
+                'El select de Escalafón solo muestra los que tienen puestos en la BD.',
+                'POF y POU no muestran cargos de conducción (modalidad=ambos).',
+                'Estructura solo muestra cargos de conducción.',
+                'La Especialidad es obligatoria cuando el puesto la tiene en BD.',
+                'Se acumulan varios cargos antes de registrar (panel derecho).',
+                'Máximo 50 por grupo. El sistema genera N códigos correlativos.',
+              ].map((r, i) => (
+                <li key={i} className="flex gap-1.5 text-[10px] text-gray-600">
+                  <span className={`mt-1 w-1 h-1 rounded-full flex-shrink-0 ${DOT[op.color]}`} />
+                  {r}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function CicloVida({ activeIdx, onSelect }: { activeIdx: number; onSelect: (i: number) => void }) {
   const tab = CICLO_TABS[activeIdx]

@@ -7,17 +7,19 @@ import { prisma } from '../../shared/prisma.js'
 export async function escalafonesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
-  app.get('/', async (_request, reply) => {
-    // Reportado (2026-08-25): el dropdown de filtro traía catálogo entero,
-    // incluidos los 3 escalafones "genéricos" del seed (CPH/ENF/TEC — pensados
-    // como categorías de concursos, no como valores reales de la columna
-    // ESCALAFON del padrón) que nunca matchean ningún cargo real: el texto
-    // exacto de esos 3 nunca aparece tal cual en los datos del Dotaneitor
-    // (que usa "Médicos", "Escalafón General", "CEETPS", etc., creados on-the-fly
-    // por aprobarSnapshotService). Filtrar a "al menos un cargo real" deja
-    // solo lo que la columna ESCALAFON del padrón efectivamente produce.
+  app.get('/', async (request, reply) => {
+    const { paraNuevaAlta } = request.query as { paraNuevaAlta?: string }
+
+    // paraNuevaAlta=true: escalafones con puestos_cargo (para el formulario de alta)
+    // default: escalafones con cargos reales (para filtros de búsqueda)
     const escalafones = await prisma.escalafon.findMany({
-      where: { activo: true, cargos: { some: {} } },
+      where: {
+        activo: true,
+        ...(paraNuevaAlta === 'true'
+          ? { puestosCargo: { some: { activo: true } } }
+          : { cargos: { some: {} } }
+        ),
+      },
       orderBy: { nombre: 'asc' },
     })
     return reply.send({ data: escalafones })

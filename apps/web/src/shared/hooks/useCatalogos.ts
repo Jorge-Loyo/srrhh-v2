@@ -15,11 +15,13 @@ export function useHospitales() {
   })
 }
 
-export function useEscalafones() {
+export function useEscalafones(paraNuevaAlta = false) {
   return useQuery({
-    queryKey: ['escalafones'],
+    queryKey: ['escalafones', paraNuevaAlta],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones')
+      const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones', {
+        params: paraNuevaAlta ? { paraNuevaAlta: 'true' } : {},
+      })
       return res.data.data
     },
   })

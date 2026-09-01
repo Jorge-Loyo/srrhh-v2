@@ -145,7 +145,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [cantidad,      setCantidad]      = useState(1)
 
   const { data: hospitales  = [] } = useHospitales()
-  const { data: escalafones = [] } = useEscalafones()
+  const { data: escalafones = [] } = useEscalafones(true)
 
   const escNombre         = escalafones.find((e) => e.id === escalafonId)?.nombre ?? ''
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
