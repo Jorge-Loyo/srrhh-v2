@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-10 (Sprint 7 cerrado ✅ — post-sprint mejoras UX/datos/menú)
+> Última actualización: 2026-08-20 (Sprint 8 cerrado ✅ — validacion_vacante + validación de bajas)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -25,7 +25,10 @@
 | Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
 | Sprint 6 — KPIs + Deploy                             | ✅ Completo — 2026-08-31, smoke test 21/21 OK                    | S6-0 a S6-8 (✅)  |
 | Sprint 7 — Cargos: trazabilidad del alta manual      | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones | S7-1 a S7-10 (✅) |
-| Sprints 8–11 — Gobierno del flujo concursal          | 📋 Planificado — ver [`Concursos-CPH.md`](./Concursos-CPH.md)        | S8-1 a S11-7  |
+| Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B implementados, build limpio | S8A-1 a S8B-6 (✅) |
+| Sprint 9 — Matriz de permisos + Landing/menú/guards  | 📋 Planificado                                                  | S9-1 a S9-11  |
+| Sprint 10 — Notificaciones persistidas               | 📋 Planificado                                                  | S10-1 a S10-5 |
+| Sprint 11 — Flujo concursal CPH con autorizaciones   | 📋 Planificado                                                  | S11-1 a S11-7 |
 
 ---
 
@@ -54,6 +57,8 @@ Un ítem está terminado cuando:
 > asíncrona). El choque de Sprint 3 (Jorge y Agustin implementando S3-6 a S3-10 en paralelo sin
 > coordinarse, uno se descartó) pasó exactamente por eso. Se reemplaza por la regla que sí se puede
 > cumplir: avisar antes de tocar un módulo compartido.
+
+---
 
 ---
 
@@ -1247,6 +1252,290 @@ Todo ──► S7-10 (verificación + docs)
 
 ---
 
+### SPRINT 8 — Estado `validacion_vacante` + Validación de Bajas
+
+**Duración:** 1 semana | **Autor:** Jorge
+**Objetivo:** Implementar el estado intermedio `validacion_vacante` en el flujo del padrón y la página de validación de bajas.
+**Estado:** ✅ Implementado (Sprint 8-A y 8-B completos)
+
+#### Diagnóstico previo — estado de la BD (2026-08-10)
+
+| Problema | Causa raíz | Fix aplicado |
+|----------|-----------|--------------|
+| 4 cargos `no_vigente` con ocupación activa (`hasta IS NULL`) | Bajas de prueba eliminadas directamente de BD sin revertir el `estado` del cargo ni cerrar la ocupación | `UPDATE ocupaciones SET hasta = '2026-08-18'` para los 4 casos |
+| 13 cargos `vigente` sin ocupación (todos `MANUAL-*`) | Cargos de prueba creados manualmente, nunca tuvieron persona | `DELETE FROM cargos` — eran datos de prueba |
+
+**Estado post-fix:**
+
+| Métrica | Valor |
+|---------|-------|
+| Cargos `vigente` | 47.835 |
+| Cargos `no_vigente` | 3.717 |
+| `no_vigente` con ocupación activa | **0** ✅ |
+| `vigente` sin ocupación activa | **0** ✅ |
+
+#### Reglas de negocio definitivas (acordadas con Jorge, 2026-08-10)
+
+**Estados del cargo:**
+
+```
+vigente            → cargo activo en la estructura
+no_vigente         → estado terminal, solo por acto administrativo manual
+validacion_vacante → estado intermedio, solo generado por el padrón semanal
+```
+
+**Cuándo pasa a cada estado:**
+
+| Evento | Estado resultante | Quién lo hace |
+|--------|------------------|---------------|
+| Alta de cargo (manual o padrón) | `vigente` | Sistema |
+| Padrón detecta "eliminado" (persona desaparece del Excel) | `validacion_vacante` | Padrón automático |
+| Operador confirma la baja desde Validación de Bajas | `no_vigente` | Manual |
+| Operador rechaza desde Validación de Bajas | `vigente` (vuelve) | Manual |
+| Baja manual desde `/cargos/baja` o `/cargos/alta-por-baja` sin concurso | `no_vigente` | Manual |
+| Reemplazo de persona desde `/cargos/baja/nueva` | `vigente` (se mantiene) | Manual |
+
+**Qué pasa con la ocupación en cada transición:**
+
+| Evento | Ocupación |
+|--------|-----------|
+| Padrón detecta "eliminado" → `validacion_vacante` | **Se cierra** (`hasta = fecha del padrón`). La persona ya no figura en el Excel = ya no ocupa el cargo. |
+| Operador confirma baja → `no_vigente` | Ya estaba cerrada. Se registra el acto administrativo. |
+| Operador rechaza → `vigente` | Se reabre la ocupación (`hasta = NULL`) si el rechazo es por error del sistema. |
+| Reemplazo de persona → cargo sigue `vigente` | Se cierra ocupación anterior + se crea nueva ocupación. |
+
+**Caso especial: padrón siguiente trae de vuelta a la persona:**
+- El padrón **no se puede aprobar** hasta resolver estos casos
+- Se genera una alerta bloqueante en la pantalla de aprobación del padrón
+- El operador valida uno por uno: confirmar (cargo vuelve a `vigente`, se reabre ocupación) o mantener en `validacion_vacante`
+
+**`validacion_vacante` y concursos:**
+- Un cargo en `validacion_vacante` **NO puede generar concurso** directamente
+- Primero debe confirmarse la baja (→ `no_vigente`) o hacerse un reemplazo (→ `vigente`)
+- Desde `/cargos/baja/nueva` se pueden seleccionar cargos `validacion_vacante` Y `vigente` para el flujo de reemplazo
+
+#### Sprint 8-A — Migración y lógica
+
+| # | Tarea | Estado | Descripción |
+|---|-------|--------|-------------|
+| S8A-1 | **Migración enum** | ✅ | `EstadoCargo` extendido con `validacion_vacante` + columna `estado_desde DATE` en `cargos`. SQL directo (shadow DB fallaba por FK en migración vieja). Migración `20260819000000_s8a_validacion_vacante` creada y marcada como aplicada. |
+| S8A-2 | **Padrón: cambiar lógica "eliminados"** | ✅ | `aprobarSnapshotService`: "eliminados" pasan a `validacion_vacante` + `estadoDesde = fechaAsignada` en lugar de `no_vigente`. |
+| S8A-3 | **Padrón: alerta bloqueante** | ✅ | `getConflictosValidacionService` en `padron.service.ts` — busca diffs "nuevo" cuyos `id_sial` corresponden a cargos en `validacion_vacante`. Endpoint `GET /snapshots/:id/conflictos-validacion`. `PadronDiffPage` bloquea aprobación si hay conflictos, muestra panel naranja con tabla y botones confirmar/rechazar por fila. Badge en botón "Aprobar" con cantidad de conflictos. |
+| S8A-4 | **`/cargos/baja/nueva`: incluir `validacion_vacante`** | ✅ | `ModalBuscarCargo` hace 2 queries paralelas (vigente + validacion_vacante). Badge "En validación" naranja en tabla del modal. |
+| S8A-5 | **Fix `CargosPage`**: mostrar `validacion_vacante` | ✅ | Badge naranja "En Validación", opción en filtro de estado, columna "Días" para cargos no vigentes. |
+
+#### Sprint 8-B — Página Validación de Bajas
+
+| # | Tarea | Estado | Descripción |
+|---|-------|--------|-------------|
+| S8B-1 | **Ruta nueva** `/bajas/validacion` | ✅ | Ruta agregada en `router.tsx`. Link "⚠️ Validación de Bajas" en menú lateral (`AppShell.tsx`). |
+| S8B-2 | **Backend**: `GET /api/v1/bajas/validacion` | ✅ | `listValidacionService()` — lista cargos en `validacion_vacante` con última ocupación cerrada y días en estado. |
+| S8B-3 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/confirmar` | ✅ | `confirmarValidacionService(cargoId, actaAdministrativa?)` — cargo → `no_vigente`, `estadoDesde = hoy`, acto administrativo opcional. |
+| S8B-4 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/rechazar` | ✅ | `rechazarValidacionService(cargoId)` — cargo → `vigente`, `estadoDesde = null`, reabre ocupación (`hasta = NULL`). |
+| S8B-5 | **Frontend**: `ValidacionBajasPage` | ✅ | Tabla con días coloreados (verde/naranja/rojo según umbral 14/30 días). Modales confirmar (con campo acto administrativo opcional) y rechazar. |
+
+**Criterio de éxito:**
+
+- El padrón ya no marca cargos directamente como `no_vigente` — pasan por `validacion_vacante` ✅
+- La aprobación del padrón se bloquea si hay cargos en `validacion_vacante` que reaparecen ✅
+- El operador puede confirmar o rechazar cada baja desde `/bajas/validacion` ✅
+- `CargosPage` muestra el estado `validacion_vacante` con badge naranja y días en estado ✅
+- Build limpio: `pnpm --filter @srrhh/api build` y `pnpm --filter web build` sin errores ✅
+
+#### Flujo completo del estado `validacion_vacante`
+
+```
+PADRÓN SEMANAL
+  ↓ detecta id_sial_rol "eliminado"
+  ↓ cierra ocupación (hasta = fecha_padron)
+  ↓ cargo.estado = 'validacion_vacante'
+  ↓ aparece en /bajas/validacion
+
+OPERADOR en /bajas/validacion
+  ├── CONFIRMAR BAJA
+  │     ↓ cargo.estado = 'no_vigente'
+  │     ↓ registra acto administrativo (opcional)
+  │     ↓ puede generar concurso si corresponde
+  │
+  ├── RECHAZAR (error de sistema)
+  │     ↓ cargo.estado = 'vigente'
+  │     ↓ reabre ocupación (hasta = NULL)
+  │
+  └── (sin acción) → cargo queda en validacion_vacante
+
+DESDE /cargos/baja/nueva (reemplazo de persona)
+  ↓ selecciona cargo validacion_vacante o vigente
+  ↓ cierra ocupación anterior (si existe)
+  ↓ crea nueva ocupación
+  ↓ cargo.estado = 'vigente'
+  ↓ historial del cargo se preserva
+
+SIGUIENTE PADRÓN (si trae de vuelta a la persona)
+  ↓ detecta id_sial_rol de cargo en validacion_vacante
+  ↓ BLOQUEA aprobación del padrón
+  ↓ operador resuelve uno por uno antes de aprobar
+```
+
+#### Decisiones de diseño (respondidas 2026-08-19)
+
+| Pregunta | Decisión |
+|----------|----------|
+| ¿Acto administrativo obligatorio? | **Opcional** — el número de documento puede quedar vacío |
+| ¿Desde Validación se puede iniciar concurso? | **No** — solo confirmar o rechazar la baja. El concurso se inicia desde el flujo habitual después |
+| ¿`validacion_vacante` en tabla `/cargos` o sección separada? | **En la tabla principal** con badge "En Validación" (naranja), filtrable como estado |
+| ¿Alerta de antigüedad? | **Mostrar días en estado actual** en la tabla y en Validación de Bajas |
+
+#### Estado técnico post-implementación
+
+**Archivos modificados:**
+
+| Archivo | Cambio |
+|---------|--------|
+| `prisma/schema.prisma` | `EstadoCargo` enum con `validacion_vacante`. `Cargo.estadoDesde DateTime?` |
+| `prisma/migrations/20260819000000_s8a_validacion_vacante/migration.sql` | `ALTER TYPE + ADD COLUMN` |
+| `packages/types/src/index.ts` | `EstadoCargo.VALIDACION_VACANTE`, `Cargo.estadoDesde: string \| null` |
+| `apps/api/src/modules/padron/padron.service.ts` | Paso 4 usa `validacion_vacante`. Nueva `getConflictosValidacionService` |
+| `apps/api/src/modules/padron/padron.routes.ts` | `GET /snapshots/:id/conflictos-validacion` |
+| `apps/api/src/modules/bajas/bajas.service.ts` | 3 nuevas funciones: `listValidacionService`, `confirmarValidacionService`, `rechazarValidacionService` |
+| `apps/api/src/modules/bajas/bajas.routes.ts` | 3 rutas S8B + 2 rutas S8A-3 |
+| `apps/api/src/modules/cargos/cargos.service.ts` | `listCargosService` devuelve `estadoDesde` |
+| `apps/api/src/shared/codigoCargo.ts` | `TxClient` tipado explícito con `Omit<PrismaClient, ...>` (fix TS) |
+| `apps/web/src/modules/cargos/pages/CargosPage.tsx` | Badge naranja, filtro, columna "Días" |
+| `apps/web/src/modules/cargos/pages/NuevaBajaPage.tsx` | 2 queries paralelas, badge "En validación" |
+| `apps/web/src/modules/bajas/pages/ValidacionBajasPage.tsx` | Página nueva completa |
+| `apps/web/src/modules/padron/pages/PadronDiffPage.tsx` | Panel bloqueante, query conflictos, badge botón Aprobar |
+| `apps/web/src/app/router.tsx` | Ruta `/bajas/validacion` |
+| `apps/web/src/shared/components/layout/AppShell.tsx` | Link "⚠️ Validación de Bajas" |
+
+**Fix técnico: `prisma generate` faltante:**
+
+Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Esto causaba que `Prisma.sql`, `Prisma.join`, `Prisma.BajaInclude`, `Prisma.CargoWhereInput` y otros tipos generados no existieran, rompiendo el build de toda la API con ~80 errores TS. Resuelto con `pnpm --filter @srrhh/api exec prisma generate`. El `postinstall` del `package.json` raíz ya corre `prisma generate` automáticamente — el problema ocurrió porque la migración se aplicó con SQL directo sin pasar por `migrate dev`.
+
+**Regla derivada:** siempre correr `prisma generate` después de cualquier cambio al schema, incluso cuando la migración se aplica con SQL directo.
+
+**Build verificado:**
+- `pnpm --filter @srrhh/api build` → ✅ sin errores
+- `pnpm --filter web build` → ✅ sin errores (592 módulos, warning de chunk >500kB preexistente)
+
+---
+
+### SPRINT 8-C — Triangulación histórica (pendiente)
+
+| # | Tarea | Descripción |
+|---|-------|-------------|
+| S8C-1 | **`CargoDetailPanel`**: historial completo | Mostrar todas las ocupaciones históricas + concursos asociados al cargo |
+| S8C-2 | **`PersonaDetailPanel`**: cargos históricos | Mostrar todos los cargos que ocupó la persona (activos, retenidos, históricos) con fechas |
+| S8C-3 | **Endpoint triangulación** | `GET /api/v1/cargos/:id/historial` — devuelve ocupaciones + concursos + apariciones en padrón histórico |
+
+---
+
+### SPRINT 9 — Matriz de permisos + Landing/menú/guards
+
+**Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 42h
+**Objetivo:** Reemplazar listas hardcodeadas de roles por una matriz central, montar la página de inicio con la lógica del legacy (hub de accesos + buscador inteligente), menú por rol y guardas unificadas en el router.
+
+**Contexto:** con Sprint 8 cerrado, este ciclo retoma el **gobierno del flujo concursal CPH**. Antes de construir autorizaciones (Sprint 11) hacen falta dos bases: la matriz de permisos central (Sprint 9) y las notificaciones persistidas (Sprint 10).
+
+**Decisiones ya tomadas (no consultar de nuevo):**
+- Modelo de permisos: roles fijos + matriz central en `packages/types` (no tabla flexible)
+- Menú lateral izquierdo con items filtrados por matriz; página "Sin acceso"
+- Página de inicio: puerto del `landing.html` del legacy con línea Obelisco/Tailwind. Hub de accesos en 3 columnas + buscador inteligente
+- Autorizaciones: entidad genérica `Autorizacion` (tipo + referenciaId)
+- Notificaciones: entidad `Notificacion` persistida + badge no leídas en el header
+- Solicitud de autorización: automática al caratular el concurso CPH
+- Guardas del router por rol (como en el legacy)
+
+### Modelo de permisos — matriz (fuente de verdad en `packages/types`)
+
+| Módulo | Acción | admin | editor | director | viewer | concursales_cph | concursales_ceetps |
+|--------|--------|-------|--------|----------|--------|-----------------|--------------------|
+| padron | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| | subir | ✅ | ✅ | — | — | — | — |
+| | aprobar_padron | ✅ | ✅ | — | — | — | — |
+| personas | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| cargos | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| | crear | ✅ | ✅ | — | — | — | — |
+| bajas | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| | crear | ✅ | ✅ | — | — | ✅ | ✅ |
+| concursos-cph | ver | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| | crear/editar | ✅ | ✅ | — | — | ✅ | — |
+| | autorizar | — | — | ✅ | — | — | — |
+| concursos-ceetps | ver | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| | crear/editar | ✅ | ✅ | — | — | — | ✅ |
+| kpis | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| configuracion | ver | ✅ | — | — | — | — | — |
+| notificaciones | ver (propias) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| autorizaciones | crear (sistema) | ✅ | ✅ | — | — | ✅ | ✅ |
+| | resolver (director) | — | — | ✅ | — | — | — |
+
+> `director` pasa de "read-only" a tener acción concreta: `autorizar` en concursos-cph (Sprint 11).
+
+| # | Tarea | Dev | Est. | Prioridad |
+|---|-------|-----|------|-----------|
+| S9-1 | Definir matriz en `packages/types`: `MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS` + tipo `Permiso` | Jorge | 3h | 🔴 Crítico |
+| S9-2 | Backend: middleware `requirePermiso(modulo, accion)` que consulta la matriz, reemplaza `requireRole` | Jorge | 4h | 🔴 Crítico |
+| S9-3 | Frontend: helper `can(usuario, modulo, accion)` en `shared/lib/can.ts` | Agustin | 2h | 🔴 Crítico |
+| S9-4 | Menú con sección "Configuración" (admin-only) + sub-item "Permisos"; ruta `/configuracion/permisos` con guard | Agustin | 3h | 🟡 Medio |
+| S9-5 | `ConfiguracionPermisosPage`: renderiza la matriz en cascada (solo lectura por ahora) | Agustin | 6h | 🟡 Medio |
+| S9-6 | Migración: reemplazar todos los `requireRole([...])` por `requirePermiso(...)` | Jorge | 4h | 🔴 Crítico |
+| S9-7 | `InicioPage`: estructura con las 3 columnas del `landing.html` (datos mock) | Agustin | 10h | 🔴 Crítico |
+| S9-8 | Filtro de tarjetas en `InicioPage` por `can(usuario, ...)`; buscador inteligente | Agustin | 4h | 🟡 Medio |
+| S9-9 | Router: `ProtectedRoute` acepta `rol?: RolUsuario[]`; página "Sin acceso"; gates movidos a router | Agustin | 4h | 🔴 Crítico |
+| S9-10 | AppShell: items filtrados por matriz usando `can`; sub-items controlados por permiso `crear` | Agustin | 3h | 🔴 Crítico |
+| S9-11 | Migración páginas existentes: quitar gates internos (`AdminUsuariosPage`, `PadronPage`) | Agustin | 3h | 🟡 Medio |
+
+**Criterio de éxito:**
+- Endpoints de escritura usan el nuevo middleware (sin listas hardcodeadas)
+- `/configuracion/permisos` renderiza la matriz para admin; oculta para el resto
+- `/` muestra `InicioPage` con 3 columnas
+- Menú sin items visibles para roles sin permiso
+- Acceso prohibido por URL da "Sin acceso" (en router, no dentro de la página)
+
+---
+
+### SPRINT 10 — Notificaciones persistidas
+
+**Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 25h
+**Objetivo:** Entidad `Notificacion` persistida + badge de no leídas en el header + bandeja.
+
+| # | Tarea | Dev | Est. | Prioridad |
+|---|-------|-----|------|-----------|
+| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones` | Jorge | 3h | 🟡 Medio |
+| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge | 6h | 🟡 Medio |
+| S10-3 | Frontend: badge con contador de no leídas en el header | Agustin | 4h | 🟡 Medio |
+| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas) | Agustin | 6h | 🟡 Medio |
+| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`) | Jorge | 6h | 🟢 Bajo |
+
+**Criterio de éxito:**
+- `Notificacion` se crea desde eventos del backend
+- Badge de no leídas visible; la bandeja marca de a una o todas
+- Alertas de estancamiento generan notificación a dueños + admin/editor
+
+---
+
+### SPRINT 11 — Flujo concursal CPH con autorizaciones
+
+**Duración:** 1–2 semanas | **Capacidad:** 60–120h | **Estimado:** 38h
+**Objetivo:** Caratulación → autorización del director → verificación CPH → paso Inscripción/Examen/OM.
+
+| # | Tarea | Dev | Est. | Prioridad |
+|---|-------|-----|------|-----------|
+| S11-1 | Prisma: `model Autorizacion` + enum `EstadoAutorizacion`; migración `sprint11_autorizaciones` | Jorge | 4h | 🔴 Crítico |
+| S11-2 | Al completar caratulación CPH: crear `Autorizacion` si no existe pendiente + notificar a `director` | Jorge | 6h | 🔴 Crítico |
+| S11-3 | Módulo `autorizaciones/`: `GET /` (pendientes del director), `POST /:id/aprobar`, `POST /:id/rechazar`; al resolver notificar a `concursales_cph` | Jorge | 6h | 🔴 Crítico |
+| S11-4 | Wizard CPH: badge "En espera de autorización" en fase Autorización; bloqueo de `fechaAutorizacion` hasta aprobar | Agustin | 8h | 🔴 Crítico |
+| S11-5 | Portal del director: ruta `/autorizaciones` con tabla de pendientes (detalle, aprobar/rechazar) | Agustin | 6h | 🔴 Crítico |
+| S11-6 | Al resolver autorización, CPH puede avanzar a `A-AUTZN`/`B-SORTEO JUR`; mapear fase Inscripción/Examen/OM | Jorge + Agustin | 4h | 🟡 Medio |
+| S11-7 | Prueba end-to-end: caratular → autorización pendiente → director aprueba → notificación a CPH → CPH completa Inscripción/Examen/OM | Jorge + Agustin | 4h | 🔴 Crítico |
+
+**Criterio de éxito:**
+- Caratular genera automáticamente la `Autorizacion` y notificación al director (sin duplicados)
+- El wizard muestra "En espera de autorización" y bloquea `fechaAutorizacion` hasta aprobar
+- Director resuelve desde `/autorizaciones` y el siguiente paso del wizard se habilita
+- Alcance: hasta Inscripción/Examen/OM; el resto del wizard queda como en Sprint 4
+
+---
+
 ## 5. BACKLOG — Fuera de sprints actuales
 
 | #    | Tarea                                                     | Motivo de postergación                              |
@@ -1262,7 +1551,7 @@ Todo ──► S7-10 (verificación + docs)
 | B-9  | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me`   | Mejora de seguridad XSS — no priorizado para MVP    |
 | B-11 | ~~"Alta de Cargo" manual~~ → **promovido a S5-10**        | Promovido: necesario para cerrar el flujo concursal |
-| B-12 | Identidad del cargo en padrón SIAL por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` | **Promovido a S8-1** en `Concursos-CPH.md` (Sprint 8 — corrección de lógica de cargo) |
+| B-12 | Identidad del cargo en padrón SIAL por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` | Pendiente — fue planificado en `Concursos-CPH.md` como S8-1 pero no se implementó en Sprint 8 (ese sprint se dedicó a `validacion_vacante`). Retomar en Sprint 9+ |
 | B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
 | B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
 

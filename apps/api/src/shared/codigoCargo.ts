@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from './prisma.js'
 
 // ─── Prefijos según REGLAS_NEGOCIO.MD sección 3 ──────────────────────────────
@@ -107,7 +107,7 @@ export function prefijoDeCargo(params: {
 // Formato: {prefijo}-{seq 6 dígitos con ceros a la izquierda}
 // Ejemplo: CPH-POU-000001, EG-000042
 
-type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+type TxClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
 export async function siguienteCodigoCargo(
   prefijo: string,
