@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RolUsuario, TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff } from '../hooks/usePadron'
+import { apiClient } from '@/shared/lib/api-client'
 
 const TABS: { tipo: TipoDiff; label: string }[] = [
   { tipo: TipoDiff.NUEVO, label: 'Nuevos' },
@@ -39,17 +41,53 @@ function parseRegistro(json: string | null): RegistroPersona {
   }
 }
 
+interface ConflictoValidacion {
+  cargoId: string
+  codigo: string | null
+  literalPuesto: string | null
+  hospital: string
+  escalafon: string
+  diasEnValidacion: number | null
+  ultimaPersona: { apellidoNombre: string; cuil: string } | null
+}
+
 export function PadronDiffPage() {
   const { snapshotId } = useParams<{ snapshotId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { user } = useAuth()
   const [tab, setTab] = useState<TipoDiff>(TipoDiff.NUEVO)
   const [page, setPage] = useState(1)
+  const [mostrarConflictos, setMostrarConflictos] = useState(false)
   const limit = 50
 
   const { data, isLoading, isError } = useSnapshotDiff(snapshotId, { page, limit, tipo: tab })
   const aprobar = useAprobarSnapshot()
   const rechazar = useRechazarSnapshot()
+
+  // S8A-3: consultar conflictos de validacion_vacante
+  const { data: conflictosData } = useQuery({
+    queryKey: ['conflictos-validacion', snapshotId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { conflictos: ConflictoValidacion[] } }>(
+        `/api/v1/padron/snapshots/${snapshotId}/conflictos-validacion`
+      )
+      return res.data.data
+    },
+    enabled: !!snapshotId,
+  })
+
+  const confirmarValidacion = useMutation({
+    mutationFn: async ({ cargoId, accion }: { cargoId: string; accion: 'confirmar' | 'rechazar' }) =>
+      apiClient.post(`/api/v1/bajas/validacion/${cargoId}/${accion}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conflictos-validacion', snapshotId] })
+      queryClient.invalidateQueries({ queryKey: ['validacion-bajas'] })
+    },
+  })
+
+  const conflictos = conflictosData?.conflictos ?? []
+  const hayConflictos = conflictos.length > 0
 
   const puedeDecidir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
 
@@ -60,6 +98,7 @@ export function PadronDiffPage() {
 
   async function handleAprobar() {
     if (!snapshotId) return
+    if (hayConflictos) { setMostrarConflictos(true); return }
     await aprobar.mutateAsync(snapshotId)
     navigate('/padron')
   }
@@ -83,6 +122,76 @@ export function PadronDiffPage() {
 
   return (
     <div className="space-y-6">
+
+      {/* S8A-3: Panel bloqueante de conflictos validacion_vacante */}
+      {mostrarConflictos && hayConflictos && (
+        <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-6 space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div>
+              <h2 className="font-primary text-base font-bold text-orange-900">
+                No se puede aprobar — {conflictos.length} cargo{conflictos.length !== 1 ? 's' : ''} en validación vuelven a aparecer en el padrón
+              </h2>
+              <p className="text-sm text-orange-700 mt-1">
+                Resolvé cada caso antes de aprobar: confirmá la baja (el cargo queda <strong>no vigente</strong>) o rechazála (el cargo vuelve a <strong>vigente</strong>).
+              </p>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-orange-200">
+            <table className="w-full text-sm">
+              <thead className="bg-orange-100 text-orange-800 text-left">
+                <tr>
+                  <th className="px-4 py-2.5 font-semibold">Código</th>
+                  <th className="px-4 py-2.5 font-semibold">Hospital</th>
+                  <th className="px-4 py-2.5 font-semibold">Puesto</th>
+                  <th className="px-4 py-2.5 font-semibold">Días en validación</th>
+                  <th className="px-4 py-2.5 font-semibold">Última persona</th>
+                  <th className="px-4 py-2.5 font-semibold" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-orange-100 bg-white">
+                {conflictos.map((c) => (
+                  <tr key={c.cargoId}>
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-800">{c.codigo ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{c.hospital}</td>
+                    <td className="px-4 py-3 text-gray-600">{c.literalPuesto ?? '—'}</td>
+                    <td className="px-4 py-3 text-orange-700 font-semibold">{c.diasEnValidacion ?? '—'}d</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {c.ultimaPersona ? `${c.ultimaPersona.apellidoNombre} (${c.ultimaPersona.cuil})` : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          className="btn-outline text-xs px-2 py-1"
+                          disabled={confirmarValidacion.isPending}
+                          onClick={() => confirmarValidacion.mutate({ cargoId: c.cargoId, accion: 'rechazar' })}
+                        >
+                          Rechazar baja
+                        </button>
+                        <button
+                          className="btn-primary text-xs px-2 py-1"
+                          disabled={confirmarValidacion.isPending}
+                          onClick={() => confirmarValidacion.mutate({ cargoId: c.cargoId, accion: 'confirmar' })}
+                        >
+                          Confirmar baja
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {conflictos.length === 0 && (
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={() => { setMostrarConflictos(false); handleAprobar() }}>
+                Todos resueltos — Aprobar padrón →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Encabezado del snapshot */}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex items-center justify-between">
@@ -112,7 +221,7 @@ export function PadronDiffPage() {
                   Rechazar
                 </button>
                 <button className="btn-primary" onClick={handleAprobar} disabled={aprobar.isPending || rechazar.isPending}>
-                  {aprobar.isPending ? 'Aprobando...' : 'Aprobar'}
+                  {aprobar.isPending ? 'Aprobando...' : hayConflictos ? `⚠️ Aprobar (${conflictos.length} conflicto${conflictos.length !== 1 ? 's' : ''})` : 'Aprobar'}
                 </button>
               </div>
             )}

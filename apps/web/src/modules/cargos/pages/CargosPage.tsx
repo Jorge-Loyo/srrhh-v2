@@ -305,9 +305,11 @@ export function CargosPage() {
                           : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>
-                          {c.ocupado ? 'Ocupado' : 'Vacante'}
-                        </span>
+                        {c.estado === EstadoCargo.VIGENTE && (
+                          <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>
+                            {c.ocupado ? 'Ocupado' : 'Vacante'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link to={`/cargos/${c.id}`} state={{ from: searchParams.toString() }} className="btn-outline">
