@@ -49,11 +49,11 @@ El `Contrato_logica-cargo.md` (§2.2) menciona la baja "Vacante a No Vigente" cu
 
 | ID | Requerimiento | Criterio de aceptación | Prioridad | Estado |
 |----|---------------|------------------------|-----------|--------|
-| RF-11 | **Persistir expediente/decreto en BD** | El acto administrativo que respalda el alta debe guardarse en la tabla `cargos` (columna `expediente`). Hoy el frontend lo envía pero `createCargoService` lo descarta silenciosamente — solo sobrevive en el historial de sesión, que se pierde al recargar. Se resuelve en S7-1/S7-2. | 🔴 P1 | ⬜ Pendiente |
-| RF-12 | **Persistir fecha "desde" en BD** | La fecha de inicio de vigencia del cargo debe guardarse (columna `fechaDesde`). Hoy se envía y se descarta. Se resuelve en S7-1/S7-2. | 🔴 P1 | ⬜ Pendiente |
-| RF-13 | **Auditoría del alta** | Registrar `createdById` (usuario del token JWT) en cada alta manual para trazabilidad. Se resuelve en S7-1/S7-2. | 🟡 P2 | ⬜ Pendiente |
-| RF-14 | **Historial persistente de altas** | Poder consultar altas por expediente más allá de la sesión. Endpoint dedicado: `GET /api/v1/cargos/altas?expediente=&desde=&hasta=` — lista cargos con `idSial LIKE 'MANUAL-%'`, filtrable por expediente y rango de fechas, incluye usuario y códigos generados. Se resuelve en S7-4/S7-7. | 🟡 P2 | ⬜ Pendiente |
-| RF-15 | **Validación de duplicado estructural** | Antes de crear, advertir si ya existe un cargo vigente con la misma identidad estructural `(hospitalId, escalafonId, literalPuesto)`. El backend responde `409` con el cargo existente; el frontend muestra modal con "Crear de todos modos" / "Cancelar". Se resuelve en S7-5/S7-6. | 🟢 P3 | ⬜ Pendiente |
+| RF-11 | **Persistir expediente/decreto en BD** | El acto administrativo que respalda el alta debe guardarse en la tabla `cargos` (columna `expediente`). Se resuelve en S7-1/S7-2. | 🔴 P1 | ✅ Implementado (S7-1/S7-2) |
+| RF-12 | **Persistir fecha "desde" en BD** | La fecha de inicio de vigencia del cargo debe guardarse (columna `fechaDesde`). Se resuelve en S7-1/S7-2. | 🔴 P1 | ✅ Implementado (S7-1/S7-2) |
+| RF-13 | **Auditoría del alta** | Registrar `createdById` (usuario del token JWT) en cada alta manual para trazabilidad. Se resuelve en S7-1/S7-2. | 🟡 P2 | ✅ Implementado (S7-1/S7-2) |
+| RF-14 | **Historial persistente de altas** | Poder consultar altas por expediente más allá de la sesión. Endpoint dedicado: `GET /api/v1/cargos/altas?expediente=&desde=&hasta=` — lista cargos con `idSial LIKE 'MANUAL-%'`, filtrable por expediente y rango de fechas, incluye usuario y códigos generados. Se resuelve en S7-4/S7-7. | 🟡 P2 | ✅ Implementado (S7-4/S7-7) |
+| RF-15 | **Validación de duplicado estructural** | Antes de crear, advertir si ya existe un cargo vigente con la misma identidad estructural `(hospitalId, escalafonId, literalPuesto)`. El backend responde `409` con el cargo existente; el frontend muestra modal con "Crear de todos modos" / "Cancelar". Se resuelve en S7-5/S7-6. | 🟢 P3 | ✅ Implementado (S7-5/S7-6) |
 
 ---
 
@@ -95,25 +95,18 @@ El `Contrato_logica-cargo.md` (§2.2) menciona la baja "Vacante a No Vigente" cu
 - Al cambiar: resetea Puesto y Especialidad.
 
 #### Escalafón *
-- `<select>` con todos los escalafones.
-- El escalafón "Médicos" se muestra como **"CPH"** en el select (sin tocar BD).
+- `<select>` filtrado según el tipo de alta activo (ver tabla por pestaña más abajo).
 - Al cambiar: resetea Modalidad, Puesto y Especialidad.
 
 #### Modalidad / Categoría
 - Solo aparece si `opciones.length > 1` (pills/botones).
-- Para CPH POF: opción única "Planta (POF)" → no se muestra el selector.
-- Para CPH POU: opción única "Guardia (POU)" → no se muestra el selector.
-- Para EG: General / Jefe / Director / Gerencial.
-- Para AS: Dir. General / Dir. General Adjunta / Subsecretaría / Ministro.
 - Al cambiar: resetea Puesto y Especialidad.
+- Opciones según escalafón (ver tabla por pestaña más abajo).
 
 #### Puesto *
 - `PuestoCombobox`: input con búsqueda en tiempo real, dropdown con resultados.
 - Puestos cargados desde `GET /api/v1/puestos-cargo?escalafonId=&modalidad=`.
-- **Regla de filtrado de modalidad**:
-  - `estructura` → solo `modalidad='ambos'` (cargos de conducción).
-  - `pof` o `pou` → si el escalafón tiene puestos propios de esa modalidad, solo esos. Si no tiene (ej: CEETPS con `modalidad='ambos'`), incluye los `'ambos'`.
-  - Esto garantiza que CPH POF no muestra cargos de conducción, y CEETPS sí muestra sus puestos.
+- **Regla de filtrado**: `pof` → puestos con `modalidad='pof'` + `'ambos'`. `pou` → puestos con `modalidad='pou'` + `'ambos'`. `estructura` → solo `modalidad='ambos'`.
 - Al cambiar: resetea Especialidad.
 
 #### Especialidad
@@ -155,13 +148,13 @@ expConfirmado && hospitalId && escalafonId && modalidadEfectiva && puesto
 
 ---
 
-## Historial de la sesión
+## Historial de altas (persistente)
 
 - Siempre visible debajo del card principal.
-- Buscador de texto libre (filtra por hospital, escalafón, puesto, expediente, códigos, tipo).
-- Tabla con columnas: Fecha / Tipo / Hospital / Escalafón / Puesto / Especialidad / Códigos generados / Expediente.
-- Si `historial.length === 0`: mensaje *"No hay altas registradas en esta sesión..."*.
-- El historial es **solo de sesión** (no persiste al recargar). ⚠️ Esto cambia en S7-7: se reemplaza por historial persistente consumiendo `GET /api/v1/cargos/altas`.
+- Buscador filtra por expediente (llama a `GET /api/v1/cargos/altas?expediente=...`).
+- Tabla con columnas: Fecha / Código / Hospital / Escalafón / Puesto / Expediente / Desde / Registrado por.
+- Si no hay altas: mensaje *"No hay altas registradas"*.
+- El historial **persiste entre sesiones** — consume el endpoint dedicado (S7-7).
 
 ---
 
@@ -191,20 +184,92 @@ expConfirmado && hospitalId && escalafonId && modalidadEfectiva && puesto
 }
 ```
 
-> ⚠️ **Nota**: `expediente` y `desde` son aceptados por el schema Zod del backend pero **hoy no se persisten** — el modelo `Cargo` no tiene esas columnas todavía. Se agregan en S7-1 (migración) y S7-2 (service). Ver RF-11 y RF-12.
+> ✅ **Nota**: `expediente` y `desde` se persisten en BD desde S7-1/S7-2. `createdById` se toma del token JWT. El historial es persistente desde S7-7.
+
+---
+
+## Lógica por pestaña — Escalafón, Modalidad y Puestos
+
+### Pestaña: Ejecución POF
+
+Cargos de planta permanente financiados por el Presupuesto Operativo Financiero.
+
+| Escalafón | Modalidad (selector) | Puestos disponibles | Notas |
+|-----------|---------------------|--------------------|---------|
+| Carrera Profesional Hospitalaria | Opción única: "Planta (POF)" — no se muestra selector | `modalidad='pof'` (23 puestos) | Médicos, bioquímicos, psicólogos, etc. |
+| Carrera de Enfermería | Opción única: "Enfermería" — no se muestra selector | `modalidad='ambos'` (2 puestos) | Solo tiene `ambos` |
+| CEETPS | Opción única: "Técnico Planta (POF)" — no se muestra selector | `modalidad='ambos'` (28 puestos) | Solo tiene `ambos`, se usa como POF |
+| Escalafón General | Opción única: "Anexo 2" — no se muestra selector | `modalidad='ambos'` (11 puestos) | Puestos Anexo 2: Camillero, Chofer de Ambulancia, Conductor de Furgon, etc. |
+
+> **No aparecen en POF**: ningún otro escalafón. Residentes, Docentes, Carrera Gerencial, Planta Transitoria, Planta de Gabinete, Autoridades Superiores, Cuerpos Transitorios, Carrera de Técnicos de la Salud quedan fuera de esta pestaña.
+
+---
+
+### Pestaña: Ejecución POU
+
+Cargos de guardia financiados por el Presupuesto Operativo de Unidad.
+
+| Escalafón | Modalidad (selector) | Puestos disponibles | Notas |
+|-----------|---------------------|--------------------|---------|
+| Carrera Profesional Hospitalaria | Opción única: "Guardia (POU)" — no se muestra selector | `modalidad='pou'` (22 puestos) | Guardias médicas, bioquímicas, etc. |
+| CEETPS | Opción única: "Técnico Guardia (POU)" — no se muestra selector | `modalidad='ambos'` (28 puestos) | Solo tiene `ambos`, se usa como POU |
+| Carrera de Enfermería | Opción única: "Enfermería" — no se muestra selector | `modalidad='ambos'` (2 puestos) | Solo tiene `ambos` |
+| Carrera de Técnicos de la Salud | Opción única: "Técnico Guardia (POU)" — no se muestra selector | `modalidad='ambos'` (28 puestos) | Solo tiene `ambos` |
+| Escalafón General | Opción única: "Anexo 2" — no se muestra selector | `modalidad='ambos'` (11 puestos) | Puestos Anexo 2: Camillero, Chofer de Ambulancia, Conductor de Furgon, etc. |
+
+> **No aparecen en POU**: Residentes, Docentes, Carrera Gerencial, Planta Transitoria, Planta de Gabinete, Autoridades Superiores, Cuerpos Transitorios. Estos escalafones no tienen régimen de guardia.
+
+---
+
+### Pestaña: Estructura
+
+Cargos de conducción, autoridades y cuerpos especiales creados por decreto.
+
+| Escalafón | Modalidad (selector) | Puestos disponibles | Notas |
+|-----------|---------------------|--------------------|---------|
+| Escalafón General | 4 opciones: General / Jefe / Director / Gerencial | `modalidad='ambos'` (11 puestos) | Jefaturas, conducción y puestos Anexo 2 |
+| Autoridades Superiores | 4 opciones: Dir. General / Dir. General Adjunta / Subsecretaría / Ministro | `modalidad='ambos'` (4 puestos) | Máximas autoridades |
+| Carrera Gerencial | Opción única: nombre del escalafón | `modalidad='ambos'` (3 puestos) | Gerentes operativos |
+| Cuerpos Transitorios | Opción única: nombre del escalafón | `modalidad='ambos'` (1 puesto) | Designaciones transitorias |
+
+> **No aparecen en Estructura**: Carrera Profesional Hospitalaria, CEETPS, Carrera de Enfermería, Carrera de Técnicos, Residentes, Docentes, Planta Transitoria, Planta de Gabinete. Estos escalafones no crean cargos de conducción.
+
+> **Nota**: El campo se llama "Decreto" en lugar de "Expediente" en esta pestaña.
+
+> **Puestos Anexo 2 (Escalafón General, 11 puestos)**: Ayudante de Laboratorio Hemoterapia Farmacia y Drogueria, Camillero, Capellan, Chofer de Ambulancia, Conductor de Furgon, Cuidador Enfermero de Animales, Hermana de Caridad, Morguero, Oxigenista, Radio Operador, Radio Operador de Emergencias. En POF/POU se muestran todos bajo la opción única "Anexo 2". En Estructura se acceden desde las opciones General/Jefe/Director/Gerencial.
+
+---
+
+### Resumen: qué escalafones aparecen en cada pestaña
+
+| Escalafón | POF | POU | Estructura |
+|-----------|-----|-----|------------|
+| Carrera Profesional Hospitalaria | ✅ | ✅ | ❌ |
+| Carrera de Enfermería | ✅ | ✅ | ❌ |
+| CEETPS | ✅ | ✅ | ❌ |
+| Escalafón General | ✅ | ✅ | ✅ |
+| Carrera de Técnicos de la Salud | ❌ | ✅ | ❌ |
+| Autoridades Superiores | ❌ | ❌ | ✅ |
+| Carrera Gerencial | ❌ | ❌ | ✅ |
+| Cuerpos Transitorios | ❌ | ❌ | ✅ |
+| Residentes | ❌ | ❌ | ❌ |
+| Docentes | ❌ | ❌ | ❌ |
+| Planta Transitoria | ❌ | ❌ | ❌ |
+| Planta de Gabinete | ❌ | ❌ | ❌ |
+
+> ✅ **Estado actual del código**: el filtrado por tipo está implementado en el frontend (`filtrarEscalafones`). Al cambiar de pestaña el formulario se remonta (`key={tipoActivo}`) limpiando el escalafón seleccionado.
 
 ---
 
 ## Reglas de negocio
 
 1. El expediente es compartido por todos los cargos agregados en una misma sesión de formulario. Cada tipo (POF/POU/Estructura) tiene su propio expediente independiente.
-2. Los cargos de conducción (`modalidad='ambos'`) solo aparecen en el tipo **Estructura**.
-3. Los escalafones con puestos propios de `pof`/`pou` (CPH, ENF) no mezclan con conducción.
-4. Los escalafones sin distinción de modalidad (CEETPS con `modalidad='ambos'`) aparecen en POF y POU.
+2. Los cargos de conducción (`modalidad='ambos'`) en escalafones de autoridad solo aparecen en **Estructura**.
+3. Los escalafones con puestos `pof`/`pou` propios (CPH) no mezclan con conducción en esas pestañas.
+4. Los escalafones sin distinción de modalidad (CEETPS, ENF, TEC, Residentes, etc.) usan `modalidad='ambos'` como fallback.
 5. La especialidad es obligatoria cuando el puesto la tiene en BD. No se puede ingresar texto libre.
-6. El escalafón "Médicos" se muestra como "CPH" solo en el frontend (la BD mantiene "Médicos").
-7. Cantidad máxima por grupo: 50. El sistema genera N códigos correlativos.
-8. Solo se muestran escalafones que tienen puestos normalizados activos (`?paraNuevaAlta=true`). Actualmente: CEETPS, Carrera de Enfermería, Carrera de Técnicos de la Salud, Carrera Profesional Hospitalaria, Escalafón General, Médicos.
+6. Cantidad máxima por grupo: 50. El sistema genera N códigos correlativos.
+7. Solo se muestran escalafones que tienen puestos normalizados activos (`?paraNuevaAlta=true`). Actualmente: 12 escalafones (ver tabla resumen arriba).
 
 ---
 
@@ -223,6 +288,6 @@ expConfirmado && hospitalId && escalafonId && modalidadEfectiva && puesto
 - Los botones de tipo siempre habilitados (nunca `disabled`).
 - El formulario permanece abierto tras "Agregar" (no se cierra automáticamente).
 - El panel lateral solo aparece cuando hay formulario activo o pendientes.
-- "Médicos" → "CPH" solo en el `<select>` del frontend.
 - El filtrado de escalafones usa `?paraNuevaAlta=true` — no cambiar a filtro por `cargos: { some: {} }`.
 - El filtrado de puestos por modalidad respeta la lógica inteligente: puestos propios si existen, `ambos` como fallback.
+- El campo se llama "Decreto" en Estructura y "Expediente" en POF/POU.

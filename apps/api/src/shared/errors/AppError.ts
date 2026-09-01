@@ -34,8 +34,8 @@ export class AppError extends Error {
     return new AppError('NOT_FOUND', message, 404)
   }
 
-  static conflict(message: string) {
-    return new AppError('CONFLICT', message, 409)
+  static conflict(message: string, details?: unknown) {
+    return new AppError('CONFLICT', message, 409, details)
   }
 
   static snapshotPendiente() {

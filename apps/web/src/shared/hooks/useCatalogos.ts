@@ -74,3 +74,23 @@ export function useEspecialidadesPuesto(escalafonId?: string, nombrePuesto?: str
     },
   })
 }
+
+// S7-7: historial persistente de altas manuales
+export function useAltasCargos(params?: { expediente?: string; desde?: string; hasta?: string; page?: number }) {
+  return useQuery({
+    queryKey: ['cargos-altas', params],
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: Array<{
+          id: string; codigo: string | null; literalPuesto: string | null
+          expediente: string | null; fechaDesde: string | null; createdAt: string
+          hospital: { sigla: string; nombre: string }
+          escalafon: { nombre: string }
+          createdBy: { username: string } | null
+        }>
+        meta: { total: number; page: number; limit: number; pages: number }
+      }>('/api/v1/cargos/altas', { params })
+      return res.data
+    },
+  })
+}

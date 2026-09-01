@@ -10,18 +10,6 @@ const CARGOS_SUBITEMS = [
   { to: '/cargos/alta-por-baja', label: 'Alta por baja' },
 ]
 
-// Ítems del nav con icono (emoji ligero, sin dependencia extra)
-const NAV_ITEMS = [
-  { to: '/padron',                label: 'Padrón Semanal',       icon: '📋' },
-  { to: '/bajas-consolidadas',    label: 'Bajas Consolidadas',   icon: '📄' },
-  { to: '/personas',              label: 'Personas',              icon: '👤' },
-  { to: '/bajas',                 label: 'Bajas',                 icon: '🗑️' },
-  { to: '/concursos/cph',         label: 'Concursos CPH',         icon: '⚖️' },
-  { to: '/concursos/ceetps',      label: 'Concursos CEETPS',      icon: '🏥' },
-  { to: '/kpis',                  label: 'Tablero KPIs',          icon: '📊' },
-  { to: '/admin/usuarios',        label: 'Administración',        icon: '⚙️', divider: true },
-] as const
-
 export function AppShell() {
   const { user, logout } = useAuth()
   const { data: snapshots } = useSnapshots()
@@ -78,34 +66,29 @@ export function AppShell() {
         {/* Nav */}
         <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
 
-          {/* Padrón, Bajas Consolidadas, Personas, Bajas */}
-          {NAV_ITEMS.slice(0, 4).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                  isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
-                }`
-              }
-              title={collapsed ? item.label : undefined}
-            >
-              <span className="text-base shrink-0">{item.icon}</span>
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </NavLink>
-          ))}
+          {/* KPIs */}
+          <NavLink to="/kpis"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Tablero KPIs' : undefined}>
+            <span className="text-base shrink-0">📊</span>
+            {!collapsed && <span className="truncate">Tablero KPIs</span>}
+          </NavLink>
+
+          {/* Personas */}
+          <NavLink to="/personas"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Personas' : undefined}>
+            <span className="text-base shrink-0">👤</span>
+            {!collapsed && <span className="truncate">Personas</span>}
+          </NavLink>
 
           {/* Grupo Cargos */}
-          <button
-            type="button"
+          <button type="button"
             onClick={() => !collapsed && setCargosAbierto((v) => !v)}
             title={collapsed ? 'Cargos' : undefined}
             className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-              location.pathname.startsWith('/cargos')
-                ? 'bg-primary text-black'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
+              location.pathname.startsWith('/cargos') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+            }`}>
             <span className="text-base shrink-0">🗂️</span>
             {!collapsed && (
               <>
@@ -117,45 +100,69 @@ export function AppShell() {
           {cargosAbierto && !collapsed && (
             <div className="bg-gray-100 border-l-2 border-primary ml-4">
               {CARGOS_SUBITEMS.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end
+                <NavLink key={item.to} to={item.to} end
                   className={({ isActive }) =>
                     `block px-4 py-2 text-sm transition-colors ${
-                      isActive
-                        ? 'font-bold text-secondary'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                    }`
-                  }
-                >
+                      isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                    }`}>
                   {item.label}
                 </NavLink>
               ))}
             </div>
           )}
 
-          {/* Resto de ítems */}
-          {NAV_ITEMS.slice(4).map((item) => (
-            <>
-              {'divider' in item && item.divider && (
-                <div key={`div-${item.to}`} className="border-t border-gray-200 mt-2 pt-2" />
-              )}
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                    isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
-                  }`
-                }
-                title={collapsed ? item.label : undefined}
-              >
-                <span className="text-base shrink-0">{item.icon}</span>
-                {!collapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
-            </>
-          ))}
+          {/* Bajas */}
+          <NavLink to="/bajas"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Bajas' : undefined}>
+            <span className="text-base shrink-0">🗑️</span>
+            {!collapsed && <span className="truncate">Bajas</span>}
+          </NavLink>
+
+          {/* Divisor — Concursos */}
+          <div className="border-t border-gray-200 mt-2 pt-2" />
+
+          {/* Concursos */}
+          <NavLink to="/concursos/cph"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Concursos CPH' : undefined}>
+            <span className="text-base shrink-0">⚖️</span>
+            {!collapsed && <span className="truncate">Concursos CPH</span>}
+          </NavLink>
+          <NavLink to="/concursos/ceetps"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Concursos CEETPS' : undefined}>
+            <span className="text-base shrink-0">🏥</span>
+            {!collapsed && <span className="truncate">Concursos CEETPS</span>}
+          </NavLink>
+
+          {/* Divisor — sección admin */}
+          <div className="border-t border-gray-200 mt-2 pt-2" />
+
+          {/* Padrón Semanal */}
+          <NavLink to="/padron"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Padrón Semanal' : undefined}>
+            <span className="text-base shrink-0">📋</span>
+            {!collapsed && <span className="truncate">Padrón Semanal</span>}
+          </NavLink>
+
+          {/* Bajas Consolidadas */}
+          <NavLink to="/bajas-consolidadas"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Bajas Consolidadas' : undefined}>
+            <span className="text-base shrink-0">📄</span>
+            {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
+          </NavLink>
+
+          {/* Administración */}
+          <NavLink to="/admin/usuarios"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Administración' : undefined}>
+            <span className="text-base shrink-0">⚙️</span>
+            {!collapsed && <span className="truncate">Administración</span>}
+          </NavLink>
+
         </nav>
 
         {/* Pie del sidebar */}

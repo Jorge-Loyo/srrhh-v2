@@ -46,7 +46,6 @@ const HOSPITALES = [
 ]
 
 const ESCALAFONES = [
-  { codigo: 'CPH', nombre: 'Carrera Profesional Hospitalaria' },
   { codigo: 'ENF', nombre: 'Carrera de Enfermería' },
   { codigo: 'TEC', nombre: 'Carrera de Técnicos de la Salud' },
 ]

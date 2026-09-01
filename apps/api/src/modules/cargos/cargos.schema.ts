@@ -39,7 +39,9 @@ export const createCargoSchema = z.object({
   // Fecha desde la que rige el cargo — se persiste en BD (S7-2)
   desde:            fecha.optional(),
   // Cantidad de cargos a crear (1..50)
-  cantidad:         z.coerce.number().int().min(1).max(50).default(1),
+  cantidad: z.coerce.number().int().min(1).max(50).default(1),
+  // S7-5: forzar creación aunque exista duplicado estructural
+  forzar:   z.boolean().optional().default(false),
 })
 
 export type CreateCargoBody = z.infer<typeof createCargoSchema>
