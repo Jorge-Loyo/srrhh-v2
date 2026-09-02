@@ -25,6 +25,7 @@ import { bajasSialRoutes } from './modules/bajas-sial/bajas-sial.routes.js'
 import { puestosCargoRoutes } from './modules/puestos-cargo/puestos-cargo.routes.js'
 import { rolesRoutes } from './modules/roles/roles.routes.js'
 import { permisosRoutes } from './modules/permisos/permisos.routes.js'
+import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes.js'
 
 const app = Fastify({
   logger: {
@@ -87,6 +88,7 @@ await app.register(bajasSialRoutes, { prefix: '/api/v1/bajas-sial' })
 await app.register(puestosCargoRoutes, { prefix: '/api/v1/puestos-cargo' })
 await app.register(rolesRoutes, { prefix: '/api/v1/roles' })
 await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
+await app.register(notificacionesRoutes, { prefix: '/api/v1/notificaciones' })
 
 // Start
 try {

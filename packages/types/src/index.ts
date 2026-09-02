@@ -357,6 +357,36 @@ export interface Usuario {
   permisos?: { modulo: string; accion: string }[]
 }
 
+// S10-1 — Notificaciones persistidas
+export const TipoNotificacion = {
+  CONCURSO_ESTANCADO:     'concurso_estancado',
+  BAJA_PENDIENTE:         'baja_pendiente',
+  AUTORIZACION_PENDIENTE: 'autorizacion_pendiente',
+  AUTORIZACION_RESUELTA:  'autorizacion_resuelta',
+} as const
+export type TipoNotificacion = typeof TipoNotificacion[keyof typeof TipoNotificacion]
+
+export interface Notificacion {
+  id: string
+  tipo: TipoNotificacion
+  rolSlug: string
+  titulo: string
+  mensaje: string
+  origenTipo: string | null
+  origenId: string | null
+  origenKey: string | null
+  leida: boolean
+  creadaAt: string
+  leidaAt: string | null
+}
+
+export interface NotificacionFilters {
+  page?: number
+  limit?: number
+  tipo?: TipoNotificacion
+  soloNoLeidas?: boolean
+}
+
 export const EstadoBaja = {
   PENDIENTE: 'pendiente',
   CONFIRMADA: 'confirmada',
