@@ -23,6 +23,13 @@ RUN pnpm install --frozen-lockfile
 COPY apps/api apps/api
 COPY packages packages
 
+# packages/types/package.json apunta main/exports a ./dist (fix para producción
+# Node 22) — .dockerignore excluye **/dist del build context a propósito, así
+# que hay que generarlo acá adentro, no confiar en que venga copiado del host.
+# Sin esto, tsx (que sí resuelve imports vía Node ESM real, no solo tipos)
+# rompe al arrancar: ERR_MODULE_NOT_FOUND buscando dist/index.js inexistente.
+RUN pnpm --filter @srrhh/types build
+
 WORKDIR /repo/apps/api
 EXPOSE 3000
 

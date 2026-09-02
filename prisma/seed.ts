@@ -1,4 +1,4 @@
-import { PrismaClient, RolUsuario } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 
 const prisma = new PrismaClient()
@@ -77,7 +77,13 @@ async function main() {
   }
   console.log(`✅ Escalafones: ${eCount}`)
 
-  // Usuario admin
+  // Usuario admin — el rol "admin" lo siembra la migración de RBAC dinámico
+  // (prisma/migrations/20260901120000_rbac_dinamico), acá solo se busca por slug.
+  const rolAdmin = await prisma.role.findUnique({ where: { slug: 'admin' } })
+  if (!rolAdmin) {
+    throw new Error('No existe el rol "admin" — ¿corriste `prisma migrate deploy` antes del seed?')
+  }
+
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
   await prisma.usuario.upsert({
     where: { username: 'admin' },
@@ -86,7 +92,7 @@ async function main() {
       username: 'admin',
       email: 'admin@gcba.gob.ar',
       passwordHash,
-      rol: RolUsuario.admin,
+      roleId: rolAdmin.id,
       activo: true,
     },
   })

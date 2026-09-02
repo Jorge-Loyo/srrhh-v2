@@ -1,16 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema } from './bajas.schema.js'
 import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
 
-const WRITE_ROLES = [
-  RolUsuario.ADMIN,
-  RolUsuario.EDITOR,
-  RolUsuario.CONCURSALES_CPH,
-  RolUsuario.CONCURSALES_CEETPS,
-]
+const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
 export async function bajasRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -32,7 +26,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // POST / — S5-4 + S5-7: crear baja + marcar cargo no_vigente
   app.post(
     '/',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = createBajaSchema.parse(request.body)
       const user = request.user as { id: string }
@@ -44,7 +38,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // PATCH /:id — actualizar borrador (resolucion_a_la_firma → pendiente/confirmada)
   app.patch(
     '/:id',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const body = createBajaSchema.parse(request.body)
@@ -63,7 +57,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // S8B: POST /validacion/:cargoId/confirmar
   app.post(
     '/validacion/:cargoId/confirmar',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const { cargoId } = request.params as { cargoId: string }
       const { actaAdministrativa } = (request.body ?? {}) as { actaAdministrativa?: string }
@@ -75,7 +69,7 @@ export async function bajasRoutes(app: FastifyInstance) {
   // S8B: POST /validacion/:cargoId/rechazar
   app.post(
     '/validacion/:cargoId/rechazar',
-    { preHandler: requireRole(WRITE_ROLES) },
+    { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const { cargoId } = request.params as { cargoId: string }
       const data = await rechazarValidacionService(cargoId)

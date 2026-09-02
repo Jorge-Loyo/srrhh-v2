@@ -2,19 +2,10 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { RolUsuario } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { useRoles } from '../../configuracion/hooks/useRoles'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios } from '../hooks/useUsuarios'
-
-const ROL_LABELS: Record<RolUsuario, string> = {
-  [RolUsuario.ADMIN]: 'Administrador',
-  [RolUsuario.EDITOR]: 'Editor',
-  [RolUsuario.VIEWER]: 'Solo lectura',
-  [RolUsuario.DIRECTOR]: 'Director',
-  [RolUsuario.CONCURSALES_CPH]: 'Concursales CPH',
-  [RolUsuario.CONCURSALES_CEETPS]: 'Concursales CEETPS',
-}
 
 // Mismas reglas que createUsuarioSchema en apps/api (usuarios.schema.ts) —
 // duplicado a propósito: no hay forma hoy de compartir el schema de zod en sí
@@ -23,7 +14,7 @@ const formSchema = z.object({
   username: z.string().min(3, 'Mínimo 3 caracteres').max(64),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'Mínimo 8 caracteres'),
-  rol: z.nativeEnum(RolUsuario, { errorMap: () => ({ message: 'Elegí un rol' }) }),
+  roleId: z.string().uuid({ message: 'Elegí un rol' }),
   hospitalId: z.string().optional(),
 })
 
@@ -36,6 +27,7 @@ export function AdminUsuariosPage() {
 
   const { data: usuarios, isLoading, isError } = useUsuarios()
   const { data: hospitales } = useHospitales()
+  const { data: roles } = useRoles()
   const createUsuario = useCreateUsuario()
   const setActivo = useSetUsuarioActivo()
 
@@ -46,15 +38,6 @@ export function AdminUsuariosPage() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(formSchema) })
 
-  if (currentUser?.rol !== RolUsuario.ADMIN) {
-    return (
-      <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-        <h2 className="font-primary text-xl font-bold text-gray-700 mb-2">Sin acceso</h2>
-        <p className="text-sm text-gray-400">Esta sección es solo para administradores.</p>
-      </div>
-    )
-  }
-
   async function onSubmit(values: FormValues) {
     setFormError('')
     try {
@@ -62,7 +45,7 @@ export function AdminUsuariosPage() {
         username: values.username,
         email: values.email,
         password: values.password,
-        rol: values.rol,
+        roleId: values.roleId,
         hospitalId: values.hospitalId || undefined,
       })
       reset()
@@ -75,7 +58,7 @@ export function AdminUsuariosPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="font-primary text-2xl font-bold text-gray-900">Administración de Usuarios</h1>
+        <h1 className="font-primary text-2xl font-bold text-gray-900">Usuarios</h1>
         <button className="btn-primary" onClick={() => setShowForm((v) => !v)}>
           {showForm ? 'Cancelar' : '+ Nuevo usuario'}
         </button>
@@ -126,20 +109,23 @@ export function AdminUsuariosPage() {
               Rol <span className="text-danger">*</span>
             </label>
             <select
-              {...register('rol')}
+              {...register('roleId')}
               defaultValue=""
               className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
             >
               <option value="" disabled>
                 Elegir rol...
               </option>
-              {Object.values(RolUsuario).map((rol) => (
-                <option key={rol} value={rol}>
-                  {ROL_LABELS[rol]}
+              {roles?.filter((r) => r.activo).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nombre}
                 </option>
               ))}
             </select>
-            {errors.rol && <p className="text-xs text-danger mt-1">{errors.rol.message}</p>}
+            {errors.roleId && <p className="text-xs text-danger mt-1">{errors.roleId.message}</p>}
+            <p className="text-xs text-gray-400 mt-1">
+              Los roles y sus permisos se administran en Configuración → Permisos.
+            </p>
           </div>
 
           <div className="sm:col-span-2">
@@ -194,7 +180,7 @@ export function AdminUsuariosPage() {
                 <tr key={u.id}>
                   <td className="px-4 py-3 font-medium text-gray-800">{u.username}</td>
                   <td className="px-4 py-3 text-gray-600">{u.email}</td>
-                  <td className="px-4 py-3 text-gray-600">{ROL_LABELS[u.rol]}</td>
+                  <td className="px-4 py-3 text-gray-600">{u.rol}</td>
                   <td className="px-4 py-3">
                     <span className={u.activo ? 'badge-success' : 'badge-default'}>
                       {u.activo ? 'Activo' : 'Inactivo'}
@@ -202,8 +188,8 @@ export function AdminUsuariosPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      disabled={setActivo.isPending || u.id === currentUser.id}
-                      title={u.id === currentUser.id ? 'No podés desactivar tu propio usuario' : undefined}
+                      disabled={setActivo.isPending || u.id === currentUser?.id}
+                      title={u.id === currentUser?.id ? 'No podés desactivar tu propio usuario' : undefined}
                       onClick={() => setActivo.mutate({ id: u.id, activo: !u.activo })}
                       className={u.activo ? 'btn-danger' : 'btn-outline'}
                     >

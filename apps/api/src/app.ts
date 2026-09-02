@@ -23,6 +23,8 @@ import { kpisRoutes } from './modules/kpis/kpis.routes.js'
 import { bajasRoutes } from './modules/bajas/bajas.routes.js'
 import { bajasSialRoutes } from './modules/bajas-sial/bajas-sial.routes.js'
 import { puestosCargoRoutes } from './modules/puestos-cargo/puestos-cargo.routes.js'
+import { rolesRoutes } from './modules/roles/roles.routes.js'
+import { permisosRoutes } from './modules/permisos/permisos.routes.js'
 
 const app = Fastify({
   logger: {
@@ -83,6 +85,8 @@ await app.register(kpisRoutes, { prefix: '/api/v1/kpis' })
 await app.register(bajasRoutes, { prefix: '/api/v1/bajas' })
 await app.register(bajasSialRoutes, { prefix: '/api/v1/bajas-sial' })
 await app.register(puestosCargoRoutes, { prefix: '/api/v1/puestos-cargo' })
+await app.register(rolesRoutes, { prefix: '/api/v1/roles' })
+await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
 
 // Start
 try {

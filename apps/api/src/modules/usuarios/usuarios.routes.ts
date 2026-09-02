@@ -1,13 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { createUsuarioSchema } from './usuarios.schema.js'
 import { listUsuarios, createUsuario, setUsuarioActivo } from './usuarios.service.js'
 
 export async function usuariosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
-  app.addHook('preHandler', requireRole([RolUsuario.ADMIN]))
+  app.addHook('preHandler', requirePermiso({ modulo: 'configuracion', accion: 'gestionar_usuarios' }))
 
   app.get('/', async (_request, reply) => {
     const usuarios = await listUsuarios()
