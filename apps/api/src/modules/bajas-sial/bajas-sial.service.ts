@@ -91,6 +91,26 @@ function cuilPuro(cuil: string): string {
   return cuil.replace(/-/g, '').slice(0, 11)
 }
 
+// Nombres históricos del escalafón CPH — mismo set que normalizador_cargos.py
+const NOMBRES_CPH_VIEJOS = new Set([
+  'MEDICOS', 'MÉDICOS', 'CPH',
+  'CARRERA PROFESIONAL HOSPITALARIA',
+  'NUEVA CARRERA PROF. HOSP',
+  'NUEVA CARRERA PROF HOSP',
+])
+const NOMBRE_CPH_CANONICO = 'Nueva Carrera Profesional Hospitalaria'
+
+function normalizarEscalafon(v: string | null): string | null {
+  if (!v) return v
+  return NOMBRES_CPH_VIEJOS.has(v.trim().toUpperCase()) ? NOMBRE_CPH_CANONICO : v
+}
+
+function normalizarLitCodReg(v: string | null): string | null {
+  if (!v) return v
+  const limpio = v.replace(/\|/g, '').trim()
+  return NOMBRES_CPH_VIEJOS.has(limpio.toUpperCase()) ? NOMBRE_CPH_CANONICO : limpio || null
+}
+
 export async function uploadBajasSialService(
   file: UploadedFile,
   fechaArchivo: string,
@@ -138,11 +158,11 @@ async function procesarSnapshot(
     edad:          r.EDAD ? Number(r.EDAD) || null : null,
     cod_rep:       str(r.COD_REP) || null,
     desc_rep:      str(r.DESC_REP) || null,
-    escalafon:     str(r.ESCALAFON) || null,
+    escalafon:     normalizarEscalafon(str(r.ESCALAFON) || null),
     regimen:       str(r.REGIMEN) || null,
     sit_rev:       str(r.SIT_REV) || null,
     cod_reg:       str(r.COD_REG) || null,
-    lit_cod_reg:   str(r.LIT_COD_REG) || null,
+    lit_cod_reg:   normalizarLitCodReg(str(r.LIT_COD_REG) || null),
     puesto:        str(r.PUESTO) || null,
     lit_puesto:    str(r.LIT_PUESTO) || null,
     cod_agrup:     str(r.COD_AGRUPAMIENTO) || null,

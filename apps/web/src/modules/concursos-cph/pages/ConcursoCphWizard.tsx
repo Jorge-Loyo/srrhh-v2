@@ -4,11 +4,13 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
-import { useEscalafones, usePuestosCargos, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
+import { useEscalafones, usePuestosCargoNormalizados, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { getEspecialidadOptions } from '@/modules/cargos/lib/bajasHelpers'
 import type { ConcursoCph } from '@srrhh/types'
+import { useAuth } from '@/modules/auth/hooks/useAuth'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 
 type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
 
@@ -74,11 +76,21 @@ export function ConcursoCphWizard() {
     enabled: !esNuevo,
   })
 
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const esSgrasv = user?.rolSlug === 'sgrasv'
+
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
   const { data: codigosRegistro = [] } = useCodigosRegistro()
-  const escalafonCph = escalafones.find((e) => e.nombre === 'Nueva Carrera Prof. Hosp')
-  const { data: puestosDisponibles = [] } = usePuestosCargos(escalafonCph?.id)
+  // Escalafones ordenados igual que PersonasPage
+  const escalafonesOrdenados = [...escalafones].sort((a, b) =>
+    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
+  )
+  // Helper: dado un escalafonId, devuelve el primer codigoRegistroId asociado
+  const crIdDeEscalafon = (escId: string) =>
+    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null
+  const escalafonCph = escalafones.find((e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria')
 
   // Query params solo se usan en modo nuevo (vienen de NuevaBajaPage)
   const datosBaja = esNuevo ? {
@@ -257,11 +269,19 @@ export function ConcursoCphWizard() {
   const [puestoConcurso, setPuestoConcurso] = useState('')
   const [especialidadConcurso, setEspecialidadConcurso] = useState('')
   const [siglaConcurso, setSiglaConcurso] = useState('')
-  const [codigoRegistroId, setCodigoRegistroId] = useState('')
-  const [pendienteAutorizacion, setPendienteAutorizacion] = useState(false)
+  const [escalafonId, setEscalafonId] = useState('')
+  // Puestos de ejecución del escalafón seleccionado (excluye conducción por tipoPuesto en BD)
+  // Puestos de ejecución: siempre desde Carrera Profesional Hospitalaria (donde viven los 45 puestos CPH)
+  const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
+    escalafonCph?.id ?? '2a5c51d1-0446-4c58-a68a-a2f2687c94ef',
+    undefined,
+    'ejecucion'
+  )
   const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
+  const [modalAutorizacion, setModalAutorizacion] = useState(false)
+  const [obsAutorizacion, setObsAutorizacion] = useState('')
   // Valores originales para detectar cambios en etapa baja
-  const originalesRef = { sigla: '', codigoRegistroId: '', puesto: '', especialidad: '' }
+  const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
   const [originales, setOriginales] = useState(originalesRef)
   const especialidadesDisponibles = getEspecialidadOptions(puestoConcurso)
 
@@ -270,28 +290,49 @@ export function ConcursoCphWizard() {
     type CargoCph = { hospital?: { sigla?: string }; codigoRegistro?: { id?: string; literal?: string }; literalPuesto?: string; especialidad?: string }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // Preferir el id directo del cargo; si no llegó aún el catálogo, buscar por literal cuando cargue
+    // Resolver escalafonId desde el codigoRegistro del cargo
     const crId = cargo?.codigoRegistro?.id ?? ''
     const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-    if (crId) {
-      setCodigoRegistroId(crId)
+    let resolvedEscalafonId = ''
+    if (crId && codigosRegistro.length > 0) {
+      const cr = codigosRegistro.find((c) => c.id === crId)
+      resolvedEscalafonId = cr?.escalafonId ?? ''
     } else if (crLiteral && codigosRegistro.length > 0) {
-      const found = codigosRegistro.find((cr) => cr.literal === crLiteral)
-      if (found) setCodigoRegistroId(found.id)
+      const cr = codigosRegistro.find((c) => c.literal === crLiteral)
+      resolvedEscalafonId = cr?.escalafonId ?? ''
     }
+    setEscalafonId(resolvedEscalafonId)
     setPuestoConcurso(cargo?.literalPuesto ?? '')
     setEspecialidadConcurso(cphData.especialidadSolicitada ?? cargo?.especialidad ?? '')
-    // Guardar originales para detectar cambios
-    const resolvedCrId = crId || (crLiteral && codigosRegistro.length > 0 ? (codigosRegistro.find((cr) => cr.literal === crLiteral)?.id ?? '') : '')
     setOriginales({
       sigla: cargo?.hospital?.sigla ?? '',
-      codigoRegistroId: resolvedCrId,
+      escalafonId: resolvedEscalafonId,
       puesto: cargo?.literalPuesto ?? '',
       especialidad: cphData.especialidadSolicitada ?? cargo?.especialidad ?? '',
     })
   }, [cphData, codigosRegistro])
-  const primeraEtapaActiva = etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja'
-  const [etapaActiva, setEtapaActiva] = useState(primeraEtapaActiva)
+  // Leer pendienteAutorizacion desde la API (no estado local)
+  const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })?.pendienteAutorizacion
+
+  const patchMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiClient.patch(`/api/v1/concursos-cph/${id}`, body).then((r) => r.data.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] }),
+  })
+
+  const autorizarMutation = useMutation({
+    mutationFn: (payload: { aprobado: boolean; observaciones?: string }) =>
+      apiClient.post(`/api/v1/concursos-cph/${id}/autorizar`, payload).then((r) => r.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      setModalAutorizacion(false)
+      setObsAutorizacion('')
+    },
+  })
+
+  const [etapaActiva, setEtapaActiva] = useState(
+    etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja'
+  )
   const [suspendido, setSuspendido]   = useState(false)
   const [guardado, setGuardado]       = useState(false)
   const [etapas, setEtapas]           = useState<Etapa[]>(etapasIniciales)
@@ -312,24 +353,32 @@ export function ConcursoCphWizard() {
 
   function handleGuardar() {
     if (etapaActiva === 'baja' && !esNuevo) {
-      const labelCr = (id: string) => codigosRegistro.find((cr) => cr.id === id)?.literal ?? id
+      const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
       const cambios: { campo: string; de: string; a: string }[] = []
-      if (siglaConcurso      !== originales.sigla)            cambios.push({ campo: 'Sigla',              de: originales.sigla,                          a: siglaConcurso })
-      if (codigoRegistroId   !== originales.codigoRegistroId) cambios.push({ campo: 'Código de registro', de: labelCr(originales.codigoRegistroId),        a: labelCr(codigoRegistroId) })
-      if (puestoConcurso     !== originales.puesto)           cambios.push({ campo: 'Puesto',             de: originales.puesto,                         a: puestoConcurso })
-      if (especialidadConcurso !== originales.especialidad)   cambios.push({ campo: 'Especialidad',       de: originales.especialidad,                   a: especialidadConcurso })
+      if (siglaConcurso !== originales.sigla)       cambios.push({ campo: 'Sigla',      de: originales.sigla,                a: siglaConcurso })
+      if (escalafonId   !== originales.escalafonId) cambios.push({ campo: 'Escalafón', de: escalafonLabel(labelEsc(originales.escalafonId)), a: escalafonLabel(labelEsc(escalafonId)) })
+      if (puestoConcurso       !== originales.puesto)      cambios.push({ campo: 'Puesto',      de: originales.puesto,               a: puestoConcurso })
+      if (especialidadConcurso !== originales.especialidad) cambios.push({ campo: 'Especialidad', de: originales.especialidad,         a: especialidadConcurso })
       if (cambios.length > 0) {
         setModalCambios(cambios)
         return
       }
     }
+    // Sin cambios sensibles: guardar y avanzar a la siguiente etapa
+    const siguiente = etapasActuales[etapa.numero]
+    if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
   }
 
   function confirmarCambios() {
     setModalCambios(null)
-    setPendienteAutorizacion(true)
+    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado)
+    patchMutation.mutate({
+      sigla: siglaConcurso || null,
+      codigoRegistroId: crIdDeEscalafon(escalafonId),
+      especialidadSolicitada: especialidadConcurso || null,
+    })
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
   }
@@ -355,6 +404,30 @@ export function ConcursoCphWizard() {
   return (
     // Contenedor que ocupa todo el alto disponible dentro del <main> scrolleable
     <div className="flex flex-col min-h-full">
+
+      {/* ── MODAL AUTORIZAR (sgrasv) ─────────────────────────────────────────────── */}
+      {modalAutorizacion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-blue-500 text-xl">🔐</span>
+              <div>
+                <h3 className="font-primary font-bold text-gray-900">Resolver autorización</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Como SGRASV podés aprobar o rechazar la modificación solicitada.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <label className="block text-sm font-semibold text-gray-700">Observaciones (opcional)</label>
+              <textarea value={obsAutorizacion} onChange={(e) => setObsAutorizacion(e.target.value)} rows={2} className="input w-full py-2" placeholder="Motivo de aprobación o rechazo..." />
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button className="btn-outline" onClick={() => setModalAutorizacion(false)}>Cancelar</button>
+              <button className="btn-danger" disabled={autorizarMutation.isPending} onClick={() => autorizarMutation.mutate({ aprobado: false, observaciones: obsAutorizacion || undefined })}>Rechazar</button>
+              <button className="btn-primary" disabled={autorizarMutation.isPending} onClick={() => autorizarMutation.mutate({ aprobado: true, observaciones: obsAutorizacion || undefined })}>Aprobar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MODAL CONFIRMACIÓN DE CAMBIOS ───────────────────────────────────────────── */}
       {modalCambios && (
@@ -517,10 +590,41 @@ export function ConcursoCphWizard() {
                 {pendienteAutorizacion && etapaActiva === 'baja' && (
                   <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
                 )}
+                {pendienteAutorizacion && esSgrasv && etapaActiva === 'baja' && (
+                  <button className="btn-primary text-xs py-1 px-3" onClick={() => setModalAutorizacion(true)}>Resolver autorización</button>
+                )}
               </div>
             </div>
 
             <div className="p-6 space-y-6">
+
+              {/* Banner: qué rol debe actuar en esta etapa */}
+              {etapa.estado === 'pendiente' && (
+                <div className="flex items-start gap-3 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm">
+                  <span className="text-blue-400 text-base mt-0.5">🔒</span>
+                  <div>
+                    <p className="font-semibold text-blue-800">
+                      {etapa.id === 'autorizacion' && 'Esperando acción del rol Director / DGAYDRH'}
+                      {etapa.id === 'inscripcion'  && 'Esperando acción del área de Concursos CPH'}
+                      {etapa.id === 'ifacs_insal'  && 'Esperando acción de IFACS / INSAL'}
+                      {etapa.id === 'designacion'  && 'Esperando acción del área de Designaciones'}
+                      {etapa.id === 'desierto'     && 'Esperando acción del área de Concursos CPH'}
+                    </p>
+                    <p className="text-blue-600 text-xs mt-0.5">Esta etapa se habilitará cuando la anterior esté completa.</p>
+                  </div>
+                </div>
+              )}
+
+              {pendienteAutorizacion && etapaActiva === 'baja' && (
+                <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
+                  <span className="text-amber-500 text-base mt-0.5">⏳</span>
+                  <div>
+                    <p className="font-semibold text-amber-800">Modificación pendiente de autorización</p>
+                    <p className="text-amber-700 text-xs mt-0.5">Se solicitó un cambio de sigla o código de registro. El rol <strong>SGRASV</strong> debe aprobar o rechazar antes de continuar.</p>
+                  </div>
+                </div>
+              )}
+
               {etapa.id === 'baja' ? (
                 <>
                   {/* ── Datos de la baja (readonly) ── */}
@@ -572,42 +676,40 @@ export function ConcursoCphWizard() {
                           ))}
                         </select>
                       </div>
-                      {/* Código de registro */}
+                      {/* Escalafón */}
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">Código de registro</label>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón</label>
                         <select
-                          value={codigoRegistroId}
-                          onChange={(e) => setCodigoRegistroId(e.target.value)}
+                          value={escalafonId}
+                          onChange={(e) => { setEscalafonId(e.target.value); setPuestoConcurso(''); setEspecialidadConcurso('') }}
                           className="input h-10 w-full"
                           disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                         >
                           <option value="">Seleccioná...</option>
-                          {codigosRegistro.map((cr) => (
-                            <option key={cr.id} value={cr.id}>{cr.literal}</option>
+                          {escalafonesOrdenados.map((e) => (
+                            <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>
                           ))}
                         </select>
                       </div>
-                      {/* Puesto del concurso */}
+                      {/* Puesto del concurso — en cascada con escalafón */}
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">Puesto del concurso</label>
-                        <input
-                          list="puestos-cph-list"
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto del concurso</label>
+                        <select
                           value={puestoConcurso}
                           onChange={(e) => { setPuestoConcurso(e.target.value); setEspecialidadConcurso('') }}
-                          placeholder="Escribí para buscar..."
                           className="input h-10 w-full"
                           disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                        />
-                        <datalist id="puestos-cph-list">
+                        >
+                          <option value="">{escalafonId ? 'Seleccioná...' : 'Elegí un escalafón primero'}</option>
                           {puestosDisponibles.map((p) => (
-                            <option key={p} value={p} />
+                            <option key={p} value={p}>{p}</option>
                           ))}
-                        </datalist>
+                        </select>
                       </div>
                       {/* Especialidad — condicional */}
                       {especialidadesDisponibles.length > 0 && (
                         <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1">Especialidad del concurso</label>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad del concurso</label>
                           <select
                             value={especialidadConcurso}
                             onChange={(e) => setEspecialidadConcurso(e.target.value)}
@@ -687,28 +789,17 @@ export function ConcursoCphWizard() {
                     ← Anterior
                   </button>
                 )}
-                {etapa.numero < etapasActuales.length && etapa.estado !== 'bloqueada' && (
-                  <button
-                    className="btn-outline"
-                    onClick={() => {
-                      const next = etapasActuales[etapa.numero]
-                      if (next && next.estado !== 'bloqueada') setEtapaActiva(next.id)
-                    }}
-                  >
-                    Siguiente →
-                  </button>
-                )}
               </div>
               <div className="flex items-center gap-3">
                 {guardado && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
                 {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && (
-                  <button className="btn-primary" onClick={handleGuardar}>
-                    Guardar cambios
-                  </button>
-                )}
-                {etapa.estado === 'activa' && (
-                  <button className="btn-secondary" onClick={handleMarcarCompleta}>
-                    Marcar completa ✓
+                  <button
+                    className="btn-primary"
+                    disabled={pendienteAutorizacion && etapaActiva === 'baja'}
+                    title={pendienteAutorizacion && etapaActiva === 'baja' ? 'Hay una modificación pendiente de autorización por SGRASV' : undefined}
+                    onClick={handleGuardar}
+                  >
+                    {etapa.numero < etapasActuales.length ? 'Guardar y continuar →' : 'Guardar cambios'}
                   </button>
                 )}
               </div>
@@ -766,17 +857,27 @@ export function ConcursoCphWizard() {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
               Sub-estado actual
             </p>
+            {pendienteAutorizacion && (
+              <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                <span className="text-amber-500 text-sm">⏳</span>
+                <div>
+                  <p className="text-[10px] font-bold text-amber-700 leading-tight">Autorización pendiente</p>
+                  <p className="text-[10px] text-amber-600 leading-tight">Esperando aprobación de SGRASV para continuar</p>
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               {SUB_ESTADOS.map((s, idx) => {
                 const isCurrent = idx === currentIdxDinamico
                 const isPast    = idx < currentIdxDinamico
                 return (
                   <div key={s.key} className="flex items-center gap-2">
-                    {/* línea conectora */}
                     <div className="flex flex-col items-center self-stretch">
                       <span className={[
                         'w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5',
-                        isCurrent ? 'bg-amber-400 ring-2 ring-amber-200' : isPast ? 'bg-green-400' : 'bg-gray-200',
+                        isCurrent && pendienteAutorizacion ? 'bg-amber-400 ring-2 ring-amber-200 animate-pulse' :
+                        isCurrent ? 'bg-amber-400 ring-2 ring-amber-200' :
+                        isPast    ? 'bg-green-400' : 'bg-gray-200',
                       ].join(' ')} />
                       {idx < SUB_ESTADOS.length - 1 && (
                         <span className={`w-px flex-1 mt-0.5 ${isPast ? 'bg-green-300' : 'bg-gray-200'}`} />
@@ -787,6 +888,9 @@ export function ConcursoCphWizard() {
                       isCurrent ? 'font-bold text-amber-700' : isPast ? 'text-gray-500' : 'text-gray-300',
                     ].join(' ')}>
                       {s.label}
+                      {isCurrent && pendienteAutorizacion && (
+                        <span className="ml-1 text-[10px] text-amber-500">⏳</span>
+                      )}
                     </span>
                   </div>
                 )

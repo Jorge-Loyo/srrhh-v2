@@ -37,9 +37,9 @@ export function useCodigosRegistro() {
   })
 }
 
-export function usePuestosCargos(escalafonId?: string, hospitalId?: string) {
+export function usePuestosCargos(escalafonId?: string, hospitalId?: string, tipoPuesto?: 'ejecucion' | 'conduccion') {
   return useQuery({
-    queryKey: ['cargos-puestos', escalafonId, hospitalId],
+    queryKey: ['cargos-puestos', escalafonId, hospitalId, tipoPuesto],
     queryFn: async () => {
       const res = await apiClient.get<{ data: string[] }>('/api/v1/cargos/puestos', {
         params: { ...(escalafonId && { escalafonId }), ...(hospitalId && { hospitalId }) },
@@ -49,13 +49,13 @@ export function usePuestosCargos(escalafonId?: string, hospitalId?: string) {
   })
 }
 
-export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos') {
+export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos', tipoPuesto?: 'ejecucion' | 'conduccion') {
   return useQuery({
-    queryKey: ['puestos-cargo', escalafonId, modalidad],
+    queryKey: ['puestos-cargo', escalafonId, modalidad, tipoPuesto],
     enabled: !!escalafonId,
     queryFn: async () => {
       const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo', {
-        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }) },
+        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }), ...(tipoPuesto && { tipoPuesto }) },
       })
       return res.data.data
     },

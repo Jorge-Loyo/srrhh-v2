@@ -657,34 +657,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const siglasNecesarias = [...new Set(nuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
     const cuilsNecesarios = [...new Set(nuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)))]
     const idSialsNecesarios = [...new Set(nuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
-    // Normalización por CODIGO DE REGISTRO → escalafón canónico.
-    // Si el código no existe en escalafon_codigos_registro se cae al nombre
-    // del LITERAL CR como fallback (crea uno nuevo igual que antes).
     const codigosRegNecesarios = [...new Set(nuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)))]
     const escalafonesNecesarios = [...new Set(nuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean))]
 
-    // `{ in: [] }` es válido en Prisma (devuelve 0 filas) — no hace falta
-    // condicionar la query a que el array no esté vacío.
-    // Cast explícito de los resultados: en este entorno pnpm, la copia de
-    // '@prisma/client' que TypeScript resuelve para el paquete es el stub sin
-    // generar que trae el propio npm package (PrismaClient = any) en vez del
-    // cliente generado real que vive en la raíz del monorepo — @prisma/client
-    // en tiempo de ejecución sí usa el generado (por eso todo funciona
-    // corriendo), pero en tiempo de compilación tx.<modelo> resuelve a `any`,
-    // que colapsa a `{}` en este tipo de contexto (Promise.all + destructure)
-    // y tira "implicitly any" en los .map() de más abajo. Anotar el resultado
-    // a mano con la forma mínima que se usa evita depender de esa resolución
-    // rota sin tener que arreglar la instalación de pnpm para esto.
-    const [hospitalesExistentes, escalafonPorCodReg, escalafonesExistentes, personasExistentes, cargosExistentes, ocupacionesExistentes] =
+    const [hospitalesExistentes, codigosRegistroExistentesLookup, escalafonesExistentes, personasExistentes, cargosExistentes, ocupacionesExistentes] =
       await Promise.all([
         tx.hospital.findMany({ where: { sigla: { in: siglasNecesarias } } }) as Promise<HospitalRow[]>,
-        // Lookup canónico: CODIGO DE REGISTRO → escalafón normalizado
-        tx.$queryRaw<{ codigoReg: string; escalafonId: string; nombre: string }[]>(
-          Prisma.sql`SELECT ecr.codigo_reg AS "codigoReg", ecr.escalafon_id AS "escalafonId", e.nombre
-                     FROM escalafon_codigos_registro ecr
-                     JOIN escalafones e ON e.id = ecr.escalafon_id
-                     WHERE ecr.codigo_reg = ANY(${codigosRegNecesarios}::text[])`
-        ),
+        // Lookup canónico: CODIGO DE REGISTRO → escalafón via codigos_registro (fuente de verdad)
+        tx.codigoRegistro.findMany({
+          where: { codigo: { in: codigosRegNecesarios } },
+          include: { escalafon: true },
+        }) as Promise<{ codigo: string; id: string; escalafonId: string; escalafon: EscalafonRow }[]>,
         // Fallback: buscar por nombre para códigos no mapeados
         tx.escalafon.findMany({ where: { nombre: { in: escalafonesNecesarios }, activo: true } }) as Promise<EscalafonRow[]>,
         tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
@@ -696,14 +679,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       ])
 
     const hospitalCache = new Map(hospitalesExistentes.map((h) => [h.sigla, h]))
-    // Cache de escalafón: primero por código de registro (canónico), luego por nombre (fallback)
     const escalafonCache = new Map<string, EscalafonRow>(
       escalafonesExistentes.map((e) => [e.nombre, e])
     )
     const escalafonPorCodRegCache = new Map(
-      (escalafonPorCodReg as { codigoReg: string; escalafonId: string; nombre: string }[]).map(
-        (r) => [r.codigoReg, { id: r.escalafonId, nombre: r.nombre }]
-      )
+      codigosRegistroExistentesLookup.map((cr) => [cr.codigo, { id: cr.escalafon.id, nombre: cr.escalafon.nombre }])
     )
     const personaCache = new Map(personasExistentes.map((p) => [p.cuil, p]))
     const cargoCache = new Map(cargosExistentes.map((c) => [c.idSial, c]))
@@ -731,26 +711,18 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
 
     // ── 2b. Resolver CodigoRegistro: lookup/create por código numérico ─────
-    // Fuente de verdad: escalafon_codigos_registro (ya cargado en
-    // escalafonPorCodRegCache). Si el código está ahí, el escalafonId es el
-    // canónico — nunca se usa el nombre del Excel como fallback para esto.
-    // Si el código NO está en escalafon_codigos_registro (código genuinamente
-    // nuevo, no visto antes), se crea el CodigoRegistro con el escalafón
-    // resuelto por nombre y se inserta también en escalafon_codigos_registro
-    // para que futuras cargas lo resuelvan canónicamente.
+    // Fuente de verdad: codigos_registro (ya cargado en codigosRegistroExistentesLookup).
+    // Si el código no existe (genuinamente nuevo), se crea con el escalafón
+    // resuelto por nombre como fallback.
     const codigosRegistroNecesarios = [...new Set(
-      nuevos
-        .map((n) => n.datos.codigo_de_registro)
-        .filter((v): v is string => Boolean(v))
+      nuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v))
     )]
-    const codigosRegistroExistentes = await tx.codigoRegistro.findMany({
-      where: { codigo: { in: codigosRegistroNecesarios } },
-    }) as { id: string; codigo: string }[]
-    const codigoRegistroCache = new Map(codigosRegistroExistentes.map((cr) => [cr.codigo, cr]))
+    const codigoRegistroCache = new Map(
+      codigosRegistroExistentesLookup.map((cr) => [cr.codigo, cr as { id: string; codigo: string }])
+    )
     for (const codigo of codigosRegistroNecesarios) {
       if (codigoRegistroCache.has(codigo)) continue
       const datosEjemplo = nuevos.find((n) => n.datos.codigo_de_registro === codigo)!.datos
-      // Resolver escalafón: canónico por código primero, nombre como último recurso
       const escalafon = escalafonPorCodRegCache.get(codigo)
         ?? escalafonCache.get(datosEjemplo.escalafon ?? '')
       if (!escalafon) {
@@ -762,17 +734,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         data: { codigo, literal, escalafonId: escalafon.id },
       })
       codigoRegistroCache.set(codigo, cr)
-      // Si el código no estaba en escalafon_codigos_registro, registrarlo
-      // para que la próxima carga lo resuelva canónicamente sin crear duplicados.
-      if (!escalafonPorCodRegCache.has(codigo)) {
-        await tx.$executeRaw`
-          INSERT INTO escalafon_codigos_registro (escalafon_id, codigo_reg, literal_orig)
-          VALUES (${escalafon.id}::uuid, ${codigo}, ${literal})
-          ON CONFLICT (codigo_reg) DO NOTHING
-        `
-        escalafonPorCodRegCache.set(codigo, { id: escalafon.id, nombre: escalafon.nombre })
-        console.info(`[padron] Nuevo CODIGO DE REGISTRO "${codigo}" → escalafón "${escalafon.nombre}" registrado en escalafon_codigos_registro`)
-      }
+      escalafonPorCodRegCache.set(codigo, { id: escalafon.id, nombre: escalafon.nombre })
+      console.info(`[padron] Nuevo CODIGO DE REGISTRO "${codigo}" → escalafón "${escalafon.nombre}" creado en codigos_registro`)
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────

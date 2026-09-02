@@ -94,7 +94,7 @@ model Escalafon {
   id        String   @id @default(uuid()) @db.Uuid
   // Código canónico corto: 22, 37, 83, etc. (CODIGO DE REGISTRO del Excel).
   // Cuando un escalafón tiene más de un código (ej. CPH: 22 y 37) se usa el
-  // menor como código principal; los alias viven en EscalafonCodigoRegistro.
+  // menor como código principal; los alias viven en CodigoRegistro.
   codigo    String   @unique @db.VarChar(20)
   // Nombre canónico = LITERAL CR normalizado (fuente de verdad del Excel).
   // "Carrera Administrativa" y "Nueva Carrera Administrativa" se unifican
@@ -106,7 +106,6 @@ model Escalafon {
 
   // Relaciones
   codigosRegistro        CodigoRegistro[]
-  escalafonCodigosReg    EscalafonCodigoRegistro[]
   cargos                 Cargo[]
   concursosCeetps        ConcursoCeetps[]
   puestosCargo           PuestoCargo[]
@@ -117,21 +116,6 @@ model Escalafon {
 // Tabla de relación: un escalafón canónico puede tener N códigos de registro
 // del Excel (ej. "Nueva Carrera Prof. Hosp" tiene códigos 22 y 37).
 // Es la fuente de verdad para normalizar al procesar cada padrón:
-// dado un CODIGO DE REGISTRO del Excel → obtener el escalafon_id canónico.
-model EscalafonCodigoRegistro {
-  id          String   @id @default(uuid()) @db.Uuid
-  escalafonId String   @map("escalafon_id") @db.Uuid
-  // Código de registro del Excel (CODIGO DE REGISTRO), ej. "22", "37", "83"
-  codigoReg   String   @unique @map("codigo_reg") @db.VarChar(10)
-  // Literal original del Excel para trazabilidad
-  literalOrig String   @map("literal_orig") @db.VarChar(100)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  escalafon Escalafon @relation(fields: [escalafonId], references: [id])
-
-  @@map("escalafon_codigos_registro")
-}
-
 model CodigoRegistro {
   id          String   @id @default(uuid()) @db.Uuid
   codigo      String   @unique @db.VarChar(10)
@@ -143,6 +127,7 @@ model CodigoRegistro {
   // Relaciones
   escalafon Escalafon @relation(fields: [escalafonId], references: [id])
   cargos    Cargo[]
+  concursosCphSolicitado ConcursoCph[] @relation("CphCodigoRegistroSolicitado")
 
   @@map("codigos_registro")
 }
@@ -451,6 +436,11 @@ model ConcursoCph {
   fechaDispoDesierta    DateTime?        @map("fecha_dispo_desierta") @db.Date
   personaDesignadaId    String?          @map("persona_designada_id") @db.Uuid
   suspendido            Boolean          @default(false)
+  pendienteAutorizacion        Boolean          @default(false) @map("pendiente_autorizacion")
+  aprobadoDirector             Boolean          @default(false) @map("aprobado_director")
+  siglaSolicitada              String?          @map("sigla_solicitada") @db.VarChar(20)
+  codigoRegistroSolicitadoId   String?          @map("codigo_registro_solicitado_id") @db.Uuid
+  codigoRegistroSolicitado     CodigoRegistro?  @relation("CphCodigoRegistroSolicitado", fields: [codigoRegistroSolicitadoId], references: [id])
   observaciones         String?          @db.Text
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
@@ -536,6 +526,7 @@ model Baja {
   partidaPresupuestaria String?  @map("partida_presupuestaria") @db.VarChar(100)
   docRespaldatoria      String?  @map("doc_respaldatoria") @db.VarChar(500)
   fechaPaseParalelo     DateTime? @map("fecha_pase_paralelo") @db.Date
+  cargaHoraria          Int?      @map("carga_horaria")
   generaConcurso        Boolean  @default(true) @map("genera_concurso")
   estado           EstadoBaja @default(pendiente)
   observaciones    String?    @db.Text
@@ -680,18 +671,15 @@ model Especialidad {
   @@map("especialidades")
 }
 
-model Puesto {
-  id     String  @id @default(uuid()) @db.Uuid
-  nombre String  @unique @db.VarChar(200)
-  activo Boolean @default(true)
-
-  @@map("puestos")
-}
-
 enum ModalidadPuesto {
   pof
   pou
   ambos
+}
+
+enum TipoPuesto {
+  ejecucion
+  conduccion
 }
 
 model PuestoCargo {
@@ -700,6 +688,7 @@ model PuestoCargo {
   modalidad   ModalidadPuesto
   nombre      String          @db.VarChar(200)
   activo      Boolean         @default(true)
+  tipoPuesto  TipoPuesto      @default(ejecucion) @map("tipo_puesto")
 
   escalafon      Escalafon            @relation(fields: [escalafonId], references: [id])
   especialidades EspecialidadPuesto[]

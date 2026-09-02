@@ -37,6 +37,7 @@ export function ValidacionBajasPage() {
   const [confirmando, setConfirmando] = useState<CargoValidacion | null>(null)
   const [acta, setActa] = useState('')
   const [rechazando, setRechazando] = useState<string | null>(null)
+  const [busqueda, setBusqueda] = useState('')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['validacion-bajas'],
@@ -74,7 +75,7 @@ export function ValidacionBajasPage() {
       {confirmando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4 space-y-4">
-            <h3 className="font-bold text-gray-900">Confirmar baja</h3>
+            <h3 className="font-bold text-gray-900">No genera concurso</h3>
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
               <p><span className="text-gray-500">Cargo:</span> <span className="font-mono font-bold">{confirmando.codigo ?? '—'}</span></p>
               <p><span className="text-gray-500">Puesto:</span> {confirmando.literalPuesto ?? '—'}</p>
@@ -104,7 +105,7 @@ export function ValidacionBajasPage() {
                 disabled={confirmar.isPending}
                 onClick={() => confirmar.mutate({ cargoId: confirmando.id, actaAdministrativa: acta || undefined })}
               >
-                {confirmar.isPending ? 'Confirmando...' : 'Confirmar baja'}
+                {confirmar.isPending ? 'Confirmando...' : 'No genera concurso'}
               </button>
             </div>
           </div>
@@ -115,7 +116,7 @@ export function ValidacionBajasPage() {
       {rechazando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h3 className="font-bold text-gray-900">¿Rechazar validación?</h3>
+            <h3 className="font-bold text-gray-900">¿Volver atrás?</h3>
             <p className="text-sm text-gray-600">
               El cargo volverá a <span className="font-semibold">vigente</span> y se reabrirá la ocupación de la persona.
             </p>
@@ -126,7 +127,7 @@ export function ValidacionBajasPage() {
                 disabled={rechazar.isPending}
                 onClick={() => rechazar.mutate(rechazando)}
               >
-                {rechazar.isPending ? 'Rechazando...' : 'Rechazar'}
+                {rechazar.isPending ? 'Volviendo...' : 'Volver atrás'}
               </button>
             </div>
           </div>
@@ -141,11 +142,25 @@ export function ValidacionBajasPage() {
               Cargos detectados como vacantes por el padrón semanal, pendientes de confirmación
             </p>
           </div>
-          {data && (
-            <span className="text-xs text-gray-400 self-center">
-              {data.length} cargo{data.length !== 1 ? 's' : ''} pendiente{data.length !== 1 ? 's' : ''}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {data && (
+              <span className="text-xs text-gray-400 whitespace-nowrap">
+                {data.length} cargo{data.length !== 1 ? 's' : ''} pendiente{data.length !== 1 ? 's' : ''}
+              </span>
+            )}
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              <input
+                type="text"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Buscar por código, hospital, puesto..."
+                className="h-9 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy/30 w-72"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -159,7 +174,20 @@ export function ValidacionBajasPage() {
           </p>
         )}
 
-        {!isLoading && !isError && data && data.length > 0 && (
+        {!isLoading && !isError && data && data.length > 0 && (() => {
+          const q = busqueda.toLowerCase().trim()
+          const filtrados = q
+            ? data.filter((c) =>
+                c.codigo?.toLowerCase().includes(q) ||
+                c.hospital.sigla.toLowerCase().includes(q) ||
+                c.hospital.nombre.toLowerCase().includes(q) ||
+                c.escalafon.nombre.toLowerCase().includes(q) ||
+                c.literalPuesto?.toLowerCase().includes(q) ||
+                c.ultimaOcupacion?.persona?.apellidoNombre.toLowerCase().includes(q) ||
+                c.ultimaOcupacion?.persona?.cuil.includes(q)
+              )
+            : data
+          return (
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
@@ -174,7 +202,10 @@ export function ValidacionBajasPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.map((c) => (
+              {filtrados.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Sin resultados para "{busqueda}"</td></tr>
+              )}
+              {filtrados.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-xs font-bold text-gray-800">{c.codigo ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{c.hospital.sigla}</td>
@@ -197,13 +228,13 @@ export function ValidacionBajasPage() {
                         className="btn-outline text-xs px-3 py-1"
                         onClick={() => setRechazando(c.id)}
                       >
-                        Rechazar
+                        Volver atrás
                       </button>
                       <button
                         className="btn-primary text-xs px-3 py-1"
                         onClick={() => { setConfirmando(c); setActa('') }}
                       >
-                        Confirmar baja
+                        No genera concurso
                       </button>
                     </div>
                   </td>
@@ -211,7 +242,8 @@ export function ValidacionBajasPage() {
               ))}
             </tbody>
           </table>
-        )}
+          )
+        })()}
       </div>
     </div>
   )

@@ -109,6 +109,9 @@ export function BajaCargosPage() {
   const { data, isLoading, isFetching, isError } = useBajas(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
+  const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
+    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
+  )
   const createBaja = useCreateBaja()
 
   const { register, handleSubmit, reset, watch, setValue, formState } = useForm<FormValues>({
@@ -326,7 +329,7 @@ export function BajaCargosPage() {
                       <option value="" disabled>
                         Elegir...
                       </option>
-                      {escalafones?.map((e) => (
+                      {escalafonesOrdenados.map((e) => (
                         <option key={e.id} value={e.id}>
                           {escalafonLabel(e.nombre)}
                         </option>

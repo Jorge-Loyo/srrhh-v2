@@ -17,6 +17,7 @@ export const concursosCphQuerySchema = z.object({
   subEstado: z.string().trim().min(1).optional(),
   subEstado3: z.string().trim().min(1).optional(),
   suspendido: z.coerce.boolean().optional(),
+  pendienteAutorizacion: z.coerce.boolean().optional(),
   search: z.string().trim().min(1).optional(),
 })
 
@@ -62,6 +63,10 @@ export const patchConcursoCphSchema = z
     dispoDesierta: z.string().trim().max(50).nullable(),
     fechaDispoDesierta: fecha.nullable(),
     observaciones: z.string().trim().max(2000).nullable(),
+    // Campos de autorización (sigla/codigoRegistro cambiados)
+    pendienteAutorizacion: z.boolean().nullable(),
+    sigla: z.string().trim().max(20).nullable(),
+    codigoRegistroId: z.string().uuid().nullable(),
   })
   .partial()
   .strict()

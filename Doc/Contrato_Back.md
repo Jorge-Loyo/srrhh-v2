@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 8)
+> Última actualización: 2026-09 (Post-Sprint 11 parcial — flujo concursal CPH con autorizaciones)
 > Estado: VIGENTE
 
 ---
@@ -112,6 +112,7 @@ GET    /api/v1/concursos-cph
 GET    /api/v1/concursos-cph/:id
 PATCH  /api/v1/concursos-cph/:id
 POST   /api/v1/concursos-cph/:id/suspender
+POST   /api/v1/concursos-cph/:id/autorizar   2190 aprobar/rechazar modificaci00f3n pendiente (rol sgrasv)
 
 # Concursos CEETPS
 GET    /api/v1/concursos-ceetps
@@ -218,9 +219,23 @@ El sistema de permisos fue migrado de `roles.middleware.ts` (roles hardcodeados)
 
 ---
 
-## Módulo Concursos CPH — estado calculado
+## Módulo Concursos CPH — estado calculado y autorizaciones
 
 `calcConcursoCph()` calcula `estado`, `subEstado` (19 niveles) y `subEstado3` (8 niveles) server-side en cada create/PATCH. El schema Zod del PATCH usa `.strict()` — no acepta `estado`/`subEstado`/`subEstado3` en el body.
+
+### Campo `pendienteAutorizacion`
+
+Cuando el PATCH incluye cambios en `sigla` o `codigoRegistroId`, el service activa `pendienteAutorizacion = true` y crea una notificación `autorizacion_pendiente` al rol `director`. El wizard bloquea el avance a la siguiente etapa hasta que el rol `sgrasv` resuelva via `POST /:id/autorizar`.
+
+- `POST /:id/autorizar` requiere permiso `concursos-cph.autorizar` (rol `sgrasv`)
+- Body: `{ aprobado: boolean, observaciones?: string }`
+- Al resolver: limpia `pendienteAutorizacion`, crea notificación `autorizacion_resuelta` al rol `concursales_cph`
+
+### Campos nuevos en `concursos_cph`
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `pendiente_autorizacion` | BOOLEAN default false | Hay una modificación de sigla/código pendiente de aprobación por SGRASV |
 
 ---
 
@@ -385,6 +400,7 @@ GET    /api/v1/concursos-cph
 GET    /api/v1/concursos-cph/:id
 PATCH  /api/v1/concursos-cph/:id
 POST   /api/v1/concursos-cph/:id/suspender
+POST   /api/v1/concursos-cph/:id/autorizar   2190 aprobar/rechazar modificaci00f3n pendiente (rol sgrasv)
 
 # Concursos CEETPS
 GET    /api/v1/concursos-ceetps
