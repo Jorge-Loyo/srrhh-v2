@@ -271,10 +271,9 @@ export function ConcursoCphWizard() {
   const [especialidadConcurso, setEspecialidadConcurso] = useState('')
   const [siglaConcurso, setSiglaConcurso] = useState('')
   const [escalafonId, setEscalafonId] = useState('')
-  // Puestos de ejecución del escalafón seleccionado (excluye conducción por tipoPuesto en BD)
-  // Puestos de ejecución: siempre desde Carrera Profesional Hospitalaria (donde viven los 45 puestos CPH)
+  // Puestos de ejecución del escalafón seleccionado
   const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
-    escalafonCph?.id ?? '2a5c51d1-0446-4c58-a68a-a2f2687c94ef',
+    escalafonId || undefined,
     undefined,
     'ejecucion'
   )
@@ -285,7 +284,7 @@ export function ConcursoCphWizard() {
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
   const [originales, setOriginales] = useState(originalesRef)
   const { data: especialidadesDisponibles = [] } = useEspecialidadesPuesto(
-    escalafonCph?.id ?? '2a5c51d1-0446-4c58-a68a-a2f2687c94ef',
+    escalafonId || undefined,
     puestoConcurso || undefined
   )
 
