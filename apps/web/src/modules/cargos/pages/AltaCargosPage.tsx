@@ -65,15 +65,16 @@ function modalidadParaTipo(tipo: TipoAlta): 'pof' | 'pou' | 'ambos' {
 
 // Escalafones permitidos por tipo de alta (nombres en BD)
 const ESC_POF = new Set([
-  'Carrera Profesional Hospitalaria', 'Carrera de Enfermería',
-  'CEETPS', 'Escalafón General',
+  'Nueva Carrera Prof. Hosp', 'Nueva Carrera Enfermería',
+  'CEETPS', 'Nueva Carrera Administrativa',
 ])
 const ESC_POU = new Set([
-  'Carrera Profesional Hospitalaria', 'CEETPS', 'Carrera de Enfermería',
-  'Carrera de Técnicos de la Salud', 'Escalafón General',
+  'Nueva Carrera Prof. Hosp', 'CEETPS', 'Nueva Carrera Enfermería',
+  'Cuerpo Especialistas Profesionales', 'Nueva Carrera Administrativa',
 ])
 const ESC_ESTRUCTURA = new Set([
-  'Escalafón General', 'Autoridades Superiores', 'Carrera Gerencial', 'Cuerpos Transitorios',
+  'Nueva Carrera Administrativa', 'Autoridades Superiores', 'Carrera Gerencial',
+  'Plantas Transitorias Acta 06/2014', 'Plantas Transitorias Modulo Operativo',
 ])
 
 function filtrarEscalafones(todos: { id: string; nombre: string }[], tipo: TipoAlta) {

@@ -77,7 +77,7 @@ export function ConcursoCphWizard() {
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
   const { data: codigosRegistro = [] } = useCodigosRegistro()
-  const escalafonCph = escalafones.find((e) => /médico/i.test(e.nombre) && !/no\s*médico/i.test(e.nombre))
+  const escalafonCph = escalafones.find((e) => e.nombre === 'Nueva Carrera Prof. Hosp')
   const { data: puestosDisponibles = [] } = usePuestosCargos(escalafonCph?.id)
 
   // Query params solo se usan en modo nuevo (vienen de NuevaBajaPage)

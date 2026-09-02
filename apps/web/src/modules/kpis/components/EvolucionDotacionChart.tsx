@@ -1,160 +1,329 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { KpiDotacionHistorica } from '@srrhh/types'
 
-// S6-5: gráfico de línea de una sola serie ("personas únicas" — dotación
-// real, ver PadronHistorico.cuil agregado en S6-0) por fecha de padrón
-// aprobada. Un solo eje, una sola serie → sin leyenda (el título ya dice qué
-// se grafica, ver skill de dataviz), con crosshair + tooltip al pasar el
-// mouse y el valor final rotulado directo sobre la línea.
-//
-// Specs de mark seguidas a mano (no hay librería de charts en el proyecto —
-// se evitó sumar una dependencia nueva para un solo gráfico): línea 2px,
-// punto final ≥8px con anillo de 2px color superficie, área al ~10% de
-// opacidad, grillas/ejes hairline 1px recesivos.
-//
-// `coords` carga el punto original junto con x/y (en vez de arrays
-// paralelos indexados por posición) para no depender de que dos arrays
-// separados queden siempre sincronizados en longitud.
+// ─── Macro-grupos (de mayor a menor volumen esperado) ───────────────────────
+// Criterio: de mayor dotación a menor
+const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; colorLight: string }[] = [
+  {
+    label: 'Nueva Carrera Prof. Hosp',
+    escalafones: ['Nueva Carrera Prof. Hosp'],
+    color: '#1D6FA4',
+    colorLight: '#DBEAFE',
+  },
+  {
+    label: 'Nueva Carrera Enfermería',
+    escalafones: ['Nueva Carrera Enfermería'],
+    color: '#0E9F8E',
+    colorLight: '#CCFBF1',
+  },
+  {
+    label: 'Nueva Carrera Administrativa',
+    escalafones: ['Nueva Carrera Administrativa'],
+    color: '#2D7D46',
+    colorLight: '#DCFCE7',
+  },
+  {
+    label: 'Guardias y Residencias',
+    escalafones: ['Salud - Guardias', 'Residencias'],
+    color: '#5B6FA8',
+    colorLight: '#E0E7FF',
+  },
+  {
+    label: 'Régimen Modular / Transitorio',
+    escalafones: [
+      'Régimen Modular Extraordinario PG',
+      'Plantas Transitorias Acta 06/2014',
+      'Plantas Transitorias Modulo Operativo',
+    ],
+    color: '#A07840',
+    colorLight: '#FEF3C7',
+  },
+  {
+    label: 'Otros / Fuera de Escala',
+    escalafones: [
+      'Gabinete',
+      'Autoridades Superiores',
+      'CEETPS',
+      'Docentes Históricos',
+      'Carrera Gerencial',
+      'Cuerpo Especialistas Profesionales',
+    ],
+    color: '#6B7280',
+    colorLight: '#F3F4F6',
+  },
+]
 
-type Punto = KpiDotacionHistorica['puntos'][number]
-interface Coord {
-  x: number
-  y: number
-  punto: Punto
-}
+// ─── Dimensiones del mini-gráfico ───────────────────────────────────────────
+const MW = 320
+const MH = 110
+const MP = { top: 14, right: 48, bottom: 22, left: 44 }
+const innerW = MW - MP.left - MP.right
+const innerH = MH - MP.top - MP.bottom
 
-const W = 720
-const H = 260
-const PAD = { top: 20, right: 16, bottom: 32, left: 44 }
-
-function formatFecha(iso: string): string {
+function formatFecha(iso: string | Date, agrupacion: 'mes' | 'subida'): string {
   const d = new Date(iso)
+  if (agrupacion === 'mes') return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
 }
 
-// Redondea el techo del eje Y a un número "limpio" (múltiplos de 1, 2 o 5 * 10^n).
 function techoLimpio(max: number): number {
   if (max <= 0) return 10
-  const magnitud = 10 ** Math.floor(Math.log10(max))
-  const pasos = [1, 2, 5, 10]
-  for (const p of pasos) {
-    const candidato = p * magnitud
-    if (candidato >= max) return candidato
-  }
-  return 10 * magnitud
+  const mag = 10 ** Math.floor(Math.log10(max))
+  for (const p of [1, 2, 2.5, 5, 10]) { if (p * mag >= max) return p * mag }
+  return 10 * mag
 }
 
-const innerW = W - PAD.left - PAD.right
-const innerH = H - PAD.top - PAD.bottom
+function formatK(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
+  return n.toLocaleString('es-AR')
+}
 
-export function EvolucionDotacionChart({ data }: { data: KpiDotacionHistorica | undefined }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+interface Props {
+  data: KpiDotacionHistorica | undefined
+  agrupacion: 'mes' | 'subida'
+  onToggle: () => void
+}
+
+export function EvolucionDotacionChart({ data, agrupacion, onToggle }: Props) {
   const puntos = data?.puntos ?? []
+  const todosEscalafones = data?.escalafones ?? []
 
-  const { path, area, coords, yTicks, yMax } = useMemo(() => {
-    const max = techoLimpio(Math.max(0, ...puntos.map((p) => p.personas)))
-    const coords: Coord[] = puntos.map((punto, i) => ({
-      x: puntos.length === 1 ? PAD.left + innerW / 2 : PAD.left + (i / (puntos.length - 1)) * innerW,
-      y: PAD.top + innerH - (punto.personas / max) * innerH,
-      punto,
-    }))
-    const primero = coords[0]
-    const ultimo = coords[coords.length - 1]
-    const path = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ')
-    const area =
-      primero && ultimo
-        ? `${path} L ${ultimo.x.toFixed(1)} ${PAD.top + innerH} L ${primero.x.toFixed(1)} ${PAD.top + innerH} Z`
-        : ''
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * max))
-    return { path, area, coords, yTicks, yMax: max }
-  }, [puntos])
+  // Suma por macro-grupo para cada punto
+  const seriesPorGrupo = useMemo(() =>
+    MACRO_GRUPOS.map((g) => ({
+      ...g,
+      valores: puntos.map((p) =>
+        g.escalafones.reduce((s, e) => s + (p.porEscalafon[e] ?? 0), 0)
+      ),
+    })),
+    [puntos]
+  )
 
-  const ultimo = coords[coords.length - 1]
+  // KPIs ejecutivos
+  const { totalActual, totalInicio, variacionNeta, variacionPct, grupoMayorCrecimiento } = useMemo(() => {
+    if (puntos.length === 0) return { totalActual: 0, totalInicio: 0, variacionNeta: 0, variacionPct: 0, grupoMayorCrecimiento: '—' }
+    const ultimo = puntos[puntos.length - 1]!
+    const primero = puntos[0]!
+    const totalActual = todosEscalafones.reduce((s, e) => s + (ultimo.porEscalafon[e] ?? 0), 0)
+    const totalInicio = todosEscalafones.reduce((s, e) => s + (primero.porEscalafon[e] ?? 0), 0)
+    const variacionNeta = totalActual - totalInicio
+    const variacionPct = totalInicio > 0 ? (variacionNeta / totalInicio) * 100 : 0
 
-  if (puntos.length === 0 || !ultimo) {
-    return <p className="text-sm text-gray-400">Todavía no hay snapshots de padrón aprobados para graficar.</p>
+    let maxCrecimiento = -Infinity
+    let grupoMayorCrecimiento = '—'
+    for (const g of seriesPorGrupo) {
+      const inicio = g.valores[0] ?? 0
+      const fin = g.valores[g.valores.length - 1] ?? 0
+      const delta = fin - inicio
+      if (delta > maxCrecimiento) { maxCrecimiento = delta; grupoMayorCrecimiento = g.label }
+    }
+    return { totalActual, totalInicio, variacionNeta, variacionPct, grupoMayorCrecimiento }
+  }, [puntos, todosEscalafones, seriesPorGrupo])
+
+  const fechaCorte = puntos.length > 0
+    ? new Date(puntos[puntos.length - 1]!.fecha).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' })
+    : '—'
+
+  if (puntos.length === 0) {
+    return (
+      <div className="space-y-3">
+        <ChartHeader agrupacion={agrupacion} onToggle={onToggle} />
+        <p className="text-sm text-gray-400">Todavía no hay snapshots de padrón aprobados para graficar.</p>
+      </div>
+    )
   }
 
-  const hover = hoverIdx !== null ? coords[hoverIdx] : undefined
-
-  function handleMove(e: React.PointerEvent<SVGRectElement>) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const relX = ((e.clientX - rect.left) / rect.width) * innerW
-    const idx = puntos.length === 1 ? 0 : Math.round((relX / innerW) * (puntos.length - 1))
-    setHoverIdx(Math.min(Math.max(idx, 0), puntos.length - 1))
-  }
+  // Escalafones sin grupo asignado (para detectar si hay datos no mapeados)
+  const escalafonesMapeados = new Set(MACRO_GRUPOS.flatMap((g) => g.escalafones))
+  const sinMapear = todosEscalafones.filter((e) => !escalafonesMapeados.has(e))
+  // Los no mapeados van a "Otros" automáticamente — no se muestran como advertencia
 
   return (
-    <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Evolución de dotación por fecha de padrón">
-        {/* Gridlines Y — hairline recesivo */}
+    <div className="space-y-5">
+      {/* Toggle */}
+      <div className="flex justify-end">
+        <ChartHeader agrupacion={agrupacion} onToggle={onToggle} />
+      </div>
+
+      {/* ── KPI Cards ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <KpiCard
+          label="Dotación total"
+          value={totalActual.toLocaleString('es-AR')}
+          sub={`al corte ${fechaCorte}`}
+        />
+        <KpiCard
+          label={`Variación vs ${formatFecha(puntos[0]!.fecha, 'mes')}`}
+          value={`${variacionNeta >= 0 ? '+' : ''}${variacionNeta.toLocaleString('es-AR')}`}
+          sub={`${variacionPct >= 0 ? '+' : ''}${variacionPct.toFixed(1)}%`}
+          trend={variacionNeta >= 0 ? 'up' : 'down'}
+        />
+        <KpiCard
+          label="Mayor crecimiento"
+          value={grupoMayorCrecimiento}
+          sub="en el período"
+          small
+        />
+      </div>
+
+      {/* ── Small Multiples ───────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {seriesPorGrupo.map((grupo) => (
+          <MiniLineChart
+            key={grupo.label}
+            label={grupo.label}
+            valores={grupo.valores}
+            color={grupo.color}
+            colorLight={grupo.colorLight}
+            fechas={puntos.map((p) => p.fecha)}
+            agrupacion={agrupacion}
+          />
+        ))}
+      </div>
+
+      {/* Nota si hay escalafones sin mapear */}
+      {sinMapear.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Escalafones incluidos en "Otros": {sinMapear.join(', ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Mini gráfico de línea individual ───────────────────────────────────────
+function MiniLineChart({
+  label, valores, color, colorLight, fechas, agrupacion,
+}: {
+  label: string
+  valores: number[]
+  color: string
+  colorLight: string
+  fechas: (string | Date)[]
+  agrupacion: 'mes' | 'subida'
+}) {
+  const yMax = techoLimpio(Math.max(1, ...valores))
+  const n = valores.length
+
+  const labelStep = Math.max(1, Math.ceil(n / 5))
+
+  // Construir polyline points
+  const points = valores.map((v, i) => {
+    const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+    const y = MP.top + innerH - (v / yMax) * innerH
+    return `${x},${y}`
+  }).join(' ')
+
+  // Área bajo la curva
+  const areaPoints = [
+    `${MP.left},${MP.top + innerH}`,
+    ...valores.map((v, i) => {
+      const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+      const y = MP.top + innerH - (v / yMax) * innerH
+      return `${x},${y}`
+    }),
+    `${MP.left + innerW},${MP.top + innerH}`,
+  ].join(' ')
+
+  const ultimo = valores[n - 1] ?? 0
+  const primero = valores[0] ?? 0
+  const delta = ultimo - primero
+  const xUltimo = MP.left + innerW
+  const yUltimo = MP.top + innerH - (ultimo / yMax) * innerH
+
+  // Ticks Y: solo 3 (0, mitad, máx)
+  const yTicks = [0, Math.round(yMax / 2), yMax]
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-3">
+      {/* Header del mini-chart */}
+      <div className="flex items-start justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-700 leading-tight max-w-[160px]">{label}</p>
+        <div className="text-right flex-shrink-0 ml-2">
+          <p className="text-sm font-bold" style={{ color }}>{formatK(ultimo)}</p>
+          <p className={`text-xs font-medium ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toLocaleString('es-AR')}
+          </p>
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${MW} ${MH}`} className="w-full h-auto">
+        {/* Área */}
+        <polygon points={areaPoints} fill={colorLight} opacity={0.7} />
+
+        {/* Gridlines Y mínimas */}
         {yTicks.map((t) => {
-          const y = PAD.top + innerH - (t / yMax) * innerH
+          const y = MP.top + innerH - (t / yMax) * innerH
           return (
             <g key={t}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="#DEE2E6" strokeWidth={1} />
-              <text x={PAD.left - 8} y={y + 4} textAnchor="end" fontSize={11} fill="#6C757D">
-                {t.toLocaleString('es-AR')}
+              <line x1={MP.left} x2={MP.left + innerW} y1={y} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
+              <text x={MP.left - 4} y={y + 3.5} textAnchor="end" fontSize={9} fill="#9CA3AF">
+                {formatK(t)}
               </text>
             </g>
           )
         })}
 
-        {/* Eje X — fechas */}
-        {coords.map((c) => (
-          <text key={c.punto.fecha} x={c.x} y={H - PAD.bottom + 18} textAnchor="middle" fontSize={11} fill="#6C757D">
-            {formatFecha(c.punto.fecha)}
-          </text>
-        ))}
+        {/* Línea */}
+        <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
-        {/* Área (10% opacidad) + línea (2px) */}
-        {area && <path d={area} fill="#0066CC" fillOpacity={0.1} stroke="none" />}
-        <path d={path} fill="none" stroke="#0066CC" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {/* Punto final */}
+        <circle cx={xUltimo} cy={yUltimo} r={3} fill={color} />
 
-        {/* Punto final + rótulo directo (valor) */}
-        <circle cx={ultimo.x} cy={ultimo.y} r={5} fill="#0066CC" stroke="#FFFFFF" strokeWidth={2} />
-        <text x={ultimo.x} y={ultimo.y - 12} textAnchor="end" fontSize={12} fontWeight={700} fill="#101828">
-          {ultimo.punto.personas.toLocaleString('es-AR')}
-        </text>
-
-        {/* Crosshair de hover */}
-        {hover && (
-          <>
-            <line
-              x1={hover.x}
-              x2={hover.x}
-              y1={PAD.top}
-              y2={PAD.top + innerH}
-              stroke="#38485C"
-              strokeWidth={1}
-              strokeDasharray="3 3"
-            />
-            <circle cx={hover.x} cy={hover.y} r={5} fill="#0066CC" stroke="#FFFFFF" strokeWidth={2} />
-          </>
-        )}
-
-        {/* Capa de hit-target — todo el ancho del área de datos */}
-        <rect
-          x={PAD.left}
-          y={PAD.top}
-          width={innerW}
-          height={innerH}
-          fill="transparent"
-          onPointerMove={handleMove}
-          onPointerLeave={() => setHoverIdx(null)}
-        />
+        {/* Eje X — etiquetas */}
+        {fechas.map((f, i) => {
+          if (i % labelStep !== 0 && i !== n - 1) return null
+          const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+          return (
+            <text key={String(f)} x={x} y={MH - 4} textAnchor="middle" fontSize={9} fill="#9CA3AF">
+              {formatFecha(f, agrupacion)}
+            </text>
+          )
+        })}
       </svg>
+    </div>
+  )
+}
 
-      {hover && (
-        <div
-          className="absolute bg-navy text-white text-xs rounded px-2.5 py-1.5 pointer-events-none shadow-lg -translate-x-1/2 -translate-y-full"
-          style={{ left: `${(hover.x / W) * 100}%`, top: `${(hover.y / H) * 100}%`, marginTop: -8 }}
-        >
-          <p className="font-semibold">{formatFecha(hover.punto.fecha)}</p>
-          <p>{hover.punto.personas.toLocaleString('es-AR')} personas</p>
-          <p className="text-gray-300">{hover.punto.cargos.toLocaleString('es-AR')} cargos ocupados</p>
-        </div>
+// ─── KPI Card ────────────────────────────────────────────────────────────────
+function KpiCard({
+  label, value, sub, trend, small,
+}: {
+  label: string
+  value: string
+  sub?: string
+  trend?: 'up' | 'down'
+  small?: boolean
+}) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-100 shadow-sm px-4 py-3">
+      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      <p className={`font-bold text-gray-900 leading-tight ${small ? 'text-sm' : 'text-2xl'}`}>{value}</p>
+      {sub && (
+        <p className={`text-xs mt-0.5 ${trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-500' : 'text-gray-400'}`}>
+          {trend === 'up' && '▲ '}{trend === 'down' && '▼ '}{sub}
+        </p>
       )}
+    </div>
+  )
+}
+
+// ─── Toggle header ────────────────────────────────────────────────────────────
+function ChartHeader({ agrupacion, onToggle }: { agrupacion: 'mes' | 'subida'; onToggle: () => void }) {
+  return (
+    <div className="inline-flex rounded border border-gray-200 overflow-hidden text-xs font-medium">
+      <button
+        onClick={() => agrupacion !== 'mes' && onToggle()}
+        className={`px-3 py-1.5 transition-colors ${agrupacion === 'mes' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+      >
+        Por mes
+      </button>
+      <button
+        onClick={() => agrupacion !== 'subida' && onToggle()}
+        className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${agrupacion === 'subida' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+      >
+        Por subida
+      </button>
     </div>
   )
 }

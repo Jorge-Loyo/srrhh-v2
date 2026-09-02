@@ -34,12 +34,12 @@ export function useKpiConcursos(hospitalId?: string) {
 
 // S6-5: evolución de dotación histórica (PadronHistorico), un punto por
 // fecha de padrón aprobada.
-export function useKpiDotacionHistorica(hospitalId?: string) {
+export function useKpiDotacionHistorica(hospitalId?: string, agrupacion: 'mes' | 'subida' = 'mes') {
   return useQuery({
-    queryKey: ['kpis', 'dotacion-historica', hospitalId],
+    queryKey: ['kpis', 'dotacion-historica', hospitalId, agrupacion],
     queryFn: async () => {
       const res = await apiClient.get<{ data: KpiDotacionHistorica }>('/api/v1/kpis/dotacion-historica', {
-        params: { ...(hospitalId && { hospitalId }) },
+        params: { ...(hospitalId && { hospitalId }), agrupacion },
       })
       return res.data.data
     },

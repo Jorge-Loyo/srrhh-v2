@@ -13,7 +13,7 @@ import {
 } from '../lib/bajasHelpers'
 import { jsPDF } from 'jspdf'
 
-const ESCALAFONES_CONCURSABLES = ['Médicos', 'CEETPS', 'Carrera de Enfermería', 'Carrera de Técnicos de la Salud']
+const ESCALAFONES_CONCURSABLES = ['Nueva Carrera Prof. Hosp', 'CEETPS', 'Nueva Carrera Enfermería', 'Cuerpo Especialistas Profesionales']
 
 type Paso = 1 | 2 | 3
 
