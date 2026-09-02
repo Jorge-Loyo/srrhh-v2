@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useBajasSialDiff, useAprobarBajasSial, useRechazarBajasSial } from '../hooks/useBajasSial'
 
 const TABS = [
@@ -20,7 +21,7 @@ export function BajasSialDiffPage() {
   const aprobar  = useAprobarBajasSial()
   const rechazar = useRechazarBajasSial()
 
-  const puedeDecidir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
+  const puedeDecidir = can(user, 'bajas-sial', 'aprobar')
 
   function cambiarTab(t: typeof tab) { setTab(t); setPage(1) }
 

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
+import { getPermisosEfectivos } from '../permisos/permisos.service.js'
 import type { LoginBody, RefreshBody } from './auth.schema.js'
 
 // Mismo patrón que padron.service.ts: Prisma.TransactionClient no está
@@ -75,6 +76,7 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
   const familyId = crypto.randomUUID()
   const accessToken = signToken(buildUserPayload(usuario))
   const refreshToken = await createRefreshToken(usuario.id, familyId, signToken)
+  const permisos = await getPermisosEfectivos(usuario.roleId, usuario.role.slug)
 
   return {
     accessToken,
@@ -87,6 +89,7 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
       rolSlug: usuario.role.slug,
       roleId: usuario.roleId,
       hospitalId: usuario.hospitalId,
+      permisos,
     },
   }
 }

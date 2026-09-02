@@ -342,6 +342,10 @@ export interface Usuario {
   hospitalId: string | null
   activo: boolean
   createdAt: string
+  // Solo viene en la respuesta de login (no en GET /usuarios) — lo consume el
+  // helper can() del frontend. Opcional porque el resto de los endpoints que
+  // devuelven Usuario no lo calculan.
+  permisos?: { modulo: string; accion: string }[]
 }
 
 export enum EstadoBaja {

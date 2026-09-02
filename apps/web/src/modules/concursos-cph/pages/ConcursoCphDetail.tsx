@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { PatchConcursoCphRequest } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { usePersonas } from '../../personas/hooks/usePersonas'
@@ -12,10 +13,6 @@ import { useConcursoCph, usePatchConcursoCph, useSuspenderConcursoCph } from '..
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { SubEstadoTimeline } from '../components/SubEstadoTimeline'
 
-// Escritura: admin/editor/concursales_cph — igual que el permiso concursos-cph.editar
-// por defecto en apps/api/.../concursos-cph.routes.ts (editable por el admin desde
-// /configuracion/permisos; esto es solo gating visual). El resto ve el formulario disabled.
-const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_cph']
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
 const texto = z.string()
@@ -69,7 +66,7 @@ function toPatchBody(values: FormValues): PatchConcursoCphRequest {
 export function ConcursoCphDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
-  const puedeEditar = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
+  const puedeEditar = can(user, 'concursos-cph', 'editar')
 
   const { data: concursoCph, isLoading, isError } = useConcursoCph(id)
   const patchMutation = usePatchConcursoCph(id ?? '')

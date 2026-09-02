@@ -2,9 +2,10 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
 import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
-import { RequireAdmin } from '../modules/auth/components/RequireAdmin'
+import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
+import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
@@ -33,7 +34,7 @@ export const router = createBrowserRouter([
         path: '/',
         element: <AppShell />,
         children: [
-          { index: true, element: <Navigate to="/kpis" replace /> },
+          { index: true, element: <InicioPage /> },
           { path: 'padron', element: <PadronPage /> },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
@@ -59,11 +60,12 @@ export const router = createBrowserRouter([
           // guardada en favoritos; el destino real ya vive bajo /configuracion.
           { path: 'admin/usuarios', element: <Navigate to="/configuracion/usuarios" replace /> },
           {
-            element: <RequireAdmin />,
-            children: [
-              { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
-              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
-            ],
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
+            children: [{ path: 'configuracion/usuarios', element: <AdminUsuariosPage /> }],
+          },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
+            children: [{ path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> }],
           },
         ],
       },

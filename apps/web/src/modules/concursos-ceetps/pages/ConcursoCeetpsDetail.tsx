@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { PatchConcursoCeetpsRequest } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
@@ -12,9 +13,6 @@ import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useConcursoCeetps, usePatchConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 
-// Igual que el permiso concursos-ceetps.editar por defecto en
-// apps/api/.../concursos-ceetps.routes.ts (editable desde /configuracion/permisos).
-const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_ceetps']
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
 const texto = z.string()
@@ -50,7 +48,7 @@ function toPatchBody(values: FormValues): PatchConcursoCeetpsRequest {
 export function ConcursoCeetpsDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
-  const puedeEditar = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
+  const puedeEditar = can(user, 'concursos-ceetps', 'editar')
 
   const { data: concurso, isLoading, isError } = useConcursoCeetps(id)
   const patchMutation = usePatchConcursoCeetps(id ?? '')

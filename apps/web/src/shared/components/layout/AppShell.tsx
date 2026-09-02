@@ -2,17 +2,18 @@ import { useState } from 'react'
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
+import { can } from '../../lib/can'
 
 const CARGOS_SUBITEMS = [
-  { to: '/cargos',            label: 'Ver cargos' },
-  { to: '/cargos/alta',       label: 'Alta de cargo' },
-  { to: '/cargos/baja',       label: 'Baja de cargo' },
-  { to: '/cargos/alta-por-baja', label: 'Alta por baja' },
+  { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
+  { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'crear' } },
+  { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'ver' } },
+  { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'ver' } },
 ]
 
 const CONFIGURACION_SUBITEMS = [
-  { to: '/configuracion/usuarios', label: 'Usuarios' },
-  { to: '/configuracion/permisos', label: 'Permisos' },
+  { to: '/configuracion/usuarios', label: 'Usuarios', permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
+  { to: '/configuracion/permisos', label: 'Permisos', permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
 ]
 
 export function AppShell() {
@@ -32,6 +33,11 @@ export function AppShell() {
   if (!user) return null
 
   const sidebarW = collapsed ? 'w-14' : 'w-sidebar'
+
+  // Cada ítem/grupo se filtra por lo que el usuario puede hacer de verdad
+  // (user.permisos, calculado server-side en el login) — no por rolSlug a mano.
+  const cargosSubitems = CARGOS_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
+  const configuracionSubitems = CONFIGURACION_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -74,105 +80,134 @@ export function AppShell() {
         {/* Nav */}
         <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
 
-          {/* KPIs */}
-          <NavLink to="/kpis"
+          {/* Inicio */}
+          <NavLink to="/"
+            end
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Tablero KPIs' : undefined}>
-            <span className="text-base shrink-0">📊</span>
-            {!collapsed && <span className="truncate">Tablero KPIs</span>}
+            title={collapsed ? 'Inicio' : undefined}>
+            <span className="text-base shrink-0">🏠</span>
+            {!collapsed && <span className="truncate">Inicio</span>}
           </NavLink>
+
+          {/* KPIs */}
+          {can(user, 'kpis', 'ver') && (
+            <NavLink to="/kpis"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Tablero KPIs' : undefined}>
+              <span className="text-base shrink-0">📊</span>
+              {!collapsed && <span className="truncate">Tablero KPIs</span>}
+            </NavLink>
+          )}
 
           {/* Personas */}
-          <NavLink to="/personas"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Personas' : undefined}>
-            <span className="text-base shrink-0">👤</span>
-            {!collapsed && <span className="truncate">Personas</span>}
-          </NavLink>
+          {can(user, 'personas', 'ver') && (
+            <NavLink to="/personas"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Personas' : undefined}>
+              <span className="text-base shrink-0">👤</span>
+              {!collapsed && <span className="truncate">Personas</span>}
+            </NavLink>
+          )}
 
           {/* Grupo Cargos */}
-          <button type="button"
-            onClick={() => !collapsed && setCargosAbierto((v) => !v)}
-            title={collapsed ? 'Cargos' : undefined}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-              location.pathname.startsWith('/cargos') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
-            }`}>
-            <span className="text-base shrink-0">🗂️</span>
-            {!collapsed && (
-              <>
-                <span className="flex-1 text-left truncate">Cargos</span>
-                <span className="text-xs">{cargosAbierto ? '▲' : '▼'}</span>
-              </>
-            )}
-          </button>
-          {cargosAbierto && !collapsed && (
-            <div className="bg-gray-100 border-l-2 border-primary ml-4">
-              {CARGOS_SUBITEMS.map((item) => (
-                <NavLink key={item.to} to={item.to} end
-                  className={({ isActive }) =>
-                    `block px-4 py-2 text-sm transition-colors ${
-                      isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                    }`}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
+          {cargosSubitems.length > 0 && (
+            <>
+              <button type="button"
+                onClick={() => !collapsed && setCargosAbierto((v) => !v)}
+                title={collapsed ? 'Cargos' : undefined}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  location.pathname.startsWith('/cargos') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+                }`}>
+                <span className="text-base shrink-0">🗂️</span>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left truncate">Cargos</span>
+                    <span className="text-xs">{cargosAbierto ? '▲' : '▼'}</span>
+                  </>
+                )}
+              </button>
+              {cargosAbierto && !collapsed && (
+                <div className="bg-gray-100 border-l-2 border-primary ml-4">
+                  {cargosSubitems.map((item) => (
+                    <NavLink key={item.to} to={item.to} end
+                      className={({ isActive }) =>
+                        `block px-4 py-2 text-sm transition-colors ${
+                          isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+                        }`}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {/* Bajas */}
-          <NavLink to="/bajas"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Bajas' : undefined}>
-            <span className="text-base shrink-0">🗑️</span>
-            {!collapsed && <span className="truncate">Bajas</span>}
-          </NavLink>
+          {can(user, 'bajas', 'ver') && (
+            <NavLink to="/bajas"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Bajas' : undefined}>
+              <span className="text-base shrink-0">🗑️</span>
+              {!collapsed && <span className="truncate">Bajas</span>}
+            </NavLink>
+          )}
 
           {/* Validación de Bajas */}
-          <NavLink to="/bajas/validacion"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Validación de Bajas' : undefined}>
-            <span className="text-base shrink-0">⚠️</span>
-            {!collapsed && <span className="truncate">Validación de Bajas</span>}
-          </NavLink>
+          {can(user, 'bajas', 'ver') && (
+            <NavLink to="/bajas/validacion"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Validación de Bajas' : undefined}>
+              <span className="text-base shrink-0">⚠️</span>
+              {!collapsed && <span className="truncate">Validación de Bajas</span>}
+            </NavLink>
+          )}
 
           {/* Divisor — Concursos */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
 
           {/* Concursos */}
-          <NavLink to="/concursos/cph"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Concursos CPH' : undefined}>
-            <span className="text-base shrink-0">⚖️</span>
-            {!collapsed && <span className="truncate">Concursos CPH</span>}
-          </NavLink>
-          <NavLink to="/concursos/ceetps"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Concursos CEETPS' : undefined}>
-            <span className="text-base shrink-0">🏥</span>
-            {!collapsed && <span className="truncate">Concursos CEETPS</span>}
-          </NavLink>
+          {can(user, 'concursos-cph', 'ver') && (
+            <NavLink to="/concursos/cph"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Concursos CPH' : undefined}>
+              <span className="text-base shrink-0">⚖️</span>
+              {!collapsed && <span className="truncate">Concursos CPH</span>}
+            </NavLink>
+          )}
+          {can(user, 'concursos-ceetps', 'ver') && (
+            <NavLink to="/concursos/ceetps"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Concursos CEETPS' : undefined}>
+              <span className="text-base shrink-0">🏥</span>
+              {!collapsed && <span className="truncate">Concursos CEETPS</span>}
+            </NavLink>
+          )}
 
           {/* Divisor — sección admin */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
 
           {/* Padrón Semanal */}
-          <NavLink to="/padron"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Padrón Semanal' : undefined}>
-            <span className="text-base shrink-0">📋</span>
-            {!collapsed && <span className="truncate">Padrón Semanal</span>}
-          </NavLink>
+          {can(user, 'padron', 'ver') && (
+            <NavLink to="/padron"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Padrón Semanal' : undefined}>
+              <span className="text-base shrink-0">📋</span>
+              {!collapsed && <span className="truncate">Padrón Semanal</span>}
+            </NavLink>
+          )}
 
           {/* Bajas Consolidadas */}
-          <NavLink to="/bajas-consolidadas"
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Bajas Consolidadas' : undefined}>
-            <span className="text-base shrink-0">📄</span>
-            {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
-          </NavLink>
+          {can(user, 'bajas-sial', 'ver') && (
+            <NavLink to="/bajas-consolidadas"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Bajas Consolidadas' : undefined}>
+              <span className="text-base shrink-0">📄</span>
+              {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
+            </NavLink>
+          )}
 
-          {/* Configuración — admin-only (usuarios + permisos) */}
-          {user.rolSlug === 'admin' && (
+          {/* Configuración — visible si tiene alguno de los dos permisos */}
+          {configuracionSubitems.length > 0 && (
             <>
               <button type="button"
                 onClick={() => !collapsed && setConfiguracionAbierto((v) => !v)}
@@ -190,7 +225,7 @@ export function AppShell() {
               </button>
               {configuracionAbierto && !collapsed && (
                 <div className="bg-gray-100 border-l-2 border-primary ml-4">
-                  {CONFIGURACION_SUBITEMS.map((item) => (
+                  {configuracionSubitems.map((item) => (
                     <NavLink key={item.to} to={item.to} end
                       className={({ isActive }) =>
                         `block px-4 py-2 text-sm transition-colors ${
