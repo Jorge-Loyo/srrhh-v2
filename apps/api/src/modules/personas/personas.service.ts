@@ -83,6 +83,11 @@ export async function getPersonaByIdService(id: string) {
         orderBy: [{ hasta: 'asc' }, { desde: 'desc' }],
         include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } } },
       },
+      // S8C-2: historial completo en padrón semanal
+      padronHistorico: {
+        include: { snapshot: { select: { id: true, fechaAsignada: true, filename: true } } },
+        orderBy: { fechaAsignada: 'desc' },
+      },
     },
   })
   if (!persona) throw AppError.notFound('Persona no encontrada')

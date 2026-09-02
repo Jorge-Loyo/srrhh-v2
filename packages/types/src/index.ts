@@ -722,6 +722,21 @@ export interface PatchConcursoCeetpsRequest {
 // domicilio (S2-17). El detalle sí usa `prisma.persona.findUnique` sin
 // `select`, así que trae el modelo completo — de ahí que estos campos vivan
 // acá y no en `Persona`.
+// S8C-2: entrada del historial de padrón de una persona
+export interface PadronHistoricoItem {
+  id: string
+  fechaAsignada: string
+  idSialRol: string
+  escalafon: string | null
+  hospitalSigla: string | null
+  literalPuesto: string | null
+  especialidad: string | null
+  agrupador: string | null
+  situacionRevista: string | null
+  estadoPersona: string | null
+  snapshot: { id: string; fechaAsignada: string; filename: string }
+}
+
 export interface PersonaDetail extends Persona {
   telefono: string | null
   mailPersonal: string | null
@@ -731,6 +746,8 @@ export interface PersonaDetail extends Persona {
   provincia: string | null
   antiguedadDesde: string | null
   ocupaciones: OcupacionConCargo[]
+  // S8C-2: historial completo en padrón semanal
+  padronHistorico: PadronHistoricoItem[]
 }
 
 // Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon`/`codigoRegistro`
@@ -743,4 +760,14 @@ export interface CargoDetail extends Cargo {
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
   historial: (Ocupacion & { persona: Persona })[]
   cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
+  // S8C-1: concursos asociados al cargo
+  concursosCph: (ConcursoCph & {
+    concurso: Concurso
+    personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
+  })[]
+  concursosCeetps: (ConcursoCeetps & {
+    concurso: Concurso
+    escalafon: Escalafon
+    personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
+  })[]
 }

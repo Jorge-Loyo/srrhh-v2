@@ -165,7 +165,21 @@ export async function getCargoByIdService(id: string) {
     })
   }
 
-  return { ...rest, ocupacionActual, historial, cargoActivo }
+  // S8C-1: concursos asociados al cargo
+  const [concursosCph, concursosCeetps] = await Promise.all([
+    prisma.concursoCph.findMany({
+      where: { cargoId: id },
+      include: { concurso: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.concursoCeetps.findMany({
+      where: { cargoId: id },
+      include: { concurso: true, escalafon: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+
+  return { ...rest, ocupacionActual, historial, cargoActivo, concursosCph, concursosCeetps }
 }
 
 // ─── S5-10 + S7-2 + S7-5: Alta de Cargo manual ─────────────────────────────────
