@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-08-20 (Sprint 8 cerrado ✅ — validacion_vacante + validación de bajas)
+> Última actualización: 2026-09-03 (Sprint 9 cerrado ✅ — post-sprint: normalización escalafones, deploy Render, sincronización Neon)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -11,24 +11,28 @@
 
 ## ESTADO ACTUAL
 
-| Sprint                                               | Estado                                                          | Completado        |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ----------------- |
-| Sprint 0 — Infraestructura                           | ✅ Completado                                                   | S0-1 a S0-11      |
-| Sprint 1 — Autenticación                             | ✅ Completado                                                   | S1-1 a S1-10      |
-| Sprint 2 — Dotaneitor + Padrón                       | ✅ Completo — verificado end-to-end con datos reales 2026-08-25 | S2-1 a S2-19 (✅) |
-| Sprint 3 — Personas y Cargos                         | ✅ Completo — verificado con browser real 2026-08-25            | S3-1 a S3-11 (✅) |
-| Sprint 4 — Concursos CPH                             | ✅ Completo — verificado end-to-end con datos reales 2026-08-26 | S4-1 a S4-11 (✅) |
-| Sprint 3 (post) — Mejoras UX padrón/personas         | ✅ Completado — commit f178819, 2026-08-27                      | ver detalle abajo |
-| Sprint 3 (post-2) — Cargos: códigos, estados, UX     | ✅ Completado — 2026-09                                         | ver detalle abajo |
-| Sprint 3 (post-3) — Mejoras UX personas/cargos       | ✅ Completado — 2026-08-28                                      | ver detalle abajo |
-| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09                                         | ver detalle abajo |
-| Sprint 5 — Concursos CEETPS + Bajas                  | ✅ Completo — verificado end-to-end, mergeado a main 2026-09    | S5-1 a S5-10 (✅) |
-| Sprint 6 — KPIs + Deploy                             | ✅ Completo — 2026-08-31, smoke test 21/21 OK                    | S6-0 a S6-8 (✅)  |
-| Sprint 7 — Cargos: trazabilidad del alta manual      | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones | S7-1 a S7-10 (✅) |
-| Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B implementados, build limpio | S8A-1 a S8B-6 (✅) |
-| Sprint 9 — Matriz de permisos + Landing/menú/guards  | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
-| Sprint 10 — Notificaciones persistidas               | 📋 Planificado                                                  | S10-1 a S10-5 |
-| Sprint 11 — Flujo concursal CPH con autorizaciones   | 📋 Planificado                                                  | S11-1 a S11-7 |
+| Sprint                                                       | Estado                                                                                                                                 | Completado                            |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Sprint 0 — Infraestructura                                   | ✅ Completado                                                                                                                          | S0-1 a S0-11                          |
+| Sprint 1 — Autenticación                                     | ✅ Completado                                                                                                                          | S1-1 a S1-10                          |
+| Sprint 2 — Dotaneitor + Padrón                               | ✅ Completo — verificado end-to-end con datos reales 2026-08-25                                                                        | S2-1 a S2-19 (✅)                     |
+| Sprint 3 — Personas y Cargos                                 | ✅ Completo — verificado con browser real 2026-08-25                                                                                   | S3-1 a S3-11 (✅)                     |
+| Sprint 4 — Concursos CPH                                     | ✅ Completo — verificado end-to-end con datos reales 2026-08-26                                                                        | S4-1 a S4-11 (✅)                     |
+| Sprint 3 (post) — Mejoras UX padrón/personas                 | ✅ Completado — commit f178819, 2026-08-27                                                                                             | ver detalle abajo                     |
+| Sprint 3 (post-2) — Cargos: códigos, estados, UX             | ✅ Completado — 2026-09                                                                                                                | ver detalle abajo                     |
+| Sprint 3 (post-3) — Mejoras UX personas/cargos               | ✅ Completado — 2026-08-28                                                                                                             | ver detalle abajo                     |
+| Sprint 3 (post-4) — Maquetas Alta/Baja/Alta por Baja         | ✅ Completado — 2026-09                                                                                                                | ver detalle abajo                     |
+| Sprint 5 — Concursos CEETPS + Bajas                          | ✅ Completo — verificado end-to-end, mergeado a main 2026-09                                                                           | S5-1 a S5-10 (✅)                     |
+| Sprint 6 — KPIs + Deploy                                     | ✅ Completo — 2026-08-31, smoke test 21/21 OK                                                                                          | S6-0 a S6-8 (✅)                      |
+| Sprint 7 — Cargos: trazabilidad del alta manual              | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones                                            | S7-1 a S7-10 (✅)                     |
+| Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B implementados, build limpio                                                                                    | S8A-1 a S8B-6 (✅)                    |
+| Sprint 8-C — Triangulación histórica                         | ✅ Completo — 2026-09-03, verificado end-to-end con datos reales. Regla de negocio baja SIAL implementada                              | S8C-1 a S8C-3 (✅)                    |
+| Sprint 9 — Matriz de permisos + Landing/menú/guards          | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
+| Post-Sprint 9 — Normalización escalafones + deploy + Neon    | ✅ Completo — 2026-09-03                                                                                                               | ver detalle abajo                     |
+| Sprint 10 — Notificaciones persistidas                       | ✅ Completo — 2026-09-04                                                                                                               | S10-1 a S10-5 (✅)                    |
+| Sprint 11 — Flujo concursal CPH con autorizaciones           | 📋 Planificado                                                                                                                         | S11-1 a S11-7                         |
+| Sprint 12 — Panel de autorizaciones + jerarquía de roles     | 📋 Planificado                                                                                                                         | S12-1 a S12-9                         |
+| Sprint 13 — Asignación de tareas entre roles                 | 📋 Planificado                                                                                                                         | S13-1 a S13-7                         |
 
 ---
 
@@ -133,7 +137,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ---
 
-### SPRINT 0 — Infraestructura base + análisis Dotaneitor
+### SPRINT 0 — Infraestructura base + análisis Dotaneitor ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Entorno de desarrollo 100% funcional y Dotaneitor documentado.
@@ -162,7 +166,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ---
 
-### SPRINT 1 — Autenticación + usuarios + seed real
+### SPRINT 1 — Autenticación + usuarios + seed real ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Login funcional con roles, usuarios reales en BD.
@@ -201,7 +205,10 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ---
 
-### SPRINT 2 — Dotaneitor optimizado + integración padrón
+<details>
+<summary>
+
+### SPRINT 2 — Dotaneitor optimizado + integración padrón ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Dotaneitor optimizado y conectado al flujo de padrón de SRRHH v2.
@@ -249,7 +256,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 > formulario de subida ni botones de decisión), rechazar. Sin errores de consola en ningún caso.
 > `tsc --noEmit` limpio en `apps/web` y `apps/api`.
 
-### ✅ Sprint 2 cerrado — y verificado corriendo de verdad (2026-08-25)
+#### ✅ Sprint 2 cerrado — y verificado corriendo de verdad (2026-08-25)
 
 Todas las tareas completas (S2-1 a S2-19). S2-1 quedó en 8/9 hallazgos resueltos — el restante
 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`) es informativo, sin acción pendiente.
@@ -325,9 +332,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 - `prisma/migrations/` estaba **vacío** en el repo pese a que S0-2 ("primera migración") figura ✅. Corrección al diagnóstico original: la tabla `_prisma_migrations` de la BD real sí tenía un registro (`20260820151826_init`, aplicada 2026-08-20) — o sea que S0-2 sí corrió `migrate dev` en su momento, pero el archivo de esa migración nunca llegó a este checkout del repo (¿no comiteado, `.gitignore` de otra máquina, o se perdió en algún punto?). El historial versionado en git, que es lo que importa para reproducibilidad, estaba vacío igual. ✅ **Resuelto (2026-08-25)** — bauteo (baseline) sin tocar datos: `prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` (comando de solo lectura) generó `prisma/migrations/0_init/migration.sql` reflejando el schema actual completo; se agregó `prisma/migrations/migration_lock.toml` (provider `postgresql`); `prisma migrate resolve --applied 0_init` marcó esa migración como aplicada en la BD real (solo escribe en `_prisma_migrations`, no ejecuta el SQL — las tablas ya existían). Verificado con `prisma migrate status`: **"Database schema is up to date!"**, cero drift. Conteos de `personas`/`cargos`/`ocupaciones`/`historico` confirmados intactos antes y después.
 - `pnpm db:seed` (script raíz) estaba roto: `tsx` no está en `node_modules/.bin` de la raíz (solo es dependencia de `apps/api`) — y además `prisma/seed.ts` importa `bcrypt`, que tampoco es dependencia de la raíz, así que agregar solo `tsx` no habría alcanzado. ✅ **Resuelto (2026-08-25)** — el script ahora delega a `apps/api` (que ya tiene `tsx`/`bcrypt`/`@prisma/client` resueltos vía pnpm workspace): `"db:seed": "pnpm --filter @srrhh/api exec tsx --env-file=.env ../../prisma/seed.ts"`. Corrido de verdad contra la BD real (`prisma/seed.ts` es idempotente, usa `upsert` en todo): `🌱 ... 🎉 Seed completado` sin errores, sin duplicar nada.
 
----
-
-### SPRINT 3 — Personas y Cargos
+### SPRINT 3 — Personas y Cargos ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulos de personas y cargos completamente funcionales.
@@ -710,7 +715,7 @@ pendientes.
 
 ---
 
-### SPRINT 4 — Concursos CPH
+### SPRINT 4-A — Concursos CPH ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo de seguimiento CPH completamente funcional.
@@ -921,7 +926,7 @@ sesión `wsl.exe -- sleep N` en segundo plano durante secuencias de comandos que
 
 ---
 
-### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
+#### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
 
 **Commit:** `f178819` | **Autor:** Jorge + Claude
 
@@ -975,7 +980,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (2) — Cargos: códigos, estados, UX (2026-09)
+### POST-SPRINT 4-B — Cargos: códigos, estados, UX (2026-09) ✅ Completado
 
 **Autor:** Jorge + Claude
 
@@ -1024,7 +1029,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (3) — Mejoras UX personas/cargos (2026-08-28)
+### POST-SPRINT 4-C — Mejoras UX personas/cargos (2026-08-28) ✅ Completado
 
 **Commit:** pendiente | **Autor:** Jorge + Claude
 
@@ -1062,7 +1067,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (4) — Maquetas Alta/Baja/Alta por Baja (2026-09)
+### POST-SPRINT 4-D — Maquetas Alta/Baja/Alta por Baja (2026-09) ✅ Completado
 
 **Autor:** Jorge + Claude
 
@@ -1116,7 +1121,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
-### SPRINT 5 — Concursos CEETPS + Bajas
+### SPRINT 5 — Concursos CEETPS + Bajas ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo CEETPS y flujo baja → concurso funcional.
@@ -1159,28 +1164,29 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 - **`AltaCargosPage`** — reescrita conectada a API real: `useHospitales`, `useEscalafones`, `usePuestosCargos` para selectores. `useMutation` para `POST /api/v1/cargos`. Historial de sesión muestra códigos generados.
 
 **Merges:**
+
 - `jorge → main`: commits S5-1/S5-4/S5-7 (merge `4470b4c`), luego S5-5/S5-8/S5-10 + contratos (merge `215e810`)
 - `Agustin → develop → main`: S5-2/S5-3/S5-6/S5-9 (merge `9d39069`)
 - `develop` sincronizado con `main` en cada ciclo
 
 ---
 
-### SPRINT 6 — Tablero KPIs + cierre MVP
+### SPRINT 6 — Tablero KPIs + cierre MVP ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Dashboard operativo con KPIs reales y sistema listo para producción.
 
-| #    | Tarea                                                                           | Dev             | Est. | Prioridad  | Estado |
-| ---- | ------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ------ |
-| S6-0 | *(no planificada)* Prerequisito `PadronHistorico`: `cuil`/`unificadorPuesto`/índice `cargoId` | Jorge | — | 🔴 Crítico | ✅ |
-| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector | Jorge           | 6h   | 🔴 Crítico | ✅ |
-| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                            | Agustin         | 6h   | 🔴 Crítico | ✅ |
-| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                     | Jorge           | 6h   | 🔴 Crítico | ✅ |
-| S6-4 | Filtro por hospital en todo el tablero                                          | Agustin         | 4h   | 🟡 Medio   | ✅ |
-| S6-5 | Gráfico evolución dotación histórica (padron_historico)                         | Agustin         | 6h   | 🟡 Medio   | ✅ |
-| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                         | Jorge           | 4h   | 🟡 Medio   | ✅ |
-| S6-7 | Preparar docker-compose de producción                                           | Jorge           | 4h   | 🔴 Crítico | ✅ |
-| S6-8 | Smoke test completo del sistema                                                 | Jorge + Agustin | 4h   | 🔴 Crítico | ✅ |
+| #    | Tarea                                                                                         | Dev             | Est. | Prioridad  | Estado |
+| ---- | --------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ------ |
+| S6-0 | _(no planificada)_ Prerequisito `PadronHistorico`: `cuil`/`unificadorPuesto`/índice `cargoId` | Jorge           | —    | 🔴 Crítico | ✅     |
+| S6-1 | `GET /api/v1/kpis/dotacion`: total vigentes, vacantes, por carrera, por efector               | Jorge           | 6h   | 🔴 Crítico | ✅     |
+| S6-2 | KpisPage: cards con borde amarillo, skeleton loading                                          | Agustin         | 6h   | 🔴 Crítico | ✅     |
+| S6-3 | KPIs concursales: por sub-estado, tiempo promedio por etapa                                   | Jorge           | 6h   | 🔴 Crítico | ✅     |
+| S6-4 | Filtro por hospital en todo el tablero                                                        | Agustin         | 4h   | 🟡 Medio   | ✅     |
+| S6-5 | Gráfico evolución dotación histórica (padron_historico)                                       | Agustin         | 6h   | 🟡 Medio   | ✅     |
+| S6-6 | Alertas activas: concursos vencidos, bajas sin concurso                                       | Jorge           | 4h   | 🟡 Medio   | ✅     |
+| S6-7 | Preparar docker-compose de producción                                                         | Jorge           | 4h   | 🔴 Crítico | ✅     |
+| S6-8 | Smoke test completo del sistema                                                               | Jorge + Agustin | 4h   | 🔴 Crítico | ✅     |
 
 **Criterio de éxito:**
 
@@ -1190,7 +1196,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
-### SPRINT 7 — Cargos: trazabilidad del alta manual
+### SPRINT 7 — Cargos: trazabilidad del alta manual ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 56h
 **Objetivo:** Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 de `Doc/Contratos_Paginas/cargos_alta.md`), de modo que **todo alta de cargo quede respaldada por su acto administrativo en BD** y sea auditable.
@@ -1204,18 +1210,18 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 - **Dentro:** persistencia de `expediente`/`decreto` y `fechaDesde` en `cargos` (RF-11/RF-12) · auditoría del alta con usuario (RF-13) · historial persistente consultable por expediente (RF-14) · validación de duplicado estructural con advertencia (RF-15)
 - **Fuera:** origen automático (Padrón SIAL — tiene su propio flujo y documentación) · movimientos de ocupación (bajas, designaciones) · cambios en la generación de códigos de cargo (ya funciona, S5-10)
 
-| #     | Tarea                                                                                                                                                                                                     | Dev             | Est. | Prioridad  | RF          |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ----------- |
-| S7-1  | Migración Prisma: `expediente` (VARCHAR 100, nullable), `fechaDesde` (DATE, nullable) y `createdById` (UUID FK → Usuario, nullable) en `cargos`. Aplicar en BD real                                       | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
-| S7-2  | `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token) en cada cargo creado del lote                                                                                       | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
-| S7-3  | Backfill doc: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde` NULL — documentar decisión (el dato perdido no se puede recuperar)                                 | Jorge           | 2h   | 🟡 Medio   | RF-11/12    |
-| S7-4  | `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales con filtro por expediente y rango de fechas, incluye usuario y códigos generados                                                 | Jorge           | 6h   | 🟡 Medio   | RF-14       |
+| #     | Tarea                                                                                                                                                                                                            | Dev             | Est. | Prioridad  | RF          |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- | ----------- |
+| S7-1  | Migración Prisma: `expediente` (VARCHAR 100, nullable), `fechaDesde` (DATE, nullable) y `createdById` (UUID FK → Usuario, nullable) en `cargos`. Aplicar en BD real                                              | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
+| S7-2  | `createCargoService`: persistir `expediente`, `fechaDesde` y `createdById` (del token) en cada cargo creado del lote                                                                                             | Jorge           | 4h   | 🔴 Crítico | RF-11/12/13 |
+| S7-3  | Backfill doc: cargos manuales existentes (`idSial LIKE 'MANUAL-%'`) quedan con `expediente`/`fechaDesde` NULL — documentar decisión (el dato perdido no se puede recuperar)                                      | Jorge           | 2h   | 🟡 Medio   | RF-11/12    |
+| S7-4  | `GET /api/v1/cargos/altas?expediente=&desde=&hasta=`: lista altas manuales con filtro por expediente y rango de fechas, incluye usuario y códigos generados                                                      | Jorge           | 6h   | 🟡 Medio   | RF-14       |
 | S7-5  | Validación de duplicado estructural en `createCargoService`: antes de crear, buscar cargo vigente con mismo `(hospitalId, escalafonId, codigoRegistroId, literalPuesto)`. Responder `409` con el cargo existente | Jorge           | 6h   | 🟢 Bajo    | RF-15       |
-| S7-6  | `createCargoSchema` (Zod): `expediente` y `desde` pasan de opcionales-descartados a persistidos; tests del service                                                                                          | Jorge           | 4h   | 🔴 Crítico | RF-11/12    |
-| S7-7  | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente (código, puesto, hospital) y botones "Crear de todos modos" / "Cancelar"                                       | Agustin         | 8h   | 🟢 Bajo    | RF-15       |
-| S7-8  | Frontend: reemplazar historial de sesión por historial persistente (`GET /api/v1/cargos/altas`) con buscador por expediente. Fallback de sesión mientras carga                                              | Agustin         | 10h  | 🟡 Medio   | RF-14       |
-| S7-9  | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible                                                                          | Agustin         | 4h   | 🟡 Medio   | RF-11/12    |
-| S7-10 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en historial y detalle. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅)                    | Jorge + Agustin | 4h   | 🔴 Crítico | Todos       |
+| S7-6  | `createCargoSchema` (Zod): `expediente` y `desde` pasan de opcionales-descartados a persistidos; tests del service                                                                                               | Jorge           | 4h   | 🔴 Crítico | RF-11/12    |
+| S7-7  | Frontend: manejar respuesta `409` de duplicado — modal de advertencia con el cargo existente (código, puesto, hospital) y botones "Crear de todos modos" / "Cancelar"                                            | Agustin         | 8h   | 🟢 Bajo    | RF-15       |
+| S7-8  | Frontend: reemplazar historial de sesión por historial persistente (`GET /api/v1/cargos/altas`) con buscador por expediente. Fallback de sesión mientras carga                                                   | Agustin         | 10h  | 🟡 Medio   | RF-14       |
+| S7-9  | Frontend: mostrar `expediente` y `fechaDesde` en el detalle del cargo (`CargoDetailPanel`) para que el dato persistido sea visible                                                                               | Agustin         | 4h   | 🟡 Medio   | RF-11/12    |
+| S7-10 | Verificación end-to-end: alta POF/POU/Estructura con expediente → recargar página → el expediente sigue visible en historial y detalle. Actualizar `cargos_alta.md` (RF-11 a RF-15 → ✅)                         | Jorge + Agustin | 4h   | 🔴 Crítico | Todos       |
 
 **Dependencias entre tareas:**
 
@@ -1252,7 +1258,7 @@ Todo ──► S7-10 (verificación + docs)
 
 ---
 
-### SPRINT 8 — Estado `validacion_vacante` + Validación de Bajas
+### SPRINT 8-A — Estado `validacion_vacante` + Validación de Bajas ✅ Completado
 
 **Duración:** 1 semana | **Autor:** Jorge
 **Objetivo:** Implementar el estado intermedio `validacion_vacante` en el flujo del padrón y la página de validación de bajas.
@@ -1260,19 +1266,19 @@ Todo ──► S7-10 (verificación + docs)
 
 #### Diagnóstico previo — estado de la BD (2026-08-10)
 
-| Problema | Causa raíz | Fix aplicado |
-|----------|-----------|--------------|
+| Problema                                                     | Causa raíz                                                                                              | Fix aplicado                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | 4 cargos `no_vigente` con ocupación activa (`hasta IS NULL`) | Bajas de prueba eliminadas directamente de BD sin revertir el `estado` del cargo ni cerrar la ocupación | `UPDATE ocupaciones SET hasta = '2026-08-18'` para los 4 casos |
-| 13 cargos `vigente` sin ocupación (todos `MANUAL-*`) | Cargos de prueba creados manualmente, nunca tuvieron persona | `DELETE FROM cargos` — eran datos de prueba |
+| 13 cargos `vigente` sin ocupación (todos `MANUAL-*`)         | Cargos de prueba creados manualmente, nunca tuvieron persona                                            | `DELETE FROM cargos` — eran datos de prueba                    |
 
 **Estado post-fix:**
 
-| Métrica | Valor |
-|---------|-------|
-| Cargos `vigente` | 47.835 |
-| Cargos `no_vigente` | 3.717 |
+| Métrica                           | Valor    |
+| --------------------------------- | -------- |
+| Cargos `vigente`                  | 47.835   |
+| Cargos `no_vigente`               | 3.717    |
 | `no_vigente` con ocupación activa | **0** ✅ |
-| `vigente` sin ocupación activa | **0** ✅ |
+| `vigente` sin ocupación activa    | **0** ✅ |
 
 #### Reglas de negocio definitivas (acordadas con Jorge, 2026-08-10)
 
@@ -1286,53 +1292,55 @@ validacion_vacante → estado intermedio, solo generado por el padrón semanal
 
 **Cuándo pasa a cada estado:**
 
-| Evento | Estado resultante | Quién lo hace |
-|--------|------------------|---------------|
-| Alta de cargo (manual o padrón) | `vigente` | Sistema |
-| Padrón detecta "eliminado" (persona desaparece del Excel) | `validacion_vacante` | Padrón automático |
-| Operador confirma la baja desde Validación de Bajas | `no_vigente` | Manual |
-| Operador rechaza desde Validación de Bajas | `vigente` (vuelve) | Manual |
-| Baja manual desde `/cargos/baja` o `/cargos/alta-por-baja` sin concurso | `no_vigente` | Manual |
-| Reemplazo de persona desde `/cargos/baja/nueva` | `vigente` (se mantiene) | Manual |
+| Evento                                                                  | Estado resultante       | Quién lo hace     |
+| ----------------------------------------------------------------------- | ----------------------- | ----------------- |
+| Alta de cargo (manual o padrón)                                         | `vigente`               | Sistema           |
+| Padrón detecta "eliminado" (persona desaparece del Excel)               | `validacion_vacante`    | Padrón automático |
+| Operador confirma la baja desde Validación de Bajas                     | `no_vigente`            | Manual            |
+| Operador rechaza desde Validación de Bajas                              | `vigente` (vuelve)      | Manual            |
+| Baja manual desde `/cargos/baja` o `/cargos/alta-por-baja` sin concurso | `no_vigente`            | Manual            |
+| Reemplazo de persona desde `/cargos/baja/nueva`                         | `vigente` (se mantiene) | Manual            |
 
 **Qué pasa con la ocupación en cada transición:**
 
-| Evento | Ocupación |
-|--------|-----------|
+| Evento                                            | Ocupación                                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Padrón detecta "eliminado" → `validacion_vacante` | **Se cierra** (`hasta = fecha del padrón`). La persona ya no figura en el Excel = ya no ocupa el cargo. |
-| Operador confirma baja → `no_vigente` | Ya estaba cerrada. Se registra el acto administrativo. |
-| Operador rechaza → `vigente` | Se reabre la ocupación (`hasta = NULL`) si el rechazo es por error del sistema. |
-| Reemplazo de persona → cargo sigue `vigente` | Se cierra ocupación anterior + se crea nueva ocupación. |
+| Operador confirma baja → `no_vigente`             | Ya estaba cerrada. Se registra el acto administrativo.                                                  |
+| Operador rechaza → `vigente`                      | Se reabre la ocupación (`hasta = NULL`) si el rechazo es por error del sistema.                         |
+| Reemplazo de persona → cargo sigue `vigente`      | Se cierra ocupación anterior + se crea nueva ocupación.                                                 |
 
 **Caso especial: padrón siguiente trae de vuelta a la persona:**
+
 - El padrón **no se puede aprobar** hasta resolver estos casos
 - Se genera una alerta bloqueante en la pantalla de aprobación del padrón
 - El operador valida uno por uno: confirmar (cargo vuelve a `vigente`, se reabre ocupación) o mantener en `validacion_vacante`
 
 **`validacion_vacante` y concursos:**
+
 - Un cargo en `validacion_vacante` **NO puede generar concurso** directamente
 - Primero debe confirmarse la baja (→ `no_vigente`) o hacerse un reemplazo (→ `vigente`)
 - Desde `/cargos/baja/nueva` se pueden seleccionar cargos `validacion_vacante` Y `vigente` para el flujo de reemplazo
 
 #### Sprint 8-A — Migración y lógica
 
-| # | Tarea | Estado | Descripción |
-|---|-------|--------|-------------|
-| S8A-1 | **Migración enum** | ✅ | `EstadoCargo` extendido con `validacion_vacante` + columna `estado_desde DATE` en `cargos`. SQL directo (shadow DB fallaba por FK en migración vieja). Migración `20260819000000_s8a_validacion_vacante` creada y marcada como aplicada. |
-| S8A-2 | **Padrón: cambiar lógica "eliminados"** | ✅ | `aprobarSnapshotService`: "eliminados" pasan a `validacion_vacante` + `estadoDesde = fechaAsignada` en lugar de `no_vigente`. |
-| S8A-3 | **Padrón: alerta bloqueante** | ✅ | `getConflictosValidacionService` en `padron.service.ts` — busca diffs "nuevo" cuyos `id_sial` corresponden a cargos en `validacion_vacante`. Endpoint `GET /snapshots/:id/conflictos-validacion`. `PadronDiffPage` bloquea aprobación si hay conflictos, muestra panel naranja con tabla y botones confirmar/rechazar por fila. Badge en botón "Aprobar" con cantidad de conflictos. |
-| S8A-4 | **`/cargos/baja/nueva`: incluir `validacion_vacante`** | ✅ | `ModalBuscarCargo` hace 2 queries paralelas (vigente + validacion_vacante). Badge "En validación" naranja en tabla del modal. |
-| S8A-5 | **Fix `CargosPage`**: mostrar `validacion_vacante` | ✅ | Badge naranja "En Validación", opción en filtro de estado, columna "Días" para cargos no vigentes. |
+| #     | Tarea                                                  | Estado | Descripción                                                                                                                                                                                                                                                                                                                                                                          |
+| ----- | ------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S8A-1 | **Migración enum**                                     | ✅     | `EstadoCargo` extendido con `validacion_vacante` + columna `estado_desde DATE` en `cargos`. SQL directo (shadow DB fallaba por FK en migración vieja). Migración `20260819000000_s8a_validacion_vacante` creada y marcada como aplicada.                                                                                                                                             |
+| S8A-2 | **Padrón: cambiar lógica "eliminados"**                | ✅     | `aprobarSnapshotService`: "eliminados" pasan a `validacion_vacante` + `estadoDesde = fechaAsignada` en lugar de `no_vigente`.                                                                                                                                                                                                                                                        |
+| S8A-3 | **Padrón: alerta bloqueante**                          | ✅     | `getConflictosValidacionService` en `padron.service.ts` — busca diffs "nuevo" cuyos `id_sial` corresponden a cargos en `validacion_vacante`. Endpoint `GET /snapshots/:id/conflictos-validacion`. `PadronDiffPage` bloquea aprobación si hay conflictos, muestra panel naranja con tabla y botones confirmar/rechazar por fila. Badge en botón "Aprobar" con cantidad de conflictos. |
+| S8A-4 | **`/cargos/baja/nueva`: incluir `validacion_vacante`** | ✅     | `ModalBuscarCargo` hace 2 queries paralelas (vigente + validacion_vacante). Badge "En validación" naranja en tabla del modal.                                                                                                                                                                                                                                                        |
+| S8A-5 | **Fix `CargosPage`**: mostrar `validacion_vacante`     | ✅     | Badge naranja "En Validación", opción en filtro de estado, columna "Días" para cargos no vigentes.                                                                                                                                                                                                                                                                                   |
 
-#### Sprint 8-B — Página Validación de Bajas
+### Sprint 8-B — Página Validación de Bajas ✅ Completado
 
-| # | Tarea | Estado | Descripción |
-|---|-------|--------|-------------|
-| S8B-1 | **Ruta nueva** `/bajas/validacion` | ✅ | Ruta agregada en `router.tsx`. Link "⚠️ Validación de Bajas" en menú lateral (`AppShell.tsx`). |
-| S8B-2 | **Backend**: `GET /api/v1/bajas/validacion` | ✅ | `listValidacionService()` — lista cargos en `validacion_vacante` con última ocupación cerrada y días en estado. |
-| S8B-3 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/confirmar` | ✅ | `confirmarValidacionService(cargoId, actaAdministrativa?)` — cargo → `no_vigente`, `estadoDesde = hoy`, acto administrativo opcional. |
-| S8B-4 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/rechazar` | ✅ | `rechazarValidacionService(cargoId)` — cargo → `vigente`, `estadoDesde = null`, reabre ocupación (`hasta = NULL`). |
-| S8B-5 | **Frontend**: `ValidacionBajasPage` | ✅ | Tabla con días coloreados (verde/naranja/rojo según umbral 14/30 días). Modales confirmar (con campo acto administrativo opcional) y rechazar. |
+| #     | Tarea                                                           | Estado | Descripción                                                                                                                                    |
+| ----- | --------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| S8B-1 | **Ruta nueva** `/bajas/validacion`                              | ✅     | Ruta agregada en `router.tsx`. Link "⚠️ Validación de Bajas" en menú lateral (`AppShell.tsx`).                                                 |
+| S8B-2 | **Backend**: `GET /api/v1/bajas/validacion`                     | ✅     | `listValidacionService()` — lista cargos en `validacion_vacante` con última ocupación cerrada y días en estado.                                |
+| S8B-3 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/confirmar` | ✅     | `confirmarValidacionService(cargoId, actaAdministrativa?)` — cargo → `no_vigente`, `estadoDesde = hoy`, acto administrativo opcional.          |
+| S8B-4 | **Backend**: `POST /api/v1/bajas/validacion/:cargoId/rechazar`  | ✅     | `rechazarValidacionService(cargoId)` — cargo → `vigente`, `estadoDesde = null`, reabre ocupación (`hasta = NULL`).                             |
+| S8B-5 | **Frontend**: `ValidacionBajasPage`                             | ✅     | Tabla con días coloreados (verde/naranja/rojo según umbral 14/30 días). Modales confirmar (con campo acto administrativo opcional) y rechazar. |
 
 **Criterio de éxito:**
 
@@ -1378,34 +1386,34 @@ SIGUIENTE PADRÓN (si trae de vuelta a la persona)
 
 #### Decisiones de diseño (respondidas 2026-08-19)
 
-| Pregunta | Decisión |
-|----------|----------|
-| ¿Acto administrativo obligatorio? | **Opcional** — el número de documento puede quedar vacío |
-| ¿Desde Validación se puede iniciar concurso? | **No** — solo confirmar o rechazar la baja. El concurso se inicia desde el flujo habitual después |
-| ¿`validacion_vacante` en tabla `/cargos` o sección separada? | **En la tabla principal** con badge "En Validación" (naranja), filtrable como estado |
-| ¿Alerta de antigüedad? | **Mostrar días en estado actual** en la tabla y en Validación de Bajas |
+| Pregunta                                                     | Decisión                                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| ¿Acto administrativo obligatorio?                            | **Opcional** — el número de documento puede quedar vacío                                          |
+| ¿Desde Validación se puede iniciar concurso?                 | **No** — solo confirmar o rechazar la baja. El concurso se inicia desde el flujo habitual después |
+| ¿`validacion_vacante` en tabla `/cargos` o sección separada? | **En la tabla principal** con badge "En Validación" (naranja), filtrable como estado              |
+| ¿Alerta de antigüedad?                                       | **Mostrar días en estado actual** en la tabla y en Validación de Bajas                            |
 
 #### Estado técnico post-implementación
 
 **Archivos modificados:**
 
-| Archivo | Cambio |
-|---------|--------|
-| `prisma/schema.prisma` | `EstadoCargo` enum con `validacion_vacante`. `Cargo.estadoDesde DateTime?` |
-| `prisma/migrations/20260819000000_s8a_validacion_vacante/migration.sql` | `ALTER TYPE + ADD COLUMN` |
-| `packages/types/src/index.ts` | `EstadoCargo.VALIDACION_VACANTE`, `Cargo.estadoDesde: string \| null` |
-| `apps/api/src/modules/padron/padron.service.ts` | Paso 4 usa `validacion_vacante`. Nueva `getConflictosValidacionService` |
-| `apps/api/src/modules/padron/padron.routes.ts` | `GET /snapshots/:id/conflictos-validacion` |
-| `apps/api/src/modules/bajas/bajas.service.ts` | 3 nuevas funciones: `listValidacionService`, `confirmarValidacionService`, `rechazarValidacionService` |
-| `apps/api/src/modules/bajas/bajas.routes.ts` | 3 rutas S8B + 2 rutas S8A-3 |
-| `apps/api/src/modules/cargos/cargos.service.ts` | `listCargosService` devuelve `estadoDesde` |
-| `apps/api/src/shared/codigoCargo.ts` | `TxClient` tipado explícito con `Omit<PrismaClient, ...>` (fix TS) |
-| `apps/web/src/modules/cargos/pages/CargosPage.tsx` | Badge naranja, filtro, columna "Días" |
-| `apps/web/src/modules/cargos/pages/NuevaBajaPage.tsx` | 2 queries paralelas, badge "En validación" |
-| `apps/web/src/modules/bajas/pages/ValidacionBajasPage.tsx` | Página nueva completa |
-| `apps/web/src/modules/padron/pages/PadronDiffPage.tsx` | Panel bloqueante, query conflictos, badge botón Aprobar |
-| `apps/web/src/app/router.tsx` | Ruta `/bajas/validacion` |
-| `apps/web/src/shared/components/layout/AppShell.tsx` | Link "⚠️ Validación de Bajas" |
+| Archivo                                                                 | Cambio                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `prisma/schema.prisma`                                                  | `EstadoCargo` enum con `validacion_vacante`. `Cargo.estadoDesde DateTime?`                             |
+| `prisma/migrations/20260819000000_s8a_validacion_vacante/migration.sql` | `ALTER TYPE + ADD COLUMN`                                                                              |
+| `packages/types/src/index.ts`                                           | `EstadoCargo.VALIDACION_VACANTE`, `Cargo.estadoDesde: string \| null`                                  |
+| `apps/api/src/modules/padron/padron.service.ts`                         | Paso 4 usa `validacion_vacante`. Nueva `getConflictosValidacionService`                                |
+| `apps/api/src/modules/padron/padron.routes.ts`                          | `GET /snapshots/:id/conflictos-validacion`                                                             |
+| `apps/api/src/modules/bajas/bajas.service.ts`                           | 3 nuevas funciones: `listValidacionService`, `confirmarValidacionService`, `rechazarValidacionService` |
+| `apps/api/src/modules/bajas/bajas.routes.ts`                            | 3 rutas S8B + 2 rutas S8A-3                                                                            |
+| `apps/api/src/modules/cargos/cargos.service.ts`                         | `listCargosService` devuelve `estadoDesde`                                                             |
+| `apps/api/src/shared/codigoCargo.ts`                                    | `TxClient` tipado explícito con `Omit<PrismaClient, ...>` (fix TS)                                     |
+| `apps/web/src/modules/cargos/pages/CargosPage.tsx`                      | Badge naranja, filtro, columna "Días"                                                                  |
+| `apps/web/src/modules/cargos/pages/NuevaBajaPage.tsx`                   | 2 queries paralelas, badge "En validación"                                                             |
+| `apps/web/src/modules/bajas/pages/ValidacionBajasPage.tsx`              | Página nueva completa                                                                                  |
+| `apps/web/src/modules/padron/pages/PadronDiffPage.tsx`                  | Panel bloqueante, query conflictos, badge botón Aprobar                                                |
+| `apps/web/src/app/router.tsx`                                           | Ruta `/bajas/validacion`                                                                               |
+| `apps/web/src/shared/components/layout/AppShell.tsx`                    | Link "⚠️ Validación de Bajas"                                                                          |
 
 **Fix técnico: `prisma generate` faltante:**
 
@@ -1414,18 +1422,40 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 **Regla derivada:** siempre correr `prisma generate` después de cualquier cambio al schema, incluso cuando la migración se aplica con SQL directo.
 
 **Build verificado:**
+
 - `pnpm --filter @srrhh/api build` → ✅ sin errores
 - `pnpm --filter web build` → ✅ sin errores (592 módulos, warning de chunk >500kB preexistente)
 
 ---
 
-### SPRINT 8-C — Triangulación histórica (pendiente)
+### SPRINT 8-C — Triangulación histórica ✅ Completado
 
-| # | Tarea | Descripción |
-|---|-------|-------------|
-| S8C-1 | **`CargoDetailPanel`**: historial completo | Mostrar todas las ocupaciones históricas + concursos asociados al cargo |
-| S8C-2 | **`PersonaDetailPanel`**: cargos históricos | Mostrar todos los cargos que ocupó la persona (activos, retenidos, históricos) con fechas |
-| S8C-3 | **Endpoint triangulación** | `GET /api/v1/cargos/:id/historial` — devuelve ocupaciones + concursos + apariciones en padrón histórico |
+**Fecha:** 2026-09-03 | **Autor:** Agustin
+
+| #     | Tarea                                       | Estado | Descripción                                                                                                                                                                                                                                                                       |
+| ----- | ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S8C-1 | **`CargoDetailPanel`**: historial completo  | ✅     | `getCargoByIdService` extendido — fetcha `concursosCph` y `concursosCeetps` en paralelo vía `Promise.all`, con `concurso`, `escalafon` y `personaDesignada` expandidos. `CargoDetailPanel` muestra secciones "Concursos CPH" y "Concursos CEETPS" antes del historial de personas |
+| S8C-2 | **`PersonaDetailPanel`**: cargos históricos | ✅     | `getPersonaByIdService` extendido — incluye `padronHistorico` completo ordenado por `fechaAsignada desc` con `snapshot` expandido. `PersonaDetailPanel` muestra sección collapsible "Historial padrón semanal" (cerrada por defecto)                                              |
+| S8C-3 | **Endpoint triangulación**                  | ✅     | Implementado embebido en los endpoints existentes (`GET /cargos/:id` y `GET /personas/:id`) — no se creó ruta separada. Verificado end-to-end con datos reales                                                                                                                    |
+
+**Archivos modificados:**
+
+| Archivo                                                      | Cambio                                                                                                          |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `apps/api/src/modules/cargos/cargos.service.ts`              | `getCargoByIdService`: `Promise.all` para `concursosCph` + `concursosCeetps`                                    |
+| `apps/api/src/modules/personas/personas.service.ts`          | `getPersonaByIdService`: include `padronHistorico` con `snapshot`                                               |
+| `packages/types/src/index.ts`                                | `PadronHistoricoItem` interface; `PersonaDetail.padronHistorico`; `CargoDetail.concursosCph/ceetps`             |
+| `apps/web/src/modules/cargos/pages/CargoDetailPanel.tsx`     | Secciones CPH y CEETPS con tablas, badges de estado, links                                                      |
+| `apps/web/src/modules/personas/pages/PersonaDetailPanel.tsx` | Sección collapsible padrón histórico; "Historial de roles SIAL" también collapsible; ambos cerrados por defecto |
+
+**Regla de negocio — triangulación baja SIAL en ocupaciones (2026-09-03):**
+
+Detectado en uso real: una ocupación puede tener `situacionRevista = Activo` y `hasta = null` en el sistema, pero existir una baja registrada en SIAL para ese mismo `idSialRol`. La fuente de verdad de la baja es `bajasSial` (endpoint `/personas/:id/bajas-sial`), no el campo `hasta` de la ocupación.
+
+- En `PersonaDetailPanel`, cada ocupación cruza su `idSialRol` base (primeros 2 segmentos) contra `bajasSial`
+- Si hay match: el badge muestra **"Baja"**, `Situacion de revista` muestra **"Baja"**, y aparece una fila separada con borde rojo con **Fecha de baja**, **Motivo de baja** y **Doc. baja** (si tiene)
+- El campo `Hasta` se oculta cuando hay baja (reemplazado por los datos reales de la baja)
+- Implementado en `PersonaDetailPanel.tsx` con `bajasPorIdSial: Map` construido desde `bajasSial`
 
 ---
 
@@ -1437,6 +1467,7 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 **Contexto:** con Sprint 8 cerrado, este ciclo retoma el **gobierno del flujo concursal CPH**. Antes de construir autorizaciones (Sprint 11) hacen falta dos bases: la matriz de permisos central (Sprint 9) y las notificaciones persistidas (Sprint 10).
 
 **Decisiones ya tomadas (no consultar de nuevo):**
+
 - ~~Modelo de permisos: roles fijos + matriz central en `packages/types` (no tabla flexible)~~
   **⚠️ SUPERADO (2026-09-01, Agustin):** se implementó RBAC dinámico en su lugar — roles y
   permisos viven en tablas (`roles`, `permisos`, `role_permisos`), editables en caliente por
@@ -1455,7 +1486,7 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 - Solicitud de autorización: automática al caratular el concurso CPH
 - Guardas del router por rol (como en el legacy)
 
-### Modelo de permisos — matriz original planificada
+#### Modelo de permisos — matriz original planificada
 
 > Esta tabla documenta la intención original (y lo que efectivamente se sembró como
 > asignación inicial en `role_permisos` el 2026-09-01). Ya **no** es la fuente de verdad en
@@ -1463,44 +1494,45 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 > `/configuracion/permisos`. Esta matriz puede quedar desactualizada si el admin cambia
 > permisos después; para el estado real, consultar la BD o la UI.
 
-| Módulo | Acción | admin | editor | director | viewer | concursales_cph | concursales_ceetps |
-|--------|--------|-------|--------|----------|--------|-----------------|--------------------|
-| padron | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| | subir | ✅ | ✅ | — | — | — | — |
-| | aprobar_padron | ✅ | ✅ | — | — | — | — |
-| personas | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| cargos | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| | crear | ✅ | ✅ | — | — | — | — |
-| bajas | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| | crear | ✅ | ✅ | — | — | ✅ | ✅ |
-| concursos-cph | ver | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| | crear/editar | ✅ | ✅ | — | — | ✅ | — |
-| | autorizar | — | — | ✅ | — | — | — |
-| concursos-ceetps | ver | ✅ | ✅ | ✅ | ✅ | — | ✅ |
-| | crear/editar | ✅ | ✅ | — | — | — | ✅ |
-| kpis | ver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| configuracion | ver | ✅ | — | — | — | — | — |
-| notificaciones | ver (propias) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| autorizaciones | crear (sistema) | ✅ | ✅ | — | — | ✅ | ✅ |
-| | resolver (director) | — | — | ✅ | — | — | — |
+| Módulo           | Acción              | admin | editor | director | viewer | concursales_cph | concursales_ceetps |
+| ---------------- | ------------------- | ----- | ------ | -------- | ------ | --------------- | ------------------ |
+| padron           | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+|                  | subir               | ✅    | ✅     | —        | —      | —               | —                  |
+|                  | aprobar_padron      | ✅    | ✅     | —        | —      | —               | —                  |
+| personas         | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+| cargos           | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+|                  | crear               | ✅    | ✅     | —        | —      | —               | —                  |
+| bajas            | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+|                  | crear               | ✅    | ✅     | —        | —      | ✅              | ✅                 |
+| concursos-cph    | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | —                  |
+|                  | crear/editar        | ✅    | ✅     | —        | —      | ✅              | —                  |
+|                  | autorizar           | —     | —      | ✅       | —      | —               | —                  |
+| concursos-ceetps | ver                 | ✅    | ✅     | ✅       | ✅     | —               | ✅                 |
+|                  | crear/editar        | ✅    | ✅     | —        | —      | —               | ✅                 |
+| kpis             | ver                 | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+| configuracion    | ver                 | ✅    | —      | —        | —      | —               | —                  |
+| notificaciones   | ver (propias)       | ✅    | ✅     | ✅       | ✅     | ✅              | ✅                 |
+| autorizaciones   | crear (sistema)     | ✅    | ✅     | —        | —      | ✅              | ✅                 |
+|                  | resolver (director) | —     | —      | ✅       | —      | —               | —                  |
 
 > `director` pasa de "read-only" a tener acción concreta: `autorizar` en concursos-cph (Sprint 11).
 
-| # | Tarea | Dev | Est. | Prioridad | Estado |
-|---|-------|-----|------|-----------|--------|
-| S9-1 | Definir matriz en `packages/types`: `MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS` + tipo `Permiso` | Jorge | 3h | 🔴 Crítico | ⛔ No se hizo así — superado por RBAC dinámico (ver nota arriba): la matriz vive en tablas `roles`/`permisos`/`role_permisos`, no en `packages/types` |
-| S9-2 | Backend: middleware `requirePermiso(modulo, accion)` que consulta la matriz, reemplaza `requireRole` | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-01 — `apps/api/src/shared/middleware/permisos.middleware.ts`, consulta `role_permisos` en vivo (no una matriz estática) |
-| S9-3 | Frontend: helper `can(usuario, modulo, accion)` en `shared/lib/can.ts` | Agustin | 2h | 🔴 Crítico | ✅ 2026-09-02 — `shared/lib/can.ts`; consulta `user.permisos`, calculado server-side en el login (`getPermisosEfectivos`, `permisos.service.ts`) y agregado a la respuesta |
-| S9-4 | Menú con sección "Configuración" (admin-only) + sub-item "Permisos"; ruta `/configuracion/permisos` con guard | Agustin | 3h | 🟡 Medio | ✅ 2026-09-01/02 — `AppShell.tsx` (grupo "Configuración"), guard actualizado a `RequirePermiso` genérico (ver S9-9) |
-| S9-5 | `ConfiguracionPermisosPage`: renderiza la matriz en cascada (solo lectura por ahora) | Agustin | 6h | 🟡 Medio | ✅ 2026-09-01/02, con más alcance del planeado — no quedó solo-lectura: el admin crea roles y tilda/destilda permisos en vivo |
-| S9-6 | Migración: reemplazar todos los `requireRole([...])` por `requirePermiso(...)` | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-01 — 8 módulos migrados (usuarios, padrón, bajas-sial, cargos, bajas, concursos-cph, concursos-ceetps, concursos); `roles.middleware.ts` eliminado |
-| S9-7 | `InicioPage`: estructura con las 3 columnas del `landing.html` (datos mock) | Agustin | 10h | 🔴 Crítico | ✅ 2026-09-02, con **contenido real** (no mock, decisión del usuario) — `modules/inicio/pages/InicioPage.tsx` + `data/hubLinks.ts` con los ~40 links reales portados del legacy. Ruta índice `/` ya no redirige a `/kpis` |
-| S9-8 | Filtro de tarjetas en `InicioPage` por `can(usuario, ...)`; buscador inteligente | Agustin | 4h | 🟡 Medio | 🟡 Parcial a propósito — el buscador inteligente se portó completo (sinónimos incluidos); el filtro de tarjetas por `can()` **no se implementó**: los ~40 links son recursos externos (Drive) sin permiso natural asociado, inventar un mapeo habría sido arbitrario. Ver nota en el código |
-| S9-9 | Router: `ProtectedRoute` acepta `rol?: RolUsuario[]`; página "Sin acceso"; gates movidos a router | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-02 — `RequireAdmin` reemplazado por `RequirePermiso` (genérico, recibe `{modulo,accion}` por prop, no fijo a admin); `SinAccesoPage` nueva; Usuarios y Permisos ahora tienen cada uno su propio permiso de guard en vez de compartir un check admin-only |
-| S9-10 | AppShell: items filtrados por matriz usando `can`; sub-items controlados por permiso `crear` | Agustin | 3h | 🔴 Crítico | ✅ 2026-09-02 — los 13 ítems/grupos del menú (KPIs, Personas, Cargos+subitems, Bajas, Validación de Bajas, Concursos CPH/CEETPS, Padrón, Bajas Consolidadas, Configuración+subitems) filtran por `can()` |
-| S9-11 | Migración páginas existentes: quitar gates internos (`AdminUsuariosPage`, `PadronPage`) | Agustin | 3h | 🟡 Medio | ✅ 2026-09-02 — los 7 sitios restantes (`PadronPage`, `PadronDiffPage`, `BajasConsolidasPage`, `BajasSialDiffPage`, `BajaCargosPage`, `ConcursoCphDetail`, `ConcursoCeetpsDetail`) pasaron de comparar `rolSlug`/listas de roles a mano a usar `can()` con el mismo permiso que ya protege el endpoint real |
+| #     | Tarea                                                                                                         | Dev     | Est. | Prioridad  | Estado                                                                                                                                                                                                                                                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S9-1  | Definir matriz en `packages/types`: `MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS` + tipo `Permiso`                 | Jorge   | 3h   | 🔴 Crítico | ⛔ No se hizo así — superado por RBAC dinámico (ver nota arriba): la matriz vive en tablas `roles`/`permisos`/`role_permisos`, no en `packages/types`                                                                                                                                                       |
+| S9-2  | Backend: middleware `requirePermiso(modulo, accion)` que consulta la matriz, reemplaza `requireRole`          | Agustin | 4h   | 🔴 Crítico | ✅ 2026-09-01 — `apps/api/src/shared/middleware/permisos.middleware.ts`, consulta `role_permisos` en vivo (no una matriz estática)                                                                                                                                                                          |
+| S9-3  | Frontend: helper `can(usuario, modulo, accion)` en `shared/lib/can.ts`                                        | Agustin | 2h   | 🔴 Crítico | ✅ 2026-09-02 — `shared/lib/can.ts`; consulta `user.permisos`, calculado server-side en el login (`getPermisosEfectivos`, `permisos.service.ts`) y agregado a la respuesta                                                                                                                                  |
+| S9-4  | Menú con sección "Configuración" (admin-only) + sub-item "Permisos"; ruta `/configuracion/permisos` con guard | Agustin | 3h   | 🟡 Medio   | ✅ 2026-09-01/02 — `AppShell.tsx` (grupo "Configuración"), guard actualizado a `RequirePermiso` genérico (ver S9-9)                                                                                                                                                                                         |
+| S9-5  | `ConfiguracionPermisosPage`: renderiza la matriz en cascada (solo lectura por ahora)                          | Agustin | 6h   | 🟡 Medio   | ✅ 2026-09-01/02, con más alcance del planeado — no quedó solo-lectura: el admin crea roles y tilda/destilda permisos en vivo                                                                                                                                                                               |
+| S9-6  | Migración: reemplazar todos los `requireRole([...])` por `requirePermiso(...)`                                | Agustin | 4h   | 🔴 Crítico | ✅ 2026-09-01 — 8 módulos migrados (usuarios, padrón, bajas-sial, cargos, bajas, concursos-cph, concursos-ceetps, concursos); `roles.middleware.ts` eliminado                                                                                                                                               |
+| S9-7  | `InicioPage`: estructura con las 3 columnas del `landing.html` (datos mock)                                   | Agustin | 10h  | 🔴 Crítico | ✅ 2026-09-02, con **contenido real** (no mock, decisión del usuario) — `modules/inicio/pages/InicioPage.tsx` + `data/hubLinks.ts` con los ~40 links reales portados del legacy. Ruta índice `/` ya no redirige a `/kpis`                                                                                   |
+| S9-8  | Filtro de tarjetas en `InicioPage` por `can(usuario, ...)`; buscador inteligente                              | Agustin | 4h   | 🟡 Medio   | 🟡 Parcial a propósito — el buscador inteligente se portó completo (sinónimos incluidos); el filtro de tarjetas por `can()` **no se implementó**: los ~40 links son recursos externos (Drive) sin permiso natural asociado, inventar un mapeo habría sido arbitrario. Ver nota en el código                 |
+| S9-9  | Router: `ProtectedRoute` acepta `rol?: RolUsuario[]`; página "Sin acceso"; gates movidos a router             | Agustin | 4h   | 🔴 Crítico | ✅ 2026-09-02 — `RequireAdmin` reemplazado por `RequirePermiso` (genérico, recibe `{modulo,accion}` por prop, no fijo a admin); `SinAccesoPage` nueva; Usuarios y Permisos ahora tienen cada uno su propio permiso de guard en vez de compartir un check admin-only                                         |
+| S9-10 | AppShell: items filtrados por matriz usando `can`; sub-items controlados por permiso `crear`                  | Agustin | 3h   | 🔴 Crítico | ✅ 2026-09-02 — los 13 ítems/grupos del menú (KPIs, Personas, Cargos+subitems, Bajas, Validación de Bajas, Concursos CPH/CEETPS, Padrón, Bajas Consolidadas, Configuración+subitems) filtran por `can()`                                                                                                    |
+| S9-11 | Migración páginas existentes: quitar gates internos (`AdminUsuariosPage`, `PadronPage`)                       | Agustin | 3h   | 🟡 Medio   | ✅ 2026-09-02 — los 7 sitios restantes (`PadronPage`, `PadronDiffPage`, `BajasConsolidasPage`, `BajasSialDiffPage`, `BajaCargosPage`, `ConcursoCphDetail`, `ConcursoCeetpsDetail`) pasaron de comparar `rolSlug`/listas de roles a mano a usar `can()` con el mismo permiso que ya protege el endpoint real |
 
 **Criterio de éxito:**
+
 - ✅ Endpoints de escritura usan el nuevo middleware (sin listas hardcodeadas)
 - ✅ `/configuracion/permisos` renderiza la matriz para admin; oculta para el resto
 - ✅ `/` muestra `InicioPage` con 3 columnas (contenido real, no mock)
@@ -1512,23 +1544,125 @@ del hub por permiso, deliberadamente no implementado — ver esa fila).
 
 ---
 
+#### POST-SPRINT 9 — Normalización escalafones + deploy Render + sincronización Neon
+
+**Fecha:** 2026-09-02/03 | **Autor:** Jorge
+
+Trabajo de infraestructura y datos surgido de la puesta en producción en Render (testing) y la detección de inconsistencias en los escalafones del padrón.
+
+#### Normalización de escalafones (`20260902000001_escalafon_normalizacion`)
+
+- **Problema:** los escalafones se creaban on-the-fly en `aprobarSnapshotService` usando el texto libre del campo `ESCALAFON` del Excel — resultando en duplicados con nombres ligeramente distintos (`"Médicos"`, `"MEDICOS"`, `"Carrera Profesional Hospitalaria"`, etc.) y sin código canónico estable.
+- **Solución:** nueva tabla `escalafon_codigos_registro` (CODIGO DE REGISTRO del Excel → escalafón canónico). 13 escalafones canónicos con código corto (`22`, `83`, `85`, `87`, etc.). 15 mapeos iniciales (incluyendo fusión `cod 19 "Carrera Administrativa"` → `cod 83 "Nueva Carrera Administrativa"`).
+- **Backfill:** `cargos.escalafon_id` actualizado vía `codigos_registro → escalafon_codigos_registro`. `padron_historico.escalafon` normalizado al nombre canónico. Escalafones sucios (código UUID-like) marcados `activo=false`.
+- **`padron.service.ts` paso 2b:** reescrito para usar `escalafon_codigos_registro` como fuente de verdad. Códigos nuevos se auto-registran con `ON CONFLICT DO NOTHING`. Guard warn+skip si código sin escalafón resuelto.
+
+#### Escalafón 16T (`20260902000002_escalafon_16T`)
+
+- Nuevo escalafón `"Plantas Transitorias Modulo Operativo"` (código `16T`) detectado en dotación nueva.
+- Insertado en `escalafones` + `escalafon_codigos_registro`. Idempotente.
+
+#### Unificación Docentes (`20260902000003_unificar_docentes`)
+
+- `"Docentes"` (inactivo, sin código de registro) fusionado en `"Docentes Históricos"` (canónico, cod `7`).
+- Migración reescrita sin UUIDs hardcodeados — usa `WHERE nombre = 'Docentes Históricos'` para portabilidad entre entornos (local/Neon/producción).
+- Reasignados: `cargos`, `codigos_registro`, `puestos_cargo`. Normalizado `padron_historico.escalafon`. Escalafón duplicado eliminado.
+
+#### Fix RBAC — permisos del rol admin (`20260902000004_rbac_permisos_roles`)
+
+- **Problema:** rol `admin` tenía 0 permisos asignados. La migración RBAC original usaba `nombre` en vez de `slug` en el `WHERE`, así que el `INSERT INTO role_permisos` no encontraba ningún rol.
+- **Fix:** migración idempotente (`ON CONFLICT DO NOTHING`) que asigna permisos por `slug`. Matriz final: `admin`=todos, `editor`=todo menos gestionar config, `director`=ver+autorizar+resolver, `concursales_cph/ceetps`=ver+crear/editar su módulo+bajas+autorizaciones, `viewer`=solo ver.
+
+#### Fix permiso `bajas-sial.ver` (`20260902090000_bajas_sial_ver`)
+
+- Permiso `bajas-sial.ver` faltaba en el catálogo — el menú lateral no mostraba "Bajas Consolidadas" para ningún rol.
+- Insertado en `permisos` y asignado a todos los roles.
+
+#### Puestos CPH faltantes (`20260902_especialidades_puesto`, `20260902_fix_especialidades`, `20260903_puestos_faltantes`)
+
+- Tabla `especialidades_puesto` creada y sembrada: 95 especialidades médicas para puestos CPH (Médico de Planta, Profesional Guardia Médico, Especialista en la Guardia Médico); 2 especialidades veterinarias para Médico Veterinario.
+- Fix de seed incorrecto (primer intento usaba UUIDs hardcodeados de escalafones locales).
+- 8 puestos CPH faltantes del Art. 6 Ley 6035 (Fisioterapeuta, Lic. en Estadísticas, Lic. en Comunicación Social — POF y POU). 5 puestos de conducción CPH (Jefe de Sección/Unidad/División/Departamento, Director). Duplicados para ambos escalafones CPH.
+
+#### Deploy Render — fix enums TypeScript (`packages/types/src/index.ts`)
+
+- **Problema:** Node 22 en Render usa strip-only mode — no transpila `enum` TypeScript. Build fallaba en producción con error de sintaxis.
+- **Fix:** todos los `export enum` convertidos a `export const X = {...} as const` + `export type X = typeof X[keyof typeof X]`. Afecta: `EstadoCargo`, `EstadoSnapshot`, `TipoDiff`, `TipoConcurso`, `EstadoConcursoCph`, `EstadoConcursoCeetps`, `EstadoBaja`.
+- Los valores en runtime son idénticos — ningún cambio de comportamiento, solo sintaxis compatible con Node 22.
+
+#### Sincronización Neon (testing)
+
+- **Problema detectado:** Neon tenía 30 snapshots vs 31 en local (faltaba `2026-08-31`, 48.724 registros). Columnas `cuil` y `unificador_puesto` faltaban en `padron_historico` de Neon (migración `20260831140000` registrada pero no ejecutada).
+- **Fix columnas:** `ALTER TABLE padron_historico ADD COLUMN IF NOT EXISTS cuil VARCHAR(11)` y `unificador_puesto VARCHAR(200)` aplicados manualmente en Neon.
+- **Sincronización snapshot:** script Python (`gen_sync_neon_v3.py`) generó SQL portable leyendo CSVs exportados desde local. Resuelve FKs por `id_sial`/`cuil` (no UUIDs). JOIN en INSERT de `padron_historico` para saltear silenciosamente filas cuya persona/cargo no existe en Neon.
+- **Resultado final en Neon:** `vigente` 47.721 cargos · `validacion_vacante` 114 cargos · `padron_historico` 31ago 2.864 filas · `padron_snapshots` 31ago 1 snapshot.
+- **Verificación schema:** local y Neon 100% idénticos — todas las tablas, columnas, tipos y 8 enums coinciden exactamente.
+
+#### `EvolucionDotacionChart` — rediseño dashboard ejecutivo
+
+- **Versión anterior (S6-5):** gráfico de línea simple, una serie, sin leyenda de escalafones.
+- **Versión actual:** dashboard ejecutivo completo. KPI cards arriba (dotación total, variación período, mayor crecimiento). Small multiples SVG: 6 macro-grupos (`MACRO_GRUPOS` const array con label/escalafones/color/colorLight) con gráfico de área + línea + punto final independiente por grupo. Toggle "Por mes / Por subida" mantenido. Paleta sobria, sin barra de 14 filtros de colores.
+- Macro-grupos: CPH · CEETPS · Escalafón General · Residentes · Docentes · Otros.
+
+---
+
 ### SPRINT 10 — Notificaciones persistidas
 
 **Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 25h
 **Objetivo:** Entidad `Notificacion` persistida + badge de no leídas en el header + bandeja.
+**Estado:** ✅ Completo — 2026-09-04
 
-| # | Tarea | Dev | Est. | Prioridad |
-|---|-------|-----|------|-----------|
-| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones` | Jorge | 3h | 🟡 Medio |
-| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge | 6h | 🟡 Medio |
-| S10-3 | Frontend: badge con contador de no leídas en el header | Agustin | 4h | 🟡 Medio |
-| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas) | Agustin | 6h | 🟡 Medio |
-| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`) | Jorge | 6h | 🟢 Bajo |
+**Decisiones de diseño tomadas antes de implementar:**
+
+| Pregunta | Decisión |
+| -------- | --------- |
+| Tipos de `TipoNotificacion` | `concurso_estancado`, `baja_pendiente`, `autorizacion_pendiente`, `autorizacion_resuelta` |
+| Destinatarios | Por rol (`rolSlug`) — cada tipo va al rol que corresponde según el flujo de autorización |
+| S10-5 alertas de estancamiento | On-demand: se materializan al listar notificaciones, sin cron job |
+
+| #     | Tarea                                                                                                              | Dev     | Est. | Prioridad | Estado |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---- | --------- | ------ |
+| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones`                        | Jorge   | 3h   | 🟡 Medio  | ✅ |
+| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge   | 6h   | 🟡 Medio  | ✅ |
+| S10-3 | Frontend: badge con contador de no leídas en el header                                                             | Agustin | 4h   | 🟡 Medio  | ✅ |
+| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas)                          | Agustin | 6h   | 🟡 Medio  | ✅ |
+| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`)      | Jorge   | 6h   | 🟢 Bajo   | ✅ |
+
+**Archivos modificados:**
+
+| Archivo | Cambio |
+| ------- | ------ |
+| `prisma/schema.prisma` | Enum `TipoNotificacion` + `model Notificacion` con `origenKey` único para deduplicación |
+| `prisma/migrations/20260904000000_sprint10_notificaciones/migration.sql` | `CREATE TYPE` + `CREATE TABLE notificaciones` + índices |
+| `packages/types/src/index.ts` | `TipoNotificacion`, `Notificacion`, `NotificacionFilters` |
+| `apps/api/src/modules/notificaciones/notificaciones.service.ts` | `crearNotificacion`, `listNotificacionesService`, `countNoLeidasService`, `marcarLeidaService`, `marcarTodasLeidasService`, `materializarAlertasEstancamiento` |
+| `apps/api/src/modules/notificaciones/notificaciones.schema.ts` | Zod schema para query params |
+| `apps/api/src/modules/notificaciones/notificaciones.routes.ts` | 4 endpoints: `GET /`, `GET /no-leidas`, `PATCH /leer-todas`, `PATCH /:id/leer` |
+| `apps/api/src/app.ts` | Registro del módulo en `/api/v1/notificaciones` |
+| `apps/web/src/modules/notificaciones/hooks/useNotificaciones.ts` | `useNotificacionesNoLeidas`, `useNotificaciones`, `useMarcarLeida`, `useMarcarTodasLeidas` |
+| `apps/web/src/modules/notificaciones/pages/NotificacionesPage.tsx` | Bandeja con filtros, paginación, marcar leídas |
+| `apps/web/src/shared/components/layout/AppShell.tsx` | Badge 🔔 en el header con contador de no leídas, link a `/notificaciones` |
+| `apps/web/src/app/router.tsx` | Ruta `/notificaciones` |
+
+**Regla de negocio — destinatarios por tipo:**
+
+| Tipo | Rol destinatario | Cuándo se crea |
+| ---- | ---------------- | -------------- |
+| `concurso_estancado` (CPH 30d/60d) | `concursales_cph` | On-demand al listar, si el concurso lleva >30/60 días sin movimiento |
+| `concurso_estancado` (CPH 90d) | `admin` | Ídem, umbral 90 días |
+| `concurso_estancado` (CEETPS) | `concursales_ceetps` | Ídem para concursos CEETPS |
+| `baja_pendiente` | A definir en Sprint 11 | Cuando se registre una baja sin concurso asociado |
+| `autorizacion_pendiente` | `director` | Sprint 11: al caratular concurso CPH |
+| `autorizacion_resuelta` | `concursales_cph` | Sprint 11: cuando el director aprueba/rechaza |
+
+**Deduplicación:** campo `origenKey` con constraint `UNIQUE`. Formato: `{tipo}:{entidad}:{id}:{umbral}` (ej. `concurso_estancado:cph:{uuid}:30d`). Si ya existe una notificación con esa clave, `crearNotificacion()` la devuelve sin crear duplicado.
 
 **Criterio de éxito:**
-- `Notificacion` se crea desde eventos del backend
-- Badge de no leídas visible; la bandeja marca de a una o todas
-- Alertas de estancamiento generan notificación a dueños + admin/editor
+
+- `Notificacion` se crea desde eventos del backend ✅
+- Badge de no leídas visible en el header; la bandeja marca de a una o todas ✅
+- Alertas de estancamiento generan notificación al rol correspondiente ✅
+- Anti-duplicados por `origenKey` ✅
 
 ---
 
@@ -1537,17 +1671,18 @@ del hub por permiso, deliberadamente no implementado — ver esa fila).
 **Duración:** 1–2 semanas | **Capacidad:** 60–120h | **Estimado:** 38h
 **Objetivo:** Caratulación → autorización del director → verificación CPH → paso Inscripción/Examen/OM.
 
-| # | Tarea | Dev | Est. | Prioridad |
-|---|-------|-----|------|-----------|
-| S11-1 | Prisma: `model Autorizacion` + enum `EstadoAutorizacion`; migración `sprint11_autorizaciones` | Jorge | 4h | 🔴 Crítico |
-| S11-2 | Al completar caratulación CPH: crear `Autorizacion` si no existe pendiente + notificar a `director` | Jorge | 6h | 🔴 Crítico |
-| S11-3 | Módulo `autorizaciones/`: `GET /` (pendientes del director), `POST /:id/aprobar`, `POST /:id/rechazar`; al resolver notificar a `concursales_cph` | Jorge | 6h | 🔴 Crítico |
-| S11-4 | Wizard CPH: badge "En espera de autorización" en fase Autorización; bloqueo de `fechaAutorizacion` hasta aprobar | Agustin | 8h | 🔴 Crítico |
-| S11-5 | Portal del director: ruta `/autorizaciones` con tabla de pendientes (detalle, aprobar/rechazar) | Agustin | 6h | 🔴 Crítico |
-| S11-6 | Al resolver autorización, CPH puede avanzar a `A-AUTZN`/`B-SORTEO JUR`; mapear fase Inscripción/Examen/OM | Jorge + Agustin | 4h | 🟡 Medio |
-| S11-7 | Prueba end-to-end: caratular → autorización pendiente → director aprueba → notificación a CPH → CPH completa Inscripción/Examen/OM | Jorge + Agustin | 4h | 🔴 Crítico |
+| #     | Tarea                                                                                                                                             | Dev             | Est. | Prioridad  |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- |
+| S11-1 | Prisma: `model Autorizacion` + enum `EstadoAutorizacion`; migración `sprint11_autorizaciones`                                                     | Jorge           | 4h   | 🔴 Crítico |
+| S11-2 | Al completar caratulación CPH: crear `Autorizacion` si no existe pendiente + notificar a `director`                                               | Jorge           | 6h   | 🔴 Crítico |
+| S11-3 | Módulo `autorizaciones/`: `GET /` (pendientes del director), `POST /:id/aprobar`, `POST /:id/rechazar`; al resolver notificar a `concursales_cph` | Jorge           | 6h   | 🔴 Crítico |
+| S11-4 | Wizard CPH: badge "En espera de autorización" en fase Autorización; bloqueo de `fechaAutorizacion` hasta aprobar                                  | Agustin         | 8h   | 🔴 Crítico |
+| S11-5 | Portal del director: ruta `/autorizaciones` con tabla de pendientes (detalle, aprobar/rechazar)                                                   | Agustin         | 6h   | 🔴 Crítico |
+| S11-6 | Al resolver autorización, CPH puede avanzar a `A-AUTZN`/`B-SORTEO JUR`; mapear fase Inscripción/Examen/OM                                         | Jorge + Agustin | 4h   | 🟡 Medio   |
+| S11-7 | Prueba end-to-end: caratular → autorización pendiente → director aprueba → notificación a CPH → CPH completa Inscripción/Examen/OM                | Jorge + Agustin | 4h   | 🔴 Crítico |
 
 **Criterio de éxito:**
+
 - Caratular genera automáticamente la `Autorizacion` y notificación al director (sin duplicados)
 - El wizard muestra "En espera de autorización" y bloquea `fechaAutorizacion` hasta aprobar
 - Director resuelve desde `/autorizaciones` y el siguiente paso del wizard se habilita
@@ -1555,24 +1690,134 @@ del hub por permiso, deliberadamente no implementado — ver esa fila).
 
 ---
 
+---
+
+### SPRINT 12 - Panel de autorizaciones + jerarquia de roles
+
+**Duracion:** 2 semanas | **Capacidad:** 120h | **Estimado:** 72h
+**Objetivo:** Panel de autorizaciones pendientes filtrado por perfil de usuario + modelo de jerarquia de roles (jefe/subordinado) como base para asignacion de tareas futura.
+
+**Contexto y decisiones de diseno:**
+
+El sistema ya tiene Autorizacion planificada en Sprint 11 para el flujo concursal CPH (caratulacion -> director aprueba). Sprint 12 generaliza ese concepto: cualquier accion del sistema que requiera aprobacion de un superior genera una Autorizacion tipificada, y cada usuario ve en su panel solo las que le corresponden segun su rol.
+
+**Tipos de autorizacion iniciales:**
+
+| Tipo         | Quien la genera                                        | Quien la resuelve | Descripcion                                                        |
+| ------------ | ------------------------------------------------------ | ----------------- | ------------------------------------------------------------------ |
+| concurso_cph | concursales_cph al caratular                           | director          | Autorizacion de apertura de concurso CPH (ya planificada en S11-2) |
+| baja_cargo   | concursales_cph / concursales_ceetps al registrar baja | director          | Confirmacion de baja antes de generar vacante                      |
+| alta_cargo   | editor al crear cargo manual                           | director          | Validacion de alta de cargo estructural                            |
+
+**Jerarquia de roles - modelo RoleJerarquia:**
+
+Un rol puede tener un rol superior (rolPadreId). Esto permite:
+
+- El director ve las autorizaciones generadas por sus subordinados (concursales_cph, concursales_ceetps)
+- En el futuro: asignacion de tareas de jefe a subordinado, visibilidad del trabajo del equipo
+- No es un arbol de permisos (eso ya lo maneja RBAC) - es una relacion organizacional
+
+Jerarquia inicial del sistema:
+
+- admin -> editor -> concursales_cph / concursales_ceetps
+- director: par del editor, resuelve autorizaciones
+- viewer: sin subordinados
+
+| #     | Tarea                                                                                                                                                                                                                                           | Dev             | Est. | Prioridad |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | --------- |
+| S12-1 | Prisma: model Autorizacion (tipo, referenciaId, referenciaTipo, estado, solicitadoPorId, resolverPorRolId, resueltoPorId, observaciones) + enum TipoAutorizacion + enum EstadoAutorizacion. Migracion sprint12_autorizaciones                   | Jorge           | 4h   | Critico   |
+| S12-2 | Prisma: model RoleJerarquia (rolHijoId, rolPadreId) - tabla de relacion simple, sin ciclos. Migracion sprint12_role_jerarquia. Seed inicial con la jerarquia del sistema                                                                        | Jorge           | 3h   | Critico   |
+| S12-3 | Modulo autorizaciones/: GET /api/v1/autorizaciones (pendientes del usuario segun su rol y jerarquia), POST /:id/aprobar, POST /:id/rechazar. Helper crearAutorizacion(tx, tipo, referenciaId, solicitadoPorId) para llamar desde otros services | Jorge           | 8h   | Critico   |
+| S12-4 | Integrar crearAutorizacion en: createBajaService (tipo baja_cargo), createCargoService (tipo alta_cargo). El de concurso_cph se integra en S11-2                                                                                                | Jorge           | 4h   | Critico   |
+| S12-5 | GET /api/v1/autorizaciones/mis-pendientes: cuenta de pendientes para el badge del header                                                                                                                                                        | Jorge           | 2h   | Medio     |
+| S12-6 | Frontend: AutorizacionesPage (/autorizaciones) - tabla de pendientes filtrada por perfil. Columnas: tipo, referencia (link al objeto), solicitado por, fecha, dias pendiente. Botones Aprobar/Rechazar con modal de observaciones               | Agustin         | 10h  | Critico   |
+| S12-7 | Frontend: badge de pendientes en el header (reutiliza patron de notificaciones S10-3)                                                                                                                                                           | Agustin         | 3h   | Medio     |
+| S12-8 | Frontend: ConfiguracionJerarquiaPage (/configuracion/jerarquia) - visualizacion del arbol de roles con sus relaciones jefe/subordinado. Solo admin puede editar                                                                                 | Agustin         | 8h   | Bajo      |
+| S12-9 | Verificacion end-to-end: concursales_cph registra baja -> autorizacion pendiente -> director aprueba -> baja confirmada. Verificar que viewer/concursales_ceetps no ven autorizaciones de CPH                                                   | Jorge + Agustin | 4h   | Critico   |
+
+**Criterio de exito:**
+
+- Cada usuario ve en /autorizaciones solo las que le corresponden resolver segun su rol
+- Badge en el header muestra el conteo de pendientes propios
+- Registrar una baja o alta de cargo genera automaticamente la autorizacion correspondiente
+- La jerarquia de roles es visible y editable por admin desde /configuracion/jerarquia
+- Base lista para Sprint 13 (asignacion de tareas jefe -> subordinado)
+
+**Dependencias:**
+
+- S12-1 y S12-2 (schema) bloquean todo lo demas
+- S12-3 (modulo autorizaciones) bloquea S12-4, S12-5, S12-6, S12-7
+- Sprint 11 (S11-2) integra crearAutorizacion para concursos CPH - puede hacerse en paralelo con S12-4 una vez que S12-3 este listo
+- S12-8 es independiente, puede hacerse en cualquier momento del sprint
+
+**Nota sobre Sprint 10 (Notificaciones) y Sprint 12:**
+Las notificaciones (S10) y las autorizaciones (S12) son conceptos distintos pero relacionados:
+
+- Una autorizacion resuelta (aprobada/rechazada) genera una notificacion al solicitante
+- El badge del header puede unificar ambos conteos o mostrarlos separados - decidir al implementar S12-7
+- Por eso Sprint 10 va antes: el sistema de notificaciones es la infraestructura que Sprint 12 usa para avisar al solicitante del resultado
+
+---
+
+### SPRINT 13 - Asignacion de tareas entre roles (planificado)
+
+**Duracion:** 2 semanas | **Capacidad:** 120h | **Estimado:** por definir
+**Objetivo:** Permitir que un rol jefe asigne tareas a sus subordinados y vea el estado de avance.
+
+**Contexto:** Sprint 12 establece la jerarquia de roles (RoleJerarquia). Sprint 13 la usa para el flujo de trabajo: el director puede asignar una tarea a concursales_cph (ej. completar documentacion del concurso X), ver el estado y recibir notificacion cuando se completa.
+
+**Casos de uso iniciales:**
+
+| Caso                        | Jefe     | Subordinado              | Descripcion                                                 |
+| --------------------------- | -------- | ------------------------ | ----------------------------------------------------------- |
+| Completar documentacion CPH | director | concursales_cph          | Asignar tarea de cargar documentos faltantes en un concurso |
+| Resolver validacion de baja | director | concursales_cph / ceetps | Asignar revision de un cargo en validacion_vacante          |
+| Cargar expediente de alta   | editor   | concursales_cph          | Asignar completar datos de un alta manual                   |
+
+**Modelo de datos tentativo:**
+
+- Tarea: tipo, referenciaId, referenciaTipo, asignadaPorId, asignadaAId (usuario concreto), estado (pendiente/en_progreso/completada/cancelada), descripcion, fechaVencimiento, completadaAt
+
+| #     | Tarea                                                                                                                                                                                     | Dev             | Est. | Prioridad |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | --------- |
+| S13-1 | Prisma: model Tarea + enum EstadoTarea + enum TipoTarea. Migracion sprint13_tareas                                                                                                        | Jorge           | 4h   | Critico   |
+| S13-2 | Modulo tareas/: POST / (crear), GET /mis-tareas (asignadas al usuario), GET /mis-asignaciones (creadas por el usuario), PATCH /:id/estado                                                 | Jorge           | 8h   | Critico   |
+| S13-3 | Al crear tarea: notificar al asignado (usa infraestructura S10). Al completar: notificar al jefe                                                                                          | Jorge           | 3h   | Medio     |
+| S13-4 | Frontend: MisTareasPage (/tareas) - lista de tareas asignadas al usuario con filtros por estado/tipo, link al objeto referenciado, boton Marcar completada                                | Agustin         | 10h  | Critico   |
+| S13-5 | Frontend: panel Mis asignaciones en /tareas (tab o seccion) - tareas que el usuario asigno a otros, con estado de avance                                                                  | Agustin         | 8h   | Medio     |
+| S13-6 | Frontend: boton Asignar tarea en ConcursoCphDetail, CargoDetailPanel, ValidacionBajasPage - abre modal con selector de usuario subordinado, tipo de tarea y fecha de vencimiento opcional | Agustin         | 8h   | Medio     |
+| S13-7 | Verificacion end-to-end: director asigna tarea a concursales_cph sobre un concurso -> concursales_cph la ve en /tareas -> la completa -> director recibe notificacion                     | Jorge + Agustin | 4h   | Critico   |
+
+**Criterio de exito:**
+
+- Un jefe puede asignar una tarea a un subordinado desde el contexto del objeto (concurso, cargo, baja)
+- El subordinado ve sus tareas pendientes en /tareas con link directo al objeto
+- El jefe ve el estado de sus asignaciones
+- Completar una tarea notifica al jefe
+
+**Dependencias:**
+
+- Requiere Sprint 10 (notificaciones) y Sprint 12 (jerarquia de roles) completos
+- S13-6 requiere que los modulos de destino (CPH, Cargos, Validacion) esten estables
+
 ## 5. BACKLOG — Fuera de sprints actuales
 
-| #    | Tarea                                                     | Motivo de postergación                              |
-| ---- | --------------------------------------------------------- | --------------------------------------------------- |
-| B-1  | Portal Postulante                                         | Sistema separado, fuera de alcance                  |
-| B-2  | Integración API TAD                                       | No disponible en primera etapa                      |
-| B-3  | Firma digital real                                        | No disponible en primera etapa                      |
-| B-4  | Integración Hacienda                                      | No disponible en primera etapa                      |
-| B-5  | Redis cache para KPIs pesados                             | No necesario en arranque                            |
-| B-6  | Módulo de recorridas                                      | No urgente para MVP                                 |
-| B-7  | Notificaciones por email                                  | Segunda fase                                        |
-| B-8  | App mobile nativa                                         | Segunda fase                                        |
-| B-9  | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
-| B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me`   | Mejora de seguridad XSS — no priorizado para MVP    |
-| B-11 | ~~"Alta de Cargo" manual~~ → **promovido a S5-10**        | Promovido: necesario para cerrar el flujo concursal |
+| #    | Tarea                                                                                                                             | Motivo de postergación                                                                                                                                            |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B-1  | Portal Postulante                                                                                                                 | Sistema separado, fuera de alcance                                                                                                                                |
+| B-2  | Integración API TAD                                                                                                               | No disponible en primera etapa                                                                                                                                    |
+| B-3  | Firma digital real                                                                                                                | No disponible en primera etapa                                                                                                                                    |
+| B-4  | Integración Hacienda                                                                                                              | No disponible en primera etapa                                                                                                                                    |
+| B-5  | Redis cache para KPIs pesados                                                                                                     | No necesario en arranque                                                                                                                                          |
+| B-6  | Módulo de recorridas                                                                                                              | No urgente para MVP                                                                                                                                               |
+| B-7  | Notificaciones por email                                                                                                          | Segunda fase                                                                                                                                                      |
+| B-8  | App mobile nativa                                                                                                                 | Segunda fase                                                                                                                                                      |
+| B-9  | Multi-tab refresh token coordination (`BroadcastChannel`)                                                                         | Trade-off aceptado con localStorage — no priorizado                                                                                                               |
+| B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me`                                                                           | Mejora de seguridad XSS — no priorizado para MVP                                                                                                                  |
+| B-11 | ~~"Alta de Cargo" manual~~ → **promovido a S5-10**                                                                                | Promovido: necesario para cerrar el flujo concursal                                                                                                               |
 | B-12 | Identidad del cargo en padrón SIAL por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` | Pendiente — fue planificado en `Concursos-CPH.md` como S8-1 pero no se implementó en Sprint 8 (ese sprint se dedicó a `validacion_vacante`). Retomar en Sprint 9+ |
-| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
-| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
+| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja                                                                 | Flujo de bajas, no de altas                                                                                                                                       |
+| B-14 | Vincular expediente de alta con expediente de baja (contrapartida)                                                                | Requiere modelado de actos administrativos como entidad propia                                                                                                    |
 
 ---
 
@@ -1606,42 +1851,47 @@ deploy real.
 
 ## 7. REGISTRO DE DECISIONES
 
-| Fecha      | Decisión                                                                                                                                                                                                                 | Motivo                                                                                                                                                                                                                              |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-09    | Sin deadline fijo — calidad por etapa                                                                                                                                                                                    | Prioridad en corrección, no en velocidad                                                                                                                                                                                            |
-| 2026-09    | Dotaneitor: analizar y optimizar, no reescribir                                                                                                                                                                          | Ya funciona, Python es el lenguaje correcto para esto                                                                                                                                                                               |
-| 2026-09    | PostgreSQL sobre MySQL                                                                                                                                                                                                   | Particionado, full-text search, window functions                                                                                                                                                                                    |
-| 2026-09    | shadcn/ui + Tailwind con tokens Obelisco                                                                                                                                                                                 | Stack moderno + identidad institucional GCBA                                                                                                                                                                                        |
-| 2026-09    | Zustand para estado de auth                                                                                                                                                                                              | TanStack Query para servidor, Zustand para cliente                                                                                                                                                                                  |
-| 2026-09    | Docker desde el día 1                                                                                                                                                                                                    | Entorno local = producción, deploy trivial                                                                                                                                                                                          |
-| 2026-09    | UUID como PK en todas las tablas                                                                                                                                                                                         | Sin autoincremental, distribuible                                                                                                                                                                                                   |
-| 2026-09    | Soft delete en todas las tablas                                                                                                                                                                                          | Histórico inmutable, nunca DELETE en producción                                                                                                                                                                                     |
-| 2026-09    | Producción en servidor propio                                                                                                                                                                                            | A definir en Sprint 6                                                                                                                                                                                                               |
-| 2026-08-26 | Estimados de horas en el plan son referenciales, no compromisos — cada sprint genera trabajo de verificación/corrección no planificado que es parte normal del proceso. Los estimados no se actualizan retroactivamente. | Medir velocidad contra los estimados originales daría una imagen distorsionada del trabajo real                                                                                                                                     |
-| 2026-08-26 | DoD actualizado: "PR aprobado" reemplazado por "avisar antes de tocar módulo compartido"                                                                                                                                 | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa (ver choque Sprint 3)                                                                                                                                  |
-| 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de construir KPIs de dotación (S6-0a/b/c)                                                                             | Sin `cuil` no se pueden contar personas únicas por período sin join; sin índice por `cargoId` el historial de un cargo hace seq scan; sin `unificadorPuesto` no se puede analizar dotación por tipo de puesto a lo largo del tiempo |
-| 2026-08-31 | **S6-0 resuelto**: migración `20260831140000_padron_historico_kpis_prereq` agrega `cuil`/`unificador_puesto` (nullable) + `@@index([cargoId])` + `@@index([cuil])` a `PadronHistorico`; `aprobarSnapshotService` los completa en cada fila nueva. Backfill (`scripts/backfill-padron-historico-kpis.sql`) corrido contra datos reales: 46.889/46.889 filas, 0 nulos. | Desbloquea S6-5 (gráfico evolución dotación histórica) |
-| 2026-08-31 | **S6-1 resuelto**: `GET /api/v1/kpis/dotacion` (`getKpisDotacionService`) — "vigente" = `Cargo.estado='vigente'`, "vacante" = vigente sin `Ocupacion` con `hasta IS NULL`. Devuelve `totalVigentes`, `vacantes`, `porCarrera` (por escalafón) y `porEfector` (por hospital), con filtro opcional `hospitalId`. Verificado end-to-end contra datos reales: 46.889 cargos vigentes, 0 vacantes hoy. | Alimenta S6-2 (KpisPage) |
-| 2026-08-31 | **S6-3 resuelto**: `GET /api/v1/kpis/concursos` (`getKpisConcursosService`) — vista consolidada CPH+CEETPS (`totalCph`/`totalCeetps`/`total`) + `porSubEstadoCph` + `tiempoPromedioPorEtapa`. El tiempo por etapa es exclusivo de CPH: es el único tipo con escalera de sub-estados con fecha propia por nivel (CEETPS solo tiene `EstadoConcursoCeetps` plano). Se promedia `hasta - desde` por cada par consecutivo de fechas-hito con datos, excluyendo pares fuera de orden cronológico. Matemática validada con datos sintéticos en transacción con `ROLLBACK` (10 y 20 días → promedio 15, exacto); estructuralmente probado contra la BD real (0 concursos cargados localmente todavía). | Alimenta el tablero de KPIs concursales |
-| 2026-08-31 | **S6-2 resuelto**: `KpisPage` (ruta `/kpis`, reemplaza el placeholder) — cards con borde amarillo (`border-primary`) para vigentes/vacantes/concursos CPH/CEETPS, skeleton `animate-pulse` mientras cargan `useKpiDotacion`/`useKpiConcursos`, dotación por carrera/efector con barra de proporción de vacantes, concursos CPH por sub-estado y tiempo promedio por etapa. Incluye filtro por hospital (instancia base de S6-4). `tsc` limpio; sin `chromium-cli`/Playwright disponibles en este entorno para captura visual — verificado por tipos + dev server sirviendo 200. | Consume S6-1/S6-3 |
-| 2026-08-31 | **S6-6 resuelto**: `GET /api/v1/kpis/alertas` (`getKpisAlertasService`) — dos alertas nuevas, distintas de `AlertasSinMovimiento(Ceetps)` (S4-10/S5-9, que miden "sin movimiento hace N días"): "concursos vencidos" = CPH activo con `fechaInscHasta < hoy` y `fechaExamen` sin cargar (venció el plazo, no se programó examen); "bajas sin concurso" = `Baja.generaConcurso=false`, `estado=pendiente`, sin ningún `Concurso` enganchado (si `generaConcurso=true`, `createBajaService` ya crea el concurso atómicamente — no puede quedar huérfana). Sección "Alertas activas" agregada a `KpisPage` con borde rojo, oculta si no hay nada pendiente. Lógica validada con datos sintéticos en transacción `ROLLBACK` (1 caso de cada tipo, detectado correctamente). | Cierra la parte de Jorge del tablero |
-| 2026-08-31 | **S6-5 resuelto**: no existía backend para esto (el plan solo tenía a Agustin en la fila, sin un S-x de Jorge que lo alimentara) — se agregó `GET /api/v1/kpis/dotacion-historica` (`getKpisDotacionHistoricaService`) además del frontend. Un punto por `fechaAsignada` de `PadronHistorico`, `count(DISTINCT cuil)` para personas únicas (esto es exactamente lo que S6-0 desbloqueó) + `count(*)` para cargos ocupados. Filtro por hospital vía join a `cargos` (usa el `@@index([cargoId])` de S6-0). `EvolucionDotacionChart`: línea de una sola serie a mano (sin sumar librería de charts por un solo gráfico), specs de la skill de dataviz — línea 2px, área 10%, punto final ≥8px con anillo, hairlines recesivos, crosshair+tooltip on hover, rótulo directo del último valor. Verificado contra datos reales: 45.083 personas únicas / 46.889 cargos ocupados en el único snapshot local (número tiene sentido: hay personas con más de un cargo). | Cierra la parte de Agustin del tablero |
-| 2026-08-31 | **S6-8 resuelto**: smoke test completo (`scripts/smoke-test.mjs`, repetible) — health de API/Dotaneitor/web, login real, un GET representativo de los 9 módulos de rutas registrados en `app.ts` (padrón, personas, cargos, concursos-cph, concursos-ceetps, hospitales, escalafones, puestos, usuarios, bajas) + los 6 endpoints de `/kpis`, más una verificación negativa (ruta protegida sin token → 401, no 200). **21/21 OK** contra datos reales, `tsc --noEmit` limpio en `api` y `web`, `docker compose ps` con los 3 containers de dev arriba y sanos. Cierra Sprint 6 completo (S6-0 a S6-8). | Sprint 6 completo |
-| 2026-08-31 | **S6-4 resuelto** (sin código adicional): el único `hospitalId` de `KpisPage` (dropdown agregado en S6-2) ya se pasa a `useKpiDotacion`, `useKpiConcursos` y `useKpiAlertas` por igual — "filtro por hospital en todo el tablero" quedó satisfecho por construcción al diseñar los 3 hooks con la misma firma `(hospitalId?: string)`. Verificado con `curl` contra los 3 endpoints. | No había necesidad de un componente de filtro global separado — un solo `useState` alcanza porque las 3 queries viven en la misma página |
-| 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff`             | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1)                                                               |
-| 2026-09    | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`)                                       | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente                                                                         |
-| 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                            | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                          |
-| 2026-09    | `idSial` sintético `MANUAL-{codigo}` para cargos creados manualmente vía `POST /api/v1/cargos`                                                                                                                           | `idSial` es un identificador del sistema SIAL del GCBA que solo existe para cargos del padrón; los cargos manuales necesitan un valor único que no colisione con los reales                                                        |
-| 2026-09    | Contratos (`Doc/Contrato_*.md`) actualizados a estado real Post-Sprint 5 — estado cambiado de BORRADOR a VIGENTE                                                                                                          | Los contratos estaban desactualizados desde Sprint 2; ahora reflejan el schema real, los endpoints implementados, la estructura de carpetas real y la decisión Bootstrap→Tailwind resuelta                                         |
-| 2026-09    | El alta con contrapartida de baja **no es un origen de cargo**                                                                                                                                                          | El cargo estructural y su historia persisten; solo se reemplaza la persona que lo ocupa. Es un movimiento de ocupación (flujo de bajas), no un alta                                                                                |
-| 2026-09    | RF-11/RF-12 (persistir `expediente`/`fechaDesde` en `cargos`) como P1 en Sprint 7                                                                                                                                       | El acto administrativo que respalda un alta no puede vivir solo en memoria del navegador — es un dato de auditoría obligatorio                                                                                                     |
-| 2026-09    | Cargos manuales preexistentes quedan con `expediente`/`fechaDesde` NULL (S7-3)                                                                                                                                          | El dato nunca se persistió; no hay forma de recuperarlo retroactivamente. Se documenta en lugar de inventar valores                                                                                                                |
-| 2026-09    | Duplicado estructural en alta manual = advertencia (`409` + override), no bloqueo duro (S7-5/S7-7)                                                                                                                      | Puede haber casos legítimos de cargos gemelos (misma estructura, distinto financiamiento). El usuario decide                                                                                                                       |
+| Fecha      | Decisión                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Motivo                                                                                                                                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09    | Sin deadline fijo — calidad por etapa                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Prioridad en corrección, no en velocidad                                                                                                                                                                                            |
+| 2026-09    | Dotaneitor: analizar y optimizar, no reescribir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Ya funciona, Python es el lenguaje correcto para esto                                                                                                                                                                               |
+| 2026-09    | PostgreSQL sobre MySQL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Particionado, full-text search, window functions                                                                                                                                                                                    |
+| 2026-09    | shadcn/ui + Tailwind con tokens Obelisco                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Stack moderno + identidad institucional GCBA                                                                                                                                                                                        |
+| 2026-09    | Zustand para estado de auth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | TanStack Query para servidor, Zustand para cliente                                                                                                                                                                                  |
+| 2026-09    | Docker desde el día 1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Entorno local = producción, deploy trivial                                                                                                                                                                                          |
+| 2026-09    | UUID como PK en todas las tablas                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Sin autoincremental, distribuible                                                                                                                                                                                                   |
+| 2026-09    | Soft delete en todas las tablas                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Histórico inmutable, nunca DELETE en producción                                                                                                                                                                                     |
+| 2026-09    | Producción en servidor propio                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | A definir en Sprint 6                                                                                                                                                                                                               |
+| 2026-08-26 | Estimados de horas en el plan son referenciales, no compromisos — cada sprint genera trabajo de verificación/corrección no planificado que es parte normal del proceso. Los estimados no se actualizan retroactivamente.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Medir velocidad contra los estimados originales daría una imagen distorsionada del trabajo real                                                                                                                                     |
+| 2026-08-26 | DoD actualizado: "PR aprobado" reemplazado por "avisar antes de tocar módulo compartido"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa (ver choque Sprint 3)                                                                                                                                  |
+| 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de construir KPIs de dotación (S6-0a/b/c)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Sin `cuil` no se pueden contar personas únicas por período sin join; sin índice por `cargoId` el historial de un cargo hace seq scan; sin `unificadorPuesto` no se puede analizar dotación por tipo de puesto a lo largo del tiempo |
+| 2026-08-31 | **S6-0 resuelto**: migración `20260831140000_padron_historico_kpis_prereq` agrega `cuil`/`unificador_puesto` (nullable) + `@@index([cargoId])` + `@@index([cuil])` a `PadronHistorico`; `aprobarSnapshotService` los completa en cada fila nueva. Backfill (`scripts/backfill-padron-historico-kpis.sql`) corrido contra datos reales: 46.889/46.889 filas, 0 nulos.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Desbloquea S6-5 (gráfico evolución dotación histórica)                                                                                                                                                                              |
+| 2026-08-31 | **S6-1 resuelto**: `GET /api/v1/kpis/dotacion` (`getKpisDotacionService`) — "vigente" = `Cargo.estado='vigente'`, "vacante" = vigente sin `Ocupacion` con `hasta IS NULL`. Devuelve `totalVigentes`, `vacantes`, `porCarrera` (por escalafón) y `porEfector` (por hospital), con filtro opcional `hospitalId`. Verificado end-to-end contra datos reales: 46.889 cargos vigentes, 0 vacantes hoy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Alimenta S6-2 (KpisPage)                                                                                                                                                                                                            |
+| 2026-08-31 | **S6-3 resuelto**: `GET /api/v1/kpis/concursos` (`getKpisConcursosService`) — vista consolidada CPH+CEETPS (`totalCph`/`totalCeetps`/`total`) + `porSubEstadoCph` + `tiempoPromedioPorEtapa`. El tiempo por etapa es exclusivo de CPH: es el único tipo con escalera de sub-estados con fecha propia por nivel (CEETPS solo tiene `EstadoConcursoCeetps` plano). Se promedia `hasta - desde` por cada par consecutivo de fechas-hito con datos, excluyendo pares fuera de orden cronológico. Matemática validada con datos sintéticos en transacción con `ROLLBACK` (10 y 20 días → promedio 15, exacto); estructuralmente probado contra la BD real (0 concursos cargados localmente todavía).                                                                                                                                                                                                                                                                | Alimenta el tablero de KPIs concursales                                                                                                                                                                                             |
+| 2026-08-31 | **S6-2 resuelto**: `KpisPage` (ruta `/kpis`, reemplaza el placeholder) — cards con borde amarillo (`border-primary`) para vigentes/vacantes/concursos CPH/CEETPS, skeleton `animate-pulse` mientras cargan `useKpiDotacion`/`useKpiConcursos`, dotación por carrera/efector con barra de proporción de vacantes, concursos CPH por sub-estado y tiempo promedio por etapa. Incluye filtro por hospital (instancia base de S6-4). `tsc` limpio; sin `chromium-cli`/Playwright disponibles en este entorno para captura visual — verificado por tipos + dev server sirviendo 200.                                                                                                                                                                                                                                                                                                                                                                                | Consume S6-1/S6-3                                                                                                                                                                                                                   |
+| 2026-08-31 | **S6-6 resuelto**: `GET /api/v1/kpis/alertas` (`getKpisAlertasService`) — dos alertas nuevas, distintas de `AlertasSinMovimiento(Ceetps)` (S4-10/S5-9, que miden "sin movimiento hace N días"): "concursos vencidos" = CPH activo con `fechaInscHasta < hoy` y `fechaExamen` sin cargar (venció el plazo, no se programó examen); "bajas sin concurso" = `Baja.generaConcurso=false`, `estado=pendiente`, sin ningún `Concurso` enganchado (si `generaConcurso=true`, `createBajaService` ya crea el concurso atómicamente — no puede quedar huérfana). Sección "Alertas activas" agregada a `KpisPage` con borde rojo, oculta si no hay nada pendiente. Lógica validada con datos sintéticos en transacción `ROLLBACK` (1 caso de cada tipo, detectado correctamente).                                                                                                                                                                                        | Cierra la parte de Jorge del tablero                                                                                                                                                                                                |
+| 2026-08-31 | **S6-5 resuelto**: no existía backend para esto (el plan solo tenía a Agustin en la fila, sin un S-x de Jorge que lo alimentara) — se agregó `GET /api/v1/kpis/dotacion-historica` (`getKpisDotacionHistoricaService`) además del frontend. Un punto por `fechaAsignada` de `PadronHistorico`, `count(DISTINCT cuil)` para personas únicas (esto es exactamente lo que S6-0 desbloqueó) + `count(*)` para cargos ocupados. Filtro por hospital vía join a `cargos` (usa el `@@index([cargoId])` de S6-0). `EvolucionDotacionChart`: línea de una sola serie a mano (sin sumar librería de charts por un solo gráfico), specs de la skill de dataviz — línea 2px, área 10%, punto final ≥8px con anillo, hairlines recesivos, crosshair+tooltip on hover, rótulo directo del último valor. Verificado contra datos reales: 45.083 personas únicas / 46.889 cargos ocupados en el único snapshot local (número tiene sentido: hay personas con más de un cargo). | Cierra la parte de Agustin del tablero                                                                                                                                                                                              |
+| 2026-08-31 | **S6-8 resuelto**: smoke test completo (`scripts/smoke-test.mjs`, repetible) — health de API/Dotaneitor/web, login real, un GET representativo de los 9 módulos de rutas registrados en `app.ts` (padrón, personas, cargos, concursos-cph, concursos-ceetps, hospitales, escalafones, puestos, usuarios, bajas) + los 6 endpoints de `/kpis`, más una verificación negativa (ruta protegida sin token → 401, no 200). **21/21 OK** contra datos reales, `tsc --noEmit` limpio en `api` y `web`, `docker compose ps` con los 3 containers de dev arriba y sanos. Cierra Sprint 6 completo (S6-0 a S6-8).                                                                                                                                                                                                                                                                                                                                                        | Sprint 6 completo                                                                                                                                                                                                                   |
+| 2026-08-31 | **S6-4 resuelto** (sin código adicional): el único `hospitalId` de `KpisPage` (dropdown agregado en S6-2) ya se pasa a `useKpiDotacion`, `useKpiConcursos` y `useKpiAlertas` por igual — "filtro por hospital en todo el tablero" quedó satisfecho por construcción al diseñar los 3 hooks con la misma firma `(hospitalId?: string)`. Verificado con `curl` contra los 3 endpoints.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | No había necesidad de un componente de filtro global separado — un solo `useState` alcanza porque las 3 queries viven en la misma página                                                                                            |
+| 2026-08-21 | Dotaneitor escribe directo en tablas de catálogo (`Hospital`, `Escalafon`, `CodigoRegistro`, `Especialidad`, `Puesto`); `Persona`/`Cargo`/`Ocupacion` siguen detrás del flujo de aprobación de `padron_diff`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Evita saltear el control humano sobre datos de personas, sin duplicar catálogos de referencia (acordado Agustin/Jorge — ver `Doc/Dotaneitor_Analisis.md` sección 4.1)                                                               |
+| 2026-09    | `Especialidad` y `Puesto` como catálogos de apoyo sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre (`especialidad`, `literalPuesto`, `agrupador`, `unificadorPuesto`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Cambiar a FK implicaba migración de datos y mayor alcance en Sprint 2; catálogos paralelos permiten normalización progresiva sin romper el modelo existente                                                                         |
+| 2026-09    | `createConcursoTx(tx, body, usuarioId, bajaId?)` como función pública en `concursos.service.ts` — acepta `tx` externo para poder llamarla desde `createBajaService` sin anidar `$transaction`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Permite que la transacción de baja (crear baja → marcar cargo no_vigente → crear concurso) sea atómica sin duplicar lógica ni anidar transacciones Prisma                                                                           |
+| 2026-09    | `idSial` sintético `MANUAL-{codigo}` para cargos creados manualmente vía `POST /api/v1/cargos`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `idSial` es un identificador del sistema SIAL del GCBA que solo existe para cargos del padrón; los cargos manuales necesitan un valor único que no colisione con los reales                                                         |
+| 2026-09    | Contratos (`Doc/Contrato_*.md`) actualizados a estado real Post-Sprint 5 — estado cambiado de BORRADOR a VIGENTE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Los contratos estaban desactualizados desde Sprint 2; ahora reflejan el schema real, los endpoints implementados, la estructura de carpetas real y la decisión Bootstrap→Tailwind resuelta                                          |
+| 2026-09    | El alta con contrapartida de baja **no es un origen de cargo**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | El cargo estructural y su historia persisten; solo se reemplaza la persona que lo ocupa. Es un movimiento de ocupación (flujo de bajas), no un alta                                                                                 |
+| 2026-09    | RF-11/RF-12 (persistir `expediente`/`fechaDesde` en `cargos`) como P1 en Sprint 7                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | El acto administrativo que respalda un alta no puede vivir solo en memoria del navegador — es un dato de auditoría obligatorio                                                                                                      |
+| 2026-09    | Cargos manuales preexistentes quedan con `expediente`/`fechaDesde` NULL (S7-3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | El dato nunca se persistió; no hay forma de recuperarlo retroactivamente. Se documenta en lugar de inventar valores                                                                                                                 |
+| 2026-09    | Duplicado estructural en alta manual = advertencia (`409` + override), no bloqueo duro (S7-5/S7-7)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Puede haber casos legítimos de cargos gemelos (misma estructura, distinto financiamiento). El usuario decide                                                                                                                        |
 
 | 2026-08-10 | Escalafón General en POF/POU muestra opción única "Anexo 2" | En POF/POU el EG solo tiene puestos del Anexo 2 (11 puestos, `modalidad='ambos'`). Las opciones General/Jefe/Director/Gerencial son exclusivas de Estructura |
 | 2026-08-10 | Página de inicio al login cambiada a `/kpis` | El tablero KPIs es la vista principal operativa; Padrón y Bajas Consolidadas son vistas de administrador |
 | 2026-08-10 | Padrón Semanal y Bajas Consolidadas movidos a sección admin del menú (debajo del segundo divisor) | Son funciones de administración del sistema, no de operación diaria |
 | 2026-08-10 | Tablas `bajas` y `concursos` limpiadas (0 registros) | Todos los registros eran de prueba; el sistema queda listo para datos reales |
+| 2026-09-02 | `escalafon_codigos_registro` como fuente de verdad para normalizar escalafones del padrón | Los escalafones se creaban on-the-fly con texto libre del Excel, generando duplicados. La tabla mapea CODIGO DE REGISTRO → escalafón canónico de forma estable y portable |
+| 2026-09-02 | Migraciones sin UUIDs hardcodeados — usar `nombre`/`slug`/`id_sial`/`cuil` | Los UUIDs de escalafones, cargos y personas difieren entre local y Neon. Cualquier migación con UUID hardcodeado falla en el otro entorno |
+| 2026-09-02 | `export enum` → `export const X = {...} as const` + `export type` en `packages/types` | Node 22 (Render) usa strip-only mode y no transpila `enum` TypeScript. Los `const` objects son sintácticamente válidos en JS puro |
+| 2026-09-02 | Sincronización Neon por CSV + SQL portable, no por dump/restore | Los UUIDs difieren entre entornos; un dump restauraría UUIDs locales rompiendo las FKs de Neon. El script resuelve FKs por `id_sial`/`cuil` |
+| 2026-09-03 | `EvolucionDotacionChart` rediseñado como dashboard ejecutivo con small multiples | Un solo gráfico de línea con 14 series y leyenda de colores era ilegible. Los small multiples por macro-grupo permiten comparar tendencias sin solapamiento |
 
 | Métrica                                | Objetivo                          |
 | -------------------------------------- | --------------------------------- |

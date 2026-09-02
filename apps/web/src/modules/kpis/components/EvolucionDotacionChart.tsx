@@ -80,11 +80,10 @@ function formatK(n: number): string {
 
 interface Props {
   data: KpiDotacionHistorica | undefined
-  agrupacion: 'mes' | 'subida'
-  onToggle: () => void
 }
 
-export function EvolucionDotacionChart({ data, agrupacion, onToggle }: Props) {
+export function EvolucionDotacionChart({ data }: Props) {
+  const agrupacion = 'mes' as const
   const puntos = data?.puntos ?? []
   const todosEscalafones = data?.escalafones ?? []
 
@@ -125,12 +124,7 @@ export function EvolucionDotacionChart({ data, agrupacion, onToggle }: Props) {
     : '—'
 
   if (puntos.length === 0) {
-    return (
-      <div className="space-y-3">
-        <ChartHeader agrupacion={agrupacion} onToggle={onToggle} />
-        <p className="text-sm text-gray-400">Todavía no hay snapshots de padrón aprobados para graficar.</p>
-      </div>
-    )
+    return <p className="text-sm text-gray-400">Todavía no hay snapshots de padrón aprobados para graficar.</p>
   }
 
   // Escalafones sin grupo asignado (para detectar si hay datos no mapeados)
@@ -140,11 +134,6 @@ export function EvolucionDotacionChart({ data, agrupacion, onToggle }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Toggle */}
-      <div className="flex justify-end">
-        <ChartHeader agrupacion={agrupacion} onToggle={onToggle} />
-      </div>
-
       {/* ── KPI Cards ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiCard
@@ -308,22 +297,4 @@ function KpiCard({
   )
 }
 
-// ─── Toggle header ────────────────────────────────────────────────────────────
-function ChartHeader({ agrupacion, onToggle }: { agrupacion: 'mes' | 'subida'; onToggle: () => void }) {
-  return (
-    <div className="inline-flex rounded border border-gray-200 overflow-hidden text-xs font-medium">
-      <button
-        onClick={() => agrupacion !== 'mes' && onToggle()}
-        className={`px-3 py-1.5 transition-colors ${agrupacion === 'mes' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-      >
-        Por mes
-      </button>
-      <button
-        onClick={() => agrupacion !== 'subida' && onToggle()}
-        className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${agrupacion === 'subida' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-      >
-        Por subida
-      </button>
-    </div>
-  )
-}
+

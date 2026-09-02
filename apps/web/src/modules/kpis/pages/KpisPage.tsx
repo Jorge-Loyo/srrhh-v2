@@ -44,13 +44,12 @@ function BarraProporcion({ vigentes, vacantes }: { vigentes: number; vacantes: n
 
 export function KpisPage() {
   const [hospitalId, setHospitalId] = useState('')
-  const [agrupacion, setAgrupacion] = useState<'mes' | 'subida'>('mes')
 
   const { data: hospitales } = useHospitales()
   const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion(hospitalId || undefined)
   const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos(hospitalId || undefined)
   const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas(hospitalId || undefined)
-  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined, agrupacion)
+  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined, 'mes')
 
   return (
     <div className="space-y-6">
@@ -91,7 +90,7 @@ export function KpisPage() {
         {loadingHistorica ? (
           <div className="h-64 bg-gray-100 rounded animate-pulse" />
         ) : (
-          <EvolucionDotacionChart data={historica} agrupacion={agrupacion} onToggle={() => setAgrupacion((a) => a === 'mes' ? 'subida' : 'mes')} />
+          <EvolucionDotacionChart data={historica} />
         )}
       </div>
 

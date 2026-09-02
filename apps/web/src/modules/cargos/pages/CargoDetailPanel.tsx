@@ -1,5 +1,5 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { EstadoCargo } from '@srrhh/types'
+import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 
 function fechaCorta(v: string | null | undefined) {
@@ -166,6 +166,102 @@ export function CargoDetailPanel() {
           </div>
         )}
       </div>
+
+      {/* Concursos CPH */}
+      {cargo.concursosCph.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-navy px-6 py-3 flex items-center justify-between">
+            <h2 className="text-white font-semibold text-sm uppercase tracking-wide">Concursos CPH</h2>
+            <span className="text-white/60 text-xs">{cargo.concursosCph.length} registro{cargo.concursosCph.length !== 1 ? 's' : ''}</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Sub-estado</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">EE Baja</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona designada</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Inicio</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {cargo.concursosCph.map((c) => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      c.estado === EstadoConcursoCph.FINALIZADO ? 'bg-green-100 text-green-800'
+                      : c.estado === EstadoConcursoCph.DESIERTO ? 'bg-red-100 text-red-700'
+                      : c.estado === EstadoConcursoCph.SUSPENDIDO ? 'bg-yellow-100 text-yellow-700'
+                      : c.estado === EstadoConcursoCph.ACTIVO ? 'bg-blue-100 text-blue-800'
+                      : 'bg-gray-100 text-gray-600'
+                    }`}>{c.estado}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{c.subEstado ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{c.eeBaja ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {c.personaDesignada
+                      ? <Link to={`/personas/${c.personaDesignada.id}`} className="text-secondary hover:underline text-xs">{c.personaDesignada.apellidoNombre}</Link>
+                      : <span className="text-gray-400 text-xs">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.concurso.fechaVacante)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Link to={`/concursos-cph/${c.id}`} className="btn-outline">Ver</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Concursos CEETPS */}
+      {cargo.concursosCeetps.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-navy px-6 py-3 flex items-center justify-between">
+            <h2 className="text-white font-semibold text-sm uppercase tracking-wide">Concursos CEETPS</h2>
+            <span className="text-white/60 text-xs">{cargo.concursosCeetps.length} registro{cargo.concursosCeetps.length !== 1 ? 's' : ''}</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Escalafón</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Puesto solicitado</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona designada</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Inicio</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {cargo.concursosCeetps.map((c) => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      c.estado === EstadoConcursoCeetps.FINALIZADO ? 'bg-green-100 text-green-800'
+                      : c.estado === EstadoConcursoCeetps.DESIERTO ? 'bg-red-100 text-red-700'
+                      : c.estado === EstadoConcursoCeetps.EN_PROCESO ? 'bg-blue-100 text-blue-800'
+                      : c.estado === EstadoConcursoCeetps.AUTORIZADO ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-gray-100 text-gray-600'
+                    }`}>{c.estado}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{c.escalafon.nombre}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{c.puestoSolicitado ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {c.personaDesignada
+                      ? <Link to={`/personas/${c.personaDesignada.id}`} className="text-secondary hover:underline text-xs">{c.personaDesignada.apellidoNombre}</Link>
+                      : <span className="text-gray-400 text-xs">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.concurso.fechaVacante)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Link to={`/concursos-ceetps/${c.id}`} className="btn-outline">Ver</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Historial de personas */}
       {cargo.historial.length > 0 && (

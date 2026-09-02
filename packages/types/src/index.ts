@@ -9,47 +9,56 @@
 // ENUMS
 // -----------------------------------------------------------------------------
 
-export enum EstadoCargo {
-  VIGENTE = 'vigente',
-  NO_VIGENTE = 'no_vigente',
-  VALIDACION_VACANTE = 'validacion_vacante',
-}
+// Reemplazados de enum a const+type para compatibilidad con Node 22 strip-only mode
+// (los enum de TypeScript requieren transpilación; const objects no)
 
-export enum EstadoSnapshot {
-  PROCESANDO = 'procesando',
-  PENDIENTE = 'pendiente',
-  APROBADO = 'aprobado',
-  RECHAZADO = 'rechazado',
-  ERROR = 'error',
-}
+export const EstadoCargo = {
+  VIGENTE: 'vigente',
+  NO_VIGENTE: 'no_vigente',
+  VALIDACION_VACANTE: 'validacion_vacante',
+} as const
+export type EstadoCargo = typeof EstadoCargo[keyof typeof EstadoCargo]
 
-export enum TipoDiff {
-  NUEVO = 'nuevo',
-  MODIFICADO = 'modificado',
-  ELIMINADO = 'eliminado',
-}
+export const EstadoSnapshot = {
+  PROCESANDO: 'procesando',
+  PENDIENTE: 'pendiente',
+  APROBADO: 'aprobado',
+  RECHAZADO: 'rechazado',
+  ERROR: 'error',
+} as const
+export type EstadoSnapshot = typeof EstadoSnapshot[keyof typeof EstadoSnapshot]
 
-export enum TipoConcurso {
-  CPH = 'cph',
-  CEETPS = 'ceetps',
-  SIN_CONCURSO = 'sin_concurso',
-}
+export const TipoDiff = {
+  NUEVO: 'nuevo',
+  MODIFICADO: 'modificado',
+  ELIMINADO: 'eliminado',
+} as const
+export type TipoDiff = typeof TipoDiff[keyof typeof TipoDiff]
 
-export enum EstadoConcursoCph {
-  NO_INICIADO = 'no_iniciado',
-  ACTIVO = 'activo',
-  FINALIZADO = 'finalizado',
-  SUSPENDIDO = 'suspendido',
-  DESIERTO = 'desierto',
-}
+export const TipoConcurso = {
+  CPH: 'cph',
+  CEETPS: 'ceetps',
+  SIN_CONCURSO: 'sin_concurso',
+} as const
+export type TipoConcurso = typeof TipoConcurso[keyof typeof TipoConcurso]
 
-export enum EstadoConcursoCeetps {
-  SIN_AUTORIZAR = 'sin_autorizar',
-  AUTORIZADO = 'autorizado',
-  EN_PROCESO = 'en_proceso',
-  FINALIZADO = 'finalizado',
-  DESIERTO = 'desierto',
-}
+export const EstadoConcursoCph = {
+  NO_INICIADO: 'no_iniciado',
+  ACTIVO: 'activo',
+  FINALIZADO: 'finalizado',
+  SUSPENDIDO: 'suspendido',
+  DESIERTO: 'desierto',
+} as const
+export type EstadoConcursoCph = typeof EstadoConcursoCph[keyof typeof EstadoConcursoCph]
+
+export const EstadoConcursoCeetps = {
+  SIN_AUTORIZAR: 'sin_autorizar',
+  AUTORIZADO: 'autorizado',
+  EN_PROCESO: 'en_proceso',
+  FINALIZADO: 'finalizado',
+  DESIERTO: 'desierto',
+} as const
+export type EstadoConcursoCeetps = typeof EstadoConcursoCeetps[keyof typeof EstadoConcursoCeetps]
 
 // RBAC dinámico — reemplaza el enum fijo de roles. Los roles viven en la tabla
 // `roles` (editable por el admin desde /configuracion/permisos), no en código.
@@ -358,11 +367,42 @@ export interface Usuario {
   permisos?: { modulo: string; accion: string }[]
 }
 
-export enum EstadoBaja {
-  PENDIENTE = 'pendiente',
-  CONFIRMADA = 'confirmada',
-  ANULADA = 'anulada',
+// S10-1 — Notificaciones persistidas
+export const TipoNotificacion = {
+  CONCURSO_ESTANCADO:     'concurso_estancado',
+  BAJA_PENDIENTE:         'baja_pendiente',
+  AUTORIZACION_PENDIENTE: 'autorizacion_pendiente',
+  AUTORIZACION_RESUELTA:  'autorizacion_resuelta',
+} as const
+export type TipoNotificacion = typeof TipoNotificacion[keyof typeof TipoNotificacion]
+
+export interface Notificacion {
+  id: string
+  tipo: TipoNotificacion
+  rolSlug: string
+  titulo: string
+  mensaje: string
+  origenTipo: string | null
+  origenId: string | null
+  origenKey: string | null
+  leida: boolean
+  creadaAt: string
+  leidaAt: string | null
 }
+
+export interface NotificacionFilters {
+  page?: number
+  limit?: number
+  tipo?: TipoNotificacion
+  soloNoLeidas?: boolean
+}
+
+export const EstadoBaja = {
+  PENDIENTE: 'pendiente',
+  CONFIRMADA: 'confirmada',
+  ANULADA: 'anulada',
+} as const
+export type EstadoBaja = typeof EstadoBaja[keyof typeof EstadoBaja]
 
 export interface Baja {
   id: string
@@ -727,6 +767,21 @@ export interface PatchConcursoCeetpsRequest {
 // domicilio (S2-17). El detalle sí usa `prisma.persona.findUnique` sin
 // `select`, así que trae el modelo completo — de ahí que estos campos vivan
 // acá y no en `Persona`.
+// S8C-2: entrada del historial de padrón de una persona
+export interface PadronHistoricoItem {
+  id: string
+  fechaAsignada: string
+  idSialRol: string
+  escalafon: string | null
+  hospitalSigla: string | null
+  literalPuesto: string | null
+  especialidad: string | null
+  agrupador: string | null
+  situacionRevista: string | null
+  estadoPersona: string | null
+  snapshot: { id: string; fechaAsignada: string; filename: string }
+}
+
 export interface PersonaDetail extends Persona {
   telefono: string | null
   mailPersonal: string | null
@@ -736,6 +791,8 @@ export interface PersonaDetail extends Persona {
   provincia: string | null
   antiguedadDesde: string | null
   ocupaciones: OcupacionConCargo[]
+  // S8C-2: historial completo en padrón semanal
+  padronHistorico: PadronHistoricoItem[]
 }
 
 // Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon`/`codigoRegistro`
@@ -748,4 +805,14 @@ export interface CargoDetail extends Cargo {
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
   historial: (Ocupacion & { persona: Persona })[]
   cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
+  // S8C-1: concursos asociados al cargo
+  concursosCph: (ConcursoCph & {
+    concurso: Concurso
+    personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
+  })[]
+  concursosCeetps: (ConcursoCeetps & {
+    concurso: Concurso
+    escalafon: Escalafon
+    personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
+  })[]
 }
