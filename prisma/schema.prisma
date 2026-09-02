@@ -825,6 +825,40 @@ model RefSufijoOrdinal {
 }
 
 // =============================================================================
+// NOTIFICACIONES (S10-1)
+// =============================================================================
+
+enum TipoNotificacion {
+  concurso_estancado
+  baja_pendiente
+  autorizacion_pendiente
+  autorizacion_resuelta
+}
+
+model Notificacion {
+  id          String            @id @default(uuid()) @db.Uuid
+  tipo        TipoNotificacion
+  // Rol destinatario (slug del rol, ej. "director", "concursales_cph")
+  rolSlug     String            @map("rol_slug") @db.VarChar(40)
+  titulo      String            @db.VarChar(200)
+  mensaje     String            @db.Text
+  // Referencia opcional al objeto que originó la notificación
+  origenTipo  String?           @map("origen_tipo") @db.VarChar(50)  // "concurso_cph", "baja", etc.
+  origenId    String?           @map("origen_id") @db.Uuid
+  // Clave de deduplicación: evita crear la misma alerta dos veces
+  // (ej. "concurso_estancado:{concursoCphId}:30d")
+  origenKey   String?           @unique @map("origen_key") @db.VarChar(200)
+  leida       Boolean           @default(false)
+  creadaAt    DateTime          @default(now()) @map("creada_at") @db.Timestamptz
+  leidaAt     DateTime?         @map("leida_at") @db.Timestamptz
+
+  @@index([rolSlug, leida])
+  @@index([tipo])
+  @@index([creadaAt])
+  @@map("notificaciones")
+}
+
+// =============================================================================
 // BAJAS SIAL — archivo semanal de bajas del Ministerio de Salud
 // =============================================================================
 
