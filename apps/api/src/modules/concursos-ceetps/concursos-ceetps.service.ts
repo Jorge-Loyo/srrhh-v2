@@ -4,7 +4,11 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody } from './concursos-ceetps.schema.js'
 
 const include = {
-  concurso: { include: { cargo: true, persona: true } },
+  // cargo.codigoRegistro: distingue Enfermería(87)/Técnicos(85)/Serv. Generales(83)
+  // — las tres carreras comparten el mismo Escalafon "CEETPS" en el modelo
+  // normalizado, así que `escalafon` (abajo) no alcanza para esa distinción.
+  // La usan los documentos exportables (Validación/Autorización).
+  concurso: { include: { cargo: { include: { codigoRegistro: true } }, persona: true, baja: true } },
   hospital: true,
   escalafon: true,
   personaDesignada: true,

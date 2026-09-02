@@ -266,6 +266,7 @@ export interface Concurso {
   persona?: Persona
   cargo?: Cargo
   hospital?: Hospital
+  baja?: Baja | null
 }
 
 // S4-4: estado/subEstado/subEstado3 son calculados por el backend
@@ -280,6 +281,9 @@ export interface ConcursoCph {
   subEstado: string | null
   subEstado3: string | null
   especialidadSolicitada: string | null
+  // Puesto solicitado, si difiere del de la baja (cargo.literalPuesto) —
+  // usado por los documentos exportables (Validación/Autorización).
+  puestoSolicitado: string | null
   eeBaja: string | null
   fechaBaja: string | null
   eeConcurso: string | null
@@ -325,6 +329,12 @@ export interface ConcursoCeetps {
   expedienteConcurso: string | null
   puestoSolicitado: string | null
   dispoLlamado: string | null
+  // Carga horaria (hs, Enfermería/Técnicos) y apertura 2x18hs (solo Enfermería)
+  // — usados por los documentos exportables (Validación/Autorización).
+  cargaHoraria: number | null
+  apertura2x18: boolean
+  informeApertura: string | null
+  expedienteConcurso2: string | null
   fechaIfacs: string | null
   fechaInsal: string | null
   expedienteDesignacion: string | null
@@ -486,6 +496,7 @@ export interface CreateConcursoRequest {
 // deliberadamente afuera — los calcula el backend, ver nota en ConcursoCph.
 export interface PatchConcursoCphRequest {
   especialidadSolicitada?: string | null
+  puestoSolicitado?: string | null
   eeBaja?: string | null
   fechaBaja?: string | null
   eeConcurso?: string | null
@@ -730,6 +741,10 @@ export interface PatchConcursoCeetpsRequest {
   expedienteConcurso?: string | null
   puestoSolicitado?: string | null
   dispoLlamado?: string | null
+  cargaHoraria?: number | null
+  apertura2x18?: boolean
+  informeApertura?: string | null
+  expedienteConcurso2?: string | null
   fechaIfacs?: string | null
   fechaInsal?: string | null
   expedienteDesignacion?: string | null

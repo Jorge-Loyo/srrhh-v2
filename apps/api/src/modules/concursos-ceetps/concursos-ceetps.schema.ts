@@ -22,6 +22,11 @@ export const patchConcursoCeetpsSchema = z
     expedienteConcurso: z.string().trim().max(150).nullable(),
     puestoSolicitado: z.string().trim().max(200).nullable(),
     dispoLlamado: z.string().trim().max(500).nullable(),
+    // Carga horaria (hs) — Enfermería/Técnicos. Apertura 2x18hs — solo Enfermería.
+    cargaHoraria: z.number().int().min(0).max(99).nullable(),
+    apertura2x18: z.boolean(),
+    informeApertura: z.string().trim().max(150).nullable(),
+    expedienteConcurso2: z.string().trim().max(150).nullable(),
     fechaIfacs: fecha.nullable(),
     fechaInsal: fecha.nullable(),
     expedienteDesignacion: z.string().trim().max(150).nullable(),

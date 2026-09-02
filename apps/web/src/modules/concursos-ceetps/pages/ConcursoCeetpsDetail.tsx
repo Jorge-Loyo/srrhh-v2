@@ -12,6 +12,8 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useConcursoCeetps, usePatchConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { ExportDropdown } from '@/shared/components/ExportDropdown'
+import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
 
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
@@ -26,6 +28,12 @@ const formSchema = z.object({
   expedienteConcurso: texto,
   puestoSolicitado: texto,
   dispoLlamado: texto,
+  // Carga horaria (Enfermería/Técnicos) + apertura 2x18hs (solo Enfermería) —
+  // usados por los documentos exportables de Validación/Autorización.
+  cargaHoraria: z.string().regex(/^\d{0,2}$/, 'Máximo 2 dígitos'),
+  apertura2x18: z.boolean(),
+  informeApertura: texto,
+  expedienteConcurso2: texto,
   fechaIfacs: fecha,
   fechaInsal: fecha,
   expedienteDesignacion: texto,
@@ -40,6 +48,8 @@ type FormValues = z.infer<typeof formSchema>
 function toPatchBody(values: FormValues): PatchConcursoCeetpsRequest {
   const body = {} as Record<string, unknown>
   for (const [key, value] of Object.entries(values)) {
+    if (key === 'apertura2x18') { body[key] = value; continue }
+    if (key === 'cargaHoraria') { body[key] = value === '' ? null : Number(value); continue }
     body[key] = value === '' ? null : value
   }
   return body as PatchConcursoCeetpsRequest
@@ -65,6 +75,10 @@ export function ConcursoCeetpsDetail() {
       expedienteConcurso: concurso.expedienteConcurso ?? '',
       puestoSolicitado: concurso.puestoSolicitado ?? '',
       dispoLlamado: concurso.dispoLlamado ?? '',
+      cargaHoraria: concurso.cargaHoraria != null ? String(concurso.cargaHoraria) : '',
+      apertura2x18: concurso.apertura2x18 ?? false,
+      informeApertura: concurso.informeApertura ?? '',
+      expedienteConcurso2: concurso.expedienteConcurso2 ?? '',
       fechaIfacs: concurso.fechaIfacs?.slice(0, 10) ?? '',
       fechaInsal: concurso.fechaInsal?.slice(0, 10) ?? '',
       expedienteDesignacion: concurso.expedienteDesignacion ?? '',
@@ -81,6 +95,13 @@ export function ConcursoCeetpsDetail() {
   const persona = concurso.concurso?.persona
   const dias = diasSinMovimiento(concurso.updatedAt)
   const estadoTerminal = concurso.estado === 'finalizado' || concurso.estado === 'desierto'
+
+  // Carga Horaria / Apertura 2x18hs solo aplican a Enfermería(87)/Técnicos(85) —
+  // Servicios Generales(83) no las tiene (ver getCasoCeetps).
+  const codigoRegistro = concurso.concurso?.cargo?.codigoRegistro?.codigo ?? ''
+  const esEnfermeria = codigoRegistro === '87'
+  const conCarga = codigoRegistro === '87' || codigoRegistro === '85'
+  const aperturaChecked = watch('apertura2x18')
 
   async function onSubmit(values: FormValues) {
     setFormError('')
@@ -110,9 +131,19 @@ export function ConcursoCeetpsDetail() {
               {persona?.apellidoNombre ?? 'Vacante'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className={ESTADO_BADGE[concurso.estado]}>{ESTADO_LABEL[concurso.estado]}</span>
             <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Movido hoy' : `${dias} días sin movimiento`}</span>
+            {getCasoCeetps(concurso).validacion && (
+              <ExportDropdown
+                label="Validación"
+                onExport={(fmt) => (fmt === 'pdf' ? exportCeetpsPdf(concurso, 'validacion') : exportCeetpsWord(concurso, 'validacion'))}
+              />
+            )}
+            <ExportDropdown
+              label="Autorización"
+              onExport={(fmt) => (fmt === 'pdf' ? exportCeetpsPdf(concurso, 'autorizacion') : exportCeetpsWord(concurso, 'autorizacion'))}
+            />
           </div>
         </div>
 
@@ -141,6 +172,31 @@ export function ConcursoCeetpsDetail() {
             <Campo label="Disposición de llamado" ancho="sm:col-span-2 md:col-span-1">
               <input {...register('dispoLlamado')} className="input h-10 w-full" />
             </Campo>
+            {conCarga && (
+              <Campo label="Carga Horaria (hs)">
+                <input {...register('cargaHoraria')} inputMode="numeric" maxLength={2} className="input h-10 w-full" />
+              </Campo>
+            )}
+            {esEnfermeria && (
+              <>
+                <Campo label="Apertura 2×18hs">
+                  <label className="flex items-center gap-2 h-10">
+                    <input type="checkbox" {...register('apertura2x18')} className="h-4 w-4 rounded border-gray-300" />
+                    <span className="text-sm text-gray-600">1 cargo de 35hs se abre en 2 de 18hs</span>
+                  </label>
+                </Campo>
+                {aperturaChecked && (
+                  <>
+                    <Campo label="N° Informe apertura">
+                      <input {...register('informeApertura')} className="input h-10 w-full" />
+                    </Campo>
+                    <Campo label="2do Expediente Concurso">
+                      <input {...register('expedienteConcurso2')} className="input h-10 w-full" />
+                    </Campo>
+                  </>
+                )}
+              </>
+            )}
           </Fase>
 
           <Fase titulo="IFACS / INSAL">
