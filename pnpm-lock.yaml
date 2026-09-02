@@ -140,7 +140,7 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       docx:
-        specifier: ^9.6.1
+        specifier: ^9.7.1
         version: 9.7.1
       jspdf:
         specifier: ^4.2.1
