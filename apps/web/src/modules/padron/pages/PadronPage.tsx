@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { EstadoSnapshot, RolUsuario } from '@srrhh/types'
+import { EstadoSnapshot } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useSnapshotEstado, useSnapshots, useUploadPadron, useDeleteSnapshot, useExportarSnapshot } from '../hooks/usePadron'
 
@@ -37,8 +37,11 @@ function hoy(): string {
 export function PadronPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const puedeSubir = user?.rol === RolUsuario.ADMIN || user?.rol === RolUsuario.EDITOR
-  const esAdmin = user?.rol === RolUsuario.ADMIN
+  // rolSlug (estable) en vez de comparar contra rol/nombre (editable por el admin
+  // desde /configuracion/permisos) — esto es solo gating visual, el backend es la
+  // fuente de verdad real vía requirePermiso.
+  const puedeSubir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
+  const esAdmin = user?.rolSlug === 'admin'
 
   const [file, setFile] = useState<File | null>(null)
   const [fechaAsignada, setFechaAsignada] = useState(hoy())

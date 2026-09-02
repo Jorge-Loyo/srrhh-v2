@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { uploadPadronSchema, diffQuerySchema } from './padron.schema.js'
 import {
@@ -33,7 +32,7 @@ export async function padronRoutes(app: FastifyInstance) {
   })
 
   // POST /upload — S2-2/S2-3/S2-4/S2-12 (requiere editor o admin)
-  app.post('/upload', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
+  app.post('/upload', { preHandler: requirePermiso({ modulo: 'padron', accion: 'subir' }) }, async (request, reply) => {
     const parts = request.parts()
     let fechaAsignada = ''
     let uploadedFile: { buffer: Buffer; filename: string; mimetype: string } | null = null
@@ -80,14 +79,14 @@ export async function padronRoutes(app: FastifyInstance) {
   )
 
   // POST /snapshots/:id/aprobar — S2-6/S2-7 (requiere editor o admin)
-  app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
     const user = request.user as { id: string }
     const result = await aprobarSnapshotService(request.params.id, user.id)
     return reply.send({ data: result })
   })
 
   // POST /snapshots/:id/rechazar — S2-8 (requiere editor o admin)
-  app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
+  app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
     const result = await rechazarSnapshotService(request.params.id)
     return reply.send({ data: result })
   })
@@ -107,7 +106,7 @@ export async function padronRoutes(app: FastifyInstance) {
   })
 
   // DELETE /snapshots/:id — eliminar snapshot en estado error o rechazado (requiere admin)
-  app.delete<{ Params: { id: string } }>('/snapshots/:id', { preHandler: requireRole([RolUsuario.ADMIN]) }, async (request, reply) => {
+  app.delete<{ Params: { id: string } }>('/snapshots/:id', { preHandler: requirePermiso({ modulo: 'padron', accion: 'eliminar_snap' }) }, async (request, reply) => {
     const result = await deleteSnapshotService(request.params.id)
     return reply.send({ data: result })
   })

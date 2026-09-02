@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
-import { EstadoBaja, RolUsuario, TipoConcurso } from '@srrhh/types'
+import { EstadoBaja, TipoConcurso } from '@srrhh/types'
 import type { Cargo, PersonaListItem } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useDebounce } from '@/shared/hooks/useDebounce'
@@ -14,8 +14,9 @@ import { apiClient } from '@/shared/lib/api-client'
 import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useBajas, useCreateBaja } from '../hooks/useBajas'
 
-// Igual que WRITE_ROLES en apps/api/.../bajas.routes.ts.
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CPH, RolUsuario.CONCURSALES_CEETPS]
+// Igual que el permiso bajas.crear por defecto en apps/api/.../bajas.routes.ts
+// (editable desde /configuracion/permisos).
+const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_cph', 'concursales_ceetps']
 
 const ESTADO_LABEL: Record<EstadoBaja, string> = {
   [EstadoBaja.PENDIENTE]: 'Pendiente',
@@ -89,7 +90,7 @@ type FormValues = z.infer<typeof formSchema>
 
 export function BajaCargosPage() {
   const { user } = useAuth()
-  const puedeCrear = !!user && WRITE_ROLES.includes(user.rol)
+  const puedeCrear = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
 
   const [search, setSearch] = useState('')
   const [hospitalId, setHospitalId] = useState('')

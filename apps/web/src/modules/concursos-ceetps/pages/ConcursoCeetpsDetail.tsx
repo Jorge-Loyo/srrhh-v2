@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { RolUsuario } from '@srrhh/types'
 import type { PatchConcursoCeetpsRequest } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useDebounce } from '@/shared/hooks/useDebounce'
@@ -13,8 +12,9 @@ import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useConcursoCeetps, usePatchConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 
-// Igual que WRITE_ROLES en apps/api/.../concursos-ceetps.routes.ts.
-const WRITE_ROLES = [RolUsuario.ADMIN, RolUsuario.EDITOR, RolUsuario.CONCURSALES_CEETPS]
+// Igual que el permiso concursos-ceetps.editar por defecto en
+// apps/api/.../concursos-ceetps.routes.ts (editable desde /configuracion/permisos).
+const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_ceetps']
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
 const texto = z.string()
@@ -50,7 +50,7 @@ function toPatchBody(values: FormValues): PatchConcursoCeetpsRequest {
 export function ConcursoCeetpsDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
-  const puedeEditar = !!user && WRITE_ROLES.includes(user.rol)
+  const puedeEditar = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
 
   const { data: concurso, isLoading, isError } = useConcursoCeetps(id)
   const patchMutation = usePatchConcursoCeetps(id ?? '')

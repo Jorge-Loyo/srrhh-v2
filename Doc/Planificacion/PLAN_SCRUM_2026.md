@@ -1437,7 +1437,17 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 **Contexto:** con Sprint 8 cerrado, este ciclo retoma el **gobierno del flujo concursal CPH**. Antes de construir autorizaciones (Sprint 11) hacen falta dos bases: la matriz de permisos central (Sprint 9) y las notificaciones persistidas (Sprint 10).
 
 **Decisiones ya tomadas (no consultar de nuevo):**
-- Modelo de permisos: roles fijos + matriz central en `packages/types` (no tabla flexible)
+- ~~Modelo de permisos: roles fijos + matriz central en `packages/types` (no tabla flexible)~~
+  **⚠️ SUPERADO (2026-09-01, Agustin):** se implementó RBAC dinámico en su lugar — roles y
+  permisos viven en tablas (`roles`, `permisos`, `role_permisos`), editables en caliente por
+  el admin desde `/configuracion/permisos` (crear roles, tildar/destildar permisos por
+  módulo/acción, sin deploy). Rol `admin` protegido (siempre acceso total, no editable ni
+  borrable). `requirePermiso(modulo, accion)` reemplaza `requireRole([...])` en todos los
+  endpoints que lo usaban. Ver `apps/api/src/modules/roles/`,
+  `apps/api/src/shared/middleware/permisos.middleware.ts`,
+  `prisma/migrations/20260901120000_rbac_dinamico/`. El resto de los ítems de Sprint 9
+  (Landing, menú por rol, guards, autorizaciones, notificaciones) sigue vigente tal cual —
+  esto solo reemplaza el modelo de datos de permisos, no el resto del sprint.
 - Menú lateral izquierdo con items filtrados por matriz; página "Sin acceso"
 - Página de inicio: puerto del `landing.html` del legacy con línea Obelisco/Tailwind. Hub de accesos en 3 columnas + buscador inteligente
 - Autorizaciones: entidad genérica `Autorizacion` (tipo + referenciaId)

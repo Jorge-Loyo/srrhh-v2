@@ -2,7 +2,9 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
 import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
+import { RequireAdmin } from '../modules/auth/components/RequireAdmin'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
+import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
@@ -53,7 +55,16 @@ export const router = createBrowserRouter([
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },
-          { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
+          // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
+          // guardada en favoritos; el destino real ya vive bajo /configuracion.
+          { path: 'admin/usuarios', element: <Navigate to="/configuracion/usuarios" replace /> },
+          {
+            element: <RequireAdmin />,
+            children: [
+              { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
+              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+            ],
+          },
         ],
       },
     ],

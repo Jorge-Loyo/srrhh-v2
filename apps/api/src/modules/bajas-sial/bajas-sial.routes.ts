@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { requireRole } from '../../shared/middleware/roles.middleware.js'
-import { RolUsuario } from '@srrhh/types'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { uploadBajasSialSchema, diffQuerySchema } from './bajas-sial.schema.js'
 import {
@@ -26,7 +25,7 @@ export async function bajasSialRoutes(app: FastifyInstance) {
   })
 
   // POST /upload
-  app.post('/upload', { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) }, async (request, reply) => {
+  app.post('/upload', { preHandler: requirePermiso({ modulo: 'bajas-sial', accion: 'subir' }) }, async (request, reply) => {
     const parts = request.parts()
     let fechaArchivo = ''
     let uploadedFile: { buffer: Buffer; filename: string } | null = null
@@ -63,7 +62,7 @@ export async function bajasSialRoutes(app: FastifyInstance) {
 
   // POST /snapshots/:id/aprobar
   app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar',
-    { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) },
+    { preHandler: requirePermiso({ modulo: 'bajas-sial', accion: 'aprobar' }) },
     async (request, reply) => {
       const user = request.user as { id: string }
       const data = await aprobarBajasSialService(request.params.id, user.id)
@@ -73,7 +72,7 @@ export async function bajasSialRoutes(app: FastifyInstance) {
 
   // POST /snapshots/:id/rechazar
   app.post<{ Params: { id: string } }>('/snapshots/:id/rechazar',
-    { preHandler: requireRole([RolUsuario.ADMIN, RolUsuario.EDITOR]) },
+    { preHandler: requirePermiso({ modulo: 'bajas-sial', accion: 'aprobar' }) },
     async (request, reply) => {
       const data = await rechazarBajasSialService(request.params.id)
       return reply.send({ data })

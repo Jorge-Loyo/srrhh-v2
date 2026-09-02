@@ -60,14 +60,9 @@ enum EstadoConcursoCeetps {
   desierto
 }
 
-enum RolUsuario {
-  admin
-  editor
-  viewer
-  director
-  concursales_cph
-  concursales_ceetps
-}
+// RBAC dinámico — reemplaza el enum fijo viejo (ver Role/Permiso/RolePermiso más abajo,
+// junto al modelo Usuario). El enum se elimina; los 6 valores originales viven ahora como
+// filas sembradas en `roles` (Role.esSistema = true).
 
 // =============================================================================
 // TABLAS DE REFERENCIA (Catalogos)
@@ -543,17 +538,18 @@ model Baja {
 // =============================================================================
 
 model Usuario {
-  id           String     @id @default(uuid()) @db.Uuid
-  username     String     @unique @db.VarChar(64)
-  email        String     @unique @db.VarChar(255)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  rol          RolUsuario
-  hospitalId   String?    @map("hospital_id") @db.Uuid
-  activo       Boolean    @default(true)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique @db.VarChar(64)
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  roleId       String   @map("role_id") @db.Uuid
+  hospitalId   String?  @map("hospital_id") @db.Uuid
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relaciones
+  role                  Role             @relation(fields: [roleId], references: [id])
   hospital              Hospital?        @relation(fields: [hospitalId], references: [id])
   refreshTokens         RefreshToken[]
   snapshotsProcesados   PadronSnapshot[] @relation("SnapshotProcesadoPor")
@@ -564,6 +560,51 @@ model Usuario {
   cargosCreados         Cargo[]          @relation("CargosCreados")
 
   @@map("usuarios")
+}
+
+// ── RBAC dinámico ────────────────────────────────────────────────────────────
+// Roles fijos + matriz estática en código reemplazados por roles/permisos en BD,
+// editables por el admin desde /configuracion/permisos. `admin` (esSistema=true,
+// slug="admin") queda protegido en el service layer: no editable, no borrable,
+// siempre con acceso total (bypass explícito en requirePermiso).
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique @db.VarChar(40)
+  nombre      String   @db.VarChar(100)
+  descripcion String?  @db.VarChar(255)
+  esSistema   Boolean  @default(false) @map("es_sistema")
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  usuarios Usuario[]
+  permisos RolePermiso[]
+
+  @@map("roles")
+}
+
+model Permiso {
+  id          String  @id @default(uuid()) @db.Uuid
+  modulo      String  @db.VarChar(40)
+  accion      String  @db.VarChar(40)
+  descripcion String? @db.VarChar(255)
+
+  roles RolePermiso[]
+
+  @@unique([modulo, accion])
+  @@map("permisos")
+}
+
+model RolePermiso {
+  roleId    String @map("role_id") @db.Uuid
+  permisoId String @map("permiso_id") @db.Uuid
+
+  role    Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permisoId])
+  @@map("role_permisos")
 }
 
 model RefreshToken {

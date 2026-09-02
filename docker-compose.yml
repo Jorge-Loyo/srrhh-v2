@@ -34,7 +34,7 @@ services:
       PYTHON_SERVICE_URL: http://dotaneitor:5001
       PORT: 3000
       NODE_ENV: development
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5180
       LOG_LEVEL: info
     ports:
       - '3000:3000'
