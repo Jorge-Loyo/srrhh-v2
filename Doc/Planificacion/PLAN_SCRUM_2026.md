@@ -26,10 +26,10 @@
 | Sprint 6 — KPIs + Deploy                                     | ✅ Completo — 2026-08-31, smoke test 21/21 OK                                                                                          | S6-0 a S6-8 (✅)                      |
 | Sprint 7 — Cargos: trazabilidad del alta manual              | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones                                            | S7-1 a S7-10 (✅)                     |
 | Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B implementados, build limpio                                                                                    | S8A-1 a S8B-6 (✅)                    |
-| Sprint 8-C — Triangulación histórica                          | ✅ Completo — 2026-09-03, verificado end-to-end con datos reales. Regla de negocio baja SIAL implementada | S8C-1 a S8C-3 (✅)                    |
+| Sprint 8-C — Triangulación histórica                         | ✅ Completo — 2026-09-03, verificado end-to-end con datos reales. Regla de negocio baja SIAL implementada                              | S8C-1 a S8C-3 (✅)                    |
 | Sprint 9 — Matriz de permisos + Landing/menú/guards          | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
 | Post-Sprint 9 — Normalización escalafones + deploy + Neon    | ✅ Completo — 2026-09-03                                                                                                               | ver detalle abajo                     |
-| Sprint 10 — Notificaciones persistidas                       | 📋 Planificado                                                                                                                         | S10-1 a S10-5                         |
+| Sprint 10 — Notificaciones persistidas                       | ✅ Completo — 2026-09-04                                                                                                               | S10-1 a S10-5 (✅)                    |
 | Sprint 11 — Flujo concursal CPH con autorizaciones           | 📋 Planificado                                                                                                                         | S11-1 a S11-7                         |
 | Sprint 12 — Panel de autorizaciones + jerarquía de roles     | 📋 Planificado                                                                                                                         | S12-1 a S12-9                         |
 | Sprint 13 — Asignación de tareas entre roles                 | 📋 Planificado                                                                                                                         | S13-1 a S13-7                         |
@@ -137,7 +137,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ---
 
-### SPRINT 0 — Infraestructura base + análisis Dotaneitor
+### SPRINT 0 — Infraestructura base + análisis Dotaneitor ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Entorno de desarrollo 100% funcional y Dotaneitor documentado.
@@ -166,7 +166,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ---
 
-### SPRINT 1 — Autenticación + usuarios + seed real
+### SPRINT 1 — Autenticación + usuarios + seed real ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Login funcional con roles, usuarios reales en BD.
@@ -208,9 +208,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 <details>
 <summary>
 
-### SPRINT 2 — Dotaneitor optimizado + integración padrón
-
-</summary>
+### SPRINT 2 — Dotaneitor optimizado + integración padrón ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Dotaneitor optimizado y conectado al flujo de padrón de SRRHH v2.
@@ -258,7 +256,7 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 > formulario de subida ni botones de decisión), rechazar. Sin errores de consola en ningún caso.
 > `tsc --noEmit` limpio en `apps/web` y `apps/api`.
 
-### ✅ Sprint 2 cerrado — y verificado corriendo de verdad (2026-08-25)
+#### ✅ Sprint 2 cerrado — y verificado corriendo de verdad (2026-08-25)
 
 Todas las tareas completas (S2-1 a S2-19). S2-1 quedó en 8/9 hallazgos resueltos — el restante
 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`) es informativo, sin acción pendiente.
@@ -334,9 +332,7 @@ Hallazgos adicionales, no bloqueantes pero relevantes:
 - `prisma/migrations/` estaba **vacío** en el repo pese a que S0-2 ("primera migración") figura ✅. Corrección al diagnóstico original: la tabla `_prisma_migrations` de la BD real sí tenía un registro (`20260820151826_init`, aplicada 2026-08-20) — o sea que S0-2 sí corrió `migrate dev` en su momento, pero el archivo de esa migración nunca llegó a este checkout del repo (¿no comiteado, `.gitignore` de otra máquina, o se perdió en algún punto?). El historial versionado en git, que es lo que importa para reproducibilidad, estaba vacío igual. ✅ **Resuelto (2026-08-25)** — bauteo (baseline) sin tocar datos: `prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` (comando de solo lectura) generó `prisma/migrations/0_init/migration.sql` reflejando el schema actual completo; se agregó `prisma/migrations/migration_lock.toml` (provider `postgresql`); `prisma migrate resolve --applied 0_init` marcó esa migración como aplicada en la BD real (solo escribe en `_prisma_migrations`, no ejecuta el SQL — las tablas ya existían). Verificado con `prisma migrate status`: **"Database schema is up to date!"**, cero drift. Conteos de `personas`/`cargos`/`ocupaciones`/`historico` confirmados intactos antes y después.
 - `pnpm db:seed` (script raíz) estaba roto: `tsx` no está en `node_modules/.bin` de la raíz (solo es dependencia de `apps/api`) — y además `prisma/seed.ts` importa `bcrypt`, que tampoco es dependencia de la raíz, así que agregar solo `tsx` no habría alcanzado. ✅ **Resuelto (2026-08-25)** — el script ahora delega a `apps/api` (que ya tiene `tsx`/`bcrypt`/`@prisma/client` resueltos vía pnpm workspace): `"db:seed": "pnpm --filter @srrhh/api exec tsx --env-file=.env ../../prisma/seed.ts"`. Corrido de verdad contra la BD real (`prisma/seed.ts` es idempotente, usa `upsert` en todo): `🌱 ... 🎉 Seed completado` sin errores, sin duplicar nada.
 
-## </details>
-
-### SPRINT 3 — Personas y Cargos
+### SPRINT 3 — Personas y Cargos ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulos de personas y cargos completamente funcionales.
@@ -719,7 +715,7 @@ pendientes.
 
 ---
 
-### SPRINT 4 — Concursos CPH
+### SPRINT 4-A — Concursos CPH ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo de seguimiento CPH completamente funcional.
@@ -930,7 +926,7 @@ sesión `wsl.exe -- sleep N` en segundo plano durante secuencias de comandos que
 
 ---
 
-### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
+#### POST-SPRINT 4 — Mejoras UX padrón/personas (2026-08-27)
 
 **Commit:** `f178819` | **Autor:** Jorge + Claude
 
@@ -984,7 +980,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (2) — Cargos: códigos, estados, UX (2026-09)
+### POST-SPRINT 4-B — Cargos: códigos, estados, UX (2026-09) ✅ Completado
 
 **Autor:** Jorge + Claude
 
@@ -1033,7 +1029,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (3) — Mejoras UX personas/cargos (2026-08-28)
+### POST-SPRINT 4-C — Mejoras UX personas/cargos (2026-08-28) ✅ Completado
 
 **Commit:** pendiente | **Autor:** Jorge + Claude
 
@@ -1071,7 +1067,7 @@ Mejoras incrementales sobre módulos ya cerrados, surgidas de uso real con datos
 
 ---
 
-### POST-SPRINT 4 (4) — Maquetas Alta/Baja/Alta por Baja (2026-09)
+### POST-SPRINT 4-D — Maquetas Alta/Baja/Alta por Baja (2026-09) ✅ Completado
 
 **Autor:** Jorge + Claude
 
@@ -1125,7 +1121,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
-### SPRINT 5 — Concursos CEETPS + Bajas
+### SPRINT 5 — Concursos CEETPS + Bajas ✅ Completado
 
 **Duración:** 2 semanas | **Capacidad:** 120h
 **Objetivo:** Módulo CEETPS y flujo baja → concurso funcional.
@@ -1175,7 +1171,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
-### SPRINT 6 — Tablero KPIs + cierre MVP
+### SPRINT 6 — Tablero KPIs + cierre MVP ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h
 **Objetivo:** Dashboard operativo con KPIs reales y sistema listo para producción.
@@ -1200,7 +1196,7 @@ Revisado el CSV de Alexis con 7.471 concursos CPH reales para informar el diseñ
 
 ---
 
-### SPRINT 7 — Cargos: trazabilidad del alta manual
+### SPRINT 7 — Cargos: trazabilidad del alta manual ✅ Completado
 
 **Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 56h
 **Objetivo:** Cerrar los gaps de trazabilidad del alta manual de cargos (RF-11 a RF-15 de `Doc/Contratos_Paginas/cargos_alta.md`), de modo que **todo alta de cargo quede respaldada por su acto administrativo en BD** y sea auditable.
@@ -1262,7 +1258,7 @@ Todo ──► S7-10 (verificación + docs)
 
 ---
 
-### SPRINT 8 — Estado `validacion_vacante` + Validación de Bajas
+### SPRINT 8-A — Estado `validacion_vacante` + Validación de Bajas ✅ Completado
 
 **Duración:** 1 semana | **Autor:** Jorge
 **Objetivo:** Implementar el estado intermedio `validacion_vacante` en el flujo del padrón y la página de validación de bajas.
@@ -1336,7 +1332,7 @@ validacion_vacante → estado intermedio, solo generado por el padrón semanal
 | S8A-4 | **`/cargos/baja/nueva`: incluir `validacion_vacante`** | ✅     | `ModalBuscarCargo` hace 2 queries paralelas (vigente + validacion_vacante). Badge "En validación" naranja en tabla del modal.                                                                                                                                                                                                                                                        |
 | S8A-5 | **Fix `CargosPage`**: mostrar `validacion_vacante`     | ✅     | Badge naranja "En Validación", opción en filtro de estado, columna "Días" para cargos no vigentes.                                                                                                                                                                                                                                                                                   |
 
-#### Sprint 8-B — Página Validación de Bajas
+### Sprint 8-B — Página Validación de Bajas ✅ Completado
 
 | #     | Tarea                                                           | Estado | Descripción                                                                                                                                    |
 | ----- | --------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1436,20 +1432,20 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 
 **Fecha:** 2026-09-03 | **Autor:** Agustin
 
-| #     | Tarea                                       | Estado | Descripción                                                                                                                                                                                                                                                                 |
-| ----- | ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #     | Tarea                                       | Estado | Descripción                                                                                                                                                                                                                                                                       |
+| ----- | ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | S8C-1 | **`CargoDetailPanel`**: historial completo  | ✅     | `getCargoByIdService` extendido — fetcha `concursosCph` y `concursosCeetps` en paralelo vía `Promise.all`, con `concurso`, `escalafon` y `personaDesignada` expandidos. `CargoDetailPanel` muestra secciones "Concursos CPH" y "Concursos CEETPS" antes del historial de personas |
-| S8C-2 | **`PersonaDetailPanel`**: cargos históricos | ✅     | `getPersonaByIdService` extendido — incluye `padronHistorico` completo ordenado por `fechaAsignada desc` con `snapshot` expandido. `PersonaDetailPanel` muestra sección collapsible "Historial padrón semanal" (cerrada por defecto)                                          |
-| S8C-3 | **Endpoint triangulación**                  | ✅     | Implementado embebido en los endpoints existentes (`GET /cargos/:id` y `GET /personas/:id`) — no se creó ruta separada. Verificado end-to-end con datos reales                                                                                                               |
+| S8C-2 | **`PersonaDetailPanel`**: cargos históricos | ✅     | `getPersonaByIdService` extendido — incluye `padronHistorico` completo ordenado por `fechaAsignada desc` con `snapshot` expandido. `PersonaDetailPanel` muestra sección collapsible "Historial padrón semanal" (cerrada por defecto)                                              |
+| S8C-3 | **Endpoint triangulación**                  | ✅     | Implementado embebido en los endpoints existentes (`GET /cargos/:id` y `GET /personas/:id`) — no se creó ruta separada. Verificado end-to-end con datos reales                                                                                                                    |
 
 **Archivos modificados:**
 
-| Archivo | Cambio |
-| ------- | ------ |
-| `apps/api/src/modules/cargos/cargos.service.ts` | `getCargoByIdService`: `Promise.all` para `concursosCph` + `concursosCeetps` |
-| `apps/api/src/modules/personas/personas.service.ts` | `getPersonaByIdService`: include `padronHistorico` con `snapshot` |
-| `packages/types/src/index.ts` | `PadronHistoricoItem` interface; `PersonaDetail.padronHistorico`; `CargoDetail.concursosCph/ceetps` |
-| `apps/web/src/modules/cargos/pages/CargoDetailPanel.tsx` | Secciones CPH y CEETPS con tablas, badges de estado, links |
+| Archivo                                                      | Cambio                                                                                                          |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `apps/api/src/modules/cargos/cargos.service.ts`              | `getCargoByIdService`: `Promise.all` para `concursosCph` + `concursosCeetps`                                    |
+| `apps/api/src/modules/personas/personas.service.ts`          | `getPersonaByIdService`: include `padronHistorico` con `snapshot`                                               |
+| `packages/types/src/index.ts`                                | `PadronHistoricoItem` interface; `PersonaDetail.padronHistorico`; `CargoDetail.concursosCph/ceetps`             |
+| `apps/web/src/modules/cargos/pages/CargoDetailPanel.tsx`     | Secciones CPH y CEETPS con tablas, badges de estado, links                                                      |
 | `apps/web/src/modules/personas/pages/PersonaDetailPanel.tsx` | Sección collapsible padrón histórico; "Historial de roles SIAL" también collapsible; ambos cerrados por defecto |
 
 **Regla de negocio — triangulación baja SIAL en ocupaciones (2026-09-03):**
@@ -1490,7 +1486,7 @@ Detectado en uso real: una ocupación puede tener `situacionRevista = Activo` y 
 - Solicitud de autorización: automática al caratular el concurso CPH
 - Guardas del router por rol (como en el legacy)
 
-### Modelo de permisos — matriz original planificada
+#### Modelo de permisos — matriz original planificada
 
 > Esta tabla documenta la intención original (y lo que efectivamente se sembró como
 > asignación inicial en `role_permisos` el 2026-09-01). Ya **no** es la fuente de verdad en
@@ -1548,7 +1544,7 @@ del hub por permiso, deliberadamente no implementado — ver esa fila).
 
 ---
 
-### POST-SPRINT 9 — Normalización escalafones + deploy Render + sincronización Neon
+#### POST-SPRINT 9 — Normalización escalafones + deploy Render + sincronización Neon
 
 **Fecha:** 2026-09-02/03 | **Autor:** Jorge
 
@@ -1614,20 +1610,59 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 
 **Duración:** 1 semana | **Capacidad:** 60h | **Estimado:** 25h
 **Objetivo:** Entidad `Notificacion` persistida + badge de no leídas en el header + bandeja.
+**Estado:** ✅ Completo — 2026-09-04
 
-| #     | Tarea                                                                                                              | Dev     | Est. | Prioridad |
-| ----- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---- | --------- |
-| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones`                        | Jorge   | 3h   | 🟡 Medio  |
-| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge   | 6h   | 🟡 Medio  |
-| S10-3 | Frontend: badge con contador de no leídas en el header                                                             | Agustin | 4h   | 🟡 Medio  |
-| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas)                          | Agustin | 6h   | 🟡 Medio  |
-| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`)      | Jorge   | 6h   | 🟢 Bajo   |
+**Decisiones de diseño tomadas antes de implementar:**
+
+| Pregunta | Decisión |
+| -------- | --------- |
+| Tipos de `TipoNotificacion` | `concurso_estancado`, `baja_pendiente`, `autorizacion_pendiente`, `autorizacion_resuelta` |
+| Destinatarios | Por rol (`rolSlug`) — cada tipo va al rol que corresponde según el flujo de autorización |
+| S10-5 alertas de estancamiento | On-demand: se materializan al listar notificaciones, sin cron job |
+
+| #     | Tarea                                                                                                              | Dev     | Est. | Prioridad | Estado |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---- | --------- | ------ |
+| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones`                        | Jorge   | 3h   | 🟡 Medio  | ✅ |
+| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge   | 6h   | 🟡 Medio  | ✅ |
+| S10-3 | Frontend: badge con contador de no leídas en el header                                                             | Agustin | 4h   | 🟡 Medio  | ✅ |
+| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas)                          | Agustin | 6h   | 🟡 Medio  | ✅ |
+| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`)      | Jorge   | 6h   | 🟢 Bajo   | ✅ |
+
+**Archivos modificados:**
+
+| Archivo | Cambio |
+| ------- | ------ |
+| `prisma/schema.prisma` | Enum `TipoNotificacion` + `model Notificacion` con `origenKey` único para deduplicación |
+| `prisma/migrations/20260904000000_sprint10_notificaciones/migration.sql` | `CREATE TYPE` + `CREATE TABLE notificaciones` + índices |
+| `packages/types/src/index.ts` | `TipoNotificacion`, `Notificacion`, `NotificacionFilters` |
+| `apps/api/src/modules/notificaciones/notificaciones.service.ts` | `crearNotificacion`, `listNotificacionesService`, `countNoLeidasService`, `marcarLeidaService`, `marcarTodasLeidasService`, `materializarAlertasEstancamiento` |
+| `apps/api/src/modules/notificaciones/notificaciones.schema.ts` | Zod schema para query params |
+| `apps/api/src/modules/notificaciones/notificaciones.routes.ts` | 4 endpoints: `GET /`, `GET /no-leidas`, `PATCH /leer-todas`, `PATCH /:id/leer` |
+| `apps/api/src/app.ts` | Registro del módulo en `/api/v1/notificaciones` |
+| `apps/web/src/modules/notificaciones/hooks/useNotificaciones.ts` | `useNotificacionesNoLeidas`, `useNotificaciones`, `useMarcarLeida`, `useMarcarTodasLeidas` |
+| `apps/web/src/modules/notificaciones/pages/NotificacionesPage.tsx` | Bandeja con filtros, paginación, marcar leídas |
+| `apps/web/src/shared/components/layout/AppShell.tsx` | Badge 🔔 en el header con contador de no leídas, link a `/notificaciones` |
+| `apps/web/src/app/router.tsx` | Ruta `/notificaciones` |
+
+**Regla de negocio — destinatarios por tipo:**
+
+| Tipo | Rol destinatario | Cuándo se crea |
+| ---- | ---------------- | -------------- |
+| `concurso_estancado` (CPH 30d/60d) | `concursales_cph` | On-demand al listar, si el concurso lleva >30/60 días sin movimiento |
+| `concurso_estancado` (CPH 90d) | `admin` | Ídem, umbral 90 días |
+| `concurso_estancado` (CEETPS) | `concursales_ceetps` | Ídem para concursos CEETPS |
+| `baja_pendiente` | A definir en Sprint 11 | Cuando se registre una baja sin concurso asociado |
+| `autorizacion_pendiente` | `director` | Sprint 11: al caratular concurso CPH |
+| `autorizacion_resuelta` | `concursales_cph` | Sprint 11: cuando el director aprueba/rechaza |
+
+**Deduplicación:** campo `origenKey` con constraint `UNIQUE`. Formato: `{tipo}:{entidad}:{id}:{umbral}` (ej. `concurso_estancado:cph:{uuid}:30d`). Si ya existe una notificación con esa clave, `crearNotificacion()` la devuelve sin crear duplicado.
 
 **Criterio de éxito:**
 
-- `Notificacion` se crea desde eventos del backend
-- Badge de no leídas visible; la bandeja marca de a una o todas
-- Alertas de estancamiento generan notificación a dueños + admin/editor
+- `Notificacion` se crea desde eventos del backend ✅
+- Badge de no leídas visible en el header; la bandeja marca de a una o todas ✅
+- Alertas de estancamiento generan notificación al rol correspondiente ✅
+- Anti-duplicados por `origenKey` ✅
 
 ---
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
+import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks/useNotificaciones'
 import { can } from '../../lib/can'
 
 const CARGOS_SUBITEMS = [
@@ -19,6 +20,7 @@ const CONFIGURACION_SUBITEMS = [
 export function AppShell() {
   const { user, logout } = useAuth()
   const { data: snapshots } = useSnapshots()
+  const { data: noLeidas = 0 } = useNotificacionesNoLeidas()
   const haySnapshotPendiente = snapshots?.some((s) => s.estado === 'pendiente') ?? false
   const location = useLocation()
 
@@ -261,6 +263,19 @@ export function AppShell() {
                 ● Padrón pendiente de revisión
               </Link>
             )}
+            {/* Badge notificaciones */}
+            <Link
+              to="/notificaciones"
+              title="Notificaciones"
+              className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/10 transition-colors mr-2"
+            >
+              <span className="text-white text-lg">🔔</span>
+              {noLeidas > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+                  {noLeidas > 99 ? '99+' : noLeidas}
+                </span>
+              )}
+            </Link>
             <div className="h-full bg-primary flex items-center gap-3 px-5">
               <div className="text-right">
                 <p className="text-xs font-bold text-black leading-tight">{user.username}</p>
