@@ -92,19 +92,44 @@ model Hospital {
 
 model Escalafon {
   id        String   @id @default(uuid()) @db.Uuid
+  // Código canónico corto: 22, 37, 83, etc. (CODIGO DE REGISTRO del Excel).
+  // Cuando un escalafón tiene más de un código (ej. CPH: 22 y 37) se usa el
+  // menor como código principal; los alias viven en EscalafonCodigoRegistro.
   codigo    String   @unique @db.VarChar(20)
+  // Nombre canónico = LITERAL CR normalizado (fuente de verdad del Excel).
+  // "Carrera Administrativa" y "Nueva Carrera Administrativa" se unifican
+  // en "Nueva Carrera Administrativa".
   nombre    String   @db.VarChar(100)
   activo    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relaciones
-  codigosRegistro  CodigoRegistro[]
-  cargos           Cargo[]
-  concursosCeetps  ConcursoCeetps[]
-  puestosCargo     PuestoCargo[]
+  codigosRegistro        CodigoRegistro[]
+  escalafonCodigosReg    EscalafonCodigoRegistro[]
+  cargos                 Cargo[]
+  concursosCeetps        ConcursoCeetps[]
+  puestosCargo           PuestoCargo[]
 
   @@map("escalafones")
+}
+
+// Tabla de relación: un escalafón canónico puede tener N códigos de registro
+// del Excel (ej. "Nueva Carrera Prof. Hosp" tiene códigos 22 y 37).
+// Es la fuente de verdad para normalizar al procesar cada padrón:
+// dado un CODIGO DE REGISTRO del Excel → obtener el escalafon_id canónico.
+model EscalafonCodigoRegistro {
+  id          String   @id @default(uuid()) @db.Uuid
+  escalafonId String   @map("escalafon_id") @db.Uuid
+  // Código de registro del Excel (CODIGO DE REGISTRO), ej. "22", "37", "83"
+  codigoReg   String   @unique @map("codigo_reg") @db.VarChar(10)
+  // Literal original del Excel para trazabilidad
+  literalOrig String   @map("literal_orig") @db.VarChar(100)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  escalafon Escalafon @relation(fields: [escalafonId], references: [id])
+
+  @@map("escalafon_codigos_registro")
 }
 
 model CodigoRegistro {

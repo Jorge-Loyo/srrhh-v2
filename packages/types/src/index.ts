@@ -554,7 +554,12 @@ export interface KpiConcursos {
 
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
-  puntos: { fecha: string; personas: number; cargos: number }[]
+  escalafones: string[]  // nombres canónicos presentes en los datos
+  puntos: {
+    fecha: string
+    total: number
+    porEscalafon: Record<string, number>  // escalafon.nombre -> personas acumuladas
+  }[]
 }
 
 // S6-6 — GET /api/v1/kpis/alertas

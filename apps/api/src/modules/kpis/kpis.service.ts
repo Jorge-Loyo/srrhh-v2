@@ -372,26 +372,55 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
 // query param sea el mismo hospitalId (uuid) que usan el resto de los
 // endpoints de /kpis — aprovecha el @@index([cargoId]) agregado en S6-0.
 export async function getKpisDotacionHistoricaService(query: KpisDotacionHistoricaQuery) {
-  const { hospitalId } = query
+  const { hospitalId, agrupacion } = query
   const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
 
-  const rows = await prisma.$queryRaw<{ fechaAsignada: Date; personas: bigint; cargos: bigint }[]>(Prisma.sql`
+  // Para cada fecha: personas acumuladas únicas por escalafón canónico.
+  // La subquery LATERAL calcula el acumulado hasta cada fecha por escalafón.
+  const rows = await prisma.$queryRaw<{ fecha: Date; escalafon: string; personas: bigint }[]>(Prisma.sql`
     SELECT
-      ph.fecha_asignada AS "fechaAsignada",
-      count(DISTINCT ph.cuil)::bigint AS personas,
-      count(*)::bigint AS cargos
-    FROM padron_historico ph
-    JOIN cargos c ON c.id = ph.cargo_id
+      f.fecha_asignada AS fecha,
+      ph2.escalafon,
+      count(DISTINCT ph2.cuil)::bigint AS personas
+    FROM (SELECT DISTINCT fecha_asignada FROM padron_historico) f
+    JOIN padron_historico ph2
+      ON ph2.fecha_asignada <= f.fecha_asignada
+      AND ph2.escalafon IS NOT NULL
+      AND ph2.cuil IS NOT NULL
+    JOIN cargos c ON c.id = ph2.cargo_id
     WHERE true ${hospitalFilter}
-    GROUP BY ph.fecha_asignada
-    ORDER BY ph.fecha_asignada
+    GROUP BY f.fecha_asignada, ph2.escalafon
+    ORDER BY f.fecha_asignada, ph2.escalafon
   `)
 
-  return {
-    puntos: rows.map((r) => ({
-      fecha: r.fechaAsignada,
-      personas: Number(r.personas),
-      cargos: Number(r.cargos),
-    })),
+  // Agrupar por fecha
+  type PuntoMap = Map<string, { fecha: Date; porEscalafon: Record<string, number> }>
+  const porFecha: PuntoMap = new Map()
+  const escalafonesSet = new Set<string>()
+
+  for (const r of rows) {
+    const key = r.fecha.toISOString().slice(0, 10)
+    if (!porFecha.has(key)) porFecha.set(key, { fecha: r.fecha, porEscalafon: {} })
+    porFecha.get(key)!.porEscalafon[r.escalafon] = Number(r.personas)
+    escalafonesSet.add(r.escalafon)
   }
+
+  const escalafones = [...escalafonesSet].sort()
+  const puntosCrudos = [...porFecha.values()].map((p) => ({
+    fecha: p.fecha,
+    total: Object.values(p.porEscalafon).reduce((s, v) => s + v, 0),
+    porEscalafon: p.porEscalafon,
+  }))
+
+  if (agrupacion === 'mes') {
+    // Tomar el último punto de cada mes
+    const porMes = new Map<string, typeof puntosCrudos[number]>()
+    for (const p of puntosCrudos) {
+      const mes = new Date(p.fecha).toISOString().slice(0, 7)
+      porMes.set(mes, p)
+    }
+    return { escalafones, puntos: [...porMes.values()] }
+  }
+
+  return { escalafones, puntos: puntosCrudos }
 }
