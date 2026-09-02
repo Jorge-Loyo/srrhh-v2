@@ -6,8 +6,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
-import { useEscalafones, usePuestosCargoNormalizados, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
-import { getEspecialidadOptions } from '@/modules/cargos/lib/bajasHelpers'
+import { useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCph, exportCphPdf, exportCphWord } from '@/shared/lib/exportConcursoDocs'
 import type { ConcursoCph } from '@srrhh/types'
@@ -285,7 +284,10 @@ export function ConcursoCphWizard() {
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
   const [originales, setOriginales] = useState(originalesRef)
-  const especialidadesDisponibles = getEspecialidadOptions(puestoConcurso)
+  const { data: especialidadesDisponibles = [] } = useEspecialidadesPuesto(
+    escalafonCph?.id ?? '2a5c51d1-0446-4c58-a68a-a2f2687c94ef',
+    puestoConcurso || undefined
+  )
 
   useEffect(() => {
     if (!cphData) return
