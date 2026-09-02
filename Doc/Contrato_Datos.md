@@ -1,7 +1,7 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 (Post-Sprint 5)
+> Última actualización: 2026-09 (Post-Sprint 8)
 > Estado: VIGENTE
 
 ---
@@ -143,12 +143,20 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 | `cod_familia` | VARCHAR(20) | Código de familia SIAL |
 | `lit_familia` | VARCHAR(150) | Literal de familia |
 | `puesto_codigo_sial` | VARCHAR(20) | Código de puesto en SIAL |
-| `estado` | ENUM | `vigente` \| `no_vigente` |
+| `estado` | ENUM | `vigente` \| `no_vigente` \| `validacion_vacante` |
+| `estado_desde` | DATE | Fecha en que el cargo entró al estado actual |
+| `expediente` | VARCHAR(150) | Expediente de alta manual |
+| `fecha_desde` | DATE | Fecha de inicio del cargo (alta manual) |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
 | `deleted_at` | TIMESTAMPTZ | Soft delete |
 
 **Índices:** `id_sial` (UNIQUE), `codigo` (UNIQUE), `hospital_id`, `escalafon_id`, `estado`
+
+**Estados:**
+- `vigente` — activo en la estructura
+- `no_vigente` — estado terminal, suprimido
+- `validacion_vacante` — baja detectada por el padrón SIAL pendiente de confirmación administrativa (Sprint 8A)
 
 ---
 
@@ -369,19 +377,28 @@ Registro de bajas de cargo que originan vacantes.
 | `id` | UUID PK | — |
 | `cargo_id` | UUID FK → cargos | — |
 | `hospital_id` | UUID FK → hospitales | — |
-| `persona_id` | UUID FK → personas nullable | Persona que deja el cargo (null si es ampliación) |
+| `persona_id` | UUID FK → personas nullable | Persona que deja el cargo |
 | `fecha_baja` | DATE | Fecha en que se produce la vacante |
-| `tipo_baja` | VARCHAR(100) nullable | Campo libre — 97% vacío en datos reales. Lista sugerida: Cargo retenido, Interino, Jubilación, Cambio de Efector, Renuncia, Pase a Planta, Fallecimiento |
+| `tipo_baja` | VARCHAR(100) nullable | Campo libre |
 | `motivo` | VARCHAR(500) | — |
-| `tipificador_origen` | VARCHAR(200) nullable | Campo libre para trazabilidad (ej: "Bajas 2025", "Ampliación 2026") |
+| `tipificador_origen` | VARCHAR(200) nullable | Trazabilidad del origen (ej: "Bajas 2025") |
+| `ee_baja` | VARCHAR(500) nullable | Expediente electrónico de la baja |
+| `partida_presupuestaria` | VARCHAR(100) nullable | Partida presupuestaria del cargo |
+| `doc_respaldatoria` | VARCHAR(500) nullable | Documento respaldatorio |
+| `fecha_pase_paralelo` | DATE nullable | Fecha de pase paralelo / GT |
 | `genera_concurso` | BOOLEAN default true | Si true, crea el seguimiento concursal automáticamente |
-| `estado` | ENUM | `pendiente` \| `confirmada` \| `anulada` |
+| `estado` | ENUM | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
 | `observaciones` | TEXT | — |
 | `registrado_por` | UUID FK → usuarios | — |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
 
 **Índices:** `cargo_id`, `hospital_id`, `estado`
+
+**Flujo de estados:**
+- `resolucion_a_la_firma` — borrador editable, no toca el cargo ni crea concurso
+- `pendiente` — confirmada, cargo pasa a `no_vigente`, concurso creado si aplica
+- `confirmada` / `anulada` — estados finales
 
 ---
 
@@ -412,6 +429,29 @@ Registro de bajas de cargo que originan vacantes.
 | `expires_at` | TIMESTAMPTZ | — |
 | `revocado` | BOOLEAN | — |
 | `created_at` | TIMESTAMPTZ | — |
+
+---
+
+### `roles` y `permisos` (Sprint 8 — RBAC dinámico)
+
+Permiten gestionar los permisos de cada rol desde la UI sin tocar código.
+
+| Tabla | Descripción |
+|---|---|
+| `roles` | Roles del sistema con sus permisos asignados |
+| `permisos` | Catálogo de permisos disponibles (ej: `bajas:write`, `concursos:read`) |
+
+---
+
+### `baja_sial_snapshots` y `baja_sial_registros`
+
+Archivo semanal de bajas del Ministerio de Salud (SIAL). Mismo patrón que `padron_snapshots` — upload, diff, aprobación.
+
+---
+
+### `puestos_cargo` y `especialidades_puesto`
+
+Catálogo de puestos por escalafón y modalidad (POF/POU) con sus especialidades. Alimenta los selectores del formulario de baja.
 
 ---
 

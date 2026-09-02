@@ -41,19 +41,16 @@ Windows, dos vistas del mismo disco).
 
 ## 3. Levantar el backend (Postgres + API + Dotaneitor)
 
-**En WSL:**
+**En WSL — siempre con el override para CORS y puerto correcto:**
 
 ```bash
 cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
 ```
 
-- `--build` es importante la **primera vez** y **cada vez que cambia código** de `apps/api` o
-  `services/dotaneitor` — `docker compose up -d` sin `--build` reusa la imagen vieja aunque el
-  código en disco haya cambiado. Si en algún momento algo "no anda" pese a que el código está bien,
-  sospechar primero de esto.
-- Si ya está todo levantado y sin cambios de código, `docker compose up -d` (sin `--build`) alcanza
-  y es más rápido.
+> **Importante:** desde WSL hay que pasar los dos `-f` explícitamente. Sin el override, `CORS_ORIGINS` solo tiene el puerto 5173 y el frontend en 5180 recibe error de CORS.
+
+- `--build` es importante la **primera vez** y **cada vez que cambia código** de `apps/api`.
 
 ### Verificar que están sanos
 
@@ -68,8 +65,6 @@ docker compose ps                      # los 3 containers "Up"/"healthy"
 Si `docker compose ps` muestra los containers arriba pero la app no tiene datos (tablas vacías):
 
 ```bash
-# Desde Windows (no hace falta WSL para esto — pnpm/node ya están ahí),
-# apuntando a la base dockerizada (puerto 5433, ver docker-compose.override.yml):
 cd /c/Desarrollo/SRH/SRRHH-Legacy
 DATABASE_URL="postgresql://srrhh_user:srrhh_pass@localhost:5433/srrhh_db" \
   pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma
@@ -97,8 +92,7 @@ El seed es idempotente (usa `upsert`), se puede correr de nuevo sin miedo a dupl
 ## 4. Levantar el frontend (Vite, nativo en Windows)
 
 ```bash
-cd "c:/Desarrollo/SRH/SRRHH-Legacy/apps/web"
-pnpm exec vite --port 5180
+pnpm --filter web dev --port 5180
 ```
 
 ### ⚠️ Por qué `--port 5180` y no el 5173 por defecto

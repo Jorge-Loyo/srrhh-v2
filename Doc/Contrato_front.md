@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 5)
+> Última actualización: 2026-09 (Post-Sprint 8)
 > Estado: VIGENTE
 
 ---
@@ -20,6 +20,7 @@
 | React Hook Form | 7.x | Formularios |
 | Zod | 3.x | Validación de formularios |
 | Axios | 1.x | Cliente HTTP |
+| jsPDF | latest | Generación de PDF en el browser |
 | xlsx (SheetJS) | latest | Exportación a Excel |
 
 ---
@@ -139,6 +140,16 @@ Components reciben datos como props — no hacen fetch directamente
 
 ## TanStack Query — convenciones
 
+### staleTime global
+
+`staleTime: 0` en `main.tsx` — cada navegación hace fetch fresco. `refetchOnWindowFocus: false`.
+
+```typescript
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 0, refetchOnMount: true, refetchOnWindowFocus: false, retry: 1 } },
+})
+```
+
 ### Query keys
 
 Las query keys son arrays tipados. Se definen en el archivo de hooks del módulo:
@@ -222,12 +233,19 @@ const router = createBrowserRouter([
       { path: 'cargos/baja', element: <BajaCargosPage /> },
       { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
       { path: 'concursos/cph', element: <ConcursosCphPage /> },
-      { path: 'concursos/cph/:id', element: <ConcursoCphDetail /> },
+      { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
+      { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
       { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
       { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
+      { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
+      { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
       { path: 'bajas', element: <BajasPage /> },
+      { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
+      { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
+      { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
       { path: 'kpis', element: <KpisPage /> },
       { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
+      { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
     ],
   },
   { path: '/login', element: <LoginPage /> },
