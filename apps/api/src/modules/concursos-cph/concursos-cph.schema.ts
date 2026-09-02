@@ -32,6 +32,9 @@ export const patchConcursoCphSchema = z
   .object({
     // Baja / apertura del concurso
     especialidadSolicitada: z.string().trim().max(200).nullable(),
+    // Puesto solicitado, si difiere del puesto de la baja (cargo.literalPuesto)
+    // — lo usan los documentos exportables (Validación/Autorización).
+    puestoSolicitado: z.string().trim().max(200).nullable(),
     eeBaja: z.string().trim().max(150).nullable(),
     fechaBaja: fecha.nullable(),
     eeConcurso: z.string().trim().max(150).nullable(),

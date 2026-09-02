@@ -407,6 +407,10 @@ model ConcursoCph {
   subEstado             String?          @map("sub_estado") @db.VarChar(50)
   subEstado3            String?          @map("sub_estado_3") @db.VarChar(50)
   especialidadSolicitada String?         @map("especialidad_solicitada") @db.VarChar(200)
+  // Puesto que se solicita cubrir — distinto del puesto de la baja
+  // (cargo.literalPuesto) en los casos Jefaturas/Cobertura POU. Si es null,
+  // los documentos exportables asumen que es el mismo que el de la baja.
+  puestoSolicitado      String?          @map("puesto_solicitado") @db.VarChar(200)
   eeBaja                String?          @map("ee_baja") @db.VarChar(150)
   fechaBaja             DateTime?        @map("fecha_baja") @db.Date
   eeConcurso            String?          @map("ee_concurso") @db.VarChar(150)
@@ -472,6 +476,14 @@ model ConcursoCeetps {
   expedienteConcurso    String?             @map("expediente_concurso") @db.VarChar(150)
   puestoSolicitado      String?             @map("puesto_solicitado") @db.VarChar(200)
   dispoLlamado          String?             @map("dispo_llamado") @db.VarChar(500)
+  // Carga horaria en hs (Enfermería/Técnicos) — máx. 2 dígitos, igual al mask
+  // del legacy (SeguimientoCeetpsDetail.jsx).
+  cargaHoraria          Int?                @map("carga_horaria") @db.SmallInt
+  // Apertura 2x18hs — excepción exclusiva de Enfermería (codigoRegistro 87):
+  // un cargo de 35hs se abre en dos de 18hs. Ver FORMULARIOS X CASO (legacy).
+  apertura2x18          Boolean             @default(false) @map("apertura_2x18")
+  informeApertura       String?             @map("informe_apertura") @db.VarChar(150)
+  expedienteConcurso2   String?             @map("expediente_concurso_2") @db.VarChar(150)
   fechaIfacs            DateTime?           @map("fecha_ifacs") @db.Date
   fechaInsal            DateTime?           @map("fecha_insal") @db.Date
   expedienteDesignacion String?             @map("expediente_designacion") @db.VarChar(150)

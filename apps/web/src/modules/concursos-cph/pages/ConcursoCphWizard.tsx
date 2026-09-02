@@ -8,6 +8,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useEscalafones, usePuestosCargoNormalizados, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { getEspecialidadOptions } from '@/modules/cargos/lib/bajasHelpers'
+import { ExportDropdown } from '@/shared/components/ExportDropdown'
+import { getCasoCph, exportCphPdf, exportCphWord } from '@/shared/lib/exportConcursoDocs'
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
@@ -509,13 +511,23 @@ export function ConcursoCphWizard() {
           </div>
 
           {/* Badges + acción — solo en modo edición */}
-          {!esNuevo && (
+          {!esNuevo && cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
               <span className="badge-info text-xs">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
               <span className="badge-default text-xs">{c.subEstado3}</span>
               {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
+              {getCasoCph(cphData).validacion && (
+                <ExportDropdown
+                  label="Validación"
+                  onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'validacion') : exportCphWord(cphData, 'validacion'))}
+                />
+              )}
+              <ExportDropdown
+                label="Autorización"
+                onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'autorizacion') : exportCphWord(cphData, 'autorizacion'))}
+              />
               <button
                 onClick={() => setSuspendido(!suspendido)}
                 className={c.suspendido ? 'btn-secondary text-xs py-1 px-3' : 'btn-danger text-xs py-1 px-3'}
