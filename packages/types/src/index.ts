@@ -9,47 +9,56 @@
 // ENUMS
 // -----------------------------------------------------------------------------
 
-export enum EstadoCargo {
-  VIGENTE = 'vigente',
-  NO_VIGENTE = 'no_vigente',
-  VALIDACION_VACANTE = 'validacion_vacante',
-}
+// Reemplazados de enum a const+type para compatibilidad con Node 22 strip-only mode
+// (los enum de TypeScript requieren transpilación; const objects no)
 
-export enum EstadoSnapshot {
-  PROCESANDO = 'procesando',
-  PENDIENTE = 'pendiente',
-  APROBADO = 'aprobado',
-  RECHAZADO = 'rechazado',
-  ERROR = 'error',
-}
+export const EstadoCargo = {
+  VIGENTE: 'vigente',
+  NO_VIGENTE: 'no_vigente',
+  VALIDACION_VACANTE: 'validacion_vacante',
+} as const
+export type EstadoCargo = typeof EstadoCargo[keyof typeof EstadoCargo]
 
-export enum TipoDiff {
-  NUEVO = 'nuevo',
-  MODIFICADO = 'modificado',
-  ELIMINADO = 'eliminado',
-}
+export const EstadoSnapshot = {
+  PROCESANDO: 'procesando',
+  PENDIENTE: 'pendiente',
+  APROBADO: 'aprobado',
+  RECHAZADO: 'rechazado',
+  ERROR: 'error',
+} as const
+export type EstadoSnapshot = typeof EstadoSnapshot[keyof typeof EstadoSnapshot]
 
-export enum TipoConcurso {
-  CPH = 'cph',
-  CEETPS = 'ceetps',
-  SIN_CONCURSO = 'sin_concurso',
-}
+export const TipoDiff = {
+  NUEVO: 'nuevo',
+  MODIFICADO: 'modificado',
+  ELIMINADO: 'eliminado',
+} as const
+export type TipoDiff = typeof TipoDiff[keyof typeof TipoDiff]
 
-export enum EstadoConcursoCph {
-  NO_INICIADO = 'no_iniciado',
-  ACTIVO = 'activo',
-  FINALIZADO = 'finalizado',
-  SUSPENDIDO = 'suspendido',
-  DESIERTO = 'desierto',
-}
+export const TipoConcurso = {
+  CPH: 'cph',
+  CEETPS: 'ceetps',
+  SIN_CONCURSO: 'sin_concurso',
+} as const
+export type TipoConcurso = typeof TipoConcurso[keyof typeof TipoConcurso]
 
-export enum EstadoConcursoCeetps {
-  SIN_AUTORIZAR = 'sin_autorizar',
-  AUTORIZADO = 'autorizado',
-  EN_PROCESO = 'en_proceso',
-  FINALIZADO = 'finalizado',
-  DESIERTO = 'desierto',
-}
+export const EstadoConcursoCph = {
+  NO_INICIADO: 'no_iniciado',
+  ACTIVO: 'activo',
+  FINALIZADO: 'finalizado',
+  SUSPENDIDO: 'suspendido',
+  DESIERTO: 'desierto',
+} as const
+export type EstadoConcursoCph = typeof EstadoConcursoCph[keyof typeof EstadoConcursoCph]
+
+export const EstadoConcursoCeetps = {
+  SIN_AUTORIZAR: 'sin_autorizar',
+  AUTORIZADO: 'autorizado',
+  EN_PROCESO: 'en_proceso',
+  FINALIZADO: 'finalizado',
+  DESIERTO: 'desierto',
+} as const
+export type EstadoConcursoCeetps = typeof EstadoConcursoCeetps[keyof typeof EstadoConcursoCeetps]
 
 // RBAC dinámico — reemplaza el enum fijo de roles. Los roles viven en la tabla
 // `roles` (editable por el admin desde /configuracion/permisos), no en código.
@@ -348,11 +357,12 @@ export interface Usuario {
   permisos?: { modulo: string; accion: string }[]
 }
 
-export enum EstadoBaja {
-  PENDIENTE = 'pendiente',
-  CONFIRMADA = 'confirmada',
-  ANULADA = 'anulada',
-}
+export const EstadoBaja = {
+  PENDIENTE: 'pendiente',
+  CONFIRMADA: 'confirmada',
+  ANULADA: 'anulada',
+} as const
+export type EstadoBaja = typeof EstadoBaja[keyof typeof EstadoBaja]
 
 export interface Baja {
   id: string
