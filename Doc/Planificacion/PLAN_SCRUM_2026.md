@@ -26,7 +26,7 @@
 | Sprint 6 — KPIs + Deploy                             | ✅ Completo — 2026-08-31, smoke test 21/21 OK                    | S6-0 a S6-8 (✅)  |
 | Sprint 7 — Cargos: trazabilidad del alta manual      | ✅ Completo — RF-11 a RF-15 implementados, historial persistente, PDF, filtrado escalafones | S7-1 a S7-10 (✅) |
 | Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B implementados, build limpio | S8A-1 a S8B-6 (✅) |
-| Sprint 9 — Matriz de permisos + Landing/menú/guards  | 📋 Planificado                                                  | S9-1 a S9-11  |
+| Sprint 9 — Matriz de permisos + Landing/menú/guards  | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
 | Sprint 10 — Notificaciones persistidas               | 📋 Planificado                                                  | S10-1 a S10-5 |
 | Sprint 11 — Flujo concursal CPH con autorizaciones   | 📋 Planificado                                                  | S11-1 a S11-7 |
 
@@ -1455,7 +1455,13 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 - Solicitud de autorización: automática al caratular el concurso CPH
 - Guardas del router por rol (como en el legacy)
 
-### Modelo de permisos — matriz (fuente de verdad en `packages/types`)
+### Modelo de permisos — matriz original planificada
+
+> Esta tabla documenta la intención original (y lo que efectivamente se sembró como
+> asignación inicial en `role_permisos` el 2026-09-01). Ya **no** es la fuente de verdad en
+> tiempo real — eso es la tabla `role_permisos` en la base, editable por el admin desde
+> `/configuracion/permisos`. Esta matriz puede quedar desactualizada si el admin cambia
+> permisos después; para el estado real, consultar la BD o la UI.
 
 | Módulo | Acción | admin | editor | director | viewer | concursales_cph | concursales_ceetps |
 |--------|--------|-------|--------|----------|--------|-----------------|--------------------|
@@ -1480,26 +1486,29 @@ Después de aplicar la migración S8A-1, el cliente Prisma no fue regenerado. Es
 
 > `director` pasa de "read-only" a tener acción concreta: `autorizar` en concursos-cph (Sprint 11).
 
-| # | Tarea | Dev | Est. | Prioridad |
-|---|-------|-----|------|-----------|
-| S9-1 | Definir matriz en `packages/types`: `MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS` + tipo `Permiso` | Jorge | 3h | 🔴 Crítico |
-| S9-2 | Backend: middleware `requirePermiso(modulo, accion)` que consulta la matriz, reemplaza `requireRole` | Jorge | 4h | 🔴 Crítico |
-| S9-3 | Frontend: helper `can(usuario, modulo, accion)` en `shared/lib/can.ts` | Agustin | 2h | 🔴 Crítico |
-| S9-4 | Menú con sección "Configuración" (admin-only) + sub-item "Permisos"; ruta `/configuracion/permisos` con guard | Agustin | 3h | 🟡 Medio |
-| S9-5 | `ConfiguracionPermisosPage`: renderiza la matriz en cascada (solo lectura por ahora) | Agustin | 6h | 🟡 Medio |
-| S9-6 | Migración: reemplazar todos los `requireRole([...])` por `requirePermiso(...)` | Jorge | 4h | 🔴 Crítico |
-| S9-7 | `InicioPage`: estructura con las 3 columnas del `landing.html` (datos mock) | Agustin | 10h | 🔴 Crítico |
-| S9-8 | Filtro de tarjetas en `InicioPage` por `can(usuario, ...)`; buscador inteligente | Agustin | 4h | 🟡 Medio |
-| S9-9 | Router: `ProtectedRoute` acepta `rol?: RolUsuario[]`; página "Sin acceso"; gates movidos a router | Agustin | 4h | 🔴 Crítico |
-| S9-10 | AppShell: items filtrados por matriz usando `can`; sub-items controlados por permiso `crear` | Agustin | 3h | 🔴 Crítico |
-| S9-11 | Migración páginas existentes: quitar gates internos (`AdminUsuariosPage`, `PadronPage`) | Agustin | 3h | 🟡 Medio |
+| # | Tarea | Dev | Est. | Prioridad | Estado |
+|---|-------|-----|------|-----------|--------|
+| S9-1 | Definir matriz en `packages/types`: `MODULOS`, `ACCIONES`, `MATRIZ_PERMISOS` + tipo `Permiso` | Jorge | 3h | 🔴 Crítico | ⛔ No se hizo así — superado por RBAC dinámico (ver nota arriba): la matriz vive en tablas `roles`/`permisos`/`role_permisos`, no en `packages/types` |
+| S9-2 | Backend: middleware `requirePermiso(modulo, accion)` que consulta la matriz, reemplaza `requireRole` | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-01 — `apps/api/src/shared/middleware/permisos.middleware.ts`, consulta `role_permisos` en vivo (no una matriz estática) |
+| S9-3 | Frontend: helper `can(usuario, modulo, accion)` en `shared/lib/can.ts` | Agustin | 2h | 🔴 Crítico | ✅ 2026-09-02 — `shared/lib/can.ts`; consulta `user.permisos`, calculado server-side en el login (`getPermisosEfectivos`, `permisos.service.ts`) y agregado a la respuesta |
+| S9-4 | Menú con sección "Configuración" (admin-only) + sub-item "Permisos"; ruta `/configuracion/permisos` con guard | Agustin | 3h | 🟡 Medio | ✅ 2026-09-01/02 — `AppShell.tsx` (grupo "Configuración"), guard actualizado a `RequirePermiso` genérico (ver S9-9) |
+| S9-5 | `ConfiguracionPermisosPage`: renderiza la matriz en cascada (solo lectura por ahora) | Agustin | 6h | 🟡 Medio | ✅ 2026-09-01/02, con más alcance del planeado — no quedó solo-lectura: el admin crea roles y tilda/destilda permisos en vivo |
+| S9-6 | Migración: reemplazar todos los `requireRole([...])` por `requirePermiso(...)` | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-01 — 8 módulos migrados (usuarios, padrón, bajas-sial, cargos, bajas, concursos-cph, concursos-ceetps, concursos); `roles.middleware.ts` eliminado |
+| S9-7 | `InicioPage`: estructura con las 3 columnas del `landing.html` (datos mock) | Agustin | 10h | 🔴 Crítico | ✅ 2026-09-02, con **contenido real** (no mock, decisión del usuario) — `modules/inicio/pages/InicioPage.tsx` + `data/hubLinks.ts` con los ~40 links reales portados del legacy. Ruta índice `/` ya no redirige a `/kpis` |
+| S9-8 | Filtro de tarjetas en `InicioPage` por `can(usuario, ...)`; buscador inteligente | Agustin | 4h | 🟡 Medio | 🟡 Parcial a propósito — el buscador inteligente se portó completo (sinónimos incluidos); el filtro de tarjetas por `can()` **no se implementó**: los ~40 links son recursos externos (Drive) sin permiso natural asociado, inventar un mapeo habría sido arbitrario. Ver nota en el código |
+| S9-9 | Router: `ProtectedRoute` acepta `rol?: RolUsuario[]`; página "Sin acceso"; gates movidos a router | Agustin | 4h | 🔴 Crítico | ✅ 2026-09-02 — `RequireAdmin` reemplazado por `RequirePermiso` (genérico, recibe `{modulo,accion}` por prop, no fijo a admin); `SinAccesoPage` nueva; Usuarios y Permisos ahora tienen cada uno su propio permiso de guard en vez de compartir un check admin-only |
+| S9-10 | AppShell: items filtrados por matriz usando `can`; sub-items controlados por permiso `crear` | Agustin | 3h | 🔴 Crítico | ✅ 2026-09-02 — los 13 ítems/grupos del menú (KPIs, Personas, Cargos+subitems, Bajas, Validación de Bajas, Concursos CPH/CEETPS, Padrón, Bajas Consolidadas, Configuración+subitems) filtran por `can()` |
+| S9-11 | Migración páginas existentes: quitar gates internos (`AdminUsuariosPage`, `PadronPage`) | Agustin | 3h | 🟡 Medio | ✅ 2026-09-02 — los 7 sitios restantes (`PadronPage`, `PadronDiffPage`, `BajasConsolidasPage`, `BajasSialDiffPage`, `BajaCargosPage`, `ConcursoCphDetail`, `ConcursoCeetpsDetail`) pasaron de comparar `rolSlug`/listas de roles a mano a usar `can()` con el mismo permiso que ya protege el endpoint real |
 
 **Criterio de éxito:**
-- Endpoints de escritura usan el nuevo middleware (sin listas hardcodeadas)
-- `/configuracion/permisos` renderiza la matriz para admin; oculta para el resto
-- `/` muestra `InicioPage` con 3 columnas
-- Menú sin items visibles para roles sin permiso
-- Acceso prohibido por URL da "Sin acceso" (en router, no dentro de la página)
+- ✅ Endpoints de escritura usan el nuevo middleware (sin listas hardcodeadas)
+- ✅ `/configuracion/permisos` renderiza la matriz para admin; oculta para el resto
+- ✅ `/` muestra `InicioPage` con 3 columnas (contenido real, no mock)
+- ✅ Menú sin items visibles para roles sin permiso — los 13 ítems/grupos, no solo Configuración
+- ✅ Acceso prohibido por URL da "Sin acceso" (`SinAccesoPage`, vía `RequirePermiso` genérico)
+
+**Sprint 9 cerrado el 2026-09-02**, salvo la salvedad documentada en S9-8 (filtro de tarjetas
+del hub por permiso, deliberadamente no implementado — ver esa fila).
 
 ---
 

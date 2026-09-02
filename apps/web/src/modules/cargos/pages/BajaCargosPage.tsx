@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { EstadoBaja, TipoConcurso } from '@srrhh/types'
 import type { Cargo, PersonaListItem } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
@@ -14,9 +15,6 @@ import { apiClient } from '@/shared/lib/api-client'
 import { usePersonas } from '../../personas/hooks/usePersonas'
 import { useBajas, useCreateBaja } from '../hooks/useBajas'
 
-// Igual que el permiso bajas.crear por defecto en apps/api/.../bajas.routes.ts
-// (editable desde /configuracion/permisos).
-const WRITE_ROL_SLUGS = ['admin', 'editor', 'concursales_cph', 'concursales_ceetps']
 
 const ESTADO_LABEL: Record<EstadoBaja, string> = {
   [EstadoBaja.PENDIENTE]: 'Pendiente',
@@ -90,7 +88,7 @@ type FormValues = z.infer<typeof formSchema>
 
 export function BajaCargosPage() {
   const { user } = useAuth()
-  const puedeCrear = !!user && WRITE_ROL_SLUGS.includes(user.rolSlug)
+  const puedeCrear = can(user, 'bajas', 'crear')
 
   const [search, setSearch] = useState('')
   const [hospitalId, setHospitalId] = useState('')

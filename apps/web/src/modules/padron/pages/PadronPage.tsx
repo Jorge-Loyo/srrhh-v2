@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EstadoSnapshot } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useSnapshotEstado, useSnapshots, useUploadPadron, useDeleteSnapshot, useExportarSnapshot } from '../hooks/usePadron'
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -37,11 +38,8 @@ function hoy(): string {
 export function PadronPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  // rolSlug (estable) en vez de comparar contra rol/nombre (editable por el admin
-  // desde /configuracion/permisos) — esto es solo gating visual, el backend es la
-  // fuente de verdad real vía requirePermiso.
-  const puedeSubir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
-  const esAdmin = user?.rolSlug === 'admin'
+  const puedeSubir = can(user, 'padron', 'subir')
+  const puedeEliminarSnap = can(user, 'padron', 'eliminar_snap')
 
   const [file, setFile] = useState<File | null>(null)
   const [fechaAsignada, setFechaAsignada] = useState(hoy())
@@ -207,7 +205,7 @@ export function PadronPage() {
                         ↓ Excel
                       </button>
                     )}
-                    {esAdmin && (s.estado === EstadoSnapshot.ERROR || s.estado === EstadoSnapshot.RECHAZADO) && (
+                    {puedeEliminarSnap && (s.estado === EstadoSnapshot.ERROR || s.estado === EstadoSnapshot.RECHAZADO) && (
                       <button
                         className="btn-danger ml-2"
                         disabled={deleteSnapshot.isPending}

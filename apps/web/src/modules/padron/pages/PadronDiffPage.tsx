@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff } from '../hooks/usePadron'
 import { apiClient } from '@/shared/lib/api-client'
 
@@ -89,9 +90,7 @@ export function PadronDiffPage() {
   const conflictos = conflictosData?.conflictos ?? []
   const hayConflictos = conflictos.length > 0
 
-  // rolSlug (estable) en vez de comparar contra rol/nombre (editable por el admin
-  // desde /configuracion/permisos) — esto es solo gating visual.
-  const puedeDecidir = user?.rolSlug === 'admin' || user?.rolSlug === 'editor'
+  const puedeDecidir = can(user, 'padron', 'aprobar_padron')
 
   function cambiarTab(nuevoTab: TipoDiff) {
     setTab(nuevoTab)
