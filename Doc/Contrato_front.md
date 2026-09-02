@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 8)
+> Última actualización: 2026-09 (Post-Sprint 11 parcial — flujo concursal CPH con autorizaciones)
 > Estado: VIGENTE
 
 ---

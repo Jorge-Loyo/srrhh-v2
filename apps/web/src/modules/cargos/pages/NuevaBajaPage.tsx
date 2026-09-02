@@ -7,9 +7,7 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
-  CEETPS_CODIGOS, CEETPS_ESCALAFON,
-  evaluarCph,
-  formatDateMask, dmyToIso, isoToDmy,
+  dmyToIso, isoToDmy,
 } from '../lib/bajasHelpers'
 import { jsPDF } from 'jspdf'
 
@@ -124,7 +122,9 @@ function ModalBuscarCargo({ onSeleccionar, onCerrar }: { onSeleccionar: (c: Carg
                     <td className="px-4 py-3 text-gray-600">
                       {c.personaOcupante
                         ? <span>{c.personaOcupante.apellidoNombre}<span className="text-gray-400 ml-1 text-xs">{c.personaOcupante.cuil}</span><span className="text-gray-300 ml-1 text-xs font-mono">{c.personaOcupante.idSialRol?.split('-')[0]}</span></span>
-                        : <span className="text-gray-300">—</span>}
+                        : c.estado === 'validacion_vacante'
+                          ? <span className="text-gray-500 italic text-xs">Ver historial al seleccionar</span>
+                          : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       <span className={
@@ -200,6 +200,7 @@ export function NuevaBajaPage() {
     if (bajaExistente.docRespaldatoria) setDocRespaldatoria(bajaExistente.docRespaldatoria)
     if (bajaExistente.fechaPaseParalelo) setFechaPaseParalelo(isoToDmy(bajaExistente.fechaPaseParalelo))
     if (bajaExistente.motivo) setMotivo(bajaExistente.motivo)
+    if ((bajaExistente as any).cargaHoraria) setCargaHoraria(String((bajaExistente as any).cargaHoraria))
     if (bajaExistente.observaciones) setObservaciones(bajaExistente.observaciones)
     if (bajaExistente.fechaBaja) {
       const d = new Date(bajaExistente.fechaBaja)
@@ -212,9 +213,10 @@ export function NuevaBajaPage() {
         .then((res) => {
           const det = res.data.data
           setCargo(det)
-          if (det.ocupacionActual?.persona) {
-            setNombreApellido(det.ocupacionActual.persona.apellidoNombre)
-            setCuil(det.ocupacionActual.persona.cuil)
+          const personaRef = det.ocupacionActual?.persona ?? det.historial?.[0]?.persona ?? null
+          if (personaRef) {
+            setNombreApellido(personaRef.apellidoNombre)
+            setCuil(personaRef.cuil)
           }
           if (det.codigoRegistro?.codigo) setCodigoRegistro(det.codigoRegistro.codigo)
           setUnificador(det.unificadorPuesto ?? '')
@@ -230,10 +232,6 @@ export function NuevaBajaPage() {
   }, [bajaExistente])
 
   const codigoNum = Number(codigoRegistro)
-  const esCeetps  = CEETPS_CODIGOS.includes(codigoNum)
-
-  const previewEsCph = evaluarCph(true, puesto, codigoNum)
-
   // ── Cascade: origen cambia ──
   const handleOrigenChange = (v: string) => {
     setOrigen(v)
@@ -251,9 +249,13 @@ export function NuevaBajaPage() {
       const res = await apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${c.id}`)
       const det = res.data.data
       setCargo(det)
-      if (det.ocupacionActual?.persona) {
-        setNombreApellido(det.ocupacionActual.persona.apellidoNombre)
-        setCuil(det.ocupacionActual.persona.cuil)
+      // Si hay ocupación activa, usar esa persona. Si el cargo está en
+      // validacion_vacante la ocupación ya está cerrada — usar la última
+      // del historial para pre-poblar nombre/CUIL en el formulario.
+      const personaRef = det.ocupacionActual?.persona ?? det.historial?.[0]?.persona ?? null
+      if (personaRef) {
+        setNombreApellido(personaRef.apellidoNombre)
+        setCuil(personaRef.cuil)
       }
       if (det.codigoRegistro?.codigo) setCodigoRegistro(det.codigoRegistro.codigo)
       setUnificador(det.unificadorPuesto ?? '')
@@ -276,7 +278,7 @@ export function NuevaBajaPage() {
       const body: Record<string, unknown> = {
         cargoId:      cargo!.id,
         hospitalId:   cargo!.hospitalId,
-        personaId:    cargo!.ocupacionActual?.personaId ?? undefined,
+        personaId:    cargo!.ocupacionActual?.personaId ?? cargo!.historial?.[0]?.personaId ?? undefined,
         fechaBaja:    dmyToIso(fechaBaja) ?? fechaBaja,
         motivo,
         tipoBaja:     motivo,
@@ -285,6 +287,7 @@ export function NuevaBajaPage() {
         partida:      partida || undefined,
         docRespaldatoria: docRespaldatoria || undefined,
         fechaPaseParalelo: fechaPaseParalelo ? dmyToIso(fechaPaseParalelo) ?? undefined : undefined,
+        cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
         observaciones: observaciones || undefined,
         generaConcurso: conConcurso,
         ...(conConcurso && { tipoConcurso: 'cph' as TipoConcurso }),
@@ -303,7 +306,7 @@ export function NuevaBajaPage() {
       const body: Record<string, unknown> = {
         cargoId:           cargo!.id,
         hospitalId:        cargo!.hospitalId,
-        personaId:         cargo!.ocupacionActual?.personaId ?? undefined,
+        personaId:         cargo!.ocupacionActual?.personaId ?? cargo!.historial?.[0]?.personaId ?? undefined,
         fechaBaja:         dmyToIso(fechaBaja) ?? fechaBaja,
         motivo:            motivo || undefined,
         tipoBaja:          motivo || undefined,
@@ -312,6 +315,7 @@ export function NuevaBajaPage() {
         partida:           partida || undefined,
         docRespaldatoria:  docRespaldatoria || undefined,
         fechaPaseParalelo: fechaPaseParalelo ? dmyToIso(fechaPaseParalelo) ?? undefined : undefined,
+        cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
         observaciones:     observaciones || undefined,
         generaConcurso:    false,
         estado:            'resolucion_a_la_firma',
@@ -537,9 +541,15 @@ export function NuevaBajaPage() {
                       <span className="font-mono text-sm font-bold text-gray-800">{cargo.codigo}</span>
                       <span className="text-gray-400 mx-2">·</span>
                       <span className="text-sm text-gray-600">{cargo.hospital?.sigla} — {cargo.literalPuesto}{cargo.especialidad ? ` · ${cargo.especialidad}` : ''}</span>
-                      {cargo.ocupacionActual?.persona && (
-                        <p className="text-xs text-gray-400 mt-1">Ocupado por: <span className="font-medium text-gray-600">{cargo.ocupacionActual.persona.apellidoNombre}</span> · {cargo.ocupacionActual.persona.cuil}</p>
-                      )}
+                      {(() => {
+                        const p = cargo.ocupacionActual?.persona ?? cargo.historial?.[0]?.persona
+                        return p ? (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {cargo.estado === 'validacion_vacante' && <span className="badge-warning text-[10px] mr-1">En validación</span>}
+                            Último ocupante: <span className="font-medium text-gray-600">{p.apellidoNombre}</span> · {p.cuil}
+                          </p>
+                        ) : null
+                      })()}
                     </div>
                     <button onClick={() => setModalAbierto(true)} className="text-xs text-secondary hover:underline shrink-0">Cambiar</button>
                   </div>
@@ -626,18 +636,6 @@ export function NuevaBajaPage() {
                   </div>
                 </div>
               </Section>
-
-              {/* Preview regla CPH/CEETPS — solo informativo, sin checkbox */}
-              {(esCeetps || previewEsCph) && (
-                <Section title="Concurso">
-                  <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs border ${esCeetps ? 'bg-teal-50 border-teal-200 text-teal-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                    <span className="mt-0.5">ℹ️</span>
-                    {esCeetps
-                      ? `Código ${codigoNum} (${CEETPS_ESCALAFON[codigoNum]}): si genera concurso, se creará seguimiento CEETPS automáticamente.`
-                      : 'Este puesto cumple la regla CPH — en el paso siguiente podrás indicar si genera concurso.'}
-                  </div>
-                </Section>
-              )}
 
               {/* Observaciones */}
               <div>

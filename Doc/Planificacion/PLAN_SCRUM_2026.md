@@ -30,7 +30,7 @@
 | Sprint 9 — Matriz de permisos + Landing/menú/guards          | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
 | Post-Sprint 9 — Normalización escalafones + deploy + Neon    | ✅ Completo — 2026-09-03                                                                                                               | ver detalle abajo                     |
 | Sprint 10 — Notificaciones persistidas                       | ✅ Completo — 2026-09-04                                                                                                               | S10-1 a S10-5 (✅)                    |
-| Sprint 11 — Flujo concursal CPH con autorizaciones           | 📋 Planificado                                                                                                                         | S11-1 a S11-7                         |
+| Sprint 11 — Flujo concursal CPH con autorizaciones           | 🟡 En curso (parcial)                                                                                                                    | S11-1 a S11-4 ✅, S11-5 a S11-7 pendientes |
 | Sprint 12 — Panel de autorizaciones + jerarquía de roles     | 📋 Planificado                                                                                                                         | S12-1 a S12-9                         |
 | Sprint 13 — Asignación de tareas entre roles                 | 📋 Planificado                                                                                                                         | S13-1 a S13-7                         |
 
@@ -1689,6 +1689,52 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 - Alcance: hasta Inscripción/Examen/OM; el resto del wizard queda como en Sprint 4
 
 ---
+
+---
+
+### SPRINT 11 — Flujo concursal CPH con autorizaciones 🟡 En curso
+
+**Fecha inicio:** 2026-09 | **Autor:** Jorge + Claude
+**Objetivo:** Implementar el flujo de autorización en el wizard CPH: cambios sensibles (sigla/código de registro) requieren aprobación de SGRASV antes de avanzar.
+
+#### Implementado en esta sesión
+
+**BD:**
+- `concursos_cph.pendiente_autorizacion BOOLEAN DEFAULT false` — migr. `20260906000000_cph_pendiente_autorizacion`
+- `bajas.carga_horaria INTEGER` — migr. `20260905000000_baja_carga_horaria`
+
+**API (`concursos-cph`):**
+- `patchConcursoCphService`: detecta cambios en `sigla`/`codigoRegistroId`, activa `pendienteAutorizacion = true` y crea notificación `autorizacion_pendiente` al rol `director`
+- `aprobarAutorizacionCphService` (nuevo): limpia el flag, crea notificación `autorizacion_resuelta` al rol `concursales_cph`
+- `POST /api/v1/concursos-cph/:id/autorizar` — permiso `concursos-cph.autorizar` (rol `sgrasv`)
+- Schema PATCH extendido con `sigla`, `codigoRegistroId`, `pendienteAutorizacion`
+
+**API (`bajas`):**
+- `cargaHoraria` persistido en `createBajaService` y `updateBajaService`
+- Schema Zod: `cargaHoraria: z.coerce.number().int().min(1).max(99).optional()`
+
+**Frontend (`ConcursoCphWizard`):**
+- `pendienteAutorizacion` se lee de la API (no estado local)
+- Botón unificado “Guardar y continuar →” — avanza automáticamente al guardar sin cambios sensibles
+- Botón deshabilitado mientras hay autorización pendiente
+- Panel derecho: banner “⏳ Autorización pendiente — Esperando aprobación de SGRASV” + punto pulsante en sub-estado actual
+- Banner en cuerpo de etapa: indica qué rol debe actuar en cada etapa pendiente
+- Modal de resolución visible solo para `rolSlug === 'sgrasv'`
+- Eliminados botones “Siguiente →” y “Marcar completa ✓” (redundantes)
+- Eliminado bloque informativo CPH/CEETPS del formulario de baja (`NuevaBajaPage`)
+
+**Frontend (`NuevaBajaPage`):**
+- `cargaHoraria` incluido en body de `crearBaja`, `guardarBorrador` y restaurado en modo edición
+
+| # | Tarea | Estado |
+|---|---|---|
+| S11-1 | BD: `pendiente_autorizacion` en `concursos_cph` | ✅ |
+| S11-2 | API: detectar cambios sensibles en PATCH, notificar director | ✅ |
+| S11-3 | API: `POST /:id/autorizar` para SGRASV | ✅ |
+| S11-4 | Frontend: wizard bloquea avance, muestra estado de autorización | ✅ |
+| S11-5 | Persistir `cargaHoraria` en bajas (BD + API + frontend) | ✅ |
+| S11-6 | Panel de autorizaciones pendientes para rol director | 📋 Pendiente |
+| S11-7 | Historial de autorizaciones por concurso | 📋 Pendiente |
 
 ---
 

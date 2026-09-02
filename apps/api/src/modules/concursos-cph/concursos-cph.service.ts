@@ -3,11 +3,13 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
   concurso: { include: { cargo: { include: { hospital: true, codigoRegistro: true } }, persona: true, baja: true } },
   hospital: true,
   personaDesignada: true,
+  codigoRegistroSolicitado: true,
 } satisfies Prisma.ConcursoCphInclude
 
 // Extrae los campos que usa calcConcursoCph() de una fila completa —
@@ -44,7 +46,7 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
 export async function listConcursosCphService(query: ConcursosCphQuery) {
-  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, search } = query
+  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, pendienteAutorizacion, search } = query
   const offset = (page - 1) * limit
 
   // subEstado3 depende de la fecha de hoy (ver concursosCph.calc.ts) — el
@@ -66,6 +68,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(suspendido !== undefined && { suspendido }),
+    ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(subEstado3Ids && { id: { in: subEstado3Ids } }),
     ...(search && {
       OR: [
@@ -125,20 +128,39 @@ const CAMPOS_FECHA = new Set<keyof PatchConcursoCphBody>([
 
 // ─── S4-3: actualizar campos por fase — estado/subEstado se recalculan ──────
 export async function patchConcursoCphService(id: string, body: PatchConcursoCphBody) {
-  const existing = await prisma.concursoCph.findUnique({ where: { id } })
+  const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+
+  // Detectar cambio de sigla o código de registro (campos que requieren autorización)
+  const cargo = (existing.concurso as unknown as { cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } } })?.cargo
+  const siglaActual = cargo?.hospital?.sigla ?? ''
+  const crIdActual  = cargo?.codigoRegistro?.id ?? ''
+  const cambiaSigla = body.sigla !== undefined && body.sigla !== siglaActual
+  const cambiaCr    = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
+  const requiereAutorizacion = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
 
   const patch: Prisma.ConcursoCphUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCphBody, unknown][]) {
     if (value === undefined) continue
+    if (key === 'sigla' || key === 'codigoRegistroId') continue // se manejan aparte
     const isFecha = CAMPOS_FECHA.has(key)
     ;(patch as Record<string, unknown>)[key] = isFecha && typeof value === 'string' ? new Date(value) : value
+  }
+
+  if (requiereAutorizacion) {
+    patch.pendienteAutorizacion = true
+    patch.siglaSolicitada = body.sigla ?? null
+    if (body.codigoRegistroId !== undefined) {
+      patch.codigoRegistroSolicitado = body.codigoRegistroId
+        ? { connect: { id: body.codigoRegistroId } }
+        : { disconnect: true }
+    }
   }
 
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
   const calc = calcConcursoCph(merged)
 
-  return prisma.concursoCph.update({
+  const updated = await prisma.concursoCph.update({
     where: { id },
     data: {
       ...patch,
@@ -148,6 +170,94 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     },
     include,
   })
+
+  // Notificar al director si hay cambios que requieren autorización
+  if (requiereAutorizacion) {
+    const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    const cambios: string[] = []
+    if (cambiaSigla) cambios.push(`Sigla: ${siglaActual} → ${body.sigla}`)
+    if (cambiaCr)    cambios.push(`Código de registro modificado`)
+    await crearNotificacion({
+      tipo: 'autorizacion_pendiente',
+      rolSlug: 'director',
+      titulo: `Modificación pendiente de autorización — ${cargoCodigo}`,
+      mensaje: `Se solicitó modificar datos del concurso ${cargoCodigo}: ${cambios.join(', ')}. Requiere autorización del Director.`,
+      origenTipo: 'concurso_cph',
+      origenId: id,
+      origenKey: `autorizacion_pendiente:cph:${id}`,
+    })
+  }
+
+  return updated
+}
+
+// ─── Aprobar autorización (flujo dos pasos: director → sgrasv) ──────────────
+export async function aprobarAutorizacionCphService(id: string, rolSlug: string, aprobado: boolean, observaciones?: string) {
+  const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
+  if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+  if (!existing.pendienteAutorizacion) throw AppError.conflict('Este concurso no tiene una autorización pendiente')
+
+  const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+
+  // Paso 1: director aprueba → notifica a sgrasv para segunda firma
+  if (rolSlug === 'director') {
+    if (!aprobado) {
+      // Director rechaza → limpia todo y notifica a concursales_cph
+      await prisma.concursoCph.update({
+        where: { id },
+        data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
+        include,
+      })
+      await crearNotificacion({
+        tipo: 'autorizacion_resuelta',
+        rolSlug: 'concursales_cph',
+        titulo: `Autorización rechazada — ${cargoCodigo}`,
+        mensaje: `La modificación del concurso ${cargoCodigo} fue rechazada por el Director.${observaciones ? ` Observación: ${observaciones}` : ''}`,
+        origenTipo: 'concurso_cph',
+        origenId: id,
+        origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
+      })
+      return prisma.concursoCph.findUnique({ where: { id }, include })
+    }
+    // Director aprueba → marca aprobadoDirector y notifica a sgrasv
+    const updated = await prisma.concursoCph.update({
+      where: { id },
+      data: { aprobadoDirector: true, ...(observaciones !== undefined && { observaciones }) },
+      include,
+    })
+    await crearNotificacion({
+      tipo: 'autorizacion_pendiente',
+      rolSlug: 'sgrasv',
+      titulo: `Autorización aprobada por Director — ${cargoCodigo}`,
+      mensaje: `El Director aprobó la modificación del concurso ${cargoCodigo}. Requiere segunda firma de SGRASV.`,
+      origenTipo: 'concurso_cph',
+      origenId: id,
+      origenKey: `autorizacion_sgrasv:cph:${id}`,
+    })
+    return updated
+  }
+
+  // Paso 2: sgrasv resuelve definitivamente
+  if (rolSlug === 'sgrasv') {
+    if (!existing.aprobadoDirector) throw AppError.conflict('El Director aún no aprobó esta solicitud')
+    const updated = await prisma.concursoCph.update({
+      where: { id },
+      data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
+      include,
+    })
+    await crearNotificacion({
+      tipo: 'autorizacion_resuelta',
+      rolSlug: 'concursales_cph',
+      titulo: `Autorización ${aprobado ? 'aprobada' : 'rechazada'} — ${cargoCodigo}`,
+      mensaje: `La modificación del concurso ${cargoCodigo} fue ${aprobado ? 'aprobada' : 'rechazada'} por SGRASV.${observaciones ? ` Observación: ${observaciones}` : ''}`,
+      origenTipo: 'concurso_cph',
+      origenId: id,
+      origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
+    })
+    return updated
+  }
+
+  throw AppError.forbidden('No tenés permiso para resolver esta autorización')
 }
 
 // ─── S4-5: suspender / reanudar ──────────────────────────────────────────────
