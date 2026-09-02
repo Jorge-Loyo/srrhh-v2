@@ -109,6 +109,6 @@ El desarrollo local usa Docker Compose con:
 - **Postgres 16** en `localhost:5432` (contenedor `srrhh_postgres`)
 - **API** en `localhost:3000` (contenedor `srrhh_api`)
 - **Dotaneitor** en `localhost:5001` (contenedor `srrhh_dotaneitor`)
-- **Frontend** en `localhost:5173` (Vite dev server, fuera de Docker)
+- **Frontend** en `localhost:5180` (Vite dev server, fuera de Docker, puerto 5173 ocupado por TorneoApp)
 
 Variables de entorno locales en `apps/api/.env` — nunca commitear credenciales reales.
