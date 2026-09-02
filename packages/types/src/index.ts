@@ -347,6 +347,10 @@ export interface Baja {
   tipoBaja: string | null
   motivo: string | null
   tipificadorOrigen: string | null
+  eeBaja: string | null
+  partidaPresupuestaria: string | null
+  docRespaldatoria: string | null
+  fechaPaseParalelo: string | null
   generaConcurso: boolean
   estado: EstadoBaja
   observaciones: string | null

@@ -53,7 +53,7 @@ export async function getBajaService(id: string) {
 }
 
 // ─── PATCH /:id — actualizar borrador ──────────────────────────────────────
-export async function updateBajaService(id: string, body: CreateBajaBody) {
+export async function updateBajaService(id: string, body: CreateBajaBody, usuarioId: string) {
   const baja = await prisma.baja.findUnique({ where: { id } })
   if (!baja) throw AppError.notFound('Baja no encontrada')
   if (baja.estado !== 'resolucion_a_la_firma') throw AppError.conflict('Solo se pueden editar bajas en estado resolucion_a_la_firma')
@@ -66,6 +66,10 @@ export async function updateBajaService(id: string, body: CreateBajaBody) {
         tipoBaja: body.tipoBaja ?? baja.tipoBaja,
         motivo: body.motivo ?? baja.motivo,
         tipificadorOrigen: body.tipificadorOrigen ?? baja.tipificadorOrigen,
+        eeBaja: body.eeBaja ?? baja.eeBaja,
+        partidaPresupuestaria: body.partida ?? baja.partidaPresupuestaria,
+        docRespaldatoria: body.docRespaldatoria ?? baja.docRespaldatoria,
+        fechaPaseParalelo: body.fechaPaseParalelo ? new Date(body.fechaPaseParalelo) : baja.fechaPaseParalelo,
         generaConcurso: body.generaConcurso,
         observaciones: body.observaciones ?? baja.observaciones,
         ...(body.estado && body.estado !== 'resolucion_a_la_firma' && { estado: body.estado as never }),
@@ -101,7 +105,7 @@ export async function updateBajaService(id: string, body: CreateBajaBody) {
             fechaBaja: body.fechaBaja,
             eeBaja: body.eeBaja,
           },
-          '',
+          usuarioId,
           id
         )
       }
@@ -201,6 +205,10 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
         tipoBaja: body.tipoBaja ?? null,
         motivo: body.motivo ?? null,
         tipificadorOrigen: body.tipificadorOrigen ?? null,
+        eeBaja: body.eeBaja ?? null,
+        partidaPresupuestaria: body.partida ?? null,
+        docRespaldatoria: body.docRespaldatoria ?? null,
+        fechaPaseParalelo: body.fechaPaseParalelo ? new Date(body.fechaPaseParalelo) : null,
         generaConcurso: body.generaConcurso,
         observaciones: body.observaciones ?? null,
         registradoPorId: usuarioId,

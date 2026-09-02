@@ -512,7 +512,11 @@ model Baja {
   // — campo libre importante para trazabilidad, ver análisis CSV.
   tipificadorOrigen String?   @map("tipificador_origen") @db.VarChar(200)
   // Si genera concurso, se crea automáticamente en S5-5
-  generaConcurso   Boolean    @default(true) @map("genera_concurso")
+  eeBaja                String?  @map("ee_baja") @db.VarChar(500)
+  partidaPresupuestaria String?  @map("partida_presupuestaria") @db.VarChar(100)
+  docRespaldatoria      String?  @map("doc_respaldatoria") @db.VarChar(500)
+  fechaPaseParalelo     DateTime? @map("fecha_pase_paralelo") @db.Date
+  generaConcurso        Boolean  @default(true) @map("genera_concurso")
   estado           EstadoBaja @default(pendiente)
   observaciones    String?    @db.Text
   registradoPorId  String?    @map("registrado_por") @db.Uuid

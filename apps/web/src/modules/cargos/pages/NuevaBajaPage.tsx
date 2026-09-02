@@ -9,8 +9,9 @@ import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS, CEETPS_ESCALAFON,
   evaluarCph,
-  formatDateMask, dmyToIso,
+  formatDateMask, dmyToIso, isoToDmy,
 } from '../lib/bajasHelpers'
+import { jsPDF } from 'jspdf'
 
 const ESCALAFONES_CONCURSABLES = ['Médicos', 'CEETPS', 'Carrera de Enfermería', 'Carrera de Técnicos de la Salud']
 
@@ -176,6 +177,7 @@ export function NuevaBajaPage() {
   const [expedienteConcurso, setExpedienteConcurso] = useState('')
   const [fechaCaratulacion, setFechaCaratulacion] = useState('')
   const [observaciones, setObservaciones]       = useState('')
+  const [guardadoOk, setGuardadoOk] = useState(false)
   const [guardando, setGuardando]               = useState(false)
   const [error, setError]                       = useState('')
   const [camposVacios, setCamposVacios]         = useState<string[]>([])  
@@ -193,6 +195,10 @@ export function NuevaBajaPage() {
   useEffect(() => {
     if (!bajaExistente) return
     if (bajaExistente.tipificadorOrigen) setOrigen(bajaExistente.tipificadorOrigen)
+    if (bajaExistente.eeBaja) setExBaja(bajaExistente.eeBaja)
+    if (bajaExistente.partidaPresupuestaria) setPartida(bajaExistente.partidaPresupuestaria)
+    if (bajaExistente.docRespaldatoria) setDocRespaldatoria(bajaExistente.docRespaldatoria)
+    if (bajaExistente.fechaPaseParalelo) setFechaPaseParalelo(isoToDmy(bajaExistente.fechaPaseParalelo))
     if (bajaExistente.motivo) setMotivo(bajaExistente.motivo)
     if (bajaExistente.observaciones) setObservaciones(bajaExistente.observaciones)
     if (bajaExistente.fechaBaja) {
@@ -276,6 +282,9 @@ export function NuevaBajaPage() {
         tipoBaja:     motivo,
         tipificadorOrigen: origen,
         eeBaja:       exBaja || undefined,
+        partida:      partida || undefined,
+        docRespaldatoria: docRespaldatoria || undefined,
+        fechaPaseParalelo: fechaPaseParalelo ? dmyToIso(fechaPaseParalelo) ?? undefined : undefined,
         observaciones: observaciones || undefined,
         generaConcurso: conConcurso,
         ...(conConcurso && { tipoConcurso: 'cph' as TipoConcurso }),
@@ -300,6 +309,9 @@ export function NuevaBajaPage() {
         tipoBaja:          motivo || undefined,
         tipificadorOrigen: origen || undefined,
         eeBaja:            exBaja || undefined,
+        partida:           partida || undefined,
+        docRespaldatoria:  docRespaldatoria || undefined,
+        fechaPaseParalelo: fechaPaseParalelo ? dmyToIso(fechaPaseParalelo) ?? undefined : undefined,
         observaciones:     observaciones || undefined,
         generaConcurso:    false,
         estado:            'resolucion_a_la_firma',
@@ -315,10 +327,14 @@ export function NuevaBajaPage() {
 
   async function handleGuardarBorrador() {
     if (!cargo) return
-    setGuardando(true); setError('')
+    setGuardando(true); setError(''); setGuardadoOk(false)
     try {
-      await guardarBorrador.mutateAsync()
-      navigate('/cargos/alta-por-baja')
+      const baja = await guardarBorrador.mutateAsync()
+      setGuardadoOk(true)
+      setTimeout(() => setGuardadoOk(false), 3000)
+      if (!modoEdicion) {
+        navigate(`/cargos/baja/${baja.id}/editar`)
+      }
     } catch { setError('No se pudo guardar el borrador.') }
     finally { setGuardando(false) }
   }
@@ -353,6 +369,87 @@ export function NuevaBajaPage() {
     if (!puesto)   vacios.push('Puesto')
     if (vacios.length > 0) { setCamposVacios(vacios); return }
     setPaso(2)
+  }
+
+  function generarPDF() {
+    const doc = new jsPDF()
+    const margen = 20
+    let y = 20
+
+    const line = (label: string, value: string) => {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(label + ':', margen, y)
+      doc.setFont('helvetica', 'normal')
+      doc.text(value || '—', margen + 52, y)
+      y += 7
+    }
+
+    doc.setFillColor(30, 41, 59)
+    doc.rect(0, 0, 210, 18, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('GCBA — Dirección General de Administración y Desarrollo de RRHH', margen, 12)
+    doc.setTextColor(0, 0, 0)
+
+    y = 28
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.text('Formulario de Baja de Cargo', margen, y)
+    y += 4
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margen, y, 190, y)
+    y += 8
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.text('CARGO', margen, y); y += 6
+    doc.line(margen, y, 190, y); y += 5
+    line('Código', cargo?.codigo ?? '')
+    line('Hospital', `${cargo?.hospital?.sigla ?? ''} — ${cargo?.hospital?.nombre ?? ''}`)
+    line('Puesto', puesto)
+    line('Escalafón', escalafon)
+    line('POU/POF', pouPof)
+    if (especialidad) line('Especialidad', especialidad)
+    y += 3
+
+    doc.setFont('helvetica', 'bold')
+    doc.text('AGENTE', margen, y); y += 6
+    doc.line(margen, y, 190, y); y += 5
+    line('Apellido y Nombre', nombreApellido)
+    line('CUIL', cuil)
+    line('Código de Registro', codigoRegistro)
+    y += 3
+
+    doc.setFont('helvetica', 'bold')
+    doc.text('DATOS DE LA BAJA', margen, y); y += 6
+    doc.line(margen, y, 190, y); y += 5
+    line('Origen', origen)
+    line('EX Baja', exBaja)
+    line('Partida Presupuestaria', partida)
+    line('Fecha de Baja', fechaBaja)
+    line('Motivo', motivo)
+    if (docRespaldatoria) line('Doc. Respaldatoria', docRespaldatoria)
+    if (fechaPaseParalelo) line('Fecha Pase Paralelo / GT', fechaPaseParalelo)
+    if (cargaHoraria) line('Carga Horaria', `${cargaHoraria} hs`)
+    if (observaciones) line('Observaciones', observaciones)
+    y += 3
+
+    doc.setFont('helvetica', 'bold')
+    doc.text('CONCURSO', margen, y); y += 6
+    doc.line(margen, y, 190, y); y += 5
+    line('Genera Concurso', generaConcurso ? 'Sí — CPH' : 'No')
+    y += 10
+
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margen, y, 190, y); y += 6
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(8)
+    doc.setTextColor(120, 120, 120)
+    doc.text(`Generado el ${new Date().toLocaleDateString('es-AR')} — Sistema SRRHH GCBA`, margen, y)
+
+    doc.save(`baja_${cargo?.codigo ?? 'cargo'}_${fechaBaja.replace(/\//g, '-')}.pdf`)
   }
 
   return (
@@ -460,17 +557,15 @@ export function NuevaBajaPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="label">CUIL</label>
-                    <input type="text" value={cuil} onChange={(e) => setCuil(e.target.value.replace(/\D/g,'').slice(0,11))} placeholder="20123456789" className="input h-10 w-full" disabled={['Ampliación','Cobertura Dotación','POU a POF'].includes(origen)} />
+                    <input type="text" value={cuil} readOnly={!!cargo} onChange={(e) => setCuil(e.target.value.replace(/\D/g,'').slice(0,11))} placeholder="20123456789" className={`input h-10 w-full ${cargo ? 'bg-gray-50 text-gray-600' : ''}`} />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="label">Apellido y Nombre</label>
-                    <input type="text" value={nombreApellido} onChange={(e) => setNombreApellido(e.target.value)} className="input h-10 w-full" disabled={['Ampliación','Cobertura Dotación','POU a POF'].includes(origen)} />
+                    <input type="text" value={nombreApellido} readOnly={!!cargo} onChange={(e) => setNombreApellido(e.target.value)} className={`input h-10 w-full ${cargo ? 'bg-gray-50 text-gray-600' : ''}`} />
                   </div>
                   <div>
                     <label className="label">Código de registro</label>
-                    <select value={codigoRegistro} onChange={(e) => setCodigoRegistro(e.target.value)} className="input h-10 w-full">
-                      {(origen === 'Cobertura Dotación' ? ['37','23'] : ['37','23','87','85','83']).map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <input type="text" value={codigoRegistro} readOnly className="input h-10 w-full bg-gray-50 text-gray-600" />
                   </div>
                   <div>
                     <label className="label">Escalafón</label>
@@ -500,7 +595,7 @@ export function NuevaBajaPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="label">Fecha de baja <span className="text-danger">*</span></label>
-                    <input type="text" value={fechaBaja} onChange={(e) => setFechaBaja(formatDateMask(e.target.value))} placeholder="DD/MM/AAAA" maxLength={10} className="input h-10 w-full font-mono" />
+                    <input type="date" value={fechaBaja ? dmyToIso(fechaBaja) ?? fechaBaja : ''} onChange={(e) => setFechaBaja(e.target.value ? isoToDmy(e.target.value) : '')} className="input h-10 w-full" />
                   </div>
                   <div>
                     <label className="label">Carga horaria</label>
@@ -527,7 +622,7 @@ export function NuevaBajaPage() {
                   )}
                   <div>
                     <label className="label">Fecha pase paralelo / GT</label>
-                    <input type="text" value={fechaPaseParalelo} onChange={(e) => setFechaPaseParalelo(formatDateMask(e.target.value))} placeholder="DD/MM/AAAA" maxLength={10} className="input h-10 w-full font-mono" />
+                    <input type="date" value={fechaPaseParalelo ? dmyToIso(fechaPaseParalelo) ?? fechaPaseParalelo : ''} onChange={(e) => setFechaPaseParalelo(e.target.value ? isoToDmy(e.target.value) : '')} className="input h-10 w-full" />
                   </div>
                 </div>
               </Section>
@@ -556,7 +651,9 @@ export function NuevaBajaPage() {
                 {!cargo && 'Asigna un cargo'}{!fechaBaja && ' · Completa la fecha'}{!motivo && ' · Selecciona un motivo'}
               </p>
               <div className="flex items-center gap-2">
+                {guardadoOk && <p className="text-sm text-green-600 font-medium">✓ Guardado</p>}
                 {error && <p className="text-sm text-danger">{error}</p>}
+                {modoEdicion && <button className="btn-outline" onClick={() => navigate('/cargos/alta-por-baja')}>← Volver a la lista</button>}
                 <button className="btn-outline" disabled={!cargo || guardando} onClick={handleGuardarBorrador}>
                   {guardando ? 'Guardando...' : 'Guardar borrador'}
                 </button>
@@ -612,6 +709,7 @@ export function NuevaBajaPage() {
               <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
                 <Row label="Origen"          value={origen} />
                 <Row label="EX Baja"         value={exBaja || '—'} />
+                <Row label="Partida presup."  value={partida || '—'} />
                 <Row label="Agente"          value={nombreApellido || '—'} />
                 <Row label="CUIL"            value={cuil || '—'} />
                 <Row label="Código registro" value={codigoRegistro} />
@@ -638,6 +736,7 @@ export function NuevaBajaPage() {
               <button className="btn-outline" disabled={guardando} onClick={() => setPaso(2)}>← Volver</button>
               <div className="flex items-center gap-3">
                 {error && <p className="text-sm text-danger">{error}</p>}
+                <button className="btn-outline" onClick={generarPDF}>⬇ Descargar PDF</button>
                 <button className="btn-primary" disabled={guardando} onClick={() => confirmar(generaConcurso === true)}>
                   {guardando ? 'Registrando...' : generaConcurso ? 'Registrar baja e iniciar concurso →' : 'Registrar baja'}
                 </button>

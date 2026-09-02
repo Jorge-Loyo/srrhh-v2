@@ -48,7 +48,8 @@ export async function bajasRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const body = createBajaSchema.parse(request.body)
-      const data = await updateBajaService(id, body)
+      const user = request.user as { id: string }
+      const data = await updateBajaService(id, body, user.id)
       return reply.send({ data })
     }
   )
