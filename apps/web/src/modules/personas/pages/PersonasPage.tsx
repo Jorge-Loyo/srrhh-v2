@@ -135,7 +135,7 @@ export function PersonasPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 h-full">
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Personas</h1>
@@ -258,7 +258,7 @@ export function PersonasPage() {
         })()}
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm flex-1 overflow-y-auto min-h-0">
         {isLoading && <p className="p-6 text-sm text-gray-400">Cargando personas...</p>}
         {isError && <p className="p-6 text-sm text-danger">No se pudo cargar el listado de personas.</p>}
 
@@ -271,16 +271,16 @@ export function PersonasPage() {
             )}
 
             {data.data.length > 0 && (
-              <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
-                <thead className="bg-navy text-white text-left">
+              <table className={`w-full text-sm border-separate border-spacing-0 ${isFetching ? 'opacity-60' : ''}`}>
+                <thead className="bg-navy text-white text-left sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
+                    <th className="px-4 py-3 font-semibold rounded-tl-lg">Apellido y Nombre</th>
                     <th className="px-4 py-3 font-semibold">CUIL</th>
                     <th className="px-4 py-3 font-semibold">Documento</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
-                    <th className="px-4 py-3 font-semibold" />
+                    <th className="px-4 py-3 font-semibold rounded-tr-lg" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">

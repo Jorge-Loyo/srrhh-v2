@@ -8,6 +8,8 @@ export const diffQuerySchema = z.object({
   page:  z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   tipo:  z.enum(['nuevo', 'modificado', 'eliminado']).optional(),
+  q:          z.string().trim().optional(),
+  soloPendientes: z.coerce.boolean().optional(),
 })
 
 export type UploadPadronBody = z.infer<typeof uploadPadronSchema>

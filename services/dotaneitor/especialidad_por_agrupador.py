@@ -124,7 +124,7 @@ def cargar_tablas_ref(engine):
         ))
         MAPEO_ESPECIALIDAD_POR_PUESTO = {r[0]: r[1] for r in rows}
     _MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER = {
-        k.upper(): v for k, v in MAPEO_ESPECIALIDAD_POR_PUESTO.items()
+        sin_tilde_mayuscula(k): v for k, v in MAPEO_ESPECIALIDAD_POR_PUESTO.items()
     }
 
 
@@ -168,14 +168,15 @@ def sin_tilde(texto):
     return texto.translate(TABLA_SIN_TILDE)
 
 
-# Version en mayuscula de MAPEO_ESPECIALIDAD_POR_PUESTO para matchear sin importar el casing de
-# LITERAL PUESTO en el momento en que corra esto: Dotaneitor.py fuerza esa columna a MAYUSCULA
-# COMPLETA como parte de procesar() (ver COLUMNAS_MAYUSCULA_FORZADA), pero este modulo tambien se
-# puede correr standalone sobre un Excel que no haya pasado por ahi (ej. Dotacion_procesada.xlsx
-# de una corrida vieja, en Formato Titulo). Las keys de arriba se mantienen en Formato Titulo
-# nada mas por legibilidad para quien revise el diccionario a mano.
+# Version normalizada (sin tilde + mayuscula) de MAPEO_ESPECIALIDAD_POR_PUESTO para matchear
+# sin importar el casing ni las tildes de LITERAL PUESTO en el momento en que corra esto:
+# Dotaneitor.py fuerza esa columna a MAYUSCULA COMPLETA como parte de procesar() (ver
+# COLUMNAS_MAYUSCULA_FORZADA), pero los valores del SIAL vienen sin tildes (ej. "Psicologo de
+# Planta" en vez de "Psicólogo de Planta") — sin normalizar las keys, el match falla en silencio.
+# Las keys del diccionario de arriba se mantienen en Formato Titulo CON tildes nada mas por
+# legibilidad para quien revise el diccionario a mano.
 _MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER = {
-    clave.upper(): valor for clave, valor in MAPEO_ESPECIALIDAD_POR_PUESTO.items()
+    sin_tilde_mayuscula(clave): valor for clave, valor in MAPEO_ESPECIALIDAD_POR_PUESTO.items()
 }
 
 
@@ -234,7 +235,7 @@ def completar_especialidad_por_agrupador(df):
     # Se matchea en mayuscula (ver _MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER) para no depender del
     # casing con el que venga LITERAL PUESTO en `df`.
     pendiente = idx_objetivo.difference(resueltos_cuil.index)
-    puesto_upper = df.loc[pendiente, 'LITERAL PUESTO'].astype(str).str.strip().str.upper()
+    puesto_upper = df.loc[pendiente, 'LITERAL PUESTO'].astype(str).str.strip().apply(sin_tilde_mayuscula)
     por_puesto = puesto_upper.map(_MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER)
     resueltos_puesto = por_puesto.dropna().apply(sin_tilde_mayuscula)
     df.loc[resueltos_puesto.index, 'ESPECIALIDAD'] = resueltos_puesto

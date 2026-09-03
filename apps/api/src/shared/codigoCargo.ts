@@ -1,5 +1,4 @@
 import { Prisma, PrismaClient } from '@prisma/client'
-import { prisma } from './prisma.js'
 
 // ─── Prefijos según REGLAS_NEGOCIO.MD sección 3 ──────────────────────────────
 //
@@ -45,7 +44,8 @@ export function prefijoDeCargo(params: {
   const agr  = normStr(params.agrupador)
 
   // ── CPH (Médicos) ──────────────────────────────────────────────────────────
-  if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc === 'CPH') {
+  if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc === 'CPH'
+    || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')) {
     if (agr.includes('DIRECTOR') && agr.includes('SUB')) return 'CPH-SD'
     if (agr.includes('DIRECTOR'))                         return 'CPH-D'
     if (unif.includes('JEFATURA') || agr.includes('JEFE')) {
@@ -58,7 +58,8 @@ export function prefijoDeCargo(params: {
   }
 
   // ── Enfermería ─────────────────────────────────────────────────────────────
-  if (esc.includes('ENFERMER') || esc.includes('ENF')) return 'ENF'
+  if (esc.includes('ENFERMER') || esc.includes('ENF')
+    || esc.includes('CARRERA ENFERMERÍA') || esc.includes('CARRERA ENFERMERIA')) return 'ENF'
 
   // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
   if (esc.includes('CEETPS') || esc.includes('TEC')) {
@@ -96,6 +97,7 @@ export function prefijoDeCargo(params: {
   if (esc.includes('TRANSITORIO') || esc.includes('CUERPO')) return 'CT'
   if (esc.includes('GABINETE'))                              return 'PG'
   if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return 'MO'
+  if (esc.includes('SALUD') && esc.includes('GUARDIA'))      return 'SG'
 
   return 'CARGO'
 }

@@ -249,7 +249,9 @@ export interface PadronDiff {
   campo: string | null
   valorAnterior: string | null
   valorNuevo: string | null
-  aprobado: boolean
+  // null = pendiente, true = aprobado, false = rechazado
+  aprobado: boolean | null
+  codigoPreview?: string | null  // solo en tab nuevos: código que se generaría
   createdAt: string
 }
 
@@ -558,7 +560,8 @@ export interface DiffSummary {
   nuevos: number
   modificados: number
   eliminados: number
-  camposModificados: number
+  nuevosPendientes: number   // aprobado IS NULL
+  nuevosRechazados: number   // aprobado = false
 }
 
 export interface SnapshotDiffResponse {

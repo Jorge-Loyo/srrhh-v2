@@ -58,7 +58,7 @@ async function triangular(cuils: string[]): Promise<{
         cargo: {
           select: {
             codigo: true,
-            especialidad: true,
+            especialidadLegacy: true,
             hospital: { select: { sigla: true } },
             codigoRegistro: { select: { codigo: true } },
           },
@@ -74,7 +74,7 @@ async function triangular(cuils: string[]): Promise<{
       datosCargo.set(cuil, {
         codRegistro:  o.cargo.codigo ?? null,
         hospital:     o.cargo.hospital?.sigla ?? null,
-        especialidad: o.cargo.especialidad ?? null,
+        especialidad: o.cargo.especialidadLegacy ?? null,
         codReg:       o.cargo.codigoRegistro?.codigo ?? null,
       })
     }
@@ -430,7 +430,7 @@ export async function listBajasSialRegistrosService(query: {
     }[]>(
       `SELECT r.car_codigo, r.cargo, r.cuil, r.ayn, r.lit_cod_reg, r.lit_puesto,
               r.mot_baja, r.cargo_desde, r.cargo_hasta, r.doc_resp_baja, r.desc_rep,
-              c.especialidad, h.sigla, c.codigo as codigo_cargo
+              c.especialidad_legacy as especialidad, h.sigla, c.codigo as codigo_cargo
        FROM baja_sial_registros r
        LEFT JOIN cargos c     ON c.id_sial = r.cargo
        LEFT JOIN hospitales h ON h.id = c.hospital_id
