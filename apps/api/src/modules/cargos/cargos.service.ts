@@ -44,8 +44,9 @@ export async function listCargosService(query: CargosQuery) {
       WHERE unaccent(id_sial) ILIKE unaccent(${like})
          OR unaccent(codigo) ILIKE unaccent(${like})
          OR unaccent(literal_puesto) ILIKE unaccent(${like})
-         OR unaccent(especialidad) ILIKE unaccent(${like})
+         OR unaccent(coalesce(especialidad_legacy, '')) ILIKE unaccent(${like})
          OR unaccent(agrupador) ILIKE unaccent(${like})
+         OR unaccent(coalesce(unificador_puesto, '')) ILIKE unaccent(${like})
     `)
     searchIds = rows.map((r) => r.id)
   }
