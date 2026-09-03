@@ -59,7 +59,7 @@ export function CargosPage() {
     ...(escalafonId && { escalafonId }),
     ...(puesto && { puesto }),
     ...(estado && { estado }),
-    ...(ocupado && { ocupado: ocupado === 'true' }),
+    ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
@@ -235,7 +235,7 @@ export function CargosPage() {
           }
           if (puesto) chips.push({ label: puesto, key: 'puesto' })
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
-          if (ocupado) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
+          if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (chips.length === 0) return null
           return (
             <div className="flex flex-wrap gap-2">
