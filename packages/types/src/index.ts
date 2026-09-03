@@ -163,6 +163,7 @@ export interface Cargo {
   // S8A-1: días en estado actual (calculado por el backend)
   estadoDesde: string | null
   ocupado: boolean
+  ocupadoDesde: string | null
   // S7-1/S7-2: campos de trazabilidad de alta manual
   expediente: string | null
   fechaDesde: string | null
