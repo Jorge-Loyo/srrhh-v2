@@ -159,7 +159,7 @@ async function calcularDiff(sessionId: string) {
     select: {
       idSial: true,
       literalPuesto: true,
-      especialidad: true,
+      especialidadLegacy: true,
       agrupador: true,
       unificadorPuesto: true,
       codigoRepa: true,
@@ -282,7 +282,7 @@ async function calcularDiff(sessionId: string) {
         id_sial:        idSial,
         cuil_y_rol:     ocup?.cuilYRol ?? null,
         literal_puesto: actual.literalPuesto,
-        especialidad:   actual.especialidad,
+        especialidad:   actual.especialidadLegacy,
         agrupador:      actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
         estado:         ocup?.estadoPersona ?? null,
@@ -294,7 +294,7 @@ async function calcularDiff(sessionId: string) {
   // Modificados
   const CAMPO_CARGO_MAP: Record<string, keyof typeof cargosActuales[number]> = {
     literal_puesto:        'literalPuesto',
-    especialidad:          'especialidad',
+    especialidad:          'especialidadLegacy',
     agrupador:             'agrupador',
     unificador_de_puestos: 'unificadorPuesto',
     codigo_repa:           'codigoRepa',
@@ -578,7 +578,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 
 const CAMPOS_CARGO: Record<string, string> = {
   literal_puesto:        'literalPuesto',
-  especialidad:          'especialidad',
+  especialidad:          'especialidadLegacy',
   agrupador:             'agrupador',
   unificador_de_puestos: 'unificadorPuesto',
   codigo_repa:           'codigoRepa',
@@ -1053,7 +1053,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       escalafon: ocupacion.cargo.escalafon.nombre,
       hospitalSigla: ocupacion.cargo.hospital.sigla,
       literalPuesto: ocupacion.cargo.literalPuesto,
-      especialidad: ocupacion.cargo.especialidad,
+      especialidad: ocupacion.cargo.especialidadLegacy,
       agrupador: ocupacion.cargo.agrupador,
       unificadorPuesto: ocupacion.cargo.unificadorPuesto,
       estadoPersona: ocupacion.estadoPersona,
