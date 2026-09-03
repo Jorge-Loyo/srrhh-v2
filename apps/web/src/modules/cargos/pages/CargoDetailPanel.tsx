@@ -51,9 +51,11 @@ export function CargoDetailPanel() {
               <span className={`px-3 py-1 rounded-full text-xs font-semibold ${vigente ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
                 {vigente ? 'Vigente' : 'No vigente'}
               </span>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
-                {ocupado ? 'Ocupado' : 'Vacante'}
-              </span>
+              {vigente && (
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
+                  {ocupado ? 'Ocupado' : 'Vacante'}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -108,7 +110,11 @@ export function CargoDetailPanel() {
           <h2 className="text-white font-semibold text-sm uppercase tracking-wide">Persona actual</h2>
         </div>
 
-        {!persona ? (
+        {!vigente ? (
+          <div className="p-6 text-center">
+            <p className="text-gray-400 text-sm">Cargo no vigente.</p>
+          </div>
+        ) : !persona ? (
           <div className="p-6 text-center">
             <p className="text-gray-400 text-sm">Cargo vacante — sin persona asignada.</p>
           </div>
