@@ -6,6 +6,31 @@
 
 ---
 
+## ⚡ Comandos rápidos (uso diario)
+
+### Backend — desde WSL
+
+```bash
+wsl
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
+```
+
+### Frontend — desde Windows (Git Bash, PowerShell o CMD)
+
+```bash
+cd C:\Desarrollo\SRH\SRRHH-Legacy
+pnpm --filter web dev --port 5180
+```
+
+### Abrir la app
+
+```
+http://localhost:5180
+```
+
+---
+
 ## 1. Arquitectura de lo que se levanta
 
 ```
@@ -44,6 +69,7 @@ Windows, dos vistas del mismo disco).
 **En WSL — siempre con el override para CORS y puerto correcto:**
 
 ```bash
+wsl
 cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
 docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
 ```
