@@ -5,11 +5,12 @@ import { prisma } from '../../shared/prisma.js'
 export async function puestosCargoRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
-  // GET /puestos-cargo?escalafonId=&modalidad=pof|pou|ambos
+  // GET /puestos-cargo?escalafonId=&modalidad=pof|pou|ambos&tipoPuesto=ejecucion|conduccion
   app.get('/', async (request, reply) => {
-    const { escalafonId, modalidad } = request.query as {
+    const { escalafonId, modalidad, tipoPuesto } = request.query as {
       escalafonId?: string
       modalidad?: 'pof' | 'pou' | 'ambos'
+      tipoPuesto?: 'ejecucion' | 'conduccion'
     }
 
     // Para pof/pou: primero intentar puestos propios de esa modalidad.
@@ -34,11 +35,16 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
         ...(escalafonId && { escalafonId }),
         ...modalidadFilter,
       },
-      select: { id: true, nombre: true, modalidad: true },
+      select: { id: true, nombre: true, modalidad: true, tipoPuesto: true },
       orderBy: { nombre: 'asc' },
     })
 
-    return reply.send({ data: rows.map((r) => r.nombre) })
+    const filtrados = tipoPuesto === 'ejecucion'
+      ? rows.filter((r) => r.modalidad !== 'ambos')
+      : tipoPuesto === 'conduccion'
+        ? rows.filter((r) => r.modalidad === 'ambos')
+        : rows
+    return reply.send({ data: filtrados.map((r) => r.nombre) })
   })
 
   // GET /puestos-cargo/especialidades?escalafonId=&nombre=

@@ -1,7 +1,7 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 (Post-Sprint 8)
+> Última actualización: 2026-09 (Post-Sprint 8 + Auditoría de catálogos + Normalización bajas SIAL)
 > Estado: VIGENTE
 
 ---
@@ -93,30 +93,55 @@ Efectores del sistema de salud. Tabla de referencia.
 ---
 
 ### `escalafones`
-Catálogo de escalafones. Tabla de referencia.
+Catálogo de escalafones. Tabla de referencia. Solo los registros con `activo = true` son visibles en la UI.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id` | UUID PK | — |
-| `codigo` | VARCHAR(20) UNIQUE | CPH, ENF, TEC, EG, AS, etc. |
-| `nombre` | VARCHAR(100) | Nombre completo |
-| `activo` | BOOLEAN | — |
+| `codigo` | VARCHAR(20) UNIQUE | Código corto interno |
+| `nombre` | VARCHAR(100) | Nombre canónico — fuente de verdad para mostrar en UI |
+| `activo` | BOOLEAN | Solo `true` = visible en selectores y endpoints |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
 
-**Nota:** `GET /api/v1/escalafones` filtra solo los que tienen al menos un cargo real (`cargos: { some: {} }`), excluyendo los del seed sin datos reales.
+**Escalafones activos con datos reales (post-auditoría 2026-09):**
+
+| Nombre | Cargos reales | Puestos catálogo | Códigos SIAL |
+|---|---|---|---|
+| Nueva Carrera Profesional Hospitalaria | ~24.572 | 50 | 22, 37 |
+| CEETPS | ~14.638 | 28 | 85 |
+| Nueva Carrera Administrativa | ~6.341 | 156 | 83, 19 |
+| Salud - Guardias | ~4.274 | 23 | 23 |
+| Residentes | ~3.378 | 8 | 24 |
+| Docentes Históricos | ~443 | 8 | 7, 07 |
+| Carrera Gerencial | ~178 | 3 | 60 |
+| Plantas Transitorias Acta 06/2014 | ~70 | 1 | 65 |
+| Autoridades Superiores | ~42 | 4 | 25 |
+| Gabinete | ~34 | 1 | 17 |
+| Régimen Modular Extraordinario PG | ~10 | 1 | 17B |
+| Plantas Transitorias Modulo Operativo | ~3 | 1 | 16T |
+| Cuerpo Especialistas Profesionales | ~62 | 1 | 70 |
+| Nueva Carrera Enfermería | — | 2 | 87 |
+
+**Regla:** `GET /api/v1/escalafones` filtra `activo = true`. Los registros inactivos son históricos (duplicados de migraciones anteriores) y no se eliminan por integridad referencial.
+
+**Invariante:** `escalafon_id` en `cargos` y `codigos_registro` siempre apunta al mismo escalafón activo. Si difieren, hay un error de datos.
 
 ---
 
 ### `codigos_registro`
-Catálogo de códigos de registro SIAL.
+Mapeo de código numérico SIAL → escalafón canónico. Fuente de verdad para resolver a qué escalafón pertenece un cargo del padrón.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id` | UUID PK | — |
-| `codigo` | VARCHAR(10) UNIQUE | Código numérico (ej: 37, 23, 24) |
-| `literal` | VARCHAR(100) | Descripción del código |
-| `escalafon_id` | UUID FK → escalafones | — |
+| `codigo` | VARCHAR(10) UNIQUE | Código numérico SIAL (ej: 37, 23, 83) |
+| `literal` | VARCHAR(100) | Nombre del escalafón tal como viene en `LIT_COD_REG` del Excel |
+| `escalafon_id` | UUID FK → escalafones | Escalafón canónico activo al que pertenece este código |
+
+**Regla de uso:** cuando el padrón trae un `CODIGO DE REGISTRO`, se busca en esta tabla para obtener el `escalafon_id` correcto. El campo `ESCALAFON` del Excel es informativo y puede traer nombres históricos (`Médicos`, `CPH`, etc.) — nunca se usa como fuente de verdad para resolver el escalafón.
+
+**Nota:** un escalafón puede tener más de un código (ej: CPH tiene 22 y 37). El normalizador Python (`normalizador_cargos.py`) unifica los nombres históricos en `ESCALAFON` y `LIT_COD_REG` antes de que lleguen a la BD.
 
 ---
 
@@ -327,6 +352,7 @@ Seguimiento de concursos de la Carrera Profesional Hospitalaria (Ley 6.035).
 | `fecha_dispo_desierta` | DATE | — |
 | `persona_designada_id` | UUID FK → personas | — |
 | `suspendido` | BOOLEAN | — |
+| `pendiente_autorizacion` | BOOLEAN default false | Modificación de sigla/código pendiente de aprobación por SGRASV |
 | `observaciones` | TEXT | — |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
@@ -386,6 +412,7 @@ Registro de bajas de cargo que originan vacantes.
 | `partida_presupuestaria` | VARCHAR(100) nullable | Partida presupuestaria del cargo |
 | `doc_respaldatoria` | VARCHAR(500) nullable | Documento respaldatorio |
 | `fecha_pase_paralelo` | DATE nullable | Fecha de pase paralelo / GT |
+| `carga_horaria` | INTEGER nullable | Carga horaria del cargo (hs) |
 | `genera_concurso` | BOOLEAN default true | Si true, crea el seguimiento concursal automáticamente |
 | `estado` | ENUM | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
 | `observaciones` | TEXT | — |
@@ -410,7 +437,7 @@ Registro de bajas de cargo que originan vacantes.
 | `username` | VARCHAR(64) UNIQUE | — |
 | `email` | VARCHAR(255) UNIQUE | — |
 | `password_hash` | VARCHAR(255) | bcrypt |
-| `rol` | ENUM | `admin` \| `editor` \| `viewer` \| `director` \| `concursales_cph` \| `concursales_ceetps` |
+| `role_id` | UUID FK → roles | Rol asignado (RBAC dinámico) |
 | `hospital_id` | UUID FK → hospitales | Solo para rol `director` |
 | `activo` | BOOLEAN | — |
 | `created_at` | TIMESTAMPTZ | — |
@@ -432,14 +459,15 @@ Registro de bajas de cargo que originan vacantes.
 
 ---
 
-### `roles` y `permisos` (Sprint 8 — RBAC dinámico)
+### `roles`, `permisos` y `role_permisos` (Sprint 8 — RBAC dinámico)
 
-Permiten gestionar los permisos de cada rol desde la UI sin tocar código.
+Permiten gestionar los permisos de cada rol desde la UI sin tocar código. `usuarios.role_id` FK → `roles.id`.
 
-| Tabla | Descripción |
-|---|---|
-| `roles` | Roles del sistema con sus permisos asignados |
-| `permisos` | Catálogo de permisos disponibles (ej: `bajas:write`, `concursos:read`) |
+| Tabla | Filas | Descripción |
+|---|---|---|
+| `roles` | 7 | Roles del sistema (`admin`, `viewer`, `director`, `sgrasv`, etc.) |
+| `permisos` | 26 | Catálogo de permisos disponibles (ej: `bajas:write`, `concursos:read`) |
+| `role_permisos` | 108 | Tabla pivote rol ↔ permiso |
 
 ---
 
@@ -447,11 +475,42 @@ Permiten gestionar los permisos de cada rol desde la UI sin tocar código.
 
 Archivo semanal de bajas del Ministerio de Salud (SIAL). Mismo patrón que `padron_snapshots` — upload, diff, aprobación.
 
+**Columnas clave de `baja_sial_registros`:**
+
+| Columna | Fuente Excel | Normalización |
+|---|---|---|
+| `escalafon` | `ESCALAFON` | Variantes históricas CPH unificadas al nombre canónico |
+| `lit_cod_reg` | `LIT_COD_REG` | Símbolo `\|` eliminado + variantes CPH unificadas |
+| `lit_puesto` | `LIT_PUESTO` | Sin normalización adicional (viene del Excel crudo) |
+| `especialidad` | — | No viene del Excel; se obtiene de `cargos.especialidad` vía triangulación por CUIL |
+| `cod_reg` | — | No viene del Excel; se obtiene de `codigos_registro` vía triangulación por CUIL |
+
+**Triangulación:** al procesar cada snapshot, se cruzan los CUILs del archivo contra `personas` y `ocupaciones` activas (`hasta IS NULL`) para enriquecer cada diff con `existe_en_personas`, `tiene_ocup_activa`, `especialidad`, `hospital` y `cod_reg` reales de la BD.
+
+**Normalización de escalafón y lit_cod_reg:** aplicada en `bajas-sial.service.ts` con el mismo set de variantes CPH que `normalizador_cargos.py`. Garantiza consistencia entre el flujo de bajas SIAL y el flujo del padrón semanal.
+
+**Aprobación:** al aprobar un snapshot solo se actualiza el estado a `aprobado`. No impacta `ocupaciones`, `personas` ni `cargos` — las bajas reales se procesan por el padrón semanal (que detecta los `eliminados` y cierra ocupaciones).
+
 ---
 
 ### `puestos_cargo` y `especialidades_puesto`
 
-Catálogo de puestos por escalafón y modalidad (POF/POU) con sus especialidades. Alimenta los selectores del formulario de baja.
+Catálogo normalizado de puestos por escalafón. Alimenta los selectores de formularios (bajas, altas, wizard CPH).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | — |
+| `escalafon_id` | UUID FK → escalafones | Escalafón al que pertenece el puesto |
+| `nombre` | VARCHAR(200) | Nombre del puesto |
+| `modalidad` | ENUM | `pof` \| `pou` \| `ambos` |
+| `tipo_puesto` | ENUM | `ejecucion` \| `conduccion` |
+| `activo` | BOOLEAN | — |
+
+**Regla `tipo_puesto`:** `conduccion` = puestos con `modalidad = 'ambos'` (Directores, Jefes). `ejecucion` = puestos con `modalidad = 'pof'` o `'pou'`.
+
+**Endpoint:** `GET /api/v1/puestos-cargo?escalafonId=&modalidad=&tipoPuesto=` — filtra en memoria por `modalidad != 'ambos'` para `tipoPuesto=ejecucion` (no por enum Prisma, que falla en runtime).
+
+`especialidades_puesto` contiene las especialidades válidas para cada puesto (295 registros). Alimenta el selector de especialidad en cascada.
 
 ---
 
@@ -472,8 +531,8 @@ Catálogo de puestos por escalafón y modalidad (POF/POU) con sus especialidades
 
 ## Catálogos de apoyo
 
-### `especialidades` y `puestos`
-Catálogos paralelos sin FK desde `Cargo` — `Cargo` mantiene campos de texto libre. Permiten normalización progresiva sin romper el modelo existente. `Especialidad.prioritaria` marca las especialidades principales.
+### `especialidades`
+Catálogo de especialidades médicas. Vacío actualmente — pendiente de poblar (ver Dotaneitor_Analisis.md paso 15). `Cargo` mantiene `especialidad` como texto libre hasta que se complete la migración.
 
 ### Tablas `ref_*` (mapeos Dotaneitor)
 Se cargan una vez y se actualizan cuando cambian las reglas de negocio. Reemplazan los datos hardcodeados que tenía el Dotaneitor original.
@@ -532,6 +591,15 @@ Archivo Excel semanal
 
 ---
 
+## Tablas eliminadas (historial)
+
+| Tabla | Motivo de eliminación |
+|---|---|
+| `escalafon_codigos_registro` | Redundante con `codigos_registro`. Hacía lo mismo (código SIAL → escalafón) pero sin FK a `codigos_registro`. Eliminada en auditoría 2026-09. `padron.service.ts` migrado a usar `codigos_registro` directamente. |
+| `puestos` | Vacía, sin FKs, sin uso en código. Eliminada en auditoría 2026-09. El catálogo de puestos vive en `puestos_cargo`. |
+
+---
+
 ## Reglas que no se negocian
 
 1. **UUID como PK** en todas las tablas — no autoincremental.
@@ -542,3 +610,5 @@ Archivo Excel semanal
 6. **Migraciones versionadas** — todo cambio de esquema es una migración Prisma con nombre descriptivo.
 7. **`padron_historico` es append-only** — nunca se modifica ni se borra una fila de esa tabla.
 8. **Estado calculado server-side** — `estado`/`subEstado` de concursos se calculan en el backend, nunca se aceptan del cliente.
+9. **`codigos_registro` es la fuente de verdad para resolver escalafón** — nunca usar el campo `ESCALAFON` del Excel directamente. El normalizador Python unifica nombres históricos antes de que lleguen a la BD.
+10. **`escalafon_id` en `cargos` y `codigos_registro` deben coincidir** — si difieren, es un error de datos. El padrón usa `codigos_registro` para resolver el escalafón canónico.

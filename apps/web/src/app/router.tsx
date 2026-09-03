@@ -18,6 +18,7 @@ import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
 import { NuevaBajaPage } from '../modules/cargos/pages/NuevaBajaPage'
 import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
 import { ConcursoCphWizard } from '../modules/concursos-cph/pages/ConcursoCphWizard'
+import { AutorizacionesCphPage } from '../modules/concursos-cph/pages/AutorizacionesCphPage'
 import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
 import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
 import { KpisPage } from '../modules/kpis/pages/KpisPage'
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
           { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
           { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
+          { path: 'concursos/cph/autorizaciones', element: <AutorizacionesCphPage /> },
           { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
