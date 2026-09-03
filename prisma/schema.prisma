@@ -317,7 +317,8 @@ model PadronDiff {
   campo         String?  @db.VarChar(100)
   valorAnterior String?  @map("valor_anterior") @db.Text
   valorNuevo    String?  @map("valor_nuevo") @db.Text
-  aprobado      Boolean  @default(true)
+  // null = pendiente decisión, true = aprobado (se crea cargo+persona+ocupación), false = rechazado (se crea sin código)
+  aprobado      Boolean?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones

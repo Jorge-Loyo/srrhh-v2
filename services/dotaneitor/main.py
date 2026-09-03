@@ -256,7 +256,7 @@ def _cruzar_especialidades(automation: DotacionAutomationBD) -> list[str]:
             continue
         esp = consolidador.buscar_especialidad(limpiar_cuil(cuil), cod_reg)
         if esp:
-            valores[i] = esp
+            valores[i] = sin_tilde_mayuscula(esp)
             completados += 1
     df['ESPECIALIDAD'] = valores
 

@@ -29,10 +29,18 @@ COLUMNAS_NUCLEO_COMPLETITUD = [
 # Cargos_Salud ya normalizado, de un cruce contra ARCHIVOS PARA DOTACION.xlsx, o de un calculo
 # interno (JEFE ESCALAFON).
 COLUMNAS_MAYUSCULA_FORZADA = [
-    'LITERAL PUESTO', 'ESPECIALIDAD', 'AGRUPADOR', 'UNIVERSO TOTALIZADOR',
+    'ESPECIALIDAD', 'AGRUPADOR', 'UNIVERSO TOTALIZADOR',
     'TIPO DE HOSPITAL / SIGLA', 'MONOVALENCIA', 'UNIFICADOR DE PUESTOS',
-    'JEFE ESCALAFON', 'SITUACION DE REVISTA',
+    'JEFE ESCALAFON',
 ]
+
+
+# Columnas que deben conservar tildes y capitalización original (Formato Título):
+# no entran ni en COLUMNAS_MAYUSCULA_FORZADA ni en el paso genérico de sin_tilde.
+COLUMNAS_CON_TILDE = {
+    'LITERAL PUESTO', 'SITUACION DE REVISTA', 'ESTADO',
+    'AYN', 'DOMICILIO', 'LOCALIDAD', 'PROVINCIA',
+}
 
 
 class DotacionAutomation:
@@ -157,15 +165,21 @@ class DotacionAutomation:
             df['LIT_COD_REG_LIMPIO'] = df['LIT_COD_REG'].astype(str).str.replace('|', '').str.strip()
             df['CRUCE_UNIFICADOR'] = df['LIT_COD_REG_LIMPIO'] + ' - ' + df['LIT_PUESTO'].astype(str)
             
-            # Crear diccionario de búsqueda para UNIFICADOR
+            # Crear diccionario de búsqueda para UNIFICADOR (normalizado: sin tilde, mayúscula)
             unificador_map = {}
+            unificador_map_norm = {}
             for idx, row in self.unificador_df.iterrows():
                 cruce = str(row['Cruce'])
-                unificador_map[cruce] = row.get('UNIFICADOR DE PUESTO')
+                valor = row.get('UNIFICADOR DE PUESTO')
+                unificador_map[cruce] = valor
+                unificador_map_norm[sin_tilde_mayuscula(cruce)] = valor
             
-            df['UNIFICADOR DE PUESTOS'] = df['CRUCE_UNIFICADOR'].map(unificador_map)
+            cruce_norm = df['CRUCE_UNIFICADOR'].apply(
+                lambda v: sin_tilde_mayuscula(str(v)) if isinstance(v, str) else v
+            )
+            df['UNIFICADOR DE PUESTOS'] = cruce_norm.map(unificador_map_norm)
 
-            mask_sin_unificador = ~df['CRUCE_UNIFICADOR'].isin(unificador_map.keys())
+            mask_sin_unificador = ~cruce_norm.isin(unificador_map_norm.keys())
             unificador_no_encontrado = sorted(str(c) for c in df.loc[mask_sin_unificador, 'CRUCE_UNIFICADOR'].unique())
             detalle_sin_unificador = df.loc[mask_sin_unificador, ['CUIL Y ROL', 'AYN', 'CRUCE_UNIFICADOR']].rename(
                 columns={'CRUCE_UNIFICADOR': 'VALOR'}
@@ -176,12 +190,18 @@ class DotacionAutomation:
             # 7. Crear AGRUPADOR
             df['CRUCE_AGRUPADOR'] = df['ESCALAFON'].astype(str) + ' - ' + df['LIT_PUESTO'].astype(str)
             
-            # Crear diccionario de búsqueda para AGRUPADOR
+            # Crear diccionario de búsqueda para AGRUPADOR (normalizado: sin tilde, mayúscula)
             agrupador_map = {}
+            agrupador_map_norm = {}
             for idx, row in self.agrupador_df.iterrows():
                 cruce = str(row['CRUCE'])
-                agrupador_map[cruce] = row.get('AGRUPADOR')
+                valor = row.get('AGRUPADOR')
+                agrupador_map[cruce] = valor
+                agrupador_map_norm[sin_tilde_mayuscula(cruce)] = valor
             
+            cruce_agrup_norm = df['CRUCE_AGRUPADOR'].apply(
+                lambda v: sin_tilde_mayuscula(str(v)) if isinstance(v, str) else v
+            )
             # .astype('object') defensivo: si para este archivo ningún CRUCE_AGRUPADOR
             # matchea agrupador_map (o todos los matches son NaN), pandas infiere la
             # columna entera como float64 (todo NaN). El assignment de más abajo
@@ -189,9 +209,9 @@ class DotacionAutomation:
             # pandas moderno ya no permite el upcast implícito float64->object: tira
             # TypeError y tumba todo el pipeline. Forzar dtype object acá no cambia
             # ningún valor, solo garantiza que la columna pueda contener strings.
-            df['AGRUPADOR'] = df['CRUCE_AGRUPADOR'].map(agrupador_map).astype('object')
+            df['AGRUPADOR'] = cruce_agrup_norm.map(agrupador_map_norm).astype('object')
 
-            mask_sin_agrupador = ~df['CRUCE_AGRUPADOR'].isin(agrupador_map.keys())
+            mask_sin_agrupador = ~cruce_agrup_norm.isin(agrupador_map_norm.keys())
             agrupador_no_encontrado = sorted(str(c) for c in df.loc[mask_sin_agrupador, 'CRUCE_AGRUPADOR'].unique())
             detalle_sin_agrupador = df.loc[mask_sin_agrupador, ['CUIL Y ROL', 'AYN', 'CRUCE_AGRUPADOR']].rename(
                 columns={'CRUCE_AGRUPADOR': 'VALOR'}
@@ -419,7 +439,7 @@ class DotacionAutomation:
         comision = sit_rev_valido & sit_rev_norm.str.contains('comision', na=False)
 
         condiciones = [bloqueado, retencion, comision]
-        valores = ['Bloqueado', 'Retencion de Cargo', 'Comision']
+        valores = ['Bloqueado', 'Retención de Cargo', 'Comisión']
 
         return np.select(condiciones, valores, default='Activo')
     
@@ -437,7 +457,7 @@ class DotacionAutomation:
                 continue
             if col in COLUMNAS_MAYUSCULA_FORZADA:
                 df[col] = df[col].apply(lambda v: sin_tilde_mayuscula(v) if isinstance(v, str) else v)
-            else:
+            elif col not in COLUMNAS_CON_TILDE:
                 df[col] = df[col].apply(lambda v: sin_tilde(v) if isinstance(v, str) else v)
         return df
 

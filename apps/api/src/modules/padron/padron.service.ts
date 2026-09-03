@@ -419,7 +419,13 @@ async function runPipeline(
       // arriesga pasarse del límite de parámetros de Postgres.
       for (const lote of chunk(diffs, 2000)) {
         await tx.padronDiff.createMany({
-          data: lote.map((d) => ({ ...d, snapshotId })),
+          data: lote.map((d) => ({
+            ...d,
+            snapshotId,
+            // Los diffs "nuevo" requieren aprobación individual antes de
+            // crear el cargo — nacen con aprobado=null (pendiente decisión).
+            aprobado: d.tipo !== 'nuevo' ? true : null,
+          })),
         })
       }
       await tx.padronSnapshot.update({
@@ -534,6 +540,14 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   const where = {
     snapshotId: id,
     ...(query.tipo ? { tipo: query.tipo } : {}),
+    ...(query.q ? {
+      OR: [
+        { idSialRol: { contains: query.q, mode: 'insensitive' as const } },
+        { valorNuevo: { contains: query.q, mode: 'insensitive' as const } },
+        { valorAnterior: { contains: query.q, mode: 'insensitive' as const } },
+      ],
+    } : {}),
+    ...(query.soloPendientes ? { aprobado: { equals: null } } : {}),
   }
 
   const [total, diffs] = await Promise.all([
@@ -542,16 +556,55 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       where,
       skip: (query.page - 1) * query.limit,
       take: query.limit,
-      orderBy: [{ tipo: 'asc' }, { idSialRol: 'asc' }],
+      orderBy: [
+        // nulls first: pendientes (aprobado IS NULL) arriba, luego decididos
+        { aprobado: { sort: 'asc', nulls: 'first' } },
+        { idSialRol: 'asc' },
+      ],
     }),
   ])
 
-  const [nuevos, modificados, eliminados, camposModificados] = await Promise.all([
+  const [nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados] = await Promise.all([
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo' } }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'modificado' } }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado' } }),
-    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'modificado' } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
   ])
+
+  // Preview de código para diffs nuevos pendientes/rechazados — un MAX por
+  // prefijo distinto (~15 prefijos), no uno por diff.
+  const codigoPreviewMap = new Map<string, string>()
+  if (query.tipo === 'nuevo') {
+    const diffsDecidibles = diffs.filter((d) => d.aprobado === null || d.aprobado === false)
+    if (diffsDecidibles.length > 0) {
+      const prefijosPorDiff = new Map<string, string>()
+      for (const d of diffsDecidibles) {
+        try {
+          const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+          prefijosPorDiff.set(d.id, prefijoDeCargo({
+            escalafon: datos.escalafon ?? null,
+            unificadorPuesto: datos.unificador_de_puestos ?? null,
+            agrupador: datos.agrupador ?? null,
+          }))
+        } catch { /* ignorar */ }
+      }
+      const prefijosUnicos = [...new Set(prefijosPorDiff.values())]
+      const maxPorPrefijo = new Map<string, number>()
+      for (const prefijo of prefijosUnicos) {
+        maxPorPrefijo.set(prefijo, await maxSecuencialCargo(prefijo, prisma as never))
+      }
+      const contadorPorPrefijo = new Map<string, number>()
+      for (const d of diffsDecidibles) {
+        const prefijo = prefijosPorDiff.get(d.id)
+        if (!prefijo) continue
+        const base = maxPorPrefijo.get(prefijo) ?? 0
+        const usado = contadorPorPrefijo.get(prefijo) ?? 0
+        contadorPorPrefijo.set(prefijo, usado + 1)
+        codigoPreviewMap.set(d.id, `${prefijo}-${String(base + usado + 1).padStart(6, '0')}`)
+      }
+    }
+  }
 
   return {
     snapshot: {
@@ -561,9 +614,9 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
     },
-    summary: { nuevos, modificados, eliminados, camposModificados },
+    summary: { nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados },
     diffs: {
-      data: diffs,
+      data: diffs.map((d) => ({ ...d, codigoPreview: codigoPreviewMap.get(d.id) ?? null })),
       meta: {
         total,
         page: query.page,
@@ -616,6 +669,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
+  // Bloquear si hay diffs nuevos sin decisión (aprobado IS NULL)
+  const pendientes = await prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } })
+  if (pendientes > 0) throw AppError.conflict(`Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`)
+
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 
   // Hallazgo crítico (revisión Sprint 2, 2026-08-24): la versión anterior de
@@ -641,12 +698,14 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
 
     const nuevos: { idSialRol: string; datos: Record<string, string> }[] = []
+    const rechazados: { idSialRol: string; datos: Record<string, string> }[] = []
     const eliminados: string[] = []
     const modificados: { idSialRol: string; cambios: typeof diffs }[] = []
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
-      if (tipo === 'nuevo') nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      if (tipo === 'nuevo' && cambios[0]!.aprobado === true) nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && cambios[0]!.aprobado === false) rechazados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
       else if (tipo === 'eliminado') eliminados.push(idSialRol)
       else if (tipo === 'modificado') modificados.push({ idSialRol, cambios })
     }
@@ -654,11 +713,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const todosLosIdSialRol = [...porSialRol.keys()]
 
     // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
-    const siglasNecesarias = [...new Set(nuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
-    const cuilsNecesarios = [...new Set(nuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)))]
-    const idSialsNecesarios = [...new Set(nuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
-    const codigosRegNecesarios = [...new Set(nuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)))]
-    const escalafonesNecesarios = [...new Set(nuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean))]
+    const todosNuevos = [...nuevos, ...rechazados]
+    const siglasNecesarias = [...new Set(todosNuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
+    const cuilsNecesarios = [...new Set(todosNuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)))]
+    const idSialsNecesarios = [...new Set(todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
+    const codigosRegNecesarios = [...new Set(todosNuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)))]
+    const escalafonesNecesarios = [...new Set(todosNuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean))]
 
     const [hospitalesExistentes, codigosRegistroExistentesLookup, escalafonesExistentes, personasExistentes, cargosExistentes, ocupacionesExistentes] =
       await Promise.all([
@@ -785,7 +845,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         agrupamiento: string | null
       }
     >()
-    for (const { datos } of nuevos) {
+    for (const { datos } of todosNuevos) {
       const cuil = cuilDe(datos)
       if (cuil && !personaCache.has(cuil) && !personasACrear.has(cuil)) {
         personasACrear.set(cuil, {
@@ -917,7 +977,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       cargoHastaFecha: Date | null
       snapshotId: string
     }[] = []
-    for (const { idSialRol, datos } of nuevos) {
+    for (const { idSialRol, datos } of todosNuevos) {
       if (ocupacionExistenteMap.has(idSialRol)) continue
       const cuil = cuilDe(datos)
       const persona = cuil ? personaCache.get(cuil) : null
@@ -954,7 +1014,26 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     }
     for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
 
-    // ── 4. Eliminados: cerrar ocupaciones, marcar persona inactiva y cargo validacion_vacante
+    // ── 4. Resolver automáticamente cargos en validacion_vacante:
+    //   - Si el cargo aparece en el nuevo padrón (está en nuevosIds por idSial) → rechazar baja (vuelve a vigente)
+    //   - Si el cargo NO aparece → confirmar baja (pasa a no_vigente)
+    const idSialsNuevos = new Set(todosNuevos.map((n) => n.datos.id_sial).filter(Boolean))
+    const cargosEnValidacion = await tx.cargo.findMany({
+      where: { estado: 'validacion_vacante' },
+      select: { id: true, idSial: true },
+    }) as { id: string; idSial: string }[]
+
+    const aRechazarBaja = cargosEnValidacion.filter((c) => idSialsNuevos.has(c.idSial)).map((c) => c.id)
+    const aConfirmarBaja = cargosEnValidacion.filter((c) => !idSialsNuevos.has(c.idSial)).map((c) => c.id)
+
+    for (const lote of chunk(aRechazarBaja, 2000)) {
+      await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'vigente', estadoDesde: null } })
+    }
+    for (const lote of chunk(aConfirmarBaja, 2000)) {
+      await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'no_vigente' } })
+    }
+
+    // ── 5. Eliminados: cerrar ocupaciones, marcar persona inactiva y cargo validacion_vacante
     // S8A-2: el padrón NUNCA marca no_vigente directamente — pasa a
     // validacion_vacante para que el operador confirme o rechace la baja.
     const fechaPadron = snapshot.fechaAsignada
@@ -996,7 +1075,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     }
 
-    // ── 5. Modificados: sigue siendo por fila (cada una cambia campos
+    // ── 6. Modificados: sigue siendo por fila (cada una cambia campos
     //       distintos), pero sin el find extra — usa la precarga del paso 1 ─
     for (const { idSialRol, cambios } of modificados) {
       const updateCargo: Record<string, string> = {}
@@ -1035,7 +1114,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     }
 
-    // ── 6. Histórico: una sola lectura en bloque del estado final de todas
+    // ── 7. Histórico: una sola lectura en bloque del estado final de todas
     //       las ocupaciones tocadas, y un createMany en vez de un create por
     //       fila ────────────────────────────────────────────────────────────
     const ocupacionesFinales = (await tx.ocupacion.findMany({
@@ -1070,6 +1149,285 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
   }, TRANSACTION_OPTS)
 
   return { ok: true, snapshotId: id }
+}
+
+// ─── Aprobar todos los diffs nuevos pendientes en bloque ───────────────────
+
+export async function aprobarTodosDiffsPendientesService(snapshotId: string, usuarioId: string) {
+  const snapshot = await getSnapshotOrThrow(snapshotId)
+  if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
+
+  const pendientes = await prisma.padronDiff.findMany({
+    where: { snapshotId, tipo: 'nuevo', aprobado: null },
+  })
+  if (pendientes.length === 0) return { ok: true, aprobados: 0 }
+
+  // Procesar cada uno secuencialmente para no saturar el pool — reutiliza
+  // aprobarDiffNuevoService que ya maneja la lógica completa por diff.
+  // Con ~657 diffs tarda ~10-20s pero es seguro y correcto.
+  let aprobados = 0
+  for (const diff of pendientes) {
+    await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+    aprobados++
+  }
+
+  return { ok: true, aprobados }
+}
+
+// ─── Aprobar un diff nuevo individual ───────────────────────────────────────
+
+export async function aprobarDiffNuevoService(snapshotId: string, diffId: string, usuarioId: string) {
+  const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
+  if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
+  if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden aprobar diffs de tipo nuevo')
+  if (diff.aprobado === true) throw AppError.conflict('Este diff ya fue aprobado')
+
+  const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+
+  await prisma.$transaction(async (tx: PrismaTx) => {
+    // Resolver hospital y escalafón
+    const sigla = datos.siglas ?? ''
+    let hospital = await tx.hospital.findUnique({ where: { sigla } }) as HospitalRow | null
+    if (!hospital) {
+      hospital = await tx.hospital.create({
+        data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla || null },
+      }) as HospitalRow
+    }
+
+    let escalafon: EscalafonRow | null = null
+    if (datos.codigo_de_registro) {
+      const cr = await tx.codigoRegistro.findUnique({
+        where: { codigo: datos.codigo_de_registro },
+        include: { escalafon: true },
+      }) as { escalafon: EscalafonRow } | null
+      escalafon = cr?.escalafon ?? null
+    }
+    if (!escalafon && datos.escalafon) {
+      escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+    }
+    if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
+
+    // Resolver CodigoRegistro
+    let codigoRegistroId: string | null = null
+    if (datos.codigo_de_registro) {
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      codigoRegistroId = cr?.id ?? null
+    }
+
+    // Crear o recuperar persona
+    const cuil = cuilDe(datos)
+    let persona: PersonaRow | null = null
+    if (cuil) {
+      persona = await tx.persona.findUnique({ where: { cuil } }) as PersonaRow | null
+      if (!persona) {
+        persona = await tx.persona.create({
+          data: {
+            cuil,
+            apellidoNombre: datos.ayn ?? '',
+            numeroDoc: datos.numero_doc || null,
+            tipoDoc: datos.tipo_doc || null,
+            especialidadPrincipal: datos.especialidad || null,
+            sexo: datos.sexo || null,
+            fechaNacimiento: parseFechaDDMMYYYY(datos.fecha_nacimiento),
+            antiguedadDesde: parseFechaDDMMYYYY(datos.antiguedad),
+            telefono: datos.telefono || null,
+            mailPersonal: datos.mail_personal || null,
+            mailLaboral: datos.mail_laboral || null,
+            domicilio: datos.domicilio || null,
+            localidad: datos.localidad || null,
+            provincia: datos.provincia || null,
+          },
+        }) as PersonaRow
+      }
+    }
+
+    // Crear o recuperar cargo
+    let cargo: CargoRow | null = datos.id_sial
+      ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
+      : null
+
+    if (!cargo && datos.id_sial) {
+      const prefijo = prefijoDeCargo({
+        escalafon: escalafon.nombre ?? null,
+        unificadorPuesto: datos.unificador_de_puestos ?? null,
+        agrupador: datos.agrupador ?? null,
+      })
+      const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
+      const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`
+
+      cargo = await tx.cargo.create({
+        data: {
+          idSial: datos.id_sial,
+          codigo,
+          hospitalId: hospital.id,
+          escalafonId: escalafon.id,
+          codigoRegistroId,
+          literalPuesto: datos.literal_puesto ?? null,
+          especialidadLegacy: datos.especialidad ?? null,
+          agrupador: datos.agrupador ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+          regimen: datos.regimen || null,
+          codigoRepa: datos.codigo_repa || null,
+          descripcionRepa: datos.descripcion_repa || null,
+          agrupamiento: datos.agrupamiento || null,
+          createdById: usuarioId,
+        },
+      }) as CargoRow
+    }
+
+    // Crear ocupación si no existe
+    if (persona && cargo) {
+      const ocupExistente = await tx.ocupacion.findUnique({ where: { idSialRol: diff.idSialRol } })
+      if (!ocupExistente) {
+        await tx.ocupacion.create({
+          data: {
+            personaId: persona.id,
+            cargoId: cargo.id,
+            idSialRol: diff.idSialRol,
+            cuilYRol: datos.cuil_y_rol ?? null,
+            situacionRevista: datos.situacion_de_revista ?? null,
+            estadoPersona: datos.estado ?? null,
+            codigoJefaturas: datos.codigo_jefaturas || null,
+            jefeEscalafon: datos.jefe_escalafon || null,
+            comision: datos.comision || null,
+            repaComision: datos.repa_comision || null,
+            codSituacion: datos.cod_situacion || null,
+            cargoDesdeFecha: parseFechaDDMMYYYY(datos.cargo_desde),
+            cargoHastaFecha: parseFechaDDMMYYYY(datos.cargo_hasta),
+            snapshotId,
+          },
+        })
+      }
+    }
+
+    // Marcar diff como aprobado
+    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: true } })
+  })
+
+  return { ok: true, diffId }
+}
+
+// ─── Rechazar un diff nuevo individual (crea sin código de cargo) ────────────
+
+export async function rechazarDiffNuevoService(snapshotId: string, diffId: string) {
+  const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
+  if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
+  if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden rechazar diffs de tipo nuevo')
+  if (diff.aprobado === false) throw AppError.conflict('Este diff ya fue rechazado')
+
+  const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+
+  await prisma.$transaction(async (tx: PrismaTx) => {
+    // Resolver hospital
+    const sigla = datos.siglas ?? ''
+    let hospital = await tx.hospital.findUnique({ where: { sigla } }) as HospitalRow | null
+    if (!hospital) {
+      hospital = await tx.hospital.create({
+        data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla || null },
+      }) as HospitalRow
+    }
+
+    // Resolver escalafón
+    let escalafon: EscalafonRow | null = null
+    if (datos.codigo_de_registro) {
+      const cr = await tx.codigoRegistro.findUnique({
+        where: { codigo: datos.codigo_de_registro },
+        include: { escalafon: true },
+      }) as { escalafon: EscalafonRow } | null
+      escalafon = cr?.escalafon ?? null
+    }
+    if (!escalafon && datos.escalafon) {
+      escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+    }
+    if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
+
+    let codigoRegistroId: string | null = null
+    if (datos.codigo_de_registro) {
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      codigoRegistroId = cr?.id ?? null
+    }
+
+    // Crear o recuperar persona
+    const cuil = cuilDe(datos)
+    let persona: PersonaRow | null = null
+    if (cuil) {
+      persona = await tx.persona.findUnique({ where: { cuil } }) as PersonaRow | null
+      if (!persona) {
+        persona = await tx.persona.create({
+          data: {
+            cuil,
+            apellidoNombre: datos.ayn ?? '',
+            numeroDoc: datos.numero_doc || null,
+            tipoDoc: datos.tipo_doc || null,
+            especialidadPrincipal: datos.especialidad || null,
+            sexo: datos.sexo || null,
+            fechaNacimiento: parseFechaDDMMYYYY(datos.fecha_nacimiento),
+            antiguedadDesde: parseFechaDDMMYYYY(datos.antiguedad),
+            telefono: datos.telefono || null,
+            mailPersonal: datos.mail_personal || null,
+            mailLaboral: datos.mail_laboral || null,
+            domicilio: datos.domicilio || null,
+            localidad: datos.localidad || null,
+            provincia: datos.provincia || null,
+          },
+        }) as PersonaRow
+      }
+    }
+
+    // Crear cargo SIN código (rechazado = sin asignar)
+    let cargo: CargoRow | null = datos.id_sial
+      ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
+      : null
+
+    if (!cargo && datos.id_sial) {
+      cargo = await tx.cargo.create({
+        data: {
+          idSial: datos.id_sial,
+          codigo: null,  // sin código — aparece como "Sin asignar" en historial
+          hospitalId: hospital.id,
+          escalafonId: escalafon.id,
+          codigoRegistroId,
+          literalPuesto: datos.literal_puesto ?? null,
+          especialidadLegacy: datos.especialidad ?? null,
+          agrupador: datos.agrupador ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+          regimen: datos.regimen || null,
+          codigoRepa: datos.codigo_repa || null,
+          descripcionRepa: datos.descripcion_repa || null,
+          agrupamiento: datos.agrupamiento || null,
+        },
+      }) as CargoRow
+    }
+
+    // Crear ocupación si no existe
+    if (persona && cargo) {
+      const ocupExistente = await tx.ocupacion.findUnique({ where: { idSialRol: diff.idSialRol } })
+      if (!ocupExistente) {
+        await tx.ocupacion.create({
+          data: {
+            personaId: persona.id,
+            cargoId: cargo.id,
+            idSialRol: diff.idSialRol,
+            cuilYRol: datos.cuil_y_rol ?? null,
+            situacionRevista: datos.situacion_de_revista ?? null,
+            estadoPersona: datos.estado ?? null,
+            codigoJefaturas: datos.codigo_jefaturas || null,
+            jefeEscalafon: datos.jefe_escalafon || null,
+            comision: datos.comision || null,
+            repaComision: datos.repa_comision || null,
+            codSituacion: datos.cod_situacion || null,
+            cargoDesdeFecha: parseFechaDDMMYYYY(datos.cargo_desde),
+            cargoHastaFecha: parseFechaDDMMYYYY(datos.cargo_hasta),
+            snapshotId,
+          },
+        })
+      }
+    }
+
+    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: false } })
+  })
+
+  return { ok: true, diffId }
 }
 
 // ─── S8A-3: detectar conflictos validacion_vacante antes de aprobar ──────────

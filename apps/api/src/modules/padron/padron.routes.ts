@@ -15,6 +15,9 @@ import {
   exportarSnapshotService,
   cleanupSnapshotsProcesando,
   getConflictosValidacionService,
+  aprobarDiffNuevoService,
+  rechazarDiffNuevoService,
+  aprobarTodosDiffsPendientesService,
 } from './padron.service.js'
 
 export async function padronRoutes(app: FastifyInstance) {
@@ -98,6 +101,38 @@ export async function padronRoutes(app: FastifyInstance) {
     reply.header('Content-Disposition', `attachment; filename="dotacion_${snapshotId.slice(0, 8)}.xlsx"`)
     return reply.send(stream)
   })
+
+  // POST /snapshots/:id/diffs/aprobar-todos — aprobar todos los pendientes en bloque
+  app.post<{ Params: { id: string } }>(
+    '/snapshots/:id/diffs/aprobar-todos',
+    { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
+    async (request, reply) => {
+      const user = request.user as { id: string }
+      const result = await aprobarTodosDiffsPendientesService(request.params.id, user.id)
+      return reply.send({ data: result })
+    }
+  )
+
+  // POST /snapshots/:id/diffs/:diffId/aprobar — aprobar un cargo nuevo individual
+  app.post<{ Params: { id: string; diffId: string } }>(
+    '/snapshots/:id/diffs/:diffId/aprobar',
+    { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
+    async (request, reply) => {
+      const user = request.user as { id: string }
+      const result = await aprobarDiffNuevoService(request.params.id, request.params.diffId, user.id)
+      return reply.send({ data: result })
+    }
+  )
+
+  // POST /snapshots/:id/diffs/:diffId/rechazar — rechazar cargo nuevo (crea sin código)
+  app.post<{ Params: { id: string; diffId: string } }>(
+    '/snapshots/:id/diffs/:diffId/rechazar',
+    { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
+    async (request, reply) => {
+      const result = await rechazarDiffNuevoService(request.params.id, request.params.diffId)
+      return reply.send({ data: result })
+    }
+  )
 
   // GET /snapshots/:id/conflictos-validacion — S8A-3
   app.get<{ Params: { id: string } }>('/snapshots/:id/conflictos-validacion', async (request, reply) => {
