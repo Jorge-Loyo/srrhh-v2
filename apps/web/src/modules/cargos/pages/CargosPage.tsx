@@ -312,9 +312,13 @@ export function CargosPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
-                        {c.estadoDesde && c.estado !== EstadoCargo.VIGENTE
-                          ? `${Math.floor((Date.now() - new Date(c.estadoDesde).getTime()) / 86_400_000)}d`
-                          : '—'}
+                        {c.estado === EstadoCargo.VIGENTE
+                          ? c.ocupadoDesde
+                            ? `${Math.floor((Date.now() - new Date(c.ocupadoDesde).getTime()) / 86_400_000)}d`
+                            : '—'
+                          : c.estadoDesde
+                            ? `${Math.floor((Date.now() - new Date(c.estadoDesde).getTime()) / 86_400_000)}d`
+                            : '—'}
                       </td>
                       <td className="px-4 py-3">
                         {c.estado === EstadoCargo.VIGENTE && (

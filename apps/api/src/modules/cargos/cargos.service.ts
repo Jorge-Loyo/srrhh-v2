@@ -128,6 +128,7 @@ export async function listCargosService(query: CargosQuery) {
     data: cargos.map(({ ocupaciones, ...c }) => ({
       ...c,
       ocupado: ocupaciones.length > 0,
+      ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha ?? null,
       personaOcupante: ocupaciones[0]?.persona
         ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
         : null,
