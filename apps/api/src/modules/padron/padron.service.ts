@@ -29,7 +29,7 @@ interface OcupacionFinalRow {
   persona: { cuil: string }
   cargo: {
     literalPuesto: string | null
-    especialidad: string | null
+    especialidadLegacy: string | null
     agrupador: string | null
     unificadorPuesto: string | null
     hospital: { sigla: string }
@@ -1132,7 +1132,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       escalafon: ocupacion.cargo.escalafon.nombre,
       hospitalSigla: ocupacion.cargo.hospital.sigla,
       literalPuesto: ocupacion.cargo.literalPuesto,
-      especialidad: ocupacion.cargo.especialidadLegacy,
+      especialidad: ocupacion.cargo.especialidadLegacy ?? null,
       agrupador: ocupacion.cargo.agrupador,
       unificadorPuesto: ocupacion.cargo.unificadorPuesto,
       estadoPersona: ocupacion.estadoPersona,

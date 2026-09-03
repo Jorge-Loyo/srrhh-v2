@@ -23,7 +23,7 @@ async function getJson(url: string, token?: string) {
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  const body = await res.json().catch(() => ({}))
+  const body = await res.json().catch(() => ({})) as Record<string, unknown>
   return { status: res.status, ok: res.ok, body }
 }
 
@@ -36,7 +36,7 @@ async function postJson(url: string, payload: unknown, token?: string) {
     },
     body: JSON.stringify(payload),
   })
-  const body = await res.json().catch(() => ({}))
+  const body = await res.json().catch(() => ({})) as Record<string, unknown>
   return { status: res.status, ok: res.ok, body }
 }
 
