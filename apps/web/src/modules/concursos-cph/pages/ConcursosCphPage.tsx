@@ -4,6 +4,7 @@ import { EstadoConcursoCph } from '@srrhh/types'
 import type { ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { AlertasSinMovimiento } from '../components/AlertasSinMovimiento'
 import {
@@ -77,7 +78,7 @@ export function ConcursosCphPage() {
             <option value="">Todos los hospitales</option>
             {hospitales?.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.sigla}
+                {hospitalLabel(h)}
               </option>
             ))}
           </select>
