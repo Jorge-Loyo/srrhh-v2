@@ -300,6 +300,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
 
 // ── Página principal ───────────────────────────────────────────────────────────
 export function AltaCargosPage() {
+  const [tab,        setTab]        = useState<'historial' | 'nueva' | 'transferencia'>('historial')
   const [tipoActivo, setTipoActivo] = useState<TipoAlta | null>(null)
   const [pendientes, setPendientes] = useState<ItemPendiente[]>([])
   const [guardando,  setGuardando]  = useState(false)
@@ -408,16 +409,14 @@ export function AltaCargosPage() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 h-full">
 
       {/* S7-6: Modal de duplicado estructural */}
       {duplicado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
             <h3 className="font-bold text-gray-900 text-base mb-1">Cargo duplicado</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Ya existe un cargo vigente con la misma estructura:
-            </p>
+            <p className="text-sm text-gray-600 mb-4">Ya existe un cargo vigente con la misma estructura:</p>
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1 mb-5">
               <p><span className="text-gray-500">Código:</span> <span className="font-mono font-bold text-gray-800">{duplicado.cargo.codigo ?? '—'}</span></p>
               <p><span className="text-gray-500">Puesto:</span> <span className="font-medium text-gray-800">{duplicado.cargo.literalPuesto}</span></p>
@@ -432,84 +431,113 @@ export function AltaCargosPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-sm p-6">
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+      {/* Tabs */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="flex items-center justify-between px-6 pt-5 pb-0">
           <h1 className="font-primary text-xl font-bold text-gray-900">Alta de Cargos</h1>
-          <div className="flex gap-2">
-            {BOTONES.map(({ tipo, label, cls }) => (
-              <button key={tipo} type="button"
-                onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
-                className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}>
-                {tipoActivo === tipo ? `▲ ${label}` : `+ ${label}`}
-              </button>
-            ))}
-          </div>
+          {tab === 'nueva' && (
+            <div className="flex gap-2">
+              {BOTONES.map(({ tipo, label, cls }) => (
+                <button key={tipo} type="button"
+                  onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
+                  className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}>
+                  {tipoActivo === tipo ? `▲ ${label}` : `+ ${label}`}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {!tipoActivo && pendientes.length === 0 && (
-          <p className="text-sm text-gray-400">Seleccioná un tipo de cargo para agregar.</p>
-        )}
+        {/* Tab bar */}
+        <div className="flex gap-0 px-6 mt-4 border-b border-gray-200">
+          {(['historial', 'nueva', 'transferencia'] as const).map((t) => (
+            <button key={t} type="button"
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
+                tab === t
+                  ? 'border-secondary text-secondary'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {t === 'historial' ? 'Historial de altas' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
+            </button>
+          ))}
+        </div>
 
-        {(tipoActivo || pendientes.length > 0) && (
-        <div className="flex gap-6 items-start">
-          <div className="flex-1 min-w-0">
-            {tipoActivo && (
-              <FormAlta key={tipoActivo} tipo={tipoActivo} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+        {/* Contenido pestaña Nueva alta */}
+        {tab === 'nueva' && (
+          <div className="p-6">
+            {!tipoActivo && pendientes.length === 0 && (
+              <p className="text-sm text-gray-400">Seleccioná un tipo de cargo para agregar.</p>
+            )}
+            {(tipoActivo || pendientes.length > 0) && (
+              <div className="flex gap-6 items-start">
+                <div className="flex-1 min-w-0">
+                  {tipoActivo && (
+                    <FormAlta key={tipoActivo} tipo={tipoActivo} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                  )}
+                </div>
+                <div className="w-72 flex-shrink-0">
+                  <div className="rounded-xl border border-gray-200 bg-white sticky top-4">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Cargos pendientes</span>
+                      {totalPendientes > 0 && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-secondary text-white text-xs font-bold">{totalPendientes}</span>
+                      )}
+                    </div>
+                    <div className="p-3 min-h-[100px]">
+                      {pendientes.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-6">Aún no hay cargos agregados</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {pendientes.map((item, i) => (
+                            <div key={item.id} className="flex items-start justify-between gap-2 p-3 rounded-lg bg-gray-50 border border-gray-100">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-secondary uppercase">{TIPO_LABEL[item.tipo]}</span>
+                                  <span className="text-xs text-gray-400">·</span>
+                                  <span className="text-xs font-medium text-gray-700">{item.hospitalSigla}</span>
+                                  {item.cantidad > 1 && (
+                                    <span className="text-xs bg-secondary/10 text-secondary px-1.5 py-0.5 rounded font-medium">x{item.cantidad}</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-600 font-medium mt-0.5 truncate">{item.puesto}</p>
+                                {item.especialidad && <p className="text-xs text-gray-400 truncate">{item.especialidad}</p>}
+                                <p className="text-xs text-gray-400 mt-0.5">Desde: {item.desde}</p>
+                              </div>
+                              <button type="button" onClick={() => setPendientes((prev) => prev.filter((_, idx) => idx !== i))}
+                                className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 mt-0.5 text-lg leading-none">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {error && <p className="px-3 pb-2 text-xs text-red-500">{error}</p>}
+                    <div className="px-3 pb-3">
+                      <button type="button" onClick={handleRegistrarTodos}
+                        disabled={pendientes.length === 0 || guardando}
+                        className="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+                        {guardando ? 'Registrando...' : `Registrar${totalPendientes > 0 ? ` (${totalPendientes})` : ' todos'}`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
-          <div className="w-72 flex-shrink-0">
-            <div className="rounded-xl border border-gray-200 bg-white sticky top-4">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Cargos pendientes</span>
-                {totalPendientes > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-secondary text-white text-xs font-bold">{totalPendientes}</span>
-                )}
-              </div>
-              <div className="p-3 min-h-[100px]">
-                {pendientes.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-6">Aún no hay cargos agregados</p>
-                ) : (
-                  <div className="space-y-2">
-                    {pendientes.map((item, i) => (
-                      <div key={item.id} className="flex items-start justify-between gap-2 p-3 rounded-lg bg-gray-50 border border-gray-100">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-bold text-secondary uppercase">{TIPO_LABEL[item.tipo]}</span>
-                            <span className="text-xs text-gray-400">·</span>
-                            <span className="text-xs font-medium text-gray-700">{item.hospitalSigla}</span>
-                            {item.cantidad > 1 && (
-                              <span className="text-xs bg-secondary/10 text-secondary px-1.5 py-0.5 rounded font-medium">x{item.cantidad}</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-600 font-medium mt-0.5 truncate">{item.puesto}</p>
-                          {item.especialidad && <p className="text-xs text-gray-400 truncate">{item.especialidad}</p>}
-                          <p className="text-xs text-gray-400 mt-0.5">Desde: {item.desde}</p>
-                        </div>
-                        <button type="button" onClick={() => setPendientes((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 mt-0.5 text-lg leading-none">×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {error && <p className="px-3 pb-2 text-xs text-red-500">{error}</p>}
-              <div className="px-3 pb-3">
-                <button type="button" onClick={handleRegistrarTodos}
-                  disabled={pendientes.length === 0 || guardando}
-                  className="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
-                  {guardando ? 'Registrando...' : `Registrar${totalPendientes > 0 ? ` (${totalPendientes})` : ' todos'}`}
-                </button>
-              </div>
-            </div>
+        )}
+
+        {/* Contenido pestaña Historial */}
+        {tab === 'historial' && (
+          <HistorialAltas search={search} setSearch={setSearch} altas={altas} />
+        )}
+
+        {/* Contenido pestaña Transferencia */}
+        {tab === 'transferencia' && (
+          <div className="p-8 text-center text-sm text-gray-400">
+            Próximamente — funcionalidad de transferencia de cargos.
           </div>
-        </div>
         )}
       </div>
-
-      {/* S7-7: Historial persistente agrupado por expediente */}
-      <HistorialAltas search={search} setSearch={setSearch} altas={altas} />
     </div>
   )
 }
@@ -618,7 +646,7 @@ function HistorialAltas({
   const cargosModal = modalExp ? (grupos[modalExp] ?? []) : []
 
   return (
-    <>
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Modal de detalle + PDF */}
       {modalExp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -685,8 +713,7 @@ function HistorialAltas({
       )}
 
       {/* Buscador */}
-      <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-        <h2 className="font-primary text-base font-bold text-gray-700">Historial de altas</h2>
+      <div className="p-6 border-b border-gray-100">
         <input type="text" placeholder="Buscar por expediente..."
           value={search} onChange={(e) => setSearch(e.target.value)}
           className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
@@ -694,53 +721,51 @@ function HistorialAltas({
 
       {/* Tabla agrupada */}
       {gruposOrdenados.length > 0 ? (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-navy text-white text-left">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Expediente</th>
-                <th className="px-4 py-3 font-semibold">Fecha</th>
-                <th className="px-4 py-3 font-semibold">Hospital</th>
-                <th className="px-4 py-3 font-semibold">Escalafón</th>
-                <th className="px-4 py-3 font-semibold">Puesto</th>
-                <th className="px-4 py-3 font-semibold">Desde</th>
-                <th className="px-4 py-3 font-semibold">Registrado por</th>
-                <th className="px-4 py-3 font-semibold text-center">Cargos</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {gruposOrdenados.map(([exp, items]) => {
-                const primero = items[0]!
-                const hospitales = [...new Set(items.map((i) => i.hospital.sigla))].join(', ')
-                const escalafones = [...new Set(items.map((i) => i.escalafon.nombre))].join(', ')
-                const puestos = [...new Set(items.map((i) => i.literalPuesto ?? '—'))].join(', ')
-                return (
-                  <tr key={exp} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[200px] truncate" title={exp}>{exp}</td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.createdAt.slice(0, 10)}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{hospitales}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{escalafones}</td>
-                    <td className="px-4 py-3 text-gray-800 text-xs max-w-[180px] truncate" title={puestos}>{puestos}</td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.fechaDesde ? primero.fechaDesde.slice(0, 10) : '—'}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{primero.createdBy?.username ?? '—'}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{items.length}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => setModalExp(exp)} className="btn-outline text-xs px-3 py-1">Ver</button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-navy text-white text-left sticky top-0 z-10">
+            <tr>
+              <th className="px-4 py-3 font-semibold rounded-tl-lg">Expediente</th>
+              <th className="px-4 py-3 font-semibold">Fecha</th>
+              <th className="px-4 py-3 font-semibold">Hospital</th>
+              <th className="px-4 py-3 font-semibold">Escalafón</th>
+              <th className="px-4 py-3 font-semibold">Puesto</th>
+              <th className="px-4 py-3 font-semibold">Desde</th>
+              <th className="px-4 py-3 font-semibold">Registrado por</th>
+              <th className="px-4 py-3 font-semibold text-center">Cargos</th>
+              <th className="px-4 py-3 rounded-tr-lg" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {gruposOrdenados.map(([exp, items]) => {
+              const primero = items[0]!
+              const hospitales = [...new Set(items.map((i) => i.hospital.sigla))].join(', ')
+              const escalafones = [...new Set(items.map((i) => i.escalafon.nombre))].join(', ')
+              const puestos = [...new Set(items.map((i) => i.literalPuesto ?? '—'))].join(', ')
+              return (
+                <tr key={exp} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[200px] truncate" title={exp}>{exp}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.createdAt.slice(0, 10)}</td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{hospitales}</td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{escalafones}</td>
+                  <td className="px-4 py-3 text-gray-800 text-xs max-w-[180px] truncate" title={puestos}>{puestos}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.fechaDesde ? primero.fechaDesde.slice(0, 10) : '—'}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">{primero.createdBy?.username ?? '—'}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{items.length}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => setModalExp(exp)} className="btn-outline text-xs px-3 py-1">Ver</button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm p-8 text-center text-sm text-gray-400">
+        <p className="p-8 text-center text-sm text-gray-400">
           No hay altas registradas{search ? ` para "${search}"` : ''}.
-        </div>
+        </p>
       )}
-    </>
+    </div>
   )
 }

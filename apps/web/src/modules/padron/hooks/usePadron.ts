@@ -25,10 +25,10 @@ export function useSnapshots() {
 
 export function useSnapshotDiff(
   snapshotId: string | undefined,
-  params: { page?: number; limit?: number; tipo?: TipoDiff } = {}
+  params: { page?: number; limit?: number; tipo?: TipoDiff; q?: string; soloPendientes?: boolean } = {}
 ) {
   return useQuery({
-    queryKey: ['padron', 'snapshots', snapshotId, 'diff', params],
+    queryKey: ['snapshot-diff', snapshotId, params],
     queryFn: async () => {
       const res = await apiClient.get<{ data: SnapshotDiffResponse }>(
         `/api/v1/padron/snapshots/${snapshotId}/diff`,

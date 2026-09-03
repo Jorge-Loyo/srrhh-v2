@@ -37,7 +37,7 @@ export async function listPersonasService(query: PersonasQuery) {
   if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
   if (puesto) conditions.push(Prisma.sql`c.literal_puesto = ${puesto}`)
-  if (especialidad) conditions.push(Prisma.sql`c.especialidad = ${especialidad}`)
+  if (especialidad) conditions.push(Prisma.sql`c.especialidad_legacy = ${especialidad}`)
 
   const where = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
 
