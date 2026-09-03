@@ -367,6 +367,9 @@ Seguimiento de concursos de la Carrera Profesional Hospitalaria (Ley 6.035).
 | `persona_designada_id` | UUID FK → personas | — |
 | `suspendido` | BOOLEAN | — |
 | `pendiente_autorizacion` | BOOLEAN default false | Modificación de sigla/código pendiente de aprobación por SGRASV |
+| `sigla_solicitada` | VARCHAR nullable | Nueva sigla solicitada (dispara flujo Director → SGRASV) |
+| `codigo_registro_solicitado_id` | UUID FK nullable | Nuevo código de registro solicitado (ídem) |
+| `aprobado_director` | BOOLEAN default false | El Director ya aprobó el cambio de sigla/CR |
 | `observaciones` | TEXT | — |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
@@ -479,7 +482,7 @@ Permiten gestionar los permisos de cada rol desde la UI sin tocar código. `usua
 
 | Tabla | Filas | Descripción |
 |---|---|---|
-| `roles` | 8 | Roles del sistema (`admin`, `viewer`, `director`, `sgrasv`, `concursales_cph`, `concursales_ceetps`, `editor`) |
+| `roles` | 7 | Roles del sistema (`admin`, `viewer`, `director`, `sgrasv`, `concursales_cph`, `concursales_ceetps`, `editor`) |
 | `permisos` | 26 | Catálogo de permisos disponibles por módulo/acción |
 | `role_permisos` | ~110 | Tabla pivote rol ↔ permiso |
 
