@@ -5,7 +5,11 @@ import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
-import { OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA } from '../lib/bajasHelpers'
+import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
+import {
+  OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
+  CEETPS_CODIGOS,
+} from '../lib/bajasHelpers'
 import { jsPDF } from 'jspdf'
 
 type Paso = 1 | 2 | 3
@@ -264,6 +268,9 @@ export function NuevaBajaPage() {
         .finally(() => setCargandoCargo(false))
     }
   }, [bajaExistente])
+
+  const codigoNum = Number(codigoRegistro)
+  const esCeetps = CEETPS_CODIGOS.includes(codigoNum)
 
   function aplicarCargo(det: CargoDetail) {
     const d = derivarDesdeCargo(det)

@@ -10,7 +10,7 @@ import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { apiClient } from '@/shared/lib/api-client'
 import type { ConcursoCph } from '@srrhh/types'
 
-interface CphItem extends ConcursoCph {
+interface CphItem extends Omit<ConcursoCph, 'concurso'> {
   concurso?: {
     cargo?: { codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } }
     persona?: { apellidoNombre?: string }
