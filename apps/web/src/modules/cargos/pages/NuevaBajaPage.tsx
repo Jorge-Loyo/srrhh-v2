@@ -7,6 +7,7 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
+  CEETPS_CODIGOS,
   dmyToIso, isoToDmy,
 } from '../lib/bajasHelpers'
 import { jsPDF } from 'jspdf'
@@ -232,6 +233,10 @@ export function NuevaBajaPage() {
   }, [bajaExistente])
 
   const codigoNum = Number(codigoRegistro)
+  // CEETPS no tiene POU/POF (esa distinción es propia de CPH) — sigue haciendo
+  // falta acá para el validarYAvanzar() de más abajo, aunque el commit que
+  // sacó el bloque informativo de CPH/CEETPS borró esta variable de más.
+  const esCeetps  = CEETPS_CODIGOS.includes(codigoNum)
   // ── Cascade: origen cambia ──
   const handleOrigenChange = (v: string) => {
     setOrigen(v)

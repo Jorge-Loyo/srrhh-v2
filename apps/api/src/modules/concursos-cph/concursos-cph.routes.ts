@@ -62,7 +62,8 @@ export async function concursosCphRoutes(app: FastifyInstance) {
         aprobado: z.boolean(),
         observaciones: z.string().trim().max(2000).optional(),
       }).parse(request.body)
-      const data = await aprobarAutorizacionCphService(request.params.id, request.user.rolSlug, aprobado, observaciones)
+      const user = request.user as { rolSlug: string }
+      const data = await aprobarAutorizacionCphService(request.params.id, user.rolSlug, aprobado, observaciones)
       return reply.send({ data })
     }
   )

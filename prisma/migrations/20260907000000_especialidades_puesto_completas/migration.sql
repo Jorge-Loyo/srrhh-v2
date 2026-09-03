@@ -2,136 +2,225 @@
 -- Los 3 puestos médicos principales (Medico de Planta, Especialista en la Guardia Medico,
 -- Profesional Guardia Medico) ya tienen 97 especialidades c/u desde migración anterior.
 -- Este script agrega los puestos restantes que tenían especialidades hardcodeadas en el frontend.
+--
+-- Reescrita (Agustin, 2026-09-02): la versión original de Jorge insertaba con
+-- puesto_cargo_id hardcodeado a mano (UUIDs de su base local) — falló acá con
+-- FK violation porque esos UUIDs no existen en ningún otro Postgres (mismo
+-- error de portabilidad ya visto antes en 20260902000003_unificar_docentes).
+-- Reescrita con el patrón que ya usa 20260902_fix_especialidades: lookup por
+-- nombre de puesto (INSERT ... SELECT ... CROSS JOIN), sin escalafón como
+-- filtro — cada nombre de puesto existe en 2 escalafones (Médicos y Carrera
+-- Profesional Hospitalaria) y el precedente ya establecido es cargar la
+-- especialidad en ambos, no solo en uno.
 
 -- Bioquimico de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Bioquimica Clinica Sin Especialidad',true),
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Bioquimica',true),
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Bioquimica Clinica (Quimica Clinica)',true),
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Sin Especialidad',true),
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Bioquimica Clinica (Bacteriologia)',true),
-  (gen_random_uuid(),'b2f96cbe-3f51-4c87-be6e-cf52aa80b2f3','Bioquimica Clinica (Hematologia)',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES
+  ('Bioquimica Clinica Sin Especialidad'),
+  ('Bioquimica'),
+  ('Bioquimica Clinica (Quimica Clinica)'),
+  ('Sin Especialidad'),
+  ('Bioquimica Clinica (Bacteriologia)'),
+  ('Bioquimica Clinica (Hematologia)')
+) AS esp(nombre)
+WHERE pc.nombre = 'Bioquimico de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Bioquimico de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica (Bacteriologia)',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica (Microbiologia Clinica)',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica (Quimica Clinica)',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica Sin Especialidad',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica (Genetica)',true),
-  (gen_random_uuid(),'dd98a014-e61f-47c9-a900-979012198e45','Bioquimica Clinica (Lactancia)',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES
+  ('Bioquimica Clinica (Bacteriologia)'),
+  ('Bioquimica Clinica (Microbiologia Clinica)'),
+  ('Bioquimica Clinica (Quimica Clinica)'),
+  ('Bioquimica Clinica Sin Especialidad'),
+  ('Bioquimica'),
+  ('Bioquimica Clinica (Genetica)'),
+  ('Bioquimica Clinica (Lactancia)')
+) AS esp(nombre)
+WHERE pc.nombre = 'Bioquimico de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Experto en Fisica Radiante de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'1974c1bf-b600-4d5d-8b35-88d5e3368ce4','Radioterapia o Terapia Radiante',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Radioterapia o Terapia Radiante')) AS esp(nombre)
+WHERE pc.nombre = 'Experto en Fisica Radiante de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Farmaceutico de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'6ebb5c48-0307-47b4-8fb1-9ffbdae5eefe','Farmacia Hospitalaria',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Farmacia Hospitalaria')) AS esp(nombre)
+WHERE pc.nombre = 'Farmaceutico de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Farmaceutico de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'db758642-0b2c-46f6-bbc3-11165f5ec5fc','Farmacia Hospitalaria',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Farmacia Hospitalaria')) AS esp(nombre)
+WHERE pc.nombre = 'Farmaceutico de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Fonoaudiologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'e4c15ccb-c33c-4ffb-9ffa-1df485a0c183','Fonoaudiologia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Fonoaudiologia')) AS esp(nombre)
+WHERE pc.nombre = 'Fonoaudiologo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Kinesiologo de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'42d0667d-6376-474c-bcf0-92fb067d3eac','Kinesiologia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Kinesiologia')) AS esp(nombre)
+WHERE pc.nombre = 'Kinesiologo de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Kinesiologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'2f3e8e10-139d-42a5-bf2f-f4b16e831cd4','Kinesiologia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Kinesiologia')) AS esp(nombre)
+WHERE pc.nombre = 'Kinesiologo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Lic. en Ciencias de la Educ. de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'55eb474b-d20e-44e0-93fa-6cd0668fbeda','Ciencias de la Educacion',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Ciencias de la Educacion')) AS esp(nombre)
+WHERE pc.nombre = 'Lic. en Ciencias de la Educ. de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Musicoterapeuta de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'e69be31a-1b57-4361-942a-5c2f14c7bf76','Musicoterapia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Musicoterapia')) AS esp(nombre)
+WHERE pc.nombre = 'Musicoterapeuta de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Nutricionista de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'cfd29878-e9df-4b1c-b343-dae3e75b2f1d','Lic. en Nutricion',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Lic. en Nutricion')) AS esp(nombre)
+WHERE pc.nombre = 'Nutricionista de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Obstetrica de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'593f750f-0cd8-46cd-885d-59252aad7fce','Obstetrica',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Obstetrica')) AS esp(nombre)
+WHERE pc.nombre = 'Obstetrica de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Obstetrica de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'c4af2ed9-9cfe-4287-9e81-98c7c6e28af3','Obstetrica',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Obstetrica')) AS esp(nombre)
+WHERE pc.nombre = 'Obstetrica de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Odontologo de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'c70ee0f9-b10d-43b9-aa99-5ebda3efc684','Odontologia General',true),
-  (gen_random_uuid(),'c70ee0f9-b10d-43b9-aa99-5ebda3efc684','Odontopediatria',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES
+  ('Odontologia General'),
+  ('Odontopediatria')
+) AS esp(nombre)
+WHERE pc.nombre = 'Odontologo de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Odontologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Odontologia General',true),
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Periodoncia',true),
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Ortodoncia y Ortopedia Maxilar',true),
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Odontopediatria',true),
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Endodoncia',true),
-  (gen_random_uuid(),'0825b790-3524-4a0e-8f29-6a970a158ca3','Cirugia y Traumatologia Bucomaxilofacial',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES
+  ('Odontologia General'),
+  ('Periodoncia'),
+  ('Ortodoncia y Ortopedia Maxilar'),
+  ('Odontopediatria'),
+  ('Endodoncia'),
+  ('Cirugia y Traumatologia Bucomaxilofacial')
+) AS esp(nombre)
+WHERE pc.nombre = 'Odontologo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Psicologo de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'95c549ad-b0ab-4bdb-899e-e8a6214d8a34','Psicologia Clinica',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Psicologia Clinica')) AS esp(nombre)
+WHERE pc.nombre = 'Psicologo de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Psicologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'55944a7c-9b7c-4384-b1bf-3435f6b0b919','Psicologia Clinica',true),
-  (gen_random_uuid(),'55944a7c-9b7c-4384-b1bf-3435f6b0b919','Psicologia Infantil',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES
+  ('Psicologia Clinica'),
+  ('Psicologia Infantil')
+) AS esp(nombre)
+WHERE pc.nombre = 'Psicologo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Psicopedagogo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'80b1aff3-9e2f-4c7a-b112-789166941d7c','Psicopedagogia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Psicopedagogia')) AS esp(nombre)
+WHERE pc.nombre = 'Psicopedagogo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Sociologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'fe8e58e7-6e21-4713-ad9b-fbc03501276c','Sociologia',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Sociologia')) AS esp(nombre)
+WHERE pc.nombre = 'Sociologo de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Terapista Ocupacional de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'02cf8a11-76d6-4a6c-9d0d-c5c7876d94ff','Terapia Ocupacional',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Terapia Ocupacional')) AS esp(nombre)
+WHERE pc.nombre = 'Terapista Ocupacional de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Trabajador Social de Guardia
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'a4482fbf-0c67-49e3-92be-ce062f6e2f42','Trabajo Social y Servicio Social',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Trabajo Social y Servicio Social')) AS esp(nombre)
+WHERE pc.nombre = 'Trabajador Social de Guardia'
 ON CONFLICT DO NOTHING;
 
 -- Trabajador Social de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'a271a894-7d11-4a79-be47-568988bb59c6','Trabajo Social y Servicio Social',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Trabajo Social y Servicio Social')) AS esp(nombre)
+WHERE pc.nombre = 'Trabajador Social de Planta'
 ON CONFLICT DO NOTHING;
 
 -- Biologo de Planta
-INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo) VALUES
-  (gen_random_uuid(),'46e852cc-59ab-4cf5-b0e4-87264c80741c','Sin Especialidad',true)
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo)
+SELECT gen_random_uuid(), pc.id, esp.nombre, true
+FROM puestos_cargo pc
+CROSS JOIN (VALUES ('Sin Especialidad')) AS esp(nombre)
+WHERE pc.nombre = 'Biologo de Planta'
 ON CONFLICT DO NOTHING;
