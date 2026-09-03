@@ -72,12 +72,7 @@ el diccionario de abajo, y queda 1 sin poder derivarse (la fila huérfana "Suple
 
 import pandas as pd
 
-# LITERAL PUESTO -> ESPECIALIDAD propuesta.
-#
-# REVISAR ESTO A MANO: cada línea es una decisión de negocio. El comentario de cada entrada dice
-# de dónde sale el valor (pureza empírica + tamaño de la referencia, o "derivado del nombre" si
-# no había ningún caso previo con ese puesto). Para sacar un puesto de la lista, borrar la línea
-# (esas filas quedarán en el detalle_sin_resolver que devuelve la función, para revisión manual).
+# Fallback hardcodeado — se sobreescribe con cargar_tablas_ref(engine).
 MAPEO_ESPECIALIDAD_POR_PUESTO = {
     'Asistente Social de Guardia': 'Trabajo Social',  # 100.0% pureza sobre 166 casos ya cargados (4 vacios). NO "Trabajo Social y Servicio Social": ese valor lo normaliza consolidacion_especialidades.py a "Trabajo Social" desde el 2026-08-04
     'Asistente Social de Planta': 'Trabajo Social',  # 89.7% pureza sobre 175 casos ya cargados (2 vacios). Mismo criterio que Asistente Social de Guardia
@@ -118,18 +113,23 @@ MAPEO_ESPECIALIDAD_POR_PUESTO = {
     'Técnico en Laboratorio de Análisis Clínicos': 'Laboratorio (Análisis Clínicos)',  # sin referencia interna, derivado del nombre del puesto (1 vacios)
 }
 
-# Puestos dentro del alcance que se dejaron deliberadamente AFUERA del diccionario de arriba,
-# porque no hay forma confiable de derivar la especialidad con los datos actuales (ni por nombre
-# del puesto ni por código interno). No hace falta que aparezcan en ningún lado del código para
-# que no se completen solos — alcanza con que no estén en MAPEO_ESPECIALIDAD_POR_PUESTO. Se
-# listan acá solo como documentación explícita de la decisión, con la cantidad de filas afectadas
-# en la corrida de referencia.
-#
-# Filtrando por UNIFICADOR DE PUESTOS "Suplente de Guardia" (las 3.743 filas de Código de
-# Registro 23) no aparecieron más puestos con huecos aparte de los ya cubiertos arriba — el único
-# que queda sin poder derivarse es esta fila huérfana.
+
+def cargar_tablas_ref(engine):
+    """Carga MAPEO_ESPECIALIDAD_POR_PUESTO desde ref_especialidad_por_puesto en Postgres."""
+    global MAPEO_ESPECIALIDAD_POR_PUESTO, _MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            'SELECT agrupador, especialidad FROM ref_especialidad_por_puesto WHERE activo = true'
+        ))
+        MAPEO_ESPECIALIDAD_POR_PUESTO = {r[0]: r[1] for r in rows}
+    _MAPEO_ESPECIALIDAD_POR_PUESTO_UPPER = {
+        k.upper(): v for k, v in MAPEO_ESPECIALIDAD_POR_PUESTO.items()
+    }
+
+
 PUESTOS_SIN_ESPECIALIDAD_DERIVABLE = {
-    'Suplente de Guardia': 1,  # sin ningún caso de referencia ni nombre concluyente (fila huérfana de LITERAL PUESTO; distinto del UNIFICADOR DE PUESTOS "Suplente de Guardia", que agrupa las 3.743 filas de Código de Registro 23, ya revisadas)
+    'Suplente de Guardia': 1,
 }
 
 
