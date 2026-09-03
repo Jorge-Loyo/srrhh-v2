@@ -2,12 +2,16 @@
 
 > Documento de trabajo de Agustin (S0-5 / S0-6 / S0-7 / S0-10 del Sprint 0).
 > Fuente: lectura completa de `services/dotaneitor/` (7 módulos Python, ~3300 líneas) el 2026-08-21.
-> Última actualización: 2026-08-24
+> Última actualización: 2026-09-02
 > Estado: S0-5, S0-6, S0-7 y S0-10 (Sprint 0) cerradas. Sección 4.1: pasos 14-17 implementados por
 > Jorge en Sprint 2 (S2-13 a S2-19). Sección 7 (deuda técnica): 8 de 9 hallazgos resueltos —
 > Dotaneitor migrado a Postgres (S2-19), GUI muerta eliminada, performance vectorizada, CORS
 > restringido, recuperación de sesión ahora reconstruye el DataFrame procesado. Queda sin resolver
 > solo #5 (staleness de `MAPEO_ESPECIALIDAD_POR_PUESTO`, informativo, sin acción concreta pendiente).
+> **2026-09-02: hallazgo nuevo y resuelto — ver sección 9.** El padrón semanal venía saliendo con
+> columnas centrales (`AGRUPADOR`, `UNIFICADOR DE PUESTOS`, `UNIVERSO TOTALIZADOR`, `MONOVALENCIA`,
+> parte de `ESPECIALIDAD`) vacías para el 100% de las filas, sin ningún error visible, porque las
+> tablas de referencia que S2-19 migró a Postgres se crearon vacías y nunca se cargaron.
 
 ---
 
@@ -545,3 +549,53 @@ no es un simple "agregar columna".
   **Resuelto (2026-08-21):** carpeta en el repo en local / carpeta del servidor en producción,
   nombre `RP_`/`RC_` + `fecha_asignada`, sin política de retención. Sigue abierto solo cómo se
   referencia el archivo desde `PadronSnapshot` (campo nuevo vs. tabla aparte). Ver 4.1, paso 17.
+
+---
+
+## 9. Hallazgo 2026-09-02 — tablas `ref_*` migradas pero nunca cargadas (Agustin)
+
+**Reporte del usuario:** el padrón semanal "está fallando" — corre, pero no entrega lo que
+debería o no lo entrega completo.
+
+**Causa raíz:** S2-19 migró `DotacionAutomationBD.cargar_archivos()` y
+`ConsolidadorEspecialidadesBD.cargar()` para leer `ref_agrupadores`, `ref_unificadores_puesto` y
+`ref_especialidades_cuil` desde Postgres en vez de las hojas `AGRUPADOR` / `UNIFICADOR DE PUESTOS`
+de `ARCHIVOS PARA DOTACION.xlsx` (y sus 3 hojas de especialidad por CUIL). La migración creó el
+schema (S2-13) pero **nunca corrió una carga de datos real** — verificado contra la base:
+`ref_agrupadores`, `ref_unificadores_puesto` y `ref_especialidades_cuil` estaban en **0 filas**, y
+`hospitales.universo_totalizador`/`monovalencia` en 0 de 61 (solo `sigla`/`tipo` habían quedado
+cargados de antes).
+
+Con esas tablas vacías, `Dotaneitor.py` arma `agrupador_map`/`unificador_map` como `dict()` desde
+un DataFrame vacío y los cruza con `.map()` (líneas 161-192): el resultado es `NaN` para el 100%
+de las filas, sin ningún error — el pipeline corre entero y entrega un Excel, solo que con
+`AGRUPADOR`, `UNIFICADOR DE PUESTOS`, `UNIVERSO TOTALIZADOR` y `MONOVALENCIA` vacíos para todos
+los registros, y la primera pasada de `/cruzar` (completar `ESPECIALIDAD` por CUIL) sin completar
+ningún hueco. Ya había un rastro de este escenario exacto en el código: el comentario junto a
+`.astype('object')` (`Dotaneitor.py` ~línea 185) describe el caso "ningún `CRUCE_AGRUPADOR`
+matchea `agrupador_map`" — alguien ya se había topado con esto, pero arregló el `TypeError` que
+producía sin rastrear por qué el mapa estaba vacío.
+
+**Fix:** `services/dotaneitor/scripts/seed_referencias.py` (nuevo) — lee las hojas
+`AGRUPADOR`/`UNIFICADOR DE PUESTOS`/`SIGLAS`/`ESPECIALIDADES CPH`/`SUPLENTES`/`RESIDENTES` de
+`ARCHIVOS PARA DOTACION.xlsx` y carga `ref_agrupadores` (397 filas), `ref_unificadores_puesto`
+(421), `ref_especialidades_cuil` (49.231) y actualiza `hospitales` por `sigla` (61 actualizados;
+15 siglas de la hoja no tienen hospital cargado — son dependencias administrativas, no hospitales,
+a propósito no se crean solas, mismo criterio de alcance que S2-14/paso 15). Re-ejecutable
+(trunca y recarga las `ref_*`; el UPDATE de `hospitales` no crea filas nuevas). Documentado en
+`services/dotaneitor/README.md`.
+
+**Verificación con datos reales** (`Cargos_salud_20260818.xlsx`, 47.857 registros, corriendo
+`DotacionAutomationBD.procesar()` + `_cruzar_especialidades()` directo, sin pasar por la sesión
+HTTP):
+
+| Columna | Antes del fix | Después del fix |
+|---|---|---|
+| `AGRUPADOR` | 0% (map vacío) | 40,0% con dato (117 valores sin coincidencia, quedan en el reporte de calidad — cobertura real de la hoja de referencia, no un bug nuevo) |
+| `UNIFICADOR DE PUESTOS` | 0% | 39,5% (132 sin coincidencia, ídem) |
+| `UNIVERSO TOTALIZADOR` | 0% | 100% |
+| `MONOVALENCIA` | 0% | 22,8% (coherente — la mayoría de los hospitales no son monovalentes) |
+| `ESPECIALIDAD` tras `/cruzar` | 29,6% (solo 2da pasada, hardcodeada) | 47,2% (CPH 92,0%, Residentes 100%, Suplentes 53,4% — 8.288 huecos completados por CUIL que antes no se completaban) |
+
+Nada de esto requirió tocar la lógica de negocio de `Dotaneitor.py` — era 100% un problema de datos
+de referencia faltantes, no de código.

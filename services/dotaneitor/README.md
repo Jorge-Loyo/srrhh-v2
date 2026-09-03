@@ -94,3 +94,22 @@ O con Docker:
 ```bash
 docker compose up dotaneitor -d
 ```
+
+---
+
+## Datos de referencia (`ref_agrupadores` / `ref_unificadores_puesto` / `ref_especialidades_cuil`)
+
+`DotacionAutomationBD.cargar_archivos()` y `ConsolidadorEspecialidadesBD` leen estas 3 tablas
+(más `hospitales.universo_totalizador`/`tipo`/`monovalencia`) en vez de los Excel que usaba la
+versión standalone. **Son tablas de referencia, no se cargan solas** — hay que poblarlas a mano
+corriendo `scripts/seed_referencias.py` contra el Excel `ARCHIVOS PARA DOTACION.xlsx` (hojas
+`AGRUPADOR`, `UNIFICADOR DE PUESTOS`, `SIGLAS`, `ESPECIALIDADES CPH/SUPLENTES/RESIDENTES`):
+
+```bash
+cd services/dotaneitor
+python scripts/seed_referencias.py --archivo "/ruta/a/ARCHIVOS PARA DOTACION.xlsx"
+```
+
+Es re-ejecutable (trunca y recarga las `ref_*`, actualiza `hospitales` por `sigla` sin crear
+nuevos). Correrlo de nuevo si el Excel de referencia se actualiza. Ver el hallazgo completo y la
+verificación con datos reales en `Doc/Dotaneitor_Analisis.md`, sección 9.
