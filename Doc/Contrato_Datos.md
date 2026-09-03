@@ -479,9 +479,11 @@ Permiten gestionar los permisos de cada rol desde la UI sin tocar código. `usua
 
 | Tabla | Filas | Descripción |
 |---|---|---|
-| `roles` | 7 | Roles del sistema (`admin`, `viewer`, `director`, `sgrasv`, etc.) |
-| `permisos` | 26 | Catálogo de permisos disponibles (ej: `bajas:write`, `concursos:read`) |
-| `role_permisos` | 108 | Tabla pivote rol ↔ permiso |
+| `roles` | 8 | Roles del sistema (`admin`, `viewer`, `director`, `sgrasv`, `concursales_cph`, `concursales_ceetps`, `editor`) |
+| `permisos` | 26 | Catálogo de permisos disponibles por módulo/acción |
+| `role_permisos` | ~110 | Tabla pivote rol ↔ permiso |
+
+**Rol `sgrasv`:** resuelve autorizaciones de cambio de sigla/código de registro en concursos CPH. Puede actuar directamente o luego de que el Director apruebe (según si hay cambio de sigla/CR o no). Permiso: `concursos-cph.autorizar`.
 
 ---
 

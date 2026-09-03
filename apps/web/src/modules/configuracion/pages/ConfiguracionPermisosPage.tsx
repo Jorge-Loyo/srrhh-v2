@@ -36,6 +36,43 @@ function agruparPorModulo(permisos: Permiso[]) {
   return [...grupos.entries()]
 }
 
+const MODULO_LABEL: Record<string, string> = {
+  'inicio':             'Inicio',
+  'kpis':               'Tablero KPIs',
+  'personas':           'Personas',
+  'cargos':             'Cargos',
+  'bajas':              'Baja de cargo / Alta por baja',
+  'bajas-sial':         'Bajas Consolidadas',
+  'concursos-cph':      'Concursos CPH',
+  'concursos-ceetps':   'Concursos CEETPS',
+  'padron':             'Padrón Semanal',
+  'configuracion':      'Configuración',
+  'notificaciones':     'Notificaciones',
+  'autorizaciones':     'Autorizaciones (sistema)',
+}
+
+const ACCION_LABEL: Record<string, string> = {
+  'ver':                 'Ver',
+  'crear':               'Crear / Alta',
+  'editar':              'Editar',
+  'subir':               'Subir archivo',
+  'aprobar':             'Aprobar / Rechazar',
+  'aprobar_padron':      'Aprobar padrón',
+  'eliminar_snap':       'Eliminar snapshot',
+  'autorizar':           'Autorizar',
+  'resolver':            'Resolver autorización',
+  'gestionar_usuarios':  'Gestionar usuarios',
+  'gestionar_permisos':  'Gestionar permisos y roles',
+}
+
+function accionLabel(accion: string) {
+  return ACCION_LABEL[accion] ?? accion.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function moduloLabel(modulo: string) {
+  return MODULO_LABEL[modulo] ?? modulo.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function ConfiguracionPermisosPage() {
   const { data: roles, isLoading: cargandoRoles } = useRoles()
   const { data: catalogo, isLoading: cargandoCatalogo } = usePermisosCatalogo()
@@ -298,11 +335,11 @@ export function ConfiguracionPermisosPage() {
                           rowSpan={permisos.length}
                           className="px-4 py-3 font-bold text-gray-700 uppercase text-xs tracking-wide align-top border-r border-gray-100 bg-gray-50/60"
                         >
-                          {modulo.replace(/-/g, ' ')}
+                          {moduloLabel(modulo)}
                         </td>
                       )}
-                      <td className="px-4 py-3 text-gray-800 font-medium capitalize">
-                        {permiso.accion.replace(/_/g, ' ')}
+                      <td className="px-4 py-3 text-gray-800 font-medium">
+                        {accionLabel(permiso.accion)}
                       </td>
                       <td className="px-4 py-3 text-gray-500">{permiso.descripcion}</td>
                       <td className="px-4 py-3 text-center">

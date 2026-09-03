@@ -1,9 +1,9 @@
-# PLAN SCRUM — SRRHH v2
+﻿# PLAN SCRUM — SRRHH v2
 
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09-03 (Sprint 9 cerrado ✅ — post-sprint: normalización escalafones, deploy Render, sincronización Neon)
+> Última actualización: 2026-09-03 (Sprint 12 cerrado ✅ — UX bajas, wizard CPH, permisos UI)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 
@@ -30,9 +30,9 @@
 | Sprint 9 — Matriz de permisos + Landing/menú/guards          | ✅ Completo — 2026-09-02, salvo S9-1 (superado por RBAC dinámico) y filtro de tarjetas del hub (S9-8, deliberadamente no implementado) | S9-2 a S9-11 (✅), S9-1 (⛔ superado) |
 | Post-Sprint 9 — Normalización escalafones + deploy + Neon    | ✅ Completo — 2026-09-03                                                                                                               | ver detalle abajo                     |
 | Sprint 10 — Notificaciones persistidas                       | ✅ Completo — 2026-09-04                                                                                                               | S10-1 a S10-5 (✅)                    |
-| Sprint 11 — Flujo concursal CPH con autorizaciones           | 🟡 En curso (parcial)                                                                                                                    | S11-1 a S11-4 ✅, S11-5 a S11-7 pendientes |
-| Sprint 12 — Panel de autorizaciones + jerarquía de roles     | 📋 Planificado                                                                                                                         | S12-1 a S12-9                         |
-| Sprint 13 — Asignación de tareas entre roles                 | 📋 Planificado                                                                                                                         | S13-1 a S13-7                         |
+| Sprint 11 — Flujo concursal CPH con autorizaciones           | ✅ Completo — 2026-09-03                                                                                                                | S11-1 a S11-7 ✅                           |
+| Sprint 12 — UX bajas + wizard CPH + permisos UI              | ✅ Completo — 2026-09-03                                                                                                                | ver detalle abajo                          |
+| Sprint 13 — Panel de autorizaciones + jerarquía de roles     | 📋 Planificado                                                                                                                         | S13-1 a S13-9                         |
 
 ---
 
@@ -1666,75 +1666,36 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 
 ---
 
-### SPRINT 11 — Flujo concursal CPH con autorizaciones
+### SPRINT 11 — Flujo concursal CPH con autorizaciones ✅ Completo
 
-**Duración:** 1–2 semanas | **Capacidad:** 60–120h | **Estimado:** 38h
-**Objetivo:** Caratulación → autorización del director → verificación CPH → paso Inscripción/Examen/OM.
-
-| #     | Tarea                                                                                                                                             | Dev             | Est. | Prioridad  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | ---------- |
-| S11-1 | Prisma: `model Autorizacion` + enum `EstadoAutorizacion`; migración `sprint11_autorizaciones`                                                     | Jorge           | 4h   | 🔴 Crítico |
-| S11-2 | Al completar caratulación CPH: crear `Autorizacion` si no existe pendiente + notificar a `director`                                               | Jorge           | 6h   | 🔴 Crítico |
-| S11-3 | Módulo `autorizaciones/`: `GET /` (pendientes del director), `POST /:id/aprobar`, `POST /:id/rechazar`; al resolver notificar a `concursales_cph` | Jorge           | 6h   | 🔴 Crítico |
-| S11-4 | Wizard CPH: badge "En espera de autorización" en fase Autorización; bloqueo de `fechaAutorizacion` hasta aprobar                                  | Agustin         | 8h   | 🔴 Crítico |
-| S11-5 | Portal del director: ruta `/autorizaciones` con tabla de pendientes (detalle, aprobar/rechazar)                                                   | Agustin         | 6h   | 🔴 Crítico |
-| S11-6 | Al resolver autorización, CPH puede avanzar a `A-AUTZN`/`B-SORTEO JUR`; mapear fase Inscripción/Examen/OM                                         | Jorge + Agustin | 4h   | 🟡 Medio   |
-| S11-7 | Prueba end-to-end: caratular → autorización pendiente → director aprueba → notificación a CPH → CPH completa Inscripción/Examen/OM                | Jorge + Agustin | 4h   | 🔴 Crítico |
-
-**Criterio de éxito:**
-
-- Caratular genera automáticamente la `Autorizacion` y notificación al director (sin duplicados)
-- El wizard muestra "En espera de autorización" y bloquea `fechaAutorizacion` hasta aprobar
-- Director resuelve desde `/autorizaciones` y el siguiente paso del wizard se habilita
-- Alcance: hasta Inscripción/Examen/OM; el resto del wizard queda como en Sprint 4
-
----
-
----
-
-### SPRINT 11 — Flujo concursal CPH con autorizaciones 🟡 En curso
-
-**Fecha inicio:** 2026-09 | **Autor:** Jorge + Claude
-**Objetivo:** Implementar el flujo de autorización en el wizard CPH: cambios sensibles (sigla/código de registro) requieren aprobación de SGRASV antes de avanzar.
-
-#### Implementado en esta sesión
-
-**BD:**
-- `concursos_cph.pendiente_autorizacion BOOLEAN DEFAULT false` — migr. `20260906000000_cph_pendiente_autorizacion`
-- `bajas.carga_horaria INTEGER` — migr. `20260905000000_baja_carga_horaria`
-
-**API (`concursos-cph`):**
-- `patchConcursoCphService`: detecta cambios en `sigla`/`codigoRegistroId`, activa `pendienteAutorizacion = true` y crea notificación `autorizacion_pendiente` al rol `director`
-- `aprobarAutorizacionCphService` (nuevo): limpia el flag, crea notificación `autorizacion_resuelta` al rol `concursales_cph`
-- `POST /api/v1/concursos-cph/:id/autorizar` — permiso `concursos-cph.autorizar` (rol `sgrasv`)
-- Schema PATCH extendido con `sigla`, `codigoRegistroId`, `pendienteAutorizacion`
-
-**API (`bajas`):**
-- `cargaHoraria` persistido en `createBajaService` y `updateBajaService`
-- Schema Zod: `cargaHoraria: z.coerce.number().int().min(1).max(99).optional()`
-
-**Frontend (`ConcursoCphWizard`):**
-- `pendienteAutorizacion` se lee de la API (no estado local)
-- Botón unificado “Guardar y continuar →” — avanza automáticamente al guardar sin cambios sensibles
-- Botón deshabilitado mientras hay autorización pendiente
-- Panel derecho: banner “⏳ Autorización pendiente — Esperando aprobación de SGRASV” + punto pulsante en sub-estado actual
-- Banner en cuerpo de etapa: indica qué rol debe actuar en cada etapa pendiente
-- Modal de resolución visible solo para `rolSlug === 'sgrasv'`
-- Eliminados botones “Siguiente →” y “Marcar completa ✓” (redundantes)
-- Eliminado bloque informativo CPH/CEETPS del formulario de baja (`NuevaBajaPage`)
-
-**Frontend (`NuevaBajaPage`):**
-- `cargaHoraria` incluido en body de `crearBaja`, `guardarBorrador` y restaurado en modo edición
+**Fecha:** 2026-09-03 | **Autor:** Jorge + Claude
+**Objetivo:** Flujo de autorización en el wizard CPH — cambios sensibles (sigla/código de registro) requieren aprobación antes de avanzar. Flujo en dos pasos: Director autoriza primero si hay cambio de sigla/CR, luego SGRASV confirma. Sin cambio de sigla/CR: solo SGRASV.
 
 | # | Tarea | Estado |
 |---|---|---|
-| S11-1 | BD: `pendiente_autorizacion` en `concursos_cph` | ✅ |
-| S11-2 | API: detectar cambios sensibles en PATCH, notificar director | ✅ |
-| S11-3 | API: `POST /:id/autorizar` para SGRASV | ✅ |
-| S11-4 | Frontend: wizard bloquea avance, muestra estado de autorización | ✅ |
-| S11-5 | Persistir `cargaHoraria` en bajas (BD + API + frontend) | ✅ |
-| S11-6 | Panel de autorizaciones pendientes para rol director | 📋 Pendiente |
-| S11-7 | Historial de autorizaciones por concurso | 📋 Pendiente |
+| S11-1 | BD: `pendiente_autorizacion` + `sigla_solicitada` + `aprobado_director` en `concursos_cph`; `carga_horaria` en `bajas` | ✅ |
+| S11-2 | API: detectar cambios sensibles en PATCH, notificar director, `aprobarAutorizacionCphService` | ✅ |
+| S11-3 | API: `POST /:id/autorizar` — flujo director → SGRASV o SGRASV directo | ✅ |
+| S11-4 | Frontend: wizard bloquea campos y avance mientras hay autorización pendiente | ✅ |
+| S11-5 | `cargaHoraria` persistido en bajas (BD + API + frontend) | ✅ |
+| S11-6 | Flujo director → SGRASV: guard en backend, banner dinámico en frontend según estado | ✅ |
+| S11-7 | Documentos de exportación movidos al panel lateral del wizard | ✅ |
+
+---
+
+### SPRINT 12 — UX bajas + wizard CPH + permisos UI ✅ Completo
+
+**Fecha:** 2026-09-03 | **Autor:** Jorge + Claude
+**Objetivo:** Pulir la UX del flujo de bajas y el wizard CPH; mejorar la página de permisos.
+
+| # | Tarea | Estado |
+|---|---|---|
+| S12-1 | `NuevaBajaPage`: modal buscar cargo sin filtro escalafón, stepper dinámico 2/3 pasos | ✅ |
+| S12-2 | `BajaCargosPage`: listado con editar/ver, estados con labels reales, modal detalle | ✅ |
+| S12-3 | Wizard CPH: campo Puesto funcional (sin filtro `tipoPuesto`), docs en sidebar | ✅ |
+| S12-4 | Wizard CPH: campos bloqueados cuando `pendienteAutorizacion` en etapa baja | ✅ |
+| S12-5 | `ConfiguracionPermisosPage`: `MODULO_LABEL` + `ACCION_LABEL` con nombres reales del menú | ✅ |
+| S12-6 | `ARRANQUE_LOCAL.md`: bloque ⚡ comandos rápidos, fix path WSL | ✅ |
 
 ---
 
