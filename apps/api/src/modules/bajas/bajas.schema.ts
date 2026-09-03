@@ -49,3 +49,35 @@ export const createBajaSchema = z
   )
 
 export type CreateBajaBody = z.infer<typeof createBajaSchema>
+
+// PATCH /:id — todos los campos opcionales. Se reusan las mismas refines
+// pero solo cuando se está confirmando (estado != resolucion_a_la_firma).
+const updateBajaBase = z.object({
+  personaId: z.string().uuid().optional(),
+  fechaBaja: fecha.optional().or(z.literal('')),
+  tipoBaja: z.string().trim().max(100).optional(),
+  motivo: z.string().trim().max(500).optional(),
+  tipificadorOrigen: z.string().trim().max(200).optional(),
+  generaConcurso: z.boolean().optional(),
+  eeBaja: z.string().trim().max(500).optional(),
+  partida: z.string().trim().max(100).optional(),
+  docRespaldatoria: z.string().trim().max(500).optional(),
+  fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+  cargaHoraria: z.coerce.number().int().min(1).max(99).optional(),
+  tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
+  escalafonId: z.string().uuid().optional(),
+  observaciones: z.string().trim().max(2000).optional(),
+  estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
+})
+
+export const updateBajaSchema = updateBajaBase
+  .refine(
+    (d) => !d.generaConcurso || !d.estado || d.estado === 'resolucion_a_la_firma' || !!d.tipoConcurso,
+    { message: 'tipoConcurso es requerido cuando generaConcurso es true y se confirma', path: ['tipoConcurso'] }
+  )
+  .refine(
+    (d) => d.tipoConcurso !== TipoConcurso.CEETPS || !!d.escalafonId,
+    { message: 'escalafonId es requerido cuando tipoConcurso es ceetps', path: ['escalafonId'] }
+  )
+
+export type UpdateBajaBody = z.infer<typeof updateBajaSchema>
