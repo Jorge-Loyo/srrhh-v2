@@ -60,10 +60,12 @@ export async function listCargosService(query: CargosQuery) {
   // Filtro ocupado: subquery EXISTS sobre ocupaciones con hasta IS NULL
   let ocupadoIds: string[] | undefined
   if (ocupado !== undefined) {
+    const escFilter = escalafonId ? Prisma.sql`AND c.escalafon_id = ${escalafonId}::uuid` : Prisma.sql``
+    const puestoFilter = puesto ? Prisma.sql`AND c.literal_puesto = ${puesto}` : Prisma.sql``
     const rows = await prisma.$queryRaw<{ id: string }[]>(
       ocupado
-        ? Prisma.sql`SELECT DISTINCT cargo_id AS id FROM ocupaciones WHERE hasta IS NULL`
-        : Prisma.sql`SELECT id FROM cargos WHERE NOT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = cargos.id AND o.hasta IS NULL)`
+        ? Prisma.sql`SELECT DISTINCT o.cargo_id AS id FROM ocupaciones o JOIN cargos c ON c.id = o.cargo_id WHERE o.hasta IS NULL ${escFilter} ${puestoFilter}`
+        : Prisma.sql`SELECT c.id FROM cargos c WHERE NOT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) ${escFilter} ${puestoFilter}`
     )
     ocupadoIds = rows.map((r) => r.id)
   }
