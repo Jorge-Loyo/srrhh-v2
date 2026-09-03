@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 11 parcial — flujo concursal CPH con autorizaciones)
+> Última actualización: 2026-09 (Post-Sprint 12 — UX bajas, wizard CPH, permisos UI)
 > Estado: VIGENTE
 
 ---
@@ -78,7 +78,19 @@ apps/web/
 │   │   │       └── ConcursoCeetpsDetail.tsx
 │   │   ├── bajas/
 │   │   │   └── pages/
-│   │   │       └── BajasPage.tsx
+│   │   │       ├── BajasPage.tsx
+│   │   │       └── ValidacionBajasPage.tsx
+│   │   ├── inicio/
+│   │   │   └── pages/
+│   │   │       └── InicioPage.tsx
+│   │   ├── notificaciones/
+│   │   │   ├── hooks/
+│   │   │   │   └── useNotificaciones.ts
+│   │   │   └── pages/
+│   │   │       └── NotificacionesPage.tsx
+│   │   ├── configuracion/
+│   │   │   └── pages/
+│   │   │       └── ConfiguracionPermisosPage.tsx
 │   │   ├── kpis/
 │   │   │   └── pages/
 │   │   │       └── KpisPage.tsx
@@ -222,7 +234,7 @@ const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/padron" /> },
+      { index: true, element: <InicioPage /> },
       { path: 'padron', element: <PadronPage /> },
       { path: 'padron/:id/diff', element: <PadronDiffPage /> },
       { path: 'personas', element: <PersonasPage /> },
@@ -231,21 +243,23 @@ const router = createBrowserRouter([
       { path: 'cargos/:id', element: <CargoDetailPanel /> },
       { path: 'cargos/alta', element: <AltaCargosPage /> },
       { path: 'cargos/baja', element: <BajaCargosPage /> },
+      { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
+      { path: 'cargos/baja/:id/editar', element: <NuevaBajaPage /> },
       { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
       { path: 'concursos/cph', element: <ConcursosCphPage /> },
       { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
       { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
       { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
       { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
-      { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
-      { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
       { path: 'bajas', element: <BajasPage /> },
       { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
       { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
       { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
       { path: 'kpis', element: <KpisPage /> },
+      { path: 'notificaciones', element: <NotificacionesPage /> },
       { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
       { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+      { path: 'sin-acceso', element: <SinAccesoPage /> },
     ],
   },
   { path: '/login', element: <LoginPage /> },

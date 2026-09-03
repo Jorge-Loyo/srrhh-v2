@@ -31,11 +31,12 @@ Ejemplos: `CPH-POU-000056`, `RG-CG-000047`, `ENF-000012`
 
 ## 2. Estados del cargo
 
-El campo `cargos.estado` (enum `EstadoCargo`) tiene exactamente dos valores posibles:
+El campo `cargos.estado` (enum `EstadoCargo`) tiene tres valores posibles:
 
 | Estado | Descripción |
 |---|---|
 | `vigente` | El cargo está activo en la estructura orgánica. |
+| `validacion_vacante` | Estado intermedio. El padrón SIAL detectó una baja pendiente de confirmación administrativa. |
 | `no_vigente` | Estado terminal. El cargo fue suprimido. No puede reactivarse. |
 
 ### 2.1 VIGENTE
@@ -47,11 +48,32 @@ El cargo existe y está activo en la estructura orgánica del hospital.
 **Cómo se llega**:
 - Alta de cargo: se crea en el sistema (manual o por importación del padrón SIAL). El estado inicial siempre es `vigente`.
 - Padrón semanal — diff tipo `nuevo`: aparece un `id_sial_rol` que no existía. El sistema busca cargo por `(hospital, escalafon, codigo_repa, literal_puesto)`. Si no existe, crea uno nuevo con `estado = vigente`.
+- Operador rechaza desde Validación de Bajas: cargo vuelve a `vigente` desde `validacion_vacante`.
 
 **Validaciones**:
 - No puede tener `estado = no_vigente` si existe una ocupación con `hasta IS NULL`.
 - El código del cargo (ej: `RG-CG-000047`) no cambia aunque cambien las personas.
 - Un cargo vigente puede estar VACANTE u OCUPADO — son **condiciones derivadas**, no estados almacenados.
+
+---
+
+### 2.1B VALIDACION_VACANTE
+
+**Condición SQL**: `cargo.estado = 'validacion_vacante'`
+
+Estado intermedio generado exclusivamente por el padrón semanal cuando detecta que un `id_sial_rol` desapareció del Excel. La baja aún no fue confirmada administrativamente.
+
+**Cómo se llega**:
+- Padrón semanal — diff tipo `eliminado`: el `id_sial_rol` desaparece del Excel. El sistema cierra la ocupación activa (`hasta = fecha del padrón`) y pone el cargo en `validacion_vacante`.
+
+**Cómo se sale**:
+- Operador **confirma** la baja desde `/bajas/validacion` → cargo pasa a `no_vigente`.
+- Operador **rechaza** (error del sistema) desde `/bajas/validacion` → cargo vuelve a `vigente`, se reabre la ocupación (`hasta = NULL`).
+
+**Validaciones**:
+- El padrón **no puede aprobarse** si hay cargos en `validacion_vacante` que reaparecen en el nuevo Excel (alerta bloqueante).
+- Un cargo en `validacion_vacante` **no puede generar concurso** directamente — primero debe confirmarse la baja.
+- Desde `/cargos/baja/nueva` se pueden seleccionar cargos `validacion_vacante` para el flujo de reemplazo de persona.
 
 ---
 
@@ -70,13 +92,13 @@ Estado terminal. El cargo fue suprimido de la estructura. No puede reactivarse.
 | Vacante a No Vigente | Un cargo vacante pasa a no vigente de forma manual en el sistema. La contrapartida es un expediente de alta de otro cargo. |
 
 **Cómo se llega**:
-- Padrón semanal — diff tipo `eliminado`: el `id_sial_rol` desaparece del Excel. El sistema cierra la ocupación activa (`hasta = fecha del padrón`). El cargo queda **VACANTE** — **no pasa a `no_vigente`**.
 - Baja manual por desfinanciación.
 - Baja manual por modificación de estructura.
 - Baja manual vacante a no vigente.
+- Operador confirma baja desde `/bajas/validacion` (cargo venía de `validacion_vacante`).
 
 **Validaciones**:
-- El padrón semanal **NUNCA** marca un cargo como `no_vigente` — solo cierra la ocupación de la persona.
+- El padrón semanal **NUNCA** marca un cargo como `no_vigente` directamente — pasa por `validacion_vacante` primero.
 - Al pasar a `no_vigente` por baja manual: cerrar ocupación activa si existe (`ocupacion.hasta = fecha de baja`).
 - No puede generarse un concurso sobre un cargo `no_vigente`.
 - El historial de ocupaciones anteriores se preserva (no se borra).
@@ -226,6 +248,11 @@ CARGO
 │   ├── razón: Desfinanciación
 │   └── razón: Modificación de Estructura
 │
+├── VALIDACION_VACANTE  (estado intermedio — campo cargos.estado)
+│   └── generado por padrón semanal (diff eliminado)
+│       ├── Confirmar baja → NO VIGENTE
+│       └── Rechazar (error) → VIGENTE
+│
 └── VIGENTE  (campo cargos.estado)
     ├── VACANTE  (condición derivada — no hay ocupacion con hasta IS NULL)
     │   ├── Sin concurso
@@ -311,7 +338,8 @@ CARGO
 | `escalafon_id` | UUID | FK → escalafones |
 | `codigo_repa` | VARCHAR(20) | Código de repartición SIAL |
 | `literal_puesto` | VARCHAR(200) | Descripción del puesto |
-| `estado` | `EstadoCargo` | `vigente` \| `no_vigente` |
+| `estado` | `EstadoCargo` | `vigente` \| `validacion_vacante` \| `no_vigente` |
+| `estado_desde` | DATE | Fecha en que el cargo entró al estado actual |
 
 **Clave de identidad estructural**: `(hospital_id, escalafon_id, codigo_repa, literal_puesto)`
 
@@ -342,7 +370,7 @@ CARGO
 | `fecha_baja` | DATE | Fecha en que se produce la vacante |
 | `tipo_baja` | VARCHAR(100) | Jubilación, Renuncia, etc. (campo libre) |
 | `genera_concurso` | BOOLEAN | Si `true`, habilita apertura de concurso |
-| `estado` | `EstadoBaja` | `pendiente` \| `confirmada` \| `anulada` |
+| `estado` | `EstadoBaja` | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
 
 ---
 
@@ -353,7 +381,10 @@ CARGO
 | (inexistente) | VIGENTE | Alta de cargo o diff `nuevo` en padrón |
 | VIGENTE + VACANTE | VIGENTE + OCUPADO | Nueva designación (insertar ocupación con `hasta = NULL`) |
 | VIGENTE + OCUPADO | VIGENTE + VACANTE | Cierre de ocupación (`hasta = fecha`) |
-| VIGENTE | NO VIGENTE | Diff `eliminado` en padrón / baja manual |
+| VIGENTE + OCUPADO | VALIDACION_VACANTE | Diff `eliminado` en padrón (cierra ocupación) |
+| VALIDACION_VACANTE | NO VIGENTE | Operador confirma baja en `/bajas/validacion` |
+| VALIDACION_VACANTE | VIGENTE | Operador rechaza baja en `/bajas/validacion` (reabre ocupación) |
+| VIGENTE | NO VIGENTE | Baja manual |
 | OCUPADO Activo | OCUPADO Retención | Designación en cargo superior |
 | OCUPADO Activo | OCUPADO Comisionado | Comisión de servicios |
 | OCUPADO Retención | OCUPADO Activo | Fin de retención |
