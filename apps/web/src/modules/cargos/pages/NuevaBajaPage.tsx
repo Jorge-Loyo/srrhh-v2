@@ -45,6 +45,7 @@ function ModalBuscarCargo({
             estado: 'validacion_vacante',
             ...(hospitalId && { hospitalId }),
             ...(busqueda.length >= 2 && { search: busqueda }),
+            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
           },
         }),
       ])
@@ -59,7 +60,7 @@ function ModalBuscarCargo({
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Filtrá por sigla, código o persona</p>
+            <p className="text-xs text-gray-500 mt-0.5">Filtrá por sigla, código, puesto, especialidad o persona</p>
           </div>
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
@@ -72,12 +73,12 @@ function ModalBuscarCargo({
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, puesto o especialidad..." className="input h-9 w-full text-sm" />
+            <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
             <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Usá los filtros para encontrar el cargo</p>}
+          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
           {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
           {activo && !isLoading && (data?.length ?? 0) === 0 && <p className="p-6 text-sm text-gray-400 text-center">Sin resultados.</p>}
           {activo && !isLoading && (data?.length ?? 0) > 0 && (
