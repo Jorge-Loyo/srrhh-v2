@@ -14,6 +14,15 @@ import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
 
 const LIMIT = 50
 
+// Calcula días entre una fecha ISO y hoy en calendario local (sin problema de timezone)
+function diasDesde(isoDate: string): number {
+  const hoy = new Date()
+  const desde = new Date(isoDate)
+  const hoyLocal = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+  const desdeLocal = Date.UTC(desde.getFullYear(), desde.getMonth(), desde.getDate())
+  return Math.floor((hoyLocal - desdeLocal) / 86_400_000)
+}
+
 const ESTADO_LABEL: Record<EstadoCargo, string> = {
   [EstadoCargo.VIGENTE]: 'Vigente',
   [EstadoCargo.NO_VIGENTE]: 'No vigente',
@@ -316,10 +325,10 @@ export function CargosPage() {
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {c.estado === EstadoCargo.VIGENTE
                           ? c.ocupadoDesde
-                            ? `${Math.floor((Date.now() - new Date(c.ocupadoDesde).getTime()) / 86_400_000)}d`
+                            ? `${diasDesde(c.ocupadoDesde)}d`
                             : '—'
                           : c.estadoDesde
-                            ? `${Math.floor((Date.now() - new Date(c.estadoDesde).getTime()) / 86_400_000)}d`
+                            ? `${diasDesde(c.estadoDesde)}d`
                             : '—'}
                       </td>
                       <td className="px-4 py-3">
