@@ -290,7 +290,9 @@ export function CargosPage() {
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
-                    <th className="px-4 py-3 font-semibold">Días</th>
+                    <th className="px-4 py-3 font-semibold" title="Vigente: días con la persona actual. No vigente/Validación: días en ese estado">
+                      Días
+                    </th>
                     <th className="px-4 py-3 font-semibold">Ocupación</th>
                     <th className="px-4 py-3 font-semibold rounded-tr-lg" />
                   </tr>
