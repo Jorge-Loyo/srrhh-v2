@@ -3,7 +3,7 @@
 // - id === UUID:    carga el concurso real de la API
 
 import { useState, useMemo, useEffect } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
@@ -67,6 +67,9 @@ export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const esNuevo = id === 'nuevo'
+
+  // El wizard solo funciona con un ID real — 'nuevo' ya no se usa
+  if (esNuevo) return <Navigate to="/concursos/cph" replace />
 
   // Leer concurso real cuando tiene ID
   const { data: cphData, isLoading } = useQuery({
