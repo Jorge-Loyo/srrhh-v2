@@ -27,6 +27,19 @@ export function useEscalafones(paraNuevaAlta = false) {
   })
 }
 
+export function useEscalafonesPorTipoAlta(tipo: 'pof' | 'pou' | 'estructura') {
+  const params: Record<string, string> = { paraNuevaAlta: 'true', tipoPuesto: tipo === 'estructura' ? 'conduccion' : 'ejecucion' }
+  if (tipo === 'pof') params.modalidad = 'pof'
+  if (tipo === 'pou') params.modalidad = 'pou'
+  return useQuery({
+    queryKey: ['escalafones-alta', tipo],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Escalafon[] }>('/api/v1/escalafones', { params })
+      return res.data.data
+    },
+  })
+}
+
 export function useCodigosRegistro() {
   return useQuery({
     queryKey: ['codigos-registro'],

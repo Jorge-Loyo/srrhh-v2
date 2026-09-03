@@ -7,6 +7,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto, useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCph, exportCphPdf, exportCphWord } from '@/shared/lib/exportConcursoDocs'
 import type { ConcursoCph } from '@srrhh/types'
@@ -271,11 +272,11 @@ export function ConcursoCphWizard() {
   const [especialidadConcurso, setEspecialidadConcurso] = useState('')
   const [siglaConcurso, setSiglaConcurso] = useState('')
   const [escalafonId, setEscalafonId] = useState('')
-  // Puestos de ejecución del escalafón seleccionado
+  // Puestos del escalafón seleccionado (sin filtrar por tipo)
   const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     undefined,
-    'ejecucion'
+    undefined
   )
   const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
@@ -316,6 +317,11 @@ export function ConcursoCphWizard() {
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
   const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })?.pendienteAutorizacion
+  const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })?.aprobadoDirector
+  const tieneCambioSiglaCr = !!(cphData as unknown as { siglaSolicitada?: string | null; codigoRegistroSolicitadoId?: string | null })?.siglaSolicitada
+    || !!(cphData as unknown as { codigoRegistroSolicitadoId?: string | null })?.codigoRegistroSolicitadoId
+  // SGRASV puede resolver si: no hay cambio de sigla/CR, o el director ya aprobó
+  const sgrasvPuedeResolver = pendienteAutorizacion && esSgrasv && (!tieneCambioSiglaCr || aprobadoDirector)
 
   const patchMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -519,16 +525,6 @@ export function ConcursoCphWizard() {
               </span>
               <span className="badge-default text-xs">{c.subEstado3}</span>
               {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
-              {getCasoCph(cphData).validacion && (
-                <ExportDropdown
-                  label="Validación"
-                  onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'validacion') : exportCphWord(cphData, 'validacion'))}
-                />
-              )}
-              <ExportDropdown
-                label="Autorización"
-                onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'autorizacion') : exportCphWord(cphData, 'autorizacion'))}
-              />
               <button
                 onClick={() => setSuspendido(!suspendido)}
                 className={c.suspendido ? 'btn-secondary text-xs py-1 px-3' : 'btn-danger text-xs py-1 px-3'}
@@ -584,6 +580,25 @@ export function ConcursoCphWizard() {
               )
             })}
           </div>
+
+          {/* Documentación — debajo del card de etapas */}
+          {!esNuevo && cphData && (
+            <div className="bg-white rounded-lg shadow-sm p-3 mt-3 space-y-1.5">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">
+                Documentación
+              </p>
+              {getCasoCph(cphData).validacion && (
+                <ExportDropdown
+                  label="Validación"
+                  onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'validacion') : exportCphWord(cphData, 'validacion'))}
+                />
+              )}
+              <ExportDropdown
+                label="Autorización"
+                onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'autorizacion') : exportCphWord(cphData, 'autorizacion'))}
+              />
+            </div>
+          )}
         </div>
 
         {/* Columna central — formulario de la etapa activa */}
@@ -603,7 +618,7 @@ export function ConcursoCphWizard() {
                 {pendienteAutorizacion && etapaActiva === 'baja' && (
                   <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
                 )}
-                {pendienteAutorizacion && esSgrasv && etapaActiva === 'baja' && (
+                {sgrasvPuedeResolver && etapaActiva === 'baja' && (
                   <button className="btn-primary text-xs py-1 px-3" onClick={() => setModalAutorizacion(true)}>Resolver autorización</button>
                 )}
               </div>
@@ -633,7 +648,15 @@ export function ConcursoCphWizard() {
                   <span className="text-amber-500 text-base mt-0.5">⏳</span>
                   <div>
                     <p className="font-semibold text-amber-800">Modificación pendiente de autorización</p>
-                    <p className="text-amber-700 text-xs mt-0.5">Se solicitó un cambio de sigla o código de registro. El rol <strong>SGRASV</strong> debe aprobar o rechazar antes de continuar.</p>
+                    {tieneCambioSiglaCr ? (
+                      aprobadoDirector ? (
+                        <p className="text-amber-700 text-xs mt-0.5">El <strong>Director</strong> ya aprobó. Esperando resolución final de <strong>SGRASV</strong>.</p>
+                      ) : (
+                        <p className="text-amber-700 text-xs mt-0.5">Se solicitó un cambio de sigla o código de registro. El rol <strong>Director</strong> debe autorizar primero, luego <strong>SGRASV</strong> confirma.</p>
+                      )
+                    ) : (
+                      <p className="text-amber-700 text-xs mt-0.5">Requiere autorización de <strong>SGRASV</strong> para continuar.</p>
+                    )}
                   </div>
                 </div>
               )}
@@ -670,7 +693,7 @@ export function ConcursoCphWizard() {
                             type="text"
                             defaultValue={campo.valor as string}
                             className="input h-10 w-full"
-                            disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                            disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
                         </div>
                       ))}
@@ -681,11 +704,11 @@ export function ConcursoCphWizard() {
                           value={siglaConcurso}
                           onChange={(e) => setSiglaConcurso(e.target.value)}
                           className="input h-10 w-full"
-                          disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                         >
                           <option value="">Seleccioná...</option>
                           {hospitales.map((h) => (
-                            <option key={h.id} value={h.sigla}>{h.sigla}</option>
+                            <option key={h.id} value={h.sigla}>{hospitalLabel(h)}</option>
                           ))}
                         </select>
                       </div>
@@ -696,7 +719,7 @@ export function ConcursoCphWizard() {
                           value={escalafonId}
                           onChange={(e) => { setEscalafonId(e.target.value); setPuestoConcurso(''); setEspecialidadConcurso('') }}
                           className="input h-10 w-full"
-                          disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                         >
                           <option value="">Seleccioná...</option>
                           {escalafonesOrdenados.map((e) => (
@@ -704,14 +727,14 @@ export function ConcursoCphWizard() {
                           ))}
                         </select>
                       </div>
-                      {/* Puesto del concurso — en cascada con escalafón */}
+                      {/* Puesto — en cascada con escalafón */}
                       <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto del concurso</label>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto</label>
                         <select
                           value={puestoConcurso}
                           onChange={(e) => { setPuestoConcurso(e.target.value); setEspecialidadConcurso('') }}
                           className="input h-10 w-full"
-                          disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                         >
                           <option value="">{escalafonId ? 'Seleccioná...' : 'Elegí un escalafón primero'}</option>
                           {puestosDisponibles.map((p) => (
@@ -727,7 +750,7 @@ export function ConcursoCphWizard() {
                             value={especialidadConcurso}
                             onChange={(e) => setEspecialidadConcurso(e.target.value)}
                             className="input h-10 w-full"
-                            disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                            disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           >
                             <option value="">Seleccioná...</option>
                             {especialidadesDisponibles.map((e) => (

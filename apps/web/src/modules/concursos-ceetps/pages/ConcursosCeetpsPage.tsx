@@ -5,6 +5,7 @@ import type { ConcursoCeetpsFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCeetps } from '../hooks/useConcursosCeetps'
 import { AlertasSinMovimientoCeetps } from '../components/AlertasSinMovimientoCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
@@ -66,7 +67,7 @@ export function ConcursosCeetpsPage() {
             <option value="">Todos los hospitales</option>
             {hospitales?.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.sigla}
+                {hospitalLabel(h)}
               </option>
             ))}
           </select>

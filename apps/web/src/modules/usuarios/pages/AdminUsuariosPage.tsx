@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/hooks/useAuth'
 import { useRoles } from '../../configuracion/hooks/useRoles'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios } from '../hooks/useUsuarios'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 
 // Mismas reglas que createUsuarioSchema en apps/api (usuarios.schema.ts) —
 // duplicado a propósito: no hay forma hoy de compartir el schema de zod en sí
@@ -140,7 +141,7 @@ export function AdminUsuariosPage() {
               <option value="">Sin asignar</option>
               {hospitales?.map((h) => (
                 <option key={h.id} value={h.id}>
-                  {h.sigla} — {h.nombre}
+                  {hospitalLabel(h)}
                 </option>
               ))}
             </select>
