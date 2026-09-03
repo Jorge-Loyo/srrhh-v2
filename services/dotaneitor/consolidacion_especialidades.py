@@ -14,21 +14,24 @@ Este modulo se importa desde especialidades.py y se aplica como paso previo al F
 tildes (formato_titulo_tecnico), igual que consolidacion_lit_puesto.py para LIT_PUESTO.
 """
 
+# Fallback hardcodeado — se sobreescribe con cargar_tablas_ref(engine).
 MAPEO_ESPECIALIDAD = {
-    # Typo de origen: "Toraxica" (con X) en vez de "Toracica" (con C). Confirmado porque
-    # Cargos_Salud ya trae el mismo caso bien escrito: LIT_ESP_CARGO = "Cirugía Torácica".
     'CIRUGIA TORAXICA': 'Cirugía Torácica',
-
-    # Errores de tipeo aislados (1 fila cada uno) de la misma especialidad que domina con 248
-    # filas en la hoja ESPECIALIDADES SUPLENTES. Confirmado con el usuario.
     'PSIQUATRIA': 'Psiquiatría',
     'PSIQUIATRA': 'Psiquiatría',
-
-    # "Trabajo Social y Servicio Social" (como viene en las hojas de referencia) es la misma
-    # especialidad que "Trabajo Social" (como viene directo en Cargos_Salud); confirmado con el
-    # usuario. "Servicio Social" sola se dejó a propósito sin fusionar: especialidad distinta.
     'TRABAJO SOCIAL Y SERVICIO SOCIAL': 'Trabajo Social',
 }
+
+
+def cargar_tablas_ref(engine):
+    """Carga MAPEO_ESPECIALIDAD desde ref_correcciones_especialidad en Postgres."""
+    global MAPEO_ESPECIALIDAD
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            'SELECT original, correccion FROM ref_correcciones_especialidad WHERE activo = true'
+        ))
+        MAPEO_ESPECIALIDAD = {r[0].strip().upper(): r[1] for r in rows}
 
 
 def normalizar_especialidad(valor):
