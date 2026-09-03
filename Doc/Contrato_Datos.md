@@ -120,22 +120,22 @@ Catálogo de escalafones. Tabla de referencia. Solo los registros con `activo = 
 
 **Escalafones activos con datos reales (post-auditoría 2026-09):**
 
-| Nombre | Cargos reales | Puestos catálogo | Códigos SIAL |
+| Nombre | Cargos reales | Puestos catálogo | Códigos SIAL | Prefijo interno |
 |---|---|---|---|
-| Nueva Carrera Profesional Hospitalaria | ~24.572 | 50 | 22, 37 |
-| CEETPS | ~14.638 | 28 | 85 |
-| Nueva Carrera Administrativa | ~6.341 | 156 | 83, 19 |
-| Salud - Guardias | ~4.274 | 23 | 23 |
-| Residentes | ~3.378 | 8 | 24 |
-| Docentes Históricos | ~443 | 8 | 7, 07 |
-| Carrera Gerencial | ~178 | 3 | 60 |
-| Plantas Transitorias Acta 06/2014 | ~70 | 1 | 65 |
-| Autoridades Superiores | ~42 | 4 | 25 |
-| Gabinete | ~34 | 1 | 17 |
-| Régimen Modular Extraordinario PG | ~10 | 1 | 17B |
-| Plantas Transitorias Modulo Operativo | ~3 | 1 | 16T |
-| Cuerpo Especialistas Profesionales | ~62 | 1 | 70 |
-| Nueva Carrera Enfermería | — | 2 | 87 |
+| Nueva Carrera Profesional Hospitalaria | ~24.572 | 50 | 22, 37 | `CPH-POF`, `CPH-POU`, `CPH-J-*`, `CPH-D`, `CPH-SD` |
+| CEETPS | ~14.638 | 28 | 85 | `TEC-POF`, `TEC-POU` |
+| Nueva Carrera Administrativa | ~6.341 | 156 | 83, 19 | `EG`, `EG-J`, `EG-D`, `EG-G` |
+| Salud - Guardias | ~4.274 | 23 | 23 | `CPH` (correcto — guardias son CPH) |
+| Residentes | ~3.378 | 8 | 24 | `RES` |
+| Docentes Históricos | ~443 | 8 | 7, 07 | `DOC` |
+| Carrera Gerencial | ~178 | 3 | 60 | `RG-CG` |
+| Plantas Transitorias Acta 06/2014 | ~70 | 1 | 65 | `PT` |
+| Autoridades Superiores | ~42 | 4 | 25 | `AS-DG`, `AS-SS`, `AS-MIN`, `AS-DGA` |
+| Gabinete | ~34 | 1 | 17 | `PG` |
+| Régimen Modular Extraordinario PG | ~10 | 1 | 17B | `PG` |
+| Plantas Transitorias Modulo Operativo | ~3 | 1 | 16T | `MO` |
+| Cuerpo Especialistas Profesionales | ~62 | 1 | 70 | `CT` |
+| Nueva Carrera Enfermería | — | 2 | 87 | `ENF` |
 
 **Regla:** `GET /api/v1/escalafones` filtra `activo = true`. Los registros inactivos son históricos (duplicados de migraciones anteriores) y no se eliminan por integridad referencial.
 
