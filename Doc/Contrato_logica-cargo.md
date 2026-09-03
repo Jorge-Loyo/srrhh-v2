@@ -27,6 +27,29 @@ Formato: `{ESCALAFON}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos}`
 
 Ejemplos: `CPH-POU-000056`, `RG-CG-000047`, `ENF-000012`
 
+**Tabla de prefijos por escalafón** (fuente de verdad: `shared/codigoCargo.ts`):
+
+| Prefijo | Escalafón / Condición |
+|---|---|
+| `CPH-POF` | Médicos — Planta de Oficio Fija |
+| `CPH-POU` | Médicos — Planta de Oficio Universitaria / Guardia |
+| `CPH-J-POF` / `CPH-J-POU` | Médicos — Jefaturas |
+| `CPH-D` | Médicos — Director |
+| `CPH-SD` | Médicos — Sub Director |
+| `ENF` | Nueva Carrera Enfermería |
+| `TEC-POF` / `TEC-POU` | CEETPS / Técnicos |
+| `EG` / `EG-J` / `EG-D` / `EG-G` | Escalafón General |
+| `AS-MIN` / `AS-SS` / `AS-DG` / `AS-DGA` | Autoridades Superiores |
+| `RG-CG` | Régimen Gerencial |
+| `SG` | Suplentes de Guardia |
+| `RES` | Residentes |
+| `DOC` | Docentes Históricos |
+| `PT` | Plantas Transitorias Acta 06/2014 |
+| `MO` | Plantas Transitorias Módulo Operativo (16T) |
+| `CT` | Cuerpos Transitorios |
+| `PG` | Gabinete |
+| `CARGO` | Fallback — escalafón desconocido (no debe ocurrir en datos limpios) |
+
 ---
 
 ## 2. Estados del cargo

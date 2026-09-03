@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { bajasQuerySchema, createBajaSchema } from './bajas.schema.js'
+import { bajasQuerySchema, createBajaSchema, updateBajaSchema } from './bajas.schema.js'
 import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
@@ -41,9 +41,9 @@ export async function bajasRoutes(app: FastifyInstance) {
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const { id } = request.params as { id: string }
-      const body = createBajaSchema.parse(request.body)
+      const body = updateBajaSchema.parse(request.body)
       const user = request.user as { id: string }
-      const data = await updateBajaService(id, body, user.id)
+      const data = await updateBajaService(id, body as any, user.id)
       return reply.send({ data })
     }
   )
