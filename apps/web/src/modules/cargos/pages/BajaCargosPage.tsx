@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { Baja, BajaFilters, PaginatedResponse } from '@srrhh/types'
+import type { Baja, BajaFilters, PaginatedResponse, EstadoBaja } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { useDebounce } from '@/shared/hooks/useDebounce'
@@ -115,7 +115,7 @@ export function BajaCargosPage() {
     page, limit: LIMIT,
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId      && { hospitalId }),
-    ...(estado          && { estado }),
+    ...(estado          && { estado: estado as EstadoBaja }),
   }
   const { data, isLoading, isFetching, isError } = useBajas(filters)
   const { data: hospitales } = useHospitales()
