@@ -1,7 +1,7 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 (Post-Sprint 8 + Auditoría de catálogos + Normalización bajas SIAL + Enriquecimiento hospitales)
+> Última actualización: 2026-09 (Post-Sprint 12 + Auditoría especialidad_legacy + pg_trgm)
 > Estado: VIGENTE
 
 ---
@@ -171,7 +171,9 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 | `escalafon_id` | UUID FK → escalafones | — |
 | `codigo_registro_id` | UUID FK → codigos_registro | — |
 | `literal_puesto` | VARCHAR(200) | Descripción del puesto |
-| `especialidad` | VARCHAR(200) | Especialidad si aplica |
+| `especialidad_legacy` | VARCHAR(200) | Especialidad como texto libre (renombrada de `especialidad` en migración `20260910000001_especialidades_fk`). **Fuente de verdad para mostrar especialidad en UI.** |
+| `especialidad_id` | UUID FK → especialidades nullable | FK al catálogo normalizado de especialidades (migración `20260910000001_especialidades_fk`). 16.853 cargos con FK activa. |
+| `especialidad` | ~~VARCHAR(200)~~ | **Columna eliminada de BD.** No existe en la tabla real. Todo el código usa `especialidad_legacy`. |
 | `agrupador` | VARCHAR(150) | Agrupador funcional |
 | `unificador_puesto` | VARCHAR(200) | Unificador de puestos |
 | `regimen` | VARCHAR(50) | Régimen de empleo (Salud / General / Docente) |
@@ -551,7 +553,17 @@ Catálogo normalizado de puestos por escalafón. Alimenta los selectores de form
 ## Catálogos de apoyo
 
 ### `especialidades`
-Catálogo de especialidades médicas. Vacío actualmente — pendiente de poblar (ver Dotaneitor_Analisis.md paso 15). `Cargo` mantiene `especialidad` como texto libre hasta que se complete la migración.
+Catálogo normalizado de especialidades médicas. **181 registros activos.** Relacionado con `cargos` vía `especialidad_id` FK (16.853 cargos con FK activa).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | — |
+| `nombre` | VARCHAR(200) | Nombre canónico de la especialidad |
+| `created_at` | TIMESTAMPTZ | — |
+
+**Búsqueda:** el endpoint `GET /api/v1/cargos` usa `pg_trgm` (extensión `pg_trgm`, migración `20260910000002_pg_trgm`) para búsqueda fuzzy por especialidad — `similarity(e.nombre, $query) > 0.4` cubre variantes morfológicas ("cardiologo" → "Cardiologia"). JOIN: `LEFT JOIN especialidades e ON e.id = c.especialidad_id`.
+
+**Patrón de fallback en frontend:** todo el código usa `especialidadLegacy ?? especialidad` para compatibilidad. El campo `especialidad` en el tipo `Cargo` de `packages/types` está marcado `@deprecated`.
 
 ### Tablas `ref_*` (mapeos Dotaneitor)
 Se cargan una vez y se actualizan cuando cambian las reglas de negocio. Reemplazan los datos hardcodeados que tenía el Dotaneitor original.

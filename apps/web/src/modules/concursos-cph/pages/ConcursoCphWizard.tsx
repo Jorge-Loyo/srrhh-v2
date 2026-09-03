@@ -143,7 +143,7 @@ export function ConcursoCphWizard() {
       hospitalNombre: c?.hospital?.nombre ?? '',
       cargo:          c?.cargo?.codigo ?? '',
       puesto:         c?.cargo?.literalPuesto ?? '—',
-      especialidad:   cphData.especialidadSolicitada ?? c?.cargo?.especialidad ?? '—',
+      especialidad:   cphData.especialidadSolicitada ?? (c?.cargo as any)?.especialidadLegacy ?? c?.cargo?.especialidad ?? '—',
       escalafon:      'CPH',
       personaBaja:    c?.persona?.apellidoNombre ?? '—',
       fechaBaja:      fechaBajaVal,
@@ -291,7 +291,7 @@ export function ConcursoCphWizard() {
 
   useEffect(() => {
     if (!cphData) return
-    type CargoCph = { hospital?: { sigla?: string }; codigoRegistro?: { id?: string; literal?: string }; literalPuesto?: string; especialidad?: string }
+    type CargoCph = { hospital?: { sigla?: string }; codigoRegistro?: { id?: string; literal?: string }; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
     // Resolver escalafonId desde el codigoRegistro del cargo
@@ -307,12 +307,12 @@ export function ConcursoCphWizard() {
     }
     setEscalafonId(resolvedEscalafonId)
     setPuestoConcurso(cargo?.literalPuesto ?? '')
-    setEspecialidadConcurso(cphData.especialidadSolicitada ?? cargo?.especialidad ?? '')
+    setEspecialidadConcurso(cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? '')
     setOriginales({
       sigla: cargo?.hospital?.sigla ?? '',
       escalafonId: resolvedEscalafonId,
       puesto: cargo?.literalPuesto ?? '',
-      especialidad: cphData.especialidadSolicitada ?? cargo?.especialidad ?? '',
+      especialidad: cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? '',
     })
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)

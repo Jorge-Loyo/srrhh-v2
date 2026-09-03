@@ -145,7 +145,9 @@ export interface Cargo {
   escalafonId: string
   codigoRegistroId: string | null
   literalPuesto: string | null
-  especialidad: string | null
+  especialidad: string | null        // @deprecated — usar especialidadLegacy
+  especialidadLegacy: string | null
+  especialidadId: string | null
   agrupador: string | null
   unificadorPuesto: string | null
   regimen: string | null
