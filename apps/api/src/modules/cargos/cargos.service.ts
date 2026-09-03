@@ -115,6 +115,7 @@ export async function listCargosService(query: CargosQuery) {
         ocupaciones: {
           where: { hasta: null },
           include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+          orderBy: { cargoDesdeFecha: 'desc' },
           take: 1,
         },
       },
@@ -128,7 +129,11 @@ export async function listCargosService(query: CargosQuery) {
     data: cargos.map(({ ocupaciones, ...c }) => ({
       ...c,
       ocupado: ocupaciones.length > 0,
-      ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha ?? null,
+      ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha
+        ? (ocupaciones[0].cargoDesdeFecha instanceof Date
+            ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
+            : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10))
+        : null,
       personaOcupante: ocupaciones[0]?.persona
         ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
         : null,
