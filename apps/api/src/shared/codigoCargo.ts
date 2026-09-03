@@ -28,6 +28,7 @@ import { prisma } from './prisma.js'
 //   Suplentes de Guardia                            → SG
 //   Residentes                                      → RES
 //   Docentes                                        → DOC
+//   Plantas Transitorias Módulo Operativo            → MO
 //   Fallback (escalafón desconocido)                → CARGO
 
 function normStr(s: string | null | undefined): string {
@@ -94,6 +95,7 @@ export function prefijoDeCargo(params: {
   if (esc.includes('TRANSITORIA') && esc.includes('PLANTA')) return 'PT'
   if (esc.includes('TRANSITORIO') || esc.includes('CUERPO')) return 'CT'
   if (esc.includes('GABINETE'))                              return 'PG'
+  if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return 'MO'
 
   return 'CARGO'
 }
