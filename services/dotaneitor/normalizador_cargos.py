@@ -16,29 +16,12 @@ import pandas as pd
 
 from consolidacion_lit_puesto import normalizar_lit_puesto
 
+# Valores por defecto (fallback si BD no está disponible al importar el módulo).
+# Se sobreescriben llamando a cargar_tablas_ref(engine) desde main.py al arrancar.
 CONECTORES_MINUSCULA = {
     'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'por', 'para', 'con', 'sin', 'a', 'al', 'o',
 }
-
-# Sufijos ordinales que van pegados a un numero (ej. "1ER", "3RO", "4TO") y se dejan en minuscula.
-# Acotado a este conjunto para no atrapar pisos/departamentos pegados a un numero en domicilios
-# (ej. "6F", "7B", "12A"), que deben quedar en mayuscula.
 SUFIJOS_ORDINALES = {'er', 'ero', 'do', 'da', 'ro', 'ra', 'to', 'ta', 'vo', 'va', 'mo', 'ma', 'no', 'na'}
-
-COLUMNAS_FECHA = ['FEC_NACIM', 'BLOQ_DESDE', 'CARGO_DESDE', 'CARGO_HASTA', 'SALUD_1ER_CARGO', 'POU_DESDE']
-COLUMNAS_EMAIL = ['MAIL_PERSONAL', 'MAIL_LABORAL']
-
-# Columnas de vocabulario controlado (puestos, especialidades, dependencias, etc.) donde se aplica
-# Formato Titulo (no se restituyen tildes faltantes: si el dato de origen no trae la tilde, el
-# resultado tampoco la trae; si ya la trae, se preserva).
-COLUMNAS_VOCABULARIO_TECNICO = [
-    'LIT_PUESTO', 'LIT_ESP_CARGO', 'DESC_REP', 'ESCALAFON', 'REGIMEN', 'SIT_REV',
-    'LIT_AGRUPAMIENTO', 'LIT_FAMILIA', 'LIT_COD_REG', 'BL_MOTIVO', 'DIA',
-    'SR_DESC_WU_COMISION', 'LOCALIDAD', 'DOMICILIO',
-]
-
-# Abreviaturas / siglas institucionales que no se deben tildar ni recasear (quedan tal cual, en mayuscula,
-# sin importar como venga el dato de origen: son siglas institucionales que siempre van en mayuscula completa)
 ABREVIATURAS_TECNICAS = {
     'SECC', 'UNID', 'DIV', 'DEPT', 'GO', 'SGO', 'SS', 'SGA', 'CESAC', 'CESACS', 'SUP', 'SDHOS',
     'CEETPS', 'NCE', 'SAME', 'UCO', 'CODEI', 'CYMAT', 'EDUC',
@@ -49,13 +32,45 @@ ABREVIATURAS_TECNICAS = {
     'HGNRG', 'HGACA', 'HGADS', 'HGAJAF', 'HGARM', 'HGACD', 'HGAPP', 'HGAIP', 'HGAP', 'HBR', 'HGATA',
     'HGNPE', 'HGAT', 'HGAVS', 'HGAZ', 'GCABA', 'MSGC', 'SIAL', 'SIGEHOS',
 }
-
-# Abreviaturas de tratamiento/rol (Dra., Prof., Lic., etc.) que siempre se escriben con mayuscula
-# inicial solamente, sin importar como venga el dato de origen (a diferencia de las siglas
-# institucionales de arriba, que siempre van en mayuscula completa). Sin esto, una fuente que
-# viene toda en mayuscula (ej. "LIC. EN NUTRICION") quedaba con la abreviatura pegada en
-# mayuscula ("LIC. en Nutrición") en vez de "Lic. en Nutrición".
 ABREVIATURAS_TITULO = {'DRA', 'PROF', 'MED', 'DIR', 'LIC'}
+
+
+def cargar_tablas_ref(engine):
+    """Carga CONECTORES_MINUSCULA, SUFIJOS_ORDINALES, ABREVIATURAS_TECNICAS y
+    ABREVIATURAS_TITULO desde Postgres. Llamar desde main.py al arrancar."""
+    global CONECTORES_MINUSCULA, SUFIJOS_ORDINALES, ABREVIATURAS_TECNICAS, ABREVIATURAS_TITULO
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        CONECTORES_MINUSCULA = {
+            r[0] for r in conn.execute(text(
+                "SELECT conector FROM ref_conectores_minuscula WHERE activo = true"
+            ))
+        }
+        SUFIJOS_ORDINALES = {
+            r[0] for r in conn.execute(text(
+                "SELECT sufijo FROM ref_sufijos_ordinales WHERE activo = true"
+            ))
+        }
+        ABREVIATURAS_TECNICAS = {
+            r[0] for r in conn.execute(text(
+                "SELECT sigla FROM ref_abreviaturas_tecnicas WHERE activo = true"
+            ))
+        }
+        ABREVIATURAS_TITULO = {
+            r[0] for r in conn.execute(text(
+                "SELECT titulo FROM ref_abreviaturas_titulo WHERE activo = true"
+            ))
+        }
+
+
+COLUMNAS_FECHA = ['FEC_NACIM', 'BLOQ_DESDE', 'CARGO_DESDE', 'CARGO_HASTA', 'SALUD_1ER_CARGO', 'POU_DESDE']
+COLUMNAS_EMAIL = ['MAIL_PERSONAL', 'MAIL_LABORAL']
+
+COLUMNAS_VOCABULARIO_TECNICO = [
+    'LIT_PUESTO', 'LIT_ESP_CARGO', 'DESC_REP', 'ESCALAFON', 'REGIMEN', 'SIT_REV',
+    'LIT_AGRUPAMIENTO', 'LIT_FAMILIA', 'LIT_COD_REG', 'BL_MOTIVO', 'DIA',
+    'SR_DESC_WU_COMISION', 'LOCALIDAD', 'DOMICILIO',
+]
 
 _PATRON_MOJIBAKE = re.compile('[\xc2\xc3][\x80-\xbf]')
 

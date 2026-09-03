@@ -20,7 +20,10 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 
 # ── Módulos de lógica de negocio ──────────────────────────────────────────────
-from normalizador_cargos import NormalizadorCargos
+from normalizador_cargos import NormalizadorCargos, cargar_tablas_ref as _cargar_normalizador
+from consolidacion_lit_puesto import cargar_tablas_ref as _cargar_lit_puesto
+from consolidacion_especialidades import cargar_tablas_ref as _cargar_especialidades
+from especialidad_por_agrupador import cargar_tablas_ref as _cargar_esp_por_puesto
 from especialidades import (
     ConsolidadorEspecialidades,
     completar_especialidad,
@@ -52,6 +55,15 @@ if not DATABASE_URL:
 
 # SQLAlchemy engine — pool pequeño, Dotaneitor no tiene carga concurrente alta
 _engine = create_engine(DATABASE_URL, pool_size=2, max_overflow=2, pool_pre_ping=True)
+
+# Cargar tablas de referencia desde BD al arrancar
+def _cargar_todas_las_tablas_ref():
+    _cargar_normalizador(_engine)
+    _cargar_lit_puesto(_engine)
+    _cargar_especialidades(_engine)
+    _cargar_esp_por_puesto(_engine)
+
+_cargar_todas_las_tablas_ref()
 
 SESSION_TTL = 7200
 
