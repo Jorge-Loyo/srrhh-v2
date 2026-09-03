@@ -102,11 +102,11 @@ export function PersonaDetailPanel() {
                       <span className="text-white/50 font-normal">Rol actual: </span>{puestoVisible.cargo.literalPuesto}
                     </p>
                   )}
-                  {puestoVisible.cargo.especialidad && (
+                  {puestoVisible.cargo.especialidadLegacy ?? puestoVisible.cargo.especialidad ? (
                     <p className="text-white/70 text-xs mt-0.5">
-                      <span className="text-white/40 font-normal">Especialidad: </span>{puestoVisible.cargo.especialidad}
+                      <span className="text-white/40 font-normal">Especialidad: </span>{puestoVisible.cargo.especialidadLegacy ?? puestoVisible.cargo.especialidad}
                     </p>
-                  )}
+                  ) : null}
                 </>
               )
             })()}
@@ -194,7 +194,7 @@ export function PersonaDetailPanel() {
                     </dl>
                     <dl className="space-y-3">
                       <Dato label="Reparticion" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} - ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
-                      <Dato label="Especialidad" value={o.cargo.especialidad} />
+                      <Dato label="Especialidad" value={o.cargo.especialidadLegacy ?? o.cargo.especialidad} />
                       <Dato label="Desde" value={formatFecha(o.cargoDesdeFecha)} />
                       {!esBaja && <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />}
                     </dl>
@@ -253,7 +253,7 @@ export function PersonaDetailPanel() {
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.literalPuesto ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.hospital?.sigla ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidad ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidadLegacy ?? o.cargo.especialidad ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoDesdeFecha) ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoHastaFecha) ?? '—'}</td>
                       <td className="px-4 py-3">

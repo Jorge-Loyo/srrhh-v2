@@ -119,7 +119,7 @@ export function CargosPage() {
         cargos.map((c) => ({
           'Código Cargo': c.codigo ?? '',
           Puesto: c.literalPuesto ?? '',
-          Especialidad: c.especialidad ?? '',
+          Especialidad: c.especialidadLegacy ?? c.especialidad ?? '',
           Agrupador: c.agrupador ?? '',
           'Unificador de Puesto': c.unificadorPuesto ?? '',
           Hospital: c.hospital?.sigla ?? '',

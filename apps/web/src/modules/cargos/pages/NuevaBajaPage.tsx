@@ -56,7 +56,7 @@ function ModalBuscarCargo({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onCerrar} />
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col">
+      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
@@ -85,26 +85,29 @@ function ModalBuscarCargo({
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Código</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Puesto / Especialidad</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Persona</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Estado</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Código</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Puesto</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Especialidad</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Persona</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {data?.map((c) => (
                   <tr key={c.id} onClick={() => onSeleccionar(c)} className="cursor-pointer hover:bg-blue-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{c.codigo ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-gray-800">{c.literalPuesto ?? '—'}</span>
-                      {c.especialidad && <span className="text-gray-400 ml-1">· {c.especialidad}</span>}
+                    <td className="px-3 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">{c.codigo ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{c.hospital?.sigla ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[220px]">
+                      <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">
+                    <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[140px]">
+                      {c.especialidadLegacy ?? c.especialidad ?? <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[160px]">
                       {c.personaOcupante ? c.personaOcupante.apellidoNombre : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5 whitespace-nowrap">
                       <span className={c.estado === 'validacion_vacante' ? 'badge-warning' : c.ocupado ? 'badge-success' : 'badge-warning'}>
                         {c.estado === 'validacion_vacante' ? 'En validación' : c.ocupado ? 'Ocupado' : 'Vacante'}
                       </span>
@@ -178,7 +181,7 @@ function derivarDesdeCargo(det: CargoDetail) {
     escalafon,
     pouPof,
     puesto: det.literalPuesto ?? '',
-    especialidad: det.especialidad ?? '',
+    especialidad: det.especialidadLegacy ?? det.especialidad ?? '',
   }
 }
 
