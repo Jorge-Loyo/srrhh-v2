@@ -8,6 +8,7 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/useCatalogos'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useCargos } from '../hooks/useCargos'
 import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
 
@@ -168,7 +169,7 @@ export function CargosPage() {
           >
             <option value="">Todos los hospitales</option>
             {hospitales?.map((h) => (
-              <option key={h.id} value={h.id}>{h.sigla}</option>
+              <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>
             ))}
           </select>
           <select

@@ -238,8 +238,13 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
   }
 
   // Paso 2: sgrasv resuelve definitivamente
+  // Si hubo cambio de sigla/CR, requiere que el director haya aprobado primero.
+  // Si no hubo cambio de sigla/CR (solo autorización de etapa), puede resolver directamente.
   if (rolSlug === 'sgrasv') {
-    if (!existing.aprobadoDirector) throw AppError.conflict('El Director aún no aprobó esta solicitud')
+    const requiereDirector = !!(existing.siglaSolicitada || existing.codigoRegistroSolicitadoId)
+    if (requiereDirector && !existing.aprobadoDirector) {
+      throw AppError.conflict('El Director debe autorizar el cambio de sigla o código de registro antes de que SGRASV pueda resolver')
+    }
     const updated = await prisma.concursoCph.update({
       where: { id },
       data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },

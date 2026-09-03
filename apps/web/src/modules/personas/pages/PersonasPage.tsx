@@ -7,6 +7,7 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { usePersonas, usePuestos } from '../hooks/usePersonas'
 
 const LIMIT = 50
@@ -162,7 +163,7 @@ export function PersonasPage() {
             <option value="">Todos los hospitales</option>
             {hospitales?.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.sigla}
+                {hospitalLabel(h)}
               </option>
             ))}
           </select>

@@ -1,7 +1,7 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 (Post-Sprint 8 + Auditoría de catálogos + Normalización bajas SIAL)
+> Última actualización: 2026-09 (Post-Sprint 8 + Auditoría de catálogos + Normalización bajas SIAL + Enriquecimiento hospitales)
 > Estado: VIGENTE
 
 ---
@@ -76,19 +76,33 @@ Una fila por persona única. Existe aunque ya no trabaje.
 ---
 
 ### `hospitales`
-Efectores del sistema de salud. Tabla de referencia.
+Efectores del sistema de salud. Tabla de referencia. Fuente de verdad para todos los selectores de sigla en la UI.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id` | UUID PK | — |
-| `sigla` | VARCHAR(20) UNIQUE | Código del efector (ej: HGACA) |
-| `nombre` | VARCHAR(200) | Nombre completo |
-| `universo_totalizador` | VARCHAR(100) | Agrupador de universo |
-| `tipo` | VARCHAR(100) | Tipo de hospital |
-| `monovalencia` | VARCHAR(100) | — |
-| `activo` | BOOLEAN | — |
+| `sigla` | VARCHAR(20) UNIQUE | Código del efector (ej: HGAIP) |
+| `nombre` | VARCHAR(200) | Nombre corto del efector (ej: Hospital Pirovano) |
+| `universo_totalizador` | VARCHAR(100) | Agrupador de universo: `Hospitales` \| `APS` \| `Nivel Central` \| `SAME` \| `Bienestar` |
+| `tipo` | VARCHAR(100) | Subtipo: `Hospitales de Agudos` \| `Hospitales Monovalentes` \| `Hospitales de Salud Mental` \| `Hospitales de Niños` \| `SS Atención Hospitalaria` \| etc. |
+| `monovalencia` | VARCHAR(100) nullable | Especialidad monovalente si aplica (ej: `Oncología`, `Infectología`) |
+| `activo` | BOOLEAN default true | Si false, no aparece en selectores de la UI |
 | `created_at` | TIMESTAMPTZ | — |
 | `updated_at` | TIMESTAMPTZ | — |
+
+**Datos:** 75 registros. Fuente: tabla `siglas` de dotacion-rrhh (migración `20260908000000_hospitales_enriquecer`).
+
+**Uso en selectores:** los desplegables de sigla muestran `{sigla} — {nombre}` y pueden filtrarse por `universo_totalizador` o `tipo`. El endpoint `GET /api/v1/hospitales` devuelve todos los campos para permitir filtrado en el frontend.
+
+**Universos disponibles:**
+
+| universo_totalizador | Descripción |
+|---|---|
+| `Hospitales` | Hospitales de la red (agudos, monovalentes, salud mental, niños) |
+| `APS` | Atención Primaria de la Salud (Cesacs, Áreas Programáticas) |
+| `Nivel Central` | Direcciones Generales y Subsecretarías del Ministerio |
+| `SAME` | Sistema de Atención Médica de Emergencias |
+| `Bienestar` | Secretaría de Bienestar y Personas Mayores |
 
 ---
 

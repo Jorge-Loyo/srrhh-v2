@@ -694,8 +694,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     for (const sigla of siglasNecesarias) {
       if (hospitalCache.has(sigla)) continue
       const datos = nuevos.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
-      const h = await tx.hospital.create({
-        data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla ?? null },
+      // upsert: si ya existe (cargado por la migración de enriquecimiento) lo
+      // devuelve sin tocar sus campos descriptivos. Si es genuinamente nuevo
+      // (sigla desconocida) lo crea con los datos disponibles del padrón.
+      const h = await tx.hospital.upsert({
+        where: { sigla },
+        update: {},  // no sobreescribir nombre/tipo/universo_totalizador/monovalencia ya enriquecidos
+        create: {
+          sigla,
+          nombre: sigla,
+          tipo: datos.tipo_hospital_sigla || null,
+        },
       })
       hospitalCache.set(sigla, h)
     }

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Cargo, CreateCargoRequest } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto, useAltasCargos } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto, useAltasCargos } from '@/shared/hooks/useCatalogos'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -63,24 +64,6 @@ function modalidadParaTipo(tipo: TipoAlta): 'pof' | 'pou' | 'ambos' {
   return 'ambos'
 }
 
-// Escalafones permitidos por tipo de alta (nombres en BD)
-const ESC_POF = new Set([
-  'Nueva Carrera Prof. Hosp', 'Nueva Carrera Enfermería',
-  'CEETPS', 'Nueva Carrera Administrativa',
-])
-const ESC_POU = new Set([
-  'Nueva Carrera Prof. Hosp', 'CEETPS', 'Nueva Carrera Enfermería',
-  'Cuerpo Especialistas Profesionales', 'Nueva Carrera Administrativa',
-])
-const ESC_ESTRUCTURA = new Set([
-  'Nueva Carrera Administrativa', 'Autoridades Superiores', 'Carrera Gerencial',
-  'Plantas Transitorias Acta 06/2014', 'Plantas Transitorias Modulo Operativo',
-])
-
-function filtrarEscalafones(todos: { id: string; nombre: string }[], tipo: TipoAlta) {
-  const permitidos = tipo === 'pof' ? ESC_POF : tipo === 'pou' ? ESC_POU : ESC_ESTRUCTURA
-  return todos.filter((e) => permitidos.has(e.nombre))
-}
 
 interface ItemPendiente {
   id: string
@@ -155,9 +138,8 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
 
-  const { data: hospitales  = [] } = useHospitales()
-  const { data: escalafones = [] } = useEscalafones(true)
-  const escalafonesFiltrados = filtrarEscalafones(escalafones, tipo)
+  const { data: hospitales        = [] } = useHospitales()
+  const { data: escalafonesFiltrados = [] } = useEscalafonesPorTipoAlta(tipo)
 
   const escNombre         = escalafonesFiltrados.find((e) => e.id === escalafonId)?.nombre ?? ''
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
@@ -182,7 +164,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   function handleAgregar() {
     if (!formCompleto || !modalidadEfectiva) return
     const hospital = hospitales.find((h) => h.id === hospitalId)
-    const esc      = escalafones.find((e) => e.id === escalafonId)
+    const esc      = escalafonesFiltrados.find((e) => e.id === escalafonId)
     onAgregar({
       id:               crypto.randomUUID(),
       tipo,
@@ -242,7 +224,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Sigla <span className="text-danger">*</span></label>
             <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
-              {hospitales.map((h) => <option key={h.id} value={h.id}>{h.sigla} — {h.nombre}</option>)}
+              {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
             </select>
           </div>
           <div>
