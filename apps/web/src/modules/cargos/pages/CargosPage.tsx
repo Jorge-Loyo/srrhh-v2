@@ -191,7 +191,17 @@ export function CargosPage() {
           />
           <select
             value={estado}
-            onChange={(e) => setParam('estado', e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                if (v) next.set('estado', v); else next.delete('estado')
+                // si el nuevo estado no admite filtro de ocupación, limpiarlo
+                if (v === EstadoCargo.NO_VIGENTE || v === EstadoCargo.VALIDACION_VACANTE) next.delete('ocupado')
+                next.delete('page')
+                return next
+              })
+            }}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los estados</option>
@@ -202,7 +212,8 @@ export function CargosPage() {
           <select
             value={ocupado}
             onChange={(e) => setParam('ocupado', e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            disabled={estado === EstadoCargo.NO_VIGENTE || estado === EstadoCargo.VALIDACION_VACANTE}
+            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <option value="">Ocupados y vacantes</option>
             <option value="true">Solo ocupados</option>
