@@ -39,14 +39,20 @@ export async function listCargosService(query: CargosQuery) {
   let searchIds: string[] | undefined
   if (search) {
     const like = `%${search}%`
+    const term = search.toLowerCase()
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT id FROM cargos
-      WHERE unaccent(id_sial) ILIKE unaccent(${like})
-         OR unaccent(codigo) ILIKE unaccent(${like})
-         OR unaccent(literal_puesto) ILIKE unaccent(${like})
-         OR unaccent(coalesce(especialidad_legacy, '')) ILIKE unaccent(${like})
-         OR unaccent(agrupador) ILIKE unaccent(${like})
-         OR unaccent(coalesce(unificador_puesto, '')) ILIKE unaccent(${like})
+      SELECT c.id FROM cargos c
+      LEFT JOIN especialidades e ON e.id = c.especialidad_id
+      WHERE unaccent(c.id_sial) ILIKE unaccent(${like})
+         OR unaccent(c.codigo) ILIKE unaccent(${like})
+         OR unaccent(c.literal_puesto) ILIKE unaccent(${like})
+         OR unaccent(coalesce(c.especialidad_legacy, '')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(e.nombre, '')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(c.agrupador, '')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(c.unificador_puesto, '')) ILIKE unaccent(${like})
+         OR similarity(unaccent(lower(coalesce(c.especialidad_legacy, ''))), unaccent(${term})) > 0.4
+         OR similarity(unaccent(lower(coalesce(e.nombre, ''))), unaccent(${term})) > 0.4
+         OR similarity(unaccent(lower(coalesce(c.literal_puesto, ''))), unaccent(${term})) > 0.4
     `)
     searchIds = rows.map((r) => r.id)
   }
@@ -239,7 +245,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           escalafonId:      body.escalafonId,
           codigoRegistroId: body.codigoRegistroId ?? null,
           literalPuesto:    body.literalPuesto,
-          especialidad:     body.especialidad ?? null,
+          especialidadLegacy: body.especialidad ?? null,
           agrupador:        body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
           regimen:          body.regimen ?? null,

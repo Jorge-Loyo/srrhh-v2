@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 12 — UX bajas, wizard CPH, permisos UI)
+> Última actualización: 2026-09 (Post-Sprint 12 + Auditoría especialidad_legacy + pg_trgm)
 > Estado: VIGENTE
 
 ---
@@ -202,6 +202,17 @@ El sistema de permisos fue migrado de `roles.middleware.ts` (roles hardcodeados)
 | `sgrasv` | Resolver autorizaciones de cambio de sigla/CR en concursos CPH. Permiso: `concursos-cph.autorizar` |
 | `concursales_cph` | Lectura total + escritura en concursos CPH y bajas |
 | `concursales_ceetps` | Lectura total + escritura en concursos CEETPS y bajas |
+
+---
+
+## Módulo Cargos — especialidad_legacy y búsqueda fuzzy
+
+La columna `especialidad` fue renombrada a `especialidad_legacy` en la migración `20260910000001_especialidades_fk`. Se agregó `especialidad_id` FK → `especialidades`.
+
+**Reglas:**
+- `createCargoService` escribe en `especialidadLegacy` (no en `especialidad`, que ya no existe en BD).
+- `listCargosService` usa query raw con `LEFT JOIN especialidades e ON e.id = c.especialidad_id` y búsqueda por `similarity(e.nombre, $query) > 0.4` (extensión `pg_trgm`, migración `20260910000002_pg_trgm`).
+- El tipo `Cargo` en `packages/types` tiene `especialidadLegacy: string | null`, `especialidadId: string | null` y `especialidad: string | null // @deprecated`.
 
 ---
 
