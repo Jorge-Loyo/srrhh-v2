@@ -14,6 +14,15 @@ import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
 
 const LIMIT = 50
 
+// Calcula días entre una fecha ISO y hoy en calendario local (sin problema de timezone)
+function diasDesde(isoDate: string): number {
+  const hoy = new Date()
+  const desde = new Date(isoDate)
+  const hoyLocal = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+  const desdeLocal = Date.UTC(desde.getFullYear(), desde.getMonth(), desde.getDate())
+  return Math.floor((hoyLocal - desdeLocal) / 86_400_000)
+}
+
 const ESTADO_LABEL: Record<EstadoCargo, string> = {
   [EstadoCargo.VIGENTE]: 'Vigente',
   [EstadoCargo.NO_VIGENTE]: 'No vigente',
@@ -61,7 +70,7 @@ export function CargosPage() {
     ...(puesto && { puesto }),
     ...(especialidad && { especialidad }),
     ...(estado && { estado }),
-    ...(ocupado && { ocupado: ocupado === 'true' }),
+    ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
@@ -213,7 +222,17 @@ export function CargosPage() {
           )}
           <select
             value={estado}
-            onChange={(e) => setParam('estado', e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                if (v) next.set('estado', v); else next.delete('estado')
+                // si el nuevo estado no admite filtro de ocupación, limpiarlo
+                if (v === EstadoCargo.NO_VIGENTE || v === EstadoCargo.VALIDACION_VACANTE) next.delete('ocupado')
+                next.delete('page')
+                return next
+              })
+            }}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
             <option value="">Todos los estados</option>
@@ -224,7 +243,8 @@ export function CargosPage() {
           <select
             value={ocupado}
             onChange={(e) => setParam('ocupado', e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            disabled={estado === EstadoCargo.NO_VIGENTE || estado === EstadoCargo.VALIDACION_VACANTE}
+            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <option value="">Ocupados y vacantes</option>
             <option value="true">Solo ocupados</option>
@@ -247,7 +267,7 @@ export function CargosPage() {
           if (puesto) chips.push({ label: puesto, key: 'puesto' })
           if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
-          if (ocupado) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
+          if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (chips.length === 0) return null
           return (
             <div className="flex flex-wrap gap-2">
@@ -303,7 +323,9 @@ export function CargosPage() {
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
-                    <th className="px-4 py-3 font-semibold">Días</th>
+                    <th className="px-4 py-3 font-semibold" title="Vigente: días con la persona actual. No vigente/Validación: días en ese estado">
+                      Días
+                    </th>
                     <th className="px-4 py-3 font-semibold">Ocupación</th>
                     <th className="px-4 py-3 font-semibold rounded-tr-lg" />
                   </tr>
@@ -326,9 +348,13 @@ export function CargosPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
-                        {c.estadoDesde && c.estado !== EstadoCargo.VIGENTE
-                          ? `${Math.floor((Date.now() - new Date(c.estadoDesde).getTime()) / 86_400_000)}d`
-                          : '—'}
+                        {c.estado === EstadoCargo.VIGENTE
+                          ? c.ocupadoDesde
+                            ? `${diasDesde(c.ocupadoDesde)}d`
+                            : '—'
+                          : c.estadoDesde
+                            ? `${diasDesde(c.estadoDesde)}d`
+                            : '—'}
                       </td>
                       <td className="px-4 py-3">
                         {c.estado === EstadoCargo.VIGENTE && (

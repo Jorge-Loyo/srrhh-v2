@@ -24,6 +24,7 @@ export const HUB_PLANILLAS: HubCategoria[] = [
       { nombre: 'ANÁLISIS TRANSF/COMISIONES', url: 'https://docs.google.com/spreadsheets/d/1_uO8n3CpLGLD0L4LiX3T9BvbmAWVk49ZViUFiJUZqKY/edit?gid=834384433#gid=834384433', acceso: 'SGOGPDS - Equipo Ana' },
       { nombre: 'TRAMITACIONES Y PEDIDOS VARIOS', url: 'https://docs.google.com/spreadsheets/d/1erncrVBeaJXjzQnKGMtKPFI00b1nKYxI54BGuef0ERM/edit?usp=sharing', acceso: 'SGOGPDS - Equipo Ana' },
       { nombre: 'ESTUDIO DOTACIÓN ENFERMERÍA', url: 'https://docs.google.com/spreadsheets/d/1WBCVmspKPi00CeKYRt0TjRsA1hZApFoDpSrDp5aBAqY/edit?gid=262430128#gid=262430128', acceso: 'Equipo Datos GOPLYCO' },
+      { nombre: 'AUTORIDADES DE HOSPITALES', url: 'https://docs.google.com/spreadsheets/d/1zNx08nviCoyWyohcKq6qN3si7j4nrkvremZpnX0p94U/edit?gid=1617849560#gid=1617849560', acceso: 'Equipo Datos GOPLYCO' },
     ],
   },
   {
@@ -74,6 +75,7 @@ export const HUB_ENLACES: HubCategoria[] = [
     titulo: 'PROYECTOS Y DESARROLLOS',
     items: [
       { nombre: 'GITLAB', url: 'https://repositorio-asi.buenosaires.gob.ar/users/sign_in', acceso: 'Equipo Datos GOPLYCO' },
+      { nombre: 'Plataforma Obras', url: 'https://obras-neon-five.vercel.app/', acceso: 'Equipo Datos GOPLYCO' },
     ],
   },
   {

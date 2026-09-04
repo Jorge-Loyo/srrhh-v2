@@ -7,6 +7,7 @@ import {
   kpisConcursosQuerySchema,
   kpisAlertasQuerySchema,
   kpisDotacionHistoricaQuerySchema,
+  kpisBajasQuerySchema,
 } from './kpis.schema.js'
 import {
   getKpisConcursosCphService,
@@ -15,6 +16,7 @@ import {
   getKpisConcursosService,
   getKpisAlertasService,
   getKpisDotacionHistoricaService,
+  getKpisBajasService,
 } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
@@ -59,6 +61,13 @@ export async function kpisRoutes(app: FastifyInstance) {
   app.get('/concursos-ceetps', async (request, reply) => {
     const query = kpisConcursosCeetpsQuerySchema.parse(request.query)
     const data = await getKpisConcursosCeetpsService(query)
+    return reply.send({ data })
+  })
+
+  // GET /bajas — KPIs del último snapshot SIAL aprobado
+  app.get('/bajas', async (request, reply) => {
+    const query = kpisBajasQuerySchema.parse(request.query)
+    const data = await getKpisBajasService(query)
     return reply.send({ data })
   })
 }

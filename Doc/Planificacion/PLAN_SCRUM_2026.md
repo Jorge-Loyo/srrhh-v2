@@ -34,7 +34,7 @@
 | Sprint 11 — Flujo concursal CPH con autorizaciones | ✅ Completo — 2026-09-03 | S11-1 a S11-7 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
 | Sprint 12 — UX bajas + wizard CPH + permisos UI | ✅ Completo — 2026-09-03 | S12-1 a S12-6 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
 | Post-Sprint 12 — Auditoría especialidad_legacy + pg_trgm | ✅ Completo — commit `af1c3f1` | — | `Sprints/POST_SPRINT_12_especialidad_legacy.md` |
-| Sprint 13 — Panel de autorizaciones + jerarquía de roles | 📋 Planificado | S13-1 a S13-9 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
+| Sprint 13 — Panel de autorizaciones + jerarquía de roles | ✅ Backend completo — 2026-09-11 | S13-1 a S13-8 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
 | Sprint 14 — Concurso desde Alta de Cargo | 📋 Planificado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
 
 ---
