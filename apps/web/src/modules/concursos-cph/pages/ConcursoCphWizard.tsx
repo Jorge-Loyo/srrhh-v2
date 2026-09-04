@@ -514,7 +514,7 @@ export function ConcursoCphWizard() {
         const b = (cphData?.concurso as unknown as { baja?: BajaExt })?.baja
         const cargo = (cphData.concurso as unknown as { cargo?: CargoExt })?.cargo
         const persona = (cphData.concurso as unknown as { persona?: PersonaExt })?.persona
-        const toDate = (val: string | Date | null | undefined) => val ? (typeof val === 'string' ? val.slice(0, 10) : (val as Date).toISOString().slice(0, 10)) : ''
+        const toDate = (val: string | Date | null | undefined) => val ? (typeof val === 'string' ? val.slice(0, 10).split('-').reverse().join('/') : (val as Date).toISOString().slice(0, 10).split('-').reverse().join('/')) : ''
         const Row = ({ label, value }: { label: string; value: string }) => value ? (
           <div className="flex gap-2 text-sm">
             <span className="text-gray-500 w-44 shrink-0">{label}:</span>
