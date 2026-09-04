@@ -234,8 +234,6 @@ function MiniLineChart({
   const ultimo = valores[n - 1] ?? 0
   const primero = valores[0] ?? 0
   const delta = ultimo - primero
-  const xUltimo = MP.left + innerW
-  const yUltimo = MP.top + innerH - ((ultimo - yMin) / yRange) * innerH
 
   // Ticks Y: piso, mitad, techo
   const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
@@ -259,7 +257,7 @@ function MiniLineChart({
 
         {/* Gridlines Y mínimas */}
         {yTicks.map((t) => {
-          const y = MP.top + innerH - (t / yMax) * innerH
+          const y = MP.top + innerH - ((t - yMin) / yRange) * innerH
           return (
             <g key={t}>
               <line x1={MP.left} x2={MP.left + innerW} y1={y} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
@@ -273,8 +271,27 @@ function MiniLineChart({
         {/* Línea */}
         <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
-        {/* Punto final */}
-        <circle cx={xUltimo} cy={yUltimo} r={3} fill={color} />
+        {/* Punto y valor en cada punto */}
+        {valores.map((v, i) => {
+          const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+          const y = MP.top + innerH - ((v - yMin) / yRange) * innerH
+          const isLast = i === n - 1
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r={isLast ? 3.5 : 2.5} fill={color} />
+              <text
+                x={x}
+                y={y - 5}
+                textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
+                fontSize={8}
+                fill={color}
+                fontWeight={isLast ? 'bold' : 'normal'}
+              >
+                {formatK(v)}
+              </text>
+            </g>
+          )
+        })}
 
         {/* Eje X — etiquetas */}
         {fechas.map((f, i) => {

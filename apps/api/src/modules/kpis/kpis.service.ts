@@ -375,29 +375,89 @@ export async function getKpisDotacionHistoricaService(query: KpisDotacionHistori
   const { hospitalId, agrupacion } = query
   const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
 
-  // Dotación puntual por snapshot: personas únicas en cada fecha de padrón.
-  // Se usa la fecha exacta del snapshot (no acumulado) para mostrar la
-  // fluctuación real semana a semana. Solo se incluyen snapshots con al menos
-  // 1000 filas para filtrar los diffs parciales (que solo tienen los cambios
-  // de esa semana, no la dotación completa).
+  // Reconstrucción acumulada semana a semana:
+  // 1. Base: snapshot completo más antiguo en padron_historico (ene-04)
+  // 2. Altas: diffs tipo 'nuevo' de snapshots posteriores (valor_nuevo JSON)
+  // 3. Bajas: diffs tipo 'eliminado' (id_sial_rol sale del snapshot base o de altas previas)
+  // Se une todo, se marca cada id_sial_rol como activo/inactivo por fecha,
+  // y se cuenta CUILs únicos activos en cada snapshot.
   const rows = await prisma.$queryRaw<{ fecha: Date; escalafon: string; personas: bigint }[]>(Prisma.sql`
+    WITH
+    -- Snapshot base: todas las filas del primer snapshot completo
+    base AS (
+      SELECT
+        ph.fecha_asignada,
+        ph.id_sial_rol,
+        ph.cuil,
+        ph.escalafon
+      FROM padron_historico ph
+      JOIN cargos c ON c.id = ph.cargo_id
+      WHERE ph.cuil IS NOT NULL AND ph.escalafon IS NOT NULL
+        ${hospitalFilter}
+    ),
+    -- Fechas ordenadas de todos los snapshots aprobados
+    fechas AS (
+      SELECT DISTINCT fecha_asignada
+      FROM padron_snapshots
+      WHERE estado = 'aprobado'
+      ORDER BY fecha_asignada
+    ),
+    -- Altas acumuladas desde diffs 'nuevo'
+    altas AS (
+      SELECT
+        ps.fecha_asignada,
+        d.id_sial_rol,
+        (d.valor_nuevo::jsonb->>'cuil_y_rol') AS cuil_y_rol,
+        split_part((d.valor_nuevo::jsonb->>'cuil_y_rol'), '-', 1) AS cuil,
+        (d.valor_nuevo::jsonb->>'escalafon') AS escalafon
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
+      WHERE d.tipo = 'nuevo'
+        AND (d.valor_nuevo::jsonb->>'cuil_y_rol') IS NOT NULL
+        AND (d.valor_nuevo::jsonb->>'escalafon') IS NOT NULL
+    ),
+    -- Bajas acumuladas desde diffs 'eliminado'
+    bajas AS (
+      SELECT
+        ps.fecha_asignada,
+        d.id_sial_rol
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
+      WHERE d.tipo = 'eliminado'
+    ),
+    -- Para cada snapshot, el conjunto activo = base + altas hasta esa fecha - bajas hasta esa fecha
+    activos AS (
+      SELECT
+        f.fecha_asignada AS fecha,
+        COALESCE(a.cuil, b.cuil) AS cuil,
+        COALESCE(a.escalafon, b.escalafon) AS escalafon
+      FROM fechas f
+      -- Personas del base que no fueron dadas de baja hasta esta fecha
+      JOIN base b ON b.fecha_asignada = (SELECT min(fecha_asignada) FROM base)
+      LEFT JOIN bajas bj ON bj.id_sial_rol = b.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
+      LEFT JOIN altas a ON a.id_sial_rol = b.id_sial_rol AND a.fecha_asignada <= f.fecha_asignada
+      WHERE bj.id_sial_rol IS NULL
+
+      UNION ALL
+
+      -- Altas incorporadas hasta esta fecha que no fueron dadas de baja después
+      SELECT
+        f.fecha_asignada AS fecha,
+        a.cuil,
+        a.escalafon
+      FROM fechas f
+      JOIN altas a ON a.fecha_asignada <= f.fecha_asignada
+      LEFT JOIN bajas bj ON bj.id_sial_rol = a.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
+      WHERE bj.id_sial_rol IS NULL
+    )
     SELECT
-      ph.fecha_asignada AS fecha,
-      ph.escalafon,
-      count(DISTINCT ph.cuil)::bigint AS personas
-    FROM padron_historico ph
-    JOIN cargos c ON c.id = ph.cargo_id
-    WHERE ph.escalafon IS NOT NULL
-      AND ph.cuil IS NOT NULL
-      ${hospitalFilter}
-      AND ph.fecha_asignada IN (
-        SELECT fecha_asignada
-        FROM padron_historico
-        GROUP BY fecha_asignada
-        HAVING count(*) >= 5000
-      )
-    GROUP BY ph.fecha_asignada, ph.escalafon
-    ORDER BY ph.fecha_asignada, ph.escalafon
+      fecha,
+      escalafon,
+      count(DISTINCT cuil)::bigint AS personas
+    FROM activos
+    WHERE cuil IS NOT NULL AND escalafon IS NOT NULL
+    GROUP BY fecha, escalafon
+    ORDER BY fecha, escalafon
   `)
 
   // Agrupar por fecha
