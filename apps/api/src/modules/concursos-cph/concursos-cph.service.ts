@@ -3,7 +3,6 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
-import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 
 const include = {
@@ -185,80 +184,6 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   }
 
   return updated
-}
-
-// ─── Aprobar autorización (flujo dos pasos: director → sgrasv) ──────────────
-export async function aprobarAutorizacionCphService(id: string, rolSlug: string, aprobado: boolean, observaciones?: string) {
-  const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
-  if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
-  if (!existing.pendienteAutorizacion) throw AppError.conflict('Este concurso no tiene una autorización pendiente')
-
-  const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
-
-  // Paso 1: director aprueba → notifica a sgrasv para segunda firma
-  if (rolSlug === 'director') {
-    if (!aprobado) {
-      // Director rechaza → limpia todo y notifica a concursales_cph
-      await prisma.concursoCph.update({
-        where: { id },
-        data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
-        include,
-      })
-      await crearNotificacion({
-        tipo: 'autorizacion_resuelta',
-        rolSlug: 'concursales_cph',
-        titulo: `Autorización rechazada — ${cargoCodigo}`,
-        mensaje: `La modificación del concurso ${cargoCodigo} fue rechazada por el Director.${observaciones ? ` Observación: ${observaciones}` : ''}`,
-        origenTipo: 'concurso_cph',
-        origenId: id,
-        origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
-      })
-      return prisma.concursoCph.findUnique({ where: { id }, include })
-    }
-    // Director aprueba → marca aprobadoDirector y notifica a sgrasv
-    const updated = await prisma.concursoCph.update({
-      where: { id },
-      data: { aprobadoDirector: true, ...(observaciones !== undefined && { observaciones }) },
-      include,
-    })
-    await crearNotificacion({
-      tipo: 'autorizacion_pendiente',
-      rolSlug: 'sgrasv',
-      titulo: `Autorización aprobada por Director — ${cargoCodigo}`,
-      mensaje: `El Director aprobó la modificación del concurso ${cargoCodigo}. Requiere segunda firma de SGRASV.`,
-      origenTipo: 'concurso_cph',
-      origenId: id,
-      origenKey: `autorizacion_sgrasv:cph:${id}`,
-    })
-    return updated
-  }
-
-  // Paso 2: sgrasv resuelve definitivamente
-  // Si hubo cambio de sigla/CR, requiere que el director haya aprobado primero.
-  // Si no hubo cambio de sigla/CR (solo autorización de etapa), puede resolver directamente.
-  if (rolSlug === 'sgrasv') {
-    const requiereDirector = !!(existing.siglaSolicitada || existing.codigoRegistroSolicitadoId)
-    if (requiereDirector && !existing.aprobadoDirector) {
-      throw AppError.conflict('El Director debe autorizar el cambio de sigla o código de registro antes de que SGRASV pueda resolver')
-    }
-    const updated = await prisma.concursoCph.update({
-      where: { id },
-      data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
-      include,
-    })
-    await crearNotificacion({
-      tipo: 'autorizacion_resuelta',
-      rolSlug: 'concursales_cph',
-      titulo: `Autorización ${aprobado ? 'aprobada' : 'rechazada'} — ${cargoCodigo}`,
-      mensaje: `La modificación del concurso ${cargoCodigo} fue ${aprobado ? 'aprobada' : 'rechazada'} por SGRASV.${observaciones ? ` Observación: ${observaciones}` : ''}`,
-      origenTipo: 'concurso_cph',
-      origenId: id,
-      origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
-    })
-    return updated
-  }
-
-  throw AppError.forbidden('No tenés permiso para resolver esta autorización')
 }
 
 // ─── S4-5: suspender / reanudar ──────────────────────────────────────────────
