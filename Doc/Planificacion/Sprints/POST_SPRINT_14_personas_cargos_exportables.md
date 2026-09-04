@@ -1,7 +1,7 @@
 # POST-SPRINT 14 — Auditoría Personas/Cargos + exportables CPH/CEETPS
 
 **Fecha:** 2026-09-04 | **Autor:** Agustin + Claude
-**Rama:** — (sin mergear todavía, ver "Estado" en cada punto)
+**Rama:** `Agustin` — mergeado con `origin/jorge` y pusheado (commit `b9aaeef`). Ver punto 9.
 
 ---
 
@@ -105,6 +105,75 @@ Rompía con 500 (`P2022 — column puestos_cargo.tipo_puesto does not exist`) lo
 
 ---
 
+## 9. Merge con `origin/jorge` — 2 conflictos, uno de fondo
+
+Se mergeó `origin/jorge` (Sprint 13: módulo `Autorizacion` + `SolicitudAlta`, KPIs de bajas, PWA) sobre esta rama. Dos conflictos:
+
+- **`SearchableSelect.tsx`**: mismo bug del punto 2, arreglado en paralelo por los dos — yo puse `z-20`, Jorge `z-30`. Se tomó `z-30` (Jorge), más conservador.
+- **`cargos.service.ts`**: los dos arreglamos en paralelo el crash del punto 3 (bind variables de Postgres en el filtro "Ocupado"), pero de forma distinta:
+  - Jorge acota la lista de IDs por `escalafonId`/`puesto`, pero **no por `hospitalId`, ni cuando no hay ningún otro filtro activo**.
+  - El fix de este documento (relación nativa de Prisma `ocupaciones.some/none`) elimina el problema de raíz sin depender de qué filtros estén puestos.
+  - Se verificó **después del merge** que el caso que el fix de Jorge no cubre (`ocupado=true` solo, sin ningún otro filtro — 46.889 filas, el crash original reproducido en este documento) sigue funcionando en `200` con el fix que quedó. Se mantuvo ese.
+
+Post-merge: `prisma generate` (modelos `Autorizacion`/`SolicitudAlta` nuevos) + `prisma migrate deploy` de las 3 migraciones `s13_*` en DB local. Typecheck limpio en los 3 paquetes. Container `api` reconstruido y verificado.
+
+**Estado:** ✅ Mergeado y pusheado a `origin/Agustin`. No llegó a `deploy`/`main` ni a producción.
+
+---
+
+## 10. `EstadoBaja` — dos estados no tienen forma de alcanzarse desde la UI
+
+Surgió de una pregunta de Agustín sobre qué significan `resolucion_a_la_firma` y `pendiente` en Baja de Cargo / Alta por Baja. Quedó un hallazgo más grande de lo esperado — no es un bug puntual, es una pieza de Sprint 13 que Jorge no llegó a construir.
+
+### Cómo funciona hoy (verificado en código)
+
+Baja de Cargo y Alta por Baja son dos listados que abren **el mismo wizard** (`NuevaBajaPage.tsx`). El estado que queda grabado depende del botón que se aprieta dentro del wizard, no de qué pantalla lo abrió:
+
+```
+Paso 1 ──[Guardar borrador]──► resolucion_a_la_firma
+  │                              (cargo sigue vigente, no se crea concurso)
+  │
+  └─[Continuar →]──► Paso 2/3 ──[Registrar baja]──► pendiente
+                                  (cargo → no_vigente,
+                                   se crea el concurso si corresponde,
+                                   TODO ESTO YA PASA ACÁ)
+                                        │
+                                        ▼
+                                   ❌ sin salida
+                          (ningún botón de la UI mueve una baja
+                           "pendiente" a `confirmada` o `anulada`)
+```
+
+`confirmada` y `anulada` existen en el enum de la base y en los filtros de la UI, pero **ningún código los escribe jamás** — verificado con grep sobre todo `bajas.service.ts` y ambas páginas.
+
+### Por qué pasa: es Sprint 13, sin terminar
+
+El plan ya estaba escrito en `SPRINT_12_13_ux_bajas_autorizaciones.md` (Sprint 13, estado `📋 Planificado`): un modelo genérico `Autorizacion` con 3 tipos —`concurso_cph`, `baja_cargo`, `alta_cargo`— donde el `director` aprueba o rechaza y eso resuelve el estado del objeto original.
+
+Jorge implementó el módulo en el merge del punto 9, pero **solo con 2 de los 3 tipos**: `TipoAutorizacion` quedó en `concurso_cph | alta_cargo`. Lo único que tocó de Bajas fue agregar una notificación al director cuando una baja pasa a `pendiente` (`bajas.service.ts`, S13-8) — avisa, pero no hay ningún endpoint ni botón para que el director la resuelva.
+
+### Por qué esto no es "agregar el tipo que falta y listo"
+
+Comparando cómo funciona `alta_cargo` (lo que Jorge sí construyó) contra cómo funcionaría `baja_cargo` calcado igual, hay una asimetría real:
+
+- **Alta (`SolicitudAlta`)** es un gate preventivo genuino: mientras no la aprueba el director, **no existe ningún `Cargo`** — es una fila aparte. Si el director rechaza, no hay que deshacer nada porque nunca se creó nada real.
+- **Baja, como está hoy**, ya produce sus efectos reales *antes* de que exista cualquier autorización: en `createBajaService`, en el mismo paso donde queda `pendiente` (no en uno posterior), el cargo pasa a `no_vigente` y el concurso **ya se crea**.
+
+Si se agrega `baja_cargo` calcando el circuito de Jorge tal cual —crear la `Autorizacion` cuando la baja pasa a `pendiente`, director aprueba/rechaza después— el director estaría aprobando algo que **ya pasó**. Si rechaza, ¿qué se hace? ¿Se revierte el cargo a `vigente`? ¿Se cancela un concurso que ya pudo tener movimiento? Es un caso mucho más difícil de deshacer que el de Alta.
+
+### Dos caminos, según cuál sea la intención real del proceso administrativo
+
+| Si la intención es... | Qué hay que construir |
+|---|---|
+| **Auditoría/sello posterior** — la baja ya es efectiva al registrarla, la confirmación del director es un trámite que deja rastro pero no bloquea nada | Alcanza con calcar el circuito de Jorge tal cual: agregar `baja_cargo` a `TipoAutorizacion` y crear la `Autorizacion` en paralelo a la notificación que ya existe, sin tocar el timing actual. Cambio chico. |
+| **Gate real** — el director tiene que aprobar *antes* de que el cargo quede vacante y se abra el concurso, igual que con Alta | Hay que mover el efecto (cargo → `no_vigente` + creación del concurso) del punto donde pasa hoy (`pendiente`, en `createBajaService`) al punto donde se aprueba (`confirmada`). Cambio más grande: registrar la baja no debería tocar nada hasta que el director la apruebe. |
+
+**No hay forma de saber cuál es la correcta sin el dato real de cómo funciona el trámite fuera del sistema** — es una decisión de negocio, no algo que se pueda inferir del código. Se deja documentado acá para que Jorge lo lea y decida antes de que se toque nada de esto.
+
+**Estado:** 🔲 Sin implementar, sin decidir. No es un bug — es un sprint (13) a medio terminar, con una pregunta de diseño abierta encima.
+
+---
+
 ## Pendiente — para que Jorge decida prioridad
 
 ### A. "Cantidad de Cargos" hardcodeado en `'1'` en los exportables
@@ -116,6 +185,9 @@ El legacy (`exportReport.js`) tenía `exportBajasToExcel` (24 columnas) y `expor
 ### C. Datos de prueba en la base local
 Para verificar el punto 6/7 con un caso real se creó una Baja + Concurso CPH real sobre el cargo `CPH-POF-020591` (Martino, Carlos) — quedó con `estado: no_vigente`. Por decisión de Agustín se deja así por ahora (útil para seguir probando el Wizard). Si se quiere limpiar, son 3 `DELETE` + 1 `UPDATE` (detalle en el historial de la sesión).
 
+### D. `baja_cargo` sin autorización — ver punto 10
+Bajas registradas quedan en `pendiente` para siempre, sin forma de llegar a `confirmada`/`anulada` desde la UI. Hay una decisión de diseño abierta (¿la confirmación es previa o posterior al efecto real de la baja?) antes de poder implementarlo — ver detalle completo en el punto 10.
+
 ---
 
 ## Resumen para deploy
@@ -125,3 +197,5 @@ Para verificar el punto 6/7 con un caso real se creó una Baja + Concurso CPH re
 | 1, 3, 4 | Backend (`apps/api`) | Rebuild container `api` (local) — en producción, redeploy normal |
 | 8 | Migración de base | **`prisma migrate deploy` en producción — urgente, probablemente ya roto ahí** |
 | 2, 5, 6, 7 | Frontend (`apps/web`) | Ninguno especial — build/deploy normal de Vite |
+| 9 | Merge `origin/jorge` → `Agustin` | Ya pusheado a `origin/Agustin` — falta promoverlo a `deploy`/`main` |
+| 10 | `baja_cargo` sin autorización | Nada que deployar — requiere decisión de Jorge antes de escribir código |
