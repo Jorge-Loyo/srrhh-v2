@@ -284,6 +284,7 @@ export function ConcursoCphWizard() {
   const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
   const [obsAutorizacion, setObsAutorizacion] = useState('')
+  const [modalBaja, setModalBaja] = useState(false)
   const formRef = useRef<HTMLDivElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
@@ -505,6 +506,74 @@ export function ConcursoCphWizard() {
         </div>
       )}
 
+      {/* ── MODAL VER BAJA ──────────────────────────────────────────────────── */}
+      {modalBaja && cphData && (() => {
+        const b = (cphData?.concurso as unknown as { baja?: { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } })?.baja
+        const cargo = (cphData.concurso as unknown as { cargo?: { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string; nombre?: string }; escalafon?: { nombre?: string } } })?.cargo
+        const persona = (cphData.concurso as unknown as { persona?: { apellidoNombre?: string; cuil?: string } })?.persona
+        const toDate = (v: string | Date | null | undefined) => v ? (typeof v === 'string' ? v.slice(0, 10) : (v as Date).toISOString().slice(0, 10)) : ''
+        const Row = ({ label, value }: { label: string; value: string }) => value ? (
+          <div className="flex gap-2 text-sm">
+            <span className="text-gray-500 w-44 shrink-0">{label}:</span>
+            <span className="text-gray-800 font-medium">{value}</span>
+          </div>
+        ) : null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="bg-navy px-6 py-4 rounded-t-xl flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white/60 text-xs uppercase tracking-wider mb-0.5">Datos de la baja</p>
+                  <p className="text-white font-bold font-mono">{cargo?.codigo ?? '—'}</p>
+                </div>
+                <button onClick={() => setModalBaja(false)} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-6 space-y-4">
+                {/* Cargo */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <Row label="Código" value={cargo?.codigo ?? ''} />
+                    <Row label="Hospital" value={cargo?.hospital ? `${cargo.hospital.sigla} — ${cargo.hospital.nombre}` : ''} />
+                    <Row label="Puesto" value={cargo?.literalPuesto ?? ''} />
+                    <Row label="Especialidad" value={cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''} />
+                    <Row label="Escalafón" value={cargo?.escalafon?.nombre ?? ''} />
+                  </div>
+                </div>
+                {/* Agente */}
+                {persona && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Agente</p>
+                    <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                      <Row label="Apellido y Nombre" value={persona.apellidoNombre ?? ''} />
+                      <Row label="CUIL" value={persona.cuil ?? ''} />
+                    </div>
+                  </div>
+                )}
+                {/* Datos de la baja */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Datos de la baja</p>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <Row label="Fecha de baja" value={toDate(b?.fechaBaja)} />
+                    <Row label="Expediente de baja" value={b?.eeBaja ?? ''} />
+                    <Row label="Origen" value={b?.tipificadorOrigen ?? ''} />
+                    <Row label="Motivo" value={b?.motivo ?? ''} />
+                    <Row label="Doc. respaldatoria" value={b?.docRespaldatoria ?? ''} />
+                    <Row label="Partida presup." value={b?.partidaPresupuestaria ?? ''} />
+                    <Row label="Carga horaria" value={b?.cargaHoraria != null ? `${b.cargaHoraria} hs` : ''} />
+                    <Row label="Fecha pase paralelo" value={toDate(b?.fechaPaseParalelo)} />
+                    <Row label="Observaciones" value={b?.observaciones ?? ''} />
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+                <button onClick={() => setModalBaja(false)} className="btn-outline">Cerrar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
       <div className="sticky top-0 z-20 bg-white shadow-md rounded-lg mb-6">
@@ -559,10 +628,10 @@ export function ConcursoCphWizard() {
               <span className="badge-default text-xs">{c.subEstado3}</span>
               {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
               <button
-                onClick={() => setSuspendido(!suspendido)}
-                className={c.suspendido ? 'btn-secondary text-xs py-1 px-3' : 'btn-danger text-xs py-1 px-3'}
+                onClick={() => setModalBaja(true)}
+                className="btn-outline text-xs py-1 px-3"
               >
-                {c.suspendido ? 'Reanudar' : 'Suspender'}
+                📋 Ver baja
               </button>
             </div>
           )}
