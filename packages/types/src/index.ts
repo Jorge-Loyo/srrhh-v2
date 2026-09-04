@@ -711,6 +711,13 @@ export interface KpiAlertas {
   }[]
 }
 
+// KPIs de bajas — GET /api/v1/kpis/bajas
+export interface KpiBajas {
+  bajasAValidar: number
+  bajasConfirmadas: number
+  porEscalafon: { escalafon: string; total: number }[]
+}
+
 // -----------------------------------------------------------------------------
 // FILTROS
 // -----------------------------------------------------------------------------

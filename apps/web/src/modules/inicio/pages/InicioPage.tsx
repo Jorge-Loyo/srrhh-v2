@@ -19,6 +19,7 @@ interface Columna {
   colorTitulo: string
   colorFondo: string
   colorBorde: string
+  colorSubtitulo: string
 }
 
 const COLUMNAS: Columna[] = [
@@ -28,9 +29,9 @@ const COLUMNAS: Columna[] = [
     subtitulo: 'Hojas de cálculo, bases de datos y reportes numéricos en Excel o Google Sheets.',
     icono: '📊',
     categorias: HUB_PLANILLAS,
-    colorTitulo: 'text-success',
-    colorFondo: 'bg-success/5',
-    colorBorde: 'border-success/20',
+    colorTitulo: 'text-white',
+    colorFondo: 'bg-[#227849]',
+    colorSubtitulo: 'text-white/70',
   },
   {
     key: 'enlaces',
@@ -38,9 +39,9 @@ const COLUMNAS: Columna[] = [
     subtitulo: 'URLs a plataformas externas, sitios web y recursos directos.',
     icono: '🔗',
     categorias: HUB_ENLACES,
-    colorTitulo: 'text-secondary',
-    colorFondo: 'bg-secondary/5',
-    colorBorde: 'border-secondary/20',
+    colorTitulo: 'text-white',
+    colorFondo: 'bg-[#163548]',
+    colorSubtitulo: 'text-white/70',
   },
   {
     key: 'presentaciones',
@@ -48,9 +49,9 @@ const COLUMNAS: Columna[] = [
     subtitulo: 'Diapositivas, material visual en PPT o Google Slides. Power BI.',
     icono: '📽️',
     categorias: HUB_PRESENTACIONES,
-    colorTitulo: 'text-primary-dark',
-    colorFondo: 'bg-primary/5',
-    colorBorde: 'border-primary/30',
+    colorTitulo: 'text-black',
+    colorFondo: 'bg-[#f5bf00]',
+    colorSubtitulo: 'text-black/70',
   },
 ]
 
@@ -162,16 +163,16 @@ export function InicioPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {COLUMNAS.map((col) => (
-            <div key={col.key} className={`rounded-2xl shadow-sm border ${col.colorBorde} ${col.colorFondo} p-6 flex flex-col`}>
+            <div key={col.key} className={`rounded-2xl shadow border-2 ${col.colorBorde} ${col.colorFondo} p-6 flex flex-col`}>
               <div className="text-3xl text-center mb-2">{col.icono}</div>
               <h2 className={`text-lg font-bold text-center uppercase mb-2 ${col.colorTitulo}`}>{col.titulo}</h2>
-              <p className="text-gray-500 text-xs text-center mb-4">{col.subtitulo}</p>
+              <p className={`${col.colorSubtitulo} text-xs text-center mb-4`}>{col.subtitulo}</p>
 
               <div className="flex flex-col gap-1 max-h-[520px] overflow-y-auto pr-1">
                 {col.categorias.map((cat) => (
                   <details key={cat.titulo} className="group mb-1">
                     <summary
-                      className={`flex justify-between items-center font-bold cursor-pointer px-2 py-2 border-b ${col.colorBorde} ${col.colorTitulo} uppercase text-[11px] tracking-wider [&::-webkit-details-marker]:hidden`}
+                      className={`flex justify-between items-center font-bold cursor-pointer px-2 py-2 border-b ${col.colorBorde} ${col.colorTitulo} uppercase text-[11px] tracking-wider [&::-webkit-details-marker]:hidden opacity-90 hover:opacity-100`}
                     >
                       <span>{cat.titulo}</span>
                       <span className="transition-transform duration-200 group-open:rotate-180">▾</span>

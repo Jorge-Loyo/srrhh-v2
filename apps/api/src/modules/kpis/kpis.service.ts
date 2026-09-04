@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+﻿import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { SUB_ESTADO_3_SQL_PG } from '../concursos-cph/concursosCph.calc.js'
 import type {
@@ -7,6 +7,7 @@ import type {
   KpisDotacionQuery,
   KpisAlertasQuery,
   KpisDotacionHistoricaQuery,
+  KpisBajasQuery,
 } from './kpis.schema.js'
 
 // ─── S4-11: KPIs de concursos CPH para el tablero ───────────────────────────
@@ -375,29 +376,85 @@ export async function getKpisDotacionHistoricaService(query: KpisDotacionHistori
   const { hospitalId, agrupacion } = query
   const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
 
-  // Dotación puntual por snapshot: personas únicas en cada fecha de padrón.
-  // Se usa la fecha exacta del snapshot (no acumulado) para mostrar la
-  // fluctuación real semana a semana. Solo se incluyen snapshots con al menos
-  // 1000 filas para filtrar los diffs parciales (que solo tienen los cambios
-  // de esa semana, no la dotación completa).
+  // Reconstrucción acumulada semana a semana:
+  // 1. Base: snapshot completo más antiguo en padron_historico (ene-04)
+  // 2. Altas: diffs tipo 'nuevo' de snapshots posteriores (valor_nuevo JSON)
+  // 3. Bajas: diffs tipo 'eliminado' (id_sial_rol sale del snapshot base o de altas previas)
+  // Se une todo, se marca cada id_sial_rol como activo/inactivo por fecha,
+  // y se cuenta CUILs únicos activos en cada snapshot.
   const rows = await prisma.$queryRaw<{ fecha: Date; escalafon: string; personas: bigint }[]>(Prisma.sql`
+    WITH
+    -- Base: snapshot completo más antiguo, escalafón canónico via cargo→escalafones
+    base AS (
+      SELECT
+        ph.fecha_asignada,
+        ph.id_sial_rol,
+        ph.cuil,
+        e.nombre AS escalafon
+      FROM padron_historico ph
+      JOIN cargos c ON c.id = ph.cargo_id
+      JOIN escalafones e ON e.id = c.escalafon_id
+      WHERE ph.cuil IS NOT NULL
+        AND ph.fecha_asignada = (SELECT min(fecha_asignada) FROM padron_historico)
+        ${hospitalFilter}
+    ),
+    -- Fechas de todos los snapshots aprobados
+    fechas AS (
+      SELECT DISTINCT fecha_asignada
+      FROM padron_snapshots
+      WHERE estado = 'aprobado'
+      ORDER BY fecha_asignada
+    ),
+    -- Altas desde diffs 'nuevo': escalafón canónico via id_sial_rol→ocupaciones→cargos→escalafones
+    -- Fallback: si el rol aún no existe en ocupaciones, usar el campo escalafon del JSON
+    altas AS (
+      SELECT
+        ps.fecha_asignada,
+        d.id_sial_rol,
+        split_part((d.valor_nuevo::jsonb->>'cuil_y_rol'), '-', 1) AS cuil,
+        COALESCE(
+          (SELECT e2.nombre FROM ocupaciones o2
+           JOIN cargos c2 ON c2.id = o2.cargo_id
+           JOIN escalafones e2 ON e2.id = c2.escalafon_id
+           WHERE o2.id_sial_rol = d.id_sial_rol LIMIT 1),
+          (d.valor_nuevo::jsonb->>'escalafon')
+        ) AS escalafon
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
+      WHERE d.tipo = 'nuevo'
+        AND (d.valor_nuevo::jsonb->>'cuil_y_rol') IS NOT NULL
+    ),
+    -- Bajas desde diffs 'eliminado'
+    bajas AS (
+      SELECT ps.fecha_asignada, d.id_sial_rol
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
+      WHERE d.tipo = 'eliminado'
+    ),
+    -- Dotación activa por snapshot = base - bajas acumuladas + altas acumuladas - sus bajas
+    activos AS (
+      SELECT f.fecha_asignada AS fecha, b.cuil, b.escalafon
+      FROM fechas f
+      JOIN base b ON true
+      LEFT JOIN bajas bj ON bj.id_sial_rol = b.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
+      WHERE bj.id_sial_rol IS NULL
+      UNION ALL
+      SELECT f.fecha_asignada AS fecha, a.cuil, a.escalafon
+      FROM fechas f
+      JOIN altas a ON a.fecha_asignada <= f.fecha_asignada
+      LEFT JOIN bajas bj ON bj.id_sial_rol = a.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
+      WHERE bj.id_sial_rol IS NULL
+        AND a.cuil IS NOT NULL
+        AND a.escalafon IS NOT NULL
+    )
     SELECT
-      ph.fecha_asignada AS fecha,
-      ph.escalafon,
-      count(DISTINCT ph.cuil)::bigint AS personas
-    FROM padron_historico ph
-    JOIN cargos c ON c.id = ph.cargo_id
-    WHERE ph.escalafon IS NOT NULL
-      AND ph.cuil IS NOT NULL
-      ${hospitalFilter}
-      AND ph.fecha_asignada IN (
-        SELECT fecha_asignada
-        FROM padron_historico
-        GROUP BY fecha_asignada
-        HAVING count(*) >= 5000
-      )
-    GROUP BY ph.fecha_asignada, ph.escalafon
-    ORDER BY ph.fecha_asignada, ph.escalafon
+      fecha,
+      escalafon,
+      count(DISTINCT cuil)::bigint AS personas
+    FROM activos
+    WHERE cuil IS NOT NULL AND escalafon IS NOT NULL
+    GROUP BY fecha, escalafon
+    ORDER BY fecha, escalafon
   `)
 
   // Agrupar por fecha
@@ -429,5 +486,40 @@ export async function getKpisDotacionHistoricaService(query: KpisDotacionHistori
     return { escalafones, puntos: [...porMes.values()] }
   }
 
+
   return { escalafones, puntos: puntosCrudos }
+}
+
+// ─── KPIs de bajas ───────────────────────────────────────────────────────────
+//
+// - bajasAValidar: cargos en estado `validacion_vacante` — detectados por el
+//   padrón semanal como vacantes, pendientes de confirmación administrativa.
+// - bajasConfirmadas: cargos en estado `no_vigente` — bajas ya procesadas.
+// - porEscalafon: desglose de validacion_vacante por escalafón canónico.
+export async function getKpisBajasService(query: KpisBajasQuery) {
+  const { hospitalId } = query
+  const where = hospitalId ? { hospitalId } : {}
+
+  const [aValidar, confirmadas, porEscalafonRows] = await Promise.all([
+    prisma.cargo.count({ where: { ...where, estado: 'validacion_vacante' } }),
+    prisma.cargo.count({ where: { ...where, estado: 'no_vigente' } }),
+    prisma.$queryRaw<{ escalafon: string; total: bigint }[]>(Prisma.sql`
+      SELECT e.nombre AS escalafon, count(*)::bigint AS total
+      FROM cargos c
+      JOIN escalafones e ON e.id = c.escalafon_id
+      WHERE c.estado = 'validacion_vacante'
+        ${hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty}
+      GROUP BY e.nombre
+      ORDER BY total DESC
+    `),
+  ])
+
+  return {
+    bajasAValidar: aValidar,
+    bajasConfirmadas: confirmadas,
+    porEscalafon: porEscalafonRows.map((r) => ({
+      escalafon: r.escalafon,
+      total: Number(r.total),
+    })),
+  }
 }
