@@ -66,7 +66,12 @@ export async function createUsuario(body: CreateUsuarioBody) {
   }
 }
 
-export async function setUsuarioActivo(id: string, activo: boolean, requestingUserId: string) {
+export async function changePassword(id: string, password: string) {
+  const usuario = await prisma.usuario.findUnique({ where: { id } })
+  if (!usuario) throw AppError.notFound('Usuario no encontrado')
+  const passwordHash = await bcrypt.hash(password, 12)
+  await prisma.usuario.update({ where: { id }, data: { passwordHash } })
+}
   if (id === requestingUserId && !activo) {
     throw AppError.badRequest('No podés desactivar tu propio usuario')
   }
