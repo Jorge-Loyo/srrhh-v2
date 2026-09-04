@@ -350,6 +350,10 @@ export function ConcursoCphWizard() {
       setModalAutorizacion(false)
       setObsAutorizacion('')
     },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al resolver la autorización'
+      alert(msg)
+    },
   })
 
   const [etapaActiva, setEtapaActiva] = useState(

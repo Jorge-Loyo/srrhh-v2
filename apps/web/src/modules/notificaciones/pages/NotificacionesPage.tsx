@@ -100,8 +100,13 @@ export function NotificacionesPage() {
       apiClient.post(`/api/v1/concursos-cph/${id}/autorizar`, { aprobado, observaciones: obs || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cph-autorizaciones'] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard'] })
       setModalId(null)
       setObs('')
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al resolver la autorización'
+      alert(msg)
     },
   })
 
