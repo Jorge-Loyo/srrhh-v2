@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useRoles } from '../../configuracion/hooks/useRoles'
 import { getApiErrorMessage } from '@/shared/lib/utils'
-import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios } from '../hooks/useUsuarios'
+import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios, useChangePassword } from '../hooks/useUsuarios'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 
 // Mismas reglas que createUsuarioSchema en apps/api (usuarios.schema.ts) —
@@ -25,12 +25,28 @@ export function AdminUsuariosPage() {
   const { user: currentUser } = useAuth()
   const [showForm, setShowForm] = useState(false)
   const [formError, setFormError] = useState('')
+  const [changingPasswordId, setChangingPasswordId] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [pwdError, setPwdError] = useState('')
 
   const { data: usuarios, isLoading, isError } = useUsuarios()
   const { data: hospitales } = useHospitales()
   const { data: roles } = useRoles()
   const createUsuario = useCreateUsuario()
   const setActivo = useSetUsuarioActivo()
+  const changePassword = useChangePassword()
+
+  async function handleChangePassword(id: string) {
+    setPwdError('')
+    if (newPassword.length < 8) { setPwdError('Mínimo 8 caracteres'); return }
+    try {
+      await changePassword.mutateAsync({ id, password: newPassword })
+      setChangingPasswordId(null)
+      setNewPassword('')
+    } catch {
+      setPwdError('Error al cambiar la contraseña')
+    }
+  }
 
   const {
     register,
@@ -188,14 +204,44 @@ export function AdminUsuariosPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      disabled={setActivo.isPending || u.id === currentUser?.id}
-                      title={u.id === currentUser?.id ? 'No podés desactivar tu propio usuario' : undefined}
-                      onClick={() => setActivo.mutate({ id: u.id, activo: !u.activo })}
-                      className={u.activo ? 'btn-danger' : 'btn-outline'}
-                    >
-                      {u.activo ? 'Desactivar' : 'Activar'}
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => { setChangingPasswordId(changingPasswordId === u.id ? null : u.id); setNewPassword(''); setPwdError('') }}
+                        className="btn-outline text-xs"
+                      >
+                        🔑 Contraseña
+                      </button>
+                      <button
+                        disabled={setActivo.isPending || u.id === currentUser?.id}
+                        title={u.id === currentUser?.id ? 'No podés desactivar tu propio usuario' : undefined}
+                        onClick={() => setActivo.mutate({ id: u.id, activo: !u.activo })}
+                        className={u.activo ? 'btn-danger' : 'btn-outline'}
+                      >
+                        {u.activo ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </div>
+                    {changingPasswordId === u.id && (
+                      <div className="mt-2 flex items-center gap-2 justify-end">
+                        <div className="flex flex-col items-end gap-1">
+                          <input
+                            type="password"
+                            placeholder="Nueva contraseña"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:border-secondary w-48"
+                            autoFocus
+                          />
+                          {pwdError && <p className="text-[10px] text-danger">{pwdError}</p>}
+                        </div>
+                        <button
+                          onClick={() => handleChangePassword(u.id)}
+                          disabled={changePassword.isPending}
+                          className="btn-primary text-xs h-8 px-3"
+                        >
+                          {changePassword.isPending ? '...' : 'Guardar'}
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
