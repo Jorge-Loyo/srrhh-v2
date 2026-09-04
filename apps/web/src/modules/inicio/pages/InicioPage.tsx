@@ -31,6 +31,7 @@ const COLUMNAS: Columna[] = [
     categorias: HUB_PLANILLAS,
     colorTitulo: 'text-white',
     colorFondo: 'bg-[#227849]',
+    colorBorde: 'border-[#1a5e38]',
     colorSubtitulo: 'text-white/70',
   },
   {
@@ -41,6 +42,7 @@ const COLUMNAS: Columna[] = [
     categorias: HUB_ENLACES,
     colorTitulo: 'text-white',
     colorFondo: 'bg-[#163548]',
+    colorBorde: 'border-[#0e2330]',
     colorSubtitulo: 'text-white/70',
   },
   {
@@ -51,6 +53,7 @@ const COLUMNAS: Columna[] = [
     categorias: HUB_PRESENTACIONES,
     colorTitulo: 'text-black',
     colorFondo: 'bg-[#f5bf00]',
+    colorBorde: 'border-[#c9a000]',
     colorSubtitulo: 'text-black/70',
   },
 ]
