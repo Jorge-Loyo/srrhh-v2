@@ -4,6 +4,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -12,7 +13,7 @@ const include = {
   registradoPor: { select: { username: true } },
 } satisfies Prisma.BajaInclude
 
-// ─── S5-4: listado paginado con filtros ─────────────────────────────────────
+// --- S5-4: listado paginado con filtros -------------------------------------
 export async function listBajasService(query: BajasQuery) {
   const { page, limit, hospitalId, estado, search } = query
   const offset = (page - 1) * limit
@@ -45,14 +46,14 @@ export async function listBajasService(query: BajasQuery) {
   return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
-// ─── GET /:id ───────────────────────────────────────────────────────────────────────
+// --- GET /:id ---------------------------------------------------------------
 export async function getBajaService(id: string) {
   const baja = await prisma.baja.findUnique({ where: { id }, include })
   if (!baja) throw AppError.notFound('Baja no encontrada')
   return baja
 }
 
-// ─── PATCH /:id — actualizar borrador ──────────────────────────────────────
+// --- PATCH /:id --- actualizar borrador ------------------------------------
 export async function updateBajaService(id: string, body: CreateBajaBody, usuarioId: string) {
   const baja = await prisma.baja.findUnique({ where: { id } })
   if (!baja) throw AppError.notFound('Baja no encontrada')
@@ -112,11 +113,27 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
       }
     }
 
+    // S13-8: notificar al director cuando la baja pasa a pendiente
+    if (body.estado === 'pendiente') {
+      const cargoInfo = updated.cargo as unknown as { codigo?: string; hospital?: { sigla?: string } }
+      const cargoCodigo = cargoInfo?.codigo ?? baja.cargoId.slice(0, 8)
+      const hospitalSigla = cargoInfo?.hospital?.sigla ?? ''
+      await crearNotificacion({
+        tipo:       'baja_pendiente',
+        rolSlug:    'director',
+        titulo:     `Baja procesada: ${cargoCodigo}`,
+        mensaje:    `La baja del cargo ${cargoCodigo} - ${hospitalSigla} fue procesada y esta pendiente de confirmacion.`,
+        origenTipo: 'baja',
+        origenId:   id,
+        origenKey:  `baja_pendiente:${id}`,
+      })
+    }
+
     return updated
   })
 }
 
-// ─── S8B: Validación de Bajas ───────────────────────────────────────────────
+// --- S8B: Validacion de Bajas -----------------------------------------------
 
 export async function listValidacionService() {
   const cargos = await prisma.cargo.findMany({
@@ -148,7 +165,7 @@ export async function listValidacionService() {
 export async function confirmarValidacionService(cargoId: string, actaAdministrativa?: string) {
   const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
-  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no está en validacion_vacante (estado actual: ${cargo.estado})`)
+  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no esta en validacion_vacante (estado actual: ${cargo.estado})`)
 
   return prisma.cargo.update({
     where: { id: cargoId },
@@ -163,10 +180,9 @@ export async function confirmarValidacionService(cargoId: string, actaAdministra
 export async function rechazarValidacionService(cargoId: string) {
   const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
-  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no está en validacion_vacante (estado actual: ${cargo.estado})`)
+  if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no esta en validacion_vacante (estado actual: ${cargo.estado})`)
 
   return prisma.$transaction(async (tx) => {
-    // Reabrir la última ocupación cerrada
     const ultimaOcup = await tx.ocupacion.findFirst({
       where: { cargoId, hasta: { not: null } },
       orderBy: { hasta: 'desc' },
@@ -182,8 +198,6 @@ export async function rechazarValidacionService(cargoId: string) {
   })
 }
 
-// S5-5 (lógica genera_concurso → crear seguimiento automático) se agrega
-// en la siguiente tarea, una vez que el módulo de bajas esté integrado.
 export async function createBajaService(body: CreateBajaBody, usuarioId: string) {
   const cargo = await prisma.cargo.findUnique({ where: { id: body.cargoId } })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
@@ -228,9 +242,8 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       data: { estado: 'no_vigente' },
     })
 
-    // S5-5: si genera_concurso, crear el seguimiento automáticamente
+    // S5-5: si genera_concurso, crear el seguimiento automaticamente
     if (body.generaConcurso && body.tipoConcurso) {
-      // Guard CPH: no puede haber dos concursos abiertos para el mismo cargo
       if (body.tipoConcurso === TipoConcurso.CPH) {
         const abierto = await tx.concursoCph.findFirst({
           where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },

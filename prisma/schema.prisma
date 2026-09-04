@@ -86,6 +86,7 @@ model Hospital {
   concursosCeetps  ConcursoCeetps[]
   usuarios         Usuario[]
   bajas            Baja[]
+  solicitudesAlta  SolicitudAlta[]
 
   @@map("hospitales")
 }
@@ -109,6 +110,7 @@ model Escalafon {
   cargos                 Cargo[]
   concursosCeetps        ConcursoCeetps[]
   puestosCargo           PuestoCargo[]
+  solicitudesAlta        SolicitudAlta[]
 
   @@map("escalafones")
 }
@@ -128,6 +130,7 @@ model CodigoRegistro {
   escalafon Escalafon @relation(fields: [escalafonId], references: [id])
   cargos    Cargo[]
   concursosCphSolicitado ConcursoCph[] @relation("CphCodigoRegistroSolicitado")
+  solicitudesAlta        SolicitudAlta[]
 
   @@map("codigos_registro")
 }
@@ -521,6 +524,23 @@ enum EstadoBaja {
   anulada
 }
 
+enum TipoAutorizacion {
+  concurso_cph
+  alta_cargo
+}
+
+enum EstadoAutorizacion {
+  pendiente
+  aprobada
+  rechazada
+}
+
+enum SolicitudAltaEstado {
+  pendiente
+  aprobada
+  rechazada
+}
+
 model Baja {
   id               String     @id @default(uuid()) @db.Uuid
   cargoId          String     @map("cargo_id") @db.Uuid
@@ -565,6 +585,82 @@ model Baja {
 }
 
 // =============================================================================
+// AUTORIZACIONES (S13)
+// =============================================================================
+
+// Autorización genérica: cualquier acción del sistema que requiere aprobación
+// de un superior. El campo resolverPorRolSlug usa el slug del rol (string)
+// igual que Notificacion.rolSlug — sin FK a roles para evitar query extra
+// y acoplamiento. referenciaId apunta al id del objeto origen (ConcursoCph
+// o SolicitudAlta). Para CPH con cambio estructural se crean dos en cadena:
+// primero director, cuando aprueba se crea la de sgrasv.
+model Autorizacion {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tipo               TipoAutorizacion
+  referenciaId       String             @map("referencia_id") @db.Uuid
+  referenciaTipo     String             @map("referencia_tipo") @db.VarChar(50)
+  estado             EstadoAutorizacion @default(pendiente)
+  resolverPorRolSlug String             @map("resolver_por_rol_slug") @db.VarChar(40)
+  solicitadoPorId    String?            @map("solicitado_por_id") @db.Uuid
+  resueltoPorId      String?            @map("resuelto_por_id") @db.Uuid
+  observaciones      String?            @db.Text
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  solicitadoPor Usuario? @relation("AutorizacionSolicitadaPor", fields: [solicitadoPorId], references: [id])
+  resueltoPor   Usuario? @relation("AutorizacionResueltaPor", fields: [resueltoPorId], references: [id])
+
+  @@index([referenciaId])
+  @@index([resolverPorRolSlug, estado])
+  @@map("autorizaciones")
+}
+
+// Solicitud de alta de cargo — no es un Cargo hasta ser aprobada por el director.
+// Al aprobar: se generan los Cargo reales con código asignado.
+// Al rechazar: persiste para trazabilidad con estado rechazada.
+model SolicitudAlta {
+  id               String             @id @default(uuid()) @db.Uuid
+  hospitalId       String             @map("hospital_id") @db.Uuid
+  escalafonId      String             @map("escalafon_id") @db.Uuid
+  codigoRegistroId String?            @map("codigo_registro_id") @db.Uuid
+  literalPuesto    String             @map("literal_puesto") @db.VarChar(200)
+  especialidad     String?            @db.VarChar(200)
+  agrupador        String?            @db.VarChar(150)
+  unificadorPuesto String?            @map("unificador_puesto") @db.VarChar(200)
+  regimen          String?            @db.VarChar(50)
+  expediente       String?            @db.VarChar(150)
+  desde            DateTime?          @db.Date
+  cantidad         Int                @default(1)
+  estado           SolicitudAltaEstado @default(pendiente)
+  solicitadoPorId  String?            @map("solicitado_por_id") @db.Uuid
+  // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
+  cargosCreadosIds String[]           @map("cargos_creados_ids") @db.Uuid
+  observaciones    String?            @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  hospital        Hospital        @relation(fields: [hospitalId], references: [id])
+  escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
+  codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  solicitadoPor   Usuario?        @relation("SolicitudAltaSolicitadaPor", fields: [solicitadoPorId], references: [id])
+
+  @@index([hospitalId])
+  @@index([estado])
+  @@map("solicitudes_alta")
+}
+
+// Jerarquía de roles — cimientos para asignación de tareas y permisos en
+// cascada (Sprint 14+). En Sprint 13 solo se crea la tabla y el seed.
+// Un rol puede tener múltiples padres y múltiples hijos.
+model RoleJerarquia {
+  rolHijoSlug  String @map("rol_hijo_slug") @db.VarChar(40)
+  rolPadreSlug String @map("rol_padre_slug") @db.VarChar(40)
+
+  @@id([rolHijoSlug, rolPadreSlug])
+  @@map("role_jerarquias")
+}
+
+// =============================================================================
 // SEGURIDAD Y AUDITORIA
 // =============================================================================
 
@@ -587,8 +683,11 @@ model Usuario {
   snapshotsAprobados    PadronSnapshot[] @relation("SnapshotAprobadoPor")
   concursosRegistrados  Concurso[]
   auditLogs             AuditLog[]
-  bajasRegistradas      Baja[]
-  cargosCreados         Cargo[]          @relation("CargosCreados")
+  bajasRegistradas          Baja[]
+  cargosCreados             Cargo[]          @relation("CargosCreados")
+  autorizacionesSolicitadas Autorizacion[]   @relation("AutorizacionSolicitadaPor")
+  autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
+  solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
 
   @@map("usuarios")
 }
@@ -688,6 +787,7 @@ model Especialidad {
   @@map("especialidades")
 }
 
+
 enum ModalidadPuesto {
   pof
   pou
@@ -714,6 +814,7 @@ model PuestoCargo {
   @@index([escalafonId, modalidad])
   @@map("puestos_cargo")
 }
+
 
 model EspecialidadPuesto {
   id           String     @id @default(uuid()) @db.Uuid

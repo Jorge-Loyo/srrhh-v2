@@ -1,0 +1,9 @@
+feat(s13): modulo autorizaciones + solicitudes-alta + integracion CPH/Bajas
+
+S13-1/2/3: migraciones autorizaciones, solicitudes_alta, role_jerarquias
+S13-4: packages/types enums e interfaces
+S13-5: modulo autorizaciones/ (crearAutorizacion, GET /, GET /mis-pendientes, POST /:id/aprobar, POST /:id/rechazar)
+S13-6: modulo solicitudes-alta/ (POST /, GET /, GET /:id)
+S13-7: patchConcursoCphService usa crearAutorizacion en vez de notificacion ad-hoc
+S13-8: updateBajaService notifica al director al pasar a pendiente
+docs: PLAN_SCRUM y SPRINT_12_13 actualizados - backend S13 completo

@@ -4,6 +4,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 
 const include = {
   concurso: { include: { cargo: { include: { hospital: true, codigoRegistro: true } }, persona: true, baja: true } },
@@ -171,20 +172,15 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     include,
   })
 
-  // Notificar al director si hay cambios que requieren autorización
+  // S13-7: crear Autorizacion genérica si hay cambio estructural
+  // crearAutorizacion también crea la Notificacion al director internamente
   if (requiereAutorizacion) {
-    const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
-    const cambios: string[] = []
-    if (cambiaSigla) cambios.push(`Sigla: ${siglaActual} → ${body.sigla}`)
-    if (cambiaCr)    cambios.push(`Código de registro modificado`)
-    await crearNotificacion({
-      tipo: 'autorizacion_pendiente',
-      rolSlug: 'director',
-      titulo: `Modificación pendiente de autorización — ${cargoCodigo}`,
-      mensaje: `Se solicitó modificar datos del concurso ${cargoCodigo}: ${cambios.join(', ')}. Requiere autorización del Director.`,
-      origenTipo: 'concurso_cph',
-      origenId: id,
-      origenKey: `autorizacion_pendiente:cph:${id}`,
+    await crearAutorizacion(prisma, {
+      tipo:               'concurso_cph',
+      referenciaId:       id,
+      referenciaTipo:     'concurso_cph',
+      solicitadoPorId:    undefined, // patchConcursoCphService no recibe usuarioId — se agrega en S13-7b si hace falta
+      resolverPorRolSlug: 'director',
     })
   }
 

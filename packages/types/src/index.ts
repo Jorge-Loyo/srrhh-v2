@@ -402,6 +402,27 @@ export interface NotificacionFilters {
   soloNoLeidas?: boolean
 }
 
+// S13 — Autorizaciones
+export const TipoAutorizacion = {
+  CONCURSO_CPH: 'concurso_cph',
+  ALTA_CARGO:   'alta_cargo',
+} as const
+export type TipoAutorizacion = typeof TipoAutorizacion[keyof typeof TipoAutorizacion]
+
+export const EstadoAutorizacion = {
+  PENDIENTE: 'pendiente',
+  APROBADA:  'aprobada',
+  RECHAZADA: 'rechazada',
+} as const
+export type EstadoAutorizacion = typeof EstadoAutorizacion[keyof typeof EstadoAutorizacion]
+
+export const SolicitudAltaEstado = {
+  PENDIENTE: 'pendiente',
+  APROBADA:  'aprobada',
+  RECHAZADA: 'rechazada',
+} as const
+export type SolicitudAltaEstado = typeof SolicitudAltaEstado[keyof typeof SolicitudAltaEstado]
+
 export const EstadoBaja = {
   PENDIENTE: 'pendiente',
   CONFIRMADA: 'confirmada',
@@ -433,6 +454,54 @@ export interface Baja {
   hospital?: Hospital
   persona?: Persona | null
   registradoPor?: { username: string } | null
+}
+
+export interface Autorizacion {
+  id: string
+  tipo: TipoAutorizacion
+  referenciaId: string
+  referenciaTipo: string
+  estado: EstadoAutorizacion
+  resolverPorRolSlug: string
+  solicitadoPorId: string | null
+  resueltoPorId: string | null
+  observaciones: string | null
+  createdAt: string
+  updatedAt: string
+  // Relaciones expandidas (opcionales)
+  solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+  resueltoPor?: Pick<Usuario, 'id' | 'username'> | null
+}
+
+export interface SolicitudAlta {
+  id: string
+  hospitalId: string
+  escalafonId: string
+  codigoRegistroId: string | null
+  literalPuesto: string
+  especialidad: string | null
+  agrupador: string | null
+  unificadorPuesto: string | null
+  regimen: string | null
+  expediente: string | null
+  desde: string | null
+  cantidad: number
+  estado: SolicitudAltaEstado
+  solicitadoPorId: string | null
+  cargosCreadosIds: string[]
+  observaciones: string | null
+  createdAt: string
+  updatedAt: string
+  // Relaciones expandidas (opcionales)
+  hospital?: Hospital
+  escalafon?: Escalafon
+  codigoRegistro?: CodigoRegistro | null
+  solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+}
+
+export interface RoleJerarquia {
+  rolHijoSlug: string
+  rolPadreSlug: string
 }
 
 // -----------------------------------------------------------------------------
@@ -707,6 +776,26 @@ export interface BajaFilters {
   hospitalId?: string
   estado?: EstadoBaja
   search?: string
+}
+
+// S13 — POST /api/v1/solicitudes-alta
+export interface CreateSolicitudAltaRequest {
+  hospitalId: string
+  escalafonId: string
+  codigoRegistroId?: string
+  literalPuesto: string
+  especialidad?: string
+  agrupador?: string
+  unificadorPuesto?: string
+  regimen?: string
+  expediente?: string
+  desde?: string
+  cantidad?: number
+}
+
+// S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar
+export interface ResolverAutorizacionRequest {
+  observaciones?: string
 }
 
 // S5-10 — POST /api/v1/cargos (Alta de Cargo manual)
