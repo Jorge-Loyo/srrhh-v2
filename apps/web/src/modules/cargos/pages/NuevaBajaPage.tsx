@@ -658,7 +658,7 @@ export function NuevaBajaPage() {
                       <input
                         type="text"
                         value={docRespaldatoria}
-                        onChange={(e) => setDocRespaldatoria(e.target.value)}
+                        onChange={(e) => setDocRespaldatoria(e.target.value.replace(/\s/g, ''))}
                         className="input h-10 w-full"
                       />
                     </Field>

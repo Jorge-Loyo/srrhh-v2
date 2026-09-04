@@ -133,8 +133,8 @@ export function ConcursoCphWizard() {
     }
     if (!cphData) return null
     const c = cphData.concurso
-    const baja = (c as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } })?.baja
-    const eeBajaVal   = cphData.eeBaja   ?? baja?.observaciones ?? ''
+    const baja = (c as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null } })?.baja
+    const eeBajaVal   = cphData.eeBaja   ?? baja?.eeBaja ?? ''
     const rawFechaHeader = cphData.fechaBaja ?? baja?.fechaBaja ?? ''
     const fechaBajaVal = rawFechaHeader
       ? (typeof rawFechaHeader === 'string'
@@ -169,8 +169,8 @@ export function ConcursoCphWizard() {
       if (!cphData) return false
       return (cphData as unknown as Record<string, boolean>)[key] ?? false
     }
-    const bajaDatos = (cphData?.concurso as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } } | undefined)?.baja
-    const eeBajaResuelto   = cphData?.eeBaja ?? bajaDatos?.observaciones ?? ''
+    const bajaDatos = (cphData?.concurso as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null } } | undefined)?.baja
+    const eeBajaResuelto   = cphData?.eeBaja ?? bajaDatos?.eeBaja ?? ''
     const rawFecha = cphData?.fechaBaja ?? bajaDatos?.fechaBaja ?? ''
     const fechaBajaResuelto = rawFecha
       ? (typeof rawFecha === 'string'
@@ -291,6 +291,16 @@ export function ConcursoCphWizard() {
     escalafonId || undefined,
     puestoConcurso || undefined
   )
+
+  // Cuando llegan las opciones, corregir especialidadConcurso si no coincide exactamente
+  // (ej: 'Ortopedia y Traumatología' vs 'Ortopedia y Traumatologia' — tildes legacy)
+  useEffect(() => {
+    if (especialidadesDisponibles.length === 0 || !especialidadConcurso) return
+    if (especialidadesDisponibles.includes(especialidadConcurso)) return
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const match = especialidadesDisponibles.find((e) => normalize(e) === normalize(especialidadConcurso))
+    if (match) setEspecialidadConcurso(match)
+  }, [especialidadesDisponibles])
 
   useEffect(() => {
     if (!cphData) return
@@ -681,6 +691,32 @@ export function ConcursoCphWizard() {
                           />
                         </div>
                       ))}
+                      {/* Campos extra de la baja — solo cuando hay datos de API (no modo nuevo) */}
+                      {!esNuevo && (() => {
+                        const b = (cphData?.concurso as unknown as { baja?: { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null } })?.baja
+                        if (!b) return null
+                        const toDate = (v: string | Date | null | undefined) => v ? (typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10)) : ''
+                        const extras: { label: string; value: string; fecha?: boolean; wide?: boolean }[] = [
+                          { label: 'Origen',                value: b.tipificadorOrigen ?? '' },
+                          { label: 'Motivo',                value: b.motivo ?? '' },
+                          { label: 'Doc. respaldatoria',    value: b.docRespaldatoria ?? '' },
+                          { label: 'Partida presup.',       value: b.partidaPresupuestaria ?? '' },
+                          { label: 'Carga horaria',         value: b.cargaHoraria != null ? `${b.cargaHoraria} hs` : '' },
+                          { label: 'Fecha pase paralelo',   value: toDate(b.fechaPaseParalelo), fecha: true },
+                          { label: 'Observaciones',         value: b.observaciones ?? '', wide: true },
+                        ]
+                        return extras.filter((e) => e.value).map((e) => (
+                          <div key={e.label} className={e.wide ? 'sm:col-span-2' : ''}>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">{e.label}</label>
+                            <input
+                              type={e.fecha ? 'date' : 'text'}
+                              defaultValue={e.value}
+                              className="input h-10 w-full bg-gray-50 text-gray-500"
+                              readOnly
+                            />
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
 
