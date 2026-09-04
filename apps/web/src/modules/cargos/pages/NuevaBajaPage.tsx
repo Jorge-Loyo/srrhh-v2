@@ -638,7 +638,7 @@ export function NuevaBajaPage() {
                       type="text"
                       value={cargaHoraria}
                       onChange={(e) => setCargaHoraria(e.target.value.replace(/\D/g, '').slice(0, 2))}
-                      placeholder="37"
+                      placeholder="30"
                       className="input h-10 w-full"
                     />
                   </Field>

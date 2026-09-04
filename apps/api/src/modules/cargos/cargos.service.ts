@@ -5,22 +5,32 @@ import type { CargosQuery, CreateCargoBody, AltasQuery } from './cargos.schema.j
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
+interface PuestoCargoRow {
+  puesto: string
+  especialidades: string[]
+}
+
+// Filtro puesto + especialidad en cascada de CargosPage (mismo patrón que
+// GET /api/v1/puestos para PersonasPage, ver puestos.routes.ts): cada puesto
+// trae las especialidades reales (`especialidad_legacy`, no la vieja columna
+// `especialidad` que ya no existe — ver migración especialidades_fk) que
+// aparecen en cargos con ese puesto, acotado por escalafón y/u hospital.
 export async function listPuestosCargosService(escalafonId?: string, hospitalId?: string) {
-  const rows = await prisma.cargo.findMany({
-    where: {
-      literalPuesto: { not: null },
-      ...(escalafonId && { escalafonId }),
-      ...(hospitalId && { hospitalId }),
-    },
-    select: { literalPuesto: true },
-    distinct: ['literalPuesto'],
-    orderBy: { literalPuesto: 'asc' },
-  })
-  return rows.map((r) => r.literalPuesto as string)
+  return prisma.$queryRaw<PuestoCargoRow[]>(Prisma.sql`
+    SELECT
+      literal_puesto AS puesto,
+      array_remove(array_agg(DISTINCT NULLIF(especialidad_legacy, '')), NULL) AS especialidades
+    FROM cargos
+    WHERE literal_puesto IS NOT NULL
+    ${escalafonId ? Prisma.sql`AND escalafon_id = ${escalafonId}::uuid` : Prisma.empty}
+    ${hospitalId ? Prisma.sql`AND hospital_id = ${hospitalId}::uuid` : Prisma.empty}
+    GROUP BY literal_puesto
+    ORDER BY literal_puesto ASC
+  `)
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, puesto, estado, ocupado, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, puesto, especialidad, estado, ocupado, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -57,17 +67,6 @@ export async function listCargosService(query: CargosQuery) {
     searchIds = rows.map((r) => r.id)
   }
 
-  // Filtro ocupado: subquery EXISTS sobre ocupaciones con hasta IS NULL
-  let ocupadoIds: string[] | undefined
-  if (ocupado !== undefined) {
-    const rows = await prisma.$queryRaw<{ id: string }[]>(
-      ocupado
-        ? Prisma.sql`SELECT DISTINCT cargo_id AS id FROM ocupaciones WHERE hasta IS NULL`
-        : Prisma.sql`SELECT id FROM cargos WHERE NOT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = cargos.id AND o.hasta IS NULL)`
-    )
-    ocupadoIds = rows.map((r) => r.id)
-  }
-
   // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente
   let personaIds: string[] | undefined
   if (personaSearch) {
@@ -90,7 +89,6 @@ export async function listCargosService(query: CargosQuery) {
   // Intersectar todos los filtros de id con AND
   const idFilters: Prisma.CargoWhereInput[] = [
     ...(searchIds  !== undefined ? [{ id: { in: searchIds  } }] : []),
-    ...(ocupadoIds !== undefined ? [{ id: { in: ocupadoIds } }] : []),
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
   ]
 
@@ -98,7 +96,15 @@ export async function listCargosService(query: CargosQuery) {
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(puesto      && { literalPuesto: puesto }),
+    ...(especialidad && { especialidadLegacy: especialidad }),
     ...(estado      && { estado }),
+    // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
+    // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS
+    // los cargos ocupados de toda la base (sin acotar por los demás filtros)
+    // y podía superar el máximo de bind variables de Postgres (32767),
+    // tirando abajo el listado entero con cualquier combinación de filtros.
+    ...(ocupado === true  && { ocupaciones: { some: { hasta: null } } }),
+    ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
     ...(idFilters.length === 1 && { id: idFilters[0]!.id }),
     ...(idFilters.length  > 1 && { AND: idFilters }),
   }
