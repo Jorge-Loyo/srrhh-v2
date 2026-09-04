@@ -1483,8 +1483,20 @@ export async function exportarSnapshotService(id: string) {
   if (!snapshot.archivoResultadoPath) {
     throw AppError.notFound('El archivo Excel no está disponible para este snapshot')
   }
-  const fileStream = await python.get(`/${snapshot.archivoResultadoPath}`, { responseType: 'stream' })
-  return { stream: fileStream.data as NodeJS.ReadableStream, snapshotId: id }
+  try {
+    const fileStream = await python.get(`/${snapshot.archivoResultadoPath}`, { responseType: 'stream' })
+    return { stream: fileStream.data as NodeJS.ReadableStream, snapshotId: id }
+  } catch (err) {
+    // Dotaneitor devuelve 404 si el Excel no llegó a escribirse en disco (ej.
+    // exports/ no persistido entre reinicios del contenedor, o snapshot
+    // aprobado antes de que /cruzar empezara a generar el archivo) — se
+    // traduce a 404 propio en vez de dejar que el AxiosError tumbe la
+    // request con un 500 genérico.
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      throw AppError.notFound('El archivo Excel no está disponible para este snapshot')
+    }
+    throw err
+  }
 }
 
 // ─── borrar snapshot (solo error/rechazado) ─────────────────────────────────

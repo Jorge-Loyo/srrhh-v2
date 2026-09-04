@@ -13,6 +13,14 @@ MONOVALENCIA salen en blanco para el 100% de las filas del padrón, sin ningún 
 script es el fix: carga esos datos una vez (y sirve para recargarlos si el Excel de referencia se
 actualiza más adelante).
 
+Nota (2026-09-04): existe también `scripts/migrar_ref_dotacion.py` (Jorge) — mismo objetivo,
+escrito en paralelo sin que nos viéramos. La diferencia real: el suyo filtra las filas placeholder
+"Revisar con JUAN MANUEL en SIGEHOS" de UNIFICADOR DE PUESTOS (no son un dato real), este script
+ya incorpora ese mismo filtro. Los campos de `hospitales` (universo_totalizador/tipo/monovalencia)
+que actualiza este script quedaron migrados aparte, de forma portable, en
+`prisma/migrations/20260908000000_hospitales_enriquecer`. Con dos scripts para lo mismo, cualquiera
+de los dos sirve — no hace falta correr ambos.
+
 Uso:
     cd services/dotaneitor
     python scripts/seed_referencias.py --archivo "/ruta/a/ARCHIVOS PARA DOTACION.xlsx"
@@ -98,6 +106,10 @@ def cargar_unificador(engine, archivo):
         'UNIFICADOR DE PUESTO': 'unificador',
     })[['cruce', 'lit_cod_reg', 'lit_puesto', 'unificador']]
     df = df.dropna(subset=['cruce'])
+    # Filas placeholder ("Revisar con JUAN MANUEL en SIGEHOS") no son un
+    # UNIFICADOR DE PUESTO real, son una nota pendiente de resolver a mano en
+    # el Excel de origen — se descartan, mismo criterio que scripts/migrar_ref_dotacion.py.
+    df = df[~df['unificador'].astype(str).str.upper().str.contains('REVISAR')]
     df.insert(0, 'id', [str(uuid.uuid4()) for _ in range(len(df))])
     df = _sin_nan(df)
 
