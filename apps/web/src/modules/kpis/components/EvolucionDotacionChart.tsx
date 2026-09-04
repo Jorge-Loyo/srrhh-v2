@@ -6,7 +6,7 @@ import type { KpiDotacionHistorica } from '@srrhh/types'
 const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; colorLight: string }[] = [
   {
     label: 'Nueva Carrera Prof. Hosp',
-    escalafones: ['Nueva Carrera Prof. Hosp'],
+    escalafones: ['Nueva Carrera Prof. Hosp', 'Nueva Carrera Profesional Hospitalaria'],
     color: '#1D6FA4',
     colorLight: '#DBEAFE',
   },
@@ -24,7 +24,7 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
   },
   {
     label: 'Guardias y Residencias',
-    escalafones: ['Salud - Guardias', 'Residencias'],
+    escalafones: ['Salud - Guardias', 'Residencias', 'Residentes'],
     color: '#5B6FA8',
     colorLight: '#E0E7FF',
   },
@@ -71,6 +71,17 @@ function techoLimpio(max: number): number {
   const mag = 10 ** Math.floor(Math.log10(max))
   for (const p of [1, 2, 2.5, 5, 10]) { if (p * mag >= max) return p * mag }
   return 10 * mag
+}
+
+// Piso del eje Y: zoom al rango real para ver fluctuación.
+// Se baja al 90% del mínimo redondeado a un número limpio.
+function pisoLimpio(min: number, max: number): number {
+  if (min <= 0 || max <= 0) return 0
+  // Si la variación es > 20% del máximo, empezar desde 0 (hay suficiente fluctuación visible)
+  if ((max - min) / max > 0.2) return 0
+  const candidato = min * 0.9
+  const mag = 10 ** Math.floor(Math.log10(candidato))
+  return Math.floor(candidato / mag) * mag
 }
 
 function formatK(n: number): string {
@@ -125,6 +136,10 @@ export function EvolucionDotacionChart({ data }: Props) {
 
   if (puntos.length === 0) {
     return <p className="text-sm text-gray-400">Todavía no hay snapshots de padrón aprobados para graficar.</p>
+  }
+
+  if (puntos.length < 3) {
+    return <p className="text-sm text-gray-400">Se necesitan al menos 3 snapshots completos para mostrar la evolución. Hay {puntos.length} disponible{puntos.length !== 1 ? 's' : ''} hasta ahora.</p>
   }
 
   // Escalafones sin grupo asignado (para detectar si hay datos no mapeados)
@@ -192,6 +207,8 @@ function MiniLineChart({
   agrupacion: 'mes' | 'subida'
 }) {
   const yMax = techoLimpio(Math.max(1, ...valores))
+  const yMin = pisoLimpio(Math.min(...valores.filter(v => v > 0)), Math.max(...valores))
+  const yRange = yMax - yMin || 1
   const n = valores.length
 
   const labelStep = Math.max(1, Math.ceil(n / 5))
@@ -199,7 +216,7 @@ function MiniLineChart({
   // Construir polyline points
   const points = valores.map((v, i) => {
     const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
-    const y = MP.top + innerH - (v / yMax) * innerH
+    const y = MP.top + innerH - ((v - yMin) / yRange) * innerH
     return `${x},${y}`
   }).join(' ')
 
@@ -208,7 +225,7 @@ function MiniLineChart({
     `${MP.left},${MP.top + innerH}`,
     ...valores.map((v, i) => {
       const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
-      const y = MP.top + innerH - (v / yMax) * innerH
+      const y = MP.top + innerH - ((v - yMin) / yRange) * innerH
       return `${x},${y}`
     }),
     `${MP.left + innerW},${MP.top + innerH}`,
@@ -218,10 +235,10 @@ function MiniLineChart({
   const primero = valores[0] ?? 0
   const delta = ultimo - primero
   const xUltimo = MP.left + innerW
-  const yUltimo = MP.top + innerH - (ultimo / yMax) * innerH
+  const yUltimo = MP.top + innerH - ((ultimo - yMin) / yRange) * innerH
 
-  // Ticks Y: solo 3 (0, mitad, máx)
-  const yTicks = [0, Math.round(yMax / 2), yMax]
+  // Ticks Y: piso, mitad, techo
+  const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
 
   return (
     <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-3">
