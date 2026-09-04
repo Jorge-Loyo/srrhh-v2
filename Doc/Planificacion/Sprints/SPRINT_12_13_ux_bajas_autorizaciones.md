@@ -198,10 +198,47 @@ PATCH /bajas/:id  (resolucion_a_la_firma → pendiente)
   estructural de `createCargoService` (S7-5/S7-6) — quedó fuera de alcance de esta sesión. El modal
   "Crear de todos modos" de `AltaCargosPage` se sacó junto con el resto del flujo viejo; si se quiere
   esa protección de vuelta, hay que agregarla a `createSolicitudAltaService` primero.
-- **Backend viejo sin tocar**: `POST /concursos-cph/:id/autorizar` y `aprobarAutorizacionCphService`
-  siguen existiendo en el backend (nadie del frontend les pega ya) — no se borraron por no tocar
-  código de Jorge sin que lo pida. Si se confirma que no hay ningún otro consumidor, es candidato a
-  limpieza en un sprint futuro.
+- **Backend viejo eliminado**: confirmado con Agustín que no había otro consumidor, se borró
+  `POST /concursos-cph/:id/autorizar` (ruta + `aprobarAutorizacionCphService`) del backend —
+  devuelve 404 ahora. Verificado con `curl` directo tras el borrado.
+
+### Verificación end-to-end (Agustín + Claude, 2026-09-04, contra Docker real)
+
+Se levantó el stack en Docker (WSL) y se probó contra datos reales, no solo `tsc`:
+
+- **Hallazgo de entorno**: el rol `sgrasv` no existía en la BD local (ni el rol ni sus permisos
+  `autorizaciones.ver/resolver_director/resolver_sgrasv` — el script `scripts/seed_autorizaciones_permisos.sql`
+  nunca se había corrido acá pese a figurar "✅ Local ✅ Neon" en este mismo doc). Sin esto el
+  segundo paso del flujo CPH (sgrasv) era imposible de usar. Se corrió el script y se creó el rol
+  `sgrasv` a mano por SQL directo (`POST /roles` de la UI no sirve para esto — `buildSlug()` le
+  agrega un sufijo random, y el código tiene `'sgrasv'` hardcodeado en varios lugares). **Pendiente:
+  correr `scripts/seed_autorizaciones_permisos.sql` y crear el rol `sgrasv` en Neon/producción
+  también** — no viajó solo con el merge de código.
+- **Flujo alta_cargo**: `SolicitudAlta` → aprobar como director → 2 `Cargo` reales creados con
+  código asignado (`AS-DG-000043` y siguiente) → notificación al solicitante. Verificado con
+  `curl` y visualmente (historial con badge "Aprobada", modal con "2 cargo(s) creado(s)").
+- **Flujo CPH dos pasos**: PATCH con cambio de sigla → autorización para director → aprobar →
+  autorización en cadena para sgrasv → aprobar → cero filas huérfanas en `autorizaciones`
+  (las 3 quedaron en `aprobada`, confirmado por SQL). Este es el bug que motivó S13-C, ahora
+  confirmado resuelto de punta a punta, no solo en el código.
+- **Jerarquía**: detección de ciclos devuelve 400 correctamente; reasignar un padre reemplaza al
+  anterior en vez de sumar.
+- Las 5 pantallas se recorrieron con Chrome headless (Playwright) — sin errores de consola más
+  allá de un 404 de `favicon.ico` preexistente, ajeno a este sprint.
+- **Hallazgo menor, no corregido**: `_aprobarCph` (autorizaciones.service.ts) no limpia
+  `siglaSolicitada`/`codigoRegistroSolicitadoId` al resolver el paso final de sgrasv — el endpoint
+  viejo que se borró sí lo hacía. No causa bug visible hoy (`patchConcursoCphService` compara
+  contra el hospital real del cargo, no contra ese campo cache) pero es un dato que queda sucio.
+  Sin tocar — a criterio de Jorge si vale la pena limpiarlo.
+
+### Merge (2026-09-04)
+
+Rama `Agustin`: commit `554498f` (frontend S13-A a S13-E) + merge de `origin/main` (`3981a40`),
+pusheado a `origin/Agustin`. Mergeado a `deploy` (`779d193`) sin conflictos — de paso trajo a
+`deploy` los fixes de `POST_SPRINT_14_personas_cargos_exportables.md` que todavía no habían
+llegado ahí. `tsc --noEmit` limpio en `apps/api` y `apps/web` después de cada merge.
+**Falta**: correr `prisma migrate deploy` + el seed de permisos de autorizaciones + crear el rol
+`sgrasv` contra la base de producción/Neon antes de que este trabajo sea usable ahí.
 
 ---
 
