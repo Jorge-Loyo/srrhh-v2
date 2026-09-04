@@ -1,12 +1,12 @@
 import { useMemo } from 'react'
 import type { KpiDotacionHistorica } from '@srrhh/types'
 
-// ─── Macro-grupos (de mayor a menor volumen esperado) ───────────────────────
-// Criterio: de mayor dotación a menor
+// Nombres canónicos = escalafones.nombre (activo=true) de la BD.
+// El backend resuelve via cargo→escalafon_id→escalafones, nunca el campo texto desnormalizado.
 const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; colorLight: string }[] = [
   {
     label: 'Nueva Carrera Prof. Hosp',
-    escalafones: ['Nueva Carrera Prof. Hosp', 'Nueva Carrera Profesional Hospitalaria'],
+    escalafones: ['Nueva Carrera Profesional Hospitalaria'],
     color: '#1D6FA4',
     colorLight: '#DBEAFE',
   },
@@ -24,7 +24,7 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
   },
   {
     label: 'Guardias y Residencias',
-    escalafones: ['Salud - Guardias', 'Residencias', 'Residentes'],
+    escalafones: ['Salud - Guardias', 'Residentes'],
     color: '#5B6FA8',
     colorLight: '#E0E7FF',
   },
@@ -73,15 +73,18 @@ function techoLimpio(max: number): number {
   return 10 * mag
 }
 
-// Piso del eje Y: zoom al rango real para ver fluctuación.
-// Se baja al 90% del mínimo redondeado a un número limpio.
-function pisoLimpio(min: number, max: number): number {
-  if (min <= 0 || max <= 0) return 0
-  // Si la variación es > 20% del máximo, empezar desde 0 (hay suficiente fluctuación visible)
-  if ((max - min) / max > 0.2) return 0
-  const candidato = min * 0.9
-  const mag = 10 ** Math.floor(Math.log10(candidato))
-  return Math.floor(candidato / mag) * mag
+function calcularRangoY(valores: number[]): { yMin: number; yMax: number } {
+  const vals = valores.filter(v => v > 0)
+  if (vals.length === 0) return { yMin: 0, yMax: 10 }
+  const min = Math.min(...vals)
+  const max = Math.max(...vals)
+  const rango = max - min
+  if (rango / max > 0.3) return { yMin: 0, yMax: techoLimpio(max) }
+  const padding = Math.max(rango * 0.5, max * 0.005)
+  return {
+    yMin: Math.floor(min - padding),
+    yMax: Math.ceil(max + padding),
+  }
 }
 
 function formatK(n: number): string {
@@ -98,7 +101,6 @@ export function EvolucionDotacionChart({ data }: Props) {
   const puntos = data?.puntos ?? []
   const todosEscalafones = data?.escalafones ?? []
 
-  // Suma por macro-grupo para cada punto
   const seriesPorGrupo = useMemo(() =>
     MACRO_GRUPOS.map((g) => ({
       ...g,
@@ -109,7 +111,6 @@ export function EvolucionDotacionChart({ data }: Props) {
     [puntos]
   )
 
-  // KPIs ejecutivos
   const { totalActual, totalInicio, variacionNeta, variacionPct, grupoMayorCrecimiento } = useMemo(() => {
     if (puntos.length === 0) return { totalActual: 0, totalInicio: 0, variacionNeta: 0, variacionPct: 0, grupoMayorCrecimiento: '—' }
     const ultimo = puntos[puntos.length - 1]!
@@ -142,14 +143,11 @@ export function EvolucionDotacionChart({ data }: Props) {
     return <p className="text-sm text-gray-400">Se necesitan al menos 3 snapshots completos para mostrar la evolución. Hay {puntos.length} disponible{puntos.length !== 1 ? 's' : ''} hasta ahora.</p>
   }
 
-  // Escalafones sin grupo asignado (para detectar si hay datos no mapeados)
   const escalafonesMapeados = new Set(MACRO_GRUPOS.flatMap((g) => g.escalafones))
   const sinMapear = todosEscalafones.filter((e) => !escalafonesMapeados.has(e))
-  // Los no mapeados van a "Otros" automáticamente — no se muestran como advertencia
 
   return (
     <div className="space-y-5">
-      {/* ── KPI Cards ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiCard
           label="Dotación total"
@@ -170,7 +168,6 @@ export function EvolucionDotacionChart({ data }: Props) {
         />
       </div>
 
-      {/* ── Small Multiples ───────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {seriesPorGrupo.map((grupo) => (
           <MiniLineChart
@@ -185,10 +182,9 @@ export function EvolucionDotacionChart({ data }: Props) {
         ))}
       </div>
 
-      {/* Nota si hay escalafones sin mapear */}
       {sinMapear.length > 0 && (
         <p className="text-xs text-gray-400">
-          Escalafones incluidos en "Otros": {sinMapear.join(', ')}
+          Escalafones sin mapear: {sinMapear.join(', ')}
         </p>
       )}
     </div>
@@ -206,21 +202,18 @@ function MiniLineChart({
   fechas: (string | Date)[]
   agrupacion: 'mes' | 'subida'
 }) {
-  const yMax = techoLimpio(Math.max(1, ...valores))
-  const yMin = pisoLimpio(Math.min(...valores.filter(v => v > 0)), Math.max(...valores))
+  const { yMin, yMax } = calcularRangoY(valores)
   const yRange = yMax - yMin || 1
   const n = valores.length
 
   const labelStep = Math.max(1, Math.ceil(n / 5))
 
-  // Construir polyline points
   const points = valores.map((v, i) => {
     const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
     const y = MP.top + innerH - ((v - yMin) / yRange) * innerH
     return `${x},${y}`
   }).join(' ')
 
-  // Área bajo la curva
   const areaPoints = [
     `${MP.left},${MP.top + innerH}`,
     ...valores.map((v, i) => {
@@ -235,12 +228,10 @@ function MiniLineChart({
   const primero = valores[0] ?? 0
   const delta = ultimo - primero
 
-  // Ticks Y: piso, mitad, techo
   const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
 
   return (
     <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-3">
-      {/* Header del mini-chart */}
       <div className="flex items-start justify-between mb-1">
         <p className="text-xs font-semibold text-gray-700 leading-tight max-w-[160px]">{label}</p>
         <div className="text-right flex-shrink-0 ml-2">
@@ -252,14 +243,13 @@ function MiniLineChart({
       </div>
 
       <svg viewBox={`0 0 ${MW} ${MH}`} className="w-full h-auto">
-        {/* Área */}
         <polygon points={areaPoints} fill={colorLight} opacity={0.7} />
 
-        {/* Gridlines Y mínimas */}
+        {/* Gridlines Y — key con prefijo para evitar colisión con puntos */}
         {yTicks.map((t) => {
           const y = MP.top + innerH - ((t - yMin) / yRange) * innerH
           return (
-            <g key={t}>
+            <g key={`tick-${t}`}>
               <line x1={MP.left} x2={MP.left + innerW} y1={y} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
               <text x={MP.left - 4} y={y + 3.5} textAnchor="end" fontSize={9} fill="#9CA3AF">
                 {formatK(t)}
@@ -268,21 +258,20 @@ function MiniLineChart({
           )
         })}
 
-        {/* Línea */}
         <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
-        {/* Punto y valor en cada punto */}
+        {/* Punto + label en cada punto — key con prefijo para evitar colisión con ticks */}
         {valores.map((v, i) => {
           const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
           const y = MP.top + innerH - ((v - yMin) / yRange) * innerH
           const isLast = i === n - 1
           return (
-            <g key={i}>
+            <g key={`pt-${i}`}>
               <circle cx={x} cy={y} r={isLast ? 3.5 : 2.5} fill={color} />
               <text
                 x={x}
                 y={y - 5}
-                textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
+                textAnchor={i === 0 ? 'start' : isLast ? 'end' : 'middle'}
                 fontSize={8}
                 fill={color}
                 fontWeight={isLast ? 'bold' : 'normal'}
@@ -293,12 +282,12 @@ function MiniLineChart({
           )
         })}
 
-        {/* Eje X — etiquetas */}
+        {/* Eje X */}
         {fechas.map((f, i) => {
           if (i % labelStep !== 0 && i !== n - 1) return null
           const x = MP.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
           return (
-            <text key={String(f)} x={x} y={MH - 4} textAnchor="middle" fontSize={9} fill="#9CA3AF">
+            <text key={`lbl-${i}`} x={x} y={MH - 4} textAnchor="middle" fontSize={9} fill="#9CA3AF">
               {formatFecha(f, agrupacion)}
             </text>
           )
@@ -330,5 +319,3 @@ function KpiCard({
     </div>
   )
 }
-
-
