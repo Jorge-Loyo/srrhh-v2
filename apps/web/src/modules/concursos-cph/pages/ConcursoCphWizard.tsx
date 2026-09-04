@@ -2,7 +2,7 @@
 // - id === 'nuevo': formulario limpio (sin datos reales aún)
 // - id === UUID:    carga el concurso real de la API
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
@@ -284,6 +284,7 @@ export function ConcursoCphWizard() {
   const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
   const [obsAutorizacion, setObsAutorizacion] = useState('')
+  const formRef = useRef<HTMLDivElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
   const [originales, setOriginales] = useState(originalesRef)
@@ -390,7 +391,22 @@ export function ConcursoCphWizard() {
         return
       }
     }
-    // Sin cambios sensibles: guardar y avanzar a la siguiente etapa
+    // Leer todos los campos del formulario activo y enviar al backend
+    const body: Record<string, unknown> = {}
+    if (formRef.current) {
+      formRef.current.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+        'input[data-key]:not([readonly]):not([disabled]), select[data-key]:not([disabled]), textarea[data-key]:not([disabled])'
+      ).forEach((el) => {
+        const key = el.dataset.key!
+        if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+          body[key] = el.checked
+        } else {
+          body[key] = el.value || null
+        }
+      })
+    }
+    if (Object.keys(body).length > 0) patchMutation.mutate(body)
+
     const siguiente = etapasActuales[etapa.numero]
     if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
     setGuardado(true)
@@ -619,7 +635,7 @@ export function ConcursoCphWizard() {
         </div>
 
         {/* Columna central — formulario de la etapa activa */}
-        <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex-1 min-w-0 space-y-4" ref={formRef}>
           <div className="bg-white rounded-lg shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <div>
@@ -735,6 +751,7 @@ export function ConcursoCphWizard() {
                           <input
                             type="text"
                             defaultValue={campo.valor as string}
+                            data-key={campo.key}
                             className="input h-10 w-full"
                             disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
@@ -818,6 +835,7 @@ export function ConcursoCphWizard() {
                           <input
                             type="checkbox"
                             defaultChecked={campo.valor as boolean}
+                            data-key={campo.key}
                             className="checkbox"
                             disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
@@ -826,6 +844,7 @@ export function ConcursoCphWizard() {
                       ) : campo.tipo === 'textarea' ? (
                         <textarea
                           defaultValue={campo.valor as string}
+                          data-key={campo.key}
                           rows={3}
                           className="input w-full py-2"
                           disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
@@ -834,6 +853,7 @@ export function ConcursoCphWizard() {
                         <input
                           type={campo.tipo === 'fecha' ? 'date' : 'text'}
                           defaultValue={campo.valor as string}
+                          data-key={campo.key}
                           className={`input h-10 w-full ${campo.readonly ? 'bg-gray-50 text-gray-500' : ''}`}
                           readOnly={campo.readonly}
                           disabled={!campo.readonly && (etapa.estado === 'pendiente' || etapa.estado === 'bloqueada')}
