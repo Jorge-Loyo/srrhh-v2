@@ -30,6 +30,14 @@ export function useCreateUsuario() {
   })
 }
 
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async ({ id, password }: { id: string; password: string }) => {
+      await apiClient.patch(`/api/v1/usuarios/${id}/password`, { password })
+    },
+  })
+}
+
 export function useSetUsuarioActivo() {
   const queryClient = useQueryClient()
   return useMutation({

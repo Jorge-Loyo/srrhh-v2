@@ -81,7 +81,7 @@ export function BajasPage() {
                 <thead className="bg-navy text-white text-left">
                   <tr>
                     {/* Columna fija */}
-                    <th className="px-4 py-3 font-semibold sticky left-0 top-0 z-30 bg-navy whitespace-nowrap">Código de cargo</th>
+                    <th className="px-4 py-3 font-semibold sticky top-0 z-20 bg-navy whitespace-nowrap">Código de cargo</th>
                     <th className="px-4 py-3 font-semibold sticky top-0 z-20 bg-navy whitespace-nowrap">Id SIAL</th>
                     <th className="px-4 py-3 font-semibold sticky top-0 z-20 bg-navy whitespace-nowrap">Apellido y Nombre</th>
                     <th className="px-4 py-3 font-semibold sticky top-0 z-20 bg-navy whitespace-nowrap">CUIL</th>
@@ -100,7 +100,7 @@ export function BajasPage() {
                   {data.data.map((r, i) => (
                     <tr key={i} className="hover:bg-gray-50">
                       {/* Columna fija */}
-                      <td className="px-4 py-3 font-mono text-xs sticky left-0 z-10 bg-white hover:bg-gray-50 whitespace-nowrap border-r border-gray-100">
+                      <td className="px-4 py-3 font-mono text-xs whitespace-nowrap border-r border-gray-100">
                         {(r as unknown as Record<string, unknown>)['codigo_cargo']
                           ? <span className="text-gray-700 font-semibold">{String((r as unknown as Record<string, unknown>)['codigo_cargo'])}</span>
                           : <span className="text-gray-300">—</span>}
