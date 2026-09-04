@@ -36,6 +36,7 @@ export function CargosPage() {
   const hospitalId  = searchParams.get('hospitalId') ?? ''
   const escalafonId = searchParams.get('escalafonId') ?? ''
   const puesto      = searchParams.get('puesto') ?? ''
+  const especialidad = searchParams.get('especialidad') ?? ''
   const estado      = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado     = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
   const page        = Number(searchParams.get('page') ?? '1')
@@ -67,6 +68,7 @@ export function CargosPage() {
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(puesto && { puesto }),
+    ...(especialidad && { especialidad }),
     ...(estado && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
   }
@@ -80,11 +82,17 @@ export function CargosPage() {
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
   )
 
+  // Especialidad en cascada con el puesto elegido — mismo patrón que
+  // PersonasPage: solo tiene sentido con un puesto elegido, y solo si ESE
+  // puesto realmente tiene especialidades en los datos reales.
+  const especialidadesDelPuesto = puestos?.find((p) => p.puesto === puesto)?.especialidades ?? []
+
   function cambiarEscalafon(nuevoId: string) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoId) next.set('escalafonId', nuevoId); else next.delete('escalafonId')
       next.delete('puesto')
+      next.delete('especialidad')
       next.delete('page')
       return next
     })
@@ -95,6 +103,7 @@ export function CargosPage() {
       const next = new URLSearchParams(prev)
       if (nuevoId) next.set('hospitalId', nuevoId); else next.delete('hospitalId')
       next.delete('puesto')
+      next.delete('especialidad')
       next.delete('page')
       return next
     })
@@ -104,6 +113,7 @@ export function CargosPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
+      next.delete('especialidad')
       next.delete('page')
       return next
     })
@@ -194,10 +204,22 @@ export function CargosPage() {
           <SearchableSelect
             value={puesto}
             onChange={cambiarPuesto}
-            options={puestos ?? []}
+            options={puestos?.map((p) => p.puesto) ?? []}
             placeholder="Todos los puestos"
             className="min-w-[220px]"
           />
+          {puesto && especialidadesDelPuesto.length > 0 && (
+            <select
+              value={especialidad}
+              onChange={(e) => setParam('especialidad', e.target.value)}
+              className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="">Todas las especialidades</option>
+              {especialidadesDelPuesto.map((esp) => (
+                <option key={esp} value={esp}>{esp}</option>
+              ))}
+            </select>
+          )}
           <select
             value={estado}
             onChange={(e) => {
@@ -243,6 +265,7 @@ export function CargosPage() {
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
           if (puesto) chips.push({ label: puesto, key: 'puesto' })
+          if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (chips.length === 0) return null
@@ -298,6 +321,7 @@ export function CargosPage() {
                     <th className="px-4 py-3 font-semibold">Hospital</th>
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
+                    <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
                     <th className="px-4 py-3 font-semibold" title="Vigente: días con la persona actual. No vigente/Validación: días en ese estado">
                       Días
@@ -313,6 +337,7 @@ export function CargosPage() {
                       <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.literalPuesto ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{c.especialidadLegacy ?? '—'}</td>
                       <td className="px-4 py-3">
                         <span className={
                           c.estado === EstadoCargo.VIGENTE ? 'badge-success' :

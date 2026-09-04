@@ -740,6 +740,7 @@ export interface CargoFilters {
   hospitalId?: string
   escalafonId?: string
   puesto?: string
+  especialidad?: string
   estado?: EstadoCargo
   ocupado?: boolean
   page?: number

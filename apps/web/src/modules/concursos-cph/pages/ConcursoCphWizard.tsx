@@ -83,7 +83,23 @@ export function ConcursoCphWizard() {
 
   const { user } = useAuth()
   const queryClient = useQueryClient()
-  const esSgrasv = user?.rolSlug === 'sgrasv'
+
+  // S13-C: la Autorizacion pendiente real (tabla genérica) para este concurso,
+  // si existe y le corresponde resolverla al usuario logueado. Reemplaza al
+  // viejo POST /concursos-cph/:id/autorizar, que nunca tocaba esta tabla y
+  // dejaba la fila huérfana en "pendiente" para siempre.
+  const { data: autorizacionPendiente } = useQuery({
+    queryKey: ['autorizaciones', 'lista', { tipo: 'concurso_cph' as const, referenciaId: id }],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { id: string; referenciaId: string; resolverPorRolSlug: string }[] }>(
+        '/api/v1/autorizaciones',
+        { params: { tipo: 'concurso_cph', limit: 100 } }
+      )
+      return res.data.data.find((a) => a.referenciaId === id) ?? null
+    },
+    enabled: !esNuevo && !!id,
+  })
+  const puedeResolverAutorizacion = !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
 
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
@@ -323,8 +339,6 @@ export function ConcursoCphWizard() {
   const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })?.aprobadoDirector
   const tieneCambioSiglaCr = !!(cphData as unknown as { siglaSolicitada?: string | null; codigoRegistroSolicitadoId?: string | null })?.siglaSolicitada
     || !!(cphData as unknown as { codigoRegistroSolicitadoId?: string | null })?.codigoRegistroSolicitadoId
-  // SGRASV puede resolver si: no hay cambio de sigla/CR, o el director ya aprobó
-  const sgrasvPuedeResolver = pendienteAutorizacion && esSgrasv && (!tieneCambioSiglaCr || aprobadoDirector)
 
   const patchMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -332,11 +346,19 @@ export function ConcursoCphWizard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] }),
   })
 
+  // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
+  // POST /concursos-cph/:id/autorizar (dejaba la Autorizacion huérfana en
+  // "pendiente" porque nunca actualizaba esa tabla).
   const autorizarMutation = useMutation({
-    mutationFn: (payload: { aprobado: boolean; observaciones?: string }) =>
-      apiClient.post(`/api/v1/concursos-cph/${id}/autorizar`, payload).then((r) => r.data.data),
+    mutationFn: ({ aprobado, observaciones }: { aprobado: boolean; observaciones?: string }) => {
+      if (!autorizacionPendiente) throw new Error('No hay autorización pendiente para resolver')
+      const accion = aprobado ? 'aprobar' : 'rechazar'
+      return apiClient.post(`/api/v1/autorizaciones/${autorizacionPendiente.id}/${accion}`, { observaciones })
+        .then((r) => r.data.data)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['autorizaciones'] })
       setModalAutorizacion(false)
       setObsAutorizacion('')
     },
@@ -425,7 +447,7 @@ export function ConcursoCphWizard() {
               <span className="text-blue-500 text-xl">🔐</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">Resolver autorización</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Como SGRASV podés aprobar o rechazar la modificación solicitada.</p>
+                <p className="text-xs text-gray-500 mt-0.5">Podés aprobar o rechazar la modificación solicitada.</p>
               </div>
             </div>
             <div className="px-6 py-4 space-y-3">
@@ -621,7 +643,7 @@ export function ConcursoCphWizard() {
                 {pendienteAutorizacion && etapaActiva === 'baja' && (
                   <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
                 )}
-                {sgrasvPuedeResolver && etapaActiva === 'baja' && (
+                {puedeResolverAutorizacion && etapaActiva === 'baja' && (
                   <button className="btn-primary text-xs py-1 px-3" onClick={() => setModalAutorizacion(true)}>Resolver autorización</button>
                 )}
               </div>
