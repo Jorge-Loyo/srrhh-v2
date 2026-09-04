@@ -72,6 +72,8 @@ export async function changePassword(id: string, password: string) {
   const passwordHash = await bcrypt.hash(password, 12)
   await prisma.usuario.update({ where: { id }, data: { passwordHash } })
 }
+
+export async function setUsuarioActivo(id: string, activo: boolean, requestingUserId: string) {
   if (id === requestingUserId && !activo) {
     throw AppError.badRequest('No podés desactivar tu propio usuario')
   }
