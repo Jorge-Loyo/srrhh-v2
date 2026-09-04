@@ -508,16 +508,21 @@ export function ConcursoCphWizard() {
 
       {/* ── MODAL VER BAJA ──────────────────────────────────────────────────── */}
       {modalBaja && cphData && (() => {
-        const b = (cphData?.concurso as unknown as { baja?: { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } })?.baja
-        const cargo = (cphData.concurso as unknown as { cargo?: { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string; nombre?: string }; escalafon?: { nombre?: string } } })?.cargo
-        const persona = (cphData.concurso as unknown as { persona?: { apellidoNombre?: string; cuil?: string } })?.persona
-        const toDate = (v: string | Date | null | undefined) => v ? (typeof v === 'string' ? v.slice(0, 10) : (v as Date).toISOString().slice(0, 10)) : ''
+        type BajaExt = { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; tipoBaja?: string | null }
+        type CargoExt = { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string; nombre?: string }; escalafon?: { nombre?: string }; codigoRegistro?: { codigo?: string; literal?: string }; unificadorPuesto?: string; idSial?: string | null; cargoSial?: string | null }
+        type PersonaExt = { apellidoNombre?: string; cuil?: string; legajo?: string | null }
+        const b = (cphData?.concurso as unknown as { baja?: BajaExt })?.baja
+        const cargo = (cphData.concurso as unknown as { cargo?: CargoExt })?.cargo
+        const persona = (cphData.concurso as unknown as { persona?: PersonaExt })?.persona
+        const toDate = (val: string | Date | null | undefined) => val ? (typeof val === 'string' ? val.slice(0, 10) : (val as Date).toISOString().slice(0, 10)) : ''
         const Row = ({ label, value }: { label: string; value: string }) => value ? (
           <div className="flex gap-2 text-sm">
             <span className="text-gray-500 w-44 shrink-0">{label}:</span>
             <span className="text-gray-800 font-medium">{value}</span>
           </div>
         ) : null
+        // ID SIAL del agente: puede estar en persona.legajo o cargo.idSial/cargoSial
+        const idSialAgente = persona?.legajo ?? cargo?.idSial ?? cargo?.cargoSial ?? ''
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
@@ -538,6 +543,8 @@ export function ConcursoCphWizard() {
                     <Row label="Puesto" value={cargo?.literalPuesto ?? ''} />
                     <Row label="Especialidad" value={cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''} />
                     <Row label="Escalafón" value={cargo?.escalafon?.nombre ?? ''} />
+                    <Row label="Código de registro" value={cargo?.codigoRegistro?.codigo ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal ?? ''}` : (cargo?.codigoRegistro?.literal ?? '')} />
+                    <Row label="Tipo de puesto" value={cargo?.unificadorPuesto ?? ''} />
                   </div>
                 </div>
                 {/* Agente */}
@@ -547,6 +554,7 @@ export function ConcursoCphWizard() {
                     <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                       <Row label="Apellido y Nombre" value={persona.apellidoNombre ?? ''} />
                       <Row label="CUIL" value={persona.cuil ?? ''} />
+                      <Row label="ID SIAL" value={idSialAgente} />
                     </div>
                   </div>
                 )}
@@ -556,10 +564,11 @@ export function ConcursoCphWizard() {
                   <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                     <Row label="Fecha de baja" value={toDate(b?.fechaBaja)} />
                     <Row label="Expediente de baja" value={b?.eeBaja ?? ''} />
+                    <Row label="Tipo de baja" value={b?.tipoBaja ?? ''} />
                     <Row label="Origen" value={b?.tipificadorOrigen ?? ''} />
                     <Row label="Motivo" value={b?.motivo ?? ''} />
                     <Row label="Doc. respaldatoria" value={b?.docRespaldatoria ?? ''} />
-                    <Row label="Partida presup." value={b?.partidaPresupuestaria ?? ''} />
+                    <Row label="Partida presupuestaria" value={b?.partidaPresupuestaria ?? ''} />
                     <Row label="Carga horaria" value={b?.cargaHoraria != null ? `${b.cargaHoraria} hs` : ''} />
                     <Row label="Fecha pase paralelo" value={toDate(b?.fechaPaseParalelo)} />
                     <Row label="Observaciones" value={b?.observaciones ?? ''} />
@@ -809,9 +818,37 @@ export function ConcursoCphWizard() {
                     </div>
                   </div>
 
-                  {/* ── Datos del concurso (editables) ── */}
+                  {/* ── Datos del concurso (editables solo en etapa activa) ── */}
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Datos del concurso</p>
+                    {etapa.estado === 'completada' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {etapa.campos.filter((c) => c.key === 'eeConcurso').map((campo) => (
+                          <div key={campo.key} className="sm:col-span-2">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">{campo.label}</label>
+                            <input type="text" value={campo.valor as string} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                          </div>
+                        ))}
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Sigla</label>
+                          <input type="text" value={siglaConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón</label>
+                          <input type="text" value={escalafonLabel(escalafones.find((e) => e.id === escalafonId)?.nombre ?? '')} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto</label>
+                          <input type="text" value={puestoConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        {especialidadConcurso && (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad del concurso</label>
+                            <input type="text" value={especialidadConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Expediente de Concurso */}
                       {etapa.campos.filter((c) => c.key === 'eeConcurso').map((campo) => (
@@ -889,6 +926,7 @@ export function ConcursoCphWizard() {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -960,7 +998,7 @@ export function ConcursoCphWizard() {
               </div>
               <div className="flex items-center gap-3">
                 {guardado && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
-                {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && (
+                {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && etapa.estado !== 'completada' && (
                   <button
                     className="btn-primary"
                     disabled={pendienteAutorizacion && etapaActiva === 'baja'}
