@@ -1,0 +1,12 @@
+fix(kpis): graficos de evolucion de dotacion con datos reales y zoom
+
+Backend: query puntual por snapshot (no acumulada) con umbral 5000 filas
+para filtrar diffs parciales y mostrar solo snapshots completos.
+
+Frontend:
+- MACRO_GRUPOS agrega alias "Nueva Carrera Profesional Hospitalaria"
+  para cubrir ambas variantes de nombre en padron_historico
+- Agrega "Residentes" al grupo Guardias y Residencias
+- Eje Y con zoom al rango real (pisoLimpio) cuando la variacion
+  es menor al 20% del maximo, para ver fluctuacion real
+- Mensaje informativo cuando hay menos de 3 snapshots completos

@@ -375,22 +375,29 @@ export async function getKpisDotacionHistoricaService(query: KpisDotacionHistori
   const { hospitalId, agrupacion } = query
   const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
 
-  // Para cada fecha: personas acumuladas únicas por escalafón canónico.
-  // La subquery LATERAL calcula el acumulado hasta cada fecha por escalafón.
+  // Dotación puntual por snapshot: personas únicas en cada fecha de padrón.
+  // Se usa la fecha exacta del snapshot (no acumulado) para mostrar la
+  // fluctuación real semana a semana. Solo se incluyen snapshots con al menos
+  // 1000 filas para filtrar los diffs parciales (que solo tienen los cambios
+  // de esa semana, no la dotación completa).
   const rows = await prisma.$queryRaw<{ fecha: Date; escalafon: string; personas: bigint }[]>(Prisma.sql`
     SELECT
-      f.fecha_asignada AS fecha,
-      ph2.escalafon,
-      count(DISTINCT ph2.cuil)::bigint AS personas
-    FROM (SELECT DISTINCT fecha_asignada FROM padron_historico) f
-    JOIN padron_historico ph2
-      ON ph2.fecha_asignada <= f.fecha_asignada
-      AND ph2.escalafon IS NOT NULL
-      AND ph2.cuil IS NOT NULL
-    JOIN cargos c ON c.id = ph2.cargo_id
-    WHERE true ${hospitalFilter}
-    GROUP BY f.fecha_asignada, ph2.escalafon
-    ORDER BY f.fecha_asignada, ph2.escalafon
+      ph.fecha_asignada AS fecha,
+      ph.escalafon,
+      count(DISTINCT ph.cuil)::bigint AS personas
+    FROM padron_historico ph
+    JOIN cargos c ON c.id = ph.cargo_id
+    WHERE ph.escalafon IS NOT NULL
+      AND ph.cuil IS NOT NULL
+      ${hospitalFilter}
+      AND ph.fecha_asignada IN (
+        SELECT fecha_asignada
+        FROM padron_historico
+        GROUP BY fecha_asignada
+        HAVING count(*) >= 5000
+      )
+    GROUP BY ph.fecha_asignada, ph.escalafon
+    ORDER BY ph.fecha_asignada, ph.escalafon
   `)
 
   // Agrupar por fecha
