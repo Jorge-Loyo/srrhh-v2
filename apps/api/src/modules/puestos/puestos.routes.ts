@@ -31,7 +31,7 @@ export async function puestosRoutes(app: FastifyInstance) {
     const puestos = await prisma.$queryRaw<PuestoRow[]>(Prisma.sql`
       SELECT
         literal_puesto AS puesto,
-        array_remove(array_agg(DISTINCT NULLIF(especialidad, '')), NULL) AS especialidades
+        array_remove(array_agg(DISTINCT NULLIF(especialidad_legacy, '')), NULL) AS especialidades
       FROM cargos
       WHERE literal_puesto IS NOT NULL
       ${escalafonId ? Prisma.sql`AND escalafon_id = ${escalafonId}::uuid` : Prisma.empty}

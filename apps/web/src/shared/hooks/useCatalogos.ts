@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Hospital, Escalafon, CodigoRegistro } from '@srrhh/types'
+import type { Hospital, Escalafon, CodigoRegistro, Puesto } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 // Catálogos para selectores de filtro (PersonasPage, CargosPage, y lo que
@@ -50,11 +50,13 @@ export function useCodigosRegistro() {
   })
 }
 
+// Puesto + especialidades reales en cascada de CargosPage (mismo shape que
+// usePuestos de Personas — ver personas/hooks/usePersonas.ts).
 export function usePuestosCargos(escalafonId?: string, hospitalId?: string, tipoPuesto?: 'ejecucion' | 'conduccion') {
   return useQuery({
     queryKey: ['cargos-puestos', escalafonId, hospitalId, tipoPuesto],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: string[] }>('/api/v1/cargos/puestos', {
+      const res = await apiClient.get<{ data: Puesto[] }>('/api/v1/cargos/puestos', {
         params: { ...(escalafonId && { escalafonId }), ...(hospitalId && { hospitalId }) },
       })
       return res.data.data

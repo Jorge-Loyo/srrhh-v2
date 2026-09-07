@@ -25,7 +25,8 @@ export function useSnapshots() {
 
 export function useSnapshotDiff(
   snapshotId: string | undefined,
-  params: { page?: number; limit?: number; tipo?: TipoDiff; q?: string; soloPendientes?: boolean } = {}
+  params: { page?: number; limit?: number; tipo?: TipoDiff; q?: string; soloPendientes?: boolean; campo?: string; clasificacionEliminado?: string } = {},
+  options: { enabled?: boolean } = {}
 ) {
   return useQuery({
     queryKey: ['snapshot-diff', snapshotId, params],
@@ -36,7 +37,7 @@ export function useSnapshotDiff(
       )
       return res.data.data
     },
-    enabled: !!snapshotId,
+    enabled: (options.enabled ?? true) && !!snapshotId,
   })
 }
 
@@ -115,6 +116,55 @@ export function useDeleteSnapshot() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['padron', 'snapshots'] })
     },
+  })
+}
+
+export interface DiagnosticoNuevosItem {
+  idSialRol: string
+  idSial: string | undefined
+  cuil: string | undefined
+  ayn: string | undefined
+  clasificacion: 'falso_nuevo' | 'nuevo_rol' | 'nuevo_de_0'
+  estadoCargo: string | null
+  codigoCargo: string | null
+}
+
+export interface DiagnosticoNuevosResponse {
+  resumen: {
+    total: number
+    falsosNuevos: number
+    nuevosRol: number
+    nuevosDe0: number
+    porEstadoCargo: { estado: string; cantidad: number }[]
+  }
+  detalle: DiagnosticoNuevosItem[]
+}
+
+export function useCamposModificados(snapshotId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['snapshot-campos-modificados', snapshotId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { campo: string; cantidad: number }[] }>(
+        `/api/v1/padron/snapshots/${snapshotId}/campos-modificados`
+      )
+      return res.data.data
+    },
+    enabled: !!snapshotId && enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useDiagnosticoNuevos(snapshotId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['snapshot-diagnostico-nuevos', snapshotId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: DiagnosticoNuevosResponse }>(
+        `/api/v1/padron/snapshots/${snapshotId}/diagnostico-nuevos`
+      )
+      return res.data.data
+    },
+    enabled: !!snapshotId && enabled,
+    staleTime: 30_000,
   })
 }
 

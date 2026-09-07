@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Role } from '@srrhh/types'
+import type { Role, RoleJerarquia } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 export function useRoles() {
@@ -52,5 +52,27 @@ export function useSetRolePermisos() {
       return res.data.data
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] }),
+  })
+}
+
+// ── S13-E — jerarquía de roles ────────────────────────────────────────────────
+export function useJerarquia() {
+  return useQuery({
+    queryKey: ['roles', 'jerarquia'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: RoleJerarquia[] }>('/api/v1/roles/jerarquia')
+      return res.data.data
+    },
+  })
+}
+
+export function useSetJerarquia() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { rolHijoSlug: string; rolPadreSlug: string | null }) => {
+      const res = await apiClient.put<{ data: RoleJerarquia[] }>('/api/v1/roles/jerarquia', body)
+      return res.data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles', 'jerarquia'] }),
   })
 }

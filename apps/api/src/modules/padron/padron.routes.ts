@@ -18,6 +18,8 @@ import {
   aprobarDiffNuevoService,
   rechazarDiffNuevoService,
   aprobarTodosDiffsPendientesService,
+  diagnosticarDiffsNuevosService,
+  getCamposModificadosService,
 } from './padron.service.js'
 
 export async function padronRoutes(app: FastifyInstance) {
@@ -137,6 +139,18 @@ export async function padronRoutes(app: FastifyInstance) {
   // GET /snapshots/:id/conflictos-validacion — S8A-3
   app.get<{ Params: { id: string } }>('/snapshots/:id/conflictos-validacion', async (request, reply) => {
     const result = await getConflictosValidacionService(request.params.id)
+    return reply.send({ data: result })
+  })
+
+  // GET /snapshots/:id/diagnostico-nuevos — analizar diffs nuevos vs cargos existentes
+  app.get<{ Params: { id: string } }>('/snapshots/:id/diagnostico-nuevos', async (request, reply) => {
+    const result = await diagnosticarDiffsNuevosService(request.params.id)
+    return reply.send({ data: result })
+  })
+
+  // GET /snapshots/:id/campos-modificados — conteos por campo para sub-tabs
+  app.get<{ Params: { id: string } }>('/snapshots/:id/campos-modificados', async (request, reply) => {
+    const result = await getCamposModificadosService(request.params.id)
     return reply.send({ data: result })
   })
 

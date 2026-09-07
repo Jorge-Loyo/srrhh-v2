@@ -3,6 +3,7 @@ import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
 import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks/useNotificaciones'
+import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
 import { can } from '../../lib/can'
 
 const CARGOS_SUBITEMS = [
@@ -13,14 +14,17 @@ const CARGOS_SUBITEMS = [
 ]
 
 const CONFIGURACION_SUBITEMS = [
-  { to: '/configuracion/usuarios', label: 'Usuarios', permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/permisos', label: 'Permisos', permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
+  { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
+  { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
+  { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
 ]
 
 export function AppShell() {
   const { user, logout } = useAuth()
   const { data: snapshots } = useSnapshots()
   const { data: noLeidas = 0 } = useNotificacionesNoLeidas()
+  const puedeVerAutorizaciones = can(user, 'autorizaciones', 'ver')
+  const { data: autorizacionesPendientes = 0 } = useAutorizacionesPendientes(puedeVerAutorizaciones)
   const haySnapshotPendiente = snapshots?.some((s) => s.estado === 'pendiente') ?? false
   const location = useLocation()
 
@@ -147,6 +151,7 @@ export function AppShell() {
           {/* Bajas */}
           {can(user, 'bajas', 'ver') && (
             <NavLink to="/bajas"
+              end
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
               title={collapsed ? 'Bajas' : undefined}>
               <span className="text-base shrink-0">🗑️</span>
@@ -261,6 +266,21 @@ export function AppShell() {
             {haySnapshotPendiente && (
               <Link to="/padron" className="badge-warning hover:opacity-80 transition-opacity mr-4">
                 ● Padrón pendiente de revisión
+              </Link>
+            )}
+            {/* Badge autorizaciones — separado del de notificaciones (S13-B) */}
+            {puedeVerAutorizaciones && (
+              <Link
+                to="/autorizaciones"
+                title="Autorizaciones pendientes"
+                className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/10 transition-colors mr-1"
+              >
+                <span className="text-white text-lg">🔐</span>
+                {autorizacionesPendientes > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+                    {autorizacionesPendientes > 99 ? '99+' : autorizacionesPendientes}
+                  </span>
+                )}
               </Link>
             )}
             {/* Badge notificaciones */}

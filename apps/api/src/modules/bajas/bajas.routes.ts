@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema, updateBajaSchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -47,6 +47,18 @@ export async function bajasRoutes(app: FastifyInstance) {
       return reply.send({ data })
     }
   )
+
+  // S8B: GET /validacion/solo-baja — en SIAL pero aún activos en padrón
+  app.get('/validacion/solo-baja', async (_request, reply) => {
+    const data = await listSoloBajaSialService()
+    return reply.send({ data })
+  })
+
+  // S8B: GET /validacion/historico — cargos no_vigente confirmados
+  app.get('/validacion/historico', async (_request, reply) => {
+    const data = await listValidacionHistoricoService()
+    return reply.send({ data })
+  })
 
   // S8B: GET /validacion — cargos en validacion_vacante
   app.get('/validacion', async (_request, reply) => {

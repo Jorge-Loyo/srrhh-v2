@@ -3,7 +3,6 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
-import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 
 const include = {

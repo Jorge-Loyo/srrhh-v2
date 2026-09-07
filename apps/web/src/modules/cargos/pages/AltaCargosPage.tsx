@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Cargo, CreateCargoRequest } from '@srrhh/types'
+import type { SolicitudAlta, SolicitudAltaEstado } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto, useAltasCargos } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { useSolicitudesAlta, useCreateSolicitudAlta } from '../hooks/useSolicitudesAlta'
+import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -13,6 +14,18 @@ const TIPO_LABEL: Record<TipoAlta, string> = {
   pof:        'Ejecución POF',
   pou:        'Ejecución POU',
   estructura: 'Estructura',
+}
+
+const ESTADO_LABEL: Record<SolicitudAltaEstado, string> = {
+  pendiente: 'Pendiente de aprobación',
+  aprobada:  'Aprobada',
+  rechazada: 'Rechazada',
+}
+
+const ESTADO_BADGE: Record<SolicitudAltaEstado, string> = {
+  pendiente: 'badge-warning',
+  aprobada:  'badge-success',
+  rechazada: 'badge-danger',
 }
 
 interface OpcionModalidad {
@@ -306,38 +319,26 @@ export function AltaCargosPage() {
   const [guardando,  setGuardando]  = useState(false)
   const [error,      setError]      = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
+  const [filtroEstado, setFiltroEstado] = useState<SolicitudAltaEstado | ''>('')
 
-  // S7-6: estado del modal de duplicado
-  const [duplicado, setDuplicado] = useState<{
-    item: ItemPendiente
-    cargo: { id: string; codigo: string | null; literalPuesto: string | null; hospital: string; escalafon: string }
-  } | null>(null)
-
-  // S7-7: historial persistente
-  const { data: altasData, refetch: refetchAltas } = useAltasCargos(
-    search ? { expediente: search } : undefined
-  )
-  const altas = altasData?.data ?? []
-
-  const queryClient = useQueryClient()
-
-  const mutation = useMutation({
-    mutationFn: async (body: CreateCargoRequest) => {
-      const res = await apiClient.post<{ data: Cargo[] }>('/api/v1/cargos', body)
-      return res.data.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cargos'] })
-      refetchAltas()
-    },
+  // S13-D: historial ahora lista SolicitudAlta (con estado pendiente/aprobada/
+  // rechazada) — el Cargo real recién existe cuando el director aprueba.
+  const { data: solicitudesData, refetch: refetchSolicitudes } = useSolicitudesAlta({
+    ...(filtroEstado && { estado: filtroEstado }),
   })
+  const solicitudes = solicitudesData?.data ?? []
+  const solicitudesFiltradas = search.trim()
+    ? solicitudes.filter((s) => (s.expediente ?? '').toLowerCase().includes(search.trim().toLowerCase()))
+    : solicitudes
+
+  const crearSolicitud = useCreateSolicitudAlta()
 
   function handleAgregar(item: ItemPendiente) {
     setPendientes((prev) => [...prev, item])
   }
 
-  async function registrarItem(item: ItemPendiente, forzar = false) {
-    return mutation.mutateAsync({
+  async function registrarItem(item: ItemPendiente) {
+    return crearSolicitud.mutateAsync({
       hospitalId:       item.hospitalId,
       escalafonId:      item.escalafonId,
       literalPuesto:    item.puesto,
@@ -347,7 +348,6 @@ export function AltaCargosPage() {
       expediente:       item.expediente || undefined,
       desde:            item.desde,
       cantidad:         item.cantidad,
-      forzar,
     })
   }
 
@@ -356,45 +356,12 @@ export function AltaCargosPage() {
     setGuardando(true); setError(null)
     try {
       for (const item of pendientes) {
-        try {
-          await registrarItem(item)
-        } catch (err: unknown) {
-          // S7-6: detectar 409 y abrir modal
-          const status = (err as { response?: { status?: number; data?: { error?: { details?: unknown } } } })?.response?.status
-          if (status === 409) {
-            const details = (err as { response?: { data?: { error?: { details?: unknown } } } })?.response?.data?.error?.details as {
-              codigo: string | null; literalPuesto: string | null; hospital: string; escalafon: string; id: string
-            } | undefined
-            if (details) {
-              setDuplicado({ item, cargo: details })
-              setGuardando(false)
-              return
-            }
-          }
-          throw err
-        }
+        await registrarItem(item)
       }
       setPendientes([])
-    } catch {
-      setError('Error al registrar. Verificá los datos e intentá de nuevo.')
-    } finally {
-      setGuardando(false)
-    }
-  }
-
-  async function handleForzar() {
-    if (!duplicado) return
-    setDuplicado(null)
-    setGuardando(true); setError(null)
-    try {
-      await registrarItem(duplicado.item, true)
-      setPendientes((prev) => prev.filter((p) => p.id !== duplicado.item.id))
-      // continuar con el resto si quedaron pendientes
-      if (pendientes.filter((p) => p.id !== duplicado.item.id).length > 0) {
-        await handleRegistrarTodos()
-      }
-    } catch {
-      setError('Error al registrar. Verificá los datos e intentá de nuevo.')
+      refetchSolicitudes()
+    } catch (err) {
+      setError(getApiErrorMessage(err))
     } finally {
       setGuardando(false)
     }
@@ -410,26 +377,6 @@ export function AltaCargosPage() {
 
   return (
     <div className="flex flex-col gap-6 h-full">
-
-      {/* S7-6: Modal de duplicado estructural */}
-      {duplicado && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
-            <h3 className="font-bold text-gray-900 text-base mb-1">Cargo duplicado</h3>
-            <p className="text-sm text-gray-600 mb-4">Ya existe un cargo vigente con la misma estructura:</p>
-            <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1 mb-5">
-              <p><span className="text-gray-500">Código:</span> <span className="font-mono font-bold text-gray-800">{duplicado.cargo.codigo ?? '—'}</span></p>
-              <p><span className="text-gray-500">Puesto:</span> <span className="font-medium text-gray-800">{duplicado.cargo.literalPuesto}</span></p>
-              <p><span className="text-gray-500">Hospital:</span> {duplicado.cargo.hospital}</p>
-              <p><span className="text-gray-500">Escalafón:</span> {duplicado.cargo.escalafon}</p>
-            </div>
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setDuplicado(null)} className="btn-outline flex-1">Cancelar</button>
-              <button type="button" onClick={handleForzar} className="btn-primary flex-1">Crear de todos modos</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-lg shadow-sm">
@@ -458,7 +405,7 @@ export function AltaCargosPage() {
                   ? 'border-secondary text-secondary'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'historial' ? 'Historial de altas' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
+              {t === 'historial' ? 'Historial de solicitudes' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
             </button>
           ))}
         </div>
@@ -512,11 +459,14 @@ export function AltaCargosPage() {
                       )}
                     </div>
                     {error && <p className="px-3 pb-2 text-xs text-red-500">{error}</p>}
+                    <p className="px-3 pb-2 text-[11px] text-gray-400">
+                      Cada cargo queda como solicitud pendiente hasta que el director la apruebe.
+                    </p>
                     <div className="px-3 pb-3">
                       <button type="button" onClick={handleRegistrarTodos}
                         disabled={pendientes.length === 0 || guardando}
                         className="w-full btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
-                        {guardando ? 'Registrando...' : `Registrar${totalPendientes > 0 ? ` (${totalPendientes})` : ' todos'}`}
+                        {guardando ? 'Enviando...' : `Enviar a aprobación${totalPendientes > 0 ? ` (${totalPendientes})` : ''}`}
                       </button>
                     </div>
                   </div>
@@ -528,7 +478,11 @@ export function AltaCargosPage() {
 
         {/* Contenido pestaña Historial */}
         {tab === 'historial' && (
-          <HistorialAltas search={search} setSearch={setSearch} altas={altas} />
+          <HistorialSolicitudes
+            search={search} setSearch={setSearch}
+            filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
+            solicitudes={solicitudesFiltradas}
+          />
         )}
 
         {/* Contenido pestaña Transferencia */}
@@ -542,23 +496,27 @@ export function AltaCargosPage() {
   )
 }
 
-// ── Tipo del historial ────────────────────────────────────────────────────────
-type AltaItem = {
-  id: string; codigo: string | null; literalPuesto: string | null
-  expediente: string | null; fechaDesde: string | null; createdAt: string
-  hospital: { sigla: string; nombre: string }
-  escalafon: { nombre: string }
-  createdBy: { username: string } | null
-}
-
 // ── Generador de PDF estilo resolución GCBA ───────────────────────────────────
-function generarPDF(expediente: string, cargos: AltaItem[]) {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const fecha = cargos[0]?.createdAt.slice(0, 10) ?? new Date().toISOString().slice(0, 10)
-  const registradoPor = cargos[0]?.createdBy?.username ?? '—'
-  const desde = cargos[0]?.fechaDesde ? cargos[0].fechaDesde.slice(0, 10) : '—'
+// Solo tiene sentido para solicitudes aprobadas — antes de aprobar no existe
+// ningún Cargo real con código asignado (S13-D: el código se genera al aprobar).
+async function generarPDF(solicitud: SolicitudAlta) {
+  const codigos = await Promise.all(
+    solicitud.cargosCreadosIds.map(async (cargoId) => {
+      try {
+        const res = await apiClient.get<{ data: { codigo: string | null } }>(`/api/v1/cargos/${cargoId}`)
+        return res.data.data.codigo ?? '—'
+      } catch {
+        return '—'
+      }
+    })
+  )
 
-  // Encabezado navy
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const expediente = solicitud.expediente ?? '(sin expediente)'
+  const fecha = solicitud.createdAt.slice(0, 10)
+  const registradoPor = solicitud.solicitadoPor?.username ?? '—'
+  const desde = solicitud.desde ? solicitud.desde.slice(0, 10) : '—'
+
   doc.setFillColor(30, 41, 82)
   doc.rect(0, 0, 210, 22, 'F')
   doc.setTextColor(255, 255, 255)
@@ -569,13 +527,11 @@ function generarPDF(expediente: string, cargos: AltaItem[]) {
   doc.setFont('helvetica', 'normal')
   doc.text('Ministerio de Salud — Dirección General de Administración de Recursos Humanos', 105, 16, { align: 'center' })
 
-  // Título
   doc.setTextColor(30, 41, 82)
   doc.setFontSize(13)
   doc.setFont('helvetica', 'bold')
   doc.text('ALTA DE CARGOS', 105, 34, { align: 'center' })
 
-  // Datos del acto
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(60, 60, 60)
@@ -584,28 +540,27 @@ function generarPDF(expediente: string, cargos: AltaItem[]) {
   doc.setFont('helvetica', 'bold')
   doc.text(expediente, col2, 44)
   doc.setFont('helvetica', 'normal')
-  doc.text('Fecha de registro:', col1, 51)
+  doc.text('Fecha de solicitud:', col1, 51)
   doc.text(fecha, col2, 51)
   doc.text('Vigente desde:', col1, 58)
   doc.text(desde, col2, 58)
-  doc.text('Registrado por:', col1, 65)
+  doc.text('Solicitado por:', col1, 65)
   doc.text(registradoPor, col2, 65)
   doc.text('Total de cargos:', col1, 72)
-  doc.text(String(cargos.length), col2, 72)
+  doc.text(String(codigos.length), col2, 72)
 
   doc.setDrawColor(200, 200, 200)
   doc.line(14, 76, 196, 76)
 
-  // Tabla
   autoTable(doc, {
     startY: 80,
     head: [['N°', 'Código', 'Hospital', 'Escalafón', 'Puesto']],
-    body: cargos.map((c, i) => [
+    body: codigos.map((codigo, i) => [
       String(i + 1),
-      c.codigo ?? '—',
-      `${c.hospital.sigla} — ${c.hospital.nombre}`,
-      c.escalafon.nombre,
-      c.literalPuesto ?? '—',
+      codigo,
+      solicitud.hospital ? `${solicitud.hospital.sigla} — ${solicitud.hospital.nombre}` : '—',
+      solicitud.escalafon?.nombre ?? '—',
+      solicitud.literalPuesto,
     ]),
     headStyles: { fillColor: [30, 41, 82], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
@@ -614,7 +569,6 @@ function generarPDF(expediente: string, cargos: AltaItem[]) {
     margin: { left: 14, right: 14 },
   })
 
-  // Pie
   const pageH = doc.internal.pageSize.height
   doc.setFontSize(7)
   doc.setTextColor(150)
@@ -623,147 +577,125 @@ function generarPDF(expediente: string, cargos: AltaItem[]) {
   doc.save(`Alta_Cargos_${expediente.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`)
 }
 
-// ── Historial agrupado por expediente ─────────────────────────────────────────
-function HistorialAltas({
-  search, setSearch, altas,
+// ── Historial de solicitudes de alta ──────────────────────────────────────────
+function HistorialSolicitudes({
+  search, setSearch, filtroEstado, setFiltroEstado, solicitudes,
 }: {
   search: string
   setSearch: (v: string) => void
-  altas: AltaItem[]
+  filtroEstado: SolicitudAltaEstado | ''
+  setFiltroEstado: (v: SolicitudAltaEstado | '') => void
+  solicitudes: SolicitudAlta[]
 }) {
-  const [modalExp, setModalExp] = useState<string | null>(null)
+  const [modalId, setModalId] = useState<string | null>(null)
+  const [generandoPdf, setGenerandoPdf] = useState(false)
+  const modalSolicitud = solicitudes.find((s) => s.id === modalId) ?? null
 
-  const grupos = altas.reduce<Record<string, AltaItem[]>>((acc, a) => {
-    const key = a.expediente ?? '(sin expediente)'
-    ;(acc[key] ??= []).push(a)
-    return acc
-  }, {})
-
-  const gruposOrdenados = Object.entries(grupos).sort(
-    ([, a], [, b]) => b[0]!.createdAt.localeCompare(a[0]!.createdAt)
-  )
-
-  const cargosModal = modalExp ? (grupos[modalExp] ?? []) : []
+  async function onDescargarPdf(s: SolicitudAlta) {
+    setGenerandoPdf(true)
+    try {
+      await generarPDF(s)
+    } finally {
+      setGenerandoPdf(false)
+    }
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Modal de detalle + PDF */}
-      {modalExp && (
+      {/* Modal de detalle */}
+      {modalSolicitud && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
             <div className="bg-navy px-6 py-4 rounded-t-xl flex items-start justify-between gap-4">
               <div>
                 <p className="text-white/60 text-xs uppercase tracking-wider mb-0.5">Expediente / Decreto</p>
-                <p className="text-white font-bold text-sm font-mono">{modalExp}</p>
+                <p className="text-white font-bold text-sm font-mono">{modalSolicitud.expediente ?? '(sin expediente)'}</p>
               </div>
-              <button onClick={() => setModalExp(null)} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
+              <button onClick={() => setModalId(null)} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
             </div>
 
-            <div className="px-6 py-4 border-b border-gray-100 grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Fecha de registro</p>
-                <p className="font-medium text-gray-800">{cargosModal[0]?.createdAt.slice(0, 10) ?? '—'}</p>
+            <div className="px-6 py-4 space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <span className={`${ESTADO_BADGE[modalSolicitud.estado]} text-xs`}>{ESTADO_LABEL[modalSolicitud.estado]}</span>
+                {modalSolicitud.estado === 'aprobada' && (
+                  <span className="text-xs text-gray-400">{modalSolicitud.cargosCreadosIds.length} cargo(s) creado(s)</span>
+                )}
               </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Vigente desde</p>
-                <p className="font-medium text-gray-800">{cargosModal[0]?.fechaDesde ? cargosModal[0].fechaDesde.slice(0, 10) : '—'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Registrado por</p>
-                <p className="font-medium text-gray-800">{cargosModal[0]?.createdBy?.username ?? '—'}</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div><span className="text-gray-500">Puesto:</span> <span className="font-medium text-gray-800">{modalSolicitud.literalPuesto}</span></div>
+                <div><span className="text-gray-500">Hospital:</span> <span className="font-medium text-gray-800">{modalSolicitud.hospital ? `${modalSolicitud.hospital.sigla} — ${modalSolicitud.hospital.nombre}` : '—'}</span></div>
+                <div><span className="text-gray-500">Escalafón:</span> <span className="font-medium text-gray-800">{modalSolicitud.escalafon?.nombre ?? '—'}</span></div>
+                <div><span className="text-gray-500">Cantidad:</span> <span className="font-medium text-gray-800">{modalSolicitud.cantidad}</span></div>
+                <div><span className="text-gray-500">Desde:</span> <span className="font-medium text-gray-800">{modalSolicitud.desde ? modalSolicitud.desde.slice(0, 10) : '—'}</span></div>
+                <div><span className="text-gray-500">Solicitado por:</span> <span className="font-medium text-gray-800">{modalSolicitud.solicitadoPor?.username ?? '—'}</span></div>
+                {modalSolicitud.especialidad && (
+                  <div className="col-span-2"><span className="text-gray-500">Especialidad:</span> <span className="font-medium text-gray-800">{modalSolicitud.especialidad}</span></div>
+                )}
+                {modalSolicitud.observaciones && (
+                  <div className="col-span-2"><span className="text-gray-500">Observaciones:</span> <span className="text-gray-700">{modalSolicitud.observaciones}</span></div>
+                )}
               </div>
             </div>
 
-            <div className="overflow-y-auto flex-1">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
-                  <tr>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">N°</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Código</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Hospital</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Escalafón</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Puesto</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {cargosModal.map((c, i) => (
-                    <tr key={c.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-400 text-xs">{i + 1}</td>
-                      <td className="px-4 py-3 font-mono text-xs font-bold text-gray-800">{c.codigo ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{c.hospital.sigla} — {c.hospital.nombre}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{c.escalafon.nombre}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{c.literalPuesto ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">{cargosModal.length} cargo{cargosModal.length !== 1 ? 's' : ''}</p>
-              <div className="flex gap-3">
-                <button onClick={() => setModalExp(null)} className="btn-outline">Cerrar</button>
-                <button onClick={() => generarPDF(modalExp, cargosModal)} className="btn-primary">
-                  Descargar PDF
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button onClick={() => setModalId(null)} className="btn-outline">Cerrar</button>
+              {modalSolicitud.estado === 'aprobada' && (
+                <button onClick={() => onDescargarPdf(modalSolicitud)} disabled={generandoPdf} className="btn-primary disabled:opacity-40">
+                  {generandoPdf ? 'Generando...' : 'Descargar PDF'}
                 </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Buscador */}
-      <div className="p-6 border-b border-gray-100">
+      {/* Filtros */}
+      <div className="p-6 border-b border-gray-100 flex flex-wrap gap-3">
         <input type="text" placeholder="Buscar por expediente..."
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
+          className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
+        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as SolicitudAltaEstado | '')}
+          className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary">
+          <option value="">Todos los estados</option>
+          {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
       </div>
 
-      {/* Tabla agrupada */}
-      {gruposOrdenados.length > 0 ? (
+      {/* Tabla */}
+      {solicitudes.length > 0 ? (
         <table className="w-full text-sm">
           <thead className="bg-navy text-white text-left sticky top-0 z-10">
             <tr>
               <th className="px-4 py-3 font-semibold rounded-tl-lg">Expediente</th>
               <th className="px-4 py-3 font-semibold">Fecha</th>
               <th className="px-4 py-3 font-semibold">Hospital</th>
-              <th className="px-4 py-3 font-semibold">Escalafón</th>
               <th className="px-4 py-3 font-semibold">Puesto</th>
-              <th className="px-4 py-3 font-semibold">Desde</th>
-              <th className="px-4 py-3 font-semibold">Registrado por</th>
-              <th className="px-4 py-3 font-semibold text-center">Cargos</th>
+              <th className="px-4 py-3 font-semibold text-center">Cantidad</th>
+              <th className="px-4 py-3 font-semibold">Estado</th>
               <th className="px-4 py-3 rounded-tr-lg" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {gruposOrdenados.map(([exp, items]) => {
-              const primero = items[0]!
-              const hospitales = [...new Set(items.map((i) => i.hospital.sigla))].join(', ')
-              const escalafones = [...new Set(items.map((i) => i.escalafon.nombre))].join(', ')
-              const puestos = [...new Set(items.map((i) => i.literalPuesto ?? '—'))].join(', ')
-              return (
-                <tr key={exp} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[200px] truncate" title={exp}>{exp}</td>
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.createdAt.slice(0, 10)}</td>
-                  <td className="px-4 py-3 text-gray-600 text-xs">{hospitales}</td>
-                  <td className="px-4 py-3 text-gray-600 text-xs">{escalafones}</td>
-                  <td className="px-4 py-3 text-gray-800 text-xs max-w-[180px] truncate" title={puestos}>{puestos}</td>
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{primero.fechaDesde ? primero.fechaDesde.slice(0, 10) : '—'}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{primero.createdBy?.username ?? '—'}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{items.length}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => setModalExp(exp)} className="btn-outline text-xs px-3 py-1">Ver</button>
-                  </td>
-                </tr>
-              )
-            })}
+            {solicitudes.map((s) => (
+              <tr key={s.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[200px] truncate" title={s.expediente ?? ''}>{s.expediente ?? '(sin expediente)'}</td>
+                <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{s.createdAt.slice(0, 10)}</td>
+                <td className="px-4 py-3 text-gray-600 text-xs">{s.hospital?.sigla ?? '—'}</td>
+                <td className="px-4 py-3 text-gray-800 text-xs max-w-[200px] truncate" title={s.literalPuesto}>{s.literalPuesto}</td>
+                <td className="px-4 py-3 text-center">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{s.cantidad}</span>
+                </td>
+                <td className="px-4 py-3"><span className={`${ESTADO_BADGE[s.estado]} text-xs`}>{ESTADO_LABEL[s.estado]}</span></td>
+                <td className="px-4 py-3">
+                  <button onClick={() => setModalId(s.id)} className="btn-outline text-xs px-3 py-1">Ver</button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       ) : (
         <p className="p-8 text-center text-sm text-gray-400">
-          No hay altas registradas{search ? ` para "${search}"` : ''}.
+          No hay solicitudes de alta{search ? ` para "${search}"` : ''}.
         </p>
       )}
     </div>

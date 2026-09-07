@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 12 + Auditoría especialidad_legacy + pg_trgm)
+> Última actualización: 2026-09 (Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros)
 > Estado: VIGENTE
 
 ---
@@ -126,6 +126,8 @@ GET    /api/v1/bajas/:id
 POST   /api/v1/bajas
 PATCH  /api/v1/bajas/:id          ← editar borrador (resolucion_a_la_firma)
 GET    /api/v1/bajas/validacion
+GET    /api/v1/bajas/validacion/solo-baja
+GET    /api/v1/bajas/validacion/historico
 POST   /api/v1/bajas/validacion/:cargoId/confirmar
 POST   /api/v1/bajas/validacion/:cargoId/rechazar
 
@@ -225,6 +227,24 @@ La columna `especialidad` fue renombrada a `especialidad_legacy` en la migració
 4. Si `generaConcurso: true` → llama a `createConcursoTx(tx, body, usuarioId, bajaId)`
 
 `updateBajaService(id, body, usuarioId)` — solo edita bajas en `resolucion_a_la_firma`. Recibe `usuarioId` para pasarlo a `createConcursoTx` al confirmar.
+
+### Validación de Bajas — triangulación SIAL
+
+La página `/bajas/validacion` cruza tres fuentes para detectar inconsistencias entre el padrón y el archivo SIAL:
+
+**`listValidacionService()`** — cargos en `validacion_vacante`. Usa `$queryRaw` para cruzar con `BajaSialRegistro` del snapshot SIAL más reciente. Devuelve `origen: 'padron' | 'baja_sial' | 'baja_manual' | 'ambos' | 'desconocido'`, `tienePersonaActiva`, `enSial`, `sialFecha`. `origen = 'ambos'` significa que aparece tanto en el padrón como en el archivo SIAL.
+
+**`listSoloBajaSialService()`** — personas en el archivo SIAL que siguen activas en el padrón. Cruce por CUIL normalizado: `baja_sial_registros.cuil` tiene guiones (`27-38327821-5`), `padron_historico.cuil` no los tiene (`27383278215`). Join: `REPLACE(bsr.cuil, '-', '') = ph.cuil`. Usa `DISTINCT ON` para evitar duplicados. Devuelve `cargoId`, `cargoEstado`, `cargoCodigo`.
+
+**`listValidacionHistoricoService()`** — cargos `no_vigente` que aparecen en diffs de padrón eliminados de snapshots aprobados. Últimos 200 registros.
+
+**`confirmarValidacionService(cargoId)`** — reutilizado para ambos tipos de baja (triangulados y solo SIAL). Mueve cargo a `no_vigente`.
+
+**Orden de rutas crítico:** `/solo-baja` e `/historico` deben registrarse antes de `/:cargoId` en `bajas.routes.ts` para que Fastify no los interprete como parámetros dinámicos.
+
+**Nota técnica — `BajaSialSnapshot.estado` es varchar en BD:** aunque el schema Prisma lo define como enum `EstadoSnapshot`, la BD real tiene `character varying`. Cualquier query Prisma con `{ in: ['pendiente','aprobado'] }` falla con `operator does not exist: character varying = "EstadoSnapshot"`. Solución: `$queryRaw` con SQL directo.
+
+**Nota técnica — join `cargos.id_sial` vs `baja_sial_registros.cargo`:** `padron_historico.id_sial_rol` tiene formato largo (`001006950-2-20084429091-2`), `baja_sial_registros.cargo` tiene formato corto (`001006950-2`). Join correcto: `cargos.id_sial = bsr.cargo`.
 
 ### Campos de la tabla `bajas`
 

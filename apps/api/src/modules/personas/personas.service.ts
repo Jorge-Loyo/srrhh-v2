@@ -16,10 +16,11 @@ interface PersonaRow {
   createdAt: Date
   updatedAt: Date
   puesto: string | null
+  idSial: string | null
 }
 
 export async function listPersonasService(query: PersonasQuery) {
-  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad } = query
+  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad, idSial } = query
   const offset = (page - 1) * limit
 
   const conditions: Prisma.Sql[] = []
@@ -38,13 +39,20 @@ export async function listPersonasService(query: PersonasQuery) {
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
   if (puesto) conditions.push(Prisma.sql`c.literal_puesto = ${puesto}`)
   if (especialidad) conditions.push(Prisma.sql`c.especialidad_legacy = ${especialidad}`)
+  if (idSial) conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM ocupaciones o2
+      JOIN cargos c2 ON c2.id = o2.cargo_id
+      WHERE o2.persona_id = p.id
+        AND (TRIM(c2.id_sial) = TRIM(${idSial}) OR TRIM(c2.id_sial) LIKE ${idSial + '-%'})
+    )`)
 
   const where = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
 
   const joinCargoVigente = Prisma.sql`
     LEFT JOIN LATERAL (
       SELECT o.cargo_id FROM ocupaciones o
-      WHERE o.persona_id = p.id AND o.hasta IS NULL
+      WHERE o.persona_id = p.id
+      ORDER BY (o.hasta IS NULL) DESC, o.hasta DESC
       LIMIT 1
     ) oc ON true
     LEFT JOIN cargos c ON c.id = oc.cargo_id
@@ -59,7 +67,8 @@ export async function listPersonasService(query: PersonasQuery) {
         p.fecha_nacimiento AS "fechaNacimiento",
         p.sexo, p.especialidad_principal AS "especialidadPrincipal",
         p.activo, p.created_at AS "createdAt", p.updated_at AS "updatedAt",
-        c.literal_puesto AS "puesto"
+        c.literal_puesto AS "puesto",
+        REGEXP_REPLACE(c.id_sial, '-[^-]+$', '') AS "idSial"
       FROM personas p
       ${joinCargoVigente}
       ${where}
