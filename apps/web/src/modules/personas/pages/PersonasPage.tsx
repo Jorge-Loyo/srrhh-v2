@@ -21,6 +21,7 @@ export function PersonasPage() {
   const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
   const puesto       = searchParams.get('puesto') ?? ''
   const especialidad = searchParams.get('especialidad') ?? ''
+  const idSial       = searchParams.get('idSial') ?? ''
   const page         = Number(searchParams.get('page') ?? '1')
 
   function setParam(key: string, value: string) {
@@ -53,6 +54,7 @@ export function PersonasPage() {
     ...(activo && { activo: activo === 'true' }),
     ...(puesto && { puesto }),
     ...(especialidad && { especialidad }),
+    ...(idSial && { idSial }),
   }
 
   const { data, isLoading, isFetching, isError } = usePersonas(filters)
@@ -155,6 +157,13 @@ export function PersonasPage() {
             onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
+          <input
+            type="text"
+            placeholder="ID SIAL exacto..."
+            value={idSial}
+            onChange={(e) => setParam('idSial', e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded w-48 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          />
           <select
             value={hospitalId}
             onChange={(e) => setParam('hospitalId', e.target.value)}
@@ -215,6 +224,7 @@ export function PersonasPage() {
         {(() => {
           const chips: { label: string; key: string }[] = []
           if (search) chips.push({ label: `"${search}"`, key: 'search' })
+          if (idSial) chips.push({ label: `ID SIAL: ${idSial}`, key: 'idSial' })
           if (hospitalId) {
             const h = hospitales?.find((h) => h.id === hospitalId)
             chips.push({ label: h?.sigla ?? hospitalId, key: 'hospitalId' })
@@ -277,6 +287,7 @@ export function PersonasPage() {
                     <th className="px-4 py-3 font-semibold rounded-tl-lg">Apellido y Nombre</th>
                     <th className="px-4 py-3 font-semibold">CUIL</th>
                     <th className="px-4 py-3 font-semibold">Documento</th>
+                    <th className="px-4 py-3 font-semibold">ID SIAL</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
@@ -289,6 +300,7 @@ export function PersonasPage() {
                       <td className="px-4 py-3 font-medium text-gray-800">{p.apellidoNombre}</td>
                       <td className="px-4 py-3 text-gray-600">{p.cuil}</td>
                       <td className="px-4 py-3 text-gray-600">{p.numeroDoc ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{p.idSial ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{p.puesto ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{p.especialidadPrincipal ?? '—'}</td>
                       <td className="px-4 py-3">
