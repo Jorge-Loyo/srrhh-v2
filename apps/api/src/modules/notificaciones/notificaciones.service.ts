@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { NotificacionesQuery } from './notificaciones.schema.js'
@@ -68,6 +69,123 @@ export async function marcarTodasLeidasService(rolSlug: string) {
     data: { leida: true, leidaAt: new Date() },
   })
   return { actualizadas: count }
+}
+
+// ─── Detalle de "qué pasó" en el origen de la notificación ──────────────────
+// El título/mensaje de la notificación son un resumen; esto resuelve el
+// origen (origenTipo/origenId) para mostrar el detalle real en el modal
+// (ej: "Alta de cargo aprobada" → los cargos concretos que se crearon).
+const cargoSelect = {
+  id: true, codigo: true, literalPuesto: true, especialidadLegacy: true,
+  fechaDesde: true, estado: true,
+  hospital:   { select: { sigla: true, nombre: true } },
+  escalafon:  { select: { nombre: true } },
+} satisfies Prisma.CargoSelect
+
+export async function obtenerDetalleService(id: string, rolSlug: string) {
+  const notif = await prisma.notificacion.findUnique({ where: { id } })
+  if (!notif) throw AppError.notFound('Notificación no encontrada')
+  if (notif.rolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta notificación')
+
+  if (!notif.origenTipo || !notif.origenId) return null
+
+  switch (notif.origenTipo) {
+    case 'autorizacion': {
+      const aut = await prisma.autorizacion.findUnique({ where: { id: notif.origenId } })
+      if (!aut) return null
+
+      if (aut.tipo === 'alta_cargo') {
+        const solicitud = await prisma.solicitudAlta.findUnique({
+          where:   { id: aut.referenciaId },
+          include: { hospital: { select: { sigla: true, nombre: true } }, escalafon: { select: { nombre: true } } },
+        })
+        if (!solicitud) return null
+        const cargosCreados = solicitud.cargosCreadosIds.length
+          ? await prisma.cargo.findMany({ where: { id: { in: solicitud.cargosCreadosIds } }, select: cargoSelect })
+          : []
+        return {
+          tipo: 'alta_cargo' as const,
+          estado: aut.estado,
+          solicitud: {
+            hospital: solicitud.hospital, escalafon: solicitud.escalafon,
+            literalPuesto: solicitud.literalPuesto, especialidad: solicitud.especialidad,
+            cantidad: solicitud.cantidad, expediente: solicitud.expediente,
+          },
+          cargosCreados,
+        }
+      }
+
+      if (aut.tipo === 'concurso_cph') {
+        const cph = await prisma.concursoCph.findUnique({
+          where:   { id: aut.referenciaId },
+          include: {
+            concurso: { include: { cargo: { select: { codigo: true, literalPuesto: true } }, hospital: { select: { sigla: true, nombre: true } } } },
+          },
+        })
+        if (!cph) return null
+        return {
+          tipo: 'concurso_cph' as const,
+          estado: aut.estado,
+          concurso: {
+            cargo: cph.concurso.cargo, hospital: cph.concurso.hospital,
+            estadoConcurso: cph.estado, subEstado: cph.subEstado,
+            especialidadSolicitada: cph.especialidadSolicitada, puestoSolicitado: cph.puestoSolicitado,
+          },
+        }
+      }
+
+      return null
+    }
+
+    case 'baja': {
+      const baja = await prisma.baja.findUnique({
+        where:   { id: notif.origenId },
+        include: {
+          cargo:    { select: { codigo: true, literalPuesto: true } },
+          hospital: { select: { sigla: true, nombre: true } },
+          persona:  { select: { apellidoNombre: true } },
+        },
+      })
+      if (!baja) return null
+      return {
+        tipo: 'baja' as const,
+        cargo: baja.cargo, hospital: baja.hospital, persona: baja.persona,
+        fechaBaja: baja.fechaBaja, motivo: baja.motivo, estado: baja.estado,
+      }
+    }
+
+    case 'concurso_cph': {
+      const c = await prisma.concursoCph.findUnique({
+        where:   { id: notif.origenId },
+        include: { concurso: { include: { cargo: { select: { codigo: true, literalPuesto: true } }, hospital: { select: { sigla: true, nombre: true } } } } },
+      })
+      if (!c) return null
+      return {
+        tipo: 'concurso_cph' as const,
+        estado: null, // vino de una alerta de estancamiento, no de una autorización
+        concurso: {
+          cargo: c.concurso.cargo, hospital: c.concurso.hospital,
+          estadoConcurso: c.estado, subEstado: c.subEstado,
+          especialidadSolicitada: c.especialidadSolicitada, puestoSolicitado: c.puestoSolicitado,
+        },
+      }
+    }
+
+    case 'concurso_ceetps': {
+      const c = await prisma.concursoCeetps.findUnique({
+        where:   { id: notif.origenId },
+        include: { concurso: { include: { cargo: { select: { codigo: true, literalPuesto: true } }, hospital: { select: { sigla: true, nombre: true } } } } },
+      })
+      if (!c) return null
+      return {
+        tipo: 'concurso_ceetps' as const,
+        concurso: { cargo: c.concurso.cargo, hospital: c.concurso.hospital, estadoConcurso: c.estado, subEstado: null },
+      }
+    }
+
+    default:
+      return null
+  }
 }
 
 // ─── S10-5: materializar alertas de estancamiento (on-demand) ───────────────
