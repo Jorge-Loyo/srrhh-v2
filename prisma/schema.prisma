@@ -631,6 +631,7 @@ model SolicitudAlta {
   expediente       String?            @db.VarChar(150)
   desde            DateTime?          @db.Date
   cantidad         Int                @default(1)
+  etiqueta         String?            @db.VarChar(100)
   estado           SolicitudAltaEstado @default(pendiente)
   solicitadoPorId  String?            @map("solicitado_por_id") @db.Uuid
   // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
