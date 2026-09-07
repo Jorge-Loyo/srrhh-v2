@@ -234,28 +234,49 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
   }
 
   // Paso 2: sgrasv resuelve definitivamente
-  // Si hubo cambio de sigla/CR, requiere que el director haya aprobado primero.
-  // Si no hubo cambio de sigla/CR (solo autorización de etapa), puede resolver directamente.
   if (rolSlug === 'sgrasv') {
     const requiereDirector = !!(existing.siglaSolicitada || existing.codigoRegistroSolicitadoId)
     if (requiereDirector && !existing.aprobadoDirector) {
       throw AppError.conflict('El Director debe autorizar el cambio de sigla o código de registro antes de que SGRASV pueda resolver')
     }
-    const updated = await prisma.concursoCph.update({
-      where: { id },
-      data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
-      include,
+
+    return prisma.$transaction(async (tx) => {
+      // Si aprueba y hay cambios estructurales pendientes, aplicarlos al cargo
+      if (aprobado && requiereDirector) {
+        const cargo = (existing.concurso as unknown as { cargo?: { id?: string } })?.cargo
+        if (cargo?.id) {
+          const cargoUpdate: Record<string, unknown> = {}
+          if (existing.siglaSolicitada) {
+            const hospital = await tx.hospital.findFirst({ where: { sigla: existing.siglaSolicitada } })
+            if (hospital) cargoUpdate.hospitalId = hospital.id
+          }
+          if (existing.codigoRegistroSolicitadoId) {
+            cargoUpdate.codigoRegistroId = existing.codigoRegistroSolicitadoId
+          }
+          if (Object.keys(cargoUpdate).length > 0) {
+            await tx.cargo.update({ where: { id: cargo.id }, data: cargoUpdate })
+          }
+        }
+      }
+
+      const updated = await tx.concursoCph.update({
+        where: { id },
+        data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
+        include,
+      })
+
+      await crearNotificacion({
+        tipo: 'autorizacion_resuelta',
+        rolSlug: 'concursales_cph',
+        titulo: `Autorización ${aprobado ? 'aprobada' : 'rechazada'} — ${cargoCodigo}`,
+        mensaje: `La modificación del concurso ${cargoCodigo} fue ${aprobado ? 'aprobada' : 'rechazada'} por SGRASV.${observaciones ? ` Observación: ${observaciones}` : ''}`,
+        origenTipo: 'concurso_cph',
+        origenId: id,
+        origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
+      })
+
+      return updated
     })
-    await crearNotificacion({
-      tipo: 'autorizacion_resuelta',
-      rolSlug: 'concursales_cph',
-      titulo: `Autorización ${aprobado ? 'aprobada' : 'rechazada'} — ${cargoCodigo}`,
-      mensaje: `La modificación del concurso ${cargoCodigo} fue ${aprobado ? 'aprobada' : 'rechazada'} por SGRASV.${observaciones ? ` Observación: ${observaciones}` : ''}`,
-      origenTipo: 'concurso_cph',
-      origenId: id,
-      origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
-    })
-    return updated
   }
 
   throw AppError.forbidden('No tenés permiso para resolver esta autorización')

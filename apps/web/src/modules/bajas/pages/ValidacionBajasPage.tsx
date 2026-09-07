@@ -14,6 +14,7 @@ interface CargoValidacion {
   literalPuesto: string | null
   estadoDesde: string | null
   diasEnValidacion: number | null
+  motivoBaja: string | null
   hospital: { sigla: string; nombre: string }
   escalafon: { nombre: string }
   ultimaOcupacion: UltimaOcupacion | null
@@ -196,6 +197,7 @@ export function ValidacionBajasPage() {
                 <th className="px-4 py-3 font-semibold">Escalafón</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
                 <th className="px-4 py-3 font-semibold">Última persona</th>
+                <th className="px-4 py-3 font-semibold">Motivo</th>
                 <th className="px-4 py-3 font-semibold">Detectado</th>
                 <th className="px-4 py-3 font-semibold">Días</th>
                 <th className="px-4 py-3 font-semibold" />
@@ -203,7 +205,7 @@ export function ValidacionBajasPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtrados.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Sin resultados para "{busqueda}"</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">Sin resultados para "{busqueda}"</td></tr>
               )}
               {filtrados.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50">
@@ -215,6 +217,9 @@ export function ValidacionBajasPage() {
                     {c.ultimaOcupacion?.persona
                       ? <span>{c.ultimaOcupacion.persona.apellidoNombre} <span className="text-gray-400 text-xs">({c.ultimaOcupacion.persona.cuil})</span></span>
                       : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {c.motivoBaja ?? <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
                     {c.estadoDesde ? new Date(c.estadoDesde).toLocaleDateString('es-AR') : '—'}

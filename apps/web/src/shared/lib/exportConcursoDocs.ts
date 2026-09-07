@@ -118,6 +118,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
     ['Tipo', baja?.tipoBaja],
     ['Código de Registro', codigoRegistro],
     ['Fecha de Baja', vFecha(data.fechaBaja)],
+    ['Autorización', vFecha(data.fechaAutorizacion)],
   ]
 
   // 3 — Suplente de guardia: no pasa por Hacienda → solo Autorización, con el
@@ -202,6 +203,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
         ['Especialidad', esJefatura ? '-' : especSolic],
         ['Efector', efector],
         ['Partida Presupuestaria', baja?.partidaPresupuestaria],
+        ['Autorización', vFecha(data.fechaAutorizacion)],
       ],
     },
   }

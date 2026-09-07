@@ -25,7 +25,9 @@ export async function escalafonesRoutes(app: FastifyInstance) {
               puestosCargo: {
                 some: {
                   activo: true,
-                  ...(modalidad  && { modalidad:  modalidad  as 'pof' | 'pou' | 'ambos' }),
+                  ...(modalidad
+                    ? { modalidad: { in: [modalidad as 'pof' | 'pou' | 'ambos', 'ambos'] } }
+                    : {}),
                   ...(tipoPuesto && { tipoPuesto: tipoPuesto as 'ejecucion' | 'conduccion' }),
                 },
               },

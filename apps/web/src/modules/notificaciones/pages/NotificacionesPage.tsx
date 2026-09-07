@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TipoNotificacion } from '@srrhh/types'
 import {
@@ -99,8 +100,13 @@ export function NotificacionesPage() {
       apiClient.post(`/api/v1/concursos-cph/${id}/autorizar`, { aprobado, observaciones: obs || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cph-autorizaciones'] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard'] })
       setModalId(null)
       setObs('')
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al resolver la autorización'
+      alert(msg)
     },
   })
 
@@ -315,6 +321,15 @@ export function NotificacionesPage() {
                   </div>
                   <p className="text-sm font-semibold text-gray-900">{n.titulo}</p>
                   <p className="text-sm text-gray-600 mt-0.5">{n.mensaje}</p>
+                  {n.origenTipo === 'concurso_cph' && n.origenId && (
+                    <Link
+                      to={`/concursos/cph/${n.origenId}/wizard`}
+                      className="text-xs text-secondary hover:underline mt-1 inline-block"
+                      onClick={() => { if (!n.leida) marcarLeida.mutate(n.id) }}
+                    >
+                      Ir al concurso →
+                    </Link>
+                  )}
                 </div>
                 {!n.leida && (
                   <button
