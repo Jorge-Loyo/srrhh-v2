@@ -52,6 +52,10 @@ fix_plan.py
 # Scripts temporales de análisis
 check_*.py
 fix_*.py
+fix_*.js
+debug_*.mjs
+debug_*.py
+analisis_*.sql
 .commitmsg
 
 # Archivos temporales
