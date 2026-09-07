@@ -21,6 +21,7 @@ export const personasQuerySchema = z.object({
   // contra el valor que ya devuelve GET /api/v1/puestos.
   puesto: z.string().trim().min(1).optional(),
   especialidad: z.string().trim().min(1).optional(),
+  idSial: z.string().trim().min(1).optional(),
 })
 
 export type PersonasQuery = z.infer<typeof personasQuerySchema>

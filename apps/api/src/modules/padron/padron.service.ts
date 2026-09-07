@@ -19,7 +19,7 @@ interface UploadedFile { buffer: Buffer; filename: string; mimetype: string }
 interface HospitalRow { id: string; sigla: string; nombre: string }
 interface EscalafonRow { id: string; nombre: string }
 interface PersonaRow { id: string; cuil: string }
-interface CargoRow { id: string; idSial: string }
+interface CargoRow { id: string; idSial: string; estado: string }
 interface OcupacionFinalRow {
   personaId: string
   cargoId: string
@@ -155,7 +155,7 @@ async function calcularDiff(sessionId: string) {
 
   // Estado actual en Postgres: Cargo + Ocupacion activa (hasta IS NULL)
   const cargosActuales = await prisma.cargo.findMany({
-    where: { estado: 'vigente' },
+    where: { estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] } },
     select: {
       idSial: true,
       literalPuesto: true,
@@ -286,6 +286,8 @@ async function calcularDiff(sessionId: string) {
         agrupador:      actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
         estado:         ocup?.estadoPersona ?? null,
+        siglas:         actual.hospital?.sigla ?? null,
+        escalafon:      actual.escalafon?.nombre ?? null,
       }),
       valorNuevo: null,
     })
@@ -537,9 +539,39 @@ export async function listSnapshotsService() {
 export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   const snapshot = await getSnapshotOrThrow(id)
 
+  // Para eliminados con filtro de clasificación: pre-calcular los idSialRol
+  // que pertenecen a esa clasificación y usarlos como filtro en el where de
+  // Prisma — así la paginación y el total son correctos server-side.
+  let idSialRolesFiltrados: string[] | null = null
+  if (query.tipo === 'eliminado' && query.clasificacionEliminado) {
+    const todosElimPre = await prisma.padronDiff.findMany({
+      where: { snapshotId: id, tipo: 'eliminado' },
+      select: { idSialRol: true, valorAnterior: true },
+    })
+    const idSialsPre = todosElimPre.map((d) => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial as string } catch { return null } }).filter((v): v is string => Boolean(v))
+    const rolesPre = todosElimPre.map((d) => d.idSialRol)
+    const [cargosP, ocupsP] = await Promise.all([
+      prisma.cargo.findMany({ where: { idSial: { in: idSialsPre } }, select: { idSial: true, estado: true } }),
+      prisma.ocupacion.findMany({ where: { idSialRol: { in: rolesPre } }, select: { idSialRol: true } }),
+    ])
+    const cargoEstadoMapP = new Map(cargosP.map((c) => [c.idSial, c.estado]))
+    const conPersonaSetP  = new Set(ocupsP.map((o) => o.idSialRol))
+    idSialRolesFiltrados = todosElimPre
+      .filter((d) => {
+        const tienePersona = conPersonaSetP.has(d.idSialRol)
+        const idSial = (() => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial as string } catch { return null } })()
+        const estado = idSial ? cargoEstadoMapP.get(idSial) : null
+        const clasi = tienePersona ? 'con_persona' : estado === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
+        return clasi === query.clasificacionEliminado
+      })
+      .map((d) => d.idSialRol)
+  }
+
   const where = {
     snapshotId: id,
     ...(query.tipo ? { tipo: query.tipo } : {}),
+    ...(query.campo ? { campo: query.campo } : {}),
+    ...(idSialRolesFiltrados ? { idSialRol: { in: idSialRolesFiltrados } } : {}),
     ...(query.q ? {
       OR: [
         { idSialRol: { contains: query.q, mode: 'insensitive' as const } },
@@ -557,12 +589,62 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       skip: (query.page - 1) * query.limit,
       take: query.limit,
       orderBy: [
-        // nulls first: pendientes (aprobado IS NULL) arriba, luego decididos
         { aprobado: { sort: 'asc', nulls: 'first' } },
         { idSialRol: 'asc' },
       ],
     }),
   ])
+
+  // Para diffs modificados: enriquecer con apellidoNombre via join ocupaciones→personas
+  let diffsConNombre: (typeof diffs[number] & { apellidoNombre?: string | null, clasificacionEliminado?: string | null })[] = diffs
+  if (query.tipo === 'modificado' && diffs.length > 0) {
+    const idSialRoles = [...new Set(diffs.map((d) => d.idSialRol))]
+    const ocupaciones = await prisma.ocupacion.findMany({
+      where: { idSialRol: { in: idSialRoles } },
+      select: { idSialRol: true, persona: { select: { apellidoNombre: true } } },
+    })
+    const nombreMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.persona.apellidoNombre]))
+    diffsConNombre = diffs.map((d) => ({ ...d, apellidoNombre: nombreMap.get(d.idSialRol) ?? null }))
+  }
+
+  // Para diffs eliminados: clasificar por estado del cargo y si tiene persona activa
+  if (query.tipo === 'eliminado' && diffs.length > 0) {
+    const idSials = diffs.map((d) => { try { return (JSON.parse(d.valorAnterior ?? '{}')).id_sial as string } catch { return null } }).filter((v): v is string => Boolean(v))
+    const idSialRoles = diffs.map((d) => d.idSialRol)
+
+    const [cargos, ocupaciones] = await Promise.all([
+      prisma.cargo.findMany({
+        where: { idSial: { in: idSials } },
+        select: { idSial: true, estado: true, codigo: true, hospital: { select: { sigla: true } }, escalafon: { select: { nombre: true } } },
+      }),
+      prisma.ocupacion.findMany({
+        where: { idSialRol: { in: idSialRoles } },
+        select: { idSialRol: true, persona: { select: { apellidoNombre: true } } },
+      }),
+    ])
+
+    const cargoEstadoMap  = new Map(cargos.map((c) => [c.idSial, c.estado]))
+    const cargoCodigoMap  = new Map(cargos.map((c) => [c.idSial, c.codigo ?? null]))
+    const cargoSiglaMap   = new Map(cargos.map((c) => [c.idSial, c.hospital.sigla ?? null]))
+    const cargoEscalfMap  = new Map(cargos.map((c) => [c.idSial, c.escalafon.nombre ?? null]))
+    const ocupNombreMap   = new Map(ocupaciones.map((o) => [o.idSialRol, o.persona.apellidoNombre]))
+
+    diffsConNombre = diffs.map((d) => {
+      const parsed = (() => { try { return JSON.parse(d.valorAnterior ?? '{}') } catch { return {} } })()
+      const idSial = parsed.id_sial as string | null
+      const estadoCargo = idSial ? cargoEstadoMap.get(idSial) : null
+      const codigoCargo = idSial ? cargoCodigoMap.get(idSial) ?? null : null
+      const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
+      const clasificacionEliminado = apellidoNombre
+        ? 'con_persona'
+        : estadoCargo === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
+      // siglas/escalafon: preferir lo guardado en valorAnterior (diffs nuevos),
+      // caer al join con cargo para diffs ya existentes sin esos campos
+      const siglas   = parsed.siglas   ?? (idSial ? cargoSiglaMap.get(idSial)  ?? null : null)
+      const escalafon = parsed.escalafon ?? (idSial ? cargoEscalfMap.get(idSial) ?? null : null)
+      return { ...d, apellidoNombre, clasificacionEliminado, codigoCargo, siglas, escalafon }
+    })
+  }
 
   const [nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados] = await Promise.all([
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo' } }),
@@ -571,6 +653,25 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
   ])
+
+  let eliminadosConPersona = 0, eliminadosEnValidacion = 0, eliminadosSinPersona = 0
+  const todosElim = await prisma.padronDiff.findMany({ where: { snapshotId: id, tipo: 'eliminado' }, select: { idSialRol: true, valorAnterior: true } })
+  if (todosElim.length > 0) {
+    const roles = todosElim.map((d) => d.idSialRol)
+    const idSials = todosElim.map((d) => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial } catch { return null } }).filter(Boolean)
+    const [ocups, cargosE] = await Promise.all([
+      prisma.ocupacion.findMany({ where: { idSialRol: { in: roles } }, select: { idSialRol: true } }),
+      prisma.cargo.findMany({ where: { idSial: { in: idSials } }, select: { idSial: true, estado: true } }),
+    ])
+    const conPersonaSet = new Set(ocups.map((o) => o.idSialRol))
+    const estadoMap = new Map(cargosE.map((c) => [c.idSial, c.estado]))
+    for (const d of todosElim) {
+      if (conPersonaSet.has(d.idSialRol)) { eliminadosConPersona++; continue }
+      const idSial = (() => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial } catch { return null } })()
+      if (estadoMap.get(idSial) === 'validacion_vacante') eliminadosEnValidacion++
+      else eliminadosSinPersona++
+    }
+  }
 
   // Preview de código para diffs nuevos pendientes/rechazados — un MAX por
   // prefijo distinto (~15 prefijos), no uno por diff.
@@ -614,9 +715,9 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
     },
-    summary: { nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados },
+    summary: { nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados, eliminadosConPersona, eliminadosEnValidacion, eliminadosSinPersona },
     diffs: {
-      data: diffs.map((d) => ({ ...d, codigoPreview: codigoPreviewMap.get(d.id) ?? null })),
+      data: diffsConNombre.map((d) => ({ ...d, codigoPreview: codigoPreviewMap.get(d.id) ?? null })),
       meta: {
         total,
         page: query.page,
@@ -1019,7 +1120,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     //   - Si el cargo NO aparece → confirmar baja (pasa a no_vigente)
     const idSialsNuevos = new Set(todosNuevos.map((n) => n.datos.id_sial).filter(Boolean))
     const cargosEnValidacion = await tx.cargo.findMany({
-      where: { estado: 'validacion_vacante' },
+      where: { estado: { in: ['validacion_vacante', 'no_vigente'] } },
       select: { id: true, idSial: true },
     }) as { id: string; idSial: string }[]
 
@@ -1151,6 +1252,81 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
   return { ok: true, snapshotId: id }
 }
 
+// ─── Conteos de campos modificados para sub-tabs ────────────────────────────
+export async function getCamposModificadosService(snapshotId: string) {
+  await getSnapshotOrThrow(snapshotId)
+  const rows = await prisma.padronDiff.groupBy({
+    by: ['campo'],
+    where: { snapshotId, tipo: 'modificado', campo: { not: null } },
+    _count: { campo: true },
+    orderBy: { _count: { campo: 'desc' } },
+  })
+  return rows.map((r) => ({ campo: r.campo as string, cantidad: r._count.campo }))
+}
+
+// ─── Diagnóstico: analizar diffs nuevos pendientes vs cargos existentes ─────
+export async function diagnosticarDiffsNuevosService(snapshotId: string) {
+  await getSnapshotOrThrow(snapshotId)
+
+  const diffs = await prisma.padronDiff.findMany({
+    where: { snapshotId, tipo: 'nuevo', aprobado: null },
+    select: { id: true, idSialRol: true, valorNuevo: true },
+  })
+
+  const parsed = diffs.map((d) => {
+    const datos = JSON.parse(d.valorNuevo ?? '{}')
+    const cuil = cuilDe(datos)
+    return { idSialRol: d.idSialRol, idSial: datos.id_sial as string | undefined, cuil, ayn: datos.ayn as string | undefined }
+  })
+
+  const idSials = parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v))
+  const cuils   = parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v))
+
+  const [cargosExistentes, personasExistentes] = await Promise.all([
+    prisma.cargo.findMany({ where: { idSial: { in: idSials } }, select: { idSial: true, estado: true, codigo: true } }),
+    prisma.persona.findMany({ where: { cuil: { in: cuils } }, select: { cuil: true } }),
+  ])
+
+  const cargoMap   = new Map(cargosExistentes.map((c) => [c.idSial, c]))
+  const personaSet = new Set(personasExistentes.map((p) => p.cuil))
+
+  const resultado = parsed.map((p) => {
+    const cargo         = p.idSial ? cargoMap.get(p.idSial) : undefined
+    const personaExiste = p.cuil ? personaSet.has(p.cuil) : false
+    // Clasificación:
+    //   cargoExiste=true  → falso nuevo (cargo ya en DB, estado no_vigente/validacion_vacante)
+    //   personaExiste=true → nuevo rol (persona conocida, cargo genuinamente nuevo)
+    //   ambos false        → nuevo de 0 (persona y cargo nunca vistos)
+    const clasificacion = cargo
+      ? 'falso_nuevo'
+      : personaExiste ? 'nuevo_rol' : 'nuevo_de_0'
+    return {
+      idSialRol: p.idSialRol,
+      idSial: p.idSial,
+      cuil: p.cuil,
+      ayn: p.ayn,
+      clasificacion,
+      estadoCargo: cargo?.estado ?? null,
+      codigoCargo: cargo?.codigo ?? null,
+    }
+  })
+
+  const resumen = {
+    total:        resultado.length,
+    falsosNuevos: resultado.filter((r) => r.clasificacion === 'falso_nuevo').length,
+    nuevosRol:    resultado.filter((r) => r.clasificacion === 'nuevo_rol').length,
+    nuevosDe0:    resultado.filter((r) => r.clasificacion === 'nuevo_de_0').length,
+    porEstadoCargo: Object.entries(
+      resultado.filter((r) => r.estadoCargo).reduce((acc, r) => {
+        acc[r.estadoCargo!] = (acc[r.estadoCargo!] ?? 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+    ).map(([estado, cantidad]) => ({ estado, cantidad })),
+  }
+
+  return { resumen, detalle: resultado }
+}
+
 // ─── Aprobar todos los diffs nuevos pendientes en bloque ───────────────────
 
 export async function aprobarTodosDiffsPendientesService(snapshotId: string, usuarioId: string) {
@@ -1241,10 +1417,16 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
       }
     }
 
-    // Crear o recuperar cargo
+    // Crear o recuperar cargo — si ya existe y está no_vigente/validacion_vacante, reactivarlo
     let cargo: CargoRow | null = datos.id_sial
       ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
       : null
+
+    if (cargo) {
+      if (cargo.estado === 'no_vigente' || cargo.estado === 'validacion_vacante') {
+        await tx.cargo.update({ where: { id: cargo.id }, data: { estado: 'vigente', estadoDesde: null } })
+      }
+    }
 
     if (!cargo && datos.id_sial) {
       const prefijo = prefijoDeCargo({

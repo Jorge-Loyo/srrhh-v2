@@ -102,6 +102,7 @@ export interface Persona {
 // vigente). No es un campo de Persona en sí, por eso no vive en el tipo base.
 export interface PersonaListItem extends Persona {
   puesto: string | null
+  idSial: string | null
 }
 
 // Devuelto por GET /api/v1/puestos — cada puesto real (Cargo.literalPuesto)
@@ -253,6 +254,11 @@ export interface PadronDiff {
   // null = pendiente, true = aprobado, false = rechazado
   aprobado: boolean | null
   codigoPreview?: string | null  // solo en tab nuevos: código que se generaría
+  apellidoNombre?: string | null  // modificados y eliminados: nombre de la persona
+  clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null  // solo eliminados
+  codigoCargo?: string | null  // solo eliminados: código del cargo en la BD
+  siglas?: string | null       // solo eliminados: sigla del hospital
+  escalafon?: string | null    // solo eliminados: nombre del escalafón
   createdAt: string
 }
 
@@ -630,8 +636,11 @@ export interface DiffSummary {
   nuevos: number
   modificados: number
   eliminados: number
-  nuevosPendientes: number   // aprobado IS NULL
-  nuevosRechazados: number   // aprobado = false
+  nuevosPendientes: number
+  nuevosRechazados: number
+  eliminadosConPersona: number    // cargo vigente con ocupación activa — baja real
+  eliminadosEnValidacion: number  // cargo en validacion_vacante — ya en proceso de baja
+  eliminadosSinPersona: number    // cargo no_vigente o vacante — ruido histórico
 }
 
 export interface SnapshotDiffResponse {
@@ -731,6 +740,7 @@ export interface PersonaFilters {
   // igualdad exacta contra los valores que devuelve GET /api/v1/puestos.
   puesto?: string
   especialidad?: string
+  idSial?: string
   page?: number
   limit?: number
 }
