@@ -402,6 +402,60 @@ export interface NotificacionFilters {
   soloNoLeidas?: boolean
 }
 
+// GET /notificaciones/:id/detalle — resuelve el origen para el modal ("qué pasó")
+interface HospitalRef { sigla: string; nombre: string }
+interface CargoCreadoDetalle {
+  id: string
+  codigo: string | null
+  literalPuesto: string | null
+  especialidadLegacy: string | null
+  fechaDesde: string | null
+  estado: string
+  hospital: HospitalRef
+  escalafon: { nombre: string }
+}
+interface CargoRef { codigo: string | null; literalPuesto: string | null }
+
+export type NotificacionDetalle =
+  | {
+      tipo: 'alta_cargo'
+      estado: string
+      solicitud: {
+        hospital: HospitalRef
+        escalafon: { nombre: string }
+        literalPuesto: string
+        especialidad: string | null
+        cantidad: number
+        expediente: string | null
+      }
+      cargosCreados: CargoCreadoDetalle[]
+    }
+  | {
+      tipo: 'concurso_cph'
+      estado: string | null // estado de la autorización si vino de ese flujo; null si vino de una alerta de estancamiento
+      concurso: {
+        cargo: CargoRef
+        hospital: HospitalRef
+        estadoConcurso: string
+        subEstado: string | null
+        especialidadSolicitada: string | null
+        puestoSolicitado: string | null
+      }
+    }
+  | {
+      tipo: 'baja'
+      cargo: CargoRef
+      hospital: HospitalRef
+      persona: { apellidoNombre: string } | null
+      fechaBaja: string
+      motivo: string | null
+      estado: string
+    }
+  | {
+      tipo: 'concurso_ceetps'
+      concurso: { cargo: CargoRef; hospital: HospitalRef; estadoConcurso: string; subEstado: string | null }
+    }
+
 // S13 — Autorizaciones
 export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
