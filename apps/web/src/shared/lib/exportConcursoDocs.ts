@@ -13,16 +13,23 @@ import {
 } from 'docx'
 import type { ConcursoCph, ConcursoCeetps } from '@srrhh/types'
 
-// ─── Paleta (igual que el legacy) ──────────────────────────────────────────────
-const RED: [number, number, number]   = [220, 38, 38]
-const GREEN: [number, number, number] = [5, 150, 105]
-const TEAL: [number, number, number]  = [42, 113, 133]
-const S50: [number, number, number]   = [248, 250, 252]
-const S100: [number, number, number]  = [241, 245, 249]
-const S200: [number, number, number]  = [226, 232, 240]
+// ─── Paleta ─────────────────────────────────────────────────────────────────
+// Sacada por muestreo de píxeles de las capturas reales embebidas en
+// "FORMULARIOS X CASO.docx" (la referencia oficial, no el legacy JS: el
+// propio dotacion-rrhh/frontend/src/utils/exportReport.js ya usaba una
+// paleta distinta a esta, más parecida a Tailwind — se ve que nunca
+// terminó de igualar el Word oficial). Confirmado igual en 5 casos
+// distintos (CPH y CEETPS): #45818E / #CC0000 / #38761D, la paleta default
+// de Google Docs — el Word original se armó ahí.
+const RED: [number, number, number]   = [204, 0, 0]
+const GREEN: [number, number, number] = [56, 118, 29]
+const TEAL: [number, number, number]  = [69, 129, 142]
 const WHITE: [number, number, number] = [255, 255, 255]
-const INK: [number, number, number]   = [15, 23, 42]
-const LABEL: [number, number, number] = [30, 41, 59]
+const BLACK: [number, number, number] = [0, 0, 0]
+// El legacy no tiene franjas alternadas ni texto en gris azulado — todas las
+// filas son blanco liso, texto y bordes en negro (ver FORMULARIOS X CASO).
+const INK: [number, number, number]   = BLACK
+const LABEL: [number, number, number] = BLACK
 
 type Campo = [string, string | null | undefined]
 
@@ -71,7 +78,11 @@ export function getCasoCph(data: ConcursoCph): Caso {
   const efector      = efectorTexto(hospital?.sigla, hospital?.nombre)
   const puestoBaja    = cargo?.literalPuesto || ''
   const puestoSolic   = data.puestoSolicitado || puestoBaja
-  const especBaja     = cargo?.especialidad || '-'
+  // cargo.especialidad es una relación (Especialidad?, no viene incluida en
+  // el payload de la API) — el string real está en especialidadLegacy, ver
+  // migración especialidades_fk. Usar el campo viejo acá dejaba "Especialidad"
+  // en blanco ("-") en TODOS los documentos generados.
+  const especBaja     = cargo?.especialidadLegacy || '-'
   const especSolic    = data.especialidadSolicitada || especBaja
   const esSolicitud   = origen === 'Ampliación' || origen === 'POU a POF'
   const esSuplente    = cargo?.unificadorPuesto === 'Suplente de Guardia'
@@ -118,6 +129,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
     ['Tipo', baja?.tipoBaja],
     ['Código de Registro', codigoRegistro],
     ['Fecha de Baja', vFecha(data.fechaBaja)],
+    ['Autorización', vFecha(data.fechaAutorizacion)],
   ]
 
   // 3 — Suplente de guardia: no pasa por Hacienda → solo Autorización, con el
@@ -202,6 +214,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
         ['Especialidad', esJefatura ? '-' : especSolic],
         ['Efector', efector],
         ['Partida Presupuestaria', baja?.partidaPresupuestaria],
+        ['Autorización', vFecha(data.fechaAutorizacion)],
       ],
     },
   }
@@ -227,7 +240,9 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
   const escalafonTexto  = ESCALAFON_CEETPS[codigo] || ''
   const puestoBaja      = cargo?.literalPuesto || ''
   const puestoSolic     = data.puestoSolicitado || puestoBaja
-  const especBaja       = cargo?.especialidad || '-'
+  // Ver mismo comentario en getCasoCph — .especialidad es la relación (no
+  // viene en el payload), el string real está en especialidadLegacy.
+  const especBaja       = cargo?.especialidadLegacy || '-'
   const esAmpliacion    = origen === 'Ampliación' || origen === 'POU a POF'
   const conCarga        = codigo === '87' || codigo === '85'
   const filaCarga: Campo[] = conCarga && data.cargaHoraria ? [['Carga Horaria', `${data.cargaHoraria} HS`]] : []
@@ -416,7 +431,10 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
 }
 
 // ─── PDF: render genérico por caso ─────────────────────────────────────────────
-function pdfSeccion(doc: jsPDF, y: number, cabecera: string, color: [number, number, number], filas: Campo[]) {
+// valorColor: en el cuadro rojo (BAJA/AMPLIACIÓN/etc.) el valor de cada campo
+// va en rojo, igual que el header — en el cuadro verde (AUTORIZACIÓN) va en
+// negro. Confirmado por muestreo de píxeles en FORMULARIOS X CASO.
+function pdfSeccion(doc: jsPDF, y: number, cabecera: string, color: [number, number, number], filas: Campo[], valorColor: [number, number, number] = INK) {
   autoTable(doc, {
     startY: y,
     head: [[{ content: cabecera, colSpan: 2 }]],
@@ -432,13 +450,14 @@ function pdfSeccion(doc: jsPDF, y: number, cabecera: string, color: [number, num
       cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
     },
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 68, fillColor: S50, textColor: LABEL, fontSize: 9.5 },
-      1: { textColor: INK, fontSize: 9.5 },
+      0: { fontStyle: 'bold', cellWidth: 68, fillColor: WHITE, textColor: LABEL, fontSize: 9.5 },
+      1: { fillColor: WHITE, textColor: valorColor, fontSize: 9.5 },
     },
-    alternateRowStyles: { fillColor: S100 },
+    // Sin franjas alternadas — todas las filas blanco liso, bordes negros
+    // (ver FORMULARIOS X CASO, no hay banding gris en ninguno de los casos).
     styles: {
       cellPadding: { top: 3.5, bottom: 3.5, left: 5, right: 5 },
-      lineColor: S200,
+      lineColor: BLACK,
       lineWidth: 0.25,
     },
   })
@@ -476,7 +495,7 @@ function renderCasoPdf(seccion: Seccion, tipo: 'validacion' | 'autorizacion', fi
   }
 
   y = pdfParrafo(doc, y, seccion.intro, { fontSize: 10, color: INK }) + 4
-  y = pdfSeccion(doc, y, seccion.boxTitulo, RED, seccion.campos) + 8
+  y = pdfSeccion(doc, y, seccion.boxTitulo, RED, seccion.campos, RED) + 8
   y = pdfParrafo(doc, y, seccion.cierre)
 
   if (seccion.camposVerde) {
@@ -506,7 +525,8 @@ export function exportCeetpsPdf(data: ConcursoCeetps, tipo: 'validacion' | 'auto
 }
 
 // ─── WORD: helpers ────────────────────────────────────────────────────────────
-const BORDE = (color = 'CBD5E1') => ({
+// Bordes negros, sin franjas — igual que el PDF (ver comentario de paleta arriba).
+const BORDE = (color = '000000') => ({
   top:     { style: BorderStyle.SINGLE, size: 4, color },
   bottom:  { style: BorderStyle.SINGLE, size: 4, color },
   left:    { style: BorderStyle.SINGLE, size: 4, color },
@@ -524,7 +544,9 @@ const BORDE_NONE = () => ({
   insideVertical:   { style: BorderStyle.NONE, size: 0, color: 'auto' },
 })
 
-function wordTabla(cabecera: string, fillHex: string, filas: Campo[]) {
+// valorColorHex: en el cuadro rojo el valor de cada campo va en rojo, igual
+// que el header — en el verde va en negro (ver comentario en pdfSeccion).
+function wordTabla(cabecera: string, fillHex: string, filas: Campo[], valorColorHex = '000000') {
   return new Table({
     width: { size: 5000, type: WidthType.PERCENTAGE },
     borders: BORDE(),
@@ -544,20 +566,21 @@ function wordTabla(cabecera: string, fillHex: string, filas: Campo[]) {
           }),
         ],
       }),
-      ...filas.map(([label, value], i) =>
+      // Sin franjas alternadas — todas las filas blanco liso (ver FORMULARIOS X CASO).
+      ...filas.map(([label, value]) =>
         new TableRow({
           children: [
             new TableCell({
               width: { size: 1750, type: WidthType.PERCENTAGE },
-              shading: { fill: i % 2 === 0 ? 'F1F5F9' : 'F8FAFC', type: ShadingType.CLEAR, color: 'auto' },
+              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
               margins: { top: 60, bottom: 60, left: 120, right: 80 },
-              children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 19, color: '1E293B' })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 19, color: '000000' })] })],
             }),
             new TableCell({
               width: { size: 3250, type: WidthType.PERCENTAGE },
-              shading: { fill: i % 2 === 0 ? 'FFFFFF' : 'FAFAFA', type: ShadingType.CLEAR, color: 'auto' },
+              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
               margins: { top: 60, bottom: 60, left: 120, right: 80 },
-              children: [new Paragraph({ children: [new TextRun({ text: v(value), size: 19, color: '0F172A' })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: v(value), size: 19, color: valorColorHex })] })],
             }),
           ],
         })
@@ -586,7 +609,7 @@ function wordBanner() {
       new TableRow({
         children: [
           new TableCell({
-            shading: { fill: '2A7185', type: ShadingType.CLEAR, color: 'auto' },
+            shading: { fill: '45818E', type: ShadingType.CLEAR, color: 'auto' },
             margins: { top: 140, bottom: 140, left: 120, right: 120 },
             children: [
               new Paragraph({
@@ -604,7 +627,7 @@ function wordBanner() {
 // Los bloques separados por "\n\n" (cierre + nota/decreto) se parten en párrafos
 // aparte para que las notas "[COMPLETAR: ...]" queden editables como texto normal.
 function wordParrafos(texto: string, opts: { color?: string; spacingBefore?: number } = {}) {
-  const { color = '334155', spacingBefore = 0 } = opts
+  const { color = '000000', spacingBefore = 0 } = opts
   return texto.split('\n\n').filter(Boolean).map((bloque, i) =>
     new Paragraph({
       spacing: { before: i === 0 ? spacingBefore : 160, after: 160 },
@@ -616,11 +639,11 @@ function wordParrafos(texto: string, opts: { color?: string; spacingBefore?: num
 async function renderCasoWord(seccion: Seccion, tipo: 'validacion' | 'autorizacion', filename: string) {
   const children = []
   if (tipo === 'autorizacion') children.push(wordBanner())
-  children.push(...wordParrafos(seccion.intro, { color: '0F172A', spacingBefore: tipo === 'autorizacion' ? 280 : 0 }))
-  children.push(wordTabla(seccion.boxTitulo, 'DC2626', seccion.campos))
-  children.push(...wordParrafos(seccion.cierre, { color: tipo === 'autorizacion' ? '0F172A' : '334155', spacingBefore: 280 }))
+  children.push(...wordParrafos(seccion.intro, { color: '000000', spacingBefore: tipo === 'autorizacion' ? 280 : 0 }))
+  children.push(wordTabla(seccion.boxTitulo, 'CC0000', seccion.campos, 'CC0000'))
+  children.push(...wordParrafos(seccion.cierre, { color: '000000', spacingBefore: 280 }))
   if (seccion.camposVerde) {
-    children.push(wordTabla('AUTORIZACIÓN', '059669', seccion.camposVerde))
+    children.push(wordTabla('AUTORIZACIÓN', '38761D', seccion.camposVerde))
   }
 
   const doc = new Document({

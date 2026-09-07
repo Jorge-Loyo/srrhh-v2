@@ -152,6 +152,19 @@ export async function listValidacionService() {
   })
 
   const hoy = new Date()
+
+  // Buscar motivo de baja en baja_sial_registros por id_sial del cargo
+  const idsSial = cargos.map((c) => c.idSial).filter(Boolean) as string[]
+  const bajasMotivo = idsSial.length > 0
+    ? await prisma.bajaSialRegistro.findMany({
+        where: { cargo: { in: idsSial } },
+        select: { cargo: true, motBaja: true },
+        distinct: ['cargo'],
+        orderBy: { id: 'desc' },
+      })
+    : []
+  const motivoMap = new Map(bajasMotivo.map((b) => [b.cargo, b.motBaja]))
+
   return cargos.map(({ ocupaciones, estadoDesde, ...c }) => ({
     ...c,
     estadoDesde: estadoDesde?.toISOString().slice(0, 10) ?? null,
@@ -159,6 +172,7 @@ export async function listValidacionService() {
       ? Math.floor((hoy.getTime() - estadoDesde.getTime()) / 86_400_000)
       : null,
     ultimaOcupacion: ocupaciones[0] ?? null,
+    motivoBaja: motivoMap.get(c.idSial ?? '') ?? null,
   }))
 }
 

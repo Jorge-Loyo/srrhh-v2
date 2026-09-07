@@ -1,8 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { createRoleSchema, updateRoleSchema, setRolePermisosSchema } from './roles.schema.js'
-import { listRoles, createRole, updateRole, deleteRole, setRolePermisos } from './roles.service.js'
+import { createRoleSchema, updateRoleSchema, setRolePermisosSchema, setJerarquiaSchema } from './roles.schema.js'
+import {
+  listRoles, createRole, updateRole, deleteRole, setRolePermisos,
+  listJerarquia, setJerarquia,
+} from './roles.service.js'
 
 export async function rolesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -34,5 +37,17 @@ export async function rolesRoutes(app: FastifyInstance) {
     const body = setRolePermisosSchema.parse(request.body)
     const role = await setRolePermisos(request.params.id, body.permisoIds)
     return reply.send({ data: role })
+  })
+
+  // S13-E — jerarquía de roles (cimientos para asignación de tareas, Sprint 14+)
+  app.get('/jerarquia', async (_request, reply) => {
+    const data = await listJerarquia()
+    return reply.send({ data })
+  })
+
+  app.put('/jerarquia', async (request, reply) => {
+    const body = setJerarquiaSchema.parse(request.body)
+    const data = await setJerarquia(body.rolHijoSlug, body.rolPadreSlug)
+    return reply.send({ data })
   })
 }

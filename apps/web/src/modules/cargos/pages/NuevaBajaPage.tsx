@@ -10,7 +10,6 @@ import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS,
 } from '../lib/bajasHelpers'
-import { jsPDF } from 'jspdf'
 
 type Paso = 1 | 2 | 3
 
@@ -409,44 +408,6 @@ export function NuevaBajaPage() {
     }
   }
 
-  function generarPDF() {
-    const doc = new jsPDF()
-    const m = 20; let y = 20
-    const line = (lbl: string, val: string) => {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-      doc.text(lbl + ':', m, y)
-      doc.setFont('helvetica', 'normal')
-      doc.text(val || '—', m + 52, y); y += 7
-    }
-    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 18, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
-    doc.text('GCBA — Dirección General de Administración y Desarrollo de RRHH', m, 12)
-    doc.setTextColor(0, 0, 0); y = 28
-    doc.setFontSize(13); doc.text('Formulario de Baja de Cargo', m, y); y += 4
-    doc.setDrawColor(200, 200, 200); doc.line(m, y, 190, y); y += 8
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-    doc.text('CARGO', m, y); y += 6; doc.line(m, y, 190, y); y += 5
-    line('Código', cargo?.codigo ?? '')
-    line('Hospital', `${cargo?.hospital?.sigla ?? ''} — ${cargo?.hospital?.nombre ?? ''}`)
-    line('Puesto', puesto); line('Escalafón', escalafon); line('POU/POF', pouPof)
-    if (especialidad) line('Especialidad', especialidad); y += 3
-    doc.setFont('helvetica', 'bold'); doc.text('AGENTE', m, y); y += 6; doc.line(m, y, 190, y); y += 5
-    line('Apellido y Nombre', nombreApellido); line('CUIL', cuil); line('Código de Registro', codigoRegistro); y += 3
-    doc.setFont('helvetica', 'bold'); doc.text('DATOS DE LA BAJA', m, y); y += 6; doc.line(m, y, 190, y); y += 5
-    line('Origen', origen); line('EX Baja', exBaja); line('Partida Presupuestaria', partida)
-    line('Fecha de Baja', fechaBaja); line('Motivo', motivo)
-    if (docRespaldatoria) line('Doc. Respaldatoria', docRespaldatoria)
-    if (fechaPaseParalelo) line('Fecha Pase Paralelo / GT', fechaPaseParalelo)
-    if (cargaHoraria) line('Carga Horaria', `${cargaHoraria} hs`)
-    if (observaciones) line('Observaciones', observaciones); y += 3
-    doc.setFont('helvetica', 'bold'); doc.text('CONCURSO', m, y); y += 6; doc.line(m, y, 190, y); y += 5
-    line('Genera Concurso', generaConcurso ? 'Sí — CPH' : 'No'); y += 10
-    doc.setDrawColor(200, 200, 200); doc.line(m, y, 190, y); y += 6
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(120, 120, 120)
-    doc.text(`Generado el ${new Date().toLocaleDateString('es-AR')} — Sistema SRRHH GCBA`, m, y)
-    doc.save(`baja_${cargo?.codigo ?? 'cargo'}_${fechaBaja}.pdf`)
-  }
-
   const volverUrl = sinConcurso ? '/cargos/baja' : '/cargos/alta-por-baja'
 
   return (
@@ -638,7 +599,7 @@ export function NuevaBajaPage() {
                       type="text"
                       value={cargaHoraria}
                       onChange={(e) => setCargaHoraria(e.target.value.replace(/\D/g, '').slice(0, 2))}
-                      placeholder="37"
+                      placeholder="30"
                       className="input h-10 w-full"
                     />
                   </Field>
@@ -658,7 +619,7 @@ export function NuevaBajaPage() {
                       <input
                         type="text"
                         value={docRespaldatoria}
-                        onChange={(e) => setDocRespaldatoria(e.target.value)}
+                        onChange={(e) => setDocRespaldatoria(e.target.value.replace(/\s/g, ''))}
                         className="input h-10 w-full"
                       />
                     </Field>
@@ -815,7 +776,6 @@ export function NuevaBajaPage() {
               </button>
               <div className="flex items-center gap-3">
                 {error && <span className="text-sm text-danger">{error}</span>}
-                <button className="btn-outline" onClick={generarPDF}>⬇ Descargar PDF</button>
                 <button className="btn-primary" disabled={guardando} onClick={() => confirmar(generaConcurso === true)}>
                   {guardando ? 'Registrando...' : generaConcurso ? 'Registrar baja e iniciar concurso →' : 'Registrar baja'}
                 </button>

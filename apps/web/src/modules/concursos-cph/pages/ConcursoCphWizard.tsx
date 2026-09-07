@@ -2,7 +2,7 @@
 // - id === 'nuevo': formulario limpio (sin datos reales aún)
 // - id === UUID:    carga el concurso real de la API
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
@@ -83,7 +83,23 @@ export function ConcursoCphWizard() {
 
   const { user } = useAuth()
   const queryClient = useQueryClient()
-  const esSgrasv = user?.rolSlug === 'sgrasv'
+
+  // S13-C: la Autorizacion pendiente real (tabla genérica) para este concurso,
+  // si existe y le corresponde resolverla al usuario logueado. Reemplaza al
+  // viejo POST /concursos-cph/:id/autorizar, que nunca tocaba esta tabla y
+  // dejaba la fila huérfana en "pendiente" para siempre.
+  const { data: autorizacionPendiente } = useQuery({
+    queryKey: ['autorizaciones', 'lista', { tipo: 'concurso_cph' as const, referenciaId: id }],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { id: string; referenciaId: string; resolverPorRolSlug: string }[] }>(
+        '/api/v1/autorizaciones',
+        { params: { tipo: 'concurso_cph', limit: 100 } }
+      )
+      return res.data.data.find((a) => a.referenciaId === id) ?? null
+    },
+    enabled: !esNuevo && !!id,
+  })
+  const puedeResolverAutorizacion = !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
 
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
@@ -133,8 +149,8 @@ export function ConcursoCphWizard() {
     }
     if (!cphData) return null
     const c = cphData.concurso
-    const baja = (c as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } })?.baja
-    const eeBajaVal   = cphData.eeBaja   ?? baja?.observaciones ?? ''
+    const baja = (c as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null } })?.baja
+    const eeBajaVal   = cphData.eeBaja   ?? baja?.eeBaja ?? ''
     const rawFechaHeader = cphData.fechaBaja ?? baja?.fechaBaja ?? ''
     const fechaBajaVal = rawFechaHeader
       ? (typeof rawFechaHeader === 'string'
@@ -169,8 +185,8 @@ export function ConcursoCphWizard() {
       if (!cphData) return false
       return (cphData as unknown as Record<string, boolean>)[key] ?? false
     }
-    const bajaDatos = (cphData?.concurso as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null } } | undefined)?.baja
-    const eeBajaResuelto   = cphData?.eeBaja ?? bajaDatos?.observaciones ?? ''
+    const bajaDatos = (cphData?.concurso as unknown as { baja?: { observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null } } | undefined)?.baja
+    const eeBajaResuelto   = cphData?.eeBaja ?? bajaDatos?.eeBaja ?? ''
     const rawFecha = cphData?.fechaBaja ?? bajaDatos?.fechaBaja ?? ''
     const fechaBajaResuelto = rawFecha
       ? (typeof rawFecha === 'string'
@@ -284,6 +300,8 @@ export function ConcursoCphWizard() {
   const [modalCambios, setModalCambios] = useState<{ campo: string; de: string; a: string }[] | null>(null)
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
   const [obsAutorizacion, setObsAutorizacion] = useState('')
+  const [modalBaja, setModalBaja] = useState(false)
+  const formRef = useRef<HTMLDivElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
   const [originales, setOriginales] = useState(originalesRef)
@@ -291,6 +309,16 @@ export function ConcursoCphWizard() {
     escalafonId || undefined,
     puestoConcurso || undefined
   )
+
+  // Cuando llegan las opciones, corregir especialidadConcurso si no coincide exactamente
+  // (ej: 'Ortopedia y Traumatología' vs 'Ortopedia y Traumatologia' — tildes legacy)
+  useEffect(() => {
+    if (especialidadesDisponibles.length === 0 || !especialidadConcurso) return
+    if (especialidadesDisponibles.includes(especialidadConcurso)) return
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const match = especialidadesDisponibles.find((e) => normalize(e) === normalize(especialidadConcurso))
+    if (match) setEspecialidadConcurso(match)
+  }, [especialidadesDisponibles])
 
   useEffect(() => {
     if (!cphData) return
@@ -323,8 +351,6 @@ export function ConcursoCphWizard() {
   const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })?.aprobadoDirector
   const tieneCambioSiglaCr = !!(cphData as unknown as { siglaSolicitada?: string | null; codigoRegistroSolicitadoId?: string | null })?.siglaSolicitada
     || !!(cphData as unknown as { codigoRegistroSolicitadoId?: string | null })?.codigoRegistroSolicitadoId
-  // SGRASV puede resolver si: no hay cambio de sigla/CR, o el director ya aprobó
-  const sgrasvPuedeResolver = pendienteAutorizacion && esSgrasv && (!tieneCambioSiglaCr || aprobadoDirector)
 
   const patchMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -332,13 +358,25 @@ export function ConcursoCphWizard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] }),
   })
 
+  // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
+  // POST /concursos-cph/:id/autorizar (dejaba la Autorizacion huérfana en
+  // "pendiente" porque nunca actualizaba esa tabla).
   const autorizarMutation = useMutation({
-    mutationFn: (payload: { aprobado: boolean; observaciones?: string }) =>
-      apiClient.post(`/api/v1/concursos-cph/${id}/autorizar`, payload).then((r) => r.data.data),
+    mutationFn: ({ aprobado, observaciones }: { aprobado: boolean; observaciones?: string }) => {
+      if (!autorizacionPendiente) throw new Error('No hay autorización pendiente para resolver')
+      const accion = aprobado ? 'aprobar' : 'rechazar'
+      return apiClient.post(`/api/v1/autorizaciones/${autorizacionPendiente.id}/${accion}`, { observaciones })
+        .then((r) => r.data.data)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['autorizaciones'] })
       setModalAutorizacion(false)
       setObsAutorizacion('')
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al resolver la autorización'
+      alert(msg)
     },
   })
 
@@ -376,7 +414,22 @@ export function ConcursoCphWizard() {
         return
       }
     }
-    // Sin cambios sensibles: guardar y avanzar a la siguiente etapa
+    // Leer todos los campos del formulario activo y enviar al backend
+    const body: Record<string, unknown> = {}
+    if (formRef.current) {
+      formRef.current.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+        'input[data-key]:not([readonly]):not([disabled]), select[data-key]:not([disabled]), textarea[data-key]:not([disabled])'
+      ).forEach((el) => {
+        const key = el.dataset.key!
+        if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+          body[key] = el.checked
+        } else {
+          body[key] = el.value || null
+        }
+      })
+    }
+    if (Object.keys(body).length > 0) patchMutation.mutate(body)
+
     const siguiente = etapasActuales[etapa.numero]
     if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
     setGuardado(true)
@@ -425,7 +478,7 @@ export function ConcursoCphWizard() {
               <span className="text-blue-500 text-xl">🔐</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">Resolver autorización</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Como SGRASV podés aprobar o rechazar la modificación solicitada.</p>
+                <p className="text-xs text-gray-500 mt-0.5">Podés aprobar o rechazar la modificación solicitada.</p>
               </div>
             </div>
             <div className="px-6 py-4 space-y-3">
@@ -474,6 +527,83 @@ export function ConcursoCphWizard() {
           </div>
         </div>
       )}
+
+      {/* ── MODAL VER BAJA ──────────────────────────────────────────────────── */}
+      {modalBaja && cphData && (() => {
+        type BajaExt = { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null; fechaBaja?: string | Date | null; eeBaja?: string | null; tipoBaja?: string | null }
+        type CargoExt = { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string; nombre?: string }; escalafon?: { nombre?: string }; codigoRegistro?: { codigo?: string; literal?: string }; unificadorPuesto?: string; idSial?: string | null; cargoSial?: string | null }
+        type PersonaExt = { apellidoNombre?: string; cuil?: string; legajo?: string | null }
+        const b = (cphData?.concurso as unknown as { baja?: BajaExt })?.baja
+        const cargo = (cphData.concurso as unknown as { cargo?: CargoExt })?.cargo
+        const persona = (cphData.concurso as unknown as { persona?: PersonaExt })?.persona
+        const toDate = (val: string | Date | null | undefined) => val ? (typeof val === 'string' ? val.slice(0, 10).split('-').reverse().join('/') : (val as Date).toISOString().slice(0, 10).split('-').reverse().join('/')) : ''
+        const Row = ({ label, value }: { label: string; value: string }) => value ? (
+          <div className="flex gap-2 text-sm">
+            <span className="text-gray-500 w-44 shrink-0">{label}:</span>
+            <span className="text-gray-800 font-medium">{value}</span>
+          </div>
+        ) : null
+        // ID SIAL del agente: puede estar en persona.legajo o cargo.idSial/cargoSial
+        const idSialAgente = persona?.legajo ?? cargo?.idSial ?? cargo?.cargoSial ?? ''
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="bg-navy px-6 py-4 rounded-t-xl flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white/60 text-xs uppercase tracking-wider mb-0.5">Datos de la baja</p>
+                  <p className="text-white font-bold font-mono">{cargo?.codigo ?? '—'}</p>
+                </div>
+                <button onClick={() => setModalBaja(false)} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-6 space-y-4">
+                {/* Cargo */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <Row label="Código" value={cargo?.codigo ?? ''} />
+                    <Row label="Hospital" value={cargo?.hospital ? `${cargo.hospital.sigla} — ${cargo.hospital.nombre}` : ''} />
+                    <Row label="Puesto" value={cargo?.literalPuesto ?? ''} />
+                    <Row label="Especialidad" value={cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''} />
+                    <Row label="Escalafón" value={cargo?.escalafon?.nombre ?? ''} />
+                    <Row label="Código de registro" value={cargo?.codigoRegistro?.codigo ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal ?? ''}` : (cargo?.codigoRegistro?.literal ?? '')} />
+                    <Row label="Tipo de puesto" value={cargo?.unificadorPuesto ?? ''} />
+                  </div>
+                </div>
+                {/* Agente */}
+                {persona && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Agente</p>
+                    <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                      <Row label="Apellido y Nombre" value={persona.apellidoNombre ?? ''} />
+                      <Row label="CUIL" value={persona.cuil ?? ''} />
+                      <Row label="ID SIAL" value={idSialAgente} />
+                    </div>
+                  </div>
+                )}
+                {/* Datos de la baja */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Datos de la baja</p>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <Row label="Fecha de baja" value={toDate(b?.fechaBaja)} />
+                    <Row label="Expediente de baja" value={b?.eeBaja ?? ''} />
+                    <Row label="Tipo de baja" value={b?.tipoBaja ?? ''} />
+                    <Row label="Origen" value={b?.tipificadorOrigen ?? ''} />
+                    <Row label="Motivo" value={b?.motivo ?? ''} />
+                    <Row label="Doc. respaldatoria" value={b?.docRespaldatoria ?? ''} />
+                    <Row label="Partida presupuestaria" value={b?.partidaPresupuestaria ?? ''} />
+                    <Row label="Carga horaria" value={b?.cargaHoraria != null ? `${b.cargaHoraria} hs` : ''} />
+                    <Row label="Fecha pase paralelo" value={toDate(b?.fechaPaseParalelo)} />
+                    <Row label="Observaciones" value={b?.observaciones ?? ''} />
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+                <button onClick={() => setModalBaja(false)} className="btn-outline">Cerrar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
@@ -529,10 +659,10 @@ export function ConcursoCphWizard() {
               <span className="badge-default text-xs">{c.subEstado3}</span>
               {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
               <button
-                onClick={() => setSuspendido(!suspendido)}
-                className={c.suspendido ? 'btn-secondary text-xs py-1 px-3' : 'btn-danger text-xs py-1 px-3'}
+                onClick={() => setModalBaja(true)}
+                className="btn-outline text-xs py-1 px-3"
               >
-                {c.suspendido ? 'Reanudar' : 'Suspender'}
+                📋 Ver baja
               </button>
             </div>
           )}
@@ -605,7 +735,7 @@ export function ConcursoCphWizard() {
         </div>
 
         {/* Columna central — formulario de la etapa activa */}
-        <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex-1 min-w-0 space-y-4" ref={formRef}>
           <div className="bg-white rounded-lg shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <div>
@@ -621,7 +751,7 @@ export function ConcursoCphWizard() {
                 {pendienteAutorizacion && etapaActiva === 'baja' && (
                   <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
                 )}
-                {sgrasvPuedeResolver && etapaActiva === 'baja' && (
+                {puedeResolverAutorizacion && etapaActiva === 'baja' && (
                   <button className="btn-primary text-xs py-1 px-3" onClick={() => setModalAutorizacion(true)}>Resolver autorización</button>
                 )}
               </div>
@@ -681,12 +811,66 @@ export function ConcursoCphWizard() {
                           />
                         </div>
                       ))}
+                      {/* Campos extra de la baja — solo cuando hay datos de API (no modo nuevo) */}
+                      {!esNuevo && (() => {
+                        const b = (cphData?.concurso as unknown as { baja?: { motivo?: string | null; docRespaldatoria?: string | null; tipificadorOrigen?: string | null; partidaPresupuestaria?: string | null; cargaHoraria?: number | null; fechaPaseParalelo?: string | Date | null; observaciones?: string | null } })?.baja
+                        if (!b) return null
+                        const toDate = (v: string | Date | null | undefined) => v ? (typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10)) : ''
+                        const extras: { label: string; value: string; fecha?: boolean; wide?: boolean }[] = [
+                          { label: 'Origen',                value: b.tipificadorOrigen ?? '' },
+                          { label: 'Motivo',                value: b.motivo ?? '' },
+                          { label: 'Doc. respaldatoria',    value: b.docRespaldatoria ?? '' },
+                          { label: 'Partida presup.',       value: b.partidaPresupuestaria ?? '' },
+                          { label: 'Carga horaria',         value: b.cargaHoraria != null ? `${b.cargaHoraria} hs` : '' },
+                          { label: 'Fecha pase paralelo',   value: toDate(b.fechaPaseParalelo), fecha: true },
+                          { label: 'Observaciones',         value: b.observaciones ?? '', wide: true },
+                        ]
+                        return extras.filter((e) => e.value).map((e) => (
+                          <div key={e.label} className={e.wide ? 'sm:col-span-2' : ''}>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">{e.label}</label>
+                            <input
+                              type={e.fecha ? 'date' : 'text'}
+                              defaultValue={e.value}
+                              className="input h-10 w-full bg-gray-50 text-gray-500"
+                              readOnly
+                            />
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
 
-                  {/* ── Datos del concurso (editables) ── */}
+                  {/* ── Datos del concurso (editables solo en etapa activa) ── */}
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Datos del concurso</p>
+                    {etapa.estado === 'completada' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {etapa.campos.filter((c) => c.key === 'eeConcurso').map((campo) => (
+                          <div key={campo.key} className="sm:col-span-2">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">{campo.label}</label>
+                            <input type="text" value={campo.valor as string} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                          </div>
+                        ))}
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">Sigla</label>
+                          <input type="text" value={siglaConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón</label>
+                          <input type="text" value={escalafonLabel(escalafones.find((e) => e.id === escalafonId)?.nombre ?? '')} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto</label>
+                          <input type="text" value={puestoConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                        </div>
+                        {especialidadConcurso && (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad del concurso</label>
+                            <input type="text" value={especialidadConcurso} className="input h-10 w-full bg-gray-50 text-gray-500" readOnly />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Expediente de Concurso */}
                       {etapa.campos.filter((c) => c.key === 'eeConcurso').map((campo) => (
@@ -695,6 +879,7 @@ export function ConcursoCphWizard() {
                           <input
                             type="text"
                             defaultValue={campo.valor as string}
+                            data-key={campo.key}
                             className="input h-10 w-full"
                             disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
@@ -763,6 +948,7 @@ export function ConcursoCphWizard() {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -778,6 +964,7 @@ export function ConcursoCphWizard() {
                           <input
                             type="checkbox"
                             defaultChecked={campo.valor as boolean}
+                            data-key={campo.key}
                             className="checkbox"
                             disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
@@ -786,6 +973,7 @@ export function ConcursoCphWizard() {
                       ) : campo.tipo === 'textarea' ? (
                         <textarea
                           defaultValue={campo.valor as string}
+                          data-key={campo.key}
                           rows={3}
                           className="input w-full py-2"
                           disabled={campo.readonly || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
@@ -794,6 +982,7 @@ export function ConcursoCphWizard() {
                         <input
                           type={campo.tipo === 'fecha' ? 'date' : 'text'}
                           defaultValue={campo.valor as string}
+                          data-key={campo.key}
                           className={`input h-10 w-full ${campo.readonly ? 'bg-gray-50 text-gray-500' : ''}`}
                           readOnly={campo.readonly}
                           disabled={!campo.readonly && (etapa.estado === 'pendiente' || etapa.estado === 'bloqueada')}
@@ -831,7 +1020,7 @@ export function ConcursoCphWizard() {
               </div>
               <div className="flex items-center gap-3">
                 {guardado && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
-                {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && (
+                {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && etapa.estado !== 'completada' && (
                   <button
                     className="btn-primary"
                     disabled={pendienteAutorizacion && etapaActiva === 'baja'}
