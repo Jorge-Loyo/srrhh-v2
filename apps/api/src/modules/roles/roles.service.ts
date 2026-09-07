@@ -99,3 +99,61 @@ export async function setRolePermisos(id: string, permisoIds: string[]) {
 
   return prisma.role.findUnique({ where: { id }, select: ROLE_SELECT })
 }
+
+// ─── S13-E — jerarquía de roles ──────────────────────────────────────────────
+// Cimientos para asignación de tareas en cascada (Sprint 14+): cada rol puede
+// tener un rol "padre" (jefe). El seed de S13-3 solo carga un padre por hijo
+// (árbol simple), aunque la PK compuesta de RoleJerarquia técnicamente permite
+// más de uno — setJerarquia mantiene esa invariante de "un padre por rol" desde
+// la UI, reemplazando cualquier fila previa del mismo hijo en vez de sumarla.
+
+export async function listJerarquia() {
+  return prisma.roleJerarquia.findMany({ orderBy: [{ rolHijoSlug: 'asc' }] })
+}
+
+async function assertSlugExiste(slug: string) {
+  const role = await prisma.role.findUnique({ where: { slug } })
+  if (!role) throw AppError.notFound(`Rol "${slug}" no encontrado`)
+}
+
+// Camina hacia arriba desde `desde` siguiendo rolPadreSlug — si encuentra
+// `buscado` en el camino, asignar ese padre cerraría un ciclo.
+async function creariaCiclo(desde: string, buscado: string): Promise<boolean> {
+  let actual: string | null = desde
+  const visitados = new Set<string>()
+  while (actual) {
+    if (actual === buscado) return true
+    if (visitados.has(actual)) return false // ciclo preexistente ajeno — no es este el que lo causa
+    visitados.add(actual)
+    const fila: { rolPadreSlug: string } | null = await prisma.roleJerarquia.findFirst({
+      where: { rolHijoSlug: actual },
+      select: { rolPadreSlug: true },
+    })
+    actual = fila?.rolPadreSlug ?? null
+  }
+  return false
+}
+
+export async function setJerarquia(rolHijoSlug: string, rolPadreSlug: string | null) {
+  await assertSlugExiste(rolHijoSlug)
+
+  if (rolPadreSlug === null) {
+    await prisma.roleJerarquia.deleteMany({ where: { rolHijoSlug } })
+    return listJerarquia()
+  }
+
+  if (rolPadreSlug === rolHijoSlug) {
+    throw AppError.badRequest('Un rol no puede ser su propio padre')
+  }
+  await assertSlugExiste(rolPadreSlug)
+  if (await creariaCiclo(rolPadreSlug, rolHijoSlug)) {
+    throw AppError.badRequest(`Asignar "${rolPadreSlug}" como padre de "${rolHijoSlug}" crearía un ciclo en la jerarquía`)
+  }
+
+  await prisma.$transaction([
+    prisma.roleJerarquia.deleteMany({ where: { rolHijoSlug } }),
+    prisma.roleJerarquia.create({ data: { rolHijoSlug, rolPadreSlug } }),
+  ])
+
+  return listJerarquia()
+}

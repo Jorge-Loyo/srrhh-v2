@@ -5,6 +5,7 @@ import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
+import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
 import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
@@ -18,7 +19,6 @@ import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
 import { NuevaBajaPage } from '../modules/cargos/pages/NuevaBajaPage'
 import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
 import { ConcursoCphWizard } from '../modules/concursos-cph/pages/ConcursoCphWizard'
-import { AutorizacionesCphPage } from '../modules/concursos-cph/pages/AutorizacionesCphPage'
 import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
 import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
 import { KpisPage } from '../modules/kpis/pages/KpisPage'
@@ -27,6 +27,7 @@ import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
 import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
 import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
+import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
 
 export const router = createBrowserRouter([
   {
@@ -49,7 +50,11 @@ export const router = createBrowserRouter([
           { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
           { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
-          { path: 'concursos/cph/autorizaciones', element: <AutorizacionesCphPage /> },
+          // S13-A/S13-C: unificado en /autorizaciones — esta ruta pegaba directo a
+          // POST /concursos-cph/:id/autorizar, que nunca tocaba la tabla `autorizaciones`
+          // y dejaba filas huérfanas en "pendiente" para siempre. Redirect por si
+          // alguien la tiene guardada en favoritos.
+          { path: 'concursos/cph/autorizaciones', element: <Navigate to="/autorizaciones" replace /> },
           { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
@@ -57,6 +62,10 @@ export const router = createBrowserRouter([
           { path: 'bajas', element: <BajasPage /> },
           { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
           { path: 'notificaciones', element: <NotificacionesPage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
+            children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
+          },
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },
@@ -69,7 +78,10 @@ export const router = createBrowserRouter([
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
-            children: [{ path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> }],
+            children: [
+              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+              { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+            ],
           },
         ],
       },

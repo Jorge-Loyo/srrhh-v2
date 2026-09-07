@@ -2,13 +2,11 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema } from './concursos-cph.schema.js'
-import { z } from 'zod'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
   patchConcursoCphService,
   suspenderConcursoCphService,
-  aprobarAutorizacionCphService,
 } from './concursos-cph.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -53,18 +51,8 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     }
   )
 
-  // POST /:id/autorizar — aprobar o rechazar modificación pendiente (rol sgrasv)
-  app.post<{ Params: { id: string } }>(
-    '/:id/autorizar',
-    { preHandler: requirePermiso({ modulo: 'concursos-cph', accion: 'autorizar' }) },
-    async (request, reply) => {
-      const { aprobado, observaciones } = z.object({
-        aprobado: z.boolean(),
-        observaciones: z.string().trim().max(2000).optional(),
-      }).parse(request.body)
-      const user = request.user as { rolSlug: string }
-      const data = await aprobarAutorizacionCphService(request.params.id, user.rolSlug, aprobado, observaciones)
-      return reply.send({ data })
-    }
-  )
+  // NOTA S13-C: POST /:id/autorizar (aprobar/rechazar modificación CPH) se
+  // eliminó — nunca actualizaba la tabla `autorizaciones` genérica (dejaba
+  // filas huérfanas en "pendiente"). Reemplazado por
+  // POST /api/v1/autorizaciones/:id/aprobar|rechazar (autorizaciones.routes.ts).
 }
