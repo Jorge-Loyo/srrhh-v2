@@ -142,9 +142,8 @@ export async function listValidacionService() {
       hospital: { select: { sigla: true, nombre: true } },
       escalafon: { select: { nombre: true } },
       ocupaciones: {
-        where: { hasta: { not: null } },
         include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
-        orderBy: { hasta: 'desc' },
+        orderBy: { desde: 'desc' },
         take: 1,
       },
     },
@@ -152,27 +151,240 @@ export async function listValidacionService() {
   })
 
   const hoy = new Date()
+  const cargoIds = cargos.map((c) => c.id)
+  const idsSial  = cargos.map((c) => c.idSial).filter(Boolean) as string[]
 
-  // Buscar motivo de baja en baja_sial_registros por id_sial del cargo
-  const idsSial = cargos.map((c) => c.idSial).filter(Boolean) as string[]
-  const bajasMotivo = idsSial.length > 0
+  // Snapshot de bajas SIAL más reciente (pendiente o aprobado)
+  // Nota: estado es varchar en DB, no enum — filtrar con queryRaw
+  const ultimoSnapshotSial = await prisma.$queryRaw<{ id: string; fecha_archivo: Date }[]>`
+    SELECT id, fecha_archivo FROM baja_sial_snapshots
+    WHERE estado IN ('pendiente', 'aprobado')
+    ORDER BY fecha_archivo DESC
+    LIMIT 1
+  `.then((rows) => rows[0] ? { id: rows[0].id, fechaArchivo: rows[0].fecha_archivo } : null)
+
+  // Registros del snapshot SIAL más reciente para los idSial de estos cargos
+  const registrosSial = ultimoSnapshotSial && idsSial.length > 0
     ? await prisma.bajaSialRegistro.findMany({
-        where: { cargo: { in: idsSial } },
-        select: { cargo: true, motBaja: true },
-        distinct: ['cargo'],
-        orderBy: { id: 'desc' },
+        where: { snapshotId: ultimoSnapshotSial.id, cargo: { in: idsSial } },
+        select: { cargo: true, motBaja: true, ayn: true, cuil: true },
       })
     : []
-  const motivoMap = new Map(bajasMotivo.map((b) => [b.cargo, b.motBaja]))
+  const sialMap = new Map(registrosSial.map((r) => [r.cargo, r]))
+
+  // Bajas manuales registradas para estos cargos
+  const bajasManuales = cargoIds.length > 0
+    ? await prisma.baja.findMany({
+        where: { cargoId: { in: cargoIds } },
+        select: { id: true, cargoId: true, estado: true, fechaBaja: true, motivo: true, tipoBaja: true },
+        orderBy: { createdAt: 'desc' },
+      })
+    : []
+  const bajaManualMap = new Map<string, typeof bajasManuales[number]>()
+  for (const b of bajasManuales) {
+    if (!bajaManualMap.has(b.cargoId)) bajaManualMap.set(b.cargoId, b)
+  }
+
+  // Diffs de padron eliminados que originaron la validacion_vacante
+  const estadosDesdeFechas = [...new Set(
+    cargos.map((c) => c.estadoDesde?.toISOString().slice(0, 10)).filter(Boolean) as string[]
+  )]
+  const snapshotIds = estadosDesdeFechas.length > 0
+    ? (await prisma.padronSnapshot.findMany({
+        where: {
+          estado: { in: ['aprobado', 'pendiente'] },
+          fechaAsignada: { in: estadosDesdeFechas.map((f) => new Date(f)) },
+        },
+        select: { id: true },
+      })).map((s) => s.id)
+    : []
+
+  const diffsPadron = snapshotIds.length > 0
+    ? await prisma.padronDiff.findMany({
+        where: { tipo: 'eliminado', snapshotId: { in: snapshotIds } },
+        select: { valorAnterior: true, snapshotId: true },
+      })
+    : []
+
+  const diffPadronMap = new Map<string, { snapshotId: string }>()
+  for (const d of diffsPadron) {
+    try {
+      const idSial = JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+      if (idSial && !diffPadronMap.has(idSial)) diffPadronMap.set(idSial, { snapshotId: d.snapshotId })
+    } catch { /* ignorar */ }
+  }
+
+  return cargos.map(({ ocupaciones, estadoDesde, ...c }) => {
+    const bajaManual  = bajaManualMap.get(c.id) ?? null
+    const enPadron    = c.idSial ? diffPadronMap.has(c.idSial) : false
+    const enSial      = c.idSial ? sialMap.has(c.idSial) : false
+    const sialRegistro = c.idSial ? sialMap.get(c.idSial) ?? null : null
+
+    const origen: 'padron' | 'baja_sial' | 'baja_manual' | 'ambos' | 'desconocido' =
+      enPadron && enSial ? 'ambos'
+      : enPadron         ? 'padron'
+      : enSial           ? 'baja_sial'
+      : bajaManual       ? 'baja_manual'
+      : 'desconocido'
+
+    const ultimaOcup = ocupaciones[0] ?? null
+
+    return {
+      ...c,
+      estadoDesde: estadoDesde?.toISOString().slice(0, 10) ?? null,
+      diasEnValidacion: estadoDesde
+        ? Math.floor((hoy.getTime() - estadoDesde.getTime()) / 86_400_000)
+        : null,
+      ultimaOcupacion: ultimaOcup,
+      tienePersonaActiva: ultimaOcup?.hasta == null && ultimaOcup?.persona != null,
+      motivoBaja: sialRegistro?.motBaja ?? bajaManual?.motivo ?? null,
+      origen,
+      bajaManual,
+      enPadronPendiente: enPadron,
+      enSial,
+      sialFecha: ultimoSnapshotSial?.fechaArchivo?.toISOString().slice(0, 10) ?? null,
+    }
+  })
+}
+
+export async function listSoloBajaSialService() {
+  // Snapshot SIAL más reciente (pendiente o aprobado)
+  const [snapshotSial] = await prisma.$queryRaw<{ id: string; fecha_archivo: Date }[]>`
+    SELECT id, fecha_archivo FROM baja_sial_snapshots
+    WHERE estado IN ('pendiente', 'aprobado')
+    ORDER BY fecha_archivo DESC LIMIT 1
+  `
+  if (!snapshotSial) return []
+
+  // Snapshot padrón más reciente aprobado
+  const [snapshotPadron] = await prisma.$queryRaw<{ id: string; fecha_asignada: Date }[]>`
+    SELECT id, fecha_asignada FROM padron_snapshots
+    WHERE estado = 'aprobado'
+    ORDER BY fecha_asignada DESC LIMIT 1
+  `
+  if (!snapshotPadron) return []
+
+  // Personas en bajas SIAL que siguen activas en el padrón activo
+  // Agrupamos por CUIL para evitar duplicados (una persona puede tener varios cargos en SIAL)
+  const rows = await prisma.$queryRaw<{
+    cuil_baja: string
+    ayn: string
+    mot_baja: string | null
+    id_sial_rol: string
+    hospital_sigla: string
+    literal_puesto: string | null
+    escalafon: string | null
+    cargo_sial: string
+    cargo_id: string | null
+    cargo_estado: string | null
+    cargo_codigo: string | null
+  }[]>`
+    SELECT DISTINCT ON (REPLACE(bsr.cuil, '-', ''))
+      bsr.cuil        AS cuil_baja,
+      bsr.ayn,
+      bsr.mot_baja,
+      ph.id_sial_rol,
+      ph.hospital_sigla,
+      ph.literal_puesto,
+      ph.escalafon,
+      bsr.cargo       AS cargo_sial,
+      c.id            AS cargo_id,
+      c.estado        AS cargo_estado,
+      c.codigo        AS cargo_codigo
+    FROM baja_sial_registros bsr
+    JOIN padron_historico ph
+      ON ph.cuil = REPLACE(bsr.cuil, '-', '')
+     AND ph.snapshot_id = ${snapshotPadron.id}::uuid
+    LEFT JOIN cargos c ON c.id_sial = bsr.cargo
+    WHERE bsr.snapshot_id = ${snapshotSial.id}::uuid
+    ORDER BY REPLACE(bsr.cuil, '-', ''), bsr.ayn
+  `
+
+  return rows.map((r) => ({
+    cuil: r.cuil_baja,
+    apellidoNombre: r.ayn,
+    motivoBaja: r.mot_baja,
+    idSialRol: r.id_sial_rol,
+    hospitalSigla: r.hospital_sigla,
+    literalPuesto: r.literal_puesto,
+    escalafon: r.escalafon,
+    cargoSial: r.cargo_sial,
+    cargoId: r.cargo_id,
+    cargoEstado: r.cargo_estado,
+    cargoCodigo: r.cargo_codigo,
+    sialFecha: snapshotSial.fecha_archivo.toISOString().slice(0, 10),
+    padronFecha: snapshotPadron.fecha_asignada.toISOString().slice(0, 10),
+  }))
+}
+
+export async function listValidacionHistoricoService() {
+  // Cargos no_vigente que pasaron por validacion_vacante:
+  // cruzamos con diffs de padron eliminados en snapshots aprobados
+  const snapshotsAprobados = await prisma.$queryRaw<{ id: string; fecha_archivo: Date }[]>`
+    SELECT id, fecha_archivo FROM baja_sial_snapshots
+    WHERE estado = 'aprobado'
+    ORDER BY fecha_archivo DESC
+  `
+
+  const padronSnapshotsAprobados = await prisma.padronSnapshot.findMany({
+    where: { estado: 'aprobado' },
+    select: { id: true, fechaAsignada: true },
+    orderBy: { fechaAsignada: 'desc' },
+  })
+
+  const padronSnapshotIds = padronSnapshotsAprobados.map((s) => s.id)
+
+  const diffsPadron = padronSnapshotIds.length > 0
+    ? await prisma.padronDiff.findMany({
+        where: { tipo: 'eliminado', snapshotId: { in: padronSnapshotIds } },
+        select: { valorAnterior: true, snapshotId: true },
+      })
+    : []
+
+  const idSialEnPadron = new Set<string>()
+  for (const d of diffsPadron) {
+    try {
+      const idSial = JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+      if (idSial) idSialEnPadron.add(idSial)
+    } catch { /* ignorar */ }
+  }
+
+  // Todos los snapshots SIAL aprobados — registros
+  const sialSnapshotIds = snapshotsAprobados.map((s) => s.id)
+  const registrosSialAprobados = sialSnapshotIds.length > 0
+    ? await prisma.bajaSialRegistro.findMany({
+        where: { snapshotId: { in: sialSnapshotIds } },
+        select: { cargo: true, motBaja: true, snapshotId: true },
+        distinct: ['cargo'],
+        orderBy: { snapshotId: 'desc' },
+      })
+    : []
+  const sialHistoricoMap = new Map(registrosSialAprobados.map((r) => [r.cargo, r]))
+
+  const cargos = await prisma.cargo.findMany({
+    where: {
+      estado: 'no_vigente',
+      idSial: { in: [...idSialEnPadron] },
+    },
+    include: {
+      hospital: { select: { sigla: true, nombre: true } },
+      escalafon: { select: { nombre: true } },
+      ocupaciones: {
+        include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+        orderBy: { desde: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: { estadoDesde: 'desc' },
+    take: 200,
+  })
 
   return cargos.map(({ ocupaciones, estadoDesde, ...c }) => ({
     ...c,
     estadoDesde: estadoDesde?.toISOString().slice(0, 10) ?? null,
-    diasEnValidacion: estadoDesde
-      ? Math.floor((hoy.getTime() - estadoDesde.getTime()) / 86_400_000)
-      : null,
     ultimaOcupacion: ocupaciones[0] ?? null,
-    motivoBaja: motivoMap.get(c.idSial ?? '') ?? null,
+    motivoBaja: sialHistoricoMap.get(c.idSial ?? '')?.motBaja ?? null,
+    enSial: sialHistoricoMap.has(c.idSial ?? ''),
   }))
 }
 

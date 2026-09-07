@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 12 — UX bajas, wizard CPH, permisos UI)
+> Última actualización: 2026-09 (Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros)
 > Estado: VIGENTE
 
 ---
@@ -79,7 +79,9 @@ apps/web/
 │   │   ├── bajas/
 │   │   │   └── pages/
 │   │   │       ├── BajasPage.tsx
-│   │   │       └── ValidacionBajasPage.tsx
+│   │   │       ├── BajasConsolidasPage.tsx
+│   │   │       ├── BajasSialDiffPage.tsx
+│   │   │       └── ValidacionBajasPage.tsx  ← sub-tabs: Todos / Triangulados / Solo padrón / Solo SIAL / Histórico
 │   │   ├── inicio/
 │   │   │   └── pages/
 │   │   │       └── InicioPage.tsx
