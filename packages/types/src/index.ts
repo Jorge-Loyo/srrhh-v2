@@ -492,6 +492,7 @@ export interface SolicitudAlta {
   expediente: string | null
   desde: string | null
   cantidad: number
+  etiqueta: string | null
   estado: SolicitudAltaEstado
   solicitadoPorId: string | null
   cargosCreadosIds: string[]
@@ -809,6 +810,7 @@ export interface CreateSolicitudAltaRequest {
   expediente?: string
   desde?: string
   cantidad?: number
+  etiqueta?: string
 }
 
 // S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar

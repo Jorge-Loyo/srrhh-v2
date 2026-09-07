@@ -92,6 +92,7 @@ interface ItemPendiente {
   expediente: string
   desde: string
   cantidad: number
+  etiqueta: string
 }
 
 // ── Combobox con búsqueda ─────────────────────────────────────────────────────
@@ -150,6 +151,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [especialidad,  setEspecialidad]  = useState('')
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
+  const [etiqueta,      setEtiqueta]      = useState('')
 
   const { data: hospitales        = [] } = useHospitales()
   const { data: escalafonesFiltrados = [] } = useEscalafonesPorTipoAlta(tipo)
@@ -163,7 +165,6 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
     && (especialidades.length === 0 || !!especialidad) && !!desde
-
   const expLabel       = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura' ? 'Ej: DEC-541/MSGC/26' : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
 
@@ -192,8 +193,9 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       expediente,
       desde,
       cantidad,
+      etiqueta:         etiqueta || '',
     })
-    setPuesto(''); setEspecialidad(''); setCantidad(1)
+    setPuesto(''); setEspecialidad(''); setCantidad(1); setEtiqueta('')
   }
 
   return (
@@ -285,7 +287,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
         )}
 
         {/* Desde + Cantidad + botones */}
-        <div className="grid grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-5 gap-4 items-end">
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Desde <span className="text-danger">*</span></label>
             <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 input w-full" />
@@ -297,6 +299,17 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
               <span className="w-8 text-center text-sm font-bold text-gray-800">{cantidad}</span>
               <button type="button" onClick={() => setCantidad((v) => Math.min(50, v + 1))} className="w-8 h-8 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 font-bold text-lg leading-none">+</button>
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta</label>
+            <input
+              type="text"
+              value={etiqueta}
+              onChange={(e) => setEtiqueta(e.target.value.toUpperCase())}
+              placeholder="Ej: BA"
+              maxLength={100}
+              className="h-10 input w-full font-bold"
+            />
           </div>
           <div className="col-span-2 flex gap-2">
             <button type="button" onClick={onCancelar} className="btn-outline flex-1">Cancelar</button>
@@ -348,6 +361,7 @@ export function AltaCargosPage() {
       expediente:       item.expediente || undefined,
       desde:            item.desde,
       cantidad:         item.cantidad,
+      etiqueta:         item.etiqueta || undefined,
     })
   }
 
@@ -445,6 +459,9 @@ export function AltaCargosPage() {
                                   <span className="text-xs font-medium text-gray-700">{item.hospitalSigla}</span>
                                   {item.cantidad > 1 && (
                                     <span className="text-xs bg-secondary/10 text-secondary px-1.5 py-0.5 rounded font-medium">x{item.cantidad}</span>
+                                  )}
+                                  {item.etiqueta && (
+                                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">{item.etiqueta}</span>
                                   )}
                                 </div>
                                 <p className="text-xs text-gray-600 font-medium mt-0.5 truncate">{item.puesto}</p>
@@ -630,6 +647,9 @@ function HistorialSolicitudes({
                 <div><span className="text-gray-500">Solicitado por:</span> <span className="font-medium text-gray-800">{modalSolicitud.solicitadoPor?.username ?? '—'}</span></div>
                 {modalSolicitud.especialidad && (
                   <div className="col-span-2"><span className="text-gray-500">Especialidad:</span> <span className="font-medium text-gray-800">{modalSolicitud.especialidad}</span></div>
+                )}
+                {modalSolicitud.etiqueta && (
+                  <div className="col-span-2"><span className="text-gray-500">Etiqueta:</span> <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{modalSolicitud.etiqueta}</span></div>
                 )}
                 {modalSolicitud.observaciones && (
                   <div className="col-span-2"><span className="text-gray-500">Observaciones:</span> <span className="text-gray-700">{modalSolicitud.observaciones}</span></div>

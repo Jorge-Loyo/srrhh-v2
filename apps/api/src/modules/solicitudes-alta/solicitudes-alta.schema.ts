@@ -14,6 +14,7 @@ export const createSolicitudAltaSchema = z.object({
   expediente:       z.string().trim().max(150).optional(),
   desde:            fecha.optional(),
   cantidad:         z.coerce.number().int().min(1).max(50).default(1),
+  etiqueta:         z.string().trim().max(100).optional(),
 })
 
 export const solicitudesAltaQuerySchema = z.object({
