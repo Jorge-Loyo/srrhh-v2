@@ -17,6 +17,7 @@ const CONFIGURACION_SUBITEMS = [
   { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
   { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
   { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
+  { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'gestionar_referencias' } },
 ]
 
 export function AppShell() {
@@ -115,6 +116,14 @@ export function AppShell() {
             </NavLink>
           )}
 
+          {/* Organigrama — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
+          <NavLink to="/organigrama"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Organigrama' : undefined}>
+            <span className="text-base shrink-0">🏢</span>
+            {!collapsed && <span className="truncate">Organigrama</span>}
+          </NavLink>
+
           {/* Grupo Cargos */}
           {cargosSubitems.length > 0 && (
             <>
@@ -209,6 +218,16 @@ export function AppShell() {
               title={collapsed ? 'Bajas Consolidadas' : undefined}>
               <span className="text-base shrink-0">📄</span>
               {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
+            </NavLink>
+          )}
+
+          {/* Árbol — módulo admin para reemplazar la estructura del organigrama */}
+          {can(user, 'configuracion', 'gestionar_organigrama') && (
+            <NavLink to="/arbol"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Árbol' : undefined}>
+              <span className="text-base shrink-0">🌳</span>
+              {!collapsed && <span className="truncate">Árbol</span>}
             </NavLink>
           )}
 

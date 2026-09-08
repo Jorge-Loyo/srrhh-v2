@@ -144,8 +144,15 @@ http://localhost:5180
 ## 5. Alternativa: API nativa en vez de Docker (no verificada a fondo)
 
 `pnpm dev` en la raíz (`turbo run dev`) levanta API + Web en paralelo, ambos nativos en Node,
-usando `apps/api/.env` (ya apunta a `localhost:5433`, la Postgres dockerizada). Es más rápido para
-iterar en el backend sin rebuildear la imagen Docker cada vez, pero:
+usando `apps/api/.env`. Es más rápido para iterar en el backend sin rebuildear la imagen Docker
+cada vez, pero:
+
+- **Corrección 2026-09-08**: esta sección decía que `apps/api/.env` "ya apunta a `localhost:5433`"
+  — es falso, verificado contra el archivo real: apunta a `localhost:5432`. Si vas a usar este
+  camino (API nativa), el `DATABASE_URL` para `migrate deploy`/`db:seed` es el de **5432**, no el
+  5433 de la sección 3 (que es para cuando la API también corre en Docker). Si en tu máquina no hay
+  nada escuchando en 5432, hay que decidir si `apps/api/.env` se actualiza a 5433 o si se levanta
+  un Postgres nativo ahí — no asumas uno u otro sin confirmarlo.
 
 - Sigue necesitando Postgres levantado en Docker (`docker compose up -d postgres` desde WSL).
 - `apps/api/.env` solo tiene `CORS_ORIGINS="http://localhost:5173"` — si el frontend corre en

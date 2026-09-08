@@ -6,6 +6,10 @@ import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
 import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
+import { ConfiguracionReferenciasPage } from '../modules/configuracion/pages/ConfiguracionReferenciasPage'
+import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
+import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
+import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
 import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
@@ -42,6 +46,9 @@ export const router = createBrowserRouter([
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
+          { path: 'organigrama', element: <OrganigramaHomePage /> },
+          { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
+          { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
           { path: 'cargos', element: <CargosPage /> },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
           { path: 'cargos/alta', element: <AltaCargosPage /> },
@@ -68,6 +75,10 @@ export const router = createBrowserRouter([
           },
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
+            children: [{ path: 'arbol', element: <OrganigramaArbolPage /> }],
+          },
           { path: 'kpis', element: <KpisPage /> },
           // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
           // guardada en favoritos; el destino real ya vive bajo /configuracion.
@@ -82,6 +93,10 @@ export const router = createBrowserRouter([
               { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
               { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
             ],
+          },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_referencias' }} />,
+            children: [{ path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> }],
           },
         ],
       },
