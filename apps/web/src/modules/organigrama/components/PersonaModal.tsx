@@ -61,7 +61,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
 
         {/* ── Header ── */}
-        <div className="relative bg-gradient-to-br from-slate-800 via-primary-800 to-primary-600 px-6 pt-5 pb-6">
+        <div className="relative bg-primary-700 px-6 pt-5 pb-6">
           <button
             onClick={onClose}
             className="absolute top-3 right-3 p-1.5 rounded-lg text-white/60 hover:bg-white/15 hover:text-white transition-colors"
@@ -76,7 +76,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             <div className="min-w-0">
               <p className="text-white font-bold text-lg leading-tight">{persona.nombre}</p>
               {persona.especialidadPersona && (
-                <p className="text-primary-200 text-sm mt-0.5">{toTitleCase(persona.especialidadPersona)}</p>
+                <p className="text-primary-100 text-sm mt-0.5">{toTitleCase(persona.especialidadPersona)}</p>
               )}
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span className="text-xs bg-white/15 text-white/90 px-2 py-0.5 rounded-full font-mono">
@@ -146,21 +146,9 @@ export default function PersonaModal({ open, onClose, data }: Props) {
               <Row label="Escalafón" value={persona.escalafon} />
               <Row label="En el cargo desde" value={formatFecha(persona.cargoDesde)} />
               <Row label="En el cargo hasta" value={persona.cargoHasta ? formatFecha(persona.cargoHasta) : 'Actual'} />
+              {persona.codigoCargo && <Row label="Código de cargo" value={persona.codigoCargo} />}
+              {idSialCorto && <Row label="ID SIAL Rol" value={idSialCorto} />}
             </div>
-            {(persona.codigoCargo || idSialCorto) && (
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                {persona.codigoCargo && (
-                  <span className="font-mono text-[11px] text-primary-700 bg-primary-50 border border-primary-100 px-2 py-1 rounded-lg">
-                    Cargo {persona.codigoCargo}
-                  </span>
-                )}
-                {idSialCorto && (
-                  <span className="font-mono text-[11px] text-gray-500 bg-gray-100 border border-gray-200 px-2 py-1 rounded-lg">
-                    ID SIAL Rol {idSialCorto}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Botones ── */}
@@ -175,7 +163,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             <button
               onClick={() => persona.cargoId && go(`/cargos/${persona.cargoId}`)}
               disabled={!persona.cargoId}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <BriefcaseIcon className="w-4 h-4" />
               Ver cargo
