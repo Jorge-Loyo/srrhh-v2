@@ -38,7 +38,7 @@
 | Post-Sprint 12 — Auditoría especialidad_legacy + pg_trgm | ✅ Completo — commit `af1c3f1` | — | `Sprints/POST_SPRINT_12_especialidad_legacy.md` |
 | Sprint 13 — Panel de autorizaciones + jerarquía de roles | ✅ Completo — backend 2026-09-11 (Jorge), frontend 2026-09-04 (Agustín) | S13-1 a S13-8, S13-A a S13-E | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
 | Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros | ✅ Completo — 2026-09 | — | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md` |
-| Sprint 14 — Concurso desde Alta de Cargo | ✅ Completado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
+| Sprint 14 — Concurso desde Alta de Cargo | ✅ Completado — commits `06a8b84`, `815f7f9`, `cfb6cd0` | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
 | Post-Sprint 14 — Migración legacy organigrama | ✅ Completo — 2026-09-09 | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
 | Post-Sprint 14 — Personas/Cargos exportables | ✅ Completo — 2026-09-07 | — | `Sprints/POST_SPRINT_14_personas_cargos_exportables.md` |
 | Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |

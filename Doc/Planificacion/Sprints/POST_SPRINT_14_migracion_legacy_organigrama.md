@@ -137,3 +137,4 @@ distintas, ver el hallazgo de la sección anterior.
 | 4 | Commitear y mergear (quedó en `deploy` sin commitear) | — | ✅ Resuelto — commiteado en rama `jorge`, commits `fdb35b5` y `8129a80` |
 | 5 | Repetir el import inicial (y decidir cómo distribuir el Excel de carga) contra producción cuando esto se despliegue | El dump de origen (`dotacion-rrhh/Doc/schema_only.sql`) no viaja a producción | ⏳ Pendiente deploy |
 | 6 | Elegir el próximo ítem de la lista de gaps (recorridas, hospitales, auditoría o tokens) | Decisión de negocio | ⏳ Sin decidir |
+| 7 | `ConfiguracionReferenciasPage` (`/configuracion/referencias`) — página de administración de las 10 tablas `ref_*` de Dotaneitor — implementada en `apps/web/src/modules/configuracion/pages/ConfiguracionReferenciasPage.tsx` pero **no conectada al router ni al menú**. Requiere agregar la ruta y el link en `AppShell.tsx` | No bloqueante | ⏳ Pendiente |

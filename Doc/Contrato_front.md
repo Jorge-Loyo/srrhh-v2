@@ -111,6 +111,7 @@ apps/web/
 │   │   │   └── pages/
 │   │   │       ├── ConfiguracionPermisosPage.tsx
 │   │   │       ├── ConfiguracionJerarquiaPage.tsx  ← Sprint 13 (solo admin)
+│   │   │       ├── ConfiguracionReferenciasPage.tsx  ← Post-Sprint 14 (tablas ref Dotaneitor, solo admin)
 │   │   │       └── AdminUsuariosPage.tsx
 │   │   ├── kpis/
 │   │   │   └── pages/
@@ -305,6 +306,7 @@ const router = createBrowserRouter([
             children: [
               { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
               { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+              { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
             ],
           },
         ],

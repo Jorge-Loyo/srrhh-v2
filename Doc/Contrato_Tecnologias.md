@@ -1,7 +1,7 @@
 # Contrato de Tecnologías — SRRHH v2
 
 > Documento de decisiones técnicas. Toda elección de stack está justificada por los requerimientos del dominio.
-> Última actualización: 2026-09 (Post-Sprint 5)
+> Última actualización: 2026-09 (Post-Sprint 14 — organigrama, tablas de referencia Dotaneitor)
 > Estado: APROBADO — no modificar sin consenso del equipo
 
 ---
