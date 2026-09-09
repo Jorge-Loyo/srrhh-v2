@@ -1,20 +1,18 @@
 import { useRef, useState } from 'react'
 import { ArrowUpTrayIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline'
 import { getApiErrorMessage } from '@/shared/lib/utils'
-import { useSubirEstructuraOrganigrama } from '../hooks/useOrganigrama'
+import { useSubirEstructuraOrganigrama, useOrganigramaUploads } from '../hooks/useOrganigrama'
 
 const COLUMNAS_OBLIGATORIAS = ['lvl', 'tipo', 'codigo_reparticion', 'sigla', 'path', 'path_nombres']
 const COLUMNAS_OPCIONALES = ['universo_totalizador', 'regimen_empleo', 'desc_rep', 'padre']
 
-// Módulo "Árbol" — admin sube un Excel que reemplaza toda la tabla de
-// estructura del organigrama (nodos, jerarquía, tipo, régimen). No toca los
-// datos de "quién ocupa cada puesto" (eso sale de Cargo/Ocupacion, no de acá).
 export function OrganigramaArbolPage() {
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState('')
   const [resultado, setResultado] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const subir = useSubirEstructuraOrganigrama()
+  const { data: uploads, isLoading: loadingUploads } = useOrganigramaUploads()
 
   async function handleFile(file: File) {
     setError('')
@@ -60,9 +58,7 @@ export function OrganigramaArbolPage() {
             ))}
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            * obligatorias. No importa mayúsculas ni si el separador es espacio o guión bajo
-            (ej. <span className="font-mono">UNIVERSO TOTALIZADOR</span> equivale a{' '}
-            <span className="font-mono">universo_totalizador</span>). También se acepta{' '}
+            * obligatorias. No importa mayúsculas ni separador espacio/guión bajo. También se acepta{' '}
             <span className="font-mono">COD_REP</span> como sinónimo de{' '}
             <span className="font-mono">codigo_reparticion</span>.
           </p>
@@ -110,6 +106,44 @@ export function OrganigramaArbolPage() {
           <div className="bg-green-50 border border-green-300 text-green-800 text-sm px-3 py-2 rounded">
             ✅ Estructura reemplazada — {resultado.toLocaleString('es-AR')} filas cargadas.
           </div>
+        )}
+      </div>
+
+      {/* Historial de cargas */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h2 className="text-sm font-semibold text-gray-800 mb-3">Historial de cargas</h2>
+        {loadingUploads ? (
+          <p className="text-sm text-gray-400">Cargando...</p>
+        ) : !uploads?.length ? (
+          <p className="text-sm text-gray-400">No hay cargas registradas.</p>
+        ) : (
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase">Archivo</th>
+                <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase">Filas</th>
+                <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase">Subido por</th>
+                <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {uploads.map((u) => (
+                <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-2 pr-4 text-gray-700 font-mono text-xs max-w-[220px] truncate" title={u.filename}>
+                    {u.filename}
+                  </td>
+                  <td className="py-2 pr-4 text-gray-600">{u.filas.toLocaleString('es-AR')}</td>
+                  <td className="py-2 pr-4 text-gray-600">{u.subidoPor?.username ?? '—'}</td>
+                  <td className="py-2 text-gray-500 text-xs whitespace-nowrap">
+                    {new Date(u.createdAt).toLocaleString('es-AR', {
+                      day: '2-digit', month: '2-digit', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

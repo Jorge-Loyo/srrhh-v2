@@ -126,6 +126,20 @@ model Organigrama {
   @@map("organigramas")
 }
 
+// Historial de cargas del Excel de estructura del organigrama.
+// Una fila por cada vez que se sube un archivo desde /organigrama/arbol.
+model OrganigramaUpload {
+  id          String   @id @default(uuid()) @db.Uuid
+  filename    String   @db.VarChar(255)
+  filas       Int
+  subidoPorId String?  @map("subido_por_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  subidoPor Usuario? @relation(fields: [subidoPorId], references: [id])
+
+  @@map("organigrama_uploads")
+}
+
 model Escalafon {
   id        String   @id @default(uuid()) @db.Uuid
   // Código canónico corto: 22, 37, 83, etc. (CODIGO DE REGISTRO del Excel).
@@ -745,6 +759,7 @@ model Usuario {
   autorizacionesSolicitadas Autorizacion[]   @relation("AutorizacionSolicitadaPor")
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
+  organigramaUploads        OrganigramaUpload[]
 
   @@map("usuarios")
 }

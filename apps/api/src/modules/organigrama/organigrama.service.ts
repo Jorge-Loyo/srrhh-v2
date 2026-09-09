@@ -337,7 +337,7 @@ function normalizarFilaExcel(row: Record<string, unknown>, numeroFila: number): 
   }
 }
 
-export async function reemplazarOrganigramaService(buffer: Buffer): Promise<{ filas: number }> {
+export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: string, filename?: string): Promise<{ filas: number }> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw AppError.badRequest('El archivo no tiene ninguna hoja')
   const hoja = wb.Sheets[wb.SheetNames[0]]
@@ -365,5 +365,27 @@ export async function reemplazarOrganigramaService(buffer: Buffer): Promise<{ fi
     await prisma.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
   }
 
+  await prisma.organigramaUpload.create({
+    data: {
+      filename: filename ?? 'desconocido',
+      filas: filas.length,
+      subidoPorId: usuarioId ?? null,
+    },
+  })
+
   return { filas: filas.length }
+}
+
+export async function listOrganigramaUploadsService() {
+  return prisma.organigramaUpload.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      id: true,
+      filename: true,
+      filas: true,
+      createdAt: true,
+      subidoPor: { select: { username: true } },
+    },
+  })
 }

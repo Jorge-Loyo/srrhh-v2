@@ -52,8 +52,26 @@ export function useSubirEstructuraOrganigrama() {
       return res.data.data
     },
     onSuccess: () => {
-      // Invalida cualquier árbol ya cargado en cache — la estructura cambió entera.
       queryClient.invalidateQueries({ queryKey: ['organigrama'] })
+      queryClient.invalidateQueries({ queryKey: ['organigrama-uploads'] })
+    },
+  })
+}
+
+export interface OrganigramaUpload {
+  id: string
+  filename: string
+  filas: number
+  createdAt: string
+  subidoPor: { username: string } | null
+}
+
+export function useOrganigramaUploads() {
+  return useQuery({
+    queryKey: ['organigrama-uploads'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: OrganigramaUpload[] }>('/api/v1/organigrama/uploads')
+      return res.data.data
     },
   })
 }
