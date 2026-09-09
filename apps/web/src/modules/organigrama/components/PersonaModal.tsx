@@ -97,7 +97,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
           {(persona.idSialRol || persona.codigoCargo) && (
             <p className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-400 font-mono space-x-4">
               {persona.codigoCargo && <span>Cargo: {persona.codigoCargo}</span>}
-              {persona.idSialRol && <span>ID SIAL: {persona.idSialRol}</span>}
+              {persona.idSialRol && <span>ID SIAL Rol: {persona.idSialRol.split('-').slice(0, 2).join('-')}</span>}
             </p>
           )}
         </div>
