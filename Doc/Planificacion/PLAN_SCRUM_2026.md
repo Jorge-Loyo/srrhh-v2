@@ -3,7 +3,7 @@
 
 > Documento maestro de planificación ágil. Estado general, decisiones transversales y backlog.
 > El **detalle completo de cada sprint** (tareas, hallazgos, verificaciones) vive en `Sprints/`.
-> Última actualización: 2026-09-10 (POST-SPRINT 12 — Auditoría especialidad_legacy + pg_trgm)
+> Última actualización: 2026-09 (Sprint 15 — Autorización baja de cargo, cantidadCargos exportables, bloqueo autorización sin caratula)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 >
