@@ -31,6 +31,7 @@ import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-al
 import { etiquetasRoutes } from './modules/etiquetas/etiquetas.routes.js'
 import { ordenesMeritoRoutes } from './modules/ordenes-merito/ordenes-merito.routes.js'
 import { postulantesRoutes } from './modules/postulantes/postulantes.routes.js'
+import { organigramaRoutes } from './modules/organigrama/organigrama.routes.js'
 
 const app = Fastify({
   logger: {
@@ -99,6 +100,7 @@ await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' 
 await app.register(etiquetasRoutes,        { prefix: '/api/v1/etiquetas' })
 await app.register(ordenesMeritoRoutes,    { prefix: '/api/v1/ordenes-merito' })
 await app.register(postulantesRoutes,      { prefix: '/api/v1/postulantes' })
+await app.register(organigramaRoutes,      { prefix: '/api/v1/organigrama' })
 
 // Start
 try {

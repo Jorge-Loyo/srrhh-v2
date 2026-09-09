@@ -72,8 +72,12 @@ export const router = createBrowserRouter([
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'organigrama', element: <OrganigramaHomePage /> },
-          { path: 'organigrama/:id', element: <OrganigramaDetallePage /> },
-          { path: 'organigrama/:id/arbol', element: <OrganigramaArbolPage /> },
+          { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
+          { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
+            children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
+          },
           { path: 'kpis', element: <KpisPage /> },
           // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
           // guardada en favoritos; el destino real ya vive bajo /configuracion.
