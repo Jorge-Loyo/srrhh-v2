@@ -55,6 +55,10 @@ interface CargoVacanteNodo {
   codigoCargo: string | null
 }
 
+// Razón por la que un nodo no tiene persona de conducción asignada
+// (solo se popula cuando cargoVacante es null)
+type RazonSinCargo = 'guardia_residencia_docente' | 'dato_incompleto' | 'sin_cargo'
+
 interface OrganigramaNodo {
   id: string
   nombre: string | null
@@ -64,6 +68,7 @@ interface OrganigramaNodo {
   regimenEmpleo: string
   persona: PersonaNodo | null
   cargoVacante: CargoVacanteNodo | null
+  razonSinCargo: RazonSinCargo | null
   hijos: OrganigramaNodo[]
 }
 
@@ -234,6 +239,40 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
   }
 
+  // === 3b. Clasificar nodos sin cargo de conducción (para mostrar razón en UI) ===
+  // Query liviana: solo los nodos que no tienen persona ni cargo vacante mapeado.
+  // Detecta si tienen cargos de guardia/residencia/docente (códigos 23/24/07)
+  // o cargos con unificador_puesto vacío (dato incompleto del padrón).
+  const nodosSinMapeo = nodosLibres.filter((c) => !cargosVacantesMap.has(c))
+  const razonSinCargoMap = new Map<string, RazonSinCargo>()
+  if (nodosSinMapeo.length > 0) {
+    const cargosClasif = await prisma.cargo.findMany({
+      where: { codigoRepa: { in: nodosSinMapeo }, deletedAt: null },
+      select: { codigoRepa: true, unificadorPuesto: true, codigoRegistro: { select: { codigo: true } } },
+    })
+    // Agrupar por codigoRepa para clasificar
+    const porRepa = new Map<string, { codigos: Set<string>; tieneUpVacio: boolean }>()
+    for (const c of cargosClasif) {
+      if (!c.codigoRepa) continue
+      if (!porRepa.has(c.codigoRepa)) porRepa.set(c.codigoRepa, { codigos: new Set(), tieneUpVacio: false })
+      const entry = porRepa.get(c.codigoRepa)!
+      if (c.codigoRegistro?.codigo) entry.codigos.add(c.codigoRegistro.codigo)
+      if (!c.unificadorPuesto?.trim()) entry.tieneUpVacio = true
+    }
+    for (const cod of nodosSinMapeo) {
+      const entry = porRepa.get(cod)
+      if (!entry) { razonSinCargoMap.set(cod, 'sin_cargo'); continue }
+      const { codigos, tieneUpVacio } = entry
+      if (codigos.has('23') || codigos.has('24') || codigos.has('07')) {
+        razonSinCargoMap.set(cod, 'guardia_residencia_docente')
+      } else if (tieneUpVacio) {
+        razonSinCargoMap.set(cod, 'dato_incompleto')
+      } else {
+        razonSinCargoMap.set(cod, 'sin_cargo')
+      }
+    }
+  }
+
   // === 4. Mapa de nodos ===
   const mapa = new Map<string, OrganigramaNodo>()
   for (const r of rows) {
@@ -246,6 +285,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       regimenEmpleo: r.regimenEmpleo || 'Sin Régimen',
       persona: personasMap.get(r.codigoReparticion) ?? null,
       cargoVacante: !personasMap.has(r.codigoReparticion) ? (cargosVacantesMap.get(r.codigoReparticion) ?? null) : null,
+      razonSinCargo: (!personasMap.has(r.codigoReparticion) && !cargosVacantesMap.has(r.codigoReparticion))
+        ? (razonSinCargoMap.get(r.codigoReparticion) ?? null)
+        : null,
       hijos: [],
     })
   }
@@ -288,6 +330,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           regimenEmpleo: anchor.regimenEmpleo || '',
           persona: personasMap.get(anchor.codigoReparticion) ?? null,
           cargoVacante: !personasMap.has(anchor.codigoReparticion) ? (cargosVacantesMap.get(anchor.codigoReparticion) ?? null) : null,
+          razonSinCargo: (!personasMap.has(anchor.codigoReparticion) && !cargosVacantesMap.has(anchor.codigoReparticion))
+            ? (razonSinCargoMap.get(anchor.codigoReparticion) ?? null)
+            : null,
           hijos: raices,
         }
       }
@@ -322,6 +367,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           regimenEmpleo: nombreRegimen,
           persona: null,
           cargoVacante: null,
+          razonSinCargo: null,
           hijos,
         }))
     }

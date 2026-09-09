@@ -86,6 +86,10 @@ export default function VacantesModal({ open, onClose, vacantes, sigla, onSelect
                                   <BriefcaseIcon className="w-3 h-3" />
                                   {v.cargoVacante.codigoCargo ?? 'Ver cargo'}
                                 </button>
+                              ) : v.razonSinCargo === 'guardia_residencia_docente' ? (
+                                <span className="text-[10px] text-gray-400 italic">Guardia / Residencia</span>
+                              ) : v.razonSinCargo === 'dato_incompleto' ? (
+                                <span className="text-[10px] text-gray-400 italic">Dato incompleto en padrón</span>
                               ) : (
                                 <span className="text-[10px] text-gray-300 italic">Sin cargo en sistema</span>
                               )}

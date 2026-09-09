@@ -90,6 +90,7 @@ export interface Vacante {
   idPath: string[]
   regimenEmpleo: string
   cargoVacante: { cargoId: string; codigoCargo: string | null } | null
+  razonSinCargo: import('../hooks/useOrganigrama').RazonSinCargo | null
 }
 
 // Recorre el árbol y junta todos los puestos sin persona asignada, con el
@@ -98,7 +99,7 @@ export interface Vacante {
 export function collectVacantes(node: OrganigramaNodo, path: string[] = [], idPath: string[] = []): Vacante[] {
   const result: Vacante[] = []
   if (!node.persona && node.tipo !== 'REGIMEN') {
-    result.push({ id: node.id, tipo: node.tipo, nombre: stripRedundantPrefix(node.nombre), path, idPath, regimenEmpleo: node.regimenEmpleo, cargoVacante: node.cargoVacante ?? null })
+    result.push({ id: node.id, tipo: node.tipo, nombre: stripRedundantPrefix(node.nombre), path, idPath, regimenEmpleo: node.regimenEmpleo, cargoVacante: node.cargoVacante ?? null, razonSinCargo: node.razonSinCargo ?? null })
   }
   const childPath = [...path, stripRedundantPrefix(node.nombre)]
   const childIdPath = [...idPath, node.id]

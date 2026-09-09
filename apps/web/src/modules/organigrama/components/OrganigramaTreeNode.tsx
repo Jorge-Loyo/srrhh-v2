@@ -80,6 +80,10 @@ export const TreeNode = memo(function TreeNode({ node, depth = 0, onPersonaClick
                 {node.cargoVacante.codigoCargo ?? 'Ver cargo'}
               </button>
             </p>
+          ) : node.razonSinCargo === 'guardia_residencia_docente' ? (
+            <p className="text-xs text-gray-400 mt-0.5 italic">Guardia / Residencia</p>
+          ) : node.razonSinCargo === 'dato_incompleto' ? (
+            <p className="text-xs text-gray-400 mt-0.5 italic">Dato incompleto en padrón</p>
           ) : (
             <p className="text-xs text-amber-600 font-medium mt-0.5 italic">Vacante</p>
           )}

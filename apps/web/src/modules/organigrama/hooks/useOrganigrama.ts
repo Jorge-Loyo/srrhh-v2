@@ -22,6 +22,8 @@ export interface OrganigramaPersona {
   hospital: string | null
 }
 
+export type RazonSinCargo = 'guardia_residencia_docente' | 'dato_incompleto' | 'sin_cargo'
+
 export interface OrganigramaCargoVacante {
   cargoId: string
   codigoCargo: string | null
@@ -36,6 +38,7 @@ export interface OrganigramaNodo {
   regimenEmpleo: string
   persona: OrganigramaPersona | null
   cargoVacante: OrganigramaCargoVacante | null
+  razonSinCargo: RazonSinCargo | null
   hijos: OrganigramaNodo[]
 }
 
