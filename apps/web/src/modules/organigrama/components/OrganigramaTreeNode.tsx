@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from 'react'
-import { ChevronRightIcon, ChevronDownIcon, UserIcon } from '@heroicons/react/24/outline'
+import { ChevronRightIcon, ChevronDownIcon, UserIcon, BriefcaseIcon } from '@heroicons/react/24/outline'
+import { useNavigate } from 'react-router-dom'
 import { tipoColor, stripRedundantPrefix } from '../lib/organigramaHelpers'
 import type { OrganigramaNodo, OrganigramaPersona } from '../hooks/useOrganigrama'
 
@@ -19,6 +20,7 @@ interface Props {
 
 export const TreeNode = memo(function TreeNode({ node, depth = 0, onPersonaClick, forceOpenIds, highlightId }: Props) {
   const [open, setOpen] = useState(depth < 3)
+  const navigate = useNavigate()
   const hasChildren = node.hijos.length > 0
   const indent = depth * 20
   const isHighlighted = highlightId != null && node.id === highlightId
@@ -58,13 +60,25 @@ export const TreeNode = memo(function TreeNode({ node, depth = 0, onPersonaClick
           <p className="text-sm font-medium text-gray-900 leading-tight">{stripRedundantPrefix(node.nombre)}</p>
           {node.persona ? (
             <p
-              className="text-xs text-primary-700 flex items-center gap-1 mt-0.5 cursor-pointer hover:underline"
+              className="text-xs text-secondary flex items-center gap-1 mt-0.5 cursor-pointer hover:underline"
               onClick={() => onPersonaClick({ persona: node.persona!, nodeName: stripRedundantPrefix(node.nombre), nodeTitle: node.tipo })}
               title="Ver datos de la persona"
             >
               <UserIcon className="w-3 h-3 flex-shrink-0" />
               {node.persona.nombre}
-              {node.persona.cargo && <span className="text-gray-600 ml-1">· {node.persona.cargo}</span>}
+              {node.persona.cargo && <span className="text-gray-500 ml-1">· {node.persona.cargo}</span>}
+            </p>
+          ) : node.cargoVacante ? (
+            <p className="text-xs text-amber-600 font-medium mt-0.5 flex items-center gap-1.5">
+              <span className="italic">Vacante</span>
+              <button
+                onClick={() => navigate(`/cargos/${node.cargoVacante!.cargoId}`)}
+                className="inline-flex items-center gap-1 font-mono text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors not-italic"
+                title="Ver cargo en el sistema"
+              >
+                <BriefcaseIcon className="w-3 h-3" />
+                {node.cargoVacante.codigoCargo ?? 'Ver cargo'}
+              </button>
             </p>
           ) : (
             <p className="text-xs text-amber-600 font-medium mt-0.5 italic">Vacante</p>

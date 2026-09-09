@@ -22,6 +22,11 @@ export interface OrganigramaPersona {
   hospital: string | null
 }
 
+export interface OrganigramaCargoVacante {
+  cargoId: string
+  codigoCargo: string | null
+}
+
 export interface OrganigramaNodo {
   id: string
   nombre: string | null
@@ -30,6 +35,7 @@ export interface OrganigramaNodo {
   padre: string | null
   regimenEmpleo: string
   persona: OrganigramaPersona | null
+  cargoVacante: OrganigramaCargoVacante | null
   hijos: OrganigramaNodo[]
 }
 

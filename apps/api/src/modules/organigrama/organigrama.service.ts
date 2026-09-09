@@ -50,6 +50,11 @@ interface PersonaNodo {
   hospital: string | null
 }
 
+interface CargoVacanteNodo {
+  cargoId: string
+  codigoCargo: string | null
+}
+
 interface OrganigramaNodo {
   id: string
   nombre: string | null
@@ -58,6 +63,7 @@ interface OrganigramaNodo {
   padre: string | null
   regimenEmpleo: string
   persona: PersonaNodo | null
+  cargoVacante: CargoVacanteNodo | null
   hijos: OrganigramaNodo[]
 }
 
@@ -200,7 +206,35 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     })
   }
 
-  // === 3. Mapa de nodos ===
+  // === 3. Cargos vacantes (nodos sin persona pero con cargo vigente sin ocupar) ===
+  const nodosOcupados = new Set(personasMap.keys())
+  const nodosLibres = codigosReparticion.filter((c) => !nodosOcupados.has(c))
+  const cargosVacantesRaw = await prisma.cargo.findMany({
+    where: {
+      codigoRepa: { in: nodosLibres },
+      deletedAt: null,
+      estado: 'vigente',
+      codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
+      unificadorPuesto: { not: null },
+    },
+    select: { id: true, codigoRepa: true, codigo: true, unificadorPuesto: true },
+    orderBy: { codigoRepa: 'asc' },
+  })
+  const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
+  for (const cv of cargosVacantesRaw) {
+    if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
+    if (!esCargoDeConduccion(undefined, cv.unificadorPuesto, null)) {
+      // Para vacantes no tenemos codigoRegistro.codigo en este select simplificado
+      // — incluimos si unificadorPuesto matchea cualquiera de los sets conocidos
+      const up = cv.unificadorPuesto?.toLowerCase().trim() ?? ''
+      const esConocido = UNIFICADOR_60.has(up) || UNIFICADOR_37_SIN_JEFATURA.has(up) ||
+        UNIFICADOR_37.has(up) || UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) || up === 'autoridades superiores'
+      if (!esConocido) continue
+    }
+    cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
+  }
+
+  // === 4. Mapa de nodos ===
   const mapa = new Map<string, OrganigramaNodo>()
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
@@ -211,11 +245,12 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       padre: r.padre,
       regimenEmpleo: r.regimenEmpleo || 'Sin Régimen',
       persona: personasMap.get(r.codigoReparticion) ?? null,
+      cargoVacante: !personasMap.has(r.codigoReparticion) ? (cargosVacantesMap.get(r.codigoReparticion) ?? null) : null,
       hijos: [],
     })
   }
 
-  // === 4. Identificar SDHOS (agrupación por régimen, solo en vistas de hospital) ===
+  // === 5. Identificar SDHOS ===
   let sdhosCod: string | null = null
   if (sigla) {
     for (const r of rows) {
@@ -223,7 +258,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     }
   }
 
-  // === 5. Relaciones padre-hijo ===
+  // === 6. Relaciones padre-hijo ===
   const raices: OrganigramaNodo[] = []
   for (const r of rows) {
     const nodo = mapa.get(r.codigoReparticion)!
@@ -252,6 +287,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           padre: anchor.padre,
           regimenEmpleo: anchor.regimenEmpleo || '',
           persona: personasMap.get(anchor.codigoReparticion) ?? null,
+          cargoVacante: !personasMap.has(anchor.codigoReparticion) ? (cargosVacantesMap.get(anchor.codigoReparticion) ?? null) : null,
           hijos: raices,
         }
       }
@@ -265,7 +301,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     throw AppError.notFound(`No se encontró nodo raíz para ${sigla ? `el hospital ${sigla}` : `la sección ${seccion}`}`)
   }
 
-  // === 6. Agrupar hijos de SDHOS por régimen de empleo ===
+  // === 7. Agrupar hijos de SDHOS por régimen de empleo ===
   if (sdhosCod) {
     const sdhos = mapa.get(sdhosCod)
     if (sdhos && sdhos.hijos.length > 0) {
@@ -285,12 +321,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           padre: sdhosCod,
           regimenEmpleo: nombreRegimen,
           persona: null,
+          cargoVacante: null,
           hijos,
         }))
     }
   }
 
-  // === 7. Orden jerárquico ===
+  // === 8. Orden jerárquico ===
   ordenarHijos(raiz)
 
   return { data: raiz, ...(sigla ? { sigla } : { seccion }) }
