@@ -129,12 +129,12 @@ export const CPH_FLOW: EscalafonFlow = {
           "color": "red",
           "icon": "",
           "items": [
-            "Motivos: Jubilación, Renuncia, Defunción, Cesantía, Cese, Exoneración",
+            "Motivos: Jubilación, Renuncia, Defunción, Cesantía, Cese, Exoneración, Reubicación",
             "Ocupacion.hasta = fecha de baja",
             "documentacion_baja = expediente de baja",
             "Si persona sin otras ocupaciones → activo = false",
-            "Estado: vigente + vacante",
-            "genera_concurso = true → inicia proceso CPH"
+            "genera_concurso = true → cargo pasa a vigente (vacante) + inicia proceso CPH",
+            "genera_concurso = false → cargo pasa a no_vigente (baja definitiva sin concurso)"
           ]
         },
         {
@@ -144,11 +144,11 @@ export const CPH_FLOW: EscalafonFlow = {
           "color": "gray",
           "icon": "",
           "items": [
-            "Desaparece del padrón semanal",
-            "Padrón diff tipo: eliminado",
+            "Origen: baja con genera_concurso = false, desfinanciación o supresión estructural",
             "estado = no_vigente",
             "Historial de ocupaciones preservado",
-            "No genera nuevos concursos"
+            "No genera nuevos concursos",
+            "El padrón semanal NUNCA pone un cargo en no_vigente directamente"
           ]
         }
       ],
@@ -201,12 +201,12 @@ export const CPH_FLOW: EscalafonFlow = {
         {
           "from": "n6",
           "to": "n2",
-          "label": "genera concurso"
+          "label": "genera_concurso = true"
         },
         {
           "from": "n6",
           "to": "n7",
-          "label": "supresión del cargo"
+          "label": "genera_concurso = false / supresión"
         }
       ]
     },

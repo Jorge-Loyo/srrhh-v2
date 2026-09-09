@@ -23,23 +23,63 @@ function formatFecha(iso: string) {
 }
 
 // ── Detalle de referencia por fila — un fetch liviano por tipo, no bloquea la lista ──
-function ReferenciaCph({ id }: { id: string }) {
+type CphCargo = { codigo?: string; literalPuesto?: string; especialidad?: string; especialidadLegacy?: string; hospital?: { sigla?: string }; codigoRegistro?: { literal?: string } }
+type CphExt = ConcursoCph & { siglaSolicitada?: string | null; especialidadSolicitada?: string | null; puestoSolicitado?: string | null; codigoRegistroSolicitado?: { literal?: string } | null; motivoCambioEspecialidad?: string | null }
+
+function ReferenciaCph({ id, onEsInformativa }: { id: string; onEsInformativa?: (id: string) => void }) {
   const { data } = useQuery({
     queryKey: ['concursos-cph', id, 'autorizaciones-ref'],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}`)
+      const res = await apiClient.get<{ data: CphExt }>(`/api/v1/concursos-cph/${id}`)
       return res.data.data
     },
   })
-  const cargo = (data?.concurso as unknown as { cargo?: { codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } } })?.cargo
+  const cargo = (data?.concurso as unknown as { cargo?: CphCargo })?.cargo
   if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
+
+  const cambios: { campo: string; de: string; a: string }[] = []
+  if (data.siglaSolicitada)          cambios.push({ campo: 'Sigla',       de: cargo?.hospital?.sigla ?? '—',                             a: data.siglaSolicitada })
+  if (data.codigoRegistroSolicitado) cambios.push({ campo: 'Escalafón',   de: cargo?.codigoRegistro?.literal ?? '—',                   a: data.codigoRegistroSolicitado.literal ?? '—' })
+  if (data.especialidadSolicitada)   cambios.push({ campo: 'Especialidad', de: cargo?.especialidadLegacy ?? cargo?.especialidad ?? '—', a: data.especialidadSolicitada })
+  if (data.puestoSolicitado)         cambios.push({ campo: 'Puesto',       de: cargo?.literalPuesto ?? '—',                             a: data.puestoSolicitado })
+
+  const esInformativa = cambios.length === 0
+  if (esInformativa) onEsInformativa?.(id)
+
   return (
-    <div className="min-w-0">
-      <p className="text-sm font-semibold text-gray-900 truncate">
-        {cargo?.literalPuesto ?? '—'}
-        {cargo?.hospital?.sigla && <span className="font-normal text-gray-500"> · {cargo.hospital.sigla}</span>}
-      </p>
-      <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+    <div className="min-w-0 space-y-2">
+      <div>
+        <p className="text-sm font-semibold text-gray-900 truncate">
+          {cargo?.literalPuesto ?? '—'}
+          {cargo?.hospital?.sigla && <span className="font-normal text-gray-500"> · {cargo.hospital.sigla}</span>}
+        </p>
+        <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+      </div>
+
+      {esInformativa ? (
+        <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
+          ℹ️ Notificación informativa — se cargó el expediente de concurso <span className="font-mono font-semibold">{data.eeConcurso}</span>. No requiere acción.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {cambios.map((c) => (
+            <div key={c.campo} className="rounded bg-white border border-amber-200 px-3 py-1.5 text-xs">
+              <span className="font-semibold text-gray-500 uppercase tracking-wide text-[10px]">{c.campo}</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-red-500 line-through">{c.de}</span>
+                <span className="text-gray-400">→</span>
+                <span className="text-green-700 font-medium">{c.a}</span>
+              </div>
+            </div>
+          ))}
+          {data.motivoCambioEspecialidad && (
+            <div className="rounded bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-800">
+              <span className="font-semibold">Motivo cambio especialidad:</span> {data.motivoCambioEspecialidad}
+            </div>
+          )}
+        </div>
+      )}
+
       <Link to={`/concursos/cph/${id}/wizard`} className="text-xs text-secondary hover:underline">
         Abrir wizard →
       </Link>
@@ -70,8 +110,8 @@ function ReferenciaAlta({ id }: { id: string }) {
   )
 }
 
-function Referencia({ autorizacion }: { autorizacion: Autorizacion }) {
-  if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} />
+function Referencia({ autorizacion, onEsInformativa }: { autorizacion: Autorizacion; onEsInformativa?: (id: string) => void }) {
+  if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} onEsInformativa={onEsInformativa} />
   if (autorizacion.tipo === 'alta_cargo')   return <ReferenciaAlta id={autorizacion.referenciaId} />
   return <span className="text-xs text-gray-400">—</span>
 }
@@ -81,6 +121,11 @@ export function AutorizacionesPage() {
   const [tipo, setTipo] = useState<TipoAutorizacion | ''>('')
   const [modal, setModal] = useState<{ id: string; accion: 'aprobar' | 'rechazar' } | null>(null)
   const [obs, setObs] = useState('')
+  const [informativas, setInformativas] = useState<Set<string>>(new Set())
+
+  function marcarInformativa(referenciaId: string) {
+    setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
+  }
 
   const { data, isLoading, isError } = useAutorizaciones({
     page,
@@ -182,11 +227,12 @@ export function AutorizacionesPage() {
                   <span className="badge-warning text-xs">{TIPO_LABEL[a.tipo]}</span>
                   <span className="text-xs text-gray-400 ml-auto">{formatFecha(a.createdAt)}</span>
                 </div>
-                <Referencia autorizacion={a} />
+                <Referencia autorizacion={a} onEsInformativa={marcarInformativa} />
                 {a.solicitadoPor && (
                   <p className="text-xs text-gray-400 mt-1">Solicitado por {a.solicitadoPor.username}</p>
                 )}
               </div>
+              {!informativas.has(a.referenciaId) && (
               <div className="flex flex-col gap-2 shrink-0">
                 <button
                   className="btn-danger text-xs px-3 py-1"
@@ -201,6 +247,7 @@ export function AutorizacionesPage() {
                   Aprobar
                 </button>
               </div>
+              )}
             </li>
           ))}
         </ul>

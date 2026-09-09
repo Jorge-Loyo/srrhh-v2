@@ -166,6 +166,8 @@ async function calcularDiff(sessionId: string) {
       descripcionRepa: true,
       agrupamiento: true,
       codigoRegistro: { select: { codigo: true } },
+      hospital: { select: { sigla: true } },
+      escalafon: { select: { nombre: true } },
       ocupaciones: {
         where: { hasta: null },
         select: {
@@ -934,6 +936,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       {
         id: string
         idSial: string
+        estado: 'vigente'
         hospitalId: string
         escalafonId: string
         literalPuesto: string | null
@@ -984,6 +987,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
+          estado: 'vigente' as const,
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
           literalPuesto: datos.literal_puesto ?? null,

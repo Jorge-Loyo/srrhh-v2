@@ -62,6 +62,12 @@ export const patchConcursoCphSchema = z
     fechaResolucion: fecha.nullable(),
     cargoSial: z.string().trim().max(50).nullable(),
     personaDesignadaId: z.string().uuid().nullable(),
+    // Campos nuevos — datos del CSV histórico
+    ifacs: z.string().trim().max(200).nullable(),
+    insal: z.string().trim().max(200).nullable(),
+    cambioEspecialidad: z.boolean().nullable(),
+    motivoCambioEspecialidad: z.string().trim().max(2000).nullable(),
+    qInscriptos: z.number().int().min(0).nullable(),
     // Desierto
     dispoDesierta: z.string().trim().max(50).nullable(),
     fechaDispoDesierta: fecha.nullable(),

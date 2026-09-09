@@ -32,14 +32,15 @@ const ESTADO_LABEL: Record<EstadoCargo, string> = {
 export function CargosPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const search      = searchParams.get('search') ?? ''
-  const hospitalId  = searchParams.get('hospitalId') ?? ''
-  const escalafonId = searchParams.get('escalafonId') ?? ''
-  const puesto      = searchParams.get('puesto') ?? ''
-  const especialidad = searchParams.get('especialidad') ?? ''
-  const estado      = (searchParams.get('estado') ?? '') as '' | EstadoCargo
-  const ocupado     = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
-  const page        = Number(searchParams.get('page') ?? '1')
+  const search        = searchParams.get('search') ?? ''
+  const personaSearch = searchParams.get('personaSearch') ?? ''
+  const hospitalId    = searchParams.get('hospitalId') ?? ''
+  const escalafonId   = searchParams.get('escalafonId') ?? ''
+  const puesto        = searchParams.get('puesto') ?? ''
+  const especialidad  = searchParams.get('especialidad') ?? ''
+  const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
+  const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
+  const page          = Number(searchParams.get('page') ?? '1')
 
   function setParam(key: string, value: string) {
     setSearchParams((prev) => {
@@ -59,17 +60,19 @@ export function CargosPage() {
     }, { replace: true })
   }
 
-  const searchDebounced = useDebounce(search, 300)
+  const searchDebounced        = useDebounce(search, 300)
+  const personaSearchDebounced = useDebounce(personaSearch, 300)
 
   const filters: CargoFilters = {
     page,
     limit: LIMIT,
-    ...(searchDebounced && { search: searchDebounced }),
-    ...(hospitalId && { hospitalId }),
+    ...(searchDebounced        && { search: searchDebounced }),
+    ...(personaSearchDebounced && { personaSearch: personaSearchDebounced }),
+    ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
-    ...(puesto && { puesto }),
+    ...(puesto      && { puesto }),
     ...(especialidad && { especialidad }),
-    ...(estado && { estado }),
+    ...(estado      && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
   }
 
@@ -181,6 +184,13 @@ export function CargosPage() {
             onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
+          <input
+            type="text"
+            placeholder="Nombre o CUIL de la persona..."
+            value={personaSearch}
+            onChange={(e) => setParam('personaSearch', e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          />
           <select
             value={hospitalId}
             onChange={(e) => cambiarHospital(e.target.value)}
@@ -256,6 +266,7 @@ export function CargosPage() {
         {(() => {
           const chips: { label: string; key: string }[] = []
           if (search) chips.push({ label: `"${search}"`, key: 'search' })
+          if (personaSearch) chips.push({ label: `Persona: "${personaSearch}"`, key: 'personaSearch' })
           if (hospitalId) {
             const h = hospitales?.find((h) => h.id === hospitalId)
             chips.push({ label: h?.sigla ?? hospitalId, key: 'hospitalId' })

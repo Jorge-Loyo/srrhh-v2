@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { autorizacionesQuerySchema, resolverAutorizacionSchema } from './autorizaciones.schema.js'
@@ -8,6 +8,19 @@ import {
   aprobarAutorizacionService,
   rechazarAutorizacionService,
 } from './autorizaciones.service.js'
+import { AppError } from '../../shared/errors/AppError.js'
+
+/**
+ * CSRF mitigation: enforces Content-Type application/json on state-changing
+ * requests. Browsers cannot send this content type cross-origin without a
+ * preflight (OPTIONS) request, which is blocked by the CORS policy in app.ts.
+ */
+function requireJsonContentType(request: FastifyRequest, _reply: FastifyReply, done: () => void) {
+  if (!request.headers['content-type']?.includes('application/json')) {
+    throw AppError.badRequest('Content-Type must be application/json')
+  }
+  done()
+}
 
 export async function autorizacionesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -31,10 +44,13 @@ export async function autorizacionesRoutes(app: FastifyInstance) {
 
   // POST /:id/aprobar
   app.post('/:id/aprobar', {
-    preHandler: requirePermiso([
-      { modulo: 'autorizaciones', accion: 'resolver_director' },
-      { modulo: 'autorizaciones', accion: 'resolver_sgrasv' },
-    ]),
+    preHandler: [
+      requireJsonContentType,
+      requirePermiso([
+        { modulo: 'autorizaciones', accion: 'resolver_director' },
+        { modulo: 'autorizaciones', accion: 'resolver_sgrasv' },
+      ]),
+    ],
   }, async (request, reply) => {
     const user = request.user as { id: string; rolSlug: string }
     const { id } = request.params as { id: string }
@@ -45,10 +61,13 @@ export async function autorizacionesRoutes(app: FastifyInstance) {
 
   // POST /:id/rechazar
   app.post('/:id/rechazar', {
-    preHandler: requirePermiso([
-      { modulo: 'autorizaciones', accion: 'resolver_director' },
-      { modulo: 'autorizaciones', accion: 'resolver_sgrasv' },
-    ]),
+    preHandler: [
+      requireJsonContentType,
+      requirePermiso([
+        { modulo: 'autorizaciones', accion: 'resolver_director' },
+        { modulo: 'autorizaciones', accion: 'resolver_sgrasv' },
+      ]),
+    ],
   }, async (request, reply) => {
     const user = request.user as { id: string; rolSlug: string }
     const { id } = request.params as { id: string }

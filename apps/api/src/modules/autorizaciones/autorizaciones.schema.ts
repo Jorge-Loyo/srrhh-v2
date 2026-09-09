@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '').trim()
+
 export const autorizacionesQuerySchema = z.object({
   page:  z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -7,7 +9,7 @@ export const autorizacionesQuerySchema = z.object({
 })
 
 export const resolverAutorizacionSchema = z.object({
-  observaciones: z.string().max(1000).optional(),
+  observaciones: z.string().max(1000).transform(stripHtml).optional(),
 })
 
 export type AutorizacionesQuery      = z.infer<typeof autorizacionesQuerySchema>

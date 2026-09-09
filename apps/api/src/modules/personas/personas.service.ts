@@ -92,10 +92,18 @@ export async function getPersonaByIdService(id: string) {
         orderBy: [{ hasta: 'asc' }, { desde: 'desc' }],
         include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } } },
       },
-      // S8C-2: historial completo en padrón semanal
       padronHistorico: {
         include: { snapshot: { select: { id: true, fechaAsignada: true, filename: true } } },
         orderBy: { fechaAsignada: 'desc' },
+      },
+      // Concursos donde fue persona designada
+      concursosCphDesignado: {
+        orderBy: { createdAt: 'desc' },
+        include: {
+          cargo: { select: { id: true, codigo: true, literalPuesto: true } },
+          hospital: { select: { id: true, sigla: true, nombre: true } },
+          concurso: { select: { id: true, fechaVacante: true } },
+        },
       },
     },
   })
@@ -111,19 +119,19 @@ export async function getPersonaBajasSialService(id: string) {
   const cuil = persona.cuil
   const cuilConGuiones = `${cuil.slice(0, 2)}-${cuil.slice(2, 10)}-${cuil.slice(10)}`
 
-  return prisma.$queryRawUnsafe<{
+  return prisma.$queryRaw<{
     cargo: string; lit_puesto: string | null; escalafon: string | null
     cargo_desde: Date | null; cargo_hasta: Date | null; mot_baja: string | null
     doc_resp_baja: string | null; desc_rep: string | null; car_codigo: string | null
     codigo_cargo: string | null
-  }[]>(`
+  }[]>`
     SELECT r.cargo, r.lit_puesto, r.escalafon, r.cargo_desde, r.cargo_hasta,
            r.mot_baja, r.doc_resp_baja, r.desc_rep, r.car_codigo,
            c.codigo as codigo_cargo
     FROM baja_sial_registros r
     LEFT JOIN cargos c ON c.id_sial = r.cargo
-    WHERE r.cuil = $1
+    WHERE r.cuil = ${cuilConGuiones}
       AND r.snapshot_id = (SELECT id FROM baja_sial_snapshots WHERE estado = 'aprobado' ORDER BY fecha_archivo DESC LIMIT 1)
     ORDER BY r.cargo
-  `, cuilConGuiones)
+  `
 }

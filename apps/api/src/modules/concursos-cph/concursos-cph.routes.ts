@@ -7,6 +7,7 @@ import {
   getConcursoCphByIdService,
   patchConcursoCphService,
   suspenderConcursoCphService,
+  getPersonaDesignadaService,
 } from './concursos-cph.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -50,6 +51,13 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       return reply.send({ data })
     }
   )
+
+  // GET /:id/persona-designada — busca la persona designada por personaDesignadaId
+  // o por OrdenMeritoIntegrante.designado=true para este concurso
+  app.get<{ Params: { id: string } }>('/:id/persona-designada', async (request, reply) => {
+    const data = await getPersonaDesignadaService(request.params.id)
+    return reply.send({ data })
+  })
 
   // NOTA S13-C: POST /:id/autorizar (aprobar/rechazar modificación CPH) se
   // eliminó — nunca actualizaba la tabla `autorizaciones` genérica (dejaba

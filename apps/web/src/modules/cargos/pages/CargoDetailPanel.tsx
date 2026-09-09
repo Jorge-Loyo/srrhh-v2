@@ -145,6 +145,7 @@ export function CargoDetailPanel() {
               <Dato label="Situación de revista" value={ocup?.situacionRevista} />
               <Dato label="Estado"               value={ocup?.estadoPersona} />
               <Dato label="Comisión"             value={ocup?.comision} />
+              <Dato label="ID SIAL Rol"          value={ocup?.idSialRol?.split('-').slice(0, 2).join('-')} />
               {ocup?.codigoJefaturas && (
                 <Dato label="Jefatura" value={`${ocup.codigoJefaturas}${ocup.jefeEscalafon ? ` — ${ocup.jefeEscalafon}` : ''}`} />
               )}
@@ -188,6 +189,7 @@ export function CargoDetailPanel() {
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">EE Baja</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona designada</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Inicio</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Fecha resolución</th>
                 <th className="px-4 py-2.5" />
               </tr>
             </thead>
@@ -211,8 +213,9 @@ export function CargoDetailPanel() {
                       : <span className="text-gray-400 text-xs">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.concurso.fechaVacante)}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.fechaResolucion)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link to={`/concursos-cph/${c.id}`} className="btn-outline">Ver</Link>
+                    <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">Ver</Link>
                   </td>
                 </tr>
               ))}

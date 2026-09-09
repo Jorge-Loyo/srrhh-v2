@@ -28,6 +28,9 @@ import { permisosRoutes } from './modules/permisos/permisos.routes.js'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes.js'
 import { autorizacionesRoutes } from './modules/autorizaciones/autorizaciones.routes.js'
 import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-alta.routes.js'
+import { etiquetasRoutes } from './modules/etiquetas/etiquetas.routes.js'
+import { ordenesMeritoRoutes } from './modules/ordenes-merito/ordenes-merito.routes.js'
+import { postulantesRoutes } from './modules/postulantes/postulantes.routes.js'
 
 const app = Fastify({
   logger: {
@@ -93,6 +96,9 @@ await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
 await app.register(notificacionesRoutes, { prefix: '/api/v1/notificaciones' })
 await app.register(autorizacionesRoutes,   { prefix: '/api/v1/autorizaciones' })
 await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' })
+await app.register(etiquetasRoutes,        { prefix: '/api/v1/etiquetas' })
+await app.register(ordenesMeritoRoutes,    { prefix: '/api/v1/ordenes-merito' })
+await app.register(postulantesRoutes,      { prefix: '/api/v1/postulantes' })
 
 // Start
 try {

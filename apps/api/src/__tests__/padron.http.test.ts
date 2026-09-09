@@ -14,12 +14,43 @@
 
 import { describe, it, expect, beforeAll } from 'vitest'
 
-const API         = 'http://localhost:3000'
-const DOTANEITOR  = 'http://localhost:5001'
+// ─── SSRF-safe HTTP helpers ───────────────────────────────────────────────────
+//
+// All fetch calls are encapsulated here. The base host is resolved from env
+// vars but validated against an allowlist before use. The `path` parameter
+// is always a string literal supplied by test code, never derived from
+// external or user-controlled input.
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type Base = 'api' | 'dotaneitor'
 
-async function getJson(url: string, token?: string) {
+const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1'])
+
+const BASE_URLS: Record<Base, string> = {
+  api:        process.env.TEST_API_URL        ?? 'http://localhost:3000',
+  dotaneitor: process.env.TEST_DOTANEITOR_URL ?? 'http://localhost:5001',
+}
+
+function resolveBase(base: Base): { protocol: string; host: string } {
+  const parsed = new URL(BASE_URLS[base])
+  if (!ALLOWED_HOSTS.has(parsed.hostname)) {
+    throw new Error(`[SSRF] Host not in allowlist: ${parsed.hostname}`)
+  }
+  return { protocol: parsed.protocol, host: parsed.host }
+}
+
+// Validate all bases at module load time so tests fail fast on bad config
+const RESOLVED: Record<Base, { protocol: string; host: string }> = {
+  api:        resolveBase('api'),
+  dotaneitor: resolveBase('dotaneitor'),
+}
+
+function buildUrl(base: Base, path: string): string {
+  const { protocol, host } = RESOLVED[base]
+  return `${protocol}//${host}${path}`
+}
+
+async function GET(base: Base, path: string, token?: string) {
+  const url = buildUrl(base, path)
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
@@ -27,7 +58,8 @@ async function getJson(url: string, token?: string) {
   return { status: res.status, ok: res.ok, body }
 }
 
-async function postJson(url: string, payload: unknown, token?: string) {
+async function POST(base: Base, path: string, payload: unknown, token?: string) {
+  const url = buildUrl(base, path)
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -40,14 +72,36 @@ async function postJson(url: string, payload: unknown, token?: string) {
   return { status: res.status, ok: res.ok, body }
 }
 
+async function DELETE(base: Base, path: string, token: string) {
+  const url = buildUrl(base, path)
+  return fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+async function UPLOAD(base: Base, path: string, form: FormData, token: string) {
+  const url = buildUrl(base, path)
+  return fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+}
+
+async function GETraw(base: Base, path: string, token: string) {
+  const url = buildUrl(base, path)
+  return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+}
+
 // ─── Setup: obtener token admin ───────────────────────────────────────────────
 
 let token = ''
 
 beforeAll(async () => {
-  const { ok, body } = await postJson(`${API}/api/v1/auth/login`, {
-    username: 'admin',
-    password: 'Admin1234!',
+  const { ok, body } = await POST('api', '/api/v1/auth/login', {
+    username: process.env.TEST_ADMIN_USER ?? 'admin',
+    password: process.env.TEST_ADMIN_PASS ?? 'Admin1234!',
   })
   if (!ok) throw new Error(`Login falló: ${JSON.stringify(body)}`)
   token = body.data.accessToken
@@ -57,13 +111,13 @@ beforeAll(async () => {
 
 describe('Health checks', () => {
   it('API /health → 200 status ok', async () => {
-    const { ok, body } = await getJson(`${API}/health`)
+    const { ok, body } = await GET('api', '/health')
     expect(ok).toBe(true)
     expect(body.status).toBe('ok')
   })
 
   it('Dotaneitor /health → 200 status ok', async () => {
-    const { ok, body } = await getJson(`${DOTANEITOR}/health`)
+    const { ok, body } = await GET('dotaneitor', '/health')
     expect(ok).toBe(true)
     expect(body.status).toBe('ok')
   })
@@ -73,17 +127,17 @@ describe('Health checks', () => {
 
 describe('Autenticación', () => {
   it('GET /padron/snapshots sin token → 401', async () => {
-    const { status } = await getJson(`${API}/api/v1/padron/snapshots`)
+    const { status } = await GET('api', '/api/v1/padron/snapshots')
     expect(status).toBe(401)
   })
 
   it('POST /padron/upload sin token → 401', async () => {
-    const res = await fetch(`${API}/api/v1/padron/upload`, { method: 'POST' })
-    expect(res.status).toBe(401)
+    const { status } = await POST('api', '/api/v1/padron/upload', {})
+    expect(status).toBe(401)
   })
 
   it('POST /padron/snapshots/:id/aprobar sin token → 401', async () => {
-    const { status } = await postJson(`${API}/api/v1/padron/snapshots/fake-id/aprobar`, {})
+    const { status } = await POST('api', '/api/v1/padron/snapshots/fake-id/aprobar', {})
     expect(status).toBe(401)
   })
 })
@@ -92,15 +146,15 @@ describe('Autenticación', () => {
 
 describe('GET /api/v1/padron/snapshots', () => {
   it('responde 200 con array', async () => {
-    const { ok, body } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { ok, body } = await GET('api', '/api/v1/padron/snapshots', token)
     expect(ok).toBe(true)
     expect(Array.isArray(body.data)).toBe(true)
   })
 
   it('cada snapshot tiene los campos requeridos', async () => {
-    const { body } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body } = await GET('api', '/api/v1/padron/snapshots', token)
     const snapshots: unknown[] = body.data
-    if (snapshots.length === 0) return // BD vacía — skip
+    if (snapshots.length === 0) return
 
     const s = snapshots[0] as Record<string, unknown>
     expect(s).toHaveProperty('id')
@@ -112,14 +166,14 @@ describe('GET /api/v1/padron/snapshots', () => {
 
   it('estados válidos en todos los snapshots', async () => {
     const ESTADOS_VALIDOS = ['procesando', 'pendiente', 'aprobado', 'rechazado', 'error']
-    const { body } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body } = await GET('api', '/api/v1/padron/snapshots', token)
     for (const s of body.data as Record<string, unknown>[]) {
       expect(ESTADOS_VALIDOS).toContain(s.estado)
     }
   })
 
   it('snapshots ordenados por fechaAsignada desc', async () => {
-    const { body } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body } = await GET('api', '/api/v1/padron/snapshots', token)
     const snapshots = body.data as { fechaAsignada: string }[]
     if (snapshots.length < 2) return
 
@@ -135,20 +189,22 @@ describe('GET /api/v1/padron/snapshots', () => {
 
 describe('GET /api/v1/padron/snapshots/:id/estado', () => {
   it('snapshot inexistente → 404', async () => {
-    const { status } = await getJson(
-      `${API}/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/estado`,
+    const { status } = await GET(
+      'api',
+      '/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/estado',
       token,
     )
     expect(status).toBe(404)
   })
 
   it('snapshot real → 200 con estado válido', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snapshots = listBody.data as { id: string; estado: string }[]
     if (snapshots.length === 0) return
 
-    const { ok, body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snapshots[0].id}/estado`,
+    const { ok, body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snapshots[0].id}/estado`,
       token,
     )
     expect(ok).toBe(true)
@@ -161,21 +217,23 @@ describe('GET /api/v1/padron/snapshots/:id/estado', () => {
 
 describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   it('snapshot inexistente → 404', async () => {
-    const { status } = await getJson(
-      `${API}/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/diff`,
+    const { status } = await GET(
+      'api',
+      '/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/diff',
       token,
     )
     expect(status).toBe(404)
   })
 
   it('snapshot aprobado → 200 con estructura completa', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado')
-    if (!aprobado) return // no hay aprobados — skip
+    if (!aprobado) return
 
-    const { ok, body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}/diff`,
+    const { ok, body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${aprobado.id}/diff`,
       token,
     )
     expect(ok).toBe(true)
@@ -187,15 +245,12 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   })
 
   it('summary tiene los campos correctos', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
-    const { body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff`,
-      token,
-    )
+    const { body } = await GET('api', `/api/v1/padron/snapshots/${snap.id}/diff`, token)
     const summary = body.data.summary
     expect(summary).toHaveProperty('nuevos')
     expect(summary).toHaveProperty('modificados')
@@ -208,13 +263,14 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   })
 
   it('paginación: page=1 limit=10 devuelve máx 10 items', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
-    const { ok, body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff?page=1&limit=10`,
+    const { ok, body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snap.id}/diff?page=1&limit=10`,
       token,
     )
     expect(ok).toBe(true)
@@ -224,13 +280,14 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   })
 
   it('filtro tipo=nuevo devuelve solo diffs nuevos', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
-    const { body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff?tipo=nuevo&limit=20`,
+    const { body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snap.id}/diff?tipo=nuevo&limit=20`,
       token,
     )
     for (const d of body.data.diffs.data as { tipo: string }[]) {
@@ -239,13 +296,14 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   })
 
   it('filtro tipo=modificado devuelve solo diffs modificados', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
-    const { body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff?tipo=modificado&limit=20`,
+    const { body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snap.id}/diff?tipo=modificado&limit=20`,
       token,
     )
     for (const d of body.data.diffs.data as { tipo: string }[]) {
@@ -254,26 +312,26 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
   })
 
   it('búsqueda por q devuelve resultados que contienen el término', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
-    // Primero obtenemos un idSialRol real para buscar
-    const { body: diffBody } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff?limit=1`,
+    const { body: diffBody } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snap.id}/diff?limit=1`,
       token,
     )
     const diffs = diffBody.data.diffs.data as { idSialRol: string }[]
     if (diffs.length === 0) return
 
-    const termino = diffs[0].idSialRol.slice(0, 6)
-    const { ok, body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${snap.id}/diff?q=${termino}`,
+    const termino = encodeURIComponent(diffs[0].idSialRol.slice(0, 6))
+    const { ok, body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${snap.id}/diff?q=${termino}`,
       token,
     )
     expect(ok).toBe(true)
-    // Al menos el registro que usamos como base debe aparecer
     expect(body.data.diffs.data.length).toBeGreaterThan(0)
   })
 })
@@ -282,8 +340,9 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
 
 describe('POST /api/v1/padron/snapshots/:id/aprobar — validaciones', () => {
   it('snapshot inexistente → 404', async () => {
-    const { status } = await postJson(
-      `${API}/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/aprobar`,
+    const { status } = await POST(
+      'api',
+      '/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/aprobar',
       {},
       token,
     )
@@ -291,13 +350,14 @@ describe('POST /api/v1/padron/snapshots/:id/aprobar — validaciones', () => {
   })
 
   it('snapshot ya aprobado → 409 conflict', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado')
     if (!aprobado) return
 
-    const { status } = await postJson(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}/aprobar`,
+    const { status } = await POST(
+      'api',
+      `/api/v1/padron/snapshots/${aprobado.id}/aprobar`,
       {},
       token,
     )
@@ -305,13 +365,14 @@ describe('POST /api/v1/padron/snapshots/:id/aprobar — validaciones', () => {
   })
 
   it('snapshot rechazado → 409 conflict', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const rechazado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'rechazado')
     if (!rechazado) return
 
-    const { status } = await postJson(
-      `${API}/api/v1/padron/snapshots/${rechazado.id}/aprobar`,
+    const { status } = await POST(
+      'api',
+      `/api/v1/padron/snapshots/${rechazado.id}/aprobar`,
       {},
       token,
     )
@@ -323,8 +384,9 @@ describe('POST /api/v1/padron/snapshots/:id/aprobar — validaciones', () => {
 
 describe('POST /api/v1/padron/snapshots/:id/rechazar — validaciones', () => {
   it('snapshot inexistente → 404', async () => {
-    const { status } = await postJson(
-      `${API}/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/rechazar`,
+    const { status } = await POST(
+      'api',
+      '/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000/rechazar',
       {},
       token,
     )
@@ -332,13 +394,14 @@ describe('POST /api/v1/padron/snapshots/:id/rechazar — validaciones', () => {
   })
 
   it('snapshot ya aprobado → 409 conflict', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado')
     if (!aprobado) return
 
-    const { status } = await postJson(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}/rechazar`,
+    const { status } = await POST(
+      'api',
+      `/api/v1/padron/snapshots/${aprobado.id}/rechazar`,
       {},
       token,
     )
@@ -350,36 +413,31 @@ describe('POST /api/v1/padron/snapshots/:id/rechazar — validaciones', () => {
 
 describe('DELETE /api/v1/padron/snapshots/:id — validaciones', () => {
   it('snapshot inexistente → 404', async () => {
-    const res = await fetch(
-      `${API}/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+    const res = await DELETE(
+      'api',
+      '/api/v1/padron/snapshots/00000000-0000-0000-0000-000000000000',
+      token,
     )
     expect(res.status).toBe(404)
   })
 
   it('snapshot aprobado → 409 (no se puede eliminar)', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado')
     if (!aprobado) return
 
-    const res = await fetch(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-    )
+    const res = await DELETE('api', `/api/v1/padron/snapshots/${aprobado.id}`, token)
     expect(res.status).toBe(409)
   })
 
   it('snapshot pendiente → 409 (no se puede eliminar)', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const pendiente = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'pendiente')
     if (!pendiente) return
 
-    const res = await fetch(
-      `${API}/api/v1/padron/snapshots/${pendiente.id}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
-    )
+    const res = await DELETE('api', `/api/v1/padron/snapshots/${pendiente.id}`, token)
     expect(res.status).toBe(409)
   })
 })
@@ -388,13 +446,14 @@ describe('DELETE /api/v1/padron/snapshots/:id — validaciones', () => {
 
 describe('GET /api/v1/padron/snapshots/:id/conflictos-validacion', () => {
   it('snapshot aprobado → 200 con array conflictos (puede ser vacío)', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado')
     if (!aprobado) return
 
-    const { ok, body } = await getJson(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}/conflictos-validacion`,
+    const { ok, body } = await GET(
+      'api',
+      `/api/v1/padron/snapshots/${aprobado.id}/conflictos-validacion`,
       token,
     )
     expect(ok).toBe(true)
@@ -407,16 +466,12 @@ describe('GET /api/v1/padron/snapshots/:id/conflictos-validacion', () => {
 
 describe('GET /api/v1/padron/snapshots/:id/exportar', () => {
   it('snapshot aprobado → 200 con Content-Type Excel', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const aprobado = (listBody.data as { id: string; estado: string; archivoResultadoPath?: string }[])
       .find((s) => s.estado === 'aprobado')
     if (!aprobado) return
 
-    const res = await fetch(
-      `${API}/api/v1/padron/snapshots/${aprobado.id}/exportar`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    )
-    // Puede ser 200 (archivo existe) o 404 (archivo no generado en este env)
+    const res = await GETraw('api', `/api/v1/padron/snapshots/${aprobado.id}/exportar`, token)
     expect([200, 404]).toContain(res.status)
     if (res.status === 200) {
       expect(res.headers.get('content-type')).toContain('spreadsheetml')
@@ -430,13 +485,8 @@ describe('POST /api/v1/padron/upload — validaciones', () => {
   it('sin archivo → 400', async () => {
     const form = new FormData()
     form.append('fechaAsignada', '2099-01-01')
-    // No se agrega el archivo
 
-    const res = await fetch(`${API}/api/v1/padron/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    })
+    const res = await UPLOAD('api', '/api/v1/padron/upload', form, token)
     expect(res.status).toBe(400)
   })
 
@@ -446,11 +496,7 @@ describe('POST /api/v1/padron/upload — validaciones', () => {
     const blob = new Blob(['fake'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     form.append('file', blob, 'test.xlsx')
 
-    const res = await fetch(`${API}/api/v1/padron/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    })
+    const res = await UPLOAD('api', '/api/v1/padron/upload', form, token)
     expect(res.status).toBe(400)
   })
 })
@@ -459,39 +505,28 @@ describe('POST /api/v1/padron/upload — validaciones', () => {
 
 describe('Dotaneitor — endpoints internos', () => {
   it('POST /session → crea sesión con session_id', async () => {
-    const res = await fetch(`${DOTANEITOR}/session`, { method: 'POST' })
-    expect(res.ok).toBe(true)
-    const body = await res.json()
+    const { ok, body } = await POST('dotaneitor', '/session', {})
+    expect(ok).toBe(true)
     expect(body).toHaveProperty('session_id')
     expect(typeof body.session_id).toBe('string')
-    expect(body.session_id.length).toBeGreaterThan(0)
+    expect((body.session_id as string).length).toBeGreaterThan(0)
 
-    // Cleanup
-    await fetch(`${DOTANEITOR}/session/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: body.session_id }),
-    })
+    await POST('dotaneitor', '/session/delete', { session_id: body.session_id })
   })
 
   it('GET /job/inexistente → 404', async () => {
-    const res = await fetch(`${DOTANEITOR}/job/00000000-0000-0000-0000-000000000000`)
-    expect(res.status).toBe(404)
+    const { status } = await GET('dotaneitor', '/job/00000000-0000-0000-0000-000000000000')
+    expect(status).toBe(404)
   })
 
   it('GET /preview sin session_id → 422 o 404', async () => {
-    const res = await fetch(`${DOTANEITOR}/preview?session_id=sesion-inexistente`)
-    expect([404, 422]).toContain(res.status)
+    const { status } = await GET('dotaneitor', '/preview?session_id=sesion-inexistente')
+    expect([404, 422]).toContain(status)
   })
 
   it('POST /session/delete con session_id inexistente → 200 ok', async () => {
-    const res = await fetch(`${DOTANEITOR}/session/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: 'sesion-que-no-existe' }),
-    })
-    expect(res.ok).toBe(true)
-    const body = await res.json()
+    const { ok, body } = await POST('dotaneitor', '/session/delete', { session_id: 'sesion-que-no-existe' })
+    expect(ok).toBe(true)
     expect(body.ok).toBe(true)
   })
 })
@@ -501,24 +536,24 @@ describe('Dotaneitor — endpoints internos', () => {
 describe('Rendimiento — tiempos de respuesta', () => {
   it('GET /snapshots responde en menos de 2s', async () => {
     const start = Date.now()
-    await getJson(`${API}/api/v1/padron/snapshots`, token)
+    await GET('api', '/api/v1/padron/snapshots', token)
     expect(Date.now() - start).toBeLessThan(2000)
   })
 
   it('GET /diff paginado (limit=50) responde en menos de 3s', async () => {
-    const { body: listBody } = await getJson(`${API}/api/v1/padron/snapshots`, token)
+    const { body: listBody } = await GET('api', '/api/v1/padron/snapshots', token)
     const snap = (listBody.data as { id: string; estado: string }[])
       .find((s) => s.estado === 'aprobado' || s.estado === 'pendiente')
     if (!snap) return
 
     const start = Date.now()
-    await getJson(`${API}/api/v1/padron/snapshots/${snap.id}/diff?limit=50`, token)
+    await GET('api', `/api/v1/padron/snapshots/${snap.id}/diff?limit=50`, token)
     expect(Date.now() - start).toBeLessThan(3000)
   })
 
   it('Dotaneitor /health responde en menos de 1s', async () => {
     const start = Date.now()
-    await getJson(`${DOTANEITOR}/health`)
+    await GET('dotaneitor', '/health')
     expect(Date.now() - start).toBeLessThan(1000)
   })
 })

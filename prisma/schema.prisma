@@ -167,6 +167,8 @@ model Persona {
   concursosCeetpsDesignado ConcursoCeetps[] @relation("PersonaDesignadaCeetps")
   padronHistorico          PadronHistorico[]
   bajas                    Baja[]
+  postulante               Postulante?
+  ordenMeritoIntegrante    OrdenMeritoIntegrante[]
 
   @@index([numeroDoc])
   @@map("personas")
@@ -223,6 +225,7 @@ model Cargo {
   concursosCeetps ConcursoCeetps[]
   padronHistorico PadronHistorico[]
   bajas           Baja[]
+  etiquetas       EtiquetaCargo[]
 
   @@index([hospitalId])
   @@index([escalafonId])
@@ -446,6 +449,12 @@ model ConcursoCph {
   fechaDispoDesierta    DateTime?        @map("fecha_dispo_desierta") @db.Date
   personaDesignadaId    String?          @map("persona_designada_id") @db.Uuid
   suspendido            Boolean          @default(false)
+  // Campos nuevos — datos del CSV histórico y flujo completo
+  ifacs                 String?          @db.VarChar(200)  // expediente IF del IFACS
+  insal                 String?          @db.VarChar(200)  // expediente IF del INSAL
+  cambioEspecialidad          Boolean  @default(false) @map("cambio_especialidad")
+  motivoCambioEspecialidad     String?  @map("motivo_cambio_especialidad") @db.Text
+  qInscriptos           Int?             @map("q_inscriptos")
   pendienteAutorizacion        Boolean          @default(false) @map("pendiente_autorizacion")
   aprobadoDirector             Boolean          @default(false) @map("aprobado_director")
   siglaSolicitada              String?          @map("sigla_solicitada") @db.VarChar(20)
@@ -460,6 +469,10 @@ model ConcursoCph {
   cargo            Cargo     @relation(fields: [cargoId], references: [id])
   hospital         Hospital  @relation(fields: [hospitalId], references: [id])
   personaDesignada Persona?  @relation("PersonaDesignadaCph", fields: [personaDesignadaId], references: [id])
+  etiquetas        EtiquetaConcursoCph[]
+  ordenesMerito    OrdenMerito[]
+  postulantes      PostulanteConcurso[]
+  integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
 
   @@index([hospitalId])
   @@index([estado])
@@ -577,6 +590,7 @@ model Baja {
   // baja_id nullable en ConcursoCph: hay concursos por ampliación sin baja
   // previa (22% de los datos reales — ver análisis CSV)
   concursos       Concurso[]
+  etiquetas       EtiquetaBaja[]
 
   @@index([cargoId])
   @@index([hospitalId])
@@ -631,7 +645,7 @@ model SolicitudAlta {
   expediente       String?            @db.VarChar(150)
   desde            DateTime?          @db.Date
   cantidad         Int                @default(1)
-  etiqueta         String?            @db.VarChar(100)
+  // etiqueta campo libre eliminado — reemplazado por EtiquetaSolicitudAlta (N:M)
   estado           SolicitudAltaEstado @default(pendiente)
   solicitadoPorId  String?            @map("solicitado_por_id") @db.Uuid
   // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
@@ -644,6 +658,7 @@ model SolicitudAlta {
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
   solicitadoPor   Usuario?        @relation("SolicitudAltaSolicitadaPor", fields: [solicitadoPorId], references: [id])
+  etiquetas       EtiquetaSolicitudAlta[]
 
   @@index([hospitalId])
   @@index([estado])
@@ -771,6 +786,178 @@ model AuditLog {
   @@index([entidad])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// =============================================================================
+// ETIQUETAS — catálogo global de agrupación (cargos, concursos, bajas)
+// Una etiqueta es un nombre de grupo libre asignable a cualquier entidad.
+// El permiso de crear/asignar lo controla el módulo donde se opera.
+// =============================================================================
+
+model Etiqueta {
+  id        String   @id @default(uuid()) @db.Uuid
+  nombre    String   @unique @db.VarChar(100)
+  color     String?  @db.VarChar(20)   // hex o nombre CSS, ej. "#e11d48"
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  cargos      EtiquetaCargo[]
+  concursos   EtiquetaConcursoCph[]
+  bajas       EtiquetaBaja[]
+  altas       EtiquetaSolicitudAlta[]
+
+  @@map("etiquetas")
+}
+
+model EtiquetaCargo {
+  etiquetaId String @map("etiqueta_id") @db.Uuid
+  cargoId    String @map("cargo_id") @db.Uuid
+
+  etiqueta Etiqueta @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  cargo    Cargo    @relation(fields: [cargoId], references: [id], onDelete: Cascade)
+
+  @@id([etiquetaId, cargoId])
+  @@map("etiquetas_cargo")
+}
+
+model EtiquetaConcursoCph {
+  etiquetaId    String @map("etiqueta_id") @db.Uuid
+  concursoCphId String @map("concurso_cph_id") @db.Uuid
+
+  etiqueta    Etiqueta    @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  concursoCph ConcursoCph @relation(fields: [concursoCphId], references: [id], onDelete: Cascade)
+
+  @@id([etiquetaId, concursoCphId])
+  @@map("etiquetas_concurso_cph")
+}
+
+model EtiquetaBaja {
+  etiquetaId String @map("etiqueta_id") @db.Uuid
+  bajaId     String @map("baja_id") @db.Uuid
+
+  etiqueta Etiqueta @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  baja     Baja     @relation(fields: [bajaId], references: [id], onDelete: Cascade)
+
+  @@id([etiquetaId, bajaId])
+  @@map("etiquetas_baja")
+}
+
+model EtiquetaSolicitudAlta {
+  etiquetaId       String @map("etiqueta_id") @db.Uuid
+  solicitudAltaId  String @map("solicitud_alta_id") @db.Uuid
+
+  etiqueta      Etiqueta      @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  solicitudAlta SolicitudAlta @relation(fields: [solicitudAltaId], references: [id], onDelete: Cascade)
+
+  @@id([etiquetaId, solicitudAltaId])
+  @@map("etiquetas_solicitud_alta")
+}
+
+// =============================================================================
+// ORDEN DE MÉRITO — documento reutilizable entre concursos
+// Vigencia: 6 meses desde fechaPublicacion + prorroga opcional de 60 días.
+// Un concurso de la misma especialidad debe alertar si hay una OM vigente.
+// =============================================================================
+
+enum EstadoOrdenMerito {
+  vigente
+  prorrogada
+  vencida
+}
+
+model OrdenMerito {
+  id              String             @id @default(uuid()) @db.Uuid
+  concursoCphId   String             @map("concurso_cph_id") @db.Uuid
+  especialidad    String             @db.VarChar(200)
+  puesto          String?            @db.VarChar(200)
+  expediente      String?            @db.VarChar(200)  // IF del orden de mérito
+  fechaPublicacion DateTime          @map("fecha_publicacion") @db.Date
+  // fechaVencimiento = fechaPublicacion + 6 meses (calculado al crear, no editable)
+  fechaVencimiento DateTime          @map("fecha_vencimiento") @db.Date
+  // prorroga: +60 días adicionales desde fechaVencimiento (nullable = sin prórroga)
+  fechaProrroga   DateTime?          @map("fecha_prorroga") @db.Date
+  estado          EstadoOrdenMerito  @default(vigente)
+  observaciones   String?            @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  concursoCph  ConcursoCph            @relation(fields: [concursoCphId], references: [id])
+  integrantes  OrdenMeritoIntegrante[]
+
+  @@index([especialidad, estado])
+  @@map("ordenes_merito")
+}
+
+model OrdenMeritoIntegrante {
+  id              String    @id @default(uuid()) @db.Uuid
+  ordenMeritoId   String    @map("orden_merito_id") @db.Uuid
+  // personaId nullable: el candidato puede no estar en el padrón
+  personaId       String?   @map("persona_id") @db.Uuid
+  cuil            String    @db.VarChar(11)
+  apellidoNombre  String    @map("apellido_nombre") @db.VarChar(200)
+  especialidad    String?   @db.VarChar(200)
+  posicion        Int       // lugar en el orden de mérito (1 = primero)
+  designado       Boolean   @default(false)
+  // concursoCphDesignadoId: qué concurso lo designó (para reutilización)
+  concursoCphDesignadoId String? @map("concurso_cph_designado_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  ordenMerito          OrdenMerito  @relation(fields: [ordenMeritoId], references: [id], onDelete: Cascade)
+  persona              Persona?     @relation(fields: [personaId], references: [id])
+  concursoCphDesignado ConcursoCph? @relation("IntegranteDesignadoEn", fields: [concursoCphDesignadoId], references: [id])
+
+  @@unique([ordenMeritoId, posicion])
+  @@unique([ordenMeritoId, cuil])
+  @@index([cuil])
+  @@map("orden_merito_integrantes")
+}
+
+// =============================================================================
+// POSTULANTES — personas que se postulan a concursos CPH
+// Pueden o no estar en el padrón (personaId nullable).
+// Al cargar un CUIL que ya existe en Persona se vincula automáticamente.
+// =============================================================================
+
+enum EstadoPostulacion {
+  inscripto
+  admitido
+  rechazado
+}
+
+model Postulante {
+  id             String    @id @default(uuid()) @db.Uuid
+  // personaId nullable: postulante externo que no está en el padrón
+  personaId      String?   @unique @map("persona_id") @db.Uuid
+  cuil           String    @unique @db.VarChar(11)
+  apellidoNombre String    @map("apellido_nombre") @db.VarChar(200)
+  especialidad   String?   @db.VarChar(200)
+  // fuente: si vino del padrón o es externo (se postuló sin estar en planta)
+  esExterno      Boolean   @default(false) @map("es_externo")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  persona       Persona?              @relation(fields: [personaId], references: [id])
+  postulaciones PostulanteConcurso[]
+
+  @@map("postulantes")
+}
+
+model PostulanteConcurso {
+  id              String             @id @default(uuid()) @db.Uuid
+  postulanteId    String             @map("postulante_id") @db.Uuid
+  concursoCphId   String             @map("concurso_cph_id") @db.Uuid
+  fechaPostulacion DateTime          @map("fecha_postulacion") @db.Date
+  estado          EstadoPostulacion  @default(inscripto)
+  observaciones   String?            @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  postulante  Postulante  @relation(fields: [postulanteId], references: [id])
+  concursoCph ConcursoCph @relation(fields: [concursoCphId], references: [id])
+
+  // Un postulante no puede inscribirse dos veces al mismo concurso
+  @@unique([postulanteId, concursoCphId])
+  @@index([concursoCphId])
+  @@map("postulantes_concurso")
 }
 
 // =============================================================================

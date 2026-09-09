@@ -226,6 +226,7 @@ export function NuevaBajaPage() {
 
   // ── paso 2 ──
   const [generaConcurso, setGeneraConcurso] = useState<boolean | null>(null)
+  const [tipoConcursoSeleccionado, setTipoConcursoSeleccionado] = useState<TipoConcurso>('cph' as TipoConcurso)
 
   // ── UI ──
   const [guardando, setGuardando] = useState(false)
@@ -259,6 +260,10 @@ export function NuevaBajaPage() {
     }
     if ((bajaExistente as any).cargaHoraria) {
       setCargaHoraria(String((bajaExistente as any).cargaHoraria))
+    }
+    // Restaurar decisión genera_concurso del borrador
+    if (typeof bajaExistente.generaConcurso === 'boolean') {
+      setGeneraConcurso(bajaExistente.generaConcurso)
     }
     if (bajaExistente.cargoId) {
       setCargandoCargo(true)
@@ -341,7 +346,7 @@ export function NuevaBajaPage() {
       cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
       observaciones: observaciones || undefined,
       generaConcurso: conConcurso,
-      ...(conConcurso && { tipoConcurso: 'cph' as TipoConcurso }),
+      ...(conConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
     }
   }
 
@@ -349,7 +354,8 @@ export function NuevaBajaPage() {
     mutationFn: async (conConcurso: boolean) => {
       const body = buildBody(conConcurso)
       if (modoEdicion) {
-        const res = await apiClient.patch<{ data: Baja }>(`/api/v1/bajas/${bajaId}`, { ...body, estado: 'pendiente' })
+        // Sale del borrador → confirmada directamente
+        const res = await apiClient.patch<{ data: Baja }>(`/api/v1/bajas/${bajaId}`, { ...body, estado: 'confirmada' })
         return res.data.data
       }
       const res = await apiClient.post<{ data: Baja }>('/api/v1/bajas', body)
@@ -359,7 +365,29 @@ export function NuevaBajaPage() {
 
   const mutBorrador = useMutation({
     mutationFn: async () => {
-      const body = { ...buildBody(false), estado: 'resolucion_a_la_firma' }
+      // Borrador: solo datos del paso 1, sin tocar generaConcurso ni tipoConcurso
+      // El usuario todavía no decidió si genera concurso (eso es paso 2)
+      const body: Record<string, unknown> = {
+        cargoId: cargo!.id,
+        hospitalId: cargo!.hospitalId,
+        personaId: cargo!.ocupacionActual?.personaId ?? cargo!.historial?.[0]?.personaId ?? undefined,
+        fechaBaja: fechaBaja || undefined,
+        motivo: motivo || undefined,
+        tipoBaja: motivo || undefined,
+        tipificadorOrigen: origen || undefined,
+        eeBaja: exBaja || undefined,
+        partida: partida || undefined,
+        docRespaldatoria: docRespaldatoria || undefined,
+        fechaPaseParalelo: fechaPaseParalelo || undefined,
+        cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
+        observaciones: observaciones || undefined,
+        estado: 'resolucion_a_la_firma',
+        // Si ya pasó por paso 2 y decidió, preservar la decisión
+        ...(generaConcurso !== null && {
+          generaConcurso,
+          ...(generaConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
+        }),
+      }
       if (modoEdicion) {
         const res = await apiClient.patch<{ data: Baja }>(`/api/v1/bajas/${bajaId}`, body)
         return res.data.data
@@ -401,8 +429,20 @@ export function NuevaBajaPage() {
       } else {
         navigate(sinConcurso ? '/cargos/baja' : '/cargos/alta-por-baja')
       }
-    } catch {
-      setError('No se pudo registrar la baja. Intentá de nuevo.')
+    } catch (e: any) {
+      const status = e?.response?.status
+      const msg = e?.response?.data?.message ?? e?.message ?? ''
+      // 409: ya existe concurso abierto para este cargo — ir directo a él
+      if (status === 409 && conConcurso && cargo) {
+        try {
+          const res = await apiClient.get<{ data: { id: string }[] }>('/api/v1/concursos-cph', {
+            params: { cargoId: cargo.id, limit: 1 },
+          })
+          const id = res.data.data[0]?.id
+          if (id) { navigate(`/concursos/cph/${id}/wizard`); return }
+        } catch { /* ignorar, mostrar error abajo */ }
+      }
+      setError(msg || 'No se pudo registrar la baja. Intentá de nuevo.')
     } finally {
       setGuardando(false)
     }
@@ -682,7 +722,7 @@ export function NuevaBajaPage() {
             <div className="p-6 space-y-3">
               {[
                 { val: true,  titulo: 'Sí, genera concurso CPH', desc: `Se registra la baja y se abre el seguimiento del concurso para el cargo ${cargo?.codigo ?? ''}.` },
-                { val: false, titulo: 'No, solo registrar la baja', desc: 'La baja queda registrada. Se puede iniciar un concurso más adelante.' },
+                { val: false, titulo: 'No, solo registrar la baja', desc: 'La baja queda registrada sin generar concurso. El cargo pasa a no vigente.' },
               ].map(({ val, titulo, desc }) => (
                 <button
                   key={String(val)}
@@ -711,6 +751,28 @@ export function NuevaBajaPage() {
                   </div>
                 </button>
               ))}
+              {generaConcurso === true && (
+                <div className="mt-2 pl-2">
+                  <label className="label text-xs">Tipo de concurso</label>
+                  <div className="flex gap-3 mt-1">
+                    {(['cph', 'ceetps'] as TipoConcurso[]).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setTipoConcursoSeleccionado(t)}
+                        className={[
+                          'px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-colors uppercase',
+                          tipoConcursoSeleccionado === t
+                            ? 'border-secondary bg-secondary text-white'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300',
+                        ].join(' ')}
+                      >
+                        {t.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
               <button className="btn-outline" onClick={() => setPaso(1)}>← Volver</button>
@@ -765,8 +827,8 @@ export function NuevaBajaPage() {
                 <span className="text-xl">{generaConcurso ? '⚖️' : '📋'}</span>
                 <p className={`font-semibold text-sm ${generaConcurso ? 'text-blue-800' : 'text-gray-700'}`}>
                   {generaConcurso
-                    ? 'Se registrará la baja y se abrirá el seguimiento del concurso CPH'
-                    : 'Se registrará la baja sin generar concurso'}
+                    ? `Se registrará la baja y se abrirá el seguimiento del concurso ${tipoConcursoSeleccionado.toUpperCase()}`
+                    : 'Se registrará la baja sin generar concurso. El cargo pasará a no vigente.'}
                 </p>
               </div>
             </div>
@@ -777,7 +839,7 @@ export function NuevaBajaPage() {
               <div className="flex items-center gap-3">
                 {error && <span className="text-sm text-danger">{error}</span>}
                 <button className="btn-primary" disabled={guardando} onClick={() => confirmar(generaConcurso === true)}>
-                  {guardando ? 'Registrando...' : generaConcurso ? 'Registrar baja e iniciar concurso →' : 'Registrar baja'}
+                  {guardando ? 'Registrando...' : generaConcurso ? `Registrar baja e iniciar concurso ${tipoConcursoSeleccionado.toUpperCase()} →` : 'Registrar baja'}
                 </button>
               </div>
             </div>
