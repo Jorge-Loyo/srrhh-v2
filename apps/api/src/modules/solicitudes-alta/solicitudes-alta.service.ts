@@ -40,7 +40,6 @@ export async function createSolicitudAltaService(
         expediente:       body.expediente ?? null,
         desde:            body.desde ? new Date(body.desde) : null,
         cantidad:         body.cantidad,
-        etiqueta:         body.etiqueta ?? null,
         solicitadoPorId,
       },
       include,

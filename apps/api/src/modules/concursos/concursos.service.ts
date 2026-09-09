@@ -82,7 +82,7 @@ export async function createConcursoTx(
       },
     })
 
-    // S14-4/5: notificar a sdravs cuando el concurso se inicia desde un alta
+    // S14-4/5: notificar a sgravs cuando el concurso se inicia desde un alta
     if (body.motivoConcurso) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
@@ -92,7 +92,7 @@ export async function createConcursoTx(
       const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
       await crearNotificacion({
         tipo: 'concurso_iniciado',
-        rolSlug: 'sdravs',
+        rolSlug: 'sgrasv',
         titulo: `Nuevo concurso CPH iniciado — ${label}`,
         mensaje: `Se inició un concurso CPH para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
         origenTipo: 'concurso_cph',
@@ -115,7 +115,7 @@ export async function createConcursoTx(
       },
     })
 
-    // S14-4/5: notificar a sdravs cuando el concurso se inicia desde un alta
+    // S14-4/5: notificar a sgravs cuando el concurso se inicia desde un alta
     if (body.motivoConcurso) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
@@ -125,7 +125,7 @@ export async function createConcursoTx(
       const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
       await crearNotificacion({
         tipo: 'concurso_iniciado',
-        rolSlug: 'sdravs',
+        rolSlug: 'sgrasv',
         titulo: `Nuevo concurso CEETPS iniciado — ${label}`,
         mensaje: `Se inició un concurso CEETPS para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
         origenTipo: 'concurso_ceetps',
