@@ -140,10 +140,12 @@ export function ConcursoCeetpsDetail() {
                 onExport={(fmt) => (fmt === 'pdf' ? exportCeetpsPdf(concurso, 'validacion') : exportCeetpsWord(concurso, 'validacion'))}
               />
             )}
-            <ExportDropdown
-              label="Autorización"
-              onExport={(fmt) => (fmt === 'pdf' ? exportCeetpsPdf(concurso, 'autorizacion') : exportCeetpsWord(concurso, 'autorizacion'))}
-            />
+            {concurso.expedienteConcurso && (
+              <ExportDropdown
+                label="Autorización"
+                onExport={(fmt) => (fmt === 'pdf' ? exportCeetpsPdf(concurso, 'autorizacion') : exportCeetpsWord(concurso, 'autorizacion'))}
+              />
+            )}
           </div>
         </div>
 

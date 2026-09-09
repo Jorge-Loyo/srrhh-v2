@@ -27,6 +27,7 @@ export const patchConcursoCeetpsSchema = z
     apertura2x18: z.boolean(),
     informeApertura: z.string().trim().max(150).nullable(),
     expedienteConcurso2: z.string().trim().max(150).nullable(),
+    cantidadCargos: z.number().int().min(1).nullable(),
     fechaIfacs: fecha.nullable(),
     fechaInsal: fecha.nullable(),
     expedienteDesignacion: z.string().trim().max(150).nullable(),

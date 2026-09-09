@@ -805,10 +805,12 @@ export function ConcursoCphWizard() {
                   onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'validacion') : exportCphWord(cphData, 'validacion'))}
                 />
               )}
-              <ExportDropdown
-                label="Autorización"
-                onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'autorizacion') : exportCphWord(cphData, 'autorizacion'))}
-              />
+              {cphData.eeConcurso && (
+                <ExportDropdown
+                  label="Autorización"
+                  onExport={(fmt) => (fmt === 'pdf' ? exportCphPdf(cphData, 'autorizacion') : exportCphWord(cphData, 'autorizacion'))}
+                />
+              )}
             </div>
           )}
         </div>

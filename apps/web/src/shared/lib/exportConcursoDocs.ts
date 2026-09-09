@@ -109,7 +109,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
         cierre: 'Asimismo, se AUTORIZA la cobertura de las vacantes, según detalle:',
         camposVerde: [
           ['Expediente de Concurso', data.eeConcurso],
-          ['Cantidad de Cargos', '1'],
+          ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
           ['Puesto', puestoSolic],
           ['Especialidad', especSolic],
           ['Efector', efector],
@@ -144,7 +144,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
         cierre: 'Asimismo, se autoriza la cobertura de la vacante, en reemplazo de la mencionada baja.',
         camposVerde: [
           ['Expediente de Concurso', data.eeConcurso],
-          ['Cantidad de Cargos', '1'],
+          ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
           ['Puesto', `${puestoSolic} - Suplente`],
           ['Especialidad', especSolic],
           ['Efector', efector],
@@ -183,7 +183,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
         cierre: `Asimismo, se autoriza la vacante por la baja indicada.\n\n${decreto}`,
         camposVerde: [
           ['Expediente de Concurso', data.eeConcurso],
-          ['Cantidad de Cargos', '1'],
+          ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
           ['Puesto', puestoSolic],
           ['Especialidad', especSolic],
           ['Efector', efector],
@@ -209,7 +209,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
       cierre: 'Asimismo, se autoriza la vacante por la baja indicada.',
       camposVerde: [
         ['Expediente de Concurso', data.eeConcurso],
-        ['Cantidad de Cargos', '1'],
+        ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
         ['Puesto', puestoSolic],
         ['Especialidad', esJefatura ? '-' : especSolic],
         ['Efector', efector],
@@ -282,7 +282,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
           cierre: 'Asimismo, se AUTORIZA la cobertura de las vacantes que a continuación se detallan.\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
           camposVerde: [
             ['Expediente(s) de Concurso', data.expedienteConcurso],
-            ['Cantidad de Cargos', '1'],
+            ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
             ['Puesto', puestoSolic],
             ['Especialidad', especBaja],
             ['Efector', efector],
@@ -336,7 +336,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
         cierre: 'Asimismo, se autoriza cobertura de la vacante en reemplazo de la mencionada baja.',
         camposVerde: [
           ['Expediente de Concurso', data.expedienteConcurso],
-          ['Cantidad de Cargos', '1'],
+          ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
           ['Puesto', 'Enfermería Profesional'],
           ['Especialidad', '-'],
           ['Efector', efector],
@@ -368,7 +368,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
           cierre: 'Asimismo, se AUTORIZA la cobertura de la vacante de:\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
           camposVerde: [
             ['Expediente(s) de Concurso', data.expedienteConcurso],
-            ['Cantidad de Cargos', '1'],
+            ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
             ['Puesto', puestoSolic],
             ['Especialidad', especBaja],
             ['Efector', efector],
@@ -393,7 +393,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
         cierre: 'Asimismo, se autoriza la vacante por la baja indicada.',
         camposVerde: [
           ['Expediente de Concurso', data.expedienteConcurso],
-          ['Cantidad de Cargos', '1'],
+          ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
           ['Puesto', puestoSolic],
           ['Especialidad', especBaja],
           ['Efector', efector],
@@ -420,7 +420,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
       cierre: 'Asimismo, se AUTORIZA la cobertura de la vacante, en reemplazo de la mencionada baja.',
       camposVerde: [
         ['Expediente de Concurso', data.expedienteConcurso],
-        ['Cantidad de Cargos', '1'],
+        ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
         ['Puesto', puestoSolic],
         ['Especialidad', especBaja],
         ['Efector', efector],

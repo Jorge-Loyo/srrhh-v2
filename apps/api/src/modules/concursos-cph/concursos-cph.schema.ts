@@ -71,6 +71,7 @@ export const patchConcursoCphSchema = z
     // Desierto
     dispoDesierta: z.string().trim().max(50).nullable(),
     fechaDispoDesierta: fecha.nullable(),
+    cantidadCargos: z.number().int().min(1).nullable(),
     observaciones: z.string().trim().max(2000).nullable(),
     // Campos de autorización (sigla/codigoRegistro cambiados)
     pendienteAutorizacion: z.boolean().nullable(),

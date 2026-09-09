@@ -326,6 +326,7 @@ export interface ConcursoCph {
   cargoSial: string | null
   dispoDesierta: string | null
   fechaDispoDesierta: string | null
+  cantidadCargos: number
   personaDesignadaId: string | null
   suspendido: boolean
   pendienteAutorizacion: boolean
@@ -355,6 +356,7 @@ export interface ConcursoCeetps {
   apertura2x18: boolean
   informeApertura: string | null
   expedienteConcurso2: string | null
+  cantidadCargos: number
   fechaIfacs: string | null
   fechaInsal: string | null
   expedienteDesignacion: string | null
@@ -667,6 +669,7 @@ export interface PatchConcursoCphRequest {
   personaDesignadaId?: string | null
   dispoDesierta?: string | null
   fechaDispoDesierta?: string | null
+  cantidadCargos?: number | null
   observaciones?: string | null
 }
 
@@ -941,6 +944,7 @@ export interface PatchConcursoCeetpsRequest {
   apertura2x18?: boolean
   informeApertura?: string | null
   expedienteConcurso2?: string | null
+  cantidadCargos?: number | null
   fechaIfacs?: string | null
   fechaInsal?: string | null
   expedienteDesignacion?: string | null

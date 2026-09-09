@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros)
+> Última actualización: 2026-09 (Sprint 15 — Autorización de Baja de Cargo)
 > Estado: VIGENTE
 
 ---

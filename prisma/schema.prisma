@@ -483,6 +483,9 @@ model ConcursoCph {
   cargoSial             String?          @map("cargo_sial") @db.VarChar(50)
   dispoDesierta         String?          @map("dispo_desierta") @db.VarChar(50)
   fechaDispoDesierta    DateTime?        @map("fecha_dispo_desierta") @db.Date
+  // Cantidad de cargos a cubrir — 1 en el caso estándar, >1 en ampliaciones
+  // con múltiples expedientes (ej. Ampliación de 3 cargos en un solo concurso).
+  cantidadCargos        Int              @default(1) @map("cantidad_cargos")
   personaDesignadaId    String?          @map("persona_designada_id") @db.Uuid
   suspendido            Boolean          @default(false)
   // Campos nuevos — datos del CSV histórico y flujo completo
@@ -539,6 +542,7 @@ model ConcursoCeetps {
   apertura2x18          Boolean             @default(false) @map("apertura_2x18")
   informeApertura       String?             @map("informe_apertura") @db.VarChar(150)
   expedienteConcurso2   String?             @map("expediente_concurso_2") @db.VarChar(150)
+  cantidadCargos        Int                 @default(1) @map("cantidad_cargos")
   fechaIfacs            DateTime?           @map("fecha_ifacs") @db.Date
   fechaInsal            DateTime?           @map("fecha_insal") @db.Date
   expedienteDesignacion String?             @map("expediente_designacion") @db.VarChar(150)
