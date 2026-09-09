@@ -28,6 +28,9 @@ import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
 import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
+import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
+import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
+import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
 
 export const router = createBrowserRouter([
   {
@@ -68,6 +71,9 @@ export const router = createBrowserRouter([
           },
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
+          { path: 'organigrama', element: <OrganigramaHomePage /> },
+          { path: 'organigrama/:id', element: <OrganigramaDetallePage /> },
+          { path: 'organigrama/:id/arbol', element: <OrganigramaArbolPage /> },
           { path: 'kpis', element: <KpisPage /> },
           // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
           // guardada en favoritos; el destino real ya vive bajo /configuracion.

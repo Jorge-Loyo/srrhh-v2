@@ -193,7 +193,16 @@ export function AppShell() {
           {/* Divisor — sección admin */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
 
-          {/* Padrón Semanal */}
+          {/* Organigrama — visible para todos los usuarios autenticados */}
+          <NavLink to="/organigrama"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Organigrama' : undefined}>
+            <span className="text-base shrink-0">🏛️</span>
+            {!collapsed && <span className="truncate">Organigrama</span>}
+          </NavLink>
+
+          {/* Divisor — sección admin */}
+          <div className="border-t border-gray-200 mt-2 pt-2" />
           {can(user, 'padron', 'ver') && (
             <NavLink to="/padron"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
