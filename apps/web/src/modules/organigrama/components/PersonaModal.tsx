@@ -92,18 +92,20 @@ export default function PersonaModal({ open, onClose, data }: Props) {
           </div>
 
           {/* Puesto en el organigrama */}
-          <div className="mt-4 bg-white/10 border border-white/15 rounded-xl px-3 py-2 flex items-center gap-2 flex-wrap">
-            {nodeTitle && (
-              <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${tipoColor(nodeTitle)}`}>
-                {nodeTitle}
-              </span>
-            )}
-            <p className="text-white/90 text-sm font-medium truncate flex-1">{stripRedundantPrefix(nodeName)}</p>
+          <div className="mt-4 bg-white/10 border border-white/15 rounded-xl px-3 py-2 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              {nodeTitle && (
+                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${tipoColor(nodeTitle)}`}>
+                  {nodeTitle}
+                </span>
+              )}
+              <p className="text-white/90 text-sm font-medium">{stripRedundantPrefix(nodeName)}</p>
+            </div>
             {persona.hospital && (
-              <span className="text-white/50 text-xs flex items-center gap-1 shrink-0">
-                <BuildingOffice2Icon className="w-3.5 h-3.5" />
+              <p className="text-white/60 text-xs flex items-center gap-1">
+                <BuildingOffice2Icon className="w-3.5 h-3.5 flex-shrink-0" />
                 {persona.hospital}
-              </span>
+              </p>
             )}
           </div>
         </div>
