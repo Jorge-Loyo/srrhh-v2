@@ -39,7 +39,7 @@ interface Props {
 function Row({ label, value }: { label: string; value: string | null }) {
   if (!value) return null
   return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-gray-50 last:border-0">
+    <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-gray-100 last:border-0">
       <span className="text-xs text-gray-400 font-medium shrink-0">{label}</span>
       <span className="text-xs text-gray-800 font-semibold text-right">{value}</span>
     </div>
@@ -60,30 +60,30 @@ export default function PersonaModal({ open, onClose, data }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
 
-        {/* ── Header ── */}
-        <div className="relative bg-primary-700 px-6 pt-5 pb-6">
+        {/* ── Header azul navy ── */}
+        <div className="relative bg-navy px-6 pt-5 pb-5">
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 p-1.5 rounded-lg text-white/60 hover:bg-white/15 hover:text-white transition-colors"
+            className="absolute top-3 right-3 p-1.5 rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-colors"
           >
             <XMarkIcon className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center flex-shrink-0">
-              <UserCircleIcon className="w-8 h-8 text-white/80" />
+            <div className="w-14 h-14 rounded-2xl bg-secondary/30 border border-white/20 flex items-center justify-center flex-shrink-0">
+              <UserCircleIcon className="w-8 h-8 text-white" />
             </div>
             <div className="min-w-0">
               <p className="text-white font-bold text-lg leading-tight">{persona.nombre}</p>
               {persona.especialidadPersona && (
-                <p className="text-primary-100 text-sm mt-0.5">{toTitleCase(persona.especialidadPersona)}</p>
+                <p className="text-secondary-light text-sm mt-0.5">{toTitleCase(persona.especialidadPersona)}</p>
               )}
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                <span className="text-xs bg-white/15 text-white/90 px-2 py-0.5 rounded-full font-mono">
+                <span className="text-xs bg-white/10 text-white/80 px-2 py-0.5 rounded-full font-mono">
                   CUIL {formatCuil(persona.cuil)}
                 </span>
                 {persona.sexo && (
-                  <span className="text-xs bg-white/15 text-white/90 px-2 py-0.5 rounded-full">
+                  <span className="text-xs bg-white/10 text-white/80 px-2 py-0.5 rounded-full">
                     {persona.sexo === 'M' ? 'Masculino' : persona.sexo === 'F' ? 'Femenino' : persona.sexo}
                   </span>
                 )}
@@ -91,16 +91,16 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             </div>
           </div>
 
-          {/* Puesto en el organigrama — superpuesto sobre el header */}
-          <div className="mt-4 bg-white/10 border border-white/20 rounded-xl px-3 py-2 flex items-center gap-2">
+          {/* Puesto en el organigrama */}
+          <div className="mt-4 bg-white/10 border border-white/15 rounded-xl px-3 py-2 flex items-center gap-2 flex-wrap">
             {nodeTitle && (
               <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${tipoColor(nodeTitle)}`}>
                 {nodeTitle}
               </span>
             )}
-            <p className="text-white/90 text-sm font-medium truncate">{stripRedundantPrefix(nodeName)}</p>
+            <p className="text-white/90 text-sm font-medium truncate flex-1">{stripRedundantPrefix(nodeName)}</p>
             {persona.hospital && (
-              <span className="ml-auto text-white/60 text-xs flex items-center gap-1 shrink-0">
+              <span className="text-white/50 text-xs flex items-center gap-1 shrink-0">
                 <BuildingOffice2Icon className="w-3.5 h-3.5" />
                 {persona.hospital}
               </span>
@@ -112,16 +112,16 @@ export default function PersonaModal({ open, onClose, data }: Props) {
 
           {/* ── Datos personales ── */}
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-primary-600 mb-2">Datos personales</p>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-secondary mb-2">Datos personales</p>
             <div className="bg-gray-50 rounded-xl px-4 py-1">
               <Row label="Fecha de nacimiento" value={edad != null ? `${formatFecha(persona.fechaNacimiento)} (${edad} años)` : formatFecha(persona.fechaNacimiento)} />
               <Row label="Antigüedad en Salud" value={persona.antiguedadDesde ? `Desde ${formatFecha(persona.antiguedadDesde)}${antiguedad != null ? ` (${antiguedad} años)` : ''}` : null} />
               {persona.mailLaboral && (
-                <div className="flex items-center justify-between gap-3 py-1.5 border-b border-gray-50">
+                <div className="flex items-center justify-between gap-3 py-1.5 border-b border-gray-100">
                   <span className="text-xs text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
                     <EnvelopeIcon className="w-3.5 h-3.5" /> Mail laboral
                   </span>
-                  <a href={`mailto:${persona.mailLaboral}`} className="text-xs text-primary-600 font-semibold hover:underline text-right truncate">
+                  <a href={`mailto:${persona.mailLaboral}`} className="text-xs text-secondary font-semibold hover:underline text-right truncate">
                     {persona.mailLaboral}
                   </a>
                 </div>
@@ -139,7 +139,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
 
           {/* ── Datos del cargo ── */}
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-primary-600 mb-2">Cargo en el organigrama</p>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-secondary mb-2">Cargo en el organigrama</p>
             <div className="bg-gray-50 rounded-xl px-4 py-1">
               <Row label="Puesto" value={persona.cargo} />
               <Row label="Especialidad" value={toTitleCase(persona.especialidadCargo)} />
@@ -155,7 +155,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
               onClick={() => go(`/personas/${persona.personaId}`)}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold transition-colors shadow-sm"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-navy hover:bg-navy/90 text-white text-sm font-semibold transition-colors shadow-sm"
             >
               <IdentificationIcon className="w-4 h-4" />
               Ver persona
@@ -163,7 +163,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             <button
               onClick={() => persona.cargoId && go(`/cargos/${persona.cargoId}`)}
               disabled={!persona.cargoId}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-secondary/30 bg-secondary/5 hover:bg-secondary/10 text-secondary text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <BriefcaseIcon className="w-4 h-4" />
               Ver cargo
