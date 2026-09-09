@@ -4,6 +4,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CreateConcursoBody } from './concursos.schema.js'
 import { calcConcursoCph, type ConcursoCphCalcInput } from '../concursos-cph/concursosCph.calc.js'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const CALC_INPUT_VACIO: Omit<ConcursoCphCalcInput, 'suspendido' | 'eeBaja' | 'fechaBaja'> = {
   eeConcurso: null,
@@ -54,6 +55,7 @@ export async function createConcursoTx(
       motivo: body.motivo ?? null,
       expediente: body.expediente ?? null,
       tipoConcurso: body.tipoConcurso,
+      motivoConcurso: body.motivoConcurso ?? null,
       registradoPorId: usuarioId,
     },
   })
@@ -79,6 +81,26 @@ export async function createConcursoTx(
         subEstado3: calc.subEstado3,
       },
     })
+
+    // S14-4/5: notificar a sdravs cuando el concurso se inicia desde un alta
+    if (body.motivoConcurso) {
+      const cargo = await tx.cargo.findUnique({
+        where: { id: body.cargoId },
+        select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
+      })
+      const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
+      const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
+      await crearNotificacion({
+        tipo: 'concurso_iniciado',
+        rolSlug: 'sdravs',
+        titulo: `Nuevo concurso CPH iniciado — ${label}`,
+        mensaje: `Se inició un concurso CPH para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
+        origenTipo: 'concurso_cph',
+        origenId: concursoCph.id,
+        origenKey: `concurso_iniciado:cph:${concursoCph.id}`,
+      })
+    }
+
     return { concurso, concursoCph }
   }
 
@@ -92,6 +114,26 @@ export async function createConcursoTx(
         puestoSolicitado: body.puestoSolicitado ?? null,
       },
     })
+
+    // S14-4/5: notificar a sdravs cuando el concurso se inicia desde un alta
+    if (body.motivoConcurso) {
+      const cargo = await tx.cargo.findUnique({
+        where: { id: body.cargoId },
+        select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
+      })
+      const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
+      const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
+      await crearNotificacion({
+        tipo: 'concurso_iniciado',
+        rolSlug: 'sdravs',
+        titulo: `Nuevo concurso CEETPS iniciado — ${label}`,
+        mensaje: `Se inició un concurso CEETPS para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
+        origenTipo: 'concurso_ceetps',
+        origenId: concursoCeetps.id,
+        origenKey: `concurso_iniciado:ceetps:${concursoCeetps.id}`,
+      })
+    }
+
     return { concurso, concursoCeetps }
   }
 

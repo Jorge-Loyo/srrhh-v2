@@ -148,6 +148,7 @@ export function ConcursosCphPage() {
                       <th className="px-4 py-3 font-semibold">Disposición</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
@@ -177,6 +178,14 @@ export function ConcursosCphPage() {
                             <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
+                          <td className="px-4 py-3">
+                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
+                              <span className="badge-info text-xs">Nuevo cargo</span>
+                            )}
+                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Hoy' : `${dias} días`}</span>
                           </td>

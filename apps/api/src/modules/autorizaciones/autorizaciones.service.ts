@@ -317,6 +317,31 @@ async function _aprobarAltaCargo(
       }
     }
 
-    return tx.autorizacion.findUnique({ where: { id: aut.id } })
+    // S14-3: determinar si el cargo puede iniciar concurso
+    const CPH_CODIGOS    = new Set(['22', '37'])
+    const CEETPS_CODIGOS = new Set(['83', '85', '87'])
+    const cod = solicitud.escalafon.codigo
+    let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
+    if (CPH_CODIGOS.has(cod))    tipoConcursoSugerido = 'cph'
+    else if (CEETPS_CODIGOS.has(cod)) tipoConcursoSugerido = 'ceetps'
+
+    const primeroId = cargosCreadosIds[0]!
+    const puedeIniciarConcurso = tipoConcursoSugerido !== null
+
+    return {
+      autorizacion: await tx.autorizacion.findUnique({ where: { id: aut.id } }),
+      puedeIniciarConcurso,
+      ...(puedeIniciarConcurso && {
+        concursoInfo: {
+          cargoId:              primeroId,
+          hospitalId:           solicitud.hospitalId,
+          codigo:               null as string | null, // se resuelve en el frontend con el id
+          literalPuesto:        solicitud.literalPuesto,
+          hospitalSigla:        solicitud.hospital.sigla,
+          tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
+          escalafonId:          solicitud.escalafonId,
+        },
+      }),
+    }
   })
 }

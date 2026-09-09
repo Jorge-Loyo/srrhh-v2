@@ -44,6 +44,11 @@ enum TipoConcurso {
   sin_concurso
 }
 
+enum MotivoConcurso {
+  nuevo_cargo
+  alta_por_baja
+}
+
 enum EstadoConcursoCph {
   no_iniciado
   activo
@@ -413,6 +418,7 @@ model Concurso {
   motivo         String?      @db.VarChar(200)
   expediente     String?      @db.VarChar(150)
   tipoConcurso   TipoConcurso @map("tipo_concurso")
+  motivoConcurso  MotivoConcurso? @map("motivo_concurso")
   registradoPorId String?     @map("registrado_por") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
@@ -1158,6 +1164,7 @@ enum TipoNotificacion {
   baja_pendiente
   autorizacion_pendiente
   autorizacion_resuelta
+  concurso_iniciado
 }
 
 model Notificacion {

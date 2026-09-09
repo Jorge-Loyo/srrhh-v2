@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
@@ -122,6 +122,13 @@ export function AutorizacionesPage() {
   const [modal, setModal] = useState<{ id: string; accion: 'aprobar' | 'rechazar' } | null>(null)
   const [obs, setObs] = useState('')
   const [informativas, setInformativas] = useState<Set<string>>(new Set())
+  // S14-7: modal post-aprobación de alta_cargo
+  const [modalConcurso, setModalConcurso] = useState<{
+    cargoId: string; hospitalId: string; codigo: string | null
+    literalPuesto: string | null; hospitalSigla: string
+    tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
+  } | null>(null)
+  const navigate = useNavigate()
 
   function marcarInformativa(referenciaId: string) {
     setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
@@ -146,7 +153,14 @@ export function AutorizacionesPage() {
   async function confirmar() {
     if (!modal) return
     const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
-    await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+    const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+    // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
+    if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
+      const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
+      if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
+        setModalConcurso(res.data.concursoInfo)
+      }
+    }
     cerrarModal()
   }
 
@@ -171,6 +185,44 @@ export function AutorizacionesPage() {
           ))}
         </select>
       </div>
+
+      {/* Modal iniciar concurso post-alta (S14-7) */}
+      {modalConcurso && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="font-primary font-bold text-gray-900">¿Iniciar concurso?</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                El cargo <span className="font-semibold">{modalConcurso.codigo ?? '—'}</span> ({modalConcurso.literalPuesto}) en <span className="font-semibold">{modalConcurso.hospitalSigla}</span> fue creado.
+              </p>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-600">
+              ¿Querés iniciar un concurso <span className="font-semibold uppercase">{modalConcurso.tipoConcursoSugerido}</span> para este cargo ahora?
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button className="btn-outline" onClick={() => setModalConcurso(null)}>Ahora no</button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    cargoId:       modalConcurso.cargoId,
+                    hospitalId:    modalConcurso.hospitalId,
+                    tipoConcurso:  modalConcurso.tipoConcursoSugerido,
+                    escalafonId:   modalConcurso.escalafonId,
+                    motivoConcurso: 'nuevo_cargo',
+                    origen:        'Alta de cargo',
+                    fechaVacante:  new Date().toISOString().slice(0, 10),
+                  })
+                  setModalConcurso(null)
+                  navigate(`/concursos/${modalConcurso.tipoConcursoSugerido === 'cph' ? 'cph/nuevo/wizard' : `ceetps/nuevo`}?${params}`)
+                }}
+              >
+                Sí, iniciar concurso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal resolver */}
       {modal && modalItem && (

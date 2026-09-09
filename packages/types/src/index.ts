@@ -42,6 +42,12 @@ export const TipoConcurso = {
 } as const
 export type TipoConcurso = typeof TipoConcurso[keyof typeof TipoConcurso]
 
+export const MotivoConcurso = {
+  NUEVO_CARGO:  'nuevo_cargo',
+  ALTA_POR_BAJA: 'alta_por_baja',
+} as const
+export type MotivoConcurso = typeof MotivoConcurso[keyof typeof MotivoConcurso]
+
 export const EstadoConcursoCph = {
   NO_INICIADO: 'no_iniciado',
   ACTIVO: 'activo',
@@ -272,6 +278,7 @@ export interface Concurso {
   motivo: string | null
   expediente: string | null
   tipoConcurso: TipoConcurso
+  motivoConcurso: MotivoConcurso | null
   createdAt: string
   // Relaciones expandidas
   persona?: Persona
@@ -384,6 +391,7 @@ export const TipoNotificacion = {
   BAJA_PENDIENTE:         'baja_pendiente',
   AUTORIZACION_PENDIENTE: 'autorizacion_pendiente',
   AUTORIZACION_RESUELTA:  'autorizacion_resuelta',
+  CONCURSO_INICIADO:      'concurso_iniciado',
 } as const
 export type TipoNotificacion = typeof TipoNotificacion[keyof typeof TipoNotificacion]
 
@@ -605,9 +613,7 @@ export interface CreateUsuarioRequest {
   hospitalId?: string
 }
 
-// S4-6 — POST /api/v1/concursos. Carga manual por ahora (el disparador
-// automático "baja con genera_concurso" es S5-5, todavía no existe módulo
-// de Bajas) — de ahí que `origen` sea texto libre en vez de una FK.
+// S4-6 — POST /api/v1/concursos.
 export interface CreateConcursoRequest {
   cargoId: string
   hospitalId: string
@@ -617,6 +623,7 @@ export interface CreateConcursoRequest {
   motivo?: string
   expediente?: string
   tipoConcurso: TipoConcurso
+  motivoConcurso?: MotivoConcurso
   // Seed inicial opcional del ConcursoCph hijo (tipoConcurso = cph)
   especialidadSolicitada?: string
   eeBaja?: string
@@ -887,6 +894,22 @@ export interface CreateCargoRequest {
   desde?: string
   cantidad?: number
   forzar?: boolean
+}
+
+// S14-3 — respuesta de POST /api/v1/cargos cuando el cargo puede iniciar concurso
+export interface CreateCargoResponse {
+  cargos: (Cargo & { hospital: Hospital; escalafon: Escalafon })[]
+  puedeIniciarConcurso: boolean
+  // Solo presente cuando puedeIniciarConcurso = true
+  concursoInfo?: {
+    cargoId: string
+    hospitalId: string
+    codigo: string | null
+    literalPuesto: string | null
+    hospitalSigla: string
+    tipoConcursoSugerido: TipoConcurso
+    escalafonId: string
+  }
 }
 
 // S5-4 — POST /api/v1/bajas
