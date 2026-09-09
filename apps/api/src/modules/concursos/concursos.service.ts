@@ -82,7 +82,7 @@ export async function createConcursoTx(
       },
     })
 
-    // S14-4/5: notificar a sgravs cuando el concurso se inicia desde un alta
+    // S14-4/5: notificar a sgrasv cuando el concurso se inicia desde un alta
     if (body.motivoConcurso) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
@@ -115,7 +115,7 @@ export async function createConcursoTx(
       },
     })
 
-    // S14-4/5: notificar a sgravs cuando el concurso se inicia desde un alta
+    // S14-4/5: notificar a sgrasv cuando el concurso se inicia desde un alta
     if (body.motivoConcurso) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
