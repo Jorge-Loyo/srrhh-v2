@@ -9,10 +9,17 @@ export interface OrganigramaPersona {
   nombre: string
   cargo: string | null
   cuil: string
+  sexo: string | null
+  especialidadPersona: string | null
+  mailLaboral: string | null
+  telefono: string | null
   fechaNacimiento: string | null
   antiguedadDesde: string | null
   cargoDesde: string | null
   cargoHasta: string | null
+  especialidadCargo: string | null
+  escalafon: string | null
+  hospital: string | null
 }
 
 export interface OrganigramaNodo {

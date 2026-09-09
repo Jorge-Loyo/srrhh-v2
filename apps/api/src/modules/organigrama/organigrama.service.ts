@@ -37,10 +37,17 @@ interface PersonaNodo {
   nombre: string
   cargo: string | null
   cuil: string
+  sexo: string | null
+  especialidadPersona: string | null
+  mailLaboral: string | null
+  telefono: string | null
   fechaNacimiento: string | null
   antiguedadDesde: string | null
   cargoDesde: string | null
   cargoHasta: string | null
+  especialidadCargo: string | null
+  escalafon: string | null
+  hospital: string | null
 }
 
 interface OrganigramaNodo {
@@ -143,6 +150,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       codigo: true,
       literalPuesto: true,
       unificadorPuesto: true,
+      especialidadLegacy: true,
+      escalafon: { select: { nombre: true } },
+      hospital: { select: { nombre: true } },
       codigoRegistro: { select: { codigo: true } },
       ocupaciones: {
         where: { hasta: null },
@@ -152,7 +162,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           idSialRol: true,
           cargoDesdeFecha: true,
           cargoHastaFecha: true,
-          persona: { select: { id: true, apellidoNombre: true, cuil: true, fechaNacimiento: true, antiguedadDesde: true } },
+          persona: { select: { id: true, apellidoNombre: true, cuil: true, sexo: true, especialidadPrincipal: true, mailLaboral: true, telefono: true, fechaNacimiento: true, antiguedadDesde: true } },
         },
       },
     },
@@ -176,10 +186,17 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       nombre: ocup.persona.apellidoNombre,
       cargo: cargo.literalPuesto,
       cuil: ocup.persona.cuil,
+      sexo: ocup.persona.sexo ?? null,
+      especialidadPersona: ocup.persona.especialidadPrincipal ?? null,
+      mailLaboral: ocup.persona.mailLaboral ?? null,
+      telefono: ocup.persona.telefono ?? null,
       fechaNacimiento: ocup.persona.fechaNacimiento?.toISOString() ?? null,
       antiguedadDesde: ocup.persona.antiguedadDesde?.toISOString() ?? null,
       cargoDesde: ocup.cargoDesdeFecha?.toISOString() ?? null,
       cargoHasta: ocup.cargoHastaFecha?.toISOString() ?? null,
+      especialidadCargo: cargo.especialidadLegacy ?? null,
+      escalafon: cargo.escalafon?.nombre ?? null,
+      hospital: cargo.hospital?.nombre ?? null,
     })
   }
 
