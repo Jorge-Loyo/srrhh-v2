@@ -3,7 +3,7 @@
 
 > Documento maestro de planificación ágil. Estado general, decisiones transversales y backlog.
 > El **detalle completo de cada sprint** (tareas, hallazgos, verificaciones) vive en `Sprints/`.
-> Última actualización: 2026-09 (Sprint 15 — Autorización baja de cargo, cantidadCargos exportables, bloqueo autorización sin caratula)
+> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 >
@@ -40,6 +40,7 @@
 | Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros | ✅ Completo — 2026-09 | — | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md` |
 | Sprint 14 — Concurso desde Alta de Cargo | ✅ Completado — commits `06a8b84`, `815f7f9`, `cfb6cd0` | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
 | Post-Sprint 14 — Migración legacy organigrama | ✅ Completo — 2026-09-09 | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
+| Post-Sprint 15 — Organigrama: personas en cargos + PersonaModal | ✅ Completo — commits `345bc28`…`0dc226a` | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
 | Post-Sprint 14 — Personas/Cargos exportables | ✅ Completo — 2026-09-07 | — | `Sprints/POST_SPRINT_14_personas_cargos_exportables.md` |
 | Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
 

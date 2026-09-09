@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Sprint 15 — Autorizaciones baja_cargo, organigrama, jerarquía de roles)
+> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo)
 > Estado: VIGENTE
 
 ---
@@ -89,10 +89,10 @@ apps/web/
 │   │   │   ├── components/
 │   │   │   │   ├── OrganigramaTreeNode.tsx
 │   │   │   │   ├── OrganigramaFlowView.tsx  ← lazy-loaded (React Flow)
-│   │   │   │   ├── PersonaModal.tsx
+│   │   │   │   ├── PersonaModal.tsx         ← ficha enriquecida: datos persona + cargo, links a /personas/:id y /cargos/:id
 │   │   │   │   └── VacantesModal.tsx
 │   │   │   ├── hooks/
-│   │   │   │   └── useOrganigrama.ts
+│   │   │   │   └── useOrganigrama.ts        ← OrganigramaPersona: personaId, cargoId, idSialRol, codigoCargo, sexo, especialidad, mail, tel, escalafon, hospital
 │   │   │   ├── lib/
 │   │   │   │   └── organigramaHelpers.ts
 │   │   │   └── pages/

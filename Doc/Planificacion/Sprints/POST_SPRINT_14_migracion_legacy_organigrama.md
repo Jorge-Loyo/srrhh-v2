@@ -132,9 +132,44 @@ distintas, ver el hallazgo de la sección anterior.
 | # | Pendiente | Bloqueante | Estado |
 |---|---|---|---|
 | 1 | Rebuild del container `api` para que `/organigrama/upload` quede disponible, y probar la pantalla "Árbol" desde la UI real | — | ✅ Resuelto — Sprint 15 (`docker compose up -d --build api`) |
-| 2 | Investigar por qué `Cargo.unificadorPuesto` está vacío en el 100% de los cargos (ver hallazgo arriba) | Decisión de Agustín: pausado, no ahora | ⏳ Pendiente — requiere correr `seed_referencias.py` o `migrar_ref_dotacion.py` (Dotaneitor, no código de app) |
+| 2 | Investigar por qué `Cargo.unificadorPuesto` está vacío en el 100% de los cargos (ver hallazgo arriba) | Decisión de Agustín: pausado, no ahora | ✅ Resuelto — Post-Sprint 15 (ver sección siguiente) |
 | 3 | Averiguar por qué `docker-compose.override.yml` no remapea a 5433 en esta máquina (quedó en 5432) | No bloqueante, solo prolijidad | ⏳ Sin investigar |
 | 4 | Commitear y mergear (quedó en `deploy` sin commitear) | — | ✅ Resuelto — commiteado en rama `jorge`, commits `fdb35b5` y `8129a80` |
 | 5 | Repetir el import inicial (y decidir cómo distribuir el Excel de carga) contra producción cuando esto se despliegue | El dump de origen (`dotacion-rrhh/Doc/schema_only.sql`) no viaja a producción | ⏳ Pendiente deploy |
 | 6 | Elegir el próximo ítem de la lista de gaps (recorridas, hospitales, auditoría o tokens) | Decisión de negocio | ⏳ Sin decidir |
 | 7 | `ConfiguracionReferenciasPage` (`/configuracion/referencias`) — página de administración de las 10 tablas `ref_*` de Dotaneitor — implementada en `apps/web/src/modules/configuracion/pages/ConfiguracionReferenciasPage.tsx` pero **no conectada al router ni al menú**. Requiere agregar la ruta y el link en `AppShell.tsx` | No bloqueante | ⏳ Pendiente |
+
+---
+
+## Post-Sprint 15 — Personas en cargos del organigrama + PersonaModal enriquecido
+
+**Fecha:** 2026-09 | **Commits:** `345bc28`, `04cfb47`, `dec5878`, `2eb15e1`, `8febd50`, `d9d8cce`, `b1f3d13`, `174a921`, `0dc226a`
+
+### Problema resuelto: todos los nodos salían "Vacante"
+
+Causa raíz: `esCargoDeConduccion()` comparaba `unificadorPuesto` con Sets de strings en Title Case exacto (`'CPH de Planta'`, `'Jefe/a de SECCION'`), pero la BD tiene los valores en MAYÚSCULAS (`'CPH DE PLANTA'`, `'JEFE/A DE SECCION'`). Resultado: cero matches → 100% vacantes.
+
+**Fix (`345bc28`):** normalizar a `toLowerCase().trim()` antes de comparar. Todos los Sets pasaron a lowercase. Además se separó `Director/a Medico/a` y `Subdirector/a Medico/a` del grupo que requiere `codigoJefaturas` — son cargos de conducción por definición (igual que en la app vieja donde `CONDICION_CARGOS` los agrupa con los CPH sin exigir `j_categoria`).
+
+**Resultado:** HGARM pasa de 0 a 190/222 nodos con persona asignada. A nivel global: 3.861 de 4.374 nodos con persona (88%), 513 genuinamente vacantes (12%).
+
+### Triangulación persona ↔ organigrama
+
+Cada nodo del organigrama con persona asignada ahora expone en el payload:
+- `personaId` — UUID de `personas`, permite navegar directo a `/personas/:id`
+- `cargoId` — UUID de `cargos`, permite navegar directo a `/cargos/:id`
+- `idSialRol` — identificador SIAL del rol exacto en ese puesto (`XXXXXXXXX-N-CUIL-N`)
+- `codigoCargo` — código legible del cargo (`CARGO-000082`, `CPH-POF-012022`, etc.)
+- `sexo`, `especialidadPersona`, `mailLaboral`, `telefono` — de `personas`
+- `especialidadCargo`, `escalafon`, `hospital` — de `cargos` + joins
+
+Todos estos campos se agregan al select de Prisma en `getOrganigramaService` sin query adicional — vienen del mismo join que ya existía.
+
+### PersonaModal rediseñado
+
+- **Header** `bg-navy` con avatar, nombre, especialidad, badges CUIL y sexo
+- **Banda de puesto**: badge tipo coloreado + nombre del nodo (sin prefijo redundante) + nombre del hospital en línea separada (sin truncate)
+- **Sección "Datos personales"**: fecha nac + edad, antigüedad en Salud, mail laboral (link `mailto:`), teléfono
+- **Sección "Cargo en el organigrama"**: puesto literal, especialidad en Title Case, escalafón, desde/hasta, código de cargo, ID SIAL Rol (solo primeros dos segmentos, sin CUIL)
+- **Botones**: "Ver persona" (`bg-navy`) → `/personas/:personaId` y "Ver cargo" (outline `secondary`) → `/cargos/:cargoId`
+- Colores del tema Obelisco GCBA: `navy` (`#1A2B4A`) para header, `secondary` (`#0066CC`) para acentos y títulos de sección. `primary` es amarillo GCBA — no se usa en este modal.
