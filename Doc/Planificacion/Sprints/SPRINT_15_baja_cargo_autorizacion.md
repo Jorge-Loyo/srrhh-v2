@@ -1,6 +1,6 @@
 # SPRINT 15 — Autorización de Baja de Cargo
 
-**Estado:** 🔄 En curso
+**Estado:** ✅ Completado — commit `b9d20de`, 2026-09
 **Fecha:** 2026-09
 **Autor:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge`
@@ -72,9 +72,18 @@ DIRECTOR en /autorizaciones
 | S15-3 | `_aprobarBajaCargo(autorizacion, tx)` en `autorizaciones.service.ts`: `Baja.estado = 'confirmada'` | Jorge | 2h | 🔴 Crítico |
 | S15-4 | `_rechazarBajaCargo(autorizacion, tx)` en `autorizaciones.service.ts`: `Baja.estado = 'anulada'` + `cargo → vigente` | Jorge | 2h | 🔴 Crítico |
 | S15-5 | Conectar S15-3/S15-4 al dispatcher de `POST /autorizaciones/:id/aprobar` y `POST /autorizaciones/:id/rechazar` (mismo patrón que `alta_cargo` y `concurso_cph`) | Jorge | 1h | 🔴 Crítico |
-| S15-6 | `BajaCargosPage`: columna **Estado** con badge `Pendiente` (naranja) / `Confirmada` (verde) / `Anulada` (rojo). Hoy los badges existen pero los estados nunca cambian | Agustín | 2h | 🔴 Crítico |
-| S15-7 | `AutorizacionesPage`: las autorizaciones de tipo `baja_cargo` muestran en el panel de detalle el cargo, hospital y motivo de la baja (igual que `alta_cargo` muestra los datos de la solicitud) | Agustín | 3h | 🟡 Medio |
-| S15-8 | Verificación end-to-end: registrar baja → aparece en `/autorizaciones` del director → aprobar → baja pasa a `confirmada` → rechazar → baja pasa a `anulada` + cargo vuelve a `vigente` | Jorge + Agustín | 2h | 🔴 Crítico |
+| S15-6 | `BajaCargosPage`: columna **Estado** con badge `Pendiente` (naranja) / `Confirmada` (verde) / `Anulada` (rojo). Hoy los badges existen pero los estados nunca cambian | Agustín | 2h | 🔴 Crítico | ✅ |
+| S15-7 | `AutorizacionesPage`: las autorizaciones de tipo `baja_cargo` muestran en el panel de detalle el cargo, hospital y motivo de la baja (igual que `alta_cargo` muestra los datos de la solicitud) | Agustín | 3h | 🟡 Medio | ✅ |
+| S15-8 | Verificación end-to-end: registrar baja → aparece en `/autorizaciones` del director → aprobar → baja pasa a `confirmada` → rechazar → baja pasa a `anulada` + cargo vuelve a `vigente` | Jorge + Agustín | 2h | 🔴 Crítico | ✅ |
+
+### Tareas adicionales completadas en esta sesión
+
+| # | Tarea | Estado |
+| - | ----- | ------ |
+| S15-A | `cantidadCargos` en exportables CPH/CEETPS: campo en schema Prisma, migración SQL, types, Zod PATCH, `exportConcursoDocs.ts` (reemplaza `'1'` hardcodeado) | ✅ |
+| S15-B | Rebuild container `api` — `POST /organigrama/upload` disponible | ✅ |
+| S15-C | Botón Autorización en `ConcursoCphWizard` bloqueado hasta que `eeConcurso` tenga valor (caratulado) | ✅ |
+| S15-D | Botón Autorización en `ConcursoCeetpsDetail` bloqueado hasta que `expedienteConcurso` tenga valor | ✅ |
 
 ---
 
@@ -109,12 +118,12 @@ Todo ──► S15-8
 
 ## Criterio de éxito
 
-- [ ] Una baja registrada genera automáticamente una autorización pendiente para el director
-- [ ] El director ve la baja en `/autorizaciones` con datos del cargo y motivo
-- [ ] Aprobar → baja pasa a `confirmada`
-- [ ] Rechazar → baja pasa a `anulada` + cargo vuelve a `vigente`
-- [ ] `BajaCargosPage` muestra los estados reales (no siempre `pendiente`)
-- [ ] El flujo existente de baja (cargo → `no_vigente`, concurso) no se rompe
+- [x] Una baja registrada genera automáticamente una autorización pendiente para el director
+- [x] El director ve la baja en `/autorizaciones` con datos del cargo y motivo
+- [x] Aprobar → baja pasa a `confirmada`
+- [x] Rechazar → baja pasa a `anulada` + cargo vuelve a `vigente`
+- [x] `BajaCargosPage` muestra los estados reales (no siempre `pendiente`)
+- [x] El flujo existente de baja (cargo → `no_vigente`, concurso) no se rompe
 
 ---
 

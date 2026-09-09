@@ -41,7 +41,7 @@
 | Sprint 14 — Concurso desde Alta de Cargo | ✅ Completado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
 | Post-Sprint 14 — Migración legacy organigrama | ✅ Completo — 2026-09-09 | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
 | Post-Sprint 14 — Personas/Cargos exportables | ✅ Completo — 2026-09-07 | — | `Sprints/POST_SPRINT_14_personas_cargos_exportables.md` |
-| Sprint 15 — Autorización de Baja de Cargo | 🔄 En curso | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
+| Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
 
 ---
 

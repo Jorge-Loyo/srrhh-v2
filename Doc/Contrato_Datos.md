@@ -1,7 +1,7 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 (Post-Sprint 12 + Auditoría especialidad_legacy + pg_trgm)
+> Última actualización: 2026-09 (Sprint 15 — `cantidad_cargos` en `concursos_cph` y `concursos_ceetps`)
 > Estado: VIGENTE
 
 ---
@@ -366,6 +366,7 @@ Seguimiento de concursos de la Carrera Profesional Hospitalaria (Ley 6.035).
 | `cargo_sial` | VARCHAR(50) | Código SIAL del cargo asignado tras la designación |
 | `dispo_desierta` | VARCHAR(50) | — |
 | `fecha_dispo_desierta` | DATE | — |
+| `cantidad_cargos` | INTEGER default 1 | Cantidad de cargos a cubrir. 1 en el caso estándar; >1 en ampliaciones con múltiples expedientes |
 | `persona_designada_id` | UUID FK → personas | — |
 | `suspendido` | BOOLEAN | — |
 | `pendiente_autorizacion` | BOOLEAN default false | Modificación de sigla/código pendiente de aprobación por SGRASV |
@@ -405,6 +406,7 @@ Seguimiento de concursos ENF / TEC / EG (Leyes 6.767 / 6.035 / 471).
 | `expediente_designacion` | VARCHAR(150) | — |
 | `dispo_designacion` | VARCHAR(500) | — |
 | `resolucion_designacion` | VARCHAR(500) | — |
+| `cantidad_cargos` | INTEGER default 1 | Cantidad de cargos a cubrir. 1 en el caso estándar; >1 en ampliaciones |
 | `persona_designada_id` | UUID FK → personas | — |
 | `observaciones` | TEXT | — |
 | `created_at` | TIMESTAMPTZ | — |

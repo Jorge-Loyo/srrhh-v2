@@ -1,7 +1,7 @@
 # POST-SPRINT 14 — Migración de funcionalidad legacy: Organigrama
 
 **Fecha:** 2026-09-08 | **Autor:** Agustin + Claude
-**Rama:** `deploy` (sin commitear todavía)
+**Rama:** `jorge` (commiteado — commits `fdb35b5` y `8129a80`)
 **Continúa:** `POST_SPRINT_14_migracion_legacy_tablas_referencia.md` (mismo trabajo de migración, segundo ítem de la lista de gaps de esa sección 1)
 
 ---
@@ -129,11 +129,11 @@ distintas, ver el hallazgo de la sección anterior.
 
 ## Pendiente
 
-| # | Pendiente | Bloqueante |
-|---|---|---|
-| 1 | Rebuild del container `api` para que `/organigrama/upload` quede disponible, y probar la pantalla "Árbol" desde la UI real | — |
-| 2 | Investigar por qué `Cargo.unificadorPuesto` está vacío en el 100% de los cargos (ver hallazgo arriba) | Decisión de Agustín: pausado, no ahora |
-| 3 | Averiguar por qué `docker-compose.override.yml` no remapea a 5433 en esta máquina (quedó en 5432) | No bloqueante, solo prolijidad |
-| 4 | Commitear y mergear (quedó en `deploy` sin commitear) | — |
-| 5 | Repetir el import inicial (y decidir cómo distribuir el Excel de carga) contra producción cuando esto se despliegue | El dump de origen (`dotacion-rrhh/Doc/schema_only.sql`) no viaja a producción |
-| 6 | Elegir el próximo ítem de la lista de gaps (recorridas, hospitales, auditoría o tokens) | Decisión de negocio |
+| # | Pendiente | Bloqueante | Estado |
+|---|---|---|---|
+| 1 | Rebuild del container `api` para que `/organigrama/upload` quede disponible, y probar la pantalla "Árbol" desde la UI real | — | ✅ Resuelto — Sprint 15 (`docker compose up -d --build api`) |
+| 2 | Investigar por qué `Cargo.unificadorPuesto` está vacío en el 100% de los cargos (ver hallazgo arriba) | Decisión de Agustín: pausado, no ahora | ⏳ Pendiente — requiere correr `seed_referencias.py` o `migrar_ref_dotacion.py` (Dotaneitor, no código de app) |
+| 3 | Averiguar por qué `docker-compose.override.yml` no remapea a 5433 en esta máquina (quedó en 5432) | No bloqueante, solo prolijidad | ⏳ Sin investigar |
+| 4 | Commitear y mergear (quedó en `deploy` sin commitear) | — | ✅ Resuelto — commiteado en rama `jorge`, commits `fdb35b5` y `8129a80` |
+| 5 | Repetir el import inicial (y decidir cómo distribuir el Excel de carga) contra producción cuando esto se despliegue | El dump de origen (`dotacion-rrhh/Doc/schema_only.sql`) no viaja a producción | ⏳ Pendiente deploy |
+| 6 | Elegir el próximo ítem de la lista de gaps (recorridas, hospitales, auditoría o tokens) | Decisión de negocio | ⏳ Sin decidir |
