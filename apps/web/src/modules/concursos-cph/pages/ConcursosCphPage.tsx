@@ -6,6 +6,7 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
+import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import {
   ESTADO_LABEL,
   ESTADO_BADGE,
@@ -25,6 +26,7 @@ export function ConcursosCphPage() {
   const [subEstado3, setSubEstado3] = useState('')
   const [suspendido, setSuspendido] = useState<'' | 'true' | 'false'>('')
   const [page, setPage] = useState(1)
+  const [showFlujo, setShowFlujo] = useState(false)
   const searchDebounced = useDebounce(search, 300)
 
   const filters: ConcursoCphFilters = {
@@ -53,6 +55,9 @@ export function ConcursosCphPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
+          <button className="btn-outline" onClick={() => setShowFlujo(true)}>
+            📋 Flujo del concurso
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -224,6 +229,7 @@ export function ConcursosCphPage() {
           </>
         )}
       </div>
+      {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
     </div>
   )
 }

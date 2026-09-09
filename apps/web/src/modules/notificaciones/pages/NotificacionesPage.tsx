@@ -17,6 +17,7 @@ const TIPO_LABELS: Record<string, string> = {
   baja_pendiente:         'Baja pendiente',
   autorizacion_pendiente: 'Autorización pendiente',
   autorizacion_resuelta:  'Autorización resuelta',
+  concurso_iniciado:      'Concurso iniciado',
 }
 
 const TIPO_BADGE: Record<string, string> = {
@@ -24,6 +25,7 @@ const TIPO_BADGE: Record<string, string> = {
   baja_pendiente:         'badge-danger',
   autorizacion_pendiente: 'badge-info',
   autorizacion_resuelta:  'badge-success',
+  concurso_iniciado:      'badge-info',
 }
 
 function formatFecha(iso: string) {
