@@ -1,4 +1,5 @@
-import { UserCircleIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { UserCircleIcon, XMarkIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
+import { useNavigate } from 'react-router-dom'
 import { tipoColor } from '../lib/organigramaHelpers'
 import type { PersonaSeleccionada } from './OrganigramaTreeNode'
 
@@ -36,6 +37,7 @@ interface Props {
 // datos que ya vienen embebidos en la respuesta de /api/v1/organigrama (sin
 // pedir nada nuevo al backend al hacer click).
 export default function PersonaModal({ open, onClose, data }: Props) {
+  const navigate = useNavigate()
   if (!open || !data) return null
   const { persona, nodeName, nodeTitle } = data
   const edad = calcAnios(persona.fechaNacimiento)
@@ -58,9 +60,18 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             <UserCircleIcon className="w-5 h-5 flex-shrink-0" />
             <span className="truncate">{persona.nombre}</span>
           </span>
-          <button onClick={onClose} className="flex-shrink-0 p-1 rounded text-white/80 hover:bg-white/15 hover:text-white">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => { onClose(); navigate(`/personas/${persona.personaId}`) }}
+              title="Ver perfil completo"
+              className="p-1 rounded text-white/80 hover:bg-white/15 hover:text-white flex items-center gap-1 text-xs"
+            >
+              <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+            </button>
+            <button onClick={onClose} className="p-1 rounded text-white/80 hover:bg-white/15 hover:text-white">
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="p-4 sm:p-5">
@@ -83,6 +94,11 @@ export default function PersonaModal({ open, onClose, data }: Props) {
               </div>
             ))}
           </dl>
+          {persona.idSialRol && (
+            <p className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-400 font-mono">
+              ID SIAL Rol: {persona.idSialRol}
+            </p>
+          )}
         </div>
       </div>
     </div>

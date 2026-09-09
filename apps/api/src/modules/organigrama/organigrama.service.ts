@@ -30,6 +30,8 @@ const XLSX = require('xlsx') as {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PersonaNodo {
+  personaId: string
+  idSialRol: string | null
   nombre: string
   cargo: string | null
   cuil: string
@@ -143,9 +145,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         take: 1,
         select: {
           codigoJefaturas: true,
+          idSialRol: true,
           cargoDesdeFecha: true,
           cargoHastaFecha: true,
-          persona: { select: { apellidoNombre: true, cuil: true, fechaNacimiento: true, antiguedadDesde: true } },
+          persona: { select: { id: true, apellidoNombre: true, cuil: true, fechaNacimiento: true, antiguedadDesde: true } },
         },
       },
     },
@@ -162,6 +165,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     if (!esCargoDeConduccion(cargo.codigoRegistro?.codigo, cargo.unificadorPuesto, ocup.codigoJefaturas)) continue
 
     personasMap.set(cargo.codigoRepa, {
+      personaId: ocup.persona.id,
+      idSialRol: ocup.idSialRol ?? null,
       nombre: ocup.persona.apellidoNombre,
       cargo: cargo.literalPuesto,
       cuil: ocup.persona.cuil,
