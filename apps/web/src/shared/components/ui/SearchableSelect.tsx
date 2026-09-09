@@ -6,6 +6,10 @@ interface SearchableSelectProps {
   options: string[]
   placeholder: string
   className?: string
+  disabled?: boolean
+  // Para casos donde value es un ID pero options son labels (ej. escalafón, sigla)
+  displayToValue?: (label: string) => string
+  valueToDisplay?: (value: string) => string
 }
 
 // Reportado por Jorge: escribir "medico" no encontraba "Médico de Planta" en
@@ -22,33 +26,37 @@ function normalize(s: string): string {
 // obliga a scrollear a mano. Escribir filtra la lista; clickear una opción
 // confirma el valor; clickear afuera descarta lo tipeado sin confirmar y
 // vuelve al valor real (no deja "a medio escribir" como estado del filtro).
-export function SearchableSelect({ value, onChange, options, placeholder, className }: SearchableSelectProps) {
-  const [query, setQuery] = useState(value)
+export function SearchableSelect({ value, onChange, options, placeholder, className, disabled, displayToValue, valueToDisplay }: SearchableSelectProps) {
+  const toDisplay = (v: string) => (valueToDisplay ? valueToDisplay(v) : v)
+  const toValue   = (label: string) => (displayToValue ? displayToValue(label) : label)
+
+  const [query, setQuery] = useState(() => toDisplay(value))
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Si el value cambia desde afuera (ej. se resetea el filtro al cambiar de
-  // puesto en un dropdown en cascada), sincronizar el texto mostrado.
   useEffect(() => {
-    setQuery(value)
+    setQuery(toDisplay(value))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
-        setQuery(value)
+        setQuery(toDisplay(value))
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   const q = normalize(query.trim())
   const filtered = q ? options.filter((o) => normalize(o).includes(q)) : options
 
   function selectOption(opt: string) {
-    onChange(opt)
+    const val = toValue(opt)
+    onChange(val)
     setQuery(opt)
     setOpen(false)
   }
@@ -65,8 +73,9 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
         type="text"
         value={query}
         placeholder={placeholder}
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen(true)}
+        disabled={disabled}
+        onFocus={() => !disabled && setOpen(true)}
+        onClick={() => !disabled && setOpen(true)}
         onChange={(e) => {
           setQuery(e.target.value)
           setOpen(true)
@@ -74,17 +83,13 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             setOpen(false)
-            setQuery(value)
+            setQuery(toDisplay(value))
           }
         }}
-        // pr-8: deja lugar a la flechita de abajo — sin esto, este input se
-        // ve idéntico a un buscador de texto libre y no como un desplegable
-        // (reportado por Jorge: "parece que desapareció el dropdown").
-        className="h-10 pl-3 pr-8 border border-gray-300 rounded w-full cursor-text focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+        className={`h-10 pl-3 pr-8 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary ${
+          disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'cursor-text'
+        }`}
       />
-      {/* Flechita de desplegable — puramente visual (decorativa, por eso
-          pointer-events-none y aria-hidden), el click real lo maneja el
-          input de arriba. Gira al abrir, mismo affordance que un <select>. */}
       <svg
         aria-hidden="true"
         className={`absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none transition-transform ${
@@ -95,7 +100,7 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
       >
         <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" />
       </svg>
-      {open && (
+      {open && !disabled && (
         <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded shadow-lg">
           {value && (
             <button
@@ -113,7 +118,7 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
               type="button"
               onClick={() => selectOption(opt)}
               className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                opt === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
+                toValue(opt) === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
               }`}
             >
               {opt}

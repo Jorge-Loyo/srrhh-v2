@@ -28,7 +28,8 @@ export const createBajaSchema = z
     tipoBaja: z.string().trim().max(100).optional(),
     motivo: z.string().trim().max(500).optional(),
     tipificadorOrigen: z.string().trim().max(200).optional(),
-    generaConcurso: z.boolean().default(true),
+    // opcional en borrador — el usuario decide en paso 2
+    generaConcurso: z.boolean().optional(),
     eeBaja: z.string().trim().max(500).optional(),
     partida: z.string().trim().max(100).optional(),
     docRespaldatoria: z.string().trim().max(500).optional(),
@@ -39,8 +40,9 @@ export const createBajaSchema = z
     observaciones: z.string().trim().max(2000).optional(),
     estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
   })
+  // Solo validar concurso cuando NO es borrador
   .refine(
-    (d) => !d.generaConcurso || !!d.tipoConcurso,
+    (d) => d.estado === 'resolucion_a_la_firma' || !d.generaConcurso || !!d.tipoConcurso,
     { message: 'tipoConcurso es requerido cuando generaConcurso es true', path: ['tipoConcurso'] }
   )
   .refine(

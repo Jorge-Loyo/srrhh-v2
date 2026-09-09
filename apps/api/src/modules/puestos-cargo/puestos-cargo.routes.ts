@@ -60,7 +60,7 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
     const puesto = await prisma.puestoCargo.findFirst({
       where: {
         activo: true,
-        nombre,
+        nombre: { equals: nombre, mode: 'insensitive' },
         ...(escalafonId && { escalafonId }),
       },
       include: {

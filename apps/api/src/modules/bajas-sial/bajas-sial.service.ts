@@ -330,12 +330,14 @@ export async function getBajasSialDiffService(id: string, query: DiffQuery) {
   if (!snapRows.length) throw AppError.notFound('Snapshot no encontrado')
   const snapshot = snapRows[0]
 
-  const tipoFilter = query.tipo ? `AND tipo = '${query.tipo}'` : ''
+  const tipoFilter = query.tipo ? `AND tipo = $2` : ''
+  const tipoParam  = query.tipo ? [query.tipo] : []
   const offset = (query.page - 1) * query.limit
 
   const [countRows, diffs] = await Promise.all([
     prisma.$queryRawUnsafe<{ count: bigint }[]>(
-      `SELECT COUNT(*) as count FROM baja_sial_diffs WHERE snapshot_id = $1::uuid ${tipoFilter}`, id
+      `SELECT COUNT(*) as count FROM baja_sial_diffs WHERE snapshot_id = $1::uuid ${tipoFilter}`,
+      id, ...tipoParam
     ),
     prisma.$queryRawUnsafe<{
       id: string; tipo: string; cargo: string; cuil: string; ayn: string
@@ -349,8 +351,8 @@ export async function getBajasSialDiffService(id: string, query: DiffQuery) {
               existe_en_personas, tiene_ocup_activa, cod_registro, hospital, especialidad, cod_reg,
               campo, valor_anterior, valor_nuevo
        FROM baja_sial_diffs WHERE snapshot_id = $1::uuid ${tipoFilter}
-       ORDER BY tipo, ayn LIMIT $2 OFFSET $3`,
-      id, query.limit, offset
+       ORDER BY tipo, ayn LIMIT $${tipoParam.length + 2} OFFSET $${tipoParam.length + 3}`,
+      id, ...tipoParam, query.limit, offset
     ),
   ])
 

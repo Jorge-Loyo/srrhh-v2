@@ -13,6 +13,7 @@ import { getCasoCph, exportCphPdf, exportCphWord } from '@/shared/lib/exportConc
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 
 type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
 
@@ -179,7 +180,11 @@ export function ConcursoCphWizard() {
   const etapasIniciales: Etapa[] = useMemo(() => {
     const v = (key: string): string => {
       if (!cphData) return ''
-      return (cphData as unknown as Record<string, unknown>)[key] as string ?? ''
+      const val = (cphData as unknown as Record<string, unknown>)[key]
+      if (!val) return ''
+      // Fechas vienen como ISO string desde la API — truncar a YYYY-MM-DD para input[type=date]
+      if (typeof val === 'string' && val.length > 10 && val.includes('T')) return val.slice(0, 10)
+      return String(val)
     }
     const vb = (key: string): boolean => {
       if (!cphData) return false
@@ -198,9 +203,15 @@ export function ConcursoCphWizard() {
     const tieneInscripcion  = !!(cphData?.fechaExamen || cphData?.fechaOrdenMerito)
     const tieneIfacs        = !!(cphData?.fechaIfacs)
     const tieneDesignacion  = !!(cphData?.fechaResolucion || cphData?.cargoSial)
+    // Si el concurso ya está designado/finalizado/desierto, las etapas intermedias
+    // sin fechas se marcan completadas igual — el concurso pasó por ahí aunque
+    // no se registraron todos los datos (gap de datos del legacy)
+    const yaFinalizado = tieneDesignacion
+      || !!(cphData?.resolucionDesignacion)
+      || !!(cphData?.dispoDesierta)
 
     const estadoEtapa = (condicion: boolean, anterior: boolean): EstadoEtapa => {
-      if (condicion) return 'completada'
+      if (condicion || yaFinalizado) return 'completada'
       if (anterior)  return 'activa'
       return 'pendiente'
     }
@@ -210,7 +221,7 @@ export function ConcursoCphWizard() {
         id: 'baja', numero: 1,
         titulo: 'Baja / Apertura',
         descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
-        estado: (esNuevo || !cphData) ? 'activa' : (cphData.eeConcurso ? 'completada' : 'activa'),
+        estado: (esNuevo || !cphData) ? 'activa' : (cphData.eeConcurso && !cphData.pendienteAutorizacion ? 'completada' : 'activa'),
         fechaCompletada: cphData?.fechaEeConcurso ?? undefined,
         campos: [
           { key: 'eeBaja',                label: 'Expediente de baja',       tipo: 'texto', valor: esNuevo ? (datosBaja?.eeBaja ?? '') : (eeBajaResuelto || v('eeBaja')), readonly: true },
@@ -224,7 +235,7 @@ export function ConcursoCphWizard() {
         id: 'autorizacion', numero: 2,
         titulo: 'Autorización',
         descripcion: 'Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.',
-        estado: estadoEtapa(tieneAutorizacion, !!(cphData?.eeConcurso) || esNuevo),
+        estado: estadoEtapa(tieneAutorizacion, (!!(cphData?.eeConcurso) && !cphData?.pendienteAutorizacion) || esNuevo),
         fechaCompletada: cphData?.fechaAutorizacion ?? undefined,
         campos: [
           { key: 'fechaAutorizacion', label: 'Fecha de autorización',  tipo: 'fecha', valor: v('fechaAutorizacion') },
@@ -239,10 +250,12 @@ export function ConcursoCphWizard() {
         estado: estadoEtapa(tieneInscripcion, tieneAutorizacion),
         fechaCompletada: cphData?.fechaOrdenMerito ?? undefined,
         campos: [
-          { key: 'fechaInscDesde',   label: 'Inscripción desde',    tipo: 'fecha', valor: v('fechaInscDesde') },
-          { key: 'fechaInscHasta',   label: 'Inscripción hasta',    tipo: 'fecha', valor: v('fechaInscHasta') },
-          { key: 'fechaExamen',      label: 'Fecha de examen',      tipo: 'fecha', valor: v('fechaExamen') },
-          { key: 'fechaOrdenMerito', label: 'Fecha orden de mérito', tipo: 'fecha', valor: v('fechaOrdenMerito') },
+          { key: 'fechaInscDesde',     label: 'Inscripción desde',      tipo: 'fecha',    valor: v('fechaInscDesde') },
+          { key: 'fechaInscHasta',     label: 'Inscripción hasta',      tipo: 'fecha',    valor: v('fechaInscHasta') },
+          { key: 'qInscriptos',        label: 'Cantidad inscriptos',    tipo: 'texto',    valor: v('qInscriptos') },
+          { key: 'fechaExamen',        label: 'Fecha de examen',        tipo: 'fecha',    valor: v('fechaExamen') },
+          { key: 'fechaOrdenMerito',   label: 'Fecha orden de mérito',  tipo: 'fecha',    valor: v('fechaOrdenMerito') },
+          { key: 'cambioEspecialidad', label: 'Cambio de especialidad', tipo: 'checkbox', valor: vb('cambioEspecialidad') },
         ],
       },
       {
@@ -251,8 +264,10 @@ export function ConcursoCphWizard() {
         descripcion: 'Informe de Aptitud para el Cargo (IFACS) e Informe INSAL.',
         estado: estadoEtapa(tieneIfacs && !!(cphData?.fechaInsal), tieneInscripcion),
         campos: [
-          { key: 'fechaIfacs', label: 'Fecha IFACS', tipo: 'fecha', valor: v('fechaIfacs'), requerido: true },
-          { key: 'fechaInsal', label: 'Fecha INSAL', tipo: 'fecha', valor: v('fechaInsal'), requerido: true },
+          { key: 'ifacs',      label: 'Expediente IFACS', tipo: 'texto', valor: v('ifacs') },
+          { key: 'fechaIfacs', label: 'Fecha IFACS',      tipo: 'fecha', valor: v('fechaIfacs'), requerido: true },
+          { key: 'insal',      label: 'Expediente INSAL', tipo: 'texto', valor: v('insal') },
+          { key: 'fechaInsal', label: 'Fecha INSAL',      tipo: 'fecha', valor: v('fechaInsal'), requerido: true },
         ],
       },
       {
@@ -277,10 +292,10 @@ export function ConcursoCphWizard() {
         id: 'desierto', numero: 6,
         titulo: 'Desierto (si aplica)',
         descripcion: 'Disposición de desierto si el concurso no prospera.',
-        estado: 'bloqueada',
+        estado: cphData?.dispoDesierta ? 'completada' : 'bloqueada',
         campos: [
-          { key: 'dispoDesierta',     label: 'Disposición de desierto', tipo: 'texto', valor: v('dispoDesierta') },
-          { key: 'fechaDispoDesierta',label: 'Fecha de disposición',    tipo: 'fecha', valor: v('fechaDispoDesierta') },
+          { key: 'dispoDesierta',      label: 'Disposición de desierto', tipo: 'texto', valor: v('dispoDesierta') },
+          { key: 'fechaDispoDesierta', label: 'Fecha de disposición',    tipo: 'fecha', valor: v('fechaDispoDesierta') },
         ],
       },
     ]
@@ -291,6 +306,7 @@ export function ConcursoCphWizard() {
   const [especialidadConcurso, setEspecialidadConcurso] = useState('')
   const [siglaConcurso, setSiglaConcurso] = useState('')
   const [escalafonId, setEscalafonId] = useState('')
+  const [eeConcursoInput, setEeConcursoInput] = useState('')
   // Puestos del escalafón seleccionado (sin filtrar por tipo)
   const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
     escalafonId || undefined,
@@ -310,14 +326,30 @@ export function ConcursoCphWizard() {
     puestoConcurso || undefined
   )
 
-  // Cuando llegan las opciones, corregir especialidadConcurso si no coincide exactamente
-  // (ej: 'Ortopedia y Traumatología' vs 'Ortopedia y Traumatologia' — tildes legacy)
+  // Cuando llegan los puestos disponibles, normalizar puestoConcurso contra la BD
+  // (los cargos legacy tienen MEDICO DE PLANTA, la BD tiene Medico de Planta)
+  useEffect(() => {
+    if (puestosDisponibles.length === 0 || !puestoConcurso) return
+    if (puestosDisponibles.includes(puestoConcurso)) return
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const match = puestosDisponibles.find((p) => normalize(p) === normalize(puestoConcurso))
+    if (match) {
+      setPuestoConcurso(match)
+      setOriginales((prev) => ({ ...prev, puesto: match }))
+    }
+  }, [puestosDisponibles])
+
+  // Cuando llegan las especialidades, normalizar especialidadConcurso contra la BD
+  // (ej: 'UROLOGIA' → 'Urologia', 'Ortopedia y Traumatología' vs sin tilde)
   useEffect(() => {
     if (especialidadesDisponibles.length === 0 || !especialidadConcurso) return
     if (especialidadesDisponibles.includes(especialidadConcurso)) return
     const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     const match = especialidadesDisponibles.find((e) => normalize(e) === normalize(especialidadConcurso))
-    if (match) setEspecialidadConcurso(match)
+    if (match) {
+      setEspecialidadConcurso(match)
+      setOriginales((prev) => ({ ...prev, especialidad: match }))
+    }
   }, [especialidadesDisponibles])
 
   useEffect(() => {
@@ -337,13 +369,19 @@ export function ConcursoCphWizard() {
       resolvedEscalafonId = cr?.escalafonId ?? ''
     }
     setEscalafonId(resolvedEscalafonId)
-    setPuestoConcurso(cargo?.literalPuesto ?? '')
-    setEspecialidadConcurso(cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? '')
+    setEeConcursoInput(cphData.eeConcurso ?? '')
+    // Normalizar puesto y especialidad contra la BD (los cargos legacy vienen en MAYÚSCULAS)
+    // El SearchableSelect ya hace match case-insensitive al cargar, pero los originales
+    // deben compararse en el mismo formato que los valores del wizard (BD normalizada).
+    const rawPuesto = cargo?.literalPuesto ?? ''
+    const rawEspecialidad = cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''
+    setPuestoConcurso(rawPuesto)
+    setEspecialidadConcurso(rawEspecialidad)
     setOriginales({
       sigla: cargo?.hospital?.sigla ?? '',
       escalafonId: resolvedEscalafonId,
-      puesto: cargo?.literalPuesto ?? '',
-      especialidad: cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? '',
+      puesto: rawPuesto,
+      especialidad: rawEspecialidad,
     })
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
@@ -383,6 +421,22 @@ export function ConcursoCphWizard() {
   const [etapaActiva, setEtapaActiva] = useState(
     etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja'
   )
+
+  // Persona designada — se carga al entrar a la etapa de designación
+  const { data: personaDesignada, isLoading: loadingPersona, error: errorPersona } = useQuery({
+    queryKey: ['concurso-cph-persona-designada', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: {
+        fuente: 'persona' | 'cargo_sial' | 'orden_merito'
+        persona: { id: string; cuil: string; apellidoNombre: string; numeroDoc?: string | null; especialidadPrincipal?: string | null; telefono?: string | null; mailLaboral?: string | null } | null
+        cargo: { codigo: string | null; idSial: string; situacionRevista: string | null } | null
+        integrante: { posicion: number; especialidad?: string | null; ordenMerito: { especialidad: string; fechaPublicacion: string } } | null
+      } }>(`/api/v1/concursos-cph/${id}/persona-designada`)
+      return res.data.data
+    },
+    enabled: !esNuevo && !!id && etapaActiva === 'designacion',
+    retry: false,
+  })
   const [suspendido, setSuspendido]   = useState(false)
   const [guardado, setGuardado]       = useState(false)
   const [etapas, setEtapas]           = useState<Etapa[]>(etapasIniciales)
@@ -391,6 +445,15 @@ export function ConcursoCphWizard() {
   const etapasActuales = cphData ? etapasIniciales : etapas
 
   const etapa = etapasActuales.find((e) => e.id === etapaActiva)!
+
+  // Validación de campos requeridos en etapa baja antes de habilitar "Guardar y continuar"
+  const etapaBajaCompleta = etapaActiva !== 'baja' || (
+    !!eeConcursoInput
+    && !!siglaConcurso
+    && !!escalafonId
+    && !!puestoConcurso
+    && (especialidadesDisponibles.length === 0 || !!especialidadConcurso)
+  )
 
   const currentIdxDinamico = (() => {
     const sub = concurso?.subEstado ?? 'VACANTE'
@@ -404,13 +467,20 @@ export function ConcursoCphWizard() {
   function handleGuardar() {
     if (etapaActiva === 'baja' && !esNuevo) {
       const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
-      const cambios: { campo: string; de: string; a: string }[] = []
-      if (siglaConcurso !== originales.sigla)       cambios.push({ campo: 'Sigla',      de: originales.sigla,                a: siglaConcurso })
-      if (escalafonId   !== originales.escalafonId) cambios.push({ campo: 'Escalafón', de: escalafonLabel(labelEsc(originales.escalafonId)), a: escalafonLabel(labelEsc(escalafonId)) })
-      if (puestoConcurso       !== originales.puesto)      cambios.push({ campo: 'Puesto',      de: originales.puesto,               a: puestoConcurso })
-      if (especialidadConcurso !== originales.especialidad) cambios.push({ campo: 'Especialidad', de: originales.especialidad,         a: especialidadConcurso })
-      if (cambios.length > 0) {
-        setModalCambios(cambios)
+      const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
+      // Sigla y escalafón: autorización doble (director → sgrasv)
+      if (siglaConcurso !== originales.sigla)       cambiosConAutorizacion.push({ campo: 'Sigla',     de: originales.sigla,                                    a: siglaConcurso })
+      if (escalafonId   !== originales.escalafonId) cambiosConAutorizacion.push({ campo: 'Escalafón', de: escalafonLabel(labelEsc(originales.escalafonId)), a: escalafonLabel(labelEsc(escalafonId)) })
+      // Especialidad y puesto: autorización simple (solo sgrasv)
+      const eeConcursoActual = cphData?.eeConcurso
+      if (especialidadConcurso !== originales.especialidad) cambiosConAutorizacion.push({ campo: 'Especialidad', de: originales.especialidad, a: especialidadConcurso })
+      if (puestoConcurso !== originales.puesto)             cambiosConAutorizacion.push({ campo: 'Puesto',        de: originales.puesto,        a: puestoConcurso })
+      // eeConcurso: solo si ya tenía valor previo (modificación, no carga inicial)
+      if (eeConcursoActual && eeConcursoInput && eeConcursoInput !== eeConcursoActual) {
+        cambiosConAutorizacion.push({ campo: 'Expediente de Concurso', de: eeConcursoActual, a: eeConcursoInput })
+      }
+      if (cambiosConAutorizacion.length > 0) {
+        setModalCambios(cambiosConAutorizacion)
         return
       }
     }
@@ -427,6 +497,11 @@ export function ConcursoCphWizard() {
           body[key] = el.value || null
         }
       })
+    }
+    // Incluir valores de SearchableSelect (no tienen data-key, viven en estado React)
+    if (etapaActiva === 'baja') {
+      if (especialidadConcurso !== originales.especialidad) body.especialidadSolicitada = especialidadConcurso || null
+      if (puestoConcurso !== originales.puesto) body.puestoSolicitado = puestoConcurso || null
     }
     if (Object.keys(body).length > 0) patchMutation.mutate(body)
 
@@ -502,7 +577,11 @@ export function ConcursoCphWizard() {
               <span className="text-amber-500 text-xl">⚠️</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">Confirmar modificación</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Esta acción quedará pendiente de autorización por una autoridad superior.</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {modalCambios?.some((c) => c.campo === 'Sigla' || c.campo === 'Escalafón')
+                    ? 'Requiere autorización del Director y luego de SGRASV.'
+                    : 'Requiere autorización de SGRASV.'}
+                </p>
               </div>
             </div>
             <div className="px-6 py-4">
@@ -765,13 +844,23 @@ export function ConcursoCphWizard() {
                   <span className="text-blue-400 text-base mt-0.5">🔒</span>
                   <div>
                     <p className="font-semibold text-blue-800">
-                      {etapa.id === 'autorizacion' && 'Esperando acción del rol Director / DGAYDRH'}
+                      {etapa.id === 'autorizacion' && 'Esperando acción del área de Concursos CPH'}
                       {etapa.id === 'inscripcion'  && 'Esperando acción del área de Concursos CPH'}
                       {etapa.id === 'ifacs_insal'  && 'Esperando acción de IFACS / INSAL'}
                       {etapa.id === 'designacion'  && 'Esperando acción del área de Designaciones'}
                       {etapa.id === 'desierto'     && 'Esperando acción del área de Concursos CPH'}
                     </p>
                     <p className="text-blue-600 text-xs mt-0.5">Esta etapa se habilitará cuando la anterior esté completa.</p>
+                  </div>
+                </div>
+              )}
+
+              {etapa.estado === 'completada' && etapaActiva === 'baja' && (
+                <div className="flex items-start gap-3 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm">
+                  <span className="text-gray-400 text-base mt-0.5">🔒</span>
+                  <div>
+                    <p className="font-semibold text-gray-700">Etapa guardada — solo lectura</p>
+                    <p className="text-gray-500 text-xs mt-0.5">Para modificar estos datos, SGRASV debe hacerlo desde su panel de autorizaciones.</p>
                   </div>
                 </div>
               )}
@@ -878,7 +967,8 @@ export function ConcursoCphWizard() {
                           <label className="block text-sm font-semibold text-gray-700 mb-1">{campo.label}</label>
                           <input
                             type="text"
-                            defaultValue={campo.valor as string}
+                            value={eeConcursoInput}
+                            onChange={(e) => setEeConcursoInput(e.target.value)}
                             data-key={campo.key}
                             className="input h-10 w-full"
                             disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
@@ -888,63 +978,71 @@ export function ConcursoCphWizard() {
                       {/* Sigla */}
                       <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1">Sigla</label>
-                        <select
+                        <SearchableSelect
                           value={siglaConcurso}
-                          onChange={(e) => setSiglaConcurso(e.target.value)}
-                          className="input h-10 w-full"
+                          onChange={setSiglaConcurso}
+                          options={hospitales.map((h) => hospitalLabel(h))}
+                          placeholder="Buscar sigla..."
                           disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                        >
-                          <option value="">Seleccioná...</option>
-                          {hospitales.map((h) => (
-                            <option key={h.id} value={h.sigla}>{hospitalLabel(h)}</option>
-                          ))}
-                        </select>
+                          displayToValue={(label) => hospitales.find((h) => hospitalLabel(h) === label)?.sigla ?? label}
+                          valueToDisplay={(sigla) => { const h = hospitales.find((h) => h.sigla === sigla); return h ? hospitalLabel(h) : sigla }}
+                        />
                       </div>
                       {/* Escalafón */}
                       <div>
                         <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón</label>
-                        <select
+                        <SearchableSelect
                           value={escalafonId}
-                          onChange={(e) => { setEscalafonId(e.target.value); setPuestoConcurso(''); setEspecialidadConcurso('') }}
-                          className="input h-10 w-full"
+                          onChange={(id) => { setEscalafonId(id); setPuestoConcurso(''); setEspecialidadConcurso('') }}
+                          options={escalafonesOrdenados.map((e) => e.id)}
+                          placeholder="Buscar escalafón..."
                           disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                        >
-                          <option value="">Seleccioná...</option>
-                          {escalafonesOrdenados.map((e) => (
-                            <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>
-                          ))}
-                        </select>
+                          displayToValue={(label) => escalafonesOrdenados.find((e) => escalafonLabel(e.nombre) === label)?.id ?? label}
+                          valueToDisplay={(id) => { const e = escalafonesOrdenados.find((e) => e.id === id); return e ? escalafonLabel(e.nombre) : id }}
+                        />
                       </div>
                       {/* Puesto — en cascada con escalafón */}
                       <div>
                         <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto</label>
-                        <select
+                        <SearchableSelect
                           value={puestoConcurso}
-                          onChange={(e) => { setPuestoConcurso(e.target.value); setEspecialidadConcurso('') }}
-                          className="input h-10 w-full"
-                          disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                        >
-                          <option value="">{escalafonId ? 'Seleccioná...' : 'Elegí un escalafón primero'}</option>
-                          {puestosDisponibles.map((p) => (
-                            <option key={p} value={p}>{p}</option>
-                          ))}
-                        </select>
+                          onChange={(p) => { setPuestoConcurso(p); setEspecialidadConcurso('') }}
+                          options={puestosDisponibles}
+                          placeholder={escalafonId ? 'Buscar puesto...' : 'Elegí un escalafón primero'}
+                          disabled={pendienteAutorizacion || !escalafonId || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                        />
                       </div>
                       {/* Especialidad — condicional */}
                       {especialidadesDisponibles.length > 0 && (
                         <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad del concurso</label>
-                          <select
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad del concurso</label>
+                          <SearchableSelect
                             value={especialidadConcurso}
-                            onChange={(e) => setEspecialidadConcurso(e.target.value)}
-                            className="input h-10 w-full"
+                            onChange={setEspecialidadConcurso}
+                            options={especialidadesDisponibles}
+                            placeholder="Buscar especialidad..."
                             disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                          >
-                            <option value="">Seleccioná...</option>
-                            {especialidadesDisponibles.map((e) => (
-                              <option key={e} value={e}>{e}</option>
-                            ))}
-                          </select>
+                          />
+                        </div>
+                      )}
+                      {/* Motivo cambio de especialidad — aparece cuando difiere de la original */}
+                      {especialidadesDisponibles.length > 0
+                        && especialidadConcurso
+                        && originales.especialidad
+                        && especialidadConcurso.toLowerCase() !== originales.especialidad.toLowerCase() && (
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-semibold text-amber-700 mb-1.5">
+                            ⚠ Nota del cambio de especialidad
+                            <span className="text-danger ml-1">*</span>
+                          </label>
+                          <textarea
+                            data-key="motivoCambioEspecialidad"
+                            defaultValue={(cphData as unknown as Record<string, unknown>)?.motivoCambioEspecialidad as string ?? ''}
+                            rows={2}
+                            className="input w-full py-2 border-amber-300 focus:border-amber-500"
+                            placeholder="Justificá por qué se cambia la especialidad del concurso..."
+                            disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                          />
                         </div>
                       )}
                     </div>
@@ -953,11 +1051,88 @@ export function ConcursoCphWizard() {
                 </>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {etapa.campos.map((campo) => (
+                  {etapa.campos.map((campo) => {
+                    // sorteoJurado: el CSV solo tiene bool — si el concurso ya superó
+                    // ese paso pero no hay fecha, mostramos un hint
+                    const sorteoSinFecha = campo.key === 'sorteoJurado'
+                      && !campo.valor
+                      && cphData
+                      && ['C-DISPO DE LLAMADO','D-EXAMEN PUBLICADO','E-ORDEN DE MERITO',
+                          'F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED',
+                          'K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL',
+                         ].includes(cphData.subEstado ?? '')
+
+                    // personaDesignada: panel especial con datos de BD
+                    if (campo.key === 'personaDesignada') return (
+                      <div key="personaDesignada" className="sm:col-span-2">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Persona designada</label>
+                        {loadingPersona && (
+                          <p className="text-sm text-gray-400">Buscando persona...</p>
+                        )}
+                        {!loadingPersona && errorPersona && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            ⚠️ {(errorPersona as { response?: { data?: { message?: string } } })?.response?.data?.message
+                              ?? 'No se encontró persona designada en el sistema'}
+                          </div>
+                        )}
+                        {!loadingPersona && personaDesignada && (
+                          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1.5">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-green-600 text-sm">✓</span>
+                              <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">
+                                {personaDesignada.fuente === 'orden_merito' ? 'Desde orden de mérito'
+                                  : personaDesignada.fuente === 'cargo_sial' ? 'Desde cargo SIAL'
+                                  : 'Desde padrón'}
+                              </span>
+                            </div>
+                            {personaDesignada.persona && (
+                              <>
+                                <p className="text-sm font-bold text-gray-900">{personaDesignada.persona.apellidoNombre}</p>
+                                <p className="text-xs text-gray-500">CUIL: <span className="font-mono text-gray-700">{personaDesignada.persona.cuil}</span></p>
+                                {personaDesignada.persona.numeroDoc && (
+                                  <p className="text-xs text-gray-500">DNI: <span className="text-gray-700">{personaDesignada.persona.numeroDoc}</span></p>
+                                )}
+                                {personaDesignada.persona.especialidadPrincipal && (
+                                  <p className="text-xs text-gray-500">Especialidad: <span className="text-gray-700">{personaDesignada.persona.especialidadPrincipal}</span></p>
+                                )}
+                                {personaDesignada.persona.mailLaboral && (
+                                  <p className="text-xs text-gray-500">Mail: <span className="text-gray-700">{personaDesignada.persona.mailLaboral}</span></p>
+                                )}
+                                {personaDesignada.persona.telefono && (
+                                  <p className="text-xs text-gray-500">Tel: <span className="text-gray-700">{personaDesignada.persona.telefono}</span></p>
+                                )}
+                              </>
+                            )}
+                            {personaDesignada.fuente === 'cargo_sial' && personaDesignada.cargo && (
+                              <div className="mt-2 pt-2 border-t border-green-200">
+                                <p className="text-xs text-gray-500">
+                                  Cargo nuevo: <span className="font-mono font-semibold text-gray-700">{personaDesignada.cargo.codigo ?? personaDesignada.cargo.idSial}</span>
+                                  {personaDesignada.cargo.situacionRevista && <> · {personaDesignada.cargo.situacionRevista}</>}
+                                </p>
+                              </div>
+                            )}
+                            {personaDesignada.fuente === 'orden_merito' && personaDesignada.integrante && (
+                              <div className="mt-2 pt-2 border-t border-green-200">
+                                <p className="text-xs text-gray-500">
+                                  Posición en OM: <span className="font-semibold text-gray-700">#{personaDesignada.integrante.posicion}</span>
+                                  {' · '}{personaDesignada.integrante.ordenMerito.especialidad}
+                                  {' · '}{personaDesignada.integrante.ordenMerito.fechaPublicacion.slice(0, 10).split('-').reverse().join('/')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+
+                    return (
                     <div key={campo.key} className={campo.tipo === 'textarea' ? 'sm:col-span-2' : ''}>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
                         {campo.label}
                         {campo.requerido && <span className="text-danger ml-1">*</span>}
+                        {sorteoSinFecha && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">⚠ realizado, fecha pendiente</span>
+                        )}
                       </label>
                       {campo.tipo === 'checkbox' ? (
                         <div className="flex items-center gap-2 h-10">
@@ -989,7 +1164,8 @@ export function ConcursoCphWizard() {
                         />
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
@@ -1021,14 +1197,28 @@ export function ConcursoCphWizard() {
               <div className="flex items-center gap-3">
                 {guardado && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
                 {etapa.estado !== 'pendiente' && etapa.estado !== 'bloqueada' && etapa.estado !== 'completada' && (
-                  <button
-                    className="btn-primary"
-                    disabled={pendienteAutorizacion && etapaActiva === 'baja'}
-                    title={pendienteAutorizacion && etapaActiva === 'baja' ? 'Hay una modificación pendiente de autorización por SGRASV' : undefined}
-                    onClick={handleGuardar}
-                  >
-                    {etapa.numero < etapasActuales.length ? 'Guardar y continuar →' : 'Guardar cambios'}
-                  </button>
+                  <>
+                    {etapaActiva === 'baja' && !etapaBajaCompleta && (
+                      <span className="text-xs text-gray-400">
+                        Completá expediente, sigla, escalafón, puesto
+                        {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
+                      </span>
+                    )}
+                    <button
+                      className="btn-primary"
+                      disabled={(pendienteAutorizacion && etapaActiva === 'baja') || !etapaBajaCompleta}
+                      title={
+                        pendienteAutorizacion && etapaActiva === 'baja'
+                          ? 'Hay una modificación pendiente de autorización por SGRASV'
+                          : !etapaBajaCompleta
+                            ? 'Completá todos los campos requeridos'
+                            : undefined
+                      }
+                      onClick={handleGuardar}
+                    >
+                      {etapa.numero < etapasActuales.length ? 'Guardar y continuar →' : 'Guardar cambios'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>

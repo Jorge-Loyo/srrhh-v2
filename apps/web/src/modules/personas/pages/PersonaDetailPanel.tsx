@@ -308,7 +308,51 @@ export function PersonaDetailPanel() {
         </div>
       </CollapsibleSection>
 
-      {/* S8C-2: Historial padrón semanal — collapsible */}
+      {/* Concursos CPH donde fue designada */}
+      {p.concursosCphDesignado.length > 0 && (
+        <CollapsibleSection
+          label="Concursos CPH"
+          title={`Concursos como persona designada (${p.concursosCphDesignado.length})`}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-left text-xs uppercase tracking-wide border-b border-gray-100">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Hospital</th>
+                  <th className="px-4 py-3 font-semibold">Cargo</th>
+                  <th className="px-4 py-3 font-semibold">Puesto</th>
+                  <th className="px-4 py-3 font-semibold">Estado</th>
+                  <th className="px-4 py-3 font-semibold">Resolución</th>
+                  <th className="px-4 py-3 font-semibold">Fecha resolución</th>
+                  <th className="px-4 py-3 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {p.concursosCphDesignado.map((cc) => (
+                  <tr key={cc.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-xs text-gray-700 font-medium">{cc.hospital.sigla}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{cc.cargo.codigo ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-600">{cc.cargo.literalPuesto ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`badge-${
+                        cc.estado === 'finalizado' ? 'success' :
+                        cc.estado === 'activo' ? 'info' :
+                        cc.estado === 'desierto' ? 'default' : 'amber'
+                      } text-xs`}>{cc.estado}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-600">{cc.resolucionDesignacion ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{formatFecha(cc.fechaResolucion) ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <Link to={`/concursos/cph/${cc.id}/wizard`} className="btn-outline text-xs">Ver</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CollapsibleSection>
+      )}
+
       {p.padronHistorico.length > 0 && (
         <CollapsibleSection
           label="Historial padrón semanal"

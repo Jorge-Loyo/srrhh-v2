@@ -67,7 +67,8 @@ export async function listCargosService(query: CargosQuery) {
     searchIds = rows.map((r) => r.id)
   }
 
-  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente
+  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente O histórica
+  // (incluye cargos vacantes donde la persona fue la última ocupante)
   let personaIds: string[] | undefined
   if (personaSearch) {
     const like = `%${personaSearch}%`
@@ -77,8 +78,7 @@ export async function listCargosService(query: CargosQuery) {
       SELECT DISTINCT o.cargo_id AS id
       FROM ocupaciones o
       JOIN personas p ON p.id = o.persona_id
-      WHERE o.hasta IS NULL
-        AND (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
+      WHERE (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
           OR p.cuil ILIKE ${likeNorm}
           OR o.id_sial_rol ILIKE ${like}
           OR o.cuil_y_rol  ILIKE ${like})

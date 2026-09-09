@@ -79,20 +79,27 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
       include,
     })
 
-    // Si pasa a pendiente/confirmada, marcar cargo no_vigente
+    // Si sale del borrador, aplicar lógica de negocio
     if (body.estado && body.estado !== 'resolucion_a_la_firma') {
-      await tx.cargo.update({
-        where: { id: baja.cargoId },
-        data: { estado: 'no_vigente' },
-      })
+      const generaConcurso = body.generaConcurso ?? baja.generaConcurso
 
-      if (body.generaConcurso && body.tipoConcurso) {
+      if (generaConcurso && body.tipoConcurso) {
+        // Con concurso: cargo pasa a vigente (vacante esperando designación)
         if (body.tipoConcurso === TipoConcurso.CPH) {
           const abierto = await tx.concursoCph.findFirst({
             where: { cargoId: baja.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
           })
           if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
         }
+        await tx.cargo.update({
+          where: { id: baja.cargoId },
+          data: { estado: 'vigente', estadoDesde: new Date() },
+        })
+        const fechaVacanteUpdate = (body.fechaBaja && body.fechaBaja !== '')
+          ? body.fechaBaja
+          : baja.fechaBaja instanceof Date
+            ? baja.fechaBaja.toISOString().slice(0, 10)
+            : new Date().toISOString().slice(0, 10)
         await createConcursoTx(
           tx,
           {
@@ -100,32 +107,44 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
             hospitalId: baja.hospitalId,
             personaId: baja.personaId ?? undefined,
             origen: 'Baja',
-            fechaVacante: body.fechaBaja,
-            motivo: body.motivo,
+            fechaVacante: fechaVacanteUpdate,
+            motivo: body.motivo ?? baja.motivo ?? undefined,
             tipoConcurso: body.tipoConcurso,
             escalafonId: body.escalafonId,
-            fechaBaja: body.fechaBaja,
-            eeBaja: body.eeBaja,
+            fechaBaja: fechaVacanteUpdate,
+            eeBaja: body.eeBaja ?? baja.eeBaja ?? undefined,
           },
           usuarioId,
           id
         )
+      } else {
+        // Sin concurso: cargo pasa a no_vigente (baja definitiva)
+        await tx.cargo.update({
+          where: { id: baja.cargoId },
+          data: { estado: 'no_vigente', estadoDesde: new Date() },
+        })
       }
+
+      // En ambos casos la baja queda confirmada automáticamente
+      await tx.baja.update({
+        where: { id },
+        data: { estado: 'confirmada' },
+      })
     }
 
-    // S13-8: notificar al director cuando la baja pasa a pendiente
-    if (body.estado === 'pendiente') {
+    // S13-8: notificar al director cuando la baja se confirma
+    if (body.estado && body.estado !== 'resolucion_a_la_firma') {
       const cargoInfo = updated.cargo as unknown as { codigo?: string; hospital?: { sigla?: string } }
       const cargoCodigo = cargoInfo?.codigo ?? baja.cargoId.slice(0, 8)
       const hospitalSigla = cargoInfo?.hospital?.sigla ?? ''
       await crearNotificacion({
         tipo:       'baja_pendiente',
-        rolSlug:    'director',
-        titulo:     `Baja procesada: ${cargoCodigo}`,
-        mensaje:    `La baja del cargo ${cargoCodigo} - ${hospitalSigla} fue procesada y esta pendiente de confirmacion.`,
+        rolSlug:    'sgravs',
+        titulo:     `Baja confirmada: ${cargoCodigo}`,
+        mensaje:    `La baja del cargo ${cargoCodigo} - ${hospitalSigla} fue confirmada automaticamente.`,
         origenTipo: 'baja',
         origenId:   id,
-        origenKey:  `baja_pendiente:${id}`,
+        origenKey:  `baja_confirmada:${id}`,
       })
     }
 
@@ -462,21 +481,24 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
     // Borrador iniciado: no tocar el cargo ni crear concurso
     if (body.estado === 'resolucion_a_la_firma') return baja
 
-    // S5-7: marcar cargo como no_vigente al registrar la baja
-    await tx.cargo.update({
-      where: { id: body.cargoId },
-      data: { estado: 'no_vigente' },
-    })
-
-    // S5-5: si genera_concurso, crear el seguimiento automaticamente
-    if (body.generaConcurso && body.tipoConcurso) {
+    // S5-5/S5-7: aplicar lógica de negocio según genera_concurso
+    // generaConcurso puede ser undefined si el borrador no pasó por paso 2 —
+    // en ese caso tratarlo como false (baja sin concurso) hasta que se confirme
+    if (body.generaConcurso === true && body.tipoConcurso) {
+      // Con concurso: cargo pasa a vigente (vacante esperando designación)
       if (body.tipoConcurso === TipoConcurso.CPH) {
         const abierto = await tx.concursoCph.findFirst({
           where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
         })
         if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
       }
-
+      await tx.cargo.update({
+        where: { id: body.cargoId },
+        data: { estado: 'vigente', estadoDesde: new Date() },
+      })
+      const fechaVacanteCreate = (body.fechaBaja && body.fechaBaja !== '')
+        ? body.fechaBaja
+        : new Date().toISOString().slice(0, 10)
       await createConcursoTx(
         tx,
         {
@@ -484,18 +506,30 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
           hospitalId: body.hospitalId,
           personaId: body.personaId,
           origen: 'Baja',
-          fechaVacante: body.fechaBaja,
+          fechaVacante: fechaVacanteCreate,
           motivo: body.motivo,
           tipoConcurso: body.tipoConcurso,
           escalafonId: body.escalafonId,
-          fechaBaja: body.fechaBaja,
+          fechaBaja: fechaVacanteCreate,
           eeBaja: body.eeBaja,
         },
         usuarioId,
         baja.id
       )
+    } else {
+      // Sin concurso: cargo pasa a no_vigente (baja definitiva)
+      await tx.cargo.update({
+        where: { id: body.cargoId },
+        data: { estado: 'no_vigente', estadoDesde: new Date() },
+      })
     }
 
-    return baja
+    // En ambos casos la baja queda confirmada automáticamente
+    await tx.baja.update({
+      where: { id: baja.id },
+      data: { estado: 'confirmada' },
+    })
+
+    return prisma.baja.findUnique({ where: { id: baja.id }, include })
   })
 }

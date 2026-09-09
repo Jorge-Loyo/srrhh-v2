@@ -6,7 +6,6 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
-import { AlertasSinMovimiento } from '../components/AlertasSinMovimiento'
 import {
   ESTADO_LABEL,
   ESTADO_BADGE,
@@ -51,8 +50,6 @@ export function ConcursosCphPage() {
 
   return (
     <div className="space-y-6">
-      <AlertasSinMovimiento />
-
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>

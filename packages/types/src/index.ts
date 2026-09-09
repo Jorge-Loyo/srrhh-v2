@@ -748,6 +748,7 @@ export interface PersonaFilters {
 
 export interface CargoFilters {
   search?: string
+  personaSearch?: string
   hospitalId?: string
   escalafonId?: string
   puesto?: string
@@ -906,8 +907,12 @@ export interface PersonaDetail extends Persona {
   provincia: string | null
   antiguedadDesde: string | null
   ocupaciones: OcupacionConCargo[]
-  // S8C-2: historial completo en padrón semanal
   padronHistorico: PadronHistoricoItem[]
+  concursosCphDesignado: (Pick<ConcursoCph, 'id' | 'estado' | 'resolucionDesignacion' | 'fechaResolucion' | 'cargoSial' | 'createdAt'> & {
+    cargo: Pick<Cargo, 'id' | 'codigo' | 'literalPuesto'>
+    hospital: Pick<Hospital, 'id' | 'sigla' | 'nombre'>
+    concurso: { id: string; fechaVacante: string }
+  })[]
 }
 
 // Devuelto por GET /api/v1/cargos/:id — `hospital`/`escalafon`/`codigoRegistro`

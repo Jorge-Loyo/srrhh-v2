@@ -4,6 +4,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
   concurso: { include: { cargo: { include: { hospital: true, codigoRegistro: true } }, persona: true, baja: true } },
@@ -62,6 +63,40 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     subEstado3Ids = rows.map((r) => r.id)
   }
 
+  // search: busca en campos del concurso Y en la persona de la baja
+  // (apellido_nombre, cuil, numero_doc, id_sial_rol de la ocupación)
+  let searchIds: string[] | undefined
+  if (search) {
+    const like = `%${search}%`
+    const likeNorm = `%${search.replace(/-/g, '')}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT cc.id
+      FROM concursos_cph cc
+      JOIN concursos c ON c.id = cc.concurso_id
+      LEFT JOIN hospitales h ON h.id = cc.hospital_id
+      LEFT JOIN cargos ca ON ca.id = c.cargo_id
+      LEFT JOIN personas p ON p.id = c.persona_id
+      LEFT JOIN ocupaciones o ON o.cargo_id = c.cargo_id
+      LEFT JOIN personas p2 ON p2.id = o.persona_id
+      WHERE unaccent(cc.ee_baja)                      ILIKE unaccent(${like})
+         OR unaccent(cc.ee_concurso)                  ILIKE unaccent(${like})
+         OR unaccent(cc.especialidad_solicitada)      ILIKE unaccent(${like})
+         OR unaccent(cc.resolucion_designacion)       ILIKE unaccent(${like})
+         OR unaccent(coalesce(h.sigla,''))            ILIKE unaccent(${like})
+         OR unaccent(coalesce(h.nombre,''))           ILIKE unaccent(${like})
+         OR unaccent(coalesce(ca.codigo,''))          ILIKE unaccent(${like})
+         OR unaccent(coalesce(ca.literal_puesto,''))  ILIKE unaccent(${like})
+         OR unaccent(coalesce(p.apellido_nombre,''))  ILIKE unaccent(${like})
+         OR p.cuil                                    ILIKE ${likeNorm}
+         OR p.numero_doc                              ILIKE ${like}
+         OR unaccent(coalesce(p2.apellido_nombre,'')) ILIKE unaccent(${like})
+         OR p2.cuil                                   ILIKE ${likeNorm}
+         OR p2.numero_doc                             ILIKE ${like}
+         OR o.id_sial_rol                             ILIKE ${like}
+    `)
+    searchIds = rows.map((r) => r.id)
+  }
+
   const where: Prisma.ConcursoCphWhereInput = {
     ...(hospitalId && { hospitalId }),
     ...(cargoId && { cargoId }),
@@ -70,15 +105,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(subEstado3Ids && { id: { in: subEstado3Ids } }),
-    ...(search && {
-      OR: [
-        { eeBaja: { contains: search, mode: 'insensitive' } },
-        { eeConcurso: { contains: search, mode: 'insensitive' } },
-        { especialidadSolicitada: { contains: search, mode: 'insensitive' } },
-        { resolucionDesignacion: { contains: search, mode: 'insensitive' } },
-        { observaciones: { contains: search, mode: 'insensitive' } },
-      ],
-    }),
+    ...(searchIds !== undefined && { id: { in: searchIds } }),
   }
 
   const [total, data] = await Promise.all([
@@ -131,13 +158,23 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
 
-  // Detectar cambio de sigla o código de registro (campos que requieren autorización)
+  // Detectar cambio de sigla o código de registro (campos que requieren autorización doble: director → sgrasv)
   const cargo = (existing.concurso as unknown as { cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } } })?.cargo
   const siglaActual = cargo?.hospital?.sigla ?? ''
   const crIdActual  = cargo?.codigoRegistro?.id ?? ''
   const cambiaSigla = body.sigla !== undefined && body.sigla !== siglaActual
   const cambiaCr    = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
-  const requiereAutorizacion = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
+  const requiereAutorizacionDoble = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
+
+  // Detectar cambios que requieren solo autorización de SGRASV (sin director)
+  const eeConcursoAnterior = existing.eeConcurso
+  const eeConcursoCargadoPorPrimeraVez = !eeConcursoAnterior && !!body.eeConcurso
+  const eeConcursoModificado = !!eeConcursoAnterior && body.eeConcurso !== undefined && body.eeConcurso !== eeConcursoAnterior
+  const camposProtegidos: (keyof PatchConcursoCphBody)[] = ['especialidadSolicitada', 'puestoSolicitado']
+  const tieneCambioProtegido = !requiereAutorizacionDoble
+    && !existing.pendienteAutorizacion
+    && (eeConcursoModificado || camposProtegidos.some((k) => body[k] !== undefined))
+  const requiereAutorizacion = requiereAutorizacionDoble || tieneCambioProtegido
 
   const patch: Prisma.ConcursoCphUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCphBody, unknown][]) {
@@ -147,7 +184,12 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     ;(patch as Record<string, unknown>)[key] = isFecha && typeof value === 'string' ? new Date(value) : value
   }
 
-  if (requiereAutorizacion) {
+  // Si se carga eeConcurso por primera vez, registrar la fecha automáticamente
+  if (eeConcursoCargadoPorPrimeraVez && !patch.fechaEeConcurso) {
+    patch.fechaEeConcurso = new Date()
+  }
+
+  if (requiereAutorizacionDoble) {
     patch.pendienteAutorizacion = true
     patch.siglaSolicitada = body.sigla ?? null
     if (body.codigoRegistroId !== undefined) {
@@ -155,6 +197,8 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
         ? { connect: { id: body.codigoRegistroId } }
         : { disconnect: true }
     }
+  } else if (tieneCambioProtegido) {
+    patch.pendienteAutorizacion = true
   }
 
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
@@ -171,15 +215,36 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     include,
   })
 
-  // S13-7: crear Autorizacion genérica si hay cambio estructural
-  // crearAutorizacion también crea la Notificacion al director internamente
-  if (requiereAutorizacion) {
+  // Crear Autorizacion genérica según el tipo de cambio
+  if (requiereAutorizacionDoble) {
+    // Cambio estructural: director primero, luego sgrasv
     await crearAutorizacion(prisma, {
       tipo:               'concurso_cph',
       referenciaId:       id,
       referenciaTipo:     'concurso_cph',
-      solicitadoPorId:    undefined, // patchConcursoCphService no recibe usuarioId — se agrega en S13-7b si hace falta
+      solicitadoPorId:    undefined,
       resolverPorRolSlug: 'director',
+    })
+  } else if (tieneCambioProtegido) {
+    // Cambio de especialidad/puesto/eeConcurso modificado: solo sgrasv
+    await crearAutorizacion(prisma, {
+      tipo:               'concurso_cph',
+      referenciaId:       id,
+      referenciaTipo:     'concurso_cph',
+      solicitadoPorId:    undefined,
+      resolverPorRolSlug: 'sgrasv',
+    })
+  } else if (eeConcursoCargadoPorPrimeraVez) {
+    // Carga inicial del expediente: notificación informativa a SGRASV (no bloquea)
+    const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    await crearNotificacion({
+      tipo:      'autorizacion_pendiente',
+      rolSlug:   'sgrasv',
+      titulo:    `Nuevo expediente de concurso — ${cargoCodigo}`,
+      mensaje:   `Se cargó el expediente ${body.eeConcurso} para el concurso ${cargoCodigo}. Revisá y validá para habilitar la siguiente etapa.`,
+      origenTipo: 'concurso_cph',
+      origenId:   id,
+      origenKey:  `ee_concurso_cargado:${id}`,
     })
   }
 
@@ -279,6 +344,71 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
   }
 
   throw AppError.forbidden('No tenés permiso para resolver esta autorización')
+}
+
+// ─── Persona designada ───────────────────────────────────────────────────────
+// Orden: 1) personaDesignadaId (FK directa)
+//        2) cargoSial → Cargo.idSial → Ocupacion → Persona  (237 concursos legacy)
+//        3) OrdenMeritoIntegrante.designado = true
+export async function getPersonaDesignadaService(id: string) {
+  const concurso = await prisma.concursoCph.findUnique({
+    where: { id },
+    select: { personaDesignadaId: true, cargoSial: true },
+  })
+  if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
+
+  const sel = {
+    id: true, cuil: true, apellidoNombre: true, numeroDoc: true,
+    especialidadPrincipal: true, telefono: true, mailLaboral: true,
+  } as const
+
+  // 1. FK directa
+  if (concurso.personaDesignadaId) {
+    const persona = await prisma.persona.findUnique({ where: { id: concurso.personaDesignadaId }, select: sel })
+    if (persona) return { fuente: 'persona' as const, persona, cargo: null, integrante: null }
+  }
+
+  // 2. cargoSial → Cargo.idSial → Ocupacion → Persona
+  if (concurso.cargoSial) {
+    const cargoNuevo = await prisma.cargo.findFirst({
+      where: { idSial: concurso.cargoSial },
+      select: {
+        id: true, idSial: true, codigo: true,
+        ocupaciones: {
+          select: { personaId: true, situacionRevista: true, estadoPersona: true },
+          orderBy: { desde: 'desc' },
+          take: 1,
+        },
+      },
+    })
+    const ocup = cargoNuevo?.ocupaciones[0]
+    if (ocup?.personaId) {
+      const persona = await prisma.persona.findUnique({ where: { id: ocup.personaId }, select: sel })
+      if (persona) return {
+        fuente: 'cargo_sial' as const,
+        persona,
+        cargo: { codigo: cargoNuevo!.codigo, idSial: cargoNuevo!.idSial, situacionRevista: ocup.situacionRevista },
+        integrante: null,
+      }
+    }
+  }
+
+  // 3. OrdenMeritoIntegrante designado
+  const integrante = await prisma.ordenMeritoIntegrante.findFirst({
+    where: { concursoCphDesignadoId: id, designado: true },
+    include: {
+      persona: { select: sel },
+      ordenMerito: { select: { id: true, especialidad: true, fechaPublicacion: true } },
+    },
+    orderBy: { posicion: 'asc' },
+  })
+  if (integrante) return { fuente: 'orden_merito' as const, persona: integrante.persona, cargo: null, integrante }
+
+  throw AppError.notFound(
+    concurso.cargoSial
+      ? `El cargo SIAL ${concurso.cargoSial} no tiene persona asignada en el sistema`
+      : 'Este concurso no tiene persona designada asignada en el sistema'
+  )
 }
 
 // ─── S4-5: suspender / reanudar ──────────────────────────────────────────────
