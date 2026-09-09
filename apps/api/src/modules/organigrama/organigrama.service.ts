@@ -56,13 +56,15 @@ interface OrganigramaNodo {
 // jefaturas). Filtrado en memoria en vez de en el WHERE de Prisma: son pocas
 // decenas de cargos por árbol (los que matchean codigoRepa de esta jerarquía
 // puntual), no vale la pena un where anidado con 4 ramas de OR distintas.
-const UNIFICADOR_60 = new Set(['Gerente', 'Subgerente'])
+const UNIFICADOR_60 = new Set(['gerente', 'subgerente'])
+// Director/Subdirector médico son conducción por definición — no requieren codigoJefaturas.
+const UNIFICADOR_37_SIN_JEFATURA = new Set(['director/a medico/a', 'subdirector/a medico/a'])
 const UNIFICADOR_37 = new Set([
-  'CPH de Planta', 'CPH de Guardia', 'Director/a Medico/a', 'Subdirector/a Medico/a',
-  'Jefe/a de DEPARTAMENTO', 'Jefe/a de DIVISION', 'Jefe/a de UNIDAD', 'Jefe/a de SECCION',
+  'cph de planta', 'cph de guardia',
+  'jefe/a de departamento', 'jefe/a de division', 'jefe/a de unidad', 'jefe/a de seccion',
 ])
 const UNIFICADOR_JEFATURAS_OPERATIVAS = new Set([
-  'Administrativo/a', 'Enfermero/a', 'Servicios Generales', 'Tecnico/a de la salud',
+  'administrativo/a', 'enfermero/a', 'servicios generales', 'tecnico/a de la salud',
 ])
 const CODIGOS_JEFATURAS_OPERATIVAS = new Set(['83', '85', '87'])
 
@@ -72,13 +74,14 @@ function esCargoDeConduccion(
   codigoJefaturas: string | null
 ): boolean {
   if (!codigoRegistro || !unificadorPuesto) return false
+  const up = unificadorPuesto.toLowerCase().trim()
   const tieneCategoriaJefatura = !!codigoJefaturas && codigoJefaturas !== '0'
 
-  if (codigoRegistro === '25') return unificadorPuesto === 'Autoridades Superiores'
-  if (codigoRegistro === '60') return UNIFICADOR_60.has(unificadorPuesto)
-  if (codigoRegistro === '37') return UNIFICADOR_37.has(unificadorPuesto) && tieneCategoriaJefatura
+  if (codigoRegistro === '25') return up === 'autoridades superiores'
+  if (codigoRegistro === '60') return UNIFICADOR_60.has(up)
+  if (codigoRegistro === '37') return UNIFICADOR_37_SIN_JEFATURA.has(up) || (UNIFICADOR_37.has(up) && tieneCategoriaJefatura)
   if (CODIGOS_JEFATURAS_OPERATIVAS.has(codigoRegistro)) {
-    return UNIFICADOR_JEFATURAS_OPERATIVAS.has(unificadorPuesto) && tieneCategoriaJefatura
+    return UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) && tieneCategoriaJefatura
   }
   return false
 }
