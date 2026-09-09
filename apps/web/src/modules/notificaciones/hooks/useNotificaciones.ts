@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
-import type { Notificacion, NotificacionFilters, PaginatedResponse } from '@srrhh/types'
+import type { Notificacion, NotificacionDetalle, NotificacionFilters, PaginatedResponse } from '@srrhh/types'
 
 // ── Contador de no leídas (badge del header) ─────────────────────────────────
 export function useNotificacionesNoLeidas() {
@@ -25,6 +25,20 @@ export function useNotificaciones(filters: NotificacionFilters = {}) {
       )
       return res.data
     },
+  })
+}
+
+// ── Detalle del origen — "qué pasó" concretamente (cargos creados, etc.) ─────
+export function useNotificacionDetalle(id: string | undefined) {
+  return useQuery({
+    queryKey: ['notificaciones', 'detalle', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: NotificacionDetalle | null }>(
+        `/api/v1/notificaciones/${id}/detalle`
+      )
+      return res.data.data
+    },
+    enabled: !!id,
   })
 }
 

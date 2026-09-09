@@ -7,6 +7,7 @@ import {
   marcarLeidaService,
   marcarTodasLeidasService,
   materializarAlertasEstancamiento,
+  obtenerDetalleService,
 } from './notificaciones.service.js'
 
 export async function notificacionesRoutes(app: FastifyInstance) {
@@ -43,6 +44,15 @@ export async function notificacionesRoutes(app: FastifyInstance) {
     const user = request.user as { rolSlug: string }
     const { id } = request.params as { id: string }
     const data = await marcarLeidaService(id, user.rolSlug)
+    return reply.send({ data })
+  })
+
+  // GET /:id/detalle — resuelve el origen de la notificación para el modal
+  // ("qué pasó" concretamente: cargos creados, concurso, baja, etc.)
+  app.get('/:id/detalle', async (request, reply) => {
+    const user = request.user as { rolSlug: string }
+    const { id } = request.params as { id: string }
+    const data = await obtenerDetalleService(id, user.rolSlug)
     return reply.send({ data })
   })
 }
