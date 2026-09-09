@@ -15,6 +15,7 @@ import {
 const TIPO_LABEL: Record<TipoAutorizacion, string> = {
   concurso_cph: 'Concurso CPH',
   alta_cargo:   'Alta de cargo',
+  baja_cargo:   'Baja de cargo',
 }
 
 function formatFecha(iso: string) {
@@ -110,9 +111,33 @@ function ReferenciaAlta({ id }: { id: string }) {
   )
 }
 
+function ReferenciaBaja({ id }: { id: string }) {
+  const { data } = useQuery({
+    queryKey: ['bajas', id, 'autorizaciones-ref'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { cargo?: { codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } }; motivo?: string; tipoBaja?: string } }>(`/api/v1/bajas/${id}`)
+      return res.data.data
+    },
+  })
+  if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
+  const cargo = data.cargo
+  return (
+    <div className="min-w-0">
+      <p className="text-sm font-semibold text-gray-900 truncate">
+        {cargo?.literalPuesto ?? '—'}
+        {cargo?.hospital?.sigla && <span className="font-normal text-gray-500"> · {cargo.hospital.sigla}</span>}
+      </p>
+      <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+      {data.tipoBaja && <p className="text-xs text-gray-500 mt-0.5">Tipo: {data.tipoBaja}</p>}
+      {data.motivo && <p className="text-xs text-gray-500">Motivo: {data.motivo}</p>}
+    </div>
+  )
+}
+
 function Referencia({ autorizacion, onEsInformativa }: { autorizacion: Autorizacion; onEsInformativa?: (id: string) => void }) {
   if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} onEsInformativa={onEsInformativa} />
   if (autorizacion.tipo === 'alta_cargo')   return <ReferenciaAlta id={autorizacion.referenciaId} />
+  if (autorizacion.tipo === 'baja_cargo')   return <ReferenciaBaja id={autorizacion.referenciaId} />
   return <span className="text-xs text-gray-400">—</span>
 }
 

@@ -1,9 +1,9 @@
 # SPRINT 14 — Concurso desde Alta de Cargo
 
-**Estado:** 📋 Planificado
-**Fecha estimada:** Post-Sprint 13
-**Autor:** Por definir
-**Rama:** deploy
+**Estado:** ✅ Completado
+**Fecha:** 2026-09
+**Autor:** Jorge (backend) + Agustín (frontend)
+**Rama:** `jorge`
 
 ---
 
@@ -42,18 +42,18 @@ El campo `motivoConcurso` se agrega al modelo `Concurso` (tabla compartida entre
 
 ## Tareas
 
-| #      | Tarea                                                                                                                                                                   | Dev     | Est. | Prioridad  |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- |
-| S14-1  | Migración Prisma: campo `motivoConcurso` enum (`nuevo_cargo`, `alta_por_baja`) nullable en tabla `concursos`. Aplicar en BD real                                        | Jorge   | 2h   | 🔴 Crítico |
-| S14-2  | `createConcursoTx`: aceptar `motivoConcurso` como parámetro opcional y persistirlo                                                                                      | Jorge   | 2h   | 🔴 Crítico |
-| S14-3  | `createCargoService`: al finalizar la creación, devolver en la respuesta un flag `puedeIniciarConcurso: true` + datos mínimos del cargo (id, codigo, carrera derivada)  | Jorge   | 3h   | 🔴 Crítico |
-| S14-4  | Nuevo tipo `TipoNotificacion.concurso_iniciado`; helper `notificarConcursoIniciado(concursoId, tipoConcurso)` que crea notificación para rol `sdravs`                    | Jorge   | 3h   | 🟡 Medio   |
-| S14-5  | Integrar `notificarConcursoIniciado` en `createConcursoTx` cuando `motivoConcurso` está presente                                                                        | Jorge   | 1h   | 🟡 Medio   |
-| S14-6  | `listConcursosCphService` y `listConcursosCeetpsService`: incluir `motivoConcurso` en la respuesta                                                                      | Jorge   | 1h   | 🟡 Medio   |
-| S14-7  | Frontend `AltaCargosPage`: modal de confirmación post-alta — "¿Desea enviar este cargo a concurso?" con botones Sí / No. Si Sí: llama a `POST /api/v1/concursos` con `motivoConcurso: 'nuevo_cargo'` y redirige al concurso creado | Agustin | 6h   | 🔴 Crítico |
-| S14-8  | Frontend `ConcursosCphPage` y `ConcursosCeetpsPage`: columna **Motivo** con badge `Nuevo cargo` (azul) / `Alta por baja` (naranja) / vacío si no tiene                  | Agustin | 3h   | 🔴 Crítico |
-| S14-9  | Frontend: badge de notificación en header para rol `sdravs` cuando hay concursos iniciados no leídos (reutiliza infraestructura Sprint 10)                              | Agustin | 2h   | 🟡 Medio   |
-| S14-10 | Verificación end-to-end: alta de cargo CPH → modal → confirmar concurso → aparece en `/concursos/cph` con motivo "Nuevo cargo" → notificación visible para `sdravs`     | Jorge + Agustin | 3h | 🔴 Crítico |
+| #      | Tarea                                                                                                                                                                   | Dev     | Est. | Prioridad  | Estado |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---- | ---------- | ------ |
+| S14-1  | Migración Prisma: campo `motivoConcurso` enum (`nuevo_cargo`, `alta_por_baja`) nullable en tabla `concursos`. Aplicar en BD real                                        | Jorge   | 2h   | 🔴 Crítico | ✅ |
+| S14-2  | `createConcursoTx`: aceptar `motivoConcurso` como parámetro opcional y persistirlo                                                                                      | Jorge   | 2h   | 🔴 Crítico | ✅ |
+| S14-3  | `createCargoService`: al finalizar la creación, devolver en la respuesta un flag `puedeIniciarConcurso: true` + datos mínimos del cargo (id, codigo, carrera derivada)  | Jorge   | 3h   | 🔴 Crítico | ✅ |
+| S14-4  | Nuevo tipo `TipoNotificacion.concurso_iniciado`; helper `notificarConcursoIniciado(concursoId, tipoConcurso)` que crea notificación para rol `sgrasv`                    | Jorge   | 3h   | 🟡 Medio   | ✅ |
+| S14-5  | Integrar `notificarConcursoIniciado` en `createConcursoTx` cuando `motivoConcurso` está presente                                                                        | Jorge   | 1h   | 🟡 Medio   | ✅ |
+| S14-6  | `listConcursosCphService` y `listConcursosCeetpsService`: incluir `motivoConcurso` en la respuesta                                                                      | Jorge   | 1h   | 🟡 Medio   | ✅ |
+| S14-7  | Frontend `AltaCargosPage`: modal de confirmación post-alta — "¿Desea enviar este cargo a concurso?" con botones Sí / No. Si Sí: llama a `POST /api/v1/concursos` con `motivoConcurso: 'nuevo_cargo'` y redirige al concurso creado | Agustin | 6h   | 🔴 Crítico | ✅ |
+| S14-8  | Frontend `ConcursosCphPage` y `ConcursosCeetpsPage`: columna **Motivo** con badge `Nuevo cargo` (azul) / `Alta por baja` (naranja) / vacío si no tiene                  | Agustin | 3h   | 🔴 Crítico | ✅ |
+| S14-9  | Frontend: badge de notificación en header para rol `sgrasv` cuando hay concursos iniciados no leídos (reutiliza infraestructura Sprint 10)                              | Agustin | 2h   | 🟡 Medio   | ✅ |
+| S14-10 | Verificación end-to-end: alta de cargo CPH → modal → confirmar concurso → aparece en `/concursos/cph` con motivo "Nuevo cargo" → notificación visible para `sgrasv`     | Jorge + Agustin | 3h | 🔴 Crítico | ✅ |
 
 ---
 
@@ -74,11 +74,23 @@ Todo ──► S14-10 (verificación)
 
 ## Criterio de éxito
 
-- [ ] Al crear un cargo, el usuario puede optar por iniciar concurso sin salir de la pantalla
-- [ ] El concurso se crea en el módulo correcto según la carrera (CPH o CEETPS) automáticamente
-- [ ] La columna "Motivo" en las listas de concursos muestra `Nuevo cargo` o `Alta por baja`
-- [ ] Los usuarios con rol `sdravs` reciben notificación al iniciarse un concurso
-- [ ] El flujo existente de baja → concurso no se rompe (regresión)
+- [x] Al crear un cargo, el usuario puede optar por iniciar concurso sin salir de la pantalla
+- [x] El concurso se crea en el módulo correcto según la carrera (CPH o CEETPS) automáticamente
+- [x] La columna "Motivo" en las listas de concursos muestra `Nuevo cargo` o `Alta por baja`
+- [x] Los usuarios con rol `sgrasv` reciben notificación al iniciarse un concurso
+- [x] El flujo existente de baja → concurso no se rompe (regresión)
+
+---
+
+## Notas de implementación
+
+- El rol en el plan original decía `sdravs` — el slug real en BD es `sgrasv`. Corregido en `concursos.service.ts` y `notificaciones.service.ts`.
+- `createConcursoTx` devuelve `{ data: { concurso, concursoCph } }` — el `concurso.id` está anidado en `data.concurso.id`.
+- Campo `etiqueta` eliminado de `solicitudes-alta.service.ts` (ya no existe en schema — reemplazado por relación N:M `etiquetas`).
+- `concurso_iniciado` agregado al enum `TipoNotificacion` en schema Prisma, al schema Zod de notificaciones, y a `TIPO_LABELS`/`TIPO_BADGE` en `NotificacionesPage`.
+- Prisma client regenerado con `npx prisma generate` en contenedor tras agregar el valor al enum.
+- E2E verificado con script `scripts/e2e_s14.py` — 13/13 checks pasando.
+- Modal de documentación del flujo CPH agregado en `/concursos/cph` (`FlujoConcursoModal.tsx` + `concursoFlowData.ts`) con 5 tabs: Flujo completo, Etapas A–G, Actores, Documentación, Baja de cargo.
 
 ---
 

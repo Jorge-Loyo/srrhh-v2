@@ -4,7 +4,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
-import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -129,22 +129,6 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
       await tx.baja.update({
         where: { id },
         data: { estado: 'confirmada' },
-      })
-    }
-
-    // S13-8: notificar al director cuando la baja se confirma
-    if (body.estado && body.estado !== 'resolucion_a_la_firma') {
-      const cargoInfo = updated.cargo as unknown as { codigo?: string; hospital?: { sigla?: string } }
-      const cargoCodigo = cargoInfo?.codigo ?? baja.cargoId.slice(0, 8)
-      const hospitalSigla = cargoInfo?.hospital?.sigla ?? ''
-      await crearNotificacion({
-        tipo:       'baja_pendiente',
-        rolSlug:    'sgravs',
-        titulo:     `Baja confirmada: ${cargoCodigo}`,
-        mensaje:    `La baja del cargo ${cargoCodigo} - ${hospitalSigla} fue confirmada automaticamente.`,
-        origenTipo: 'baja',
-        origenId:   id,
-        origenKey:  `baja_confirmada:${id}`,
       })
     }
 
@@ -524,10 +508,19 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       })
     }
 
-    // En ambos casos la baja queda confirmada automáticamente
+    // S15: baja queda en pendiente — el director la confirma/anula vía autorizaciones
     await tx.baja.update({
       where: { id: baja.id },
-      data: { estado: 'confirmada' },
+      data: { estado: 'pendiente' },
+    })
+
+    // Crear autorización para el director
+    await crearAutorizacion(tx as typeof prisma, {
+      tipo:               'baja_cargo',
+      referenciaId:       baja.id,
+      referenciaTipo:     'baja',
+      solicitadoPorId:    usuarioId,
+      resolverPorRolSlug: 'director',
     })
 
     return prisma.baja.findUnique({ where: { id: baja.id }, include })

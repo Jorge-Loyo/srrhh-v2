@@ -576,6 +576,7 @@ enum EstadoBaja {
 enum TipoAutorizacion {
   concurso_cph
   alta_cargo
+  baja_cargo
 }
 
 enum EstadoAutorizacion {

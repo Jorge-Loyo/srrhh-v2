@@ -10,7 +10,7 @@ import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 export async function crearAutorizacion(
   tx: typeof prisma,
   data: {
-    tipo: 'concurso_cph' | 'alta_cargo'
+    tipo: 'concurso_cph' | 'alta_cargo' | 'baja_cargo'
     referenciaId: string
     referenciaTipo: string
     solicitadoPorId: string | undefined
@@ -93,6 +93,9 @@ export async function aprobarAutorizacionService(
   if (aut.tipo === 'alta_cargo') {
     return _aprobarAltaCargo(aut, resueltoPorId, observaciones)
   }
+  if (aut.tipo === 'baja_cargo') {
+    return _aprobarBajaCargo(aut, resueltoPorId, observaciones)
+  }
 
   throw AppError.badRequest('Tipo de autorización desconocido')
 }
@@ -128,6 +131,21 @@ export async function rechazarAutorizacionService(
         where: { id: aut.referenciaId },
         data:  { estado: 'rechazada', observaciones: observaciones ?? null },
       })
+    }
+
+    if (aut.tipo === 'baja_cargo') {
+      await tx.baja.update({
+        where: { id: aut.referenciaId },
+        data:  { estado: 'anulada', observaciones: observaciones ?? null },
+      })
+      // Revertir el cargo a vigente (corrección administrativa)
+      const baja = await tx.baja.findUnique({ where: { id: aut.referenciaId }, select: { cargoId: true } })
+      if (baja) {
+        await tx.cargo.update({
+          where: { id: baja.cargoId },
+          data:  { estado: 'vigente', estadoDesde: null },
+        })
+      }
     }
 
     // Notificar al solicitante
@@ -343,5 +361,45 @@ async function _aprobarAltaCargo(
         },
       }),
     }
+  })
+}
+
+// ─── Lógica interna: aprobar baja_cargo ──────────────────────────────────────
+async function _aprobarBajaCargo(
+  aut: { id: string; referenciaId: string; solicitadoPorId: string | null; tipo: string },
+  resueltoPorId: string,
+  observaciones?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.autorizacion.update({
+      where: { id: aut.id },
+      data:  { estado: 'aprobada', resueltoPorId, observaciones: observaciones ?? null },
+    })
+
+    await tx.baja.update({
+      where: { id: aut.referenciaId },
+      data:  { estado: 'confirmada' },
+    })
+
+    // Notificar al solicitante
+    if (aut.solicitadoPorId) {
+      const solicitante = await tx.usuario.findUnique({
+        where:  { id: aut.solicitadoPorId },
+        select: { role: { select: { slug: true } } },
+      })
+      if (solicitante?.role.slug) {
+        await crearNotificacion({
+          tipo:      'autorizacion_resuelta',
+          rolSlug:   solicitante.role.slug,
+          titulo:    'Baja de cargo confirmada',
+          mensaje:   'La baja de cargo fue aprobada por el director.',
+          origenTipo: 'autorizacion',
+          origenId:   aut.id,
+          origenKey:  `autorizacion_resuelta:${aut.id}`,
+        })
+      }
+    }
+
+    return tx.autorizacion.findUnique({ where: { id: aut.id } })
   })
 }

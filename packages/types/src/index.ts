@@ -328,6 +328,8 @@ export interface ConcursoCph {
   fechaDispoDesierta: string | null
   personaDesignadaId: string | null
   suspendido: boolean
+  pendienteAutorizacion: boolean
+  aprobadoDirector: boolean
   observaciones: string | null
   createdAt: string
   updatedAt: string
@@ -474,6 +476,7 @@ export type NotificacionDetalle =
 export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
   ALTA_CARGO:   'alta_cargo',
+  BAJA_CARGO:   'baja_cargo',
 } as const
 export type TipoAutorizacion = typeof TipoAutorizacion[keyof typeof TipoAutorizacion]
 
