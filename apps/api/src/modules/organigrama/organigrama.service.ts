@@ -32,6 +32,7 @@ const XLSX = require('xlsx') as {
 interface PersonaNodo {
   personaId: string
   idSialRol: string | null
+  codigoCargo: string | null
   nombre: string
   cargo: string | null
   cuil: string
@@ -137,6 +138,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     },
     select: {
       codigoRepa: true,
+      codigo: true,
       literalPuesto: true,
       unificadorPuesto: true,
       codigoRegistro: { select: { codigo: true } },
@@ -167,6 +169,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     personasMap.set(cargo.codigoRepa, {
       personaId: ocup.persona.id,
       idSialRol: ocup.idSialRol ?? null,
+      codigoCargo: cargo.codigo ?? null,
       nombre: ocup.persona.apellidoNombre,
       cargo: cargo.literalPuesto,
       cuil: ocup.persona.cuil,
