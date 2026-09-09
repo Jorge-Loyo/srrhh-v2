@@ -3,6 +3,7 @@ import { apiClient } from '@/shared/lib/api-client'
 
 export interface OrganigramaPersona {
   personaId: string
+  cargoId: string | null
   idSialRol: string | null
   codigoCargo: string | null
   nombre: string

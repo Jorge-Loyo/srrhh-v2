@@ -1,6 +1,6 @@
-import { UserCircleIcon, XMarkIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
+import { UserCircleIcon, XMarkIcon, BriefcaseIcon, IdentificationIcon } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
-import { tipoColor } from '../lib/organigramaHelpers'
+import { tipoColor, stripRedundantPrefix } from '../lib/organigramaHelpers'
 import type { PersonaSeleccionada } from './OrganigramaTreeNode'
 
 function formatFecha(iso: string | null): string {
@@ -9,8 +9,6 @@ function formatFecha(iso: string | null): string {
   return `${d}/${m}/${y}`
 }
 
-// Mismo cálculo que PersonaDetailPanel.tsx (personas/pages) — sin extraer a un
-// helper compartido a propósito, ese archivo tampoco lo hace.
 function calcAnios(iso: string | null): number | null {
   if (!iso) return null
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
@@ -33,73 +31,111 @@ interface Props {
   data: PersonaSeleccionada | null
 }
 
-// Ficha rápida de una persona asignada a un puesto del organigrama, con los
-// datos que ya vienen embebidos en la respuesta de /api/v1/organigrama (sin
-// pedir nada nuevo al backend al hacer click).
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-gray-50 rounded-lg px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">{label}</p>
+      <p className="text-sm font-semibold text-gray-900">{value}</p>
+    </div>
+  )
+}
+
 export default function PersonaModal({ open, onClose, data }: Props) {
   const navigate = useNavigate()
   if (!open || !data) return null
   const { persona, nodeName, nodeTitle } = data
   const edad = calcAnios(persona.fechaNacimiento)
   const antiguedad = calcAnios(persona.antiguedadDesde)
+  const idSialCorto = persona.idSialRol ? persona.idSialRol.split('-').slice(0, 2).join('-') : null
 
-  const campos = [
-    { label: 'CUIL', value: formatCuil(persona.cuil) },
-    { label: 'Fecha de nacimiento', value: formatFecha(persona.fechaNacimiento) },
-    { label: 'Edad', value: edad != null ? `${edad} años` : '—' },
-    { label: 'Antigüedad', value: antiguedad != null ? `${antiguedad} años` : '—' },
-    { label: 'En el cargo desde', value: formatFecha(persona.cargoDesde) },
-    { label: 'En el cargo hasta', value: persona.cargoHasta ? formatFecha(persona.cargoHasta) : 'Actual' },
-  ]
+  const go = (path: string) => { onClose(); navigate(path) }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 rounded-t-2xl bg-gradient-to-r from-primary-700 to-primary-600 border-b-2 border-primary-800">
-          <span className="text-white font-bold text-base tracking-wide flex items-center gap-2 min-w-0">
-            <UserCircleIcon className="w-5 h-5 flex-shrink-0" />
-            <span className="truncate">{persona.nombre}</span>
-          </span>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              onClick={() => { onClose(); navigate(`/personas/${persona.personaId}`) }}
-              title="Ver perfil completo"
-              className="p-1 rounded text-white/80 hover:bg-white/15 hover:text-white flex items-center gap-1 text-xs"
-            >
-              <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-            </button>
-            <button onClick={onClose} className="p-1 rounded text-white/80 hover:bg-white/15 hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+
+        {/* Header — persona */}
+        <div className="bg-gradient-to-br from-primary-800 to-primary-600 px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                <UserCircleIcon className="w-6 h-6 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-white font-bold text-base leading-tight truncate">{persona.nombre}</p>
+                <p className="text-primary-200 text-xs mt-0.5">CUIL {formatCuil(persona.cuil)}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="flex-shrink-0 p-1 rounded-lg text-white/70 hover:bg-white/15 hover:text-white transition-colors">
               <XMarkIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        <div className="p-4 sm:p-5">
-          {nodeName && (
-            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-              {nodeTitle && (
-                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${tipoColor(nodeTitle)}`}>{nodeTitle}</span>
-              )}
-              <span className="text-sm text-gray-600 font-medium">
-                {persona.cargo ? `${persona.cargo} · ` : ''}
-                {nodeName}
-              </span>
+        {/* Puesto en el organigrama */}
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+          {nodeTitle && (
+            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${tipoColor(nodeTitle)}`}>
+              {nodeTitle}
+            </span>
+          )}
+          <p className="text-sm text-gray-700 font-medium truncate">{stripRedundantPrefix(nodeName)}</p>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Datos personales */}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Persona</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Fecha de nac." value={formatFecha(persona.fechaNacimiento)} />
+              <Stat label="Edad" value={edad != null ? `${edad} años` : '—'} />
+              <Stat label="Antigüedad en Salud" value={antiguedad != null ? `${antiguedad} años` : '—'} />
+              <Stat label="En el cargo desde" value={formatFecha(persona.cargoDesde)} />
+            </div>
+          </div>
+
+          {/* Datos del cargo */}
+          {(persona.cargo || persona.codigoCargo || idSialCorto) && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Cargo</p>
+              <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1.5">
+                {persona.cargo && (
+                  <p className="text-sm font-semibold text-gray-900">{persona.cargo}</p>
+                )}
+                <div className="flex items-center gap-3 flex-wrap">
+                  {persona.codigoCargo && (
+                    <span className="font-mono text-xs text-primary-700 bg-primary-50 px-2 py-0.5 rounded">
+                      {persona.codigoCargo}
+                    </span>
+                  )}
+                  {idSialCorto && (
+                    <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                      SIAL {idSialCorto}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-          <dl className="grid grid-cols-2 gap-4">
-            {campos.map((c) => (
-              <div key={c.label}>
-                <dt className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">{c.label}</dt>
-                <dd className="text-sm text-gray-900 font-semibold mt-0.5">{c.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {(persona.idSialRol || persona.codigoCargo) && (
-            <p className="mt-3 pt-3 border-t border-gray-100 text-[11px] text-gray-400 font-mono space-x-4">
-              {persona.codigoCargo && <span>Cargo: {persona.codigoCargo}</span>}
-              {persona.idSialRol && <span>ID SIAL Rol: {persona.idSialRol.split('-').slice(0, 2).join('-')}</span>}
-            </p>
-          )}
+
+          {/* Botones de navegación */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              onClick={() => go(`/personas/${persona.personaId}`)}
+              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold transition-colors"
+            >
+              <IdentificationIcon className="w-4 h-4" />
+              Ver persona
+            </button>
+            <button
+              onClick={() => persona.cargoId && go(`/cargos/${persona.cargoId}`)}
+              disabled={!persona.cargoId}
+              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <BriefcaseIcon className="w-4 h-4" />
+              Ver cargo
+            </button>
+          </div>
         </div>
       </div>
     </div>
