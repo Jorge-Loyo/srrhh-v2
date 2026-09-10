@@ -888,6 +888,8 @@ export interface CreateSolicitudAltaRequest {
   desde?: string
   cantidad?: number
   etiqueta?: string
+  // S16-8: baja que originó la vacante que esta alta viene a cubrir
+  bajaOrigenId?: string
 }
 
 // S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar

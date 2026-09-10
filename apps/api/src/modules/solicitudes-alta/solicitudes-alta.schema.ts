@@ -15,6 +15,8 @@ export const createSolicitudAltaSchema = z.object({
   desde:            fecha.optional(),
   cantidad:         z.coerce.number().int().min(1).max(50).default(1),
   etiqueta:         z.string().trim().max(100).optional(),
+  // S16-8: baja que originó la vacante que esta alta viene a cubrir
+  bajaOrigenId:     z.string().uuid().optional(),
 })
 
 export const solicitudesAltaQuerySchema = z.object({

@@ -8,6 +8,8 @@ const include = {
   escalafon:      { select: { id: true, nombre: true } },
   codigoRegistro: { select: { id: true, literal: true } },
   solicitadoPor:  { select: { id: true, username: true, email: true } },
+  // S16-8: baja origen vinculada
+  bajaOrigen:     { select: { id: true, fechaBaja: true, motivo: true, cargo: { select: { codigo: true, literalPuesto: true } } } },
 } as const
 
 // --- POST / --- crear solicitud + autorizacion pendiente --------------------
@@ -40,6 +42,7 @@ export async function createSolicitudAltaService(
         expediente:       body.expediente ?? null,
         desde:            body.desde ? new Date(body.desde) : null,
         cantidad:         body.cantidad,
+        bajaOrigenId:     body.bajaOrigenId ?? null,
         solicitadoPorId,
       },
       include,

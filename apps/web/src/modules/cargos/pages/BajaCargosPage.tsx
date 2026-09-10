@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Baja, BajaFilters, PaginatedResponse, EstadoBaja } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
@@ -34,7 +34,7 @@ function RowDetalle({ label, value }: { label: string; value: React.ReactNode })
   )
 }
 
-function ModalDetalleBaja({ baja, onClose }: { baja: Baja; onClose: () => void }) {
+function ModalDetalleBaja({ baja, onClose }: { baja: Baja & { solicitudesAlta?: { id: string; expediente: string | null; estado: string; literalPuesto: string }[] }; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
@@ -77,6 +77,21 @@ function ModalDetalleBaja({ baja, onClose }: { baja: Baja; onClose: () => void }
             <RowDetalle label="Registrado por" value={baja.registradoPor?.username} />
             <RowDetalle label="Fecha de registro" value={fmtFecha(baja.createdAt)} />
           </div>
+          {/* S16-8: altas vinculadas */}
+          {baja.solicitudesAlta && baja.solicitudesAlta.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Alta vinculada</p>
+              {baja.solicitudesAlta.map((s) => (
+                <div key={s.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-gray-100 last:border-0">
+                  <div>
+                    <span className="text-xs font-mono text-gray-600">{s.expediente ?? '(sin expediente)'}</span>
+                    <span className="text-xs text-gray-400 ml-2">{s.literalPuesto}</span>
+                  </div>
+                  <Link to={`/cargos/altas`} className="text-xs text-secondary hover:underline shrink-0">Ver alta →</Link>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex justify-end px-6 py-4 border-t border-gray-200">
           <button className="btn-outline" onClick={onClose}>Cerrar</button>
