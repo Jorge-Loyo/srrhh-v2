@@ -28,6 +28,12 @@ import { permisosRoutes } from './modules/permisos/permisos.routes.js'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes.js'
 import { autorizacionesRoutes } from './modules/autorizaciones/autorizaciones.routes.js'
 import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-alta.routes.js'
+import { referenciasRoutes } from './modules/referencias/referencias.routes.js'
+import { organigramaRoutes } from './modules/organigrama/organigrama.routes.js'
+import { pouRoutes } from './modules/pou/pou.routes.js'
+import { dotacionRoutes } from './modules/dotacion/dotacion.routes.js'
+import { tokensRoutes } from './modules/tokens/tokens.routes.js'
+import { auditoriaRoutes } from './modules/auditoria/auditoria.routes.js'
 
 const app = Fastify({
   logger: {
@@ -93,6 +99,12 @@ await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
 await app.register(notificacionesRoutes, { prefix: '/api/v1/notificaciones' })
 await app.register(autorizacionesRoutes,   { prefix: '/api/v1/autorizaciones' })
 await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' })
+await app.register(referenciasRoutes,      { prefix: '/api/v1/referencias' })
+await app.register(organigramaRoutes,      { prefix: '/api/v1/organigrama' })
+await app.register(pouRoutes,              { prefix: '/api/v1/pou' })
+await app.register(dotacionRoutes,         { prefix: '/api/v1/dotacion' })
+await app.register(tokensRoutes,           { prefix: '/api/v1/tokens' })
+await app.register(auditoriaRoutes,        { prefix: '/api/v1/auditoria' })
 
 // Start
 try {
