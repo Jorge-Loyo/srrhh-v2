@@ -10,6 +10,8 @@ import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import {
   ESTADO_LABEL,
   ESTADO_BADGE,
+  estadoBadge,
+  estadoLabel,
   SUB_ESTADO_OPTIONS,
   SUB_ESTADO_3_OPTIONS,
   diasSinMovimiento,
@@ -180,7 +182,7 @@ export function ConcursosCphPage() {
                             {c.disposicion ?? '—'}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
+                            <span className={estadoBadge(c.estado, c.subEstado)}>{estadoLabel(c.estado, c.subEstado)}</span>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
                           <td className="px-4 py-3">

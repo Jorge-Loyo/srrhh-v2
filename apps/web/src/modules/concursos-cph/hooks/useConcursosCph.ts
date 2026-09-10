@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ConcursoCph,
   ConcursoCphFilters,
+  DeclararDesiertoRequest,
   DesignarConcursoRequest,
   PaginatedResponse,
   PatchConcursoCphRequest,
@@ -89,7 +90,20 @@ export function useSuspenderConcursoCph(id: string) {
   })
 }
 
-// S16-3: registrar designación CPH (POST /api/v1/concursos-cph/:id/designar).
+// PS16D-6: declarar desierto (POST /api/v1/concursos-cph/:id/declarar-desierto).
+export function useDeclararDesiertoCph(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: DeclararDesiertoRequest) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/declarar-desierto`, body)
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concurso-cph-wizard', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
 export function useDesignarConcursoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({

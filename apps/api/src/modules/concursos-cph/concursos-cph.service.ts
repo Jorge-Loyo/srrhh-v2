@@ -11,6 +11,8 @@ const include = {
   hospital: true,
   personaDesignada: true,
   codigoRegistroSolicitado: true,
+  // PS16D: historial de rondas desiertas
+  desiertoHistorial: { orderBy: { nroRonda: 'asc' as const } },
 } satisfies Prisma.ConcursoCphInclude
 
 // Extrae los campos que usa calcConcursoCph() de una fila completa —
