@@ -45,6 +45,7 @@
 | Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
 | Post-Sprint 15B — Pendientes menores | ✅ Completo — commits `1f0744a`, `3895916` | — | (ver abajo) |
 | Sprint 16 — Flujo completo Vacante → Designación | 📋 Planificado | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
+| Post-Sprint 16 — Corrección modelo Desierto CPH | 📋 Planificado | PS16D-1 a PS16D-8 | `Sprints/POST_SPRINT_16_desierto_cph.md` |
 
 ---
 

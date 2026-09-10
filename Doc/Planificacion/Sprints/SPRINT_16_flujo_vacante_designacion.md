@@ -206,3 +206,4 @@ S16-1 + S16-2 + S16-5 + S16-6 + S16-8 ──► S16-9
 - **GAP 4 y 5** son mejoras de UX para el Director y el equipo concursal — no bloquean ningún flujo.
 - Al registrar la designación, si `idSialRol` no se conoce todavía (el padrón no llegó), se crea la ocupación con un `idSialRol` sintético (`MANUAL-{cargoId}-{fecha}`) que el padrón siguiente sobreescribirá al detectar el "nuevo" real. Esto evita la restricción UNIQUE de `idSialRol` sin dejar el campo vacío.
 - La designación **no cancela el concurso** — lo lleva a estado `finalizado` (CPH) o `finalizado` (CEETPS). El historial del proceso queda intacto.
+- **Modelo de desierto**: durante el desarrollo de este sprint se detectó que `desierto` estaba modelado incorrectamente como estado terminal. El fix completo está documentado en `Sprints/POST_SPRINT_16_desierto_cph.md` y debe ejecutarse antes o en paralelo con S16-3/S16-4.
