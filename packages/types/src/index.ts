@@ -319,8 +319,18 @@ export interface ConcursoCph {
   cargoSial: string | null
   dispoDesierta: string | null
   fechaDispoDesierta: string | null
+  cantidadCargos: number
   personaDesignadaId: string | null
   suspendido: boolean
+  ifacs: string | null
+  insal: string | null
+  cambioEspecialidad: boolean
+  motivoCambioEspecialidad: string | null
+  qInscriptos: number | null
+  pendienteAutorizacion: boolean
+  aprobadoDirector: boolean
+  siglaSolicitada: string | null
+  codigoRegistroSolicitadoId: string | null
   observaciones: string | null
   createdAt: string
   updatedAt: string

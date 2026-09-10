@@ -91,6 +91,65 @@ model Hospital {
   @@map("hospitales")
 }
 
+// Estructura jerárquica de unidades organizativas por efector (hospital) y por
+// sección administrativa (Nivel Central, Atención Primaria). Migrada 1:1 desde
+// la tabla `organigramas` de la app vieja (dotacion-rrhh) — ver
+// Doc/Planificacion/Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md
+// para el origen del dump y el script de import (scripts/import_organigrama.mjs).
+// Es un árbol estático (no cambia con el padrón semanal): la app arma el árbol
+// desde acá y le cruza encima, en runtime, quién ocupa cada nodo hoy (join por
+// `codigoReparticion` contra `Cargo.codigoRepa`) — ver apps/api/src/modules/organigrama.
+// `sigla` no es FK dura a Hospital (igual que en la app vieja, ahí también era
+// "lógica"): hay nodos de nivel Ministerio/Área que no corresponden a ningún
+// hospital puntual.
+model Organigrama {
+  id                  String  @id @default(uuid()) @db.Uuid
+  lvl                 Int
+  tipo                String  @db.VarChar(50)
+  codigoReparticion   String  @unique @map("codigo_reparticion") @db.VarChar(20)
+  universoTotalizador String? @map("universo_totalizador") @db.VarChar(100)
+  regimenEmpleo       String? @map("regimen_empleo") @db.VarChar(200)
+  descRep             String? @map("desc_rep") @db.VarChar(200)
+  sigla               String  @db.VarChar(20)
+  padre               String? @db.VarChar(100)
+  path                String  @db.VarChar(600)
+  pathNombres         String  @map("path_nombres") @db.VarChar(1200)
+
+  @@index([sigla])
+  @@index([padre])
+  @@index([universoTotalizador])
+  @@map("organigramas")
+}
+
+// Resumen de dotación (personal necesario/ocupado) por hospital, perfil y
+// especialidad — foto mensual cargada a mano desde el Excel "Ocupacion_POU"
+// que emite Recursos Humanos. Migrado 1:1 desde la tabla `pou` de la app
+// vieja (dotacion-rrhh) — ver Doc/ESQUEMA_BASE_DE_DATOS.md sección 8.3 ahí.
+// OJO — nombre superpuesto a propósito distinto de otro concepto ya existente
+// en v2: esto NO tiene relación con `ModalidadPuesto.pou` (el campo
+// guardia/planta de un Cargo individual). Esta tabla es un conteo agregado
+// por puesto de trabajo, no un dato de ningún Cargo puntual.
+// Sin período/histórico por decisión explícita (a diferencia de la app
+// vieja, que sí guardaba un historial mensual): cada carga de Excel reemplaza
+// la tabla entera — mismo patrón que Organigrama/Árbol arriba.
+model Pou {
+  id               String  @id @default(uuid()) @db.Uuid
+  sigla            String  @db.VarChar(10)
+  descripcionSigla String? @map("descripcion_sigla") @db.VarChar(100)
+  perfil           String  @db.VarChar(50)
+  especialidad     String  @db.VarChar(100)
+  dotacionDiaria   Int?    @map("dotacion_diaria")
+  dotacionSem      Int?    @map("dotacion_sem")
+  dotacionTotal    Int?    @map("dotacion_total")
+  activos          Int?
+  tecnicos         Int?
+  vacantes         Int?
+
+  @@unique([sigla, perfil, especialidad])
+  @@index([sigla])
+  @@map("pou")
+}
+
 model Escalafon {
   id        String   @id @default(uuid()) @db.Uuid
   // Código canónico corto: 22, 37, 83, etc. (CODIGO DE REGISTRO del Excel).

@@ -23,6 +23,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Default es 2 MiB — el organigrama trae @xyflow/react + html-to-image
+        // + @heroicons/react, que empujaron el bundle principal por encima de
+        // eso. Ver también el lazy-load de OrganigramaFlowView (el más pesado
+        // de los tres) en OrganigramaDetallePage.tsx, que baja el bundle
+        // principal pero no lo suficiente como para no necesitar este ajuste.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
