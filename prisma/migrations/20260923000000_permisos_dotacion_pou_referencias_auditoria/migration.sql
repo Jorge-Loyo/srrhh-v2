@@ -6,7 +6,8 @@ VALUES
   (gen_random_uuid(), 'dotacion',      'ver',                   'Ver dotación real'),
   (gen_random_uuid(), 'configuracion', 'gestionar_pou',         'Cargar Excel POU'),
   (gen_random_uuid(), 'configuracion', 'gestionar_referencias', 'Gestionar referencias Dotaneitor'),
-  (gen_random_uuid(), 'configuracion', 'ver_auditoria',         'Ver log de auditoría')
+  (gen_random_uuid(), 'configuracion', 'ver_auditoria',         'Ver log de auditoría'),
+  (gen_random_uuid(), 'configuracion', 'purgar_auditoria',      'Purgar registros de auditoría')
 ON CONFLICT (modulo, accion) DO NOTHING;
 
 -- El rol admin ya tiene un CROSS JOIN en la migración 20260902000004 que
