@@ -111,25 +111,49 @@ function ReferenciaAlta({ id }: { id: string }) {
   )
 }
 
+type BajaRef = {
+  cargo?: { id?: string; codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } }
+  motivo?: string
+  tipoBaja?: string
+  concursos?: { id: string; tipoConcurso: string; concursoCph?: { id: string; estado: string; subEstado: string | null; subEstado3: string | null } | null; concursoCeetps?: { id: string; estado: string } | null }[]
+}
+
 function ReferenciaBaja({ id }: { id: string }) {
   const { data } = useQuery({
     queryKey: ['bajas', id, 'autorizaciones-ref'],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: { cargo?: { codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } }; motivo?: string; tipoBaja?: string } }>(`/api/v1/bajas/${id}`)
+      const res = await apiClient.get<{ data: BajaRef }>(`/api/v1/bajas/${id}`)
       return res.data.data
     },
   })
   if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
   const cargo = data.cargo
+  const concurso = data.concursos?.[0]
+  const cph = concurso?.concursoCph
+  const ceetps = concurso?.concursoCeetps
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 space-y-1.5">
       <p className="text-sm font-semibold text-gray-900 truncate">
         {cargo?.literalPuesto ?? '—'}
         {cargo?.hospital?.sigla && <span className="font-normal text-gray-500"> · {cargo.hospital.sigla}</span>}
       </p>
       <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
-      {data.tipoBaja && <p className="text-xs text-gray-500 mt-0.5">Tipo: {data.tipoBaja}</p>}
+      {data.tipoBaja && <p className="text-xs text-gray-500">Tipo: {data.tipoBaja}</p>}
       {data.motivo && <p className="text-xs text-gray-500">Motivo: {data.motivo}</p>}
+      {cph && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">CPH</span>
+          <span className="text-xs text-gray-500">{cph.subEstado3 ?? cph.subEstado ?? cph.estado}</span>
+          <Link to={`/concursos/cph/${cph.id}/wizard`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+        </div>
+      )}
+      {ceetps && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">CEETPS</span>
+          <span className="text-xs text-gray-500">{ceetps.estado}</span>
+          <Link to={`/concursos-ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+        </div>
+      )}
     </div>
   )
 }

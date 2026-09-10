@@ -11,6 +11,17 @@ const include = {
   hospital: true,
   persona: true,
   registradoPor: { select: { username: true } },
+  // S16-6: concurso asociado para mostrar link en AutorizacionesPage
+  concursos: {
+    select: {
+      id: true,
+      tipoConcurso: true,
+      concursoCph:   { select: { id: true, estado: true, subEstado: true, subEstado3: true } },
+      concursoCeetps: { select: { id: true, estado: true } },
+    },
+    take: 1,
+    orderBy: { createdAt: 'desc' as const },
+  },
 } satisfies Prisma.BajaInclude
 
 // --- S5-4: listado paginado con filtros -------------------------------------
