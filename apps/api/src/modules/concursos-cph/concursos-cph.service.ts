@@ -1,7 +1,7 @@
 import { Prisma, type ConcursoCph } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
+import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody, DesignarCphBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
@@ -439,5 +439,73 @@ export async function suspenderConcursoCphService(id: string, body: SuspenderCon
       subEstado3: calc.subEstado3,
     },
     include,
+  })
+}
+
+// ─── S16-1: registrar designación — crea Ocupacion, avanza a N-DESIGNADO ────
+export async function designarConcursoCphService(id: string, body: DesignarCphBody) {
+  const concurso = await prisma.concursoCph.findUnique({
+    where: { id },
+    include: { concurso: { include: { cargo: true } } },
+  })
+  if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
+  if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+  if (concurso.estado === 'desierto')   throw AppError.conflict('El concurso está desierto')
+
+  const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  const cargoId = concurso.cargoId
+
+  // Validar que no haya ocupación activa en el cargo
+  const ocupActiva = await prisma.ocupacion.findFirst({ where: { cargoId, hasta: null } })
+  if (ocupActiva) throw AppError.conflict('El cargo ya tiene una ocupación activa')
+
+  // idSialRol sintético si no se conoce todavía — el padrón siguiente lo sobreescribirá
+  const idSialRol = body.idSialRol ?? `MANUAL-${cargoId.slice(0, 8)}-${body.fechaDesde}`
+
+  return prisma.$transaction(async (tx) => {
+    // Crear la ocupación
+    await tx.ocupacion.create({
+      data: {
+        personaId: body.personaId,
+        cargoId,
+        idSialRol,
+        desde: new Date(body.fechaDesde),
+        hasta: null,
+      },
+    })
+
+    // Cargo → vigente (ocupado)
+    await tx.cargo.update({
+      where: { id: cargoId },
+      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+    })
+
+    // Avanzar sub-estado a N-DESIGNADO y estado a finalizado
+    const updated = await tx.concursoCph.update({
+      where: { id },
+      data: {
+        personaDesignadaId: body.personaId,
+        subEstado: 'N-DESIGNADO',
+        estado: 'finalizado',
+        subEstado3: 'G-RESOLUCION',
+      },
+      include,
+    })
+
+    // Notificar al equipo CPH
+    const cargoCodigo = (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    await crearNotificacion({
+      tipo:      'autorizacion_resuelta',
+      rolSlug:   'concursales_cph',
+      titulo:    `Designación registrada — ${cargoCodigo}`,
+      mensaje:   `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
+      origenTipo: 'concurso_cph',
+      origenId:   id,
+      origenKey:  `designacion_cph:${id}`,
+    })
+
+    return updated
   })
 }

@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody } from './concursos-ceetps.schema.js'
+import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody } from './concursos-ceetps.schema.js'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
   // cargo.codigoRegistro: distingue Enfermería(87)/Técnicos(85)/Serv. Generales(83)
@@ -99,5 +100,65 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
     where: { id },
     data: { ...patch, estado },
     include,
+  })
+}
+
+// ─── S16-2: registrar designación — crea Ocupacion, avanza estado a finalizado ──
+export async function designarConcursoCeetpsService(id: string, body: DesignarCeetpsBody) {
+  const concurso = await prisma.concursoCeetps.findUnique({
+    where: { id },
+    include: { concurso: { include: { cargo: true } } },
+  })
+  if (!concurso) throw AppError.notFound('Concurso CEETPS no encontrado')
+  if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+  if (concurso.estado === 'desierto')   throw AppError.conflict('El concurso está desierto')
+
+  const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  const cargoId = concurso.cargoId
+
+  const ocupActiva = await prisma.ocupacion.findFirst({ where: { cargoId, hasta: null } })
+  if (ocupActiva) throw AppError.conflict('El cargo ya tiene una ocupación activa')
+
+  const idSialRol = body.idSialRol ?? `MANUAL-${cargoId.slice(0, 8)}-${body.fechaDesde}`
+
+  return prisma.$transaction(async (tx) => {
+    await tx.ocupacion.create({
+      data: {
+        personaId: body.personaId,
+        cargoId,
+        idSialRol,
+        desde: new Date(body.fechaDesde),
+        hasta: null,
+      },
+    })
+
+    await tx.cargo.update({
+      where: { id: cargoId },
+      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+    })
+
+    const updated = await tx.concursoCeetps.update({
+      where: { id },
+      data: {
+        personaDesignadaId: body.personaId,
+        estado: 'finalizado',
+      },
+      include,
+    })
+
+    const cargoCodigo = (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    await crearNotificacion({
+      tipo:      'autorizacion_resuelta',
+      rolSlug:   'concursales_ceetps',
+      titulo:    `Designación registrada — ${cargoCodigo}`,
+      mensaje:   `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
+      origenTipo: 'concurso_ceetps',
+      origenId:   id,
+      origenKey:  `designacion_ceetps:${id}`,
+    })
+
+    return updated
   })
 }

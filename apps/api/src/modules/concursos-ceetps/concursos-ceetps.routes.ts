@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema } from './concursos-ceetps.schema.js'
+import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema, designarCeetpsSchema } from './concursos-ceetps.schema.js'
 import {
   listConcursosCeetpsService,
   getConcursoCeetpsByIdService,
   patchConcursoCeetpsService,
+  designarConcursoCeetpsService,
 } from './concursos-ceetps.service.js'
 
 const WRITE_PERMISO = { modulo: 'concursos-ceetps', accion: 'editar' }
@@ -33,6 +34,17 @@ export async function concursosCeetpsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = patchConcursoCeetpsSchema.parse(request.body)
       const data = await patchConcursoCeetpsService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/designar — S16-2: registra la designación, crea Ocupacion, avanza a finalizado
+  app.post<{ Params: { id: string } }>(
+    '/:id/designar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = designarCeetpsSchema.parse(request.body)
+      const data = await designarConcursoCeetpsService(request.params.id, body)
       return reply.send({ data })
     }
   )

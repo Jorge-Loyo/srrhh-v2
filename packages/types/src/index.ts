@@ -673,6 +673,13 @@ export interface PatchConcursoCphRequest {
   observaciones?: string | null
 }
 
+// S16 — POST /api/v1/concursos-cph/:id/designar y /concursos-ceetps/:id/designar
+export interface DesignarConcursoRequest {
+  personaId: string
+  fechaDesde: string
+  idSialRol?: string
+}
+
 // S4-5 — POST /api/v1/concursos-cph/:id/suspender. `suspendido` en `false`
 // reanuda — mismo endpoint para los dos sentidos.
 export interface SuspenderConcursoCphRequest {

@@ -40,3 +40,12 @@ export const patchConcursoCeetpsSchema = z
   .strict()
 
 export type PatchConcursoCeetpsBody = z.infer<typeof patchConcursoCeetpsSchema>
+
+// S16-2: registrar designación CEETPS — mismo contrato que CPH.
+export const designarCeetpsSchema = z.object({
+  personaId: z.string().uuid(),
+  fechaDesde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
+  idSialRol: z.string().trim().max(50).optional(),
+})
+
+export type DesignarCeetpsBody = z.infer<typeof designarCeetpsSchema>
