@@ -17,6 +17,14 @@ export function CargoDetailPanel() {
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando cargo...</p>
   if (isError || !cargo) return <p className="text-sm text-danger p-6">No se pudo cargar el cargo.</p>
 
+  // Concurso en curso: CPH activo (no finalizado, no suspendido) o CEETPS no finalizado
+  const concursoCphActivo = cargo.concursosCph.find(
+    (c) => c.estado !== EstadoConcursoCph.FINALIZADO && !c.suspendido
+  ) ?? null
+  const concursoCeetpsActivo = cargo.concursosCeetps.find(
+    (c) => c.estado !== EstadoConcursoCeetps.FINALIZADO
+  ) ?? null
+
   const ocup    = cargo.ocupacionActual
   const persona = ocup?.persona
   const vigente = cargo.estado === EstadoCargo.VIGENTE
@@ -103,6 +111,33 @@ export function CargoDetailPanel() {
           )}
         </div>
       </div>
+
+      {/* Proceso concursal activo */}
+      {(concursoCphActivo || concursoCeetpsActivo) && (() => {
+        const esCph = !!concursoCphActivo
+        const c = (concursoCphActivo ?? concursoCeetpsActivo)!
+        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos-ceetps/${c.id}`
+        const tipo = esCph ? 'CPH' : 'CEETPS'
+        const sub = esCph
+          ? (concursoCphActivo!.subEstado3 ?? concursoCphActivo!.subEstado)
+          : null
+        return (
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden border-l-4 border-blue-500">
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">{tipo}</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Proceso concursal activo</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {c.estado}{sub ? ` · ${sub}` : ''}
+                  </p>
+                </div>
+              </div>
+              <Link to={href} className="btn-outline text-xs shrink-0">Ver concurso</Link>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Persona actual */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
