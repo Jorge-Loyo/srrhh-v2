@@ -1,6 +1,6 @@
 # SPRINT 16 — Flujo completo: Vacante → Concurso → Designación
 
-**Estado:** 📋 Planificado
+**Estado:** ✅ Completado (pendiente S16-9 verificación end-to-end)
 **Fecha estimada de inicio:** 2026-09
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea
@@ -142,15 +142,15 @@ El Director ve autorizaciones pendientes pero no tiene una vista del estado del 
 
 | # | Tarea | Dev | Est. | Prioridad |
 |---|-------|-----|------|-----------|
-| S16-1 | Backend: `POST /concursos-cph/:id/designar` — crea `Ocupacion`, avanza sub-estado a `N-DESIGNADO`, notifica al equipo CPH | Jorge | 3h | 🔴 |
-| S16-2 | Backend: `POST /concursos-ceetps/:id/designar` — ídem para CEETPS, avanza estado a `finalizado` | Jorge | 2h | 🔴 |
-| S16-3 | Frontend CPH: paso "Registrar designación" en Wizard — selector persona, fecha, idSialRol opcional | Agustín | 4h | 🔴 |
-| S16-4 | Frontend CEETPS: sección "Registrar designación" en `ConcursoCeetpsDetail` | Agustín | 3h | 🔴 |
-| S16-5 | Backend + Frontend: `CargoDetailPanel` — sección "Proceso concursal activo" con link y sub-estado | Agustín | 3h | 🟡 |
-| S16-6 | Frontend: `AutorizacionesPage` — link al concurso en panel detalle de `baja_cargo` | Agustín | 2h | 🟡 |
-| S16-7 | Schema + migración: campo `baja_origen_id` en `solicitudes_alta` o `cargos` (decidir en implementación) | Jorge | 1h | 🟡 |
-| S16-8 | Frontend: `AltaCargosPage` — selector "¿Reemplaza una baja?" + vínculo en `CargoDetailPanel` y `BajaCargosPage` | Agustín | 3h | 🟡 |
-| S16-9 | Verificación end-to-end: flujo completo Origen A (padrón) y Origen B (manual) hasta designación visible en `/cargos/:id` y organigrama | Jorge + Agustín | 3h | 🔴 |
+| S16-1 | Backend: `POST /concursos-cph/:id/designar` — crea `Ocupacion`, avanza sub-estado a `N-DESIGNADO`, notifica al equipo CPH | Jorge | 3h | 🔴 | ✅ `3b1ac5c` |
+| S16-2 | Backend: `POST /concursos-ceetps/:id/designar` — ídem para CEETPS, avanza estado a `finalizado` | Jorge | 2h | 🔴 | ✅ `3b1ac5c` |
+| S16-3 | Frontend CPH: paso "Registrar designación" en Wizard — selector persona, fecha, idSialRol opcional | Agustín | 4h | 🔴 | ✅ `7f8c1d0` |
+| S16-4 | Frontend CEETPS: sección "Registrar designación" en `ConcursoCeetpsDetail` | Agustín | 3h | 🔴 | ✅ `3698e39` |
+| S16-5 | Backend + Frontend: `CargoDetailPanel` — sección "Proceso concursal activo" con link y sub-estado | Agustín | 3h | 🟡 | ✅ `fd9efe6` |
+| S16-6 | Frontend: `AutorizacionesPage` — link al concurso en panel detalle de `baja_cargo` | Agustín | 2h | 🟡 | ✅ `b3aaf1b` |
+| S16-7 | Schema + migración: campo `baja_origen_id` en `solicitudes_alta` | Jorge | 1h | 🟡 | ✅ `34a8828` |
+| S16-8 | Frontend: `AltaCargosPage` — selector "¿Reemplaza una baja?" + vínculo en `BajaCargosPage` | Agustín | 3h | 🟡 | ✅ `bb8cc0e` |
+| S16-9 | Verificación end-to-end: flujo completo Origen A (padrón) y Origen B (manual) hasta designación visible en `/cargos/:id` y organigrama | Jorge + Agustín | 3h | 🔴 | ⏳ pendiente |
 
 **Total estimado**: ~24h
 
