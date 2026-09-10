@@ -43,6 +43,8 @@
 | Post-Sprint 15 — Organigrama: personas en cargos + PersonaModal | ✅ Completo — commits `345bc28`…`0dc226a` | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
 | Post-Sprint 14 — Personas/Cargos exportables | ✅ Completo — 2026-09-07 | — | `Sprints/POST_SPRINT_14_personas_cargos_exportables.md` |
 | Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
+| Post-Sprint 15B — Pendientes menores | ✅ Completo — commits `1f0744a`, `3895916` | — | (ver abajo) |
+| Sprint 16 — Flujo completo Vacante → Designación | 📋 Planificado | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
 
 ---
 
@@ -183,9 +185,10 @@ Este proyecto se rige por **contratos** que son fuente de verdad en su dominio. 
 | B-8 | App mobile nativa | Segunda fase |
 | B-9 | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage — no priorizado |
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me` | Mejora de seguridad XSS — no priorizado para MVP |
-| B-12 | Identidad del cargo en padrón SIAL por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` en vez de `id_sial` | Pendiente — ver `Contrato_logica-cargo.md` §6. Planificado originalmente como S8-1, no implementado en Sprint 8 |
-| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
-| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
+| B-11 | Export Excel consolidado de concursos/bajas (legacy `exportBajasToExcel` / `exportSeguimientoToExcel`) | Confirmado como gap real — planificar en sprint dedicado |
+| B-12 | ~~Identidad del cargo en padrón SIAL por clave estructural~~ | ✅ Resuelto — commit `3895916` |
+| B-13 | Acto administrativo de baja como entidad propia (expediente + resolución) | Incluido en Sprint 16 (GAP 3) |
+| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Incluido en Sprint 16 (GAP 3) |
 
 ---
 
@@ -233,6 +236,7 @@ Ver `Doc/DEPLOY_PRODUCCION.md` para el detalle completo y `Doc/CONTRATO_REPOSITO
 | 2026-09-03 | `EvolucionDotacionChart` rediseñado como dashboard ejecutivo con small multiples | Un solo gráfico de línea con 14 series era ilegible | `Contrato_Diseño.md` |
 | 2026-09-10 | Columna `especialidad` renombrada a `especialidad_legacy` en `cargos`; patrón de fallback `especialidadLegacy ?? especialidad` en todo el frontend | Migración `20260910000001_especialidades_fk`; `especialidad` en tipo `Cargo` marcado `@deprecated` | `Contrato_Datos.md`, `Contrato_Back.md` |
 | 2026-09-10 | pg_trgm instalado; threshold `> 0.4` para búsqueda fuzzy de especialidades | Cubre variantes morfológicas (cardiologo → Cardiologia) | `Contrato_Datos.md` |
+| 2026-09 | B-12 resuelto: lookup por clave estructural `(hospital, escalafon, codigo_repa, literal_puesto)` antes de crear cargo nuevo al aprobar diffs del padrón | Evita duplicar cargos cuando SIAL asigna nuevo `id_sial` al mismo puesto estructural | `Contrato_logica-cargo.md` |
 
 ---
 
