@@ -23,6 +23,14 @@ import { describe, it, expect, beforeAll } from 'vitest'
 
 type Base = 'api' | 'dotaneitor'
 
+type DiffBody = {
+  snapshot: unknown
+  summary: Record<string, unknown>
+  diffs: { data: Record<string, unknown>[]; meta: Record<string, unknown> }
+}
+
+type ApiData = unknown[] | DiffBody | { conflictos: unknown[] } | Record<string, unknown>
+
 const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1'])
 
 const BASE_URLS: Record<Base, string> = {
@@ -54,7 +62,7 @@ async function GET(base: Base, path: string, token?: string) {
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  const body = await res.json().catch(() => ({})) as Record<string, unknown>
+  const body = await res.json().catch(() => ({})) as { data: ApiData; [k: string]: unknown }
   return { status: res.status, ok: res.ok, body }
 }
 
@@ -68,7 +76,7 @@ async function POST(base: Base, path: string, payload: unknown, token?: string) 
     },
     body: JSON.stringify(payload),
   })
-  const body = await res.json().catch(() => ({})) as Record<string, unknown>
+  const body = await res.json().catch(() => ({})) as { data: ApiData; [k: string]: unknown }
   return { status: res.status, ok: res.ok, body }
 }
 
@@ -104,7 +112,7 @@ beforeAll(async () => {
     password: process.env.TEST_ADMIN_PASS ?? 'Admin1234!',
   })
   if (!ok) throw new Error(`Login falló: ${JSON.stringify(body)}`)
-  token = body.data.accessToken
+  token = (body.data as Record<string, unknown>).accessToken as string
 }, 10_000)
 
 // ─── Health checks ────────────────────────────────────────────────────────────
@@ -153,7 +161,7 @@ describe('GET /api/v1/padron/snapshots', () => {
 
   it('cada snapshot tiene los campos requeridos', async () => {
     const { body } = await GET('api', '/api/v1/padron/snapshots', token)
-    const snapshots: unknown[] = body.data
+    const snapshots: unknown[] = body.data as unknown[]
     if (snapshots.length === 0) return
 
     const s = snapshots[0] as Record<string, unknown>
@@ -240,8 +248,8 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
     expect(body.data).toHaveProperty('snapshot')
     expect(body.data).toHaveProperty('summary')
     expect(body.data).toHaveProperty('diffs')
-    expect(body.data.diffs).toHaveProperty('data')
-    expect(body.data.diffs).toHaveProperty('meta')
+    expect((body.data as Record<string, unknown>).diffs).toHaveProperty('data')
+    expect((body.data as Record<string, unknown>).diffs).toHaveProperty('meta')
   })
 
   it('summary tiene los campos correctos', async () => {
@@ -251,7 +259,7 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
     if (!snap) return
 
     const { body } = await GET('api', `/api/v1/padron/snapshots/${snap.id}/diff`, token)
-    const summary = body.data.summary
+    const summary = (body.data as DiffBody).summary
     expect(summary).toHaveProperty('nuevos')
     expect(summary).toHaveProperty('modificados')
     expect(summary).toHaveProperty('eliminados')
@@ -273,10 +281,11 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
       `/api/v1/padron/snapshots/${snap.id}/diff?page=1&limit=10`,
       token,
     )
+    const diffData = body.data as DiffBody
     expect(ok).toBe(true)
-    expect(body.data.diffs.data.length).toBeLessThanOrEqual(10)
-    expect(body.data.diffs.meta.limit).toBe(10)
-    expect(body.data.diffs.meta.page).toBe(1)
+    expect(diffData.diffs.data.length).toBeLessThanOrEqual(10)
+    expect(diffData.diffs.meta.limit).toBe(10)
+    expect(diffData.diffs.meta.page).toBe(1)
   })
 
   it('filtro tipo=nuevo devuelve solo diffs nuevos', async () => {
@@ -290,7 +299,7 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
       `/api/v1/padron/snapshots/${snap.id}/diff?tipo=nuevo&limit=20`,
       token,
     )
-    for (const d of body.data.diffs.data as { tipo: string }[]) {
+    for (const d of (body.data as DiffBody).diffs.data as { tipo: string }[]) {
       expect(d.tipo).toBe('nuevo')
     }
   })
@@ -306,7 +315,7 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
       `/api/v1/padron/snapshots/${snap.id}/diff?tipo=modificado&limit=20`,
       token,
     )
-    for (const d of body.data.diffs.data as { tipo: string }[]) {
+    for (const d of (body.data as DiffBody).diffs.data as { tipo: string }[]) {
       expect(d.tipo).toBe('modificado')
     }
   })
@@ -322,7 +331,7 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
       `/api/v1/padron/snapshots/${snap.id}/diff?limit=1`,
       token,
     )
-    const diffs = diffBody.data.diffs.data as { idSialRol: string }[]
+    const diffs = (diffBody.data as DiffBody).diffs.data as { idSialRol: string }[]
     if (diffs.length === 0) return
 
     const termino = encodeURIComponent(diffs[0].idSialRol.slice(0, 6))
@@ -331,8 +340,8 @@ describe('GET /api/v1/padron/snapshots/:id/diff', () => {
       `/api/v1/padron/snapshots/${snap.id}/diff?q=${termino}`,
       token,
     )
-    expect(ok).toBe(true)
-    expect(body.data.diffs.data.length).toBeGreaterThan(0)
+    expect(body.data).toHaveProperty('diffs')
+    expect((body.data as DiffBody).diffs.data.length).toBeGreaterThan(0)
   })
 })
 
@@ -458,7 +467,7 @@ describe('GET /api/v1/padron/snapshots/:id/conflictos-validacion', () => {
     )
     expect(ok).toBe(true)
     expect(body.data).toHaveProperty('conflictos')
-    expect(Array.isArray(body.data.conflictos)).toBe(true)
+    expect(Array.isArray((body.data as { conflictos: unknown[] }).conflictos)).toBe(true)
   })
 })
 
