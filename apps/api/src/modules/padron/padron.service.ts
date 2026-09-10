@@ -976,6 +976,31 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const escalafon = (datos.codigo_de_registro && escalafonPorCodRegCache.get(datos.codigo_de_registro))
           ?? escalafonCache.get(datos.escalafon ?? '')
         if (!hospital || !escalafon) continue
+        // B-12: antes de crear un cargo nuevo, buscar por clave estructural
+        // (hospital, escalafon, codigo_repa, literal_puesto). Si existe, reusar
+        // ese cargo y actualizar su idSial al nuevo — no crear un duplicado.
+        // Ver Contrato_logica-cargo.md §6.
+        const cargoEstructural = await tx.cargo.findFirst({
+          where: {
+            hospitalId: hospital.id,
+            escalafonId: escalafon.id,
+            codigoRepa: datos.codigo_repa || null,
+            literalPuesto: datos.literal_puesto || null,
+          },
+          select: { id: true, idSial: true, estado: true },
+        })
+        if (cargoEstructural) {
+          // Cargo estructural ya existe — actualizar idSial y reactivar si hace falta
+          await tx.cargo.update({
+            where: { id: cargoEstructural.id },
+            data: {
+              idSial: datos.id_sial,
+              ...(cargoEstructural.estado !== 'vigente' ? { estado: 'vigente', estadoDesde: null } : {}),
+            },
+          })
+          cargoCache.set(datos.id_sial, { id: cargoEstructural.id, idSial: datos.id_sial, estado: 'vigente' })
+          continue
+        }
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
@@ -1421,7 +1446,7 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
       }
     }
 
-    // Crear o recuperar cargo — si ya existe y está no_vigente/validacion_vacante, reactivarlo
+    // Crear o recuperar cargo — primero por idSial, luego por clave estructural (B-12)
     let cargo: CargoRow | null = datos.id_sial
       ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
       : null
@@ -1429,6 +1454,29 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     if (cargo) {
       if (cargo.estado === 'no_vigente' || cargo.estado === 'validacion_vacante') {
         await tx.cargo.update({ where: { id: cargo.id }, data: { estado: 'vigente', estadoDesde: null } })
+      }
+    }
+
+    // B-12: si no matchea por idSial, buscar por clave estructural antes de crear uno nuevo
+    if (!cargo && datos.id_sial && datos.codigo_repa && datos.literal_puesto) {
+      const cargoEstructural = await tx.cargo.findFirst({
+        where: {
+          hospitalId: hospital.id,
+          escalafonId: escalafon.id,
+          codigoRepa: datos.codigo_repa,
+          literalPuesto: datos.literal_puesto,
+        },
+        select: { id: true, idSial: true, estado: true },
+      }) as CargoRow | null
+      if (cargoEstructural) {
+        await tx.cargo.update({
+          where: { id: cargoEstructural.id },
+          data: {
+            idSial: datos.id_sial,
+            ...(cargoEstructural.estado !== 'vigente' ? { estado: 'vigente', estadoDesde: null } : {}),
+          },
+        })
+        cargo = { id: cargoEstructural.id, idSial: datos.id_sial, estado: 'vigente' }
       }
     }
 
