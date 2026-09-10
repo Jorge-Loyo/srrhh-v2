@@ -646,6 +646,8 @@ model Baja {
   // previa (22% de los datos reales — ver análisis CSV)
   concursos       Concurso[]
   etiquetas       EtiquetaBaja[]
+  // S16-7: altas que vinieron a cubrir esta baja
+  solicitudesAlta SolicitudAlta[]
 
   @@index([cargoId])
   @@index([hospitalId])
@@ -706,6 +708,8 @@ model SolicitudAlta {
   // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
   cargosCreadosIds String[]           @map("cargos_creados_ids") @db.Uuid
   observaciones    String?            @db.Text
+  // S16-7: baja que originó la vacante que esta alta viene a cubrir
+  bajaOrigenId     String?            @map("baja_origen_id") @db.Uuid
   createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -713,6 +717,7 @@ model SolicitudAlta {
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
   solicitadoPor   Usuario?        @relation("SolicitudAltaSolicitadaPor", fields: [solicitadoPorId], references: [id])
+  bajaOrigen      Baja?           @relation(fields: [bajaOrigenId], references: [id])
   etiquetas       EtiquetaSolicitudAlta[]
 
   @@index([hospitalId])

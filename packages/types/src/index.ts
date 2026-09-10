@@ -564,6 +564,8 @@ export interface SolicitudAlta {
   solicitadoPorId: string | null
   cargosCreadosIds: string[]
   observaciones: string | null
+  // S16-7: baja que originó la vacante que esta alta viene a cubrir
+  bajaOrigenId: string | null
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
