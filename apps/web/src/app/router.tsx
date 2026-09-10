@@ -91,7 +91,7 @@ export const router = createBrowserRouter([
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
-            children: [{ path: 'arbol', element: <OrganigramaArbolPage /> }],
+            children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_pou' }} />,
