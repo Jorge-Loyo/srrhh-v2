@@ -1,3 +1,9 @@
 {
-  "exclude": ["scripts/**/*.py", "services/**/*.py"]
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "scripts/**/*.py",
+    "services/**/*.py"
+  ]
 }
