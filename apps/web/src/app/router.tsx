@@ -6,6 +6,7 @@ import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
 import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
+import { ConfiguracionReferenciasPage } from '../modules/configuracion/pages/ConfiguracionReferenciasPage'
 import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
@@ -91,6 +92,7 @@ export const router = createBrowserRouter([
             children: [
               { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
               { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+              { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
             ],
           },
         ],

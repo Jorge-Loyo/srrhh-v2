@@ -16,7 +16,8 @@ const CARGOS_SUBITEMS = [
 const CONFIGURACION_SUBITEMS = [
   { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
   { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
-  { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
+  { to: '/configuracion/jerarquia',    label: 'Jerarquía',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
+  { to: '/configuracion/referencias',  label: 'Referencias', permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
 ]
 
 export function AppShell() {
