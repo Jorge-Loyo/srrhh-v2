@@ -6,7 +6,7 @@ FROM node:20-alpine
 # al arrancar y ni siquiera devuelve JSON válido ("Error loading shared libraries").
 RUN apk add --no-cache openssl
 
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /repo
 
 # Copiar solo manifiestos primero para cachear la instalación de dependencias
