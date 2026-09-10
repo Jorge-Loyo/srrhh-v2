@@ -8,7 +8,6 @@ export const ESTADO_LABEL: Record<EstadoConcursoCph, string> = {
   [EstadoConcursoCph.ACTIVO]: 'Activo',
   [EstadoConcursoCph.FINALIZADO]: 'Finalizado',
   [EstadoConcursoCph.SUSPENDIDO]: 'Suspendido',
-  [EstadoConcursoCph.DESIERTO]: 'Desierto',
 }
 
 export const ESTADO_BADGE: Record<EstadoConcursoCph, string> = {
@@ -16,7 +15,17 @@ export const ESTADO_BADGE: Record<EstadoConcursoCph, string> = {
   [EstadoConcursoCph.ACTIVO]: 'badge-info',
   [EstadoConcursoCph.FINALIZADO]: 'badge-success',
   [EstadoConcursoCph.SUSPENDIDO]: 'badge-warning',
-  [EstadoConcursoCph.DESIERTO]: 'badge-danger',
+}
+
+// PS16D-7: badge especial para concursos suspendidos con sub-estado Q-DESIERTO
+export function estadoBadge(estado: EstadoConcursoCph, subEstado: string | null): string {
+  if (estado === EstadoConcursoCph.SUSPENDIDO && subEstado === 'Q-DESIERTO') return 'badge-danger'
+  return ESTADO_BADGE[estado]
+}
+
+export function estadoLabel(estado: EstadoConcursoCph, subEstado: string | null): string {
+  if (estado === EstadoConcursoCph.SUSPENDIDO && subEstado === 'Q-DESIERTO') return 'Desierto'
+  return ESTADO_LABEL[estado]
 }
 
 // Mismo orden y mismos 19 valores que calcSubEstado() en

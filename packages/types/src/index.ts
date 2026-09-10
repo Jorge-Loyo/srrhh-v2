@@ -47,7 +47,6 @@ export const EstadoConcursoCph = {
   ACTIVO: 'activo',
   FINALIZADO: 'finalizado',
   SUSPENDIDO: 'suspendido',
-  DESIERTO: 'desierto',
 } as const
 export type EstadoConcursoCph = typeof EstadoConcursoCph[keyof typeof EstadoConcursoCph]
 
@@ -272,6 +271,7 @@ export interface Concurso {
   motivo: string | null
   expediente: string | null
   tipoConcurso: TipoConcurso
+  motivoConcurso: string | null
   createdAt: string
   // Relaciones expandidas
   persona?: Persona
@@ -356,6 +356,7 @@ export interface ConcursoCeetps {
   apertura2x18: boolean
   informeApertura: string | null
   expedienteConcurso2: string | null
+  cantidadCargos: number
   fechaIfacs: string | null
   fechaInsal: string | null
   expedienteDesignacion: string | null
@@ -476,6 +477,7 @@ export type NotificacionDetalle =
 export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
   ALTA_CARGO:   'alta_cargo',
+  BAJA_CARGO:   'baja_cargo',
 } as const
 export type TipoAutorizacion = typeof TipoAutorizacion[keyof typeof TipoAutorizacion]
 
@@ -876,6 +878,7 @@ export interface CreateSolicitudAltaRequest {
   desde?: string
   cantidad?: number
   etiqueta?: string
+  bajaOrigenId?: string
 }
 
 // S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar
@@ -972,7 +975,7 @@ export interface PersonaDetail extends Persona {
   antiguedadDesde: string | null
   ocupaciones: OcupacionConCargo[]
   padronHistorico: PadronHistoricoItem[]
-  concursosCphDesignado: (Pick<ConcursoCph, 'id' | 'estado' | 'resolucionDesignacion' | 'fechaResolucion' | 'cargoSial' | 'createdAt'> & {
+  concursosCphDesignado: (Pick<ConcursoCph, 'id' | 'estado' | 'subEstado' | 'resolucionDesignacion' | 'fechaResolucion' | 'cargoSial' | 'createdAt'> & {
     cargo: Pick<Cargo, 'id' | 'codigo' | 'literalPuesto'>
     hospital: Pick<Hospital, 'id' | 'sigla' | 'nombre'>
     concurso: { id: string; fechaVacante: string }
@@ -999,4 +1002,39 @@ export interface CargoDetail extends Cargo {
     escalafon: Escalafon
     personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
   })[]
+}
+
+// PS16D — POST /api/v1/concursos-cph/:id/declarar-desierto
+export interface DeclararDesiertoRequest {
+  dispoDesierta: string
+  fechaDispoDesierta: string
+  sorteoJurado?: string | null
+  disposicion?: string | null
+  fechaInscDesde?: string | null
+  fechaInscHasta?: string | null
+  fechaExamen?: string | null
+  fechaOrdenMerito?: string | null
+  qInscriptos?: number | null
+  eeDesignacion?: string | null
+  cargaDocumentacion?: boolean | null
+  fechaAptoMedico?: string | null
+  fechaIte?: string | null
+  proyectoResolucion?: boolean | null
+  resoALaFirma?: boolean | null
+  resolucionDesignacion?: string | null
+  fechaResolucion?: string | null
+  cargoSial?: string | null
+  observaciones?: string | null
+}
+
+// S16 — POST /api/v1/concursos-cph/:id/designar y /concursos-ceetps/:id/designar
+export interface DesignarConcursoRequest {
+  personaId: string
+  personaDesignadaId?: string
+  fechaDesde?: string | null
+  idSialRol?: string | null
+  resolucionDesignacion?: string | null
+  fechaResolucion?: string | null
+  cargoSial?: string | null
+  observaciones?: string | null
 }

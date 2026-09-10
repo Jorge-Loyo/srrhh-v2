@@ -201,7 +201,7 @@ export async function getCargoByIdService(id: string) {
   return { ...rest, ocupacionActual, historial, cargoActivo, concursosCph, concursosCeetps }
 }
 
-// ─── S5-10 + S7-2 + S7-5: Alta de Cargo manual ─────────────────────────────────
+// ─── S5-10 + S7-2 + S7-5 + S14-3: Alta de Cargo manual ─────────────────────────────────
 export async function createCargoService(body: CreateCargoBody, createdById?: string) {
   const hospital = await prisma.hospital.findUnique({ where: { id: body.hospitalId } })
   if (!hospital) throw AppError.notFound('Hospital no encontrado')
@@ -214,8 +214,6 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
   }
 
-  // S7-5: advertencia de duplicado estructural (409 + override)
-  // El cliente puede forzar la creación mandando `forzar: true` en el body.
   if (!body.forzar) {
     const duplicado = await prisma.cargo.findFirst({
       where: {
@@ -243,12 +241,11 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     agrupador: body.agrupador ?? null,
   })
 
-  return prisma.$transaction(async (tx) => {
+  const cargos = await prisma.$transaction(async (tx) => {
     const creados = []
     for (let i = 0; i < body.cantidad; i++) {
       const codigo = await siguienteCodigoCargo(prefijo, tx)
       const idSial = `MANUAL-${codigo}`
-
       const cargo = await tx.cargo.create({
         data: {
           idSial,
@@ -261,7 +258,6 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           agrupador:        body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
           regimen:          body.regimen ?? null,
-          // S7-2: persistir acto administrativo y trazabilidad
           expediente:       body.expediente ?? null,
           fechaDesde:       body.desde ? new Date(body.desde) : null,
           createdById:      createdById ?? null,
@@ -273,6 +269,35 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     }
     return creados
   })
+
+  // S14-3: determinar si el cargo puede iniciar concurso y qué tipo
+  // CPH = escalafones con código 22 o 37 (Carrera Profesional Hospitalaria)
+  // CEETPS = escalafones con código 83 (ENF), 85 (TEC), 87 (EG-CEETPS)
+  const CPH_CODIGOS = new Set(['22', '37'])
+  const CEETPS_CODIGOS = new Set(['83', '85', '87'])
+  const codigoEscalafon = escalafon.codigo
+  let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
+  if (CPH_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'cph'
+  else if (CEETPS_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'ceetps'
+
+  const primero = cargos[0]!
+  const puedeIniciarConcurso = tipoConcursoSugerido !== null
+
+  return {
+    cargos,
+    puedeIniciarConcurso,
+    ...(puedeIniciarConcurso && {
+      concursoInfo: {
+        cargoId:              primero.id,
+        hospitalId:           primero.hospitalId,
+        codigo:               primero.codigo,
+        literalPuesto:        primero.literalPuesto,
+        hospitalSigla:        hospital.sigla,
+        tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
+        escalafonId:          primero.escalafonId,
+      },
+    }),
+  }
 }
 
 // ─── S7-4: Historial persistente de altas manuales ───────────────────────────

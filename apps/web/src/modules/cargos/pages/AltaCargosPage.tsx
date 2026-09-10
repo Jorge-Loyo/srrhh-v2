@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import type { SolicitudAlta, SolicitudAltaEstado } from '@srrhh/types'
+import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import type { Baja, SolicitudAlta, SolicitudAltaEstado } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
@@ -93,6 +95,7 @@ interface ItemPendiente {
   desde: string
   cantidad: number
   etiqueta: string
+  bajaOrigenId?: string
 }
 
 // ── Combobox con búsqueda ─────────────────────────────────────────────────────
@@ -152,9 +155,19 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
   const [etiqueta,      setEtiqueta]      = useState('')
+  const [bajaOrigenId,  setBajaOrigenId]  = useState<string | undefined>(undefined)
 
   const { data: hospitales        = [] } = useHospitales()
   const { data: escalafonesFiltrados = [] } = useEscalafonesPorTipoAlta(tipo)
+
+  // S16-8: bajas confirmadas con concurso para vincular como origen
+  const { data: bajasConfirmadas = [] } = useQuery({
+    queryKey: ['bajas', { estado: 'confirmada', generaConcurso: true }],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Baja[] }>('/api/v1/bajas', { params: { estado: 'confirmada', limit: 200 } })
+      return res.data.data ?? []
+    },
+  })
 
   const escNombre         = escalafonesFiltrados.find((e) => e.id === escalafonId)?.nombre ?? ''
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
@@ -194,8 +207,9 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       desde,
       cantidad,
       etiqueta:         etiqueta || '',
+      bajaOrigenId,
     })
-    setPuesto(''); setEspecialidad(''); setCantidad(1); setEtiqueta('')
+    setPuesto(''); setEspecialidad(''); setCantidad(1); setEtiqueta(''); setBajaOrigenId(undefined)
   }
 
   return (
@@ -286,6 +300,23 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           </div>
         )}
 
+        {/* Baja origen — opcional */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">¿Reemplaza una baja? <span className="text-gray-400 font-normal">(opcional)</span></label>
+          <select
+            value={bajaOrigenId ?? ''}
+            onChange={(e) => setBajaOrigenId(e.target.value || undefined)}
+            className="h-10 input w-full"
+          >
+            <option value="">— No vinculada —</option>
+            {bajasConfirmadas.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.cargo?.codigo ?? b.cargoId} · {b.cargo?.literalPuesto ?? '—'} · {b.fechaBaja?.slice(0, 10)}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Desde + Cantidad + botones */}
         <div className="grid grid-cols-5 gap-4 items-end">
           <div>
@@ -362,6 +393,7 @@ export function AltaCargosPage() {
       desde:            item.desde,
       cantidad:         item.cantidad,
       etiqueta:         item.etiqueta || undefined,
+      bajaOrigenId:     item.bajaOrigenId,
     })
   }
 

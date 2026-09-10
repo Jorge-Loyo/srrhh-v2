@@ -51,7 +51,7 @@ export interface ConcursoCphCalcInput {
 // son dos tipos nominalmente distintos aunque compartan los mismos valores, y
 // asignar uno donde se espera el otro es un error de TS. El caller (service)
 // castea al enum de Prisma en el único punto donde hace falta (el write).
-export type EstadoConcursoCphCalc = 'no_iniciado' | 'activo' | 'finalizado' | 'suspendido' | 'desierto'
+export type EstadoConcursoCphCalc = 'no_iniciado' | 'activo' | 'finalizado' | 'suspendido'
 
 export interface ConcursoCphCalcResult {
   estado: EstadoConcursoCphCalc
@@ -104,12 +104,9 @@ function calcSubEstado3(row: ConcursoCphCalcInput): string {
   return 'A-VALID. VCTE'
 }
 
-// Punto único de entrada: dado el estado completo (post-merge de un
-// create/PATCH), calcula los 3 campos derivados. `suspendido` y el
-// sub-estado 'Q-DESIERTO' pisan el resultado base de calcEstadoBase — ninguno
-// de los dos existía como estado de nivel superior en el legacy (ahí eran
-// solo un flag aparte y un sub-estado), pero el enum EstadoConcursoCph de
-// este proyecto sí distingue `suspendido`/`desierto` del resto.
+// PS16D-2: Q-DESIERTO ya no produce estado='desierto' — el concurso sigue
+// siendo 'activo' con suspendido=true. El estado 'desierto' fue eliminado
+// del enum. El sub-estado Q-DESIERTO sigue existiendo como indicador.
 export function calcConcursoCph(row: ConcursoCphCalcInput): ConcursoCphCalcResult {
   const subEstado = calcSubEstado(row)
   const subEstado3 = calcSubEstado3(row)
@@ -117,8 +114,6 @@ export function calcConcursoCph(row: ConcursoCphCalcInput): ConcursoCphCalcResul
   let estado: EstadoConcursoCphCalc
   if (row.suspendido) {
     estado = 'suspendido'
-  } else if (subEstado === 'Q-DESIERTO') {
-    estado = 'desierto'
   } else {
     estado = calcEstadoBase(row)
   }

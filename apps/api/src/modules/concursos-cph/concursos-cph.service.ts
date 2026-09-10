@@ -1,7 +1,7 @@
 import { Prisma, type ConcursoCph } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody } from './concursos-cph.schema.js'
+import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody, DesignarCphBody, DeclararDesiertoBody } from './concursos-cph.schema.js'
 import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
@@ -11,6 +11,8 @@ const include = {
   hospital: true,
   personaDesignada: true,
   codigoRegistroSolicitado: true,
+  // PS16D: historial de rondas desiertas
+  desiertoHistorial: { orderBy: { nroRonda: 'asc' as const } },
 } satisfies Prisma.ConcursoCphInclude
 
 // Extrae los campos que usa calcConcursoCph() de una fila completa —
@@ -415,10 +417,9 @@ export async function getPersonaDesignadaService(id: string) {
 export async function suspenderConcursoCphService(id: string, body: SuspenderConcursoCphBody) {
   const existing = await prisma.concursoCph.findUnique({ where: { id } })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
-  // Un concurso finalizado o desierto no se puede suspender ni reanudar —
-  // suspender solo tiene sentido sobre un concurso activo o no_iniciado.
-  if (existing.estado === 'finalizado' || existing.estado === 'desierto') {
-    throw AppError.conflict(`No se puede modificar el estado de un concurso ${existing.estado}`)
+  // PS16D-4: solo bloquear finalizado (desierto ya no es estado terminal)
+  if (existing.estado === 'finalizado') {
+    throw AppError.conflict('No se puede modificar el estado de un concurso finalizado')
   }
   if (existing.suspendido === body.suspendido) {
     throw AppError.conflict(
@@ -439,5 +440,142 @@ export async function suspenderConcursoCphService(id: string, body: SuspenderCon
       subEstado3: calc.subEstado3,
     },
     include,
+  })
+}
+
+// ─── S16-1: registrar designación — crea Ocupacion, avanza a N-DESIGNADO ────
+export async function designarConcursoCphService(id: string, body: DesignarCphBody) {
+  const concurso = await prisma.concursoCph.findUnique({
+    where: { id },
+    include: { concurso: { include: { cargo: true } } },
+  })
+  if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
+  if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+  // PS16D-4: eliminado guard por estado==='desierto' (ya no existe ese estado)
+
+  const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  const cargoId = concurso.cargoId
+
+  // Validar que no haya ocupación activa en el cargo
+  const ocupActiva = await prisma.ocupacion.findFirst({ where: { cargoId, hasta: null } })
+  if (ocupActiva) throw AppError.conflict('El cargo ya tiene una ocupación activa')
+
+  // idSialRol sintético si no se conoce todavía — el padrón siguiente lo sobreescribirá
+  const idSialRol = body.idSialRol ?? `MANUAL-${cargoId.slice(0, 8)}-${body.fechaDesde}`
+
+  return prisma.$transaction(async (tx) => {
+    // Crear la ocupación
+    await tx.ocupacion.create({
+      data: {
+        personaId: body.personaId,
+        cargoId,
+        idSialRol,
+        desde: new Date(body.fechaDesde),
+        hasta: null,
+      },
+    })
+
+    // Cargo → vigente (ocupado)
+    await tx.cargo.update({
+      where: { id: cargoId },
+      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+    })
+
+    // Avanzar sub-estado a N-DESIGNADO y estado a finalizado
+    const updated = await tx.concursoCph.update({
+      where: { id },
+      data: {
+        personaDesignadaId: body.personaId,
+        subEstado: 'N-DESIGNADO',
+        estado: 'finalizado',
+        subEstado3: 'G-RESOLUCION',
+      },
+      include,
+    })
+
+    // Notificar al equipo CPH
+    const cargoCodigo = (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    await crearNotificacion({
+      tipo:      'autorizacion_resuelta',
+      rolSlug:   'concursales_cph',
+      titulo:    `Designación registrada — ${cargoCodigo}`,
+      mensaje:   `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
+      origenTipo: 'concurso_cph',
+      origenId:   id,
+      origenKey:  `designacion_cph:${id}`,
+    })
+
+    return updated
+  })
+}
+
+// ─── PS16D-3: declarar desierto ──────────────────────────────────────────────
+// Guarda snapshot en ConcursoCphDesierto, limpia campos de la ronda,
+// pone suspendido=true y sub-estado Q-DESIERTO.
+export async function declararDesiertoService(id: string, body: DeclararDesiertoBody, usuarioId: string) {
+  const concurso = await prisma.concursoCph.findUnique({ where: { id }, include })
+  if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
+  if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+
+  const nroRonda = await prisma.concursoCphDesierto.count({ where: { concursoCphId: id } }) + 1
+
+  return prisma.$transaction(async (tx) => {
+    await tx.concursoCphDesierto.create({
+      data: {
+        concursoCphId:         id,
+        nroRonda,
+        dispoDesierta:         body.dispoDesierta,
+        fechaDispoDesierta:    new Date(body.fechaDispoDesierta),
+        sorteoJurado:          concurso.sorteoJurado,
+        disposicion:           concurso.disposicion,
+        fechaInscDesde:        concurso.fechaInscDesde,
+        fechaInscHasta:        concurso.fechaInscHasta,
+        fechaExamen:           concurso.fechaExamen,
+        fechaOrdenMerito:      concurso.fechaOrdenMerito,
+        qInscriptos:           concurso.qInscriptos,
+        eeDesignacion:         concurso.eeDesignacion,
+        cargaDocumentacion:    concurso.cargaDocumentacion,
+        fechaAptoMedico:       concurso.fechaAptoMedico,
+        fechaIte:              concurso.fechaIte,
+        proyectoResolucion:    concurso.proyectoResolucion,
+        resoALaFirma:          concurso.resoALaFirma,
+        resolucionDesignacion: concurso.resolucionDesignacion,
+        fechaResolucion:       concurso.fechaResolucion,
+        cargoSial:             concurso.cargoSial,
+        observaciones:         body.observaciones ?? null,
+        registradoPorId:       usuarioId,
+      },
+    })
+
+    return tx.concursoCph.update({
+      where: { id },
+      data: {
+        suspendido:            true,
+        dispoDesierta:         body.dispoDesierta,
+        fechaDispoDesierta:    new Date(body.fechaDispoDesierta),
+        sorteoJurado:          null,
+        disposicion:           null,
+        fechaInscDesde:        null,
+        fechaInscHasta:        null,
+        fechaExamen:           null,
+        fechaOrdenMerito:      null,
+        qInscriptos:           null,
+        eeDesignacion:         null,
+        cargaDocumentacion:    null,
+        fechaAptoMedico:       null,
+        fechaIte:              null,
+        proyectoResolucion:    null,
+        resoALaFirma:          null,
+        resolucionDesignacion: null,
+        fechaResolucion:       null,
+        cargoSial:             null,
+        estado:                'suspendido',
+        subEstado:             'Q-DESIERTO',
+        subEstado3:            'H-DESIERTO',
+      },
+      include,
+    })
   })
 }

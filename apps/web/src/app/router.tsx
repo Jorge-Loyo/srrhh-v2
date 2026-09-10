@@ -110,13 +110,6 @@ export const router = createBrowserRouter([
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
-            children: [
-              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
-              { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
-            ],
-          },
-          {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_referencias' }} />,
             children: [{ path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> }],
           },
           {

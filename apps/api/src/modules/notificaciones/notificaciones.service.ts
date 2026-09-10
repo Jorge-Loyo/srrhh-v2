@@ -5,7 +5,7 @@ import type { NotificacionesQuery } from './notificaciones.schema.js'
 
 // ─── Helper: crear una notificación (con deduplicación por origenKey) ────────
 export async function crearNotificacion(data: {
-  tipo: 'concurso_estancado' | 'baja_pendiente' | 'autorizacion_pendiente' | 'autorizacion_resuelta'
+  tipo: 'concurso_estancado' | 'baja_pendiente' | 'autorizacion_pendiente' | 'autorizacion_resuelta' | 'concurso_iniciado'
   rolSlug: string
   titulo: string
   mensaje: string

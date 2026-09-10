@@ -71,6 +71,7 @@ export const patchConcursoCphSchema = z
     // Desierto
     dispoDesierta: z.string().trim().max(50).nullable(),
     fechaDispoDesierta: fecha.nullable(),
+    cantidadCargos: z.number().int().min(1).nullable(),
     observaciones: z.string().trim().max(2000).nullable(),
     // Campos de autorización (sigla/codigoRegistro cambiados)
     pendienteAutorizacion: z.boolean().nullable(),
@@ -91,3 +92,24 @@ export const suspenderConcursoCphSchema = z.object({
 })
 
 export type SuspenderConcursoCphBody = z.infer<typeof suspenderConcursoCphSchema>
+
+// S16-1: registrar designación — crea Ocupacion y avanza sub-estado a N-DESIGNADO.
+// idSialRol opcional: si no se conoce todavía (el padrón no llegó), se genera
+// un valor sintético MANUAL-{cargoId}-{fecha} que el padrón siguiente sobreescribe.
+export const designarCphSchema = z.object({
+  personaId: z.string().uuid(),
+  fechaDesde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
+  idSialRol: z.string().trim().max(50).optional(),
+})
+
+export type DesignarCphBody = z.infer<typeof designarCphSchema>
+
+// PS16D-3: declarar desierto — guarda snapshot en ConcursoCphDesierto,
+// limpia campos de la ronda, pone suspendido=true, sub-estado Q-DESIERTO.
+export const declararDesiertoSchema = z.object({
+  dispoDesierta:      z.string().trim().min(1).max(50),
+  fechaDispoDesierta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
+  observaciones:      z.string().trim().max(2000).optional(),
+})
+
+export type DeclararDesiertoBody = z.infer<typeof declararDesiertoSchema>

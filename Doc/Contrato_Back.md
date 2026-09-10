@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros)
+> Última actualización: 2026-09 (Sprint 15 — cantidadCargos exportables + bloqueo autorización sin caratula)
 > Estado: VIGENTE
 
 ---
@@ -151,6 +151,19 @@ GET    /api/v1/notificaciones
 GET    /api/v1/notificaciones/no-leidas
 PATCH  /api/v1/notificaciones/leer-todas
 PATCH  /api/v1/notificaciones/:id/leer
+
+# Autorizaciones (Sprint 13 + Sprint 15)
+GET    /api/v1/autorizaciones
+POST   /api/v1/autorizaciones/:id/aprobar
+POST   /api/v1/autorizaciones/:id/rechazar
+
+# Solicitudes de Alta (Sprint 13)
+GET    /api/v1/solicitudes-alta
+POST   /api/v1/solicitudes-alta
+
+# Organigrama (Post-Sprint 14)
+GET    /api/v1/organigrama
+POST   /api/v1/organigrama/upload   ← solo admin, permiso `configuracion:gestionar_organigrama`
 
 # Usuarios
 GET    /api/v1/usuarios
@@ -310,6 +323,14 @@ NODE_ENV="development"
 CORS_ORIGINS="http://localhost:5173,http://localhost:5180"
 LOG_LEVEL="info"
 ```
+
+---
+
+## Exportables CPH/CEETPS — reglas de negocio
+
+- **Validación**: disponible siempre que `getCasoCph(data).validacion` no sea null (casos CPH_ESTANDAR, CPH_JEFATURAS, CPH_COBERTURA_POU, CPH_SUPLENTE).
+- **Autorización**: disponible **solo cuando el concurso está caratulado** — es decir, cuando `eeConcurso` (CPH) o `expedienteConcurso` (CEETPS) tienen valor. Sin expediente de concurso el documento no tiene sentido.
+- **`cantidadCargos`**: campo `Int default 1` en `concursos_cph` y `concursos_ceetps`. Los exportables usan `data.cantidadCargos ?? 1`. La excepción `apertura2x18hs` de Enfermería siempre muestra `'2'` (hardcodeado por diseño).
 
 ---
 

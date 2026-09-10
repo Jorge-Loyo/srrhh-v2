@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema } from './concursos-cph.schema.js'
+import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema } from './concursos-cph.schema.js'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
   patchConcursoCphService,
   suspenderConcursoCphService,
   getPersonaDesignadaService,
+  designarConcursoCphService,
+  declararDesiertoService,
 } from './concursos-cph.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -58,6 +60,28 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     const data = await getPersonaDesignadaService(request.params.id)
     return reply.send({ data })
   })
+
+  // POST /:id/designar — S16-1: registra la designación, crea Ocupacion, avanza a N-DESIGNADO
+  app.post<{ Params: { id: string } }>(
+    '/:id/designar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = designarCphSchema.parse(request.body)
+      const data = await designarConcursoCphService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/declarar-desierto — PS16D-3
+  app.post<{ Params: { id: string } }>(
+    '/:id/declarar-desierto',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = declararDesiertoSchema.parse(request.body)
+      const data = await declararDesiertoService(request.params.id, body, (request as any).user.id)
+      return reply.send({ data })
+    }
+  )
 
   // NOTA S13-C: POST /:id/autorizar (aprobar/rechazar modificación CPH) se
   // eliminó — nunca actualizaba la tabla `autorizaciones` genérica (dejaba

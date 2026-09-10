@@ -51,7 +51,7 @@ export function useAprobarAutorizacion() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, observaciones }: { id: string; observaciones?: string }) => {
-      const res = await apiClient.post<{ data: Autorizacion }>(`/api/v1/autorizaciones/${id}/aprobar`, { observaciones })
+      const res = await apiClient.post<{ data: unknown }>(`/api/v1/autorizaciones/${id}/aprobar`, { observaciones })
       return res.data.data
     },
     onSuccess: () => invalidarTodo(queryClient),

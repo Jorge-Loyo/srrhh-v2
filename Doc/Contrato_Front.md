@@ -1,7 +1,7 @@
 # Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros)
+> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo)
 > Estado: VIGENTE
 
 ---
@@ -71,7 +71,7 @@ apps/web/
 │   │   │   │   └── AlertasSinMovimiento.tsx
 │   │   │   └── pages/
 │   │   │       ├── ConcursosCphPage.tsx
-│   │   │       └── ConcursoCphDetail.tsx
+│   │   │       └── ConcursoCphWizard.tsx
 │   │   ├── concursos-ceetps/
 │   │   │   └── pages/
 │   │   │       ├── ConcursosCeetpsPage.tsx
@@ -82,6 +82,23 @@ apps/web/
 │   │   │       ├── BajasConsolidasPage.tsx
 │   │   │       ├── BajasSialDiffPage.tsx
 │   │   │       └── ValidacionBajasPage.tsx  ← sub-tabs: Todos / Triangulados / Solo padrón / Solo SIAL / Histórico
+│   │   ├── autorizaciones/             ← Sprint 13
+│   │   │   └── pages/
+│   │   │       └── AutorizacionesPage.tsx
+│   │   ├── organigrama/                ← Post-Sprint 14
+│   │   │   ├── components/
+│   │   │   │   ├── OrganigramaTreeNode.tsx
+│   │   │   │   ├── OrganigramaFlowView.tsx  ← lazy-loaded (React Flow)
+│   │   │   │   ├── PersonaModal.tsx         ← ficha enriquecida: datos persona + cargo, links a /personas/:id y /cargos/:id
+│   │   │   │   └── VacantesModal.tsx
+│   │   │   ├── hooks/
+│   │   │   │   └── useOrganigrama.ts        ← OrganigramaPersona: personaId, cargoId, idSialRol, codigoCargo, sexo, especialidad, mail, tel, escalafon, hospital
+│   │   │   ├── lib/
+│   │   │   │   └── organigramaHelpers.ts
+│   │   │   └── pages/
+│   │   │       ├── OrganigramaHomePage.tsx
+│   │   │       ├── OrganigramaDetallePage.tsx
+│   │   │       └── OrganigramaArbolPage.tsx  ← solo admin (gestionar_organigrama)
 │   │   ├── inicio/
 │   │   │   └── pages/
 │   │   │       └── InicioPage.tsx
@@ -92,11 +109,14 @@ apps/web/
 │   │   │       └── NotificacionesPage.tsx
 │   │   ├── configuracion/
 │   │   │   └── pages/
-│   │   │       └── ConfiguracionPermisosPage.tsx
+│   │   │       ├── ConfiguracionPermisosPage.tsx
+│   │   │       ├── ConfiguracionJerarquiaPage.tsx  ← Sprint 13 (solo admin)
+│   │   │       ├── ConfiguracionReferenciasPage.tsx  ← Post-Sprint 14 (tablas ref Dotaneitor, solo admin)
+│   │   │       └── AdminUsuariosPage.tsx
 │   │   ├── kpis/
 │   │   │   └── pages/
 │   │   │       └── KpisPage.tsx
-│   │   └── admin/
+│   │   └── usuarios/
 │   │       └── pages/
 │   │           └── AdminUsuariosPage.tsx
 │   ├── shared/
@@ -233,35 +253,64 @@ function BajaForm() {
 ```typescript
 const router = createBrowserRouter([
   {
-    path: '/',
-    element: <AppShell />,
+    element: <ProtectedRoute />,
     children: [
-      { index: true, element: <InicioPage /> },
-      { path: 'padron', element: <PadronPage /> },
-      { path: 'padron/:id/diff', element: <PadronDiffPage /> },
-      { path: 'personas', element: <PersonasPage /> },
-      { path: 'personas/:id', element: <PersonaDetailPanel /> },
-      { path: 'cargos', element: <CargosPage /> },
-      { path: 'cargos/:id', element: <CargoDetailPanel /> },
-      { path: 'cargos/alta', element: <AltaCargosPage /> },
-      { path: 'cargos/baja', element: <BajaCargosPage /> },
-      { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
-      { path: 'cargos/baja/:id/editar', element: <NuevaBajaPage /> },
-      { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
-      { path: 'concursos/cph', element: <ConcursosCphPage /> },
-      { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
-      { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
-      { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
-      { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
-      { path: 'bajas', element: <BajasPage /> },
-      { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
-      { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
-      { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
-      { path: 'kpis', element: <KpisPage /> },
-      { path: 'notificaciones', element: <NotificacionesPage /> },
-      { path: 'admin/usuarios', element: <AdminUsuariosPage /> },
-      { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
-      { path: 'sin-acceso', element: <SinAccesoPage /> },
+      {
+        path: '/',
+        element: <AppShell />,
+        children: [
+          { index: true, element: <InicioPage /> },
+          { path: 'padron', element: <PadronPage /> },
+          { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
+          { path: 'personas', element: <PersonasPage /> },
+          { path: 'personas/:id', element: <PersonaDetailPanel /> },
+          { path: 'cargos', element: <CargosPage /> },
+          { path: 'cargos/:id', element: <CargoDetailPanel /> },
+          { path: 'cargos/alta', element: <AltaCargosPage /> },
+          { path: 'cargos/baja', element: <BajaCargosPage /> },
+          { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
+          { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
+          { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
+          { path: 'concursos/cph', element: <ConcursosCphPage /> },
+          // Ruta vieja pre-S13 — redirect por si alguien la tiene en favoritos
+          { path: 'concursos/cph/autorizaciones', element: <Navigate to="/autorizaciones" replace /> },
+          { path: 'concursos/cph/nuevo/wizard', element: <ConcursoCphWizard /> },
+          { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
+          { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
+          { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
+          { path: 'bajas', element: <BajasPage /> },
+          { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
+          { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
+          { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
+          { path: 'notificaciones', element: <NotificacionesPage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
+            children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
+          },
+          { path: 'organigrama', element: <OrganigramaHomePage /> },
+          { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
+          { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
+            children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
+          },
+          { path: 'kpis', element: <KpisPage /> },
+          // Ruta vieja pre-RBAC — redirect
+          { path: 'admin/usuarios', element: <Navigate to="/configuracion/usuarios" replace /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
+            children: [{ path: 'configuracion/usuarios', element: <AdminUsuariosPage /> }],
+          },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
+            children: [
+              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+              { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+              { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
+            ],
+          },
+        ],
+      },
     ],
   },
   { path: '/login', element: <LoginPage /> },

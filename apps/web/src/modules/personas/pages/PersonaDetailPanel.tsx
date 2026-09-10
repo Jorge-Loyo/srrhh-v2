@@ -337,7 +337,7 @@ export function PersonaDetailPanel() {
                       <span className={`badge-${
                         cc.estado === 'finalizado' ? 'success' :
                         cc.estado === 'activo' ? 'info' :
-                        cc.estado === 'desierto' ? 'default' : 'amber'
+                        (cc.estado === 'suspendido' && cc.subEstado === 'Q-DESIERTO') ? 'default' : 'amber'
                       } text-xs`}>{cc.estado}</span>
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{cc.resolucionDesignacion ?? '—'}</td>

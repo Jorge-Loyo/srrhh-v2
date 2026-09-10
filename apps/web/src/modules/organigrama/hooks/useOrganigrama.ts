@@ -2,13 +2,31 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 
 export interface OrganigramaPersona {
+  personaId: string
+  cargoId: string | null
+  idSialRol: string | null
+  codigoCargo: string | null
   nombre: string
   cargo: string | null
   cuil: string
+  sexo: string | null
+  especialidadPersona: string | null
+  mailLaboral: string | null
+  telefono: string | null
   fechaNacimiento: string | null
   antiguedadDesde: string | null
   cargoDesde: string | null
   cargoHasta: string | null
+  especialidadCargo: string | null
+  escalafon: string | null
+  hospital: string | null
+}
+
+export type RazonSinCargo = 'guardia_residencia_docente' | 'dato_incompleto' | 'sin_cargo'
+
+export interface OrganigramaCargoVacante {
+  cargoId: string
+  codigoCargo: string | null
 }
 
 export interface OrganigramaNodo {
@@ -19,6 +37,8 @@ export interface OrganigramaNodo {
   padre: string | null
   regimenEmpleo: string
   persona: OrganigramaPersona | null
+  cargoVacante: OrganigramaCargoVacante | null
+  razonSinCargo: RazonSinCargo | null
   hijos: OrganigramaNodo[]
 }
 
@@ -52,8 +72,26 @@ export function useSubirEstructuraOrganigrama() {
       return res.data.data
     },
     onSuccess: () => {
-      // Invalida cualquier árbol ya cargado en cache — la estructura cambió entera.
       queryClient.invalidateQueries({ queryKey: ['organigrama'] })
+      queryClient.invalidateQueries({ queryKey: ['organigrama-uploads'] })
+    },
+  })
+}
+
+export interface OrganigramaUpload {
+  id: string
+  filename: string
+  filas: number
+  createdAt: string
+  subidoPor: { username: string } | null
+}
+
+export function useOrganigramaUploads() {
+  return useQuery({
+    queryKey: ['organigrama-uploads'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: OrganigramaUpload[] }>('/api/v1/organigrama/uploads')
+      return res.data.data
     },
   })
 }

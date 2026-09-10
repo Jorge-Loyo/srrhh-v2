@@ -3,7 +3,7 @@
 > Define el sistema visual, patrones de UX y reglas de interfaz.
 > Basado en los tokens de **Obelisco v2** — el sistema de diseño oficial del Gobierno de la Ciudad de Buenos Aires,
 > implementados sobre **Tailwind CSS + shadcn/ui** (no sobre Bootstrap 5).
-> Ultima actualizacion: 2026-09 (Post-Sprint 5)
+> Ultima actualizacion: 2026-09 (Post-Sprint 14 — organigrama, tablas de referencia Dotaneitor)
 > Estado: VIGENTE
 
 ---

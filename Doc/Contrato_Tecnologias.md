@@ -1,7 +1,7 @@
 # Contrato de Tecnologías — SRRHH v2
 
 > Documento de decisiones técnicas. Toda elección de stack está justificada por los requerimientos del dominio.
-> Última actualización: 2026-09 (Post-Sprint 5)
+> Última actualización: 2026-09 (Post-Sprint 14 — organigrama, tablas de referencia Dotaneitor)
 > Estado: APROBADO — no modificar sin consenso del equipo
 
 ---
@@ -35,7 +35,7 @@
 | Routing frontend | React Router | v7 |
 | Exportación Excel (frontend) | xlsx (SheetJS) | latest |
 | Procesamiento Excel (Dotaneitor) | Python + FastAPI | Python 3.11+ |
-| Monorepo | pnpm workspaces + Turborepo | pnpm 9 |
+| Monorepo | pnpm workspaces + Turborepo | pnpm 9.15.0 |
 | Contenedores | Docker + docker-compose | — |
 | Control de versiones | GitHub (organización) | — |
 | CI/CD | GitHub Actions | — |
@@ -178,3 +178,4 @@ srh-v2/
 4. **Docker para todo** — ningún servicio corre "a mano" en producción.
 5. **Variables de entorno** — ninguna credencial en el código. Todo en `.env` con `.env.example` documentado.
 6. **`prisma generate` en postinstall** — `"postinstall": "prisma generate --schema=./prisma/schema.prisma"` en `package.json` raíz. Nunca más un cliente Prisma sin generar después de `pnpm install`.
+7. **Dependencias pinneadas** — `pnpm-lock.yaml` para Node (via `--frozen-lockfile` en Docker) y `requirements.txt` con versiones exactas para Python. Actualizar con `pip freeze` dentro del contenedor, no a mano.

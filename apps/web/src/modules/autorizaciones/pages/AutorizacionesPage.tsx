@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
@@ -15,6 +15,7 @@ import {
 const TIPO_LABEL: Record<TipoAutorizacion, string> = {
   concurso_cph: 'Concurso CPH',
   alta_cargo:   'Alta de cargo',
+  baja_cargo:   'Baja de cargo',
 }
 
 function formatFecha(iso: string) {
@@ -110,9 +111,57 @@ function ReferenciaAlta({ id }: { id: string }) {
   )
 }
 
+type BajaRef = {
+  cargo?: { id?: string; codigo?: string; literalPuesto?: string; hospital?: { sigla?: string } }
+  motivo?: string
+  tipoBaja?: string
+  concursos?: { id: string; tipoConcurso: string; concursoCph?: { id: string; estado: string; subEstado: string | null; subEstado3: string | null } | null; concursoCeetps?: { id: string; estado: string } | null }[]
+}
+
+function ReferenciaBaja({ id }: { id: string }) {
+  const { data } = useQuery({
+    queryKey: ['bajas', id, 'autorizaciones-ref'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: BajaRef }>(`/api/v1/bajas/${id}`)
+      return res.data.data
+    },
+  })
+  if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
+  const cargo = data.cargo
+  const concurso = data.concursos?.[0]
+  const cph = concurso?.concursoCph
+  const ceetps = concurso?.concursoCeetps
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <p className="text-sm font-semibold text-gray-900 truncate">
+        {cargo?.literalPuesto ?? '—'}
+        {cargo?.hospital?.sigla && <span className="font-normal text-gray-500"> · {cargo.hospital.sigla}</span>}
+      </p>
+      <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+      {data.tipoBaja && <p className="text-xs text-gray-500">Tipo: {data.tipoBaja}</p>}
+      {data.motivo && <p className="text-xs text-gray-500">Motivo: {data.motivo}</p>}
+      {cph && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">CPH</span>
+          <span className="text-xs text-gray-500">{cph.subEstado3 ?? cph.subEstado ?? cph.estado}</span>
+          <Link to={`/concursos/cph/${cph.id}/wizard`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+        </div>
+      )}
+      {ceetps && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">CEETPS</span>
+          <span className="text-xs text-gray-500">{ceetps.estado}</span>
+          <Link to={`/concursos-ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Referencia({ autorizacion, onEsInformativa }: { autorizacion: Autorizacion; onEsInformativa?: (id: string) => void }) {
   if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} onEsInformativa={onEsInformativa} />
   if (autorizacion.tipo === 'alta_cargo')   return <ReferenciaAlta id={autorizacion.referenciaId} />
+  if (autorizacion.tipo === 'baja_cargo')   return <ReferenciaBaja id={autorizacion.referenciaId} />
   return <span className="text-xs text-gray-400">—</span>
 }
 
@@ -122,6 +171,13 @@ export function AutorizacionesPage() {
   const [modal, setModal] = useState<{ id: string; accion: 'aprobar' | 'rechazar' } | null>(null)
   const [obs, setObs] = useState('')
   const [informativas, setInformativas] = useState<Set<string>>(new Set())
+  // S14-7: modal post-aprobación de alta_cargo
+  const [modalConcurso, setModalConcurso] = useState<{
+    cargoId: string; hospitalId: string; codigo: string | null
+    literalPuesto: string | null; hospitalSigla: string
+    tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
+  } | null>(null)
+  const navigate = useNavigate()
 
   function marcarInformativa(referenciaId: string) {
     setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
@@ -146,7 +202,14 @@ export function AutorizacionesPage() {
   async function confirmar() {
     if (!modal) return
     const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
-    await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+    const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+    // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
+    if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
+      const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
+      if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
+        setModalConcurso(res.data.concursoInfo)
+      }
+    }
     cerrarModal()
   }
 
@@ -171,6 +234,44 @@ export function AutorizacionesPage() {
           ))}
         </select>
       </div>
+
+      {/* Modal iniciar concurso post-alta (S14-7) */}
+      {modalConcurso && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="font-primary font-bold text-gray-900">¿Iniciar concurso?</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                El cargo <span className="font-semibold">{modalConcurso.codigo ?? '—'}</span> ({modalConcurso.literalPuesto}) en <span className="font-semibold">{modalConcurso.hospitalSigla}</span> fue creado.
+              </p>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-600">
+              ¿Querés iniciar un concurso <span className="font-semibold uppercase">{modalConcurso.tipoConcursoSugerido}</span> para este cargo ahora?
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button className="btn-outline" onClick={() => setModalConcurso(null)}>Ahora no</button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    cargoId:       modalConcurso.cargoId,
+                    hospitalId:    modalConcurso.hospitalId,
+                    tipoConcurso:  modalConcurso.tipoConcursoSugerido,
+                    escalafonId:   modalConcurso.escalafonId,
+                    motivoConcurso: 'nuevo_cargo',
+                    origen:        'Alta de cargo',
+                    fechaVacante:  new Date().toISOString().slice(0, 10),
+                  })
+                  setModalConcurso(null)
+                  navigate(`/concursos/${modalConcurso.tipoConcursoSugerido === 'cph' ? 'cph/nuevo/wizard' : `ceetps/nuevo`}?${params}`)
+                }}
+              >
+                Sí, iniciar concurso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal resolver */}
       {modal && modalItem && (

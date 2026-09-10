@@ -11,7 +11,7 @@
 # ── Stage 1: build ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS build
 
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /repo
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json ./

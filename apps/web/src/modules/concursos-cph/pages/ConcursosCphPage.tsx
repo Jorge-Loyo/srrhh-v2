@@ -6,9 +6,12 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
+import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import {
   ESTADO_LABEL,
   ESTADO_BADGE,
+  estadoBadge,
+  estadoLabel,
   SUB_ESTADO_OPTIONS,
   SUB_ESTADO_3_OPTIONS,
   diasSinMovimiento,
@@ -25,6 +28,7 @@ export function ConcursosCphPage() {
   const [subEstado3, setSubEstado3] = useState('')
   const [suspendido, setSuspendido] = useState<'' | 'true' | 'false'>('')
   const [page, setPage] = useState(1)
+  const [showFlujo, setShowFlujo] = useState(false)
   const searchDebounced = useDebounce(search, 300)
 
   const filters: ConcursoCphFilters = {
@@ -53,6 +57,9 @@ export function ConcursosCphPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
+          <button className="btn-outline" onClick={() => setShowFlujo(true)}>
+            📋 Flujo del concurso
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -148,6 +155,7 @@ export function ConcursosCphPage() {
                       <th className="px-4 py-3 font-semibold">Disposición</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
@@ -174,9 +182,17 @@ export function ConcursosCphPage() {
                             {c.disposicion ?? '—'}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
+                            <span className={estadoBadge(c.estado, c.subEstado)}>{estadoLabel(c.estado, c.subEstado)}</span>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
+                          <td className="px-4 py-3">
+                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
+                              <span className="badge-info text-xs">Nuevo cargo</span>
+                            )}
+                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Hoy' : `${dias} días`}</span>
                           </td>
@@ -215,6 +231,7 @@ export function ConcursosCphPage() {
           </>
         )}
       </div>
+      {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
     </div>
   )
 }

@@ -30,14 +30,34 @@ const XLSX = require('xlsx') as {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PersonaNodo {
+  personaId: string
+  cargoId: string | null
+  idSialRol: string | null
+  codigoCargo: string | null
   nombre: string
   cargo: string | null
   cuil: string
+  sexo: string | null
+  especialidadPersona: string | null
+  mailLaboral: string | null
+  telefono: string | null
   fechaNacimiento: string | null
   antiguedadDesde: string | null
   cargoDesde: string | null
   cargoHasta: string | null
+  especialidadCargo: string | null
+  escalafon: string | null
+  hospital: string | null
 }
+
+interface CargoVacanteNodo {
+  cargoId: string
+  codigoCargo: string | null
+}
+
+// Razón por la que un nodo no tiene persona de conducción asignada
+// (solo se popula cuando cargoVacante es null)
+type RazonSinCargo = 'guardia_residencia_docente' | 'dato_incompleto' | 'sin_cargo'
 
 interface OrganigramaNodo {
   id: string
@@ -47,6 +67,8 @@ interface OrganigramaNodo {
   padre: string | null
   regimenEmpleo: string
   persona: PersonaNodo | null
+  cargoVacante: CargoVacanteNodo | null
+  razonSinCargo: RazonSinCargo | null
   hijos: OrganigramaNodo[]
 }
 
@@ -56,13 +78,15 @@ interface OrganigramaNodo {
 // jefaturas). Filtrado en memoria en vez de en el WHERE de Prisma: son pocas
 // decenas de cargos por árbol (los que matchean codigoRepa de esta jerarquía
 // puntual), no vale la pena un where anidado con 4 ramas de OR distintas.
-const UNIFICADOR_60 = new Set(['Gerente', 'Subgerente'])
+const UNIFICADOR_60 = new Set(['gerente', 'subgerente'])
+// Director/Subdirector médico son conducción por definición — no requieren codigoJefaturas.
+const UNIFICADOR_37_SIN_JEFATURA = new Set(['director/a medico/a', 'subdirector/a medico/a'])
 const UNIFICADOR_37 = new Set([
-  'CPH de Planta', 'CPH de Guardia', 'Director/a Medico/a', 'Subdirector/a Medico/a',
-  'Jefe/a de DEPARTAMENTO', 'Jefe/a de DIVISION', 'Jefe/a de UNIDAD', 'Jefe/a de SECCION',
+  'cph de planta', 'cph de guardia',
+  'jefe/a de departamento', 'jefe/a de division', 'jefe/a de unidad', 'jefe/a de seccion',
 ])
 const UNIFICADOR_JEFATURAS_OPERATIVAS = new Set([
-  'Administrativo/a', 'Enfermero/a', 'Servicios Generales', 'Tecnico/a de la salud',
+  'administrativo/a', 'enfermero/a', 'servicios generales', 'tecnico/a de la salud',
 ])
 const CODIGOS_JEFATURAS_OPERATIVAS = new Set(['83', '85', '87'])
 
@@ -72,13 +96,14 @@ function esCargoDeConduccion(
   codigoJefaturas: string | null
 ): boolean {
   if (!codigoRegistro || !unificadorPuesto) return false
+  const up = unificadorPuesto.toLowerCase().trim()
   const tieneCategoriaJefatura = !!codigoJefaturas && codigoJefaturas !== '0'
 
-  if (codigoRegistro === '25') return unificadorPuesto === 'Autoridades Superiores'
-  if (codigoRegistro === '60') return UNIFICADOR_60.has(unificadorPuesto)
-  if (codigoRegistro === '37') return UNIFICADOR_37.has(unificadorPuesto) && tieneCategoriaJefatura
+  if (codigoRegistro === '25') return up === 'autoridades superiores'
+  if (codigoRegistro === '60') return UNIFICADOR_60.has(up)
+  if (codigoRegistro === '37') return UNIFICADOR_37_SIN_JEFATURA.has(up) || (UNIFICADOR_37.has(up) && tieneCategoriaJefatura)
   if (CODIGOS_JEFATURAS_OPERATIVAS.has(codigoRegistro)) {
-    return UNIFICADOR_JEFATURAS_OPERATIVAS.has(unificadorPuesto) && tieneCategoriaJefatura
+    return UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) && tieneCategoriaJefatura
   }
   return false
 }
@@ -132,17 +157,23 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     },
     select: {
       codigoRepa: true,
+      id: true,
+      codigo: true,
       literalPuesto: true,
       unificadorPuesto: true,
+      especialidadLegacy: true,
+      escalafon: { select: { nombre: true } },
+      hospital: { select: { nombre: true } },
       codigoRegistro: { select: { codigo: true } },
       ocupaciones: {
         where: { hasta: null },
         take: 1,
         select: {
           codigoJefaturas: true,
+          idSialRol: true,
           cargoDesdeFecha: true,
           cargoHastaFecha: true,
-          persona: { select: { apellidoNombre: true, cuil: true, fechaNacimiento: true, antiguedadDesde: true } },
+          persona: { select: { id: true, apellidoNombre: true, cuil: true, sexo: true, especialidadPrincipal: true, mailLaboral: true, telefono: true, fechaNacimiento: true, antiguedadDesde: true } },
         },
       },
     },
@@ -159,17 +190,90 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     if (!esCargoDeConduccion(cargo.codigoRegistro?.codigo, cargo.unificadorPuesto, ocup.codigoJefaturas)) continue
 
     personasMap.set(cargo.codigoRepa, {
+      personaId: ocup.persona.id,
+      cargoId: cargo.id,
+      idSialRol: ocup.idSialRol ?? null,
+      codigoCargo: cargo.codigo ?? null,
       nombre: ocup.persona.apellidoNombre,
       cargo: cargo.literalPuesto,
       cuil: ocup.persona.cuil,
+      sexo: ocup.persona.sexo ?? null,
+      especialidadPersona: ocup.persona.especialidadPrincipal ?? null,
+      mailLaboral: ocup.persona.mailLaboral ?? null,
+      telefono: ocup.persona.telefono ?? null,
       fechaNacimiento: ocup.persona.fechaNacimiento?.toISOString() ?? null,
       antiguedadDesde: ocup.persona.antiguedadDesde?.toISOString() ?? null,
       cargoDesde: ocup.cargoDesdeFecha?.toISOString() ?? null,
       cargoHasta: ocup.cargoHastaFecha?.toISOString() ?? null,
+      especialidadCargo: cargo.especialidadLegacy ?? null,
+      escalafon: cargo.escalafon?.nombre ?? null,
+      hospital: cargo.hospital?.nombre ?? null,
     })
   }
 
-  // === 3. Mapa de nodos ===
+  // === 3. Cargos vacantes (nodos sin persona pero con cargo vigente sin ocupar) ===
+  const nodosOcupados = new Set(personasMap.keys())
+  const nodosLibres = codigosReparticion.filter((c) => !nodosOcupados.has(c))
+  const cargosVacantesRaw = await prisma.cargo.findMany({
+    where: {
+      codigoRepa: { in: nodosLibres },
+      deletedAt: null,
+      estado: 'vigente',
+      codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
+      unificadorPuesto: { not: null },
+    },
+    select: { id: true, codigoRepa: true, codigo: true, unificadorPuesto: true },
+    orderBy: { codigoRepa: 'asc' },
+  })
+  const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
+  for (const cv of cargosVacantesRaw) {
+    if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
+    if (!esCargoDeConduccion(undefined, cv.unificadorPuesto, null)) {
+      // Para vacantes no tenemos codigoRegistro.codigo en este select simplificado
+      // — incluimos si unificadorPuesto matchea cualquiera de los sets conocidos
+      const up = cv.unificadorPuesto?.toLowerCase().trim() ?? ''
+      const esConocido = UNIFICADOR_60.has(up) || UNIFICADOR_37_SIN_JEFATURA.has(up) ||
+        UNIFICADOR_37.has(up) || UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) || up === 'autoridades superiores'
+      if (!esConocido) continue
+    }
+    cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
+  }
+
+  // === 3b. Clasificar nodos sin cargo de conducción (para mostrar razón en UI) ===
+  // Query liviana: solo los nodos que no tienen persona ni cargo vacante mapeado.
+  // Detecta si tienen cargos de guardia/residencia/docente (códigos 23/24/07)
+  // o cargos con unificador_puesto vacío (dato incompleto del padrón).
+  const nodosSinMapeo = nodosLibres.filter((c) => !cargosVacantesMap.has(c))
+  const razonSinCargoMap = new Map<string, RazonSinCargo>()
+  if (nodosSinMapeo.length > 0) {
+    const cargosClasif = await prisma.cargo.findMany({
+      where: { codigoRepa: { in: nodosSinMapeo }, deletedAt: null },
+      select: { codigoRepa: true, unificadorPuesto: true, codigoRegistro: { select: { codigo: true } } },
+    })
+    // Agrupar por codigoRepa para clasificar
+    const porRepa = new Map<string, { codigos: Set<string>; tieneUpVacio: boolean }>()
+    for (const c of cargosClasif) {
+      if (!c.codigoRepa) continue
+      if (!porRepa.has(c.codigoRepa)) porRepa.set(c.codigoRepa, { codigos: new Set(), tieneUpVacio: false })
+      const entry = porRepa.get(c.codigoRepa)!
+      if (c.codigoRegistro?.codigo) entry.codigos.add(c.codigoRegistro.codigo)
+      if (!c.unificadorPuesto?.trim()) entry.tieneUpVacio = true
+    }
+    for (const cod of nodosSinMapeo) {
+      const entry = porRepa.get(cod)
+      if (!entry) { razonSinCargoMap.set(cod, 'sin_cargo'); continue }
+      const { codigos, tieneUpVacio } = entry
+      if (codigos.has('23') || codigos.has('24') || codigos.has('07')) {
+        razonSinCargoMap.set(cod, 'guardia_residencia_docente')
+      } else if (tieneUpVacio) {
+        razonSinCargoMap.set(cod, 'dato_incompleto')
+      } else {
+        razonSinCargoMap.set(cod, 'sin_cargo')
+      }
+    }
+  }
+
+  // === 4. Mapa de nodos ===
   const mapa = new Map<string, OrganigramaNodo>()
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
@@ -180,11 +284,15 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       padre: r.padre,
       regimenEmpleo: r.regimenEmpleo || 'Sin Régimen',
       persona: personasMap.get(r.codigoReparticion) ?? null,
+      cargoVacante: !personasMap.has(r.codigoReparticion) ? (cargosVacantesMap.get(r.codigoReparticion) ?? null) : null,
+      razonSinCargo: (!personasMap.has(r.codigoReparticion) && !cargosVacantesMap.has(r.codigoReparticion))
+        ? (razonSinCargoMap.get(r.codigoReparticion) ?? null)
+        : null,
       hijos: [],
     })
   }
 
-  // === 4. Identificar SDHOS (agrupación por régimen, solo en vistas de hospital) ===
+  // === 5. Identificar SDHOS ===
   let sdhosCod: string | null = null
   if (sigla) {
     for (const r of rows) {
@@ -192,7 +300,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     }
   }
 
-  // === 5. Relaciones padre-hijo ===
+  // === 6. Relaciones padre-hijo ===
   const raices: OrganigramaNodo[] = []
   for (const r of rows) {
     const nodo = mapa.get(r.codigoReparticion)!
@@ -221,6 +329,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           padre: anchor.padre,
           regimenEmpleo: anchor.regimenEmpleo || '',
           persona: personasMap.get(anchor.codigoReparticion) ?? null,
+          cargoVacante: !personasMap.has(anchor.codigoReparticion) ? (cargosVacantesMap.get(anchor.codigoReparticion) ?? null) : null,
+          razonSinCargo: (!personasMap.has(anchor.codigoReparticion) && !cargosVacantesMap.has(anchor.codigoReparticion))
+            ? (razonSinCargoMap.get(anchor.codigoReparticion) ?? null)
+            : null,
           hijos: raices,
         }
       }
@@ -234,7 +346,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     throw AppError.notFound(`No se encontró nodo raíz para ${sigla ? `el hospital ${sigla}` : `la sección ${seccion}`}`)
   }
 
-  // === 6. Agrupar hijos de SDHOS por régimen de empleo ===
+  // === 7. Agrupar hijos de SDHOS por régimen de empleo ===
   if (sdhosCod) {
     const sdhos = mapa.get(sdhosCod)
     if (sdhos && sdhos.hijos.length > 0) {
@@ -254,12 +366,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           padre: sdhosCod,
           regimenEmpleo: nombreRegimen,
           persona: null,
+          cargoVacante: null,
+          razonSinCargo: null,
           hijos,
         }))
     }
   }
 
-  // === 7. Orden jerárquico ===
+  // === 8. Orden jerárquico ===
   ordenarHijos(raiz)
 
   return { data: raiz, ...(sigla ? { sigla } : { seccion }) }
@@ -337,7 +451,7 @@ function normalizarFilaExcel(row: Record<string, unknown>, numeroFila: number): 
   }
 }
 
-export async function reemplazarOrganigramaService(buffer: Buffer): Promise<{ filas: number }> {
+export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: string, filename?: string): Promise<{ filas: number }> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw AppError.badRequest('El archivo no tiene ninguna hoja')
   const hoja = wb.Sheets[wb.SheetNames[0]]
@@ -365,5 +479,27 @@ export async function reemplazarOrganigramaService(buffer: Buffer): Promise<{ fi
     await prisma.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
   }
 
+  await prisma.organigramaUpload.create({
+    data: {
+      filename: filename ?? 'desconocido',
+      filas: filas.length,
+      subidoPorId: usuarioId ?? null,
+    },
+  })
+
   return { filas: filas.length }
+}
+
+export async function listOrganigramaUploadsService() {
+  return prisma.organigramaUpload.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      id: true,
+      filename: true,
+      filas: true,
+      createdAt: true,
+      subidoPor: { select: { username: true } },
+    },
+  })
 }

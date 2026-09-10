@@ -5,6 +5,8 @@
 > teoría, se construyeron y se corrieron de verdad contra la base de datos local. Lo
 > que falta es específico del servidor real: dominio, contraseñas, y decidir si hay
 > algo más corriendo en ese servidor que compita por los puertos 80/443.
+>
+> Para la referencia completa del stack Docker ver `Doc/Contrato_Docker.md`.
 
 ---
 
