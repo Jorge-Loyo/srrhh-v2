@@ -358,106 +358,16 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
   }
 }
 
-// ─── S6-5: evolución de dotación histórica (PadronHistorico) ───────────────
+// ─── S6-5: evolución de dotación histórica ──────────────────────────────────
 //
-// Desbloqueado por S6-0 (2026-08-31): antes de esa migración, PadronHistorico
-// no tenía `cuil` desnormalizado, así que "personas únicas por período" solo
-// se podía sacar con un JOIN a personas — acá se cuenta directo sobre la
-// columna ya poblada. Un snapshot aprobado inserta una fila de
-// PadronHistorico por cada ocupación vigente en ese momento (padron.service.ts,
-// aprobarSnapshotService) — agrupar por fechaAsignada da un punto por semana
-// de padrón procesada, no por día calendario.
-//
-// El filtro por hospital pasa por cargoId → cargos.hospital_id (join) en vez
-// de por hospitalSigla (que sí está denormalizada en la fila) para que el
-// query param sea el mismo hospitalId (uuid) que usan el resto de los
-// endpoints de /kpis — aprovecha el @@index([cargoId]) agregado en S6-0.
-export async function getKpisDotacionHistoricaService(query: KpisDotacionHistoricaQuery) {
-  const { hospitalId, agrupacion } = query
-  const hospitalFilter = hospitalId ? Prisma.sql`AND c.hospital_id = ${hospitalId}::uuid` : Prisma.empty
+// Lee desde kpis_dotacion_snapshot — tabla materializada que se popula al
+// aprobar cada snapshot (padron.service.ts). Un punto por fecha de snapshot
+// completo aprobado. El escalafón es el nombre canónico de escalafones.nombre.
+export async function getKpisDotacionHistoricaService(_query: KpisDotacionHistoricaQuery) {
+  const rows = await prisma.kpisDotacionSnapshot.findMany({
+    orderBy: [{ fecha: 'asc' }, { escalafon: 'asc' }],
+  })
 
-  // Reconstrucción acumulada semana a semana:
-  // 1. Base: snapshot completo más antiguo en padron_historico (ene-04)
-  // 2. Altas: diffs tipo 'nuevo' de snapshots posteriores (valor_nuevo JSON)
-  // 3. Bajas: diffs tipo 'eliminado' (id_sial_rol sale del snapshot base o de altas previas)
-  // Se une todo, se marca cada id_sial_rol como activo/inactivo por fecha,
-  // y se cuenta CUILs únicos activos en cada snapshot.
-  const rows = await prisma.$queryRaw<{ fecha: Date; escalafon: string; personas: bigint }[]>(Prisma.sql`
-    WITH
-    -- Base: snapshot completo más antiguo, escalafón canónico via cargo→escalafones
-    base AS (
-      SELECT
-        ph.fecha_asignada,
-        ph.id_sial_rol,
-        ph.cuil,
-        e.nombre AS escalafon
-      FROM padron_historico ph
-      JOIN cargos c ON c.id = ph.cargo_id
-      JOIN escalafones e ON e.id = c.escalafon_id
-      WHERE ph.cuil IS NOT NULL
-        AND ph.fecha_asignada = (SELECT min(fecha_asignada) FROM padron_historico)
-        ${hospitalFilter}
-    ),
-    -- Fechas de todos los snapshots aprobados
-    fechas AS (
-      SELECT DISTINCT fecha_asignada
-      FROM padron_snapshots
-      WHERE estado = 'aprobado'
-      ORDER BY fecha_asignada
-    ),
-    -- Altas desde diffs 'nuevo': escalafón canónico via id_sial_rol→ocupaciones→cargos→escalafones
-    -- Fallback: si el rol aún no existe en ocupaciones, usar el campo escalafon del JSON
-    altas AS (
-      SELECT
-        ps.fecha_asignada,
-        d.id_sial_rol,
-        split_part((d.valor_nuevo::jsonb->>'cuil_y_rol'), '-', 1) AS cuil,
-        COALESCE(
-          (SELECT e2.nombre FROM ocupaciones o2
-           JOIN cargos c2 ON c2.id = o2.cargo_id
-           JOIN escalafones e2 ON e2.id = c2.escalafon_id
-           WHERE o2.id_sial_rol = d.id_sial_rol LIMIT 1),
-          (d.valor_nuevo::jsonb->>'escalafon')
-        ) AS escalafon
-      FROM padron_diff d
-      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
-      WHERE d.tipo = 'nuevo'
-        AND (d.valor_nuevo::jsonb->>'cuil_y_rol') IS NOT NULL
-    ),
-    -- Bajas desde diffs 'eliminado'
-    bajas AS (
-      SELECT ps.fecha_asignada, d.id_sial_rol
-      FROM padron_diff d
-      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
-      WHERE d.tipo = 'eliminado'
-    ),
-    -- Dotación activa por snapshot = base - bajas acumuladas + altas acumuladas - sus bajas
-    activos AS (
-      SELECT f.fecha_asignada AS fecha, b.cuil, b.escalafon
-      FROM fechas f
-      JOIN base b ON true
-      LEFT JOIN bajas bj ON bj.id_sial_rol = b.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
-      WHERE bj.id_sial_rol IS NULL
-      UNION ALL
-      SELECT f.fecha_asignada AS fecha, a.cuil, a.escalafon
-      FROM fechas f
-      JOIN altas a ON a.fecha_asignada <= f.fecha_asignada
-      LEFT JOIN bajas bj ON bj.id_sial_rol = a.id_sial_rol AND bj.fecha_asignada <= f.fecha_asignada
-      WHERE bj.id_sial_rol IS NULL
-        AND a.cuil IS NOT NULL
-        AND a.escalafon IS NOT NULL
-    )
-    SELECT
-      fecha,
-      escalafon,
-      count(DISTINCT cuil)::bigint AS personas
-    FROM activos
-    WHERE cuil IS NOT NULL AND escalafon IS NOT NULL
-    GROUP BY fecha, escalafon
-    ORDER BY fecha, escalafon
-  `)
-
-  // Agrupar por fecha
   type PuntoMap = Map<string, { fecha: Date; porEscalafon: Record<string, number> }>
   const porFecha: PuntoMap = new Map()
   const escalafonesSet = new Set<string>()
@@ -465,29 +375,18 @@ export async function getKpisDotacionHistoricaService(query: KpisDotacionHistori
   for (const r of rows) {
     const key = r.fecha.toISOString().slice(0, 10)
     if (!porFecha.has(key)) porFecha.set(key, { fecha: r.fecha, porEscalafon: {} })
-    porFecha.get(key)!.porEscalafon[r.escalafon] = Number(r.personas)
+    porFecha.get(key)!.porEscalafon[r.escalafon] = r.personas
     escalafonesSet.add(r.escalafon)
   }
 
   const escalafones = [...escalafonesSet].sort()
-  const puntosCrudos = [...porFecha.values()].map((p) => ({
+  const puntos = [...porFecha.values()].map((p) => ({
     fecha: p.fecha,
     total: Object.values(p.porEscalafon).reduce((s, v) => s + v, 0),
     porEscalafon: p.porEscalafon,
   }))
 
-  if (agrupacion === 'mes') {
-    // Tomar el último punto de cada mes
-    const porMes = new Map<string, typeof puntosCrudos[number]>()
-    for (const p of puntosCrudos) {
-      const mes = new Date(p.fecha).toISOString().slice(0, 7)
-      porMes.set(mes, p)
-    }
-    return { escalafones, puntos: [...porMes.values()] }
-  }
-
-
-  return { escalafones, puntos: puntosCrudos }
+  return { escalafones, puntos }
 }
 
 // ─── KPIs de bajas ───────────────────────────────────────────────────────────

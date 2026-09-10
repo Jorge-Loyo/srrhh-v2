@@ -33,7 +33,6 @@ export type KpisAlertasQuery = z.infer<typeof kpisAlertasQuerySchema>
 
 export const kpisDotacionHistoricaQuerySchema = z.object({
   hospitalId: z.string().uuid().optional(),
-  agrupacion: z.enum(['mes', 'subida']).default('mes'),
 })
 
 export type KpisDotacionHistoricaQuery = z.infer<typeof kpisDotacionHistoricaQuerySchema>

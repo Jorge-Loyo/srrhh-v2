@@ -3,6 +3,8 @@ import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
 import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
+import { useAuth } from '../modules/auth/hooks/useAuth'
+import { can } from '../shared/lib/can'
 import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
 import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
@@ -40,6 +42,13 @@ import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
 
+// Redirige a /kpis si el usuario no tiene permiso para ver el inicio
+function RequireInicio() {
+  const { user } = useAuth()
+  if (!can(user, 'inicio', 'ver')) return <Navigate to="/kpis" replace />
+  return <InicioPage />
+}
+
 export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
@@ -48,7 +57,7 @@ export const router = createBrowserRouter([
         path: '/',
         element: <AppShell />,
         children: [
-          { index: true, element: <InicioPage /> },
+          { index: true, element: <RequireInicio /> },
           { path: 'padron', element: <PadronPage /> },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
@@ -106,11 +115,15 @@ export const router = createBrowserRouter([
             children: [
               { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
               { path: 'configuracion/tokens', element: <TokensPage /> },
+              { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
             ],
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
-            children: [{ path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> }],
+            children: [
+              { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
+              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+            ],
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'ver_auditoria' }} />,

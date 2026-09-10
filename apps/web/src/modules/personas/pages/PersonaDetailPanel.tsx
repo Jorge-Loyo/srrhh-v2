@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { Link, useParams, useLocation } from 'react-router-dom'
 import type { OcupacionConCargo, PersonaDetail } from '@srrhh/types'
 import { usePersona, usePersonaBajasSial } from '../hooks/usePersonas'
@@ -212,6 +213,9 @@ export function PersonaDetailPanel() {
           </div>
         )}
       </div>
+
+      {/* Cadena de mando */}
+      <CadenaMandoPanel personaId={p.id} />
 
       {/* Historial de roles SIAL — collapsible */}
       <CollapsibleSection

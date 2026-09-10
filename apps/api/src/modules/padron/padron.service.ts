@@ -1272,6 +1272,39 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       await tx.padronHistorico.createMany({ data: lote })
     }
 
+    // ── 8. Resumen KPI: personas únicas por escalafón ──────────────────────
+    // Se calcula desde las ocupaciones activas (hasta IS NULL) en este momento.
+    // La fecha que se guarda es la del snapshot aprobado. ON CONFLICT reemplaza
+    // el punto anterior del mismo mes si ya existía (el último del mes gana).
+    const kpisRows = await tx.$queryRaw<{ escalafon: string; personas: number }[]>(
+      Prisma.sql`
+        SELECT e.nombre AS escalafon, count(DISTINCT p.cuil)::integer AS personas
+        FROM ocupaciones o
+        JOIN cargos c      ON c.id = o.cargo_id
+        JOIN escalafones e ON e.id = c.escalafon_id
+        JOIN personas p    ON p.id = o.persona_id
+        WHERE o.hasta IS NULL AND p.cuil IS NOT NULL
+        GROUP BY e.nombre
+      `
+    )
+    if (kpisRows.length > 0) {
+      // Borrar el punto anterior del mismo mes (si existe) y reemplazar con este
+      await tx.$executeRaw(
+        Prisma.sql`
+          DELETE FROM kpis_dotacion_snapshot
+          WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
+        `
+      )
+      await tx.$executeRaw(
+        Prisma.sql`
+          INSERT INTO kpis_dotacion_snapshot (fecha, escalafon, personas)
+          SELECT ${snapshot.fechaAsignada}::date, r.escalafon, r.personas
+          FROM json_to_recordset(${JSON.stringify(kpisRows)}::json)
+            AS r(escalafon text, personas int)
+        `
+      )
+    }
+
     await tx.padronSnapshot.update({
       where: { id },
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },

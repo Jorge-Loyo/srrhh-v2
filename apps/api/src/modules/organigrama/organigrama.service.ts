@@ -136,8 +136,12 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   const { sigla, seccion } = query
 
   // === 1. Estructura del árbol ===
+  // mode: 'insensitive' porque el dump MySQL legacy puede tener cualquier casing
+  // en universo_totalizador (ej. 'Nivel Central' vs 'NIVEL CENTRAL').
   const rows = await prisma.organigrama.findMany({
-    where: sigla ? { sigla } : { universoTotalizador: SECCION_UNIVERSOS[seccion!] },
+    where: sigla
+      ? { sigla }
+      : { universoTotalizador: { equals: SECCION_UNIVERSOS[seccion!], mode: 'insensitive' } },
     orderBy: [{ lvl: 'asc' }, { codigoReparticion: 'asc' }],
   })
 
@@ -222,20 +226,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
       unificadorPuesto: { not: null },
     },
-    select: { id: true, codigoRepa: true, codigo: true, unificadorPuesto: true },
+    select: { id: true, codigoRepa: true, codigo: true, unificadorPuesto: true, codigoRegistro: { select: { codigo: true } } },
     orderBy: { codigoRepa: 'asc' },
   })
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
   for (const cv of cargosVacantesRaw) {
     if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
-    if (!esCargoDeConduccion(undefined, cv.unificadorPuesto, null)) {
-      // Para vacantes no tenemos codigoRegistro.codigo en este select simplificado
-      // — incluimos si unificadorPuesto matchea cualquiera de los sets conocidos
-      const up = cv.unificadorPuesto?.toLowerCase().trim() ?? ''
-      const esConocido = UNIFICADOR_60.has(up) || UNIFICADOR_37_SIN_JEFATURA.has(up) ||
-        UNIFICADOR_37.has(up) || UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) || up === 'autoridades superiores'
-      if (!esConocido) continue
-    }
+    if (!esCargoDeConduccion(cv.codigoRegistro?.codigo, cv.unificadorPuesto, null)) continue
     cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
   }
 
@@ -274,7 +271,31 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   }
 
   // === 4. Mapa de nodos ===
+  // Pre-cargar padres que no estén en el recorte (ej. SS de APS vive bajo NC)
+  const codigosEnRecorte = new Set(rows.map((r) => r.codigoReparticion))
+  const codigosPadresFuera = [...new Set(
+    rows.map((r) => r.padre?.trim() || null).filter((p): p is string => !!p && !codigosEnRecorte.has(p))
+  )]
+  const padresFuera = codigosPadresFuera.length > 0
+    ? await prisma.organigrama.findMany({ where: { codigoReparticion: { in: codigosPadresFuera } } })
+    : []
+
   const mapa = new Map<string, OrganigramaNodo>()
+  // Agregar padres externos al mapa para que los hijos puedan linkearse
+  for (const r of padresFuera) {
+    mapa.set(r.codigoReparticion, {
+      id: r.codigoReparticion,
+      nombre: r.descRep,
+      tipo: r.tipo,
+      nivel: r.lvl,
+      padre: r.padre?.trim() || null,
+      regimenEmpleo: r.regimenEmpleo || '',
+      persona: null,
+      cargoVacante: null,
+      razonSinCargo: null,
+      hijos: [],
+    })
+  }
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
@@ -301,12 +322,22 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   }
 
   // === 6. Relaciones padre-hijo ===
+  // Normalizar padre vacío a null (el seed puede haber insertado '' en vez de NULL)
+  // Solo iterar rows (no padresFuera) para identificar raíces del recorte.
   const raices: OrganigramaNodo[] = []
   for (const r of rows) {
     const nodo = mapa.get(r.codigoReparticion)!
-    const padreNodo = r.padre ? mapa.get(r.padre) : undefined
+    const padreCod = r.padre?.trim() || null
+    const padreNodo = padreCod ? mapa.get(padreCod) : undefined
     if (padreNodo) padreNodo.hijos.push(nodo)
     else raices.push(nodo)
+  }
+
+  // Si hay un único nodo ancla externo que agrupa todas las raíces, usarlo como raíz visual.
+  const anclaExterna = padresFuera.length === 1 ? mapa.get(padresFuera[0]!.codigoReparticion) : undefined
+  if (anclaExterna && anclaExterna.hijos.length > 0 && raices.every((r) => anclaExterna.hijos.includes(r))) {
+    raices.length = 0
+    raices.push(anclaExterna)
   }
 
   let raiz: OrganigramaNodo | null = null
@@ -337,8 +368,24 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         }
       }
     }
+    // Caso 2: múltiples raíces sin padre común (ej. nodos generados desde cargos
+    // sin jerarquía) — crear nodo virtual que las agrupe todas.
     if (!raiz) {
-      raiz = raices.reduce((best, n) => (!best || n.nivel < best.nivel ? n : best), null as OrganigramaNodo | null)
+      const label = seccion === 'nivel-central' ? 'Nivel Central'
+        : seccion === 'atencion-primaria' ? 'Atención Primaria'
+        : seccion ?? sigla ?? 'Organigrama'
+      raiz = {
+        id: `ROOT_${seccion ?? sigla}`,
+        nombre: label,
+        tipo: 'ROOT',
+        nivel: 0,
+        padre: null,
+        regimenEmpleo: '',
+        persona: null,
+        cargoVacante: null,
+        razonSinCargo: null,
+        hijos: raices,
+      }
     }
   }
 
@@ -469,15 +516,20 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
     vistos.add(f.codigoReparticion)
   }
 
-  // Sin $transaction envolvente a propósito: son miles de filas y el timeout
-  // default de una transacción interactiva de Prisma es 5s — mismo criterio
-  // que import-organigrama.ts (delete + createMany secuenciales, sin atomicidad
-  // entre ambos). Aceptable acá: operación admin-only, infrecuente, sobre una
-  // sola tabla sin relaciones entrantes.
-  await prisma.organigrama.deleteMany()
-  for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
-    await prisma.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
-  }
+  // Swap atómico via transacción interactiva con timeout extendido:
+  // TRUNCATE + inserts en lotes dentro de una sola transacción — si cualquier
+  // lote falla, el ROLLBACK automático deja la tabla intacta con los datos
+  // anteriores. Se usa $transaction con timeout=120s para cubrir archivos
+  // grandes (4.000+ filas en lotes de 500 = ~9 roundtrips).
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.organigrama.deleteMany()
+      for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
+        await tx.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
+      }
+    },
+    { timeout: 120_000 }
+  )
 
   await prisma.organigramaUpload.create({
     data: {

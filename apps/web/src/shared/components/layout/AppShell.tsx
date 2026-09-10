@@ -9,8 +9,8 @@ import { can } from '../../lib/can'
 const CARGOS_SUBITEMS = [
   { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
   { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'crear' } },
-  { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'ver' } },
-  { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'ver' } },
+  { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'crear' } },
 ]
 
 const CONFIGURACION_SUBITEMS = [
@@ -90,13 +90,17 @@ export function AppShell() {
         <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
 
           {/* Inicio */}
-          <NavLink to="/"
-            end
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Inicio' : undefined}>
-            <span className="text-base shrink-0">🏠</span>
-            {!collapsed && <span className="truncate">Inicio</span>}
-          </NavLink>
+          {can(user, 'inicio', 'ver') && (
+            <NavLink to="/"
+              end
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Inicio' : undefined}>
+              <span className="text-base shrink-0">🏠</span>
+              {!collapsed && <span className="truncate">Inicio</span>}
+            </NavLink>
+          )}
+
+          <div className="border-t border-gray-200 mt-2 pt-2" />
 
           {/* KPIs */}
           {can(user, 'kpis', 'ver') && (
@@ -105,16 +109,6 @@ export function AppShell() {
               title={collapsed ? 'Tablero KPIs' : undefined}>
               <span className="text-base shrink-0">📊</span>
               {!collapsed && <span className="truncate">Tablero KPIs</span>}
-            </NavLink>
-          )}
-
-          {/* Personas */}
-          {can(user, 'personas', 'ver') && (
-            <NavLink to="/personas"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Personas' : undefined}>
-              <span className="text-base shrink-0">👤</span>
-              {!collapsed && <span className="truncate">Personas</span>}
             </NavLink>
           )}
 
@@ -130,21 +124,12 @@ export function AppShell() {
 
           {/* Organigrama — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/organigrama"
+            end
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
             title={collapsed ? 'Organigrama' : undefined}>
             <span className="text-base shrink-0">🏢</span>
             {!collapsed && <span className="truncate">Organigrama</span>}
           </NavLink>
-
-          {/* Árbol — subir Excel de estructura (solo admin con permiso gestionar_organigrama) */}
-          {can(user, 'configuracion', 'gestionar_organigrama') && (
-            <NavLink to="/organigrama/arbol"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Árbol Organigrama' : undefined}>
-              <span className="text-base shrink-0">🌳</span>
-              {!collapsed && <span className="truncate">Árbol Organigrama</span>}
-            </NavLink>
-          )}
 
           {/* POU — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/pou"
@@ -153,6 +138,19 @@ export function AppShell() {
             <span className="text-base shrink-0">🧮</span>
             {!collapsed && <span className="truncate">POU</span>}
           </NavLink>
+
+          {/* Divisor — Concursos */}
+          <div className="border-t border-gray-200 mt-2 pt-2" />
+
+          {/* Personas */}
+          {can(user, 'personas', 'ver') && (
+            <NavLink to="/personas"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Personas' : undefined}>
+              <span className="text-base shrink-0">👤</span>
+              {!collapsed && <span className="truncate">Personas</span>}
+            </NavLink>
+          )}
 
           {/* Grupo Cargos */}
           {cargosSubitems.length > 0 && (
@@ -188,7 +186,7 @@ export function AppShell() {
           )}
 
           {/* Bajas */}
-          {can(user, 'bajas', 'ver') && (
+          {can(user, 'bajas', 'crear') && (
             <NavLink to="/bajas"
               end
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
@@ -199,7 +197,7 @@ export function AppShell() {
           )}
 
           {/* Validación de Bajas */}
-          {can(user, 'bajas', 'ver') && (
+          {can(user, 'bajas', 'crear') && (
             <NavLink to="/bajas/validacion"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
               title={collapsed ? 'Validación de Bajas' : undefined}>
@@ -207,9 +205,6 @@ export function AppShell() {
               {!collapsed && <span className="truncate">Validación de Bajas</span>}
             </NavLink>
           )}
-
-          {/* Divisor — Concursos */}
-          <div className="border-t border-gray-200 mt-2 pt-2" />
 
           {/* Concursos */}
           {can(user, 'concursos-cph', 'ver') && (
@@ -241,12 +236,22 @@ export function AppShell() {
           )}
 
           {/* Bajas Consolidadas */}
-          {can(user, 'bajas-sial', 'ver') && (
+          {can(user, 'bajas-sial', 'aprobar') && (
             <NavLink to="/bajas-consolidadas"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
               title={collapsed ? 'Bajas Consolidadas' : undefined}>
               <span className="text-base shrink-0">📄</span>
               {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
+            </NavLink>
+          )}
+
+          {/* Árbol — subir Excel de estructura (solo admin con permiso gestionar_organigrama) */}
+          {can(user, 'configuracion', 'gestionar_organigrama') && (
+            <NavLink to="/organigrama/arbol"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Árbol Organigrama' : undefined}>
+              <span className="text-base shrink-0">🌳</span>
+              {!collapsed && <span className="truncate">Árbol Organigrama</span>}
             </NavLink>
           )}
 

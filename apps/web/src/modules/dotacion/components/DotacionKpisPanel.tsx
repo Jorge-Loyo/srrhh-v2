@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useDotacionKpis } from '../hooks/useDotacion'
@@ -38,7 +37,6 @@ const ESTADO_POR_CARD: Record<string, string> = {
 // sigla directamente, GET /dotacion/kpis lo pide así), por eso resuelve el
 // id a partir de la sigla elegida en la tabla.
 export function DotacionKpisPanel({ sigla, onFilterSigla, estado, onFilterEstado }: DotacionKpisPanelProps) {
-  const [open, setOpen] = useState(true)
   const { data: hospitales } = useHospitales()
   const hospitalId = hospitales?.find((h) => h.sigla === sigla)?.id
   const { data, isLoading } = useDotacionKpis(hospitalId)
@@ -47,19 +45,8 @@ export function DotacionKpisPanel({ sigla, onFilterSigla, estado, onFilterEstado
   const total = g?.total || 1
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
-      >
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Panel de KPIs</span>
-        <svg aria-hidden="true" className={`h-4 w-4 text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-          <path d="M7.21 14.77a.75.75 0 01.02-1.06L11.94 10 7.23 5.29a.75.75 0 111.06-1.06l5.25 5.25a.75.75 0 010 1.06l-5.25 5.25a.75.75 0 01-1.08-.02z" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-4">
+    <div>
+      <div className="space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">Efector:</span>
             <select
@@ -166,8 +153,7 @@ export function DotacionKpisPanel({ sigla, onFilterSigla, estado, onFilterEstado
               </div>
             </div>
           )}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

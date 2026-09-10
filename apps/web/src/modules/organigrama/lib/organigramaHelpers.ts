@@ -30,9 +30,17 @@ const TIPO_COLOR: Record<string, string> = {
   'SECCION CA': 'bg-stone-600 text-white',
 }
 
+export const UMBRAL_DEPT = 8
+
+export interface GrupoDept {
+  label: string
+  nodos: OrganigramaNodo[]
+}
+
 export function tipoColor(tipo: string): string {
   return TIPO_COLOR[tipo] || 'bg-gray-200 text-gray-700'
 }
+
 
 // El nombre largo del nodo suele repetir como prefijo la misma sigla
 // estructural que ya muestra el badge de tipo (ej: "DIV Legales"). Se quita
@@ -47,6 +55,47 @@ export function stripRedundantPrefix(name: string | null): string {
   if (!name) return ''
   const prefix = REDUNDANT_NAME_PREFIXES.find((p) => name.startsWith(`${p} `))
   return prefix ? name.slice(prefix.length + 1) : name
+}
+
+// Agrupa hijos DEPT por su nodo cabecera "AREA PROGRAMATICA" o "HOSPITAL GENERAL".
+// Usado tanto en la vista Árbol como en la vista Diagrama.
+export function agruparDept(hijosDept: OrganigramaNodo[]): GrupoDept[] {
+  const cabeceras: OrganigramaNodo[] = []
+  const resto: OrganigramaNodo[] = []
+  for (const h of hijosDept) {
+    if (h.nombre?.toUpperCase().includes('AREA PROGRAMATICA') || h.nombre?.toUpperCase().includes('HOSPITAL GENERAL')) {
+      cabeceras.push(h)
+    } else {
+      resto.push(h)
+    }
+  }
+  if (cabeceras.length === 0) return [{ label: `Áreas Programáticas (${hijosDept.length})`, nodos: hijosDept }]
+  cabeceras.sort((a, b) => a.id.localeCompare(b.id))
+  const grupos = new Map<string, { cabecera: OrganigramaNodo; miembros: OrganigramaNodo[] }>(
+    cabeceras.map((c) => [c.id, { cabecera: c, miembros: [] }])
+  )
+  const huerfanos: OrganigramaNodo[] = []
+  for (const nodo of resto) {
+    let mejorCabecera: OrganigramaNodo | null = null
+    let mejorLen = 0
+    for (const cab of cabeceras) {
+      let len = 0
+      for (let i = 0; i < Math.min(cab.id.length, nodo.id.length); i++) {
+        if (cab.id[i] === nodo.id[i]) len++
+        else break
+      }
+      if (len >= 4 && len > mejorLen) { mejorLen = len; mejorCabecera = cab }
+    }
+    if (mejorCabecera) grupos.get(mejorCabecera.id)!.miembros.push(nodo)
+    else huerfanos.push(nodo)
+  }
+  const resultado: GrupoDept[] = []
+  for (const { cabecera, miembros } of grupos.values()) {
+    const label = stripRedundantPrefix(cabecera.nombre) ?? cabecera.id
+    resultado.push({ label: `${label} (${1 + miembros.length})`, nodos: [cabecera, ...miembros] })
+  }
+  if (huerfanos.length > 0) resultado.push({ label: `Otros (${huerfanos.length})`, nodos: huerfanos })
+  return resultado
 }
 
 function normalizeText(str: string): string {

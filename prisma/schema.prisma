@@ -134,6 +134,21 @@ model OrganigramaUpload {
   @@map("organigrama_uploads")
 }
 
+// Resumen de evolución histórica de dotación por escalafón.
+// Una fila por (fecha, escalafon) — se inserta al aprobar cada snapshot
+// de padrón (padron.service.ts, aprobarSnapshotService). El escalafón
+// viene de cargo_id → escalafones.nombre (nombre canónico, no el texto
+// desnormalizado de padron_historico que tiene variantes históricas).
+model KpisDotacionSnapshot {
+  fecha     DateTime @db.Date
+  escalafon String   @db.VarChar(100)
+  personas  Int
+
+  @@id([fecha, escalafon])
+  @@index([fecha])
+  @@map("kpis_dotacion_snapshot")
+}
+
 // Resumen de dotación (personal necesario/ocupado) por hospital, perfil y
 // especialidad — foto mensual cargada a mano desde el Excel "Ocupacion_POU"
 // que emite Recursos Humanos. Migrado 1:1 desde la tabla `pou` de la app

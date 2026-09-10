@@ -45,7 +45,7 @@ export function KpisPage() {
   const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion(hospitalId || undefined)
   const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos(hospitalId || undefined)
   const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas(hospitalId || undefined)
-  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined, 'mes')
+  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined)
   const { data: bajas, isLoading: loadingBajas } = useKpiBajas(hospitalId || undefined)
 
   return (

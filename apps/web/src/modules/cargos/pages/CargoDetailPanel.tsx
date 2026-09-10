@@ -1,4 +1,5 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
+import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 
@@ -112,33 +113,6 @@ export function CargoDetailPanel() {
         </div>
       </div>
 
-      {/* Proceso concursal activo */}
-      {(concursoCphActivo || concursoCeetpsActivo) && (() => {
-        const esCph = !!concursoCphActivo
-        const c = (concursoCphActivo ?? concursoCeetpsActivo)!
-        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos-ceetps/${c.id}`
-        const tipo = esCph ? 'CPH' : 'CEETPS'
-        const sub = esCph
-          ? (concursoCphActivo!.subEstado3 ?? concursoCphActivo!.subEstado)
-          : null
-        return (
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden border-l-4 border-blue-500">
-            <div className="px-6 py-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">{tipo}</span>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Proceso concursal activo</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {c.estado}{sub ? ` · ${sub}` : ''}
-                  </p>
-                </div>
-              </div>
-              <Link to={href} className="btn-outline text-xs shrink-0">Ver concurso</Link>
-            </div>
-          </div>
-        )
-      })()}
-
       {/* Persona actual */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="bg-navy px-6 py-3">
@@ -208,6 +182,36 @@ export function CargoDetailPanel() {
           </div>
         )}
       </div>
+
+      {/* Cadena de mando */}
+      {cargo.codigoRepa && <CadenaMandoPanel codigoRepa={cargo.codigoRepa} />}
+
+      {/* Proceso concursal activo */}
+      {(concursoCphActivo || concursoCeetpsActivo) && (() => {
+        const esCph = !!concursoCphActivo
+        const c = (concursoCphActivo ?? concursoCeetpsActivo)!
+        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos-ceetps/${c.id}`
+        const tipo = esCph ? 'CPH' : 'CEETPS'
+        const sub = esCph
+          ? (concursoCphActivo!.subEstado3 ?? concursoCphActivo!.subEstado)
+          : null
+        return (
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden border-l-4 border-blue-500">
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">{tipo}</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Proceso concursal activo</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {c.estado}{sub ? ` · ${sub}` : ''}
+                  </p>
+                </div>
+              </div>
+              <Link to={href} className="btn-outline text-xs shrink-0">Ver concurso</Link>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Concursos CPH */}
       {cargo.concursosCph.length > 0 && (

@@ -29,6 +29,12 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
     colorLight: '#E0E7FF',
   },
   {
+    label: 'CEETPS',
+    escalafones: ['CEETPS'],
+    color: '#7C3AED',
+    colorLight: '#EDE9FE',
+  },
+  {
     label: 'Régimen Modular / Transitorio',
     escalafones: [
       'Régimen Modular Extraordinario PG',
@@ -43,7 +49,6 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
     escalafones: [
       'Gabinete',
       'Autoridades Superiores',
-      'CEETPS',
       'Docentes Históricos',
       'Carrera Gerencial',
       'Cuerpo Especialistas Profesionales',
@@ -97,7 +102,7 @@ interface Props {
 }
 
 export function EvolucionDotacionChart({ data }: Props) {
-  const agrupacion = 'mes' as const
+  const agrupacion = 'subida' as const
   const puntos = data?.puntos ?? []
   const todosEscalafones = data?.escalafones ?? []
 

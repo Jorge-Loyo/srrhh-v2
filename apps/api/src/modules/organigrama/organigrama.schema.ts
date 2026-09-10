@@ -8,7 +8,7 @@ export type Seccion = (typeof SECCIONES)[number]
 
 export const SECCION_UNIVERSOS: Record<Seccion, string> = {
   'nivel-central': 'NIVEL CENTRAL',
-  'atencion-primaria': 'ATENCION PRIMARIA',
+  'atencion-primaria': 'APS',
 }
 
 export const organigramaQuerySchema = z
