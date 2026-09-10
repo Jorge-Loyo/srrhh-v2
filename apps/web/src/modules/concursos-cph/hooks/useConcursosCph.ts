@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ConcursoCph,
   ConcursoCphFilters,
+  DesignarConcursoRequest,
   PaginatedResponse,
   PatchConcursoCphRequest,
   SuspenderConcursoCphRequest,
@@ -83,6 +84,21 @@ export function useSuspenderConcursoCph(id: string) {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(['concursos-cph', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
+
+// S16-3: registrar designación CPH (POST /api/v1/concursos-cph/:id/designar).
+export function useDesignarConcursoCph(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: DesignarConcursoRequest) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/designar`, body)
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concurso-cph-wizard', id], data)
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
     },
   })

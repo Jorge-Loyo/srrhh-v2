@@ -13,6 +13,7 @@ import { getCasoCph, exportCphPdf, exportCphWord } from '@/shared/lib/exportConc
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { useDesignarConcursoCph } from '../hooks/useConcursosCph'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 
 type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
@@ -317,6 +318,27 @@ export function ConcursoCphWizard() {
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
   const [obsAutorizacion, setObsAutorizacion] = useState('')
   const [modalBaja, setModalBaja] = useState(false)
+  const [modalDesignar, setModalDesignar] = useState(false)
+  const [designarPersonaId, setDesignarPersonaId] = useState('')
+  const [designarFechaDesde, setDesignarFechaDesde] = useState('')
+  const [designarIdSialRol, setDesignarIdSialRol] = useState('')
+  const [designarSearch, setDesignarSearch] = useState('')
+
+  const designarMutation = useDesignarConcursoCph(id!)
+
+  // Búsqueda de personas para el selector de designación
+  const { data: personasDesignarData } = useQuery({
+    queryKey: ['personas-designar-search', designarSearch],
+    queryFn: async () => {
+      if (designarSearch.length < 2) return []
+      const res = await apiClient.get<{ data: { id: string; apellidoNombre: string; cuil: string }[] }>(
+        '/api/v1/personas',
+        { params: { search: designarSearch, limit: 20 } }
+      )
+      return res.data.data
+    },
+    enabled: designarSearch.length >= 2,
+  })
   const formRef = useRef<HTMLDivElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = { sigla: '', escalafonId: '', puesto: '', especialidad: '' }
@@ -544,6 +566,112 @@ export function ConcursoCphWizard() {
   return (
     // Contenedor que ocupa todo el alto disponible dentro del <main> scrolleable
     <div className="flex flex-col min-h-full">
+
+      {/* ── MODAL DESIGNAR ──────────────────────────────────────────────────── */}
+      {modalDesignar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-green-500 text-xl">👤</span>
+              <div>
+                <h3 className="font-primary font-bold text-gray-900">Registrar designación</h3>
+                <p className="text-xs text-gray-500 mt-0.5">El cargo quedará ocupado inmediatamente, sin esperar el padrón.</p>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {/* Búsqueda de persona */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Persona designada <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={designarSearch}
+                  onChange={(e) => { setDesignarSearch(e.target.value); setDesignarPersonaId('') }}
+                  className="input h-10 w-full"
+                  placeholder="Buscar por nombre o CUIL..."
+                />
+                {personasDesignarData && personasDesignarData.length > 0 && !designarPersonaId && (
+                  <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                    {personasDesignarData.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                        onClick={() => { setDesignarPersonaId(p.id); setDesignarSearch(p.apellidoNombre) }}
+                      >
+                        <span className="font-medium text-gray-800">{p.apellidoNombre}</span>
+                        <span className="ml-2 text-xs text-gray-400 font-mono">{p.cuil}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {designarPersonaId && (
+                  <p className="mt-1 text-xs text-green-600">✓ Persona seleccionada</p>
+                )}
+              </div>
+              {/* Fecha desde */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Fecha de inicio <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={designarFechaDesde}
+                  onChange={(e) => setDesignarFechaDesde(e.target.value)}
+                  className="input h-10 w-full"
+                />
+              </div>
+              {/* ID SIAL Rol (opcional) */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  ID SIAL Rol <span className="text-xs font-normal text-gray-400">(opcional — se completa cuando llegue el padrón)</span>
+                </label>
+                <input
+                  type="text"
+                  value={designarIdSialRol}
+                  onChange={(e) => setDesignarIdSialRol(e.target.value)}
+                  className="input h-10 w-full font-mono"
+                  placeholder="Ej: 12345678"
+                />
+              </div>
+              {designarMutation.isError && (
+                <p className="text-sm text-danger">
+                  {(designarMutation.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al registrar la designación'}
+                </p>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                className="btn-outline"
+                onClick={() => { setModalDesignar(false); setDesignarPersonaId(''); setDesignarSearch(''); setDesignarFechaDesde(''); setDesignarIdSialRol('') }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-primary"
+                disabled={!designarPersonaId || !designarFechaDesde || designarMutation.isPending}
+                onClick={() => {
+                  designarMutation.mutate(
+                    { personaId: designarPersonaId, fechaDesde: designarFechaDesde, idSialRol: designarIdSialRol || undefined },
+                    {
+                      onSuccess: () => {
+                        setModalDesignar(false)
+                        setDesignarPersonaId('')
+                        setDesignarSearch('')
+                        setDesignarFechaDesde('')
+                        setDesignarIdSialRol('')
+                      },
+                    }
+                  )
+                }}
+              >
+                {designarMutation.isPending ? 'Guardando...' : 'Confirmar designación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MODAL AUTORIZAR (sgrasv) ─────────────────────────────────────────────── */}
       {modalAutorizacion && (
@@ -1068,6 +1196,26 @@ export function ConcursoCphWizard() {
                     if (campo.key === 'personaDesignada') return (
                       <div key="personaDesignada" className="sm:col-span-2">
                         <label className="block text-sm font-semibold text-gray-700 mb-2">Persona designada</label>
+
+                        {/* Concurso no finalizado — mostrar botón para registrar designación */}
+                        {cphData && cphData.estado !== 'finalizado' && cphData.estado !== 'desierto' && (
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-semibold text-blue-800">Registrar designación</p>
+                              <p className="text-xs text-blue-600 mt-0.5">
+                                El cargo quedará ocupado inmediatamente sin esperar el padrón siguiente.
+                              </p>
+                            </div>
+                            <button
+                              className="btn-primary text-sm shrink-0"
+                              onClick={() => setModalDesignar(true)}
+                            >
+                              👤 Designar
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Persona ya designada (concurso finalizado o personaDesignadaId seteado) */}
                         {loadingPersona && (
                           <p className="text-sm text-gray-400">Buscando persona...</p>
                         )}
