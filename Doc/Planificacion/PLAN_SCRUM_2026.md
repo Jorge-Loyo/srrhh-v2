@@ -37,6 +37,8 @@
 | Sprint 13 — Panel de autorizaciones + jerarquía de roles | ✅ Completo — backend 2026-09-11 (Jorge), frontend 2026-09-04 (Agustín) | S13-1 a S13-8, S13-A a S13-E | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
 | Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros | ✅ Completo — 2026-09 | — | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md` |
 | Sprint 14 — Concurso desde Alta de Cargo | 📋 Planificado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
+| Post-Sprint 14 — Migración legacy: tablas de referencia Dotaneitor | ⚠️ Código completo, sin commitear, `tsc` limpio, nada roto — traspasado a Jorge para destrabar el entorno Docker/Postgres local y verificar E2E | — | `Sprints/POST_SPRINT_14_migracion_legacy_tablas_referencia.md` |
+| Post-Sprint 14 — Migración legacy: Organigrama | ✅ Verificado E2E con login real (2026-09-08) + módulo "Árbol" (carga de estructura por Excel) agregado — sin commitear. Falta rebuild de Docker para probar "Árbol" por UI. Hallazgo pendiente: `Cargo.unificadorPuesto` vacío en el 100% de los cargos (por eso el organigrama sale todo "Vacante") | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
 
 ---
 
