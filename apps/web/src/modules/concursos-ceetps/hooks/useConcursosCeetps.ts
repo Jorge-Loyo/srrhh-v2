@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ConcursoCeetps,
   ConcursoCeetpsFilters,
+  DesignarConcursoRequest,
   PaginatedResponse,
   PatchConcursoCeetpsRequest,
 } from '@srrhh/types'
@@ -63,5 +64,20 @@ export function useConcursosCeetpsAlertas() {
         200
       ),
     staleTime: 60_000,
+  })
+}
+
+// S16-4: registrar designación CEETPS (POST /api/v1/concursos-ceetps/:id/designar).
+export function useDesignarConcursoCeetps(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: DesignarConcursoRequest) => {
+      const res = await apiClient.post<{ data: ConcursoCeetps }>(`/api/v1/concursos-ceetps/${id}/designar`, body)
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concursos-ceetps', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concursos-ceetps'], exact: false })
+    },
   })
 }

@@ -3,33 +3,27 @@ import { Link, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { useQuery } from '@tanstack/react-query'
 import type { PatchConcursoCeetpsRequest } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
-import { useDebounce } from '@/shared/hooks/useDebounce'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
-import { usePersonas } from '../../personas/hooks/usePersonas'
-import { useConcursoCeetps, usePatchConcursoCeetps } from '../hooks/useConcursosCeetps'
+import { useConcursoCeetps, usePatchConcursoCeetps, useDesignarConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
-
+import { apiClient } from '@/shared/lib/api-client'
 
 const fecha = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido'), z.literal('')])
 const texto = z.string()
 
-// Mismos 10 campos que PatchConcursoCeetpsRequest — `estado` queda afuera,
-// lo calcula el backend (calcEstadoCeetps). El plan habla de "fases
-// ENF/TEC/EG" pero eso es el escalafón (ya fijo por Concurso.escalafonId,
-// no editable acá) — el contrato del PATCH es el mismo set de campos para
-// las 3 carreras, no hay 3 formularios distintos.
+// `personaDesignadaId` se saca del form — ahora se registra vía
+// POST /:id/designar (S16-4), no via PATCH.
 const formSchema = z.object({
   expedienteConcurso: texto,
   puestoSolicitado: texto,
   dispoLlamado: texto,
-  // Carga horaria (Enfermería/Técnicos) + apertura 2x18hs (solo Enfermería) —
-  // usados por los documentos exportables de Validación/Autorización.
   cargaHoraria: z.string().regex(/^\d{0,2}$/, 'Máximo 2 dígitos'),
   apertura2x18: z.boolean(),
   informeApertura: texto,
@@ -39,7 +33,6 @@ const formSchema = z.object({
   expedienteDesignacion: texto,
   dispoDesignacion: texto,
   resolucionDesignacion: texto,
-  personaDesignadaId: texto,
   observaciones: texto,
 })
 
@@ -62,10 +55,33 @@ export function ConcursoCeetpsDetail() {
 
   const { data: concurso, isLoading, isError } = useConcursoCeetps(id)
   const patchMutation = usePatchConcursoCeetps(id ?? '')
+  const designarMutation = useDesignarConcursoCeetps(id ?? '')
+
   const [formError, setFormError] = useState('')
   const [saveOk, setSaveOk] = useState(false)
 
-  const { register, handleSubmit, reset, watch, setValue, formState } = useForm<FormValues>({
+  // Estado modal designación
+  const [modalDesignar, setModalDesignar] = useState(false)
+  const [designarSearch, setDesignarSearch] = useState('')
+  const [designarPersonaId, setDesignarPersonaId] = useState('')
+  const [designarFechaDesde, setDesignarFechaDesde] = useState('')
+  const [designarIdSialRol, setDesignarIdSialRol] = useState('')
+
+  // Búsqueda de personas para el selector de designación
+  const { data: personasDesignarData } = useQuery({
+    queryKey: ['personas-designar-ceetps', designarSearch],
+    queryFn: async () => {
+      if (designarSearch.length < 2) return []
+      const res = await apiClient.get<{ data: { id: string; apellidoNombre: string; cuil: string }[] }>(
+        '/api/v1/personas',
+        { params: { search: designarSearch, limit: 20 } }
+      )
+      return res.data.data
+    },
+    enabled: designarSearch.length >= 2,
+  })
+
+  const { register, handleSubmit, reset, watch, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })
 
@@ -84,7 +100,6 @@ export function ConcursoCeetpsDetail() {
       expedienteDesignacion: concurso.expedienteDesignacion ?? '',
       dispoDesignacion: concurso.dispoDesignacion ?? '',
       resolucionDesignacion: concurso.resolucionDesignacion ?? '',
-      personaDesignadaId: concurso.personaDesignadaId ?? '',
       observaciones: concurso.observaciones ?? '',
     })
   }, [concurso, reset])
@@ -94,10 +109,11 @@ export function ConcursoCeetpsDetail() {
 
   const persona = concurso.concurso?.persona
   const dias = diasSinMovimiento(concurso.updatedAt)
-  const estadoTerminal = concurso.estado === 'finalizado' || concurso.estado === 'desierto'
 
-  // Carga Horaria / Apertura 2x18hs solo aplican a Enfermería(87)/Técnicos(85) —
-  // Servicios Generales(83) no las tiene (ver getCasoCeetps).
+  // PS16D: desierto ya no es estado terminal — solo finalizado bloquea el form
+  const estadoTerminal = concurso.estado === 'finalizado'
+  const puedeDesignar = puedeEditar && !estadoTerminal && !concurso.personaDesignadaId
+
   const codigoRegistro = concurso.concurso?.cargo?.codigoRegistro?.codigo ?? ''
   const esEnfermeria = codigoRegistro === '87'
   const conCarga = codigoRegistro === '87' || codigoRegistro === '85'
@@ -114,12 +130,112 @@ export function ConcursoCeetpsDetail() {
     }
   }
 
+  function cerrarModalDesignar() {
+    setModalDesignar(false)
+    setDesignarPersonaId('')
+    setDesignarSearch('')
+    setDesignarFechaDesde('')
+    setDesignarIdSialRol('')
+  }
+
   return (
     <div className="space-y-6">
+
+      {/* ── MODAL DESIGNAR ─────────────────────────────────────────────────── */}
+      {modalDesignar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-green-500 text-xl">👤</span>
+              <div>
+                <h3 className="font-primary font-bold text-gray-900">Registrar designación</h3>
+                <p className="text-xs text-gray-500 mt-0.5">El cargo quedará ocupado inmediatamente, sin esperar el padrón.</p>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Persona designada <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={designarSearch}
+                  onChange={(e) => { setDesignarSearch(e.target.value); setDesignarPersonaId('') }}
+                  className="input h-10 w-full"
+                  placeholder="Buscar por nombre o CUIL..."
+                />
+                {personasDesignarData && personasDesignarData.length > 0 && !designarPersonaId && (
+                  <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                    {personasDesignarData.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                        onClick={() => { setDesignarPersonaId(p.id); setDesignarSearch(p.apellidoNombre) }}
+                      >
+                        <span className="font-medium text-gray-800">{p.apellidoNombre}</span>
+                        <span className="ml-2 text-xs text-gray-400 font-mono">{p.cuil}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {designarPersonaId && (
+                  <p className="mt-1 text-xs text-green-600">✓ Persona seleccionada</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Fecha de inicio <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={designarFechaDesde}
+                  onChange={(e) => setDesignarFechaDesde(e.target.value)}
+                  className="input h-10 w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  ID SIAL Rol <span className="text-xs font-normal text-gray-400">(opcional — se completa cuando llegue el padrón)</span>
+                </label>
+                <input
+                  type="text"
+                  value={designarIdSialRol}
+                  onChange={(e) => setDesignarIdSialRol(e.target.value)}
+                  className="input h-10 w-full font-mono"
+                  placeholder="Ej: 12345678"
+                />
+              </div>
+              {designarMutation.isError && (
+                <p className="text-sm text-danger">
+                  {(designarMutation.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error al registrar la designación'}
+                </p>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button className="btn-outline" onClick={cerrarModalDesignar}>Cancelar</button>
+              <button
+                className="btn-primary"
+                disabled={!designarPersonaId || !designarFechaDesde || designarMutation.isPending}
+                onClick={() => {
+                  designarMutation.mutate(
+                    { personaId: designarPersonaId, fechaDesde: designarFechaDesde, idSialRol: designarIdSialRol || undefined },
+                    { onSuccess: cerrarModalDesignar }
+                  )
+                }}
+              >
+                {designarMutation.isPending ? 'Guardando...' : 'Confirmar designación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Link to="/concursos/ceetps" className="text-sm text-secondary hover:underline">
         ← Volver a Concursos CEETPS
       </Link>
 
+      {/* Header */}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div>
@@ -148,10 +264,9 @@ export function ConcursoCeetpsDetail() {
             )}
           </div>
         </div>
-
         {estadoTerminal && (
           <p className="text-xs text-gray-400 mt-2">
-            Concurso {ESTADO_LABEL[concurso.estado].toLowerCase()} — no se puede modificar (bloqueado por la API).
+            Concurso finalizado — no se puede modificar.
           </p>
         )}
       </div>
@@ -161,6 +276,35 @@ export function ConcursoCeetpsDetail() {
           Tu rol no tiene permiso de edición sobre concursos CEETPS — vista de solo lectura.
         </p>
       )}
+
+      {/* Panel designación — separado del form (S16-4) */}
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="px-6 py-3 border-b border-gray-100">
+          <h2 className="font-primary text-base font-bold text-gray-900">Persona designada</h2>
+        </div>
+        <div className="p-6">
+          {concurso.personaDesignada ? (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1">
+              <p className="text-sm font-bold text-gray-900">{concurso.personaDesignada.apellidoNombre}</p>
+              <p className="text-xs text-gray-500">CUIL: <span className="font-mono text-gray-700">{concurso.personaDesignada.cuil}</span></p>
+            </div>
+          ) : puedeDesignar ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Sin persona designada</p>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  El cargo quedará ocupado inmediatamente sin esperar el padrón siguiente.
+                </p>
+              </div>
+              <button className="btn-primary text-sm shrink-0" onClick={() => setModalDesignar(true)}>
+                👤 Designar
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">Sin persona designada.</p>
+          )}
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <fieldset disabled={!puedeEditar || estadoTerminal} className="space-y-6">
@@ -220,14 +364,6 @@ export function ConcursoCeetpsDetail() {
             <Campo label="Resolución de designación">
               <input {...register('resolucionDesignacion')} className="input h-10 w-full" />
             </Campo>
-            <Campo label="Persona designada" ancho="sm:col-span-2 md:col-span-3">
-              <PersonaDesignadaPicker
-                value={watch('personaDesignadaId')}
-                nombreActual={concurso.personaDesignada?.apellidoNombre ?? null}
-                onChange={(v) => setValue('personaDesignadaId', v, { shouldDirty: true })}
-                disabled={!puedeEditar || estadoTerminal}
-              />
-            </Campo>
           </Fase>
 
           <Fase titulo="Observaciones">
@@ -272,74 +408,6 @@ function Campo({ label, children, ancho }: { label: string; children: ReactNode;
     <div className={ancho}>
       <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
       {children}
-    </div>
-  )
-}
-
-// Mismo picker que ConcursoCphDetail (búsqueda async contra GET
-// /api/v1/personas, 45k+ registros no entran en un <select>) — duplicado acá
-// en vez de importado desde concursos-cph a propósito: son módulos hermanos
-// sin dependencia real entre sí (mismo criterio que labels.ts).
-function PersonaDesignadaPicker({
-  value,
-  nombreActual,
-  onChange,
-  disabled,
-}: {
-  value: string
-  nombreActual: string | null
-  onChange: (id: string) => void
-  disabled?: boolean
-}) {
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const debounced = useDebounce(query, 300)
-  const { data } = usePersonas({ search: debounced, limit: 8, page: 1 })
-  const resultados = debounced ? (data?.data ?? []) : []
-
-  return (
-    <div className="relative">
-      {value && !open && (
-        <div className="flex items-center gap-2">
-          <span className="input h-10 flex-1 flex items-center bg-gray-50 text-gray-700">
-            {nombreActual ?? value}
-          </span>
-          {!disabled && (
-            <button type="button" className="btn-outline" onClick={() => setOpen(true)}>
-              Cambiar
-            </button>
-          )}
-        </div>
-      )}
-      {(!value || open) && (
-        <input
-          type="text"
-          disabled={disabled}
-          placeholder="Buscar persona por nombre, CUIL o DNI..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="input h-10 w-full"
-        />
-      )}
-      {open && debounced && (
-        <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-gray-200 rounded shadow-lg">
-          {resultados.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">Sin resultados</p>}
-          {resultados.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-700"
-              onClick={() => {
-                onChange(p.id)
-                setQuery('')
-                setOpen(false)
-              }}
-            >
-              {p.apellidoNombre} <span className="text-gray-400">· CUIL {p.cuil}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
