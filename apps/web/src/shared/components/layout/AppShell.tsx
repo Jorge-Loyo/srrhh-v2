@@ -15,9 +15,11 @@ const CARGOS_SUBITEMS = [
 
 const CONFIGURACION_SUBITEMS = [
   { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
+  { to: '/configuracion/tokens',    label: 'Tokens',      permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
   { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
   { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
   { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'gestionar_referencias' } },
+  { to: '/configuracion/auditoria', label: 'Auditoría', permiso: { modulo: 'configuracion', accion: 'ver_auditoria' } },
 ]
 
 export function AppShell() {
@@ -116,12 +118,30 @@ export function AppShell() {
             </NavLink>
           )}
 
+          {/* Dotación */}
+          {can(user, 'dotacion', 'ver') && (
+            <NavLink to="/dotacion"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Dotación' : undefined}>
+              <span className="text-base shrink-0">🩺</span>
+              {!collapsed && <span className="truncate">Dotación</span>}
+            </NavLink>
+          )}
+
           {/* Organigrama — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/organigrama"
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
             title={collapsed ? 'Organigrama' : undefined}>
             <span className="text-base shrink-0">🏢</span>
             {!collapsed && <span className="truncate">Organigrama</span>}
+          </NavLink>
+
+          {/* POU — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
+          <NavLink to="/pou"
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'POU' : undefined}>
+            <span className="text-base shrink-0">🧮</span>
+            {!collapsed && <span className="truncate">POU</span>}
           </NavLink>
 
           {/* Grupo Cargos */}
@@ -228,6 +248,16 @@ export function AppShell() {
               title={collapsed ? 'Árbol' : undefined}>
               <span className="text-base shrink-0">🌳</span>
               {!collapsed && <span className="truncate">Árbol</span>}
+            </NavLink>
+          )}
+
+          {/* Carga POU — módulo admin para reemplazar la dotación POU */}
+          {can(user, 'configuracion', 'gestionar_pou') && (
+            <NavLink to="/pou/carga"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Carga POU' : undefined}>
+              <span className="text-base shrink-0">📥</span>
+              {!collapsed && <span className="truncate">Carga POU</span>}
             </NavLink>
           )}
 

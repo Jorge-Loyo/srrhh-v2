@@ -121,6 +121,35 @@ model Organigrama {
   @@map("organigramas")
 }
 
+// Resumen de dotación (personal necesario/ocupado) por hospital, perfil y
+// especialidad — foto mensual cargada a mano desde el Excel "Ocupacion_POU"
+// que emite Recursos Humanos. Migrado 1:1 desde la tabla `pou` de la app
+// vieja (dotacion-rrhh) — ver Doc/ESQUEMA_BASE_DE_DATOS.md sección 8.3 ahí.
+// OJO — nombre superpuesto a propósito distinto de otro concepto ya existente
+// en v2: esto NO tiene relación con `ModalidadPuesto.pou` (el campo
+// guardia/planta de un Cargo individual). Esta tabla es un conteo agregado
+// por puesto de trabajo, no un dato de ningún Cargo puntual.
+// Sin período/histórico por decisión explícita (a diferencia de la app
+// vieja, que sí guardaba un historial mensual): cada carga de Excel reemplaza
+// la tabla entera — mismo patrón que Organigrama/Árbol arriba.
+model Pou {
+  id               String  @id @default(uuid()) @db.Uuid
+  sigla            String  @db.VarChar(10)
+  descripcionSigla String? @map("descripcion_sigla") @db.VarChar(100)
+  perfil           String  @db.VarChar(50)
+  especialidad     String  @db.VarChar(100)
+  dotacionDiaria   Int?    @map("dotacion_diaria")
+  dotacionSem      Int?    @map("dotacion_sem")
+  dotacionTotal    Int?    @map("dotacion_total")
+  activos          Int?
+  tecnicos         Int?
+  vacantes         Int?
+
+  @@unique([sigla, perfil, especialidad])
+  @@index([sigla])
+  @@map("pou")
+}
+
 model Escalafon {
   id        String   @id @default(uuid()) @db.Uuid
   // Código canónico corto: 22, 37, 83, etc. (CODIGO DE REGISTRO del Excel).

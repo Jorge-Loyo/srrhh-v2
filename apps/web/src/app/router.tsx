@@ -10,10 +10,17 @@ import { ConfiguracionReferenciasPage } from '../modules/configuracion/pages/Con
 import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
 import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
 import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
+import { PouHomePage } from '../modules/pou/pages/PouHomePage'
+import { PouDetallePage } from '../modules/pou/pages/PouDetallePage'
+import { PouComparativaPage } from '../modules/pou/pages/PouComparativaPage'
+import { PouCargaPage } from '../modules/pou/pages/PouCargaPage'
 import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
+import { DotacionPage } from '../modules/dotacion/pages/DotacionPage'
+import { TokensPage } from '../modules/tokens/pages/TokensPage'
+import { AuditoriaPage } from '../modules/auditoria/pages/AuditoriaPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
 import { CargosPage } from '../modules/cargos/pages/CargosPage'
 import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
@@ -46,9 +53,16 @@ export const router = createBrowserRouter([
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
+            children: [{ path: 'dotacion', element: <DotacionPage /> }],
+          },
           { path: 'organigrama', element: <OrganigramaHomePage /> },
           { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
           { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+          { path: 'pou', element: <PouHomePage /> },
+          { path: 'pou/comparativa', element: <PouComparativaPage /> },
+          { path: 'pou/:sigla', element: <PouDetallePage /> },
           { path: 'cargos', element: <CargosPage /> },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
           { path: 'cargos/alta', element: <AltaCargosPage /> },
@@ -79,13 +93,20 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
             children: [{ path: 'arbol', element: <OrganigramaArbolPage /> }],
           },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_pou' }} />,
+            children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
+          },
           { path: 'kpis', element: <KpisPage /> },
           // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
           // guardada en favoritos; el destino real ya vive bajo /configuracion.
           { path: 'admin/usuarios', element: <Navigate to="/configuracion/usuarios" replace /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
-            children: [{ path: 'configuracion/usuarios', element: <AdminUsuariosPage /> }],
+            children: [
+              { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
+              { path: 'configuracion/tokens', element: <TokensPage /> },
+            ],
           },
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
@@ -97,6 +118,10 @@ export const router = createBrowserRouter([
           {
             element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_referencias' }} />,
             children: [{ path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> }],
+          },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'ver_auditoria' }} />,
+            children: [{ path: 'configuracion/auditoria', element: <AuditoriaPage /> }],
           },
         ],
       },
