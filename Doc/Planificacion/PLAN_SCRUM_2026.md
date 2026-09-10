@@ -2,7 +2,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-09-10 (POST-SPRINT 12 — Auditoría especialidad_legacy + pg_trgm)
+> Última actualización: 2026-09 (Post-Sprint 16 — Fixes varios + Módulo Cadena de Mando; Sprints 17/18/19 planificados)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 >
@@ -39,6 +39,13 @@
 | Sprint 14 — Concurso desde Alta de Cargo | 📋 Planificado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
 | Post-Sprint 14 — Migración legacy: tablas de referencia Dotaneitor | ⚠️ Código completo, sin commitear, `tsc` limpio, nada roto — traspasado a Jorge para destrabar el entorno Docker/Postgres local y verificar E2E | — | `Sprints/POST_SPRINT_14_migracion_legacy_tablas_referencia.md` |
 | Post-Sprint 14 — Migración legacy: Organigrama | ✅ Verificado E2E con login real (2026-09-08) + módulo "Árbol" (carga de estructura por Excel) agregado — sin commitear. Falta rebuild de Docker para probar "Árbol" por UI. Hallazgo pendiente: `Cargo.unificadorPuesto` vacío en el 100% de los cargos (por eso el organigrama sale todo "Vacante") | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
+| Sprint 15 — Personas en cargos del organigrama + mejoras UX | ✅ Completado — commit `727d306` | — | `Sprints/SPRINT_03_personas_cargos.md` |
+| Sprint 16 — Flujo completo: Vacante → Concurso → Designación | ✅ Completado (S16-1 a S16-8) — S16-9 verificación e2e pendiente | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
+| Post-Sprint 16 — Corrección modelo Desierto CPH | ✅ Completado — commits `348a466`, `957acc7` | — | `Sprints/POST_SPRINT_16_desierto_cph.md` |
+| Post-Sprint 16 — Fixes varios + Módulo Cadena de Mando | ✅ Completado — 2026-09 | — | `Sprints/POST_SPRINT_16_fixes_cadena_mando.md` |
+| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón | 📋 Planificado | S17-1 a S17-8 | `Sprints/SPRINT_17_bajas_sgrasv_padron.md` |
+| Sprint 18 — Retenciones: schema + generación automática de cargos R/TTR | 📋 Planificado | S18-1 a S18-10 | `Sprints/SPRINT_18_retenciones_cadena_cargos.md` |
+| Sprint 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción | 📋 Planificado | S19-1 a S19-13 | `Sprints/SPRINT_19_retenciones_vencimientos_comision.md` |
 
 ---
 
@@ -1278,7 +1285,7 @@ Todo ──► S7-10 (verificación + docs)
 - **Historial reemplazado**: tabla agrupada por expediente (una fila por expediente), modal de detalle con datos del alta + tabla de cargos, botón "Descargar PDF" que genera documento A4 estilo resolución GCBA con `jspdf` + `jspdf-autotable`.
 - **Limpieza escalafones**: escalafón `CPH` duplicado (0 cargos) eliminado de BD. `Médicos` renombrado a `Carrera Profesional Hospitalaria`. Seed actualizado. Alias `Médicos→CPH` eliminado del frontend.
 - **26 puestos nuevos**: insertados para 7 escalafones sin puestos normalizados (Residentes, Docentes, Carrera Gerencial, Planta Transitoria, Cuerpos Transitorios, Planta de Gabinete, Autoridades Superiores).
-- **Menú lateral reorganizado**: orden definitivo — Tablero KPIs / Personas / Cargos▼ / Bajas / ── / Concursos CPH / Concursos CEETPS / ── / Padrón Semanal / Bajas Consolidadas / Administración. Padrón Semanal y Bajas Consolidadas movidos a sección admin (debajo del segundo divisor). Página de inicio al login: `/kpis`.
+- **Menú lateral reorganizado**: orden definitivo — Tablero KPIs / Dotación / Organigrama / POU / ── / Personas / Cargos▼ / Bajas / ── / Concursos CPH / Concursos CEETPS / ── / Padrón Semanal / Bajas Consolidadas / Administración. Padrón Semanal y Bajas Consolidadas movidos a sección admin (debajo del segundo divisor). Página de inicio al login: `/kpis`.
 - **Limpieza BD**: 5 bajas de prueba eliminadas + 4 concursos asociados (CPH-POF-012680, CPH-POF-015695, PT-000060, CPH-POF-004374, CPH-POF-004733). Tablas `bajas` y `concursos` en 0 registros.
 
 ---

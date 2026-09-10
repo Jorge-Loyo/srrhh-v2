@@ -1,7 +1,7 @@
-# Contrato de Frontend — SRRHH v2
+﻿# Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo)
+> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo; reordenamiento menú lateral: Dotación bajo KPIs, Personas sobre Cargos)
 > Estado: VIGENTE
 
 ---
@@ -102,6 +102,9 @@ apps/web/
 │   │   ├── inicio/
 │   │   │   └── pages/
 │   │   │       └── InicioPage.tsx
+│   │   ├── cadena-mando/
+│   │   │   ├── CadenaMandoPanel.tsx
+│   │   │   └── useCadenaMando.ts
 │   │   ├── notificaciones/
 │   │   │   ├── hooks/
 │   │   │   │   └── useNotificaciones.ts
