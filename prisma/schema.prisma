@@ -49,7 +49,6 @@ enum EstadoConcursoCph {
   activo
   finalizado
   suspendido
-  desierto
 }
 
 enum EstadoConcursoCeetps {
@@ -532,16 +531,53 @@ model ConcursoCph {
   ordenesMerito    OrdenMerito[]
   postulantes      PostulanteConcurso[]
   integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
+  desiertos             ConcursoCphDesierto[]
 
   @@index([hospitalId])
   @@index([estado])
   @@index([subEstado])
   // Partial unique index (no soportado por Prisma @@unique) — definido en
   // prisma/migrations/concurso_cph_unique_abierto/migration.sql:
-  // CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado','desierto')
+  // CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado','suspendido')
   // Garantiza que no haya dos concursos CPH abiertos para el mismo cargo
   // incluso ante requests concurrentes (race condition en createConcursoService).
   @@map("concursos_cph")
+}
+
+// Historial de rondas desiertas de un concurso CPH (PS16D).
+// Un concurso puede tener N rondas desiertas antes de finalizar.
+// El estado del concurso en esos casos es 'suspendido' + subEstado 'Q-DESIERTO'.
+model ConcursoCphDesierto {
+  id                   String    @id @default(uuid()) @db.Uuid
+  concursoCphId        String    @map("concurso_cph_id") @db.Uuid
+  nroRonda             Int       @map("nro_ronda")
+  dispoDesierta        String    @map("dispo_desierta") @db.VarChar(50)
+  fechaDispoDesierta   DateTime  @map("fecha_dispo_desierta") @db.Date
+  sorteoJurado         DateTime? @map("sorteo_jurado") @db.Date
+  disposicion          String?   @db.VarChar(100)
+  fechaInscDesde       DateTime? @map("fecha_insc_desde") @db.Date
+  fechaInscHasta       DateTime? @map("fecha_insc_hasta") @db.Date
+  fechaExamen          DateTime? @map("fecha_examen") @db.Date
+  fechaOrdenMerito     DateTime? @map("fecha_orden_merito") @db.Date
+  qInscriptos          Int?      @map("q_inscriptos")
+  eeDesignacion        String?   @map("ee_designacion") @db.VarChar(150)
+  cargaDocumentacion   Boolean?  @map("carga_documentacion")
+  fechaAptoMedico      DateTime? @map("fecha_apto_medico") @db.Date
+  fechaIte             DateTime? @map("fecha_ite") @db.Date
+  proyectoResolucion   Boolean?  @map("proyecto_resolucion")
+  resoALaFirma         Boolean?  @map("reso_a_la_firma")
+  resolucionDesignacion String?  @map("resolucion_designacion") @db.VarChar(100)
+  fechaResolucion      DateTime? @map("fecha_resolucion") @db.Date
+  cargoSial            String?   @map("cargo_sial") @db.VarChar(50)
+  observaciones        String?   @db.Text
+  registradoPorId      String?   @map("registrado_por_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  concursoCph  ConcursoCph @relation(fields: [concursoCphId], references: [id])
+  registradoPor Usuario?   @relation("DesiertoRegistradoPor", fields: [registradoPorId], references: [id])
+
+  @@index([concursoCphId])
+  @@map("concursos_cph_desiertos")
 }
 
 model ConcursoCeetps {
@@ -763,6 +799,7 @@ model Usuario {
   autorizacionesSolicitadas Autorizacion[]   @relation("AutorizacionSolicitadaPor")
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
+  desiertosCph              ConcursoCphDesierto[] @relation("DesiertoRegistradoPor")
 
   @@map("usuarios")
 }

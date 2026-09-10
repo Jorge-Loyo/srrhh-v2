@@ -221,28 +221,6 @@ export function AppShell() {
 
           {/* Divisor — sección admin */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
-
-          {/* Organigrama — visible para todos los usuarios autenticados */}
-          <NavLink to="/organigrama"
-            end
-            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={collapsed ? 'Organigrama' : undefined}>
-            <span className="text-base shrink-0">🏛️</span>
-            {!collapsed && <span className="truncate">Organigrama</span>}
-          </NavLink>
-
-          {/* Árbol — subir Excel de estructura (solo admin con permiso gestionar_organigrama) */}
-          {can(user, 'configuracion', 'gestionar_organigrama') && (
-            <NavLink to="/organigrama/arbol"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Árbol' : undefined}>
-              <span className="text-base shrink-0">🌳</span>
-              {!collapsed && <span className="truncate">Árbol</span>}
-            </NavLink>
-          )}
-
-          {/* Divisor — sección admin */}
-          <div className="border-t border-gray-200 mt-2 pt-2" />
           {can(user, 'padron', 'ver') && (
             <NavLink to="/padron"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
@@ -259,16 +237,6 @@ export function AppShell() {
               title={collapsed ? 'Bajas Consolidadas' : undefined}>
               <span className="text-base shrink-0">📄</span>
               {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
-            </NavLink>
-          )}
-
-          {/* Árbol — módulo admin para reemplazar la estructura del organigrama */}
-          {can(user, 'configuracion', 'gestionar_organigrama') && (
-            <NavLink to="/arbol"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Árbol' : undefined}>
-              <span className="text-base shrink-0">🌳</span>
-              {!collapsed && <span className="truncate">Árbol</span>}
             </NavLink>
           )}
 
