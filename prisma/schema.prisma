@@ -120,6 +120,20 @@ model Organigrama {
   @@map("organigramas")
 }
 
+// Historial de cargas del Excel de estructura (módulo Árbol, solo admin).
+// Cada vez que se sube un Excel nuevo se registra acá para trazabilidad.
+model OrganigramaUpload {
+  id          String   @id @default(uuid()) @db.Uuid
+  filename    String   @db.VarChar(255)
+  filas       Int
+  subidoPorId String?  @map("subido_por_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  subidoPor Usuario? @relation("OrganigramaUploadSubidoPor", fields: [subidoPorId], references: [id])
+
+  @@map("organigrama_uploads")
+}
+
 // Resumen de dotación (personal necesario/ocupado) por hospital, perfil y
 // especialidad — foto mensual cargada a mano desde el Excel "Ocupacion_POU"
 // que emite Recursos Humanos. Migrado 1:1 desde la tabla `pou` de la app
@@ -800,6 +814,7 @@ model Usuario {
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
   desiertosCph              ConcursoCphDesierto[] @relation("DesiertoRegistradoPor")
+  organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
 
   @@map("usuarios")
 }
