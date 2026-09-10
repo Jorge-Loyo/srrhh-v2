@@ -42,6 +42,17 @@ export const TipoConcurso = {
 } as const
 export type TipoConcurso = typeof TipoConcurso[keyof typeof TipoConcurso]
 
+// Motivo por el que se abre el concurso — campo libre en el legacy,
+// acá tipificado para filtros y reportes.
+export const MotivoConcurso = {
+  BAJA: 'baja',
+  AMPLIACION: 'ampliacion',
+  COBERTURA_POU: 'cobertura_pou',
+  JEFATURA: 'jefatura',
+  OTRO: 'otro',
+} as const
+export type MotivoConcurso = typeof MotivoConcurso[keyof typeof MotivoConcurso]
+
 export const EstadoConcursoCph = {
   NO_INICIADO: 'no_iniciado',
   ACTIVO: 'activo',
