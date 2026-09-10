@@ -53,7 +53,6 @@ export const EstadoConcursoCph = {
   ACTIVO: 'activo',
   FINALIZADO: 'finalizado',
   SUSPENDIDO: 'suspendido',
-  DESIERTO: 'desierto',
 } as const
 export type EstadoConcursoCph = typeof EstadoConcursoCph[keyof typeof EstadoConcursoCph]
 
@@ -680,6 +679,40 @@ export interface DesignarConcursoRequest {
   personaId: string
   fechaDesde: string
   idSialRol?: string
+}
+
+// PS16D — POST /api/v1/concursos-cph/:id/declarar-desierto
+export interface DeclararDesiertoRequest {
+  dispoDesierta: string
+  fechaDispoDesierta: string
+  observaciones?: string
+}
+
+// PS16D — snapshot de una ronda desierta
+export interface ConcursoCphDesierto {
+  id: string
+  concursoCphId: string
+  nroRonda: number
+  dispoDesierta: string
+  fechaDispoDesierta: string
+  sorteoJurado: string | null
+  disposicion: string | null
+  fechaInscDesde: string | null
+  fechaInscHasta: string | null
+  fechaExamen: string | null
+  fechaOrdenMerito: string | null
+  qInscriptos: number | null
+  eeDesignacion: string | null
+  cargaDocumentacion: boolean | null
+  fechaAptoMedico: string | null
+  fechaIte: string | null
+  proyectoResolucion: boolean | null
+  resoALaFirma: boolean | null
+  resolucionDesignacion: string | null
+  fechaResolucion: string | null
+  cargoSial: string | null
+  observaciones: string | null
+  createdAt: string
 }
 
 // S4-5 — POST /api/v1/concursos-cph/:id/suspender. `suspendido` en `false`

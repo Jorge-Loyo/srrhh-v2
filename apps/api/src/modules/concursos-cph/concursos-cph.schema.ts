@@ -103,3 +103,13 @@ export const designarCphSchema = z.object({
 })
 
 export type DesignarCphBody = z.infer<typeof designarCphSchema>
+
+// PS16D-3: declarar desierto — guarda snapshot en ConcursoCphDesierto,
+// limpia campos de la ronda, pone suspendido=true, sub-estado Q-DESIERTO.
+export const declararDesiertoSchema = z.object({
+  dispoDesierta:      z.string().trim().min(1).max(50),
+  fechaDispoDesierta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
+  observaciones:      z.string().trim().max(2000).optional(),
+})
+
+export type DeclararDesiertoBody = z.infer<typeof declararDesiertoSchema>

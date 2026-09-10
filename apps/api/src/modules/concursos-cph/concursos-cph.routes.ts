@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema } from './concursos-cph.schema.js'
+import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema } from './concursos-cph.schema.js'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
@@ -9,6 +9,7 @@ import {
   suspenderConcursoCphService,
   getPersonaDesignadaService,
   designarConcursoCphService,
+  declararDesiertoService,
 } from './concursos-cph.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -67,6 +68,17 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = designarCphSchema.parse(request.body)
       const data = await designarConcursoCphService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/declarar-desierto — PS16D-3
+  app.post<{ Params: { id: string } }>(
+    '/:id/declarar-desierto',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = declararDesiertoSchema.parse(request.body)
+      const data = await declararDesiertoService(request.params.id, body, (request as any).user.id)
       return reply.send({ data })
     }
   )

@@ -54,7 +54,6 @@ enum EstadoConcursoCph {
   activo
   finalizado
   suspendido
-  desierto
 }
 
 enum EstadoConcursoCeetps {
@@ -526,6 +525,8 @@ model ConcursoCph {
   ordenesMerito    OrdenMerito[]
   postulantes      PostulanteConcurso[]
   integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
+  // PS16D: historial de rondas declaradas desiertas
+  desiertoHistorial     ConcursoCphDesierto[]
 
   @@index([hospitalId])
   @@index([estado])
@@ -765,6 +766,8 @@ model Usuario {
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
   organigramaUploads        OrganigramaUpload[]
+  // PS16D
+  concursosCphDesiertos     ConcursoCphDesierto[]
 
   @@map("usuarios")
 }
@@ -912,6 +915,45 @@ model EtiquetaSolicitudAlta {
 
   @@id([etiquetaId, solicitudAltaId])
   @@map("etiquetas_solicitud_alta")
+}
+
+// =============================================================================
+// PS16D — HISTORIAL DE RONDAS DESIERTAS CPH
+// =============================================================================
+
+model ConcursoCphDesierto {
+  id                    String    @id @default(uuid()) @db.Uuid
+  concursoCphId         String    @map("concurso_cph_id") @db.Uuid
+  // Número de ronda (1 = primer desierto, 2 = segundo, etc.)
+  nroRonda              Int       @map("nro_ronda")
+  // Snapshot de los campos de la ronda que falló
+  dispoDesierta         String    @map("dispo_desierta") @db.VarChar(50)
+  fechaDispoDesierta    DateTime  @map("fecha_dispo_desierta") @db.Date
+  sorteoJurado          DateTime? @map("sorteo_jurado") @db.Date
+  disposicion           String?   @db.VarChar(100)
+  fechaInscDesde        DateTime? @map("fecha_insc_desde") @db.Date
+  fechaInscHasta        DateTime? @map("fecha_insc_hasta") @db.Date
+  fechaExamen           DateTime? @map("fecha_examen") @db.Date
+  fechaOrdenMerito      DateTime? @map("fecha_orden_merito") @db.Date
+  qInscriptos           Int?      @map("q_inscriptos")
+  eeDesignacion         String?   @map("ee_designacion") @db.VarChar(150)
+  cargaDocumentacion    Boolean?  @map("carga_documentacion")
+  fechaAptoMedico       DateTime? @map("fecha_apto_medico") @db.Date
+  fechaIte              DateTime? @map("fecha_ite") @db.Date
+  proyectoResolucion    Boolean?  @map("proyecto_resolucion")
+  resoALaFirma          Boolean?  @map("reso_a_la_firma")
+  resolucionDesignacion String?   @map("resolucion_designacion") @db.VarChar(100)
+  fechaResolucion       DateTime? @map("fecha_resolucion") @db.Date
+  cargoSial             String?   @map("cargo_sial") @db.VarChar(50)
+  observaciones         String?   @db.Text
+  registradoPorId       String?   @map("registrado_por_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  concursoCph   ConcursoCph @relation(fields: [concursoCphId], references: [id])
+  registradoPor Usuario?    @relation(fields: [registradoPorId], references: [id])
+
+  @@index([concursoCphId])
+  @@map("concursos_cph_desiertos")
 }
 
 // =============================================================================
