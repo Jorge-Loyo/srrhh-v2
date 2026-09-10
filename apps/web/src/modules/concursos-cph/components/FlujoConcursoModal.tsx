@@ -9,7 +9,7 @@ import type { Color } from './concursoFlowData'
 
 interface Props { onClose: () => void }
 
-type Tab = 'flujo' | 'etapas' | 'actores' | 'docs' | 'baja'
+type Tab = 'flujo' | 'etapas' | 'actores' | 'docs' | 'baja' | 'retenciones'
 
 export function FlujoConcursoModal({ onClose }: Props) {
   const [tab, setTab] = useState<Tab>('flujo')
@@ -55,6 +55,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
             { id: 'actores', label: '👥 Actores' },
             { id: 'docs', label: '📄 Documentación' },
             { id: 'baja', label: '🔴 Baja de cargo' },
+            { id: 'retenciones', label: '🔄 Retenciones' },
           ] as { id: Tab; label: string }[]).map((t) => (
             <button
               key={t.id}
@@ -353,6 +354,9 @@ export function FlujoConcursoModal({ onClose }: Props) {
           {/* ── TAB: Baja de cargo ── */}
           {tab === 'baja' && <FlujoBaja />}
 
+          {/* ── TAB: Retenciones ── */}
+          {tab === 'retenciones' && <FlujoRetenciones />}
+
         </div>
 
         {/* Footer */}
@@ -529,6 +533,347 @@ function FlujoBaja() {
           ))}
         </ul>
       </div>
+
+    </div>
+  )
+}
+
+// ── Flujo Retenciones ─────────────────────────────────────────────────────────
+
+const TIPOS_RETENCION = [
+  {
+    tipo: 'Ejecución → Conducción',
+    color: 'blue' as Color,
+    codigo: 'CPH-POF-R-000001',
+    desc: 'Persona en cargo de ejecución (POF/POU) gana concurso de conducción (Jefatura/Director). Retiene el cargo de ejecución.',
+    reglas: [
+      'Se genera automáticamente un cargo remplazante con sufijo -R-',
+      'El cargo R puede tener concurso normal para cubrirlo',
+      'El cargo R NO genera baja formal cuando su ocupante cesa',
+      'Si el titular cesa definitivamente, el ocupante del R pasa al cargo titular sin concurso',
+      'El cargo R pasa a no_vigente cuando el titular cesa definitivamente',
+    ],
+  },
+  {
+    tipo: 'Conducción → Conducción',
+    color: 'purple' as Color,
+    codigo: 'CPH-J-POF-TTR-000001',
+    desc: 'Persona en cargo de conducción gana concurso para otro cargo de conducción. Se genera un cargo TTR (Titular Transitorio por Reemplazo).',
+    reglas: [
+      'Se genera automáticamente un cargo remplazante con sufijo -TTR-',
+      'El cargo TTR tiene período fijo igual al cargo de conducción original',
+      'Al vencer el período sin renovación, se inicia la cascada automáticamente',
+      'SGRASV recibe notificación 90 y 30 días antes del vencimiento',
+    ],
+  },
+  {
+    tipo: 'Ejecución → Ejecución',
+    color: 'orange' as Color,
+    codigo: '— (no retiene)',
+    desc: 'Persona en cargo de ejecución gana otro cargo de ejecución. NO retiene — cesa en el anterior.',
+    reglas: [
+      'Una persona no puede tener dos cargos de ejecución simultáneos',
+      'El cargo anterior queda vacante y puede generar concurso normal',
+      'No se genera cargo remplazante',
+    ],
+  },
+]
+
+const ESCENARIOS_CASCADA = [
+  {
+    titulo: 'Titular cesa definitivamente (jubilación/renuncia/fallecimiento)',
+    color: 'red' as Color,
+    pasos: [
+      'Titular del cargo base cesa → baja definitiva',
+      'Ocupante del cargo R/TTR pasa al cargo base SIN concurso',
+      'Cargo R/TTR pasa a no_vigente',
+      'Si el ocupante del R/TTR también tenía retenciones, se evalúa la cadena',
+    ],
+  },
+  {
+    titulo: 'Vencimiento de período de conducción (TTR)',
+    color: 'orange' as Color,
+    pasos: [
+      'Sistema notifica a SGRASV 90 días antes del vencimiento',
+      'Segunda notificación 30 días antes',
+      'Si no se renueva: persona vuelve al cargo retenido anterior',
+      'El cargo TTR queda vacante para nuevo concurso',
+      'Si el cargo retenido también venció, continúa la cascada hacia el base',
+    ],
+  },
+  {
+    titulo: 'Titular vuelve a su cargo base (fin de retención)',
+    color: 'green' as Color,
+    pasos: [
+      'Persona regresa al cargo base (situacionRevista vuelve a Activo)',
+      'El cargo R sigue existiendo — el hospital pasa de N a N+1 cargos',
+      'El cargo R solo se libera cuando su ocupante cesa definitivamente',
+      'No se genera baja ni concurso por el cargo R en este escenario',
+    ],
+  },
+]
+
+const REGLAS_NEGOCIO = [
+  { id: 'R-01', color: 'orange' as Color, texto: 'Una persona no puede tener dos cargos de ejecución simultáneos. Si gana otro de ejecución, cesa en el anterior.' },
+  { id: 'R-02', color: 'blue' as Color,   texto: 'Una persona puede retener un cargo de ejecución al ganar uno de conducción.' },
+  { id: 'R-03', color: 'purple' as Color, texto: 'Una persona puede retener un cargo de conducción al ganar otro de conducción.' },
+  { id: 'R-04', color: 'gray' as Color,   texto: 'La cadena de retención no tiene límite de niveles.' },
+  { id: 'R-05', color: 'blue' as Color,   texto: 'Al registrar una retención, el sistema genera automáticamente el cargo R o TTR.' },
+  { id: 'R-06', color: 'orange' as Color, texto: 'El cargo R no genera baja formal ni concurso cuando su ocupante cesa.' },
+  { id: 'R-07', color: 'green' as Color,  texto: 'Cuando el titular cesa definitivamente, el ocupante del R pasa al cargo titular sin concurso. El cargo R pasa a no_vigente.' },
+  { id: 'R-08', color: 'red' as Color,    texto: 'La baja de un cargo de conducción dispara la cascada hacia el cargo base (efecto dominó).' },
+  { id: 'R-09', color: 'red' as Color,    texto: 'La cascada no es automática — SGRASV la ejecuta paso a paso con documentación en cada nivel.' },
+  { id: 'R-10', color: 'orange' as Color, texto: 'El sistema debe mostrar la cadena completa antes de confirmar una baja de conducción.' },
+  { id: 'R-11', color: 'purple' as Color, texto: 'Los cargos de conducción tienen período fijo. Sin renovación, inician la cascada al vencer.' },
+  { id: 'R-12', color: 'yellow' as Color, texto: 'SGRASV recibe notificación 90 y 30 días antes del vencimiento de un período de conducción.' },
+  { id: 'R-13', color: 'blue' as Color,   texto: 'La comisión no genera remplazante ni vacante. La persona es prestada a otro hospital temporalmente.' },
+  { id: 'R-14', color: 'gray' as Color,   texto: 'El fin de una comisión llega desde Meta4 — el sistema lo detecta en el archivo semanal.' },
+  { id: 'R-15', color: 'gray' as Color,   texto: 'El cargo base puede ser de ejecución o de conducción (personas que ingresaron por ley anterior).' },
+  { id: 'R-16', color: 'blue' as Color,   texto: 'cargoBaseId en cada nodo de la cadena apunta directamente al cargo base para trazabilidad rápida.' },
+]
+
+type RetencionTab = 'tipos' | 'cadena' | 'escenarios' | 'reglas' | 'comision'
+
+function FlujoRetenciones() {
+  const [subTab, setSubTab] = useState<RetencionTab>('tipos')
+
+  return (
+    <div className="space-y-4">
+
+      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+        <p className="text-xs font-bold text-purple-800 mb-1">🔄 Retenciones y Cadenas de Conducción</p>
+        <p className="text-xs text-purple-700">
+          Una persona <strong>retiene</strong> un cargo cuando gana un concurso para otro de mayor jerarquía
+          pero no cesa en el cargo de origen. El sistema genera automáticamente un cargo remplazante
+          (R o TTR) para cubrir el hueco funcional. Las cadenas pueden tener N niveles sin límite.
+        </p>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-gray-100">
+        {([
+          { id: 'tipos',      label: 'Tipos de retención' },
+          { id: 'cadena',     label: 'Cadena y códigos' },
+          { id: 'escenarios', label: 'Escenarios' },
+          { id: 'comision',   label: 'Comisión' },
+          { id: 'reglas',     label: 'Reglas' },
+        ] as { id: RetencionTab; label: string }[]).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`px-3 py-1.5 text-[11px] font-semibold border-b-2 -mb-px transition-colors ${
+              subTab === t.id
+                ? 'text-purple-700 border-purple-600'
+                : 'text-gray-400 border-transparent hover:text-gray-600'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tipos de retención */}
+      {subTab === 'tipos' && (
+        <div className="space-y-4">
+          {TIPOS_RETENCION.map((tipo) => (
+            <div key={tipo.tipo} className={`rounded-lg border p-4 ${NODE_BG[tipo.color]} ${NODE_BORDER[tipo.color]}`}>
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <p className={`text-xs font-bold ${TEXT[tipo.color]}`}>{tipo.tipo}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{tipo.desc}</p>
+                </div>
+                <code className={`text-[10px] font-mono font-bold px-2 py-1 rounded flex-shrink-0 ${NODE_BG[tipo.color]} border ${NODE_BORDER[tipo.color]} ${TEXT[tipo.color]}`}>
+                  {tipo.codigo}
+                </code>
+              </div>
+              <ul className="space-y-1">
+                {tipo.reglas.map((r, i) => (
+                  <li key={i} className="flex gap-1.5 text-[10px] text-gray-700">
+                    <span className={`mt-1 w-1 h-1 rounded-full flex-shrink-0 ${DOT[tipo.color]}`} />
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Cadena y códigos */}
+      {subTab === 'cadena' && (
+        <div className="space-y-5">
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Estructura de la cadena</h3>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-xs space-y-1 text-gray-700">
+              <p className="text-[10px] text-gray-400 mb-2">Ejemplo: médico con cargo base POF que asciende a Jefatura y luego a Dirección</p>
+              <p><span className="text-green-700 font-bold">CPH-POF-000056</span> <span className="text-gray-400">← cargo base (ejecución)</span></p>
+              <p className="pl-4 text-gray-400">↑ retenido por</p>
+              <p className="pl-4"><span className="text-blue-700 font-bold">CPH-J-POF-TTR-000001</span> <span className="text-gray-400">← jefatura (conducción, período 4 años)</span></p>
+              <p className="pl-8 text-gray-400">↑ retenido por</p>
+              <p className="pl-8"><span className="text-purple-700 font-bold">CPH-D-TTR-000001</span> <span className="text-gray-400">← dirección (conducción, período 4 años)</span></p>
+              <p className="pl-12 text-gray-400">↑ persona actualmente aquí</p>
+            </div>
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <p className="text-[10px] font-bold text-blue-800 mb-1">Campos en la tabla cargos</p>
+              <div className="space-y-1">
+                {[
+                  { campo: 'tipo_origen', desc: '"R" = remplazante ejecución | "TTR" = remplazante conducción | null = cargo normal' },
+                  { campo: 'cargo_retenido_id', desc: 'FK al cargo que este cargo está remplazando' },
+                  { campo: 'cargo_base_id', desc: 'FK directa al cargo base de la cadena (para trazabilidad rápida)' },
+                  { campo: 'periodo_desde', desc: 'Inicio del período (solo conducción)' },
+                  { campo: 'periodo_hasta', desc: 'Vencimiento del período (solo conducción)' },
+                ].map((f) => (
+                  <div key={f.campo} className="flex gap-2 text-[10px]">
+                    <code className="font-mono font-bold text-blue-700 flex-shrink-0">{f.campo}</code>
+                    <span className="text-gray-600">— {f.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Formato de códigos remplazantes</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border border-gray-100 rounded">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Cargo retenido</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Sufijo</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Ejemplo</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Significado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {[
+                    { retenido: 'CPH-POF-000056', sufijo: '-R-', ejemplo: 'CPH-POF-R-000001', sig: 'Remplazante de ejecución' },
+                    { retenido: 'CPH-POU-000012', sufijo: '-R-', ejemplo: 'CPH-POU-R-000001', sig: 'Remplazante de guardia' },
+                    { retenido: 'CPH-J-POF-000003', sufijo: '-TTR-', ejemplo: 'CPH-J-POF-TTR-000001', sig: 'Titular Transitorio por Reemplazo (jefatura)' },
+                    { retenido: 'CPH-D-000001', sufijo: '-TTR-', ejemplo: 'CPH-D-TTR-000001', sig: 'Titular Transitorio por Reemplazo (dirección)' },
+                    { retenido: 'EG-J-000008', sufijo: '-TTR-', ejemplo: 'EG-J-TTR-000001', sig: 'TTR escalafón general jefatura' },
+                  ].map((row) => (
+                    <tr key={row.ejemplo} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-mono text-[10px] text-gray-600">{row.retenido}</td>
+                      <td className="px-3 py-2 font-mono text-[10px] font-bold text-purple-700">{row.sufijo}</td>
+                      <td className="px-3 py-2 font-mono text-[10px] font-bold text-blue-700">{row.ejemplo}</td>
+                      <td className="px-3 py-2 text-[10px] text-gray-500">{row.sig}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Escenarios */}
+      {subTab === 'escenarios' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">Los tres escenarios principales que pueden ocurrir en una cadena de retención.</p>
+          {ESCENARIOS_CASCADA.map((esc) => (
+            <div key={esc.titulo} className={`rounded-lg border p-4 ${NODE_BG[esc.color]} ${NODE_BORDER[esc.color]}`}>
+              <p className={`text-xs font-bold ${TEXT[esc.color]} mb-3`}>{esc.titulo}</p>
+              <ol className="space-y-1.5">
+                {esc.pasos.map((paso, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-gray-700">
+                    <span className={`flex-shrink-0 w-4 h-4 rounded-full text-[10px] font-bold flex items-center justify-center text-white ${DOT[esc.color]}`}>{i + 1}</span>
+                    {paso}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+            <p className="text-xs font-bold text-yellow-800 mb-2">⏰ Vencimientos de período — alertas</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { dias: '90 días antes', color: 'yellow' as Color, label: 'Primera notificación a SGRASV' },
+                { dias: '30 días antes', color: 'orange' as Color, label: 'Recordatorio — acción requerida' },
+                { dias: 'Día del vencimiento', color: 'red' as Color, label: 'Alerta crítica — iniciar cascada o renovar' },
+              ].map((a) => (
+                <div key={a.dias} className={`rounded border p-2 text-center ${NODE_BG[a.color]} ${NODE_BORDER[a.color]}`}>
+                  <p className={`text-[10px] font-bold ${TEXT[a.color]}`}>{a.dias}</p>
+                  <p className="text-[10px] text-gray-600 mt-1">{a.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comisión */}
+      {subTab === 'comision' && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <p className="text-xs font-bold text-blue-800 mb-1">Comisión de servicios</p>
+            <p className="text-xs text-blue-700">
+              Una persona <strong>comisionada</strong> pertenece a un hospital de origen pero presta servicios
+              temporalmente en otro hospital. El cargo de origen sigue ocupado — no genera vacante ni remplazante.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+              <p className="text-xs font-bold text-green-800 mb-2">Campos en ocupaciones</p>
+              <div className="space-y-1.5">
+                {[
+                  { campo: 'situacion_revista', val: '"Comision"' },
+                  { campo: 'comision', val: 'Descripción del motivo' },
+                  { campo: 'repa_comision', val: 'Hospital/repartición de destino' },
+                  { campo: 'cr_comentario', val: 'Observaciones adicionales' },
+                ].map((f) => (
+                  <div key={f.campo} className="flex gap-2 text-[10px]">
+                    <code className="font-mono font-bold text-green-700 flex-shrink-0">{f.campo}</code>
+                    <span className="text-gray-600">= {f.val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[10px] font-bold text-gray-700 mb-2">Diferencias con retención</p>
+                <div className="space-y-1">
+                  {[
+                    { label: 'Genera cargo remplazante', retencion: '✓ Sí (R o TTR)', comision: '✕ No' },
+                    { label: 'Genera vacante', retencion: '✕ No', comision: '✕ No' },
+                    { label: 'Puede iniciar concurso', retencion: '✓ Sí (sobre el R/TTR)', comision: '✕ No' },
+                    { label: 'Tiene período definido', retencion: '✓ Sí (conducción)', comision: '✕ No' },
+                    { label: 'Hospital de destino', retencion: 'Mismo hospital', comision: 'Otro hospital' },
+                  ].map((row) => (
+                    <div key={row.label} className="grid grid-cols-3 gap-1 text-[10px]">
+                      <span className="text-gray-500">{row.label}</span>
+                      <span className="text-blue-700 font-medium">{row.retencion}</span>
+                      <span className="text-green-700 font-medium">{row.comision}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-[10px] font-bold text-amber-800 mb-1">⚠️ Fin de comisión</p>
+                <p className="text-[10px] text-amber-700">
+                  No tiene fecha de vencimiento en el sistema. El fin llega desde Meta4 cuando
+                  el archivo semanal actualiza <code className="font-mono bg-amber-100 px-0.5 rounded">situacion_revista</code> a <code className="font-mono bg-amber-100 px-0.5 rounded">Activo</code>.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reglas */}
+      {subTab === 'reglas' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">Reglas de negocio del modelo de retenciones (fuente: Contrato_Retenciones.md).</p>
+          {REGLAS_NEGOCIO.map((r) => (
+            <div key={r.id} className={`flex gap-3 rounded-lg border p-3 ${NODE_BG[r.color]} ${NODE_BORDER[r.color]}`}>
+              <span className={`text-[10px] font-bold font-mono flex-shrink-0 mt-0.5 ${TEXT[r.color]}`}>{r.id}</span>
+              <p className="text-xs text-gray-700">{r.texto}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
     </div>
   )

@@ -3,7 +3,7 @@
 
 > Documento maestro de planificación ágil. Estado general, decisiones transversales y backlog.
 > El **detalle completo de cada sprint** (tareas, hallazgos, verificaciones) vive en `Sprints/`.
-> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo)
+> Última actualización: 2026-09 (Sprint 19 planificado — Retenciones: vencimientos, renovación, comisión y vista de conducción)
 >
 > 📋 **Gestión de tareas:** [Notion — SRRHH v2](https://app.notion.com/p/42d483af08924aef9d4fcb102fc72756?v=7f5beedb27ed4251a8c790a1d20c6841&source=copy_link)
 >
@@ -44,8 +44,11 @@
 | Post-Sprint 14 — Personas/Cargos exportables | ✅ Completo — 2026-09-07 | — | `Sprints/POST_SPRINT_14_personas_cargos_exportables.md` |
 | Sprint 15 — Autorización de Baja de Cargo | ✅ Completado — commit `b9d20de`, 2026-09 | S15-1 a S15-8 | `Sprints/SPRINT_15_baja_cargo_autorizacion.md` |
 | Post-Sprint 15B — Pendientes menores | ✅ Completo — commits `1f0744a`, `3895916` | — | (ver abajo) |
-| Sprint 16 — Flujo completo Vacante → Designación | 📋 Planificado | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
-| Post-Sprint 16 — Corrección modelo Desierto CPH | 📋 Planificado | PS16D-1 a PS16D-8 | `Sprints/POST_SPRINT_16_desierto_cph.md` |
+| Sprint 16 — Flujo completo Vacante → Designación | ✅ Completado (S16-9 pendiente verificación) — commits `3b1ac5c`…`bb8cc0e` | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
+| Post-Sprint 16 — Corrección modelo Desierto CPH | ✅ Completado (PS16D-8 pendiente verificación) — commits `348a466`, `957acc7` | PS16D-1 a PS16D-8 | `Sprints/POST_SPRINT_16_desierto_cph.md` |
+| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón | 📋 Planificado | S17-1 a S17-8 | `Sprints/SPRINT_17_bajas_sgrasv_padron.md` |
+| Sprint 18 — Retenciones: schema + generación automática de cargos R/TTR | 📋 Planificado (prerequisito: S17 mergeado) | S18-1 a S18-10 | `Sprints/SPRINT_18_retenciones_cadena_cargos.md` |
+| Sprint 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción | 📋 Planificado (prerequisito: S18 mergeado) | S19-1 a S19-13 | `Sprints/SPRINT_19_retenciones_vencimientos_comision.md` |
 
 ---
 
@@ -188,8 +191,10 @@ Este proyecto se rige por **contratos** que son fuente de verdad en su dominio. 
 | B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me` | Mejora de seguridad XSS — no priorizado para MVP |
 | B-11 | Export Excel consolidado de concursos/bajas (legacy `exportBajasToExcel` / `exportSeguimientoToExcel`) | Confirmado como gap real — planificar en sprint dedicado |
 | B-12 | ~~Identidad del cargo en padrón SIAL por clave estructural~~ | ✅ Resuelto — commit `3895916` |
-| B-13 | Acto administrativo de baja como entidad propia (expediente + resolución) | Incluido en Sprint 16 (GAP 3) |
-| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Incluido en Sprint 16 (GAP 3) |
+| B-13 | Acto administrativo de baja como entidad propia (expediente + resolución) | Incluido en Sprint 16 (GAP 3) — parcialmente cubierto con `bajaOrigenId` en `SolicitudAlta` |
+| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | ✅ Resuelto en S16-7/S16-8 — campo `baja_origen_id` en `solicitudes_alta` |
+| B-15 | ~~Notificaciones 90/30 días vencimiento TTR + renovación período + comisión manual + fin comisión Meta4~~ | ✅ Planificado en Sprint 19 |
+| B-16 | Vista dotación real vs estructural (N planta + M cargos R activos), reportes por `tipoOrigen`, exportación Excel | Pendiente — Sprint 20 |
 
 ---
 

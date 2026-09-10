@@ -194,6 +194,12 @@ El cargo está vigente y tiene exactamente una persona asignada (`ocupacion.hast
 
 ---
 
+> **Ver también**: `Doc/Contrato_Retenciones.md` para el modelo completo de
+> retenciones, cadenas de conducción, cargos R/TTR, vencimientos de período
+> y comisiones.
+
+---
+
 ## 4. Situación de revista (tabla situacion de revista)
 
 La situación de revista describe el estado de la **persona** dentro de la ocupación activa. Se almacena en `ocupaciones.situacion_revista`.
@@ -243,23 +249,29 @@ La persona retiene formalmente este cargo pero ejerce funciones en otro puesto (
 
 **Condición SQL**: `ocupacion.hasta IS NULL AND ocupacion.situacion_revista = 'Comision'`
 
-La persona está en comisión de servicios en otra repartición. El cargo de origen sigue ocupado.
+La persona pertenece a un hospital de origen pero presta servicios temporalmente
+en otro hospital (hospital de destino). El cargo de origen sigue ocupado.
 
 **Cómo se llega**:
-- El agente es enviado a prestar servicios en otra repartición. Se actualiza `situacion_revista = Comision` y se registra la repartición de destino.
+- Meta4 informa el cambio en el archivo semanal. SGRASV puede registrarlo
+  manualmente antes de que llegue el archivo.
 
 **Validaciones**:
-- El cargo sigue **OCUPADO** — no genera vacante ni habilita concurso.
+- El cargo sigue **OCUPADO** — no genera vacante, no genera cargo remplazante.
 - `comision` debe describir el motivo/tipo de comisión.
-- `repa_comision` debe registrar la repartición de destino.
+- `repa_comision` debe registrar el hospital/repartición de destino.
 - `cr_comentario` puede contener observaciones adicionales.
+- El fin de la comisión llega desde Meta4 — no tiene fecha de vencimiento
+  definida en el sistema.
 - Al finalizar la comisión, `situacion_revista` vuelve a `Activo`.
 
 **Campos involucrados**:
 - `ocupaciones.situacion_revista = 'Comision'`
 - `ocupaciones.comision` — descripción
-- `ocupaciones.repa_comision` — repartición destino
+- `ocupaciones.repa_comision` — hospital/repartición destino
 - `ocupaciones.cr_comentario` — comentarios
+
+> Ver `Doc/Contrato_Retenciones.md §5` para diferencias entre comisión y retención.
 
 ---
 
@@ -269,7 +281,8 @@ La persona está en comisión de servicios en otra repartición. El cargo de ori
 CARGO
 ├── NO VIGENTE  (estado terminal — campo cargos.estado)
 │   ├── razón: Desfinanciación
-│   └── razón: Modificación de Estructura
+│   ├── razón: Modificación de Estructura
+│   └── razón: Cargo R cuyo titular cesó definitivamente
 │
 ├── VALIDACION_VACANTE  (estado intermedio — campo cargos.estado)
 │   └── generado por padrón semanal (diff eliminado)
@@ -278,14 +291,25 @@ CARGO
 │
 └── VIGENTE  (campo cargos.estado)
     ├── VACANTE  (condición derivada — no hay ocupacion con hasta IS NULL)
-    │   ├── Sin concurso
+    │   ├── Sin concurso (cargo normal o cargo R/TTR en gestión manual)
     │   └── Con concurso abierto
     │
     └── OCUPADO  (condición derivada — existe ocupacion con hasta IS NULL)
         ├── situacion_revista: Activo
+        │   ├── Cargo normal
+        │   ├── Cargo R (remplazante de ejecución) — tipo_origen = 'R'
+        │   └── Cargo TTR (remplazante de conducción) — tipo_origen = 'TTR'
+        │
         ├── situacion_revista: Retencion de Cargo
+        │   ├── Ejecución retenida → genera cargo R automáticamente
+        │   └── Conducción retenida → genera cargo TTR automáticamente
+        │       └── Con período fijo → notificación 90/30 días antes
+        │
         └── situacion_revista: Comision
+            └── Prestado a otro hospital — sin remplazante, sin vacante
 ```
+
+> Árbol extendido con cadenas de conducción: `Doc/Contrato_Retenciones.md §7`
 
 ---
 
