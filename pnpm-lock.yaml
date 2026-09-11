@@ -21,6 +21,9 @@ importers:
       '@types/bcrypt':
         specifier: ^5.0.2
         version: 5.0.2
+      tsd:
+        specifier: ^0.33.0
+        version: 0.33.0
       turbo:
         specifier: ^2.0.0
         version: 2.10.11
@@ -85,6 +88,9 @@ importers:
       '@types/form-data':
         specifier: ^2.5.2
         version: 2.5.2
+      '@types/helmet':
+        specifier: ^4.0.0
+        version: 4.0.0
       '@vitest/coverage-v8':
         specifier: ^2.1.9
         version: 2.1.9(vitest@2.1.9(@types/node@20.19.43)(terser@5.51.2))
@@ -1888,6 +1894,10 @@ packages:
   '@types/form-data@2.5.2':
     resolution: {integrity: sha512-tfmcyHn1Pp9YHAO5r40+UuZUPAZbUEgqTel3EuEKpmF9hPkXgR4l41853raliXnb4gwyPNoQOfvgGGlHN5WSog==}
     deprecated: This is a stub types definition. form-data provides its own type definitions, so you do not need this installed.
+
+  '@types/helmet@4.0.0':
+    resolution: {integrity: sha512-ONIn/nSNQA57yRge3oaMQESef/6QhoeX7llWeDli0UZIfz8TQMkfNPTXA8VnnyeA1WUjG2pGqdjEIueYonMdfQ==}
+    deprecated: This is a stub types definition. helmet provides its own type definitions, so you do not need this installed.
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -6050,6 +6060,10 @@ snapshots:
   '@types/form-data@2.5.2':
     dependencies:
       form-data: 4.0.6
+
+  '@types/helmet@4.0.0':
+    dependencies:
+      helmet: 7.2.0
 
   '@types/json-schema@7.0.15': {}
 
