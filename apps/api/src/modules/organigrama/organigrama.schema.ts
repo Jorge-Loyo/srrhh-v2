@@ -8,7 +8,10 @@ export type Seccion = (typeof SECCIONES)[number]
 
 export const SECCION_UNIVERSOS: Record<Seccion, string> = {
   'nivel-central': 'NIVEL CENTRAL',
-  'atencion-primaria': 'APS',
+  // Antes decía 'APS' — no matcheaba ningún valor real de
+  // organigramas.universo_totalizador (que es "ATENCION PRIMARIA", 103
+  // filas en el Excel), así que esta sección siempre tiraba 404.
+  'atencion-primaria': 'ATENCION PRIMARIA',
 }
 
 export const organigramaQuerySchema = z

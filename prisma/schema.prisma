@@ -44,6 +44,15 @@ enum TipoConcurso {
   sin_concurso
 }
 
+// S14-1: motivo por el que se inicia un concurso desde una solicitud de alta
+// (ver Concurso.motivoConcurso). No confundir con el MotivoConcurso legacy
+// de @srrhh/types (baja/ampliacion/cobertura_pou/jefatura/otro) — ese es un
+// concepto distinto y sin uso hoy.
+enum MotivoConcurso {
+  nuevo_cargo
+  alta_por_baja
+}
+
 enum EstadoConcursoCph {
   no_iniciado
   activo
@@ -470,6 +479,10 @@ model Concurso {
   motivo         String?      @db.VarChar(200)
   expediente     String?      @db.VarChar(150)
   tipoConcurso   TipoConcurso @map("tipo_concurso")
+  // S14-1: motivo tipificado por el que se inicia el concurso (distinto del
+  // campo `motivo` libre de arriba) — usado cuando el concurso nace de una
+  // solicitud de alta, ver notificación concurso_iniciado a sgrasv.
+  motivoConcurso MotivoConcurso? @map("motivo_concurso")
   registradoPorId String?     @map("registrado_por") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
@@ -664,6 +677,7 @@ enum EstadoBaja {
 enum TipoAutorizacion {
   concurso_cph
   alta_cargo
+  baja_cargo
 }
 
 enum EstadoAutorizacion {
@@ -715,6 +729,8 @@ model Baja {
   // previa (22% de los datos reales — ver análisis CSV)
   concursos       Concurso[]
   etiquetas       EtiquetaBaja[]
+  // S16-8: solicitudes de alta que cubren la vacante dejada por esta baja
+  solicitudesAltaOrigen SolicitudAlta[]
 
   @@index([cargoId])
   @@index([hospitalId])
@@ -771,6 +787,8 @@ model SolicitudAlta {
   cantidad         Int                @default(1)
   // etiqueta campo libre eliminado — reemplazado por EtiquetaSolicitudAlta (N:M)
   estado           SolicitudAltaEstado @default(pendiente)
+  // S16-8: vincula la solicitud con la baja que originó la vacante que viene a cubrir
+  bajaOrigenId     String?            @map("baja_origen_id") @db.Uuid
   solicitadoPorId  String?            @map("solicitado_por_id") @db.Uuid
   // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
   cargosCreadosIds String[]           @map("cargos_creados_ids") @db.Uuid
@@ -781,6 +799,7 @@ model SolicitudAlta {
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  bajaOrigen      Baja?           @relation(fields: [bajaOrigenId], references: [id])
   solicitadoPor   Usuario?        @relation("SolicitudAltaSolicitadaPor", fields: [solicitadoPorId], references: [id])
   etiquetas       EtiquetaSolicitudAlta[]
 
@@ -1254,6 +1273,7 @@ enum TipoNotificacion {
   baja_pendiente
   autorizacion_pendiente
   autorizacion_resuelta
+  concurso_iniciado
 }
 
 model Notificacion {
