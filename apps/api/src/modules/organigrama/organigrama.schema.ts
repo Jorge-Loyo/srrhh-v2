@@ -7,7 +7,9 @@ export const SECCIONES = ['nivel-central', 'atencion-primaria'] as const
 export type Seccion = (typeof SECCIONES)[number]
 
 export const SECCION_UNIVERSOS: Record<Seccion, string> = {
-  'nivel-central': 'NIVEL CENTRAL',
+  // La comparación en organigrama.service.ts usa mode:'insensitive', así
+  // que la mayúscula/minúscula acá no importa en la práctica.
+  'nivel-central': 'Nivel Central',
   // Antes decía 'APS' — no matcheaba ningún valor real de
   // organigramas.universo_totalizador (que es "ATENCION PRIMARIA", 103
   // filas en el Excel), así que esta sección siempre tiraba 404.
