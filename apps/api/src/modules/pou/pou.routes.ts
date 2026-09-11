@@ -5,7 +5,7 @@ import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { z } from 'zod'
 import { pouQuerySchema, pouCompararQuerySchema, siglaSchema } from './pou.schema.js'
-import { listPouPorSiglaService, listHospitalesPouService, compararPouService, reemplazarPouService, triangularPouService } from './pou.service.js'
+import { listPouPorSiglaService, listHospitalesPouService, compararPouService, reemplazarPouService, triangularPouService, listPouCargasService } from './pou.service.js'
 
 export async function pouRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -36,6 +36,11 @@ export async function pouRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
+  app.get('/cargas', async (_request, reply) => {
+    const data = await listPouCargasService()
+    return reply.send({ data })
+  })
+
   // Módulo carga (solo admin): reemplaza toda la tabla `pou` desde un Excel.
   // Destructivo — igual criterio que /organigrama/upload.
   app.post(
@@ -43,15 +48,15 @@ export async function pouRoutes(app: FastifyInstance) {
     { preHandler: requirePermiso({ modulo: 'configuracion', accion: 'gestionar_pou' }) },
     async (request, reply) => {
       const parts = request.parts()
-      let uploadedFile: { buffer: Buffer } | null = null
+      let uploadedFile: { buffer: Buffer; nombre: string } | null = null
       for await (const part of parts) {
         if (part.type === 'file') {
-          uploadedFile = { buffer: await part.toBuffer() }
+          uploadedFile = { buffer: await part.toBuffer(), nombre: part.filename }
         }
       }
       if (!uploadedFile) throw AppError.badRequest('Archivo requerido')
 
-      const result = await reemplazarPouService(uploadedFile.buffer)
+      const result = await reemplazarPouService(uploadedFile.buffer, uploadedFile.nombre, (request.user as { id?: string })?.id)
       return reply.send({ data: result })
     }
   )
