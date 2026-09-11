@@ -87,6 +87,25 @@ export function useSuplentes() {
   })
 }
 
+export interface PouCarga {
+  id: string
+  archivo: string
+  filas: number
+  usuarioId: string | null
+  username: string | null
+  createdAt: string
+}
+
+export function usePouCargas() {
+  return useQuery({
+    queryKey: ['pou', 'cargas'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: PouCarga[] }>('/api/v1/pou/cargas')
+      return res.data.data
+    },
+  })
+}
+
 // Módulo de carga (solo admin) — reemplaza toda la tabla `pou` desde un Excel.
 export function useSubirPou() {
   const queryClient = useQueryClient()

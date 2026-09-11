@@ -165,7 +165,26 @@ function resolveColumns(headerRow: unknown[]): { mapping: (typeof COLUMN_MAPPING
   }))
 }
 
-export async function reemplazarPouService(buffer: Buffer): Promise<{ filas: number }> {
+export interface PouCarga {
+  id: string
+  archivo: string
+  filas: number
+  usuarioId: string | null
+  createdAt: Date
+}
+
+export async function listPouCargasService(): Promise<PouCarga[]> {
+  return prisma.$queryRaw<PouCarga[]>`
+    SELECT pc.id, pc.archivo, pc.filas, pc.usuario_id AS "usuarioId", pc.created_at AS "createdAt",
+           u.username
+    FROM pou_cargas pc
+    LEFT JOIN usuarios u ON u.id = pc.usuario_id
+    ORDER BY pc.created_at DESC
+    LIMIT 20
+  `
+}
+
+export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string, usuarioId?: string): Promise<{ filas: number }> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw AppError.badRequest('El archivo no tiene ninguna hoja')
 
@@ -237,6 +256,11 @@ export async function reemplazarPouService(buffer: Buffer): Promise<{ filas: num
   for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
     await prisma.pou.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
   }
+
+  await prisma.$executeRaw`
+    INSERT INTO pou_cargas (archivo, filas, usuario_id)
+    VALUES (${nombreArchivo}, ${filas.length}, ${usuarioId ?? null}::uuid)
+  `
 
   return { filas: filas.length }
 }
