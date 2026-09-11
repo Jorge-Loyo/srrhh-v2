@@ -1305,6 +1305,20 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       )
     }
 
+    // ── 9. Sincronizar universo_totalizador en organigramas desde hospitales ─
+    // Cada aprobación de padrón puede traer hospitales nuevos o actualizados
+    // (tipo/universo). Se actualiza organigramas cruzando por sigla para que
+    // el organigrama de Nivel Central / APS / Hospitales siempre refleje la
+    // info vigente sin intervención manual.
+    await tx.$executeRaw`
+      UPDATE organigramas o
+      SET universo_totalizador = h.universo_totalizador
+      FROM hospitales h
+      WHERE h.sigla = o.sigla
+        AND h.universo_totalizador IS NOT NULL
+        AND (o.universo_totalizador IS DISTINCT FROM h.universo_totalizador)
+    `
+
     await tx.padronSnapshot.update({
       where: { id },
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },

@@ -7,7 +7,7 @@ export const SECCIONES = ['nivel-central', 'atencion-primaria'] as const
 export type Seccion = (typeof SECCIONES)[number]
 
 export const SECCION_UNIVERSOS: Record<Seccion, string> = {
-  'nivel-central': 'NIVEL CENTRAL',
+  'nivel-central': 'Nivel Central',
   'atencion-primaria': 'APS',
 }
 
