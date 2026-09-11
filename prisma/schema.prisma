@@ -277,7 +277,6 @@ model Cargo {
   codigoRegistroId  String?      @map("codigo_registro_id") @db.Uuid
   literalPuesto     String?      @map("literal_puesto") @db.VarChar(200)
   especialidadLegacy String?      @map("especialidad_legacy") @db.VarChar(200)
-  especialidadId    String?      @map("especialidad_id") @db.Uuid
   agrupador         String?      @db.VarChar(150)
   unificadorPuesto  String?      @map("unificador_puesto") @db.VarChar(200)
   regimen           String?      @db.VarChar(50)
@@ -304,7 +303,6 @@ model Cargo {
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
-  especialidad    Especialidad?   @relation(fields: [especialidadId], references: [id])
   createdBy       Usuario?        @relation("CargosCreados", fields: [createdById], references: [id])
   ocupaciones     Ocupacion[]
   concursos       Concurso[]
@@ -1089,17 +1087,6 @@ model PostulanteConcurso {
 // =============================================================================
 // CATALOGOS (S2-14 / S2-15)
 // =============================================================================
-
-model Especialidad {
-  id          String  @id @default(uuid()) @db.Uuid
-  nombre      String  @unique @db.VarChar(200)
-  prioritaria Boolean @default(false)
-  activo      Boolean @default(true)
-
-  cargos Cargo[]
-
-  @@map("especialidades")
-}
 
 
 enum ModalidadPuesto {
