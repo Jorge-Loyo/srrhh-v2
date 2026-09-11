@@ -33,6 +33,54 @@ export interface PouRow {
   vacantes: number | null
 }
 
+export interface TriangulacionRow {
+  sigla: string
+  codigo: string
+  unificadorPuesto: string | null
+  agrupador: string | null
+  especialidadLegacy: string | null
+  tipoConcurso: string
+  fechaVacante: Date
+  pouPerfil: string | null
+  pouEspecialidad: string | null
+  dotacionTotal: number | null
+  pouActivos: number | null
+  pouVacantes: number | null
+  estadoPou: 'CON POU' | 'SIN POU' | 'SUPLENTE' | 'SIN CLASIFICAR'
+}
+
+export async function triangularPouService(sigla?: string): Promise<TriangulacionRow[]> {
+  const rows = sigla
+    ? await prisma.$queryRaw<Record<string, unknown>[]>`
+        SELECT sigla, codigo, unificador_puesto, agrupador, especialidad_legacy,
+               tipo_concurso, fecha_vacante, pou_perfil, pou_especialidad,
+               dotacion_total, pou_activos, pou_vacantes, estado_pou
+        FROM v_pou_triangulacion
+        WHERE sigla = ${sigla}
+        ORDER BY estado_pou, codigo`
+    : await prisma.$queryRaw<Record<string, unknown>[]>`
+        SELECT sigla, codigo, unificador_puesto, agrupador, especialidad_legacy,
+               tipo_concurso, fecha_vacante, pou_perfil, pou_especialidad,
+               dotacion_total, pou_activos, pou_vacantes, estado_pou
+        FROM v_pou_triangulacion
+        ORDER BY sigla, estado_pou, codigo`
+  return rows.map((r) => ({
+    sigla: r.sigla as string,
+    codigo: r.codigo as string,
+    unificadorPuesto: r.unificador_puesto as string | null,
+    agrupador: r.agrupador as string | null,
+    especialidadLegacy: r.especialidad_legacy as string | null,
+    tipoConcurso: r.tipo_concurso as string,
+    fechaVacante: r.fecha_vacante as Date,
+    pouPerfil: r.pou_perfil as string | null,
+    pouEspecialidad: r.pou_especialidad as string | null,
+    dotacionTotal: r.dotacion_total as number | null,
+    pouActivos: r.pou_activos as number | null,
+    pouVacantes: r.pou_vacantes as number | null,
+    estadoPou: r.estado_pou as TriangulacionRow['estadoPou'],
+  }))
+}
+
 export async function listPouPorSiglaService(sigla: string): Promise<PouRow[]> {
   return prisma.pou.findMany({
     where: { sigla },

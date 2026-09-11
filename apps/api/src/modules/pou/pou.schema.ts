@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const siglaSchema = z
+export const siglaSchema = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9]{2,10}$/, 'Formato de sigla inválido (esperado: 2-10 caracteres alfanuméricos)')

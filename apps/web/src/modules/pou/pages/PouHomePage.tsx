@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Squares2X2Icon, ArrowRightIcon, ScaleIcon } from '@heroicons/react/24/outline'
+import { Squares2X2Icon, ArrowRightIcon, ScaleIcon, LinkIcon } from '@heroicons/react/24/outline'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { useHospitalesPou } from '../hooks/usePou'
 
@@ -36,6 +36,10 @@ export function PouHomePage() {
           <button onClick={() => navigate('/pou/comparativa')} className="btn-secondary flex items-center gap-1.5 text-sm">
             <ScaleIcon className="w-4 h-4" />
             Comparar hospitales
+          </button>
+          <button onClick={() => navigate('/pou/triangulacion')} className="btn-secondary flex items-center gap-1.5 text-sm">
+            <LinkIcon className="w-4 h-4" />
+            Triangulación vs Concursos
           </button>
         </div>
         <p className="text-sm text-gray-500 mb-3">Seleccioná un hospital para ver su dotación POU</p>
