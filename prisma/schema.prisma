@@ -1251,6 +1251,7 @@ model RefSufijoOrdinal {
 
 enum TipoNotificacion {
   concurso_estancado
+  concurso_iniciado
   baja_pendiente
   autorizacion_pendiente
   autorizacion_resuelta

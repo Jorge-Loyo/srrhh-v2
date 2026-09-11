@@ -1208,7 +1208,7 @@ export function ConcursoCphWizard() {
                         <SearchableSelect
                           value={escalafonId}
                           onChange={(id) => { setEscalafonId(id); setPuestoConcurso(''); setEspecialidadConcurso('') }}
-                          options={escalafonesOrdenados.map((e) => e.id)}
+                          options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
                           placeholder="Buscar escalafón..."
                           disabled={pendienteAutorizacion || etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           displayToValue={(label) => escalafonesOrdenados.find((e) => escalafonLabel(e.nombre) === label)?.id ?? label}

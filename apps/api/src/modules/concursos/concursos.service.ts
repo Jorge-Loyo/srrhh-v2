@@ -55,7 +55,6 @@ export async function createConcursoTx(
       motivo: body.motivo ?? null,
       expediente: body.expediente ?? null,
       tipoConcurso: body.tipoConcurso,
-      motivoConcurso: body.motivoConcurso ?? null,
       registradoPorId: usuarioId,
     },
   })
@@ -150,7 +149,7 @@ export async function createConcursoService(body: CreateConcursoBody, usuarioId:
 
   if (body.tipoConcurso === TipoConcurso.CPH) {
     const abierto = await prisma.concursoCph.findFirst({
-      where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+      where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'suspendido'] } },
     })
     if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
   }

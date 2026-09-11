@@ -98,7 +98,7 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
         // Con concurso: cargo pasa a vigente (vacante esperando designación)
         if (body.tipoConcurso === TipoConcurso.CPH) {
           const abierto = await tx.concursoCph.findFirst({
-            where: { cargoId: baja.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+            where: { cargoId: baja.cargoId, estado: { notIn: ['finalizado', 'suspendido'] } },
           })
           if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
         }
@@ -483,7 +483,7 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       // Con concurso: cargo pasa a vigente (vacante esperando designación)
       if (body.tipoConcurso === TipoConcurso.CPH) {
         const abierto = await tx.concursoCph.findFirst({
-          where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+          where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'suspendido'] } },
         })
         if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
       }
