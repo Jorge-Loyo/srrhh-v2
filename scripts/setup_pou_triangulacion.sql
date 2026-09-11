@@ -18,8 +18,18 @@ INSERT INTO pou_especialidad_mapeo VALUES
   ('OBSTETRICIA O TOCOGINECOLOGIA',                         'TOCOGINECOLOGIA'),
   ('OBSTETRICIA O TOCOGINECOLOGIA',                         'TOCOGINECOLOGIA Y ECOGRAFIA'),
   ('INFECTOLOGO',                                           'INFECTOLOGIA'),
-  ('INFECTOLOGO',                                           'ENFERMEDADES INFECCIOSAS (INFECTOLOGIA)')
+  ('INFECTOLOGO',                                           'ENFERMEDADES INFECCIOSAS (INFECTOLOGIA)'),
+  ('ORTOPEDIA Y TRAUMATOLOGIA',                             'TRAUMATOLOGIA'),
+  ('ORTOPEDIA Y TRAUMATOLOGIA INFANTIL',                    'TRAUMATOLOGIA')
 ON CONFLICT DO NOTHING;
+
+-- Fix capitalización y normalización de unificador_puesto en cargos.
+-- Idempotente — safe para re-ejecutar.
+UPDATE cargos SET unificador_puesto = 'CPH DE PLANTA'       WHERE unificador_puesto = 'CPH de Planta';
+UPDATE cargos SET unificador_puesto = 'CPH DE GUARDIA'      WHERE unificador_puesto = 'CPH de Guardia';
+UPDATE cargos SET unificador_puesto = 'JEFE/A DE DIVISION'      WHERE unificador_puesto = 'JEFE DE DIVISION (04)';
+UPDATE cargos SET unificador_puesto = 'JEFE/A DE DEPARTAMENTO'  WHERE unificador_puesto = 'JEFE DE DEPARTAMENTO (02)';
+UPDATE cargos SET unificador_puesto = 'SUB-DIRECTOR'            WHERE unificador_puesto = 'SUB-DIRECTOR (03)';
 
 -- Vista de triangulación POU vs concursos.
 -- Cruza concursos activos con filas POU usando similitud de texto + mapeo explícito.
