@@ -133,10 +133,20 @@ export function AppShell() {
 
           {/* POU — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/pou"
+            end
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
             title={collapsed ? 'POU' : undefined}>
             <span className="text-base shrink-0">🧮</span>
             {!collapsed && <span className="truncate">POU</span>}
+          </NavLink>
+
+          {/* Suplentes de Guardia — universo separado del POU */}
+          <NavLink to="/suplentes"
+            end
+            className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={collapsed ? 'Suplentes de Guardia' : undefined}>
+            <span className="text-base shrink-0">🔄</span>
+            {!collapsed && <span className="truncate">Suplentes de Guardia</span>}
           </NavLink>
 
           {/* Divisor — Concursos */}

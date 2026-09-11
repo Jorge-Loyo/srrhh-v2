@@ -49,6 +49,44 @@ export function usePouComparar(siglas: string[]) {
   })
 }
 
+export interface TriangulacionRow {
+  sigla: string
+  codigo: string
+  unificadorPuesto: string | null
+  agrupador: string | null
+  especialidadLegacy: string | null
+  tipoConcurso: string
+  fechaVacante: string
+  pouPerfil: string | null
+  pouEspecialidad: string | null
+  dotacionTotal: number | null
+  pouActivos: number | null
+  pouVacantes: number | null
+  estadoPou: 'CON POU' | 'SIN POU' | 'SUPLENTE' | 'SIN CLASIFICAR'
+}
+
+export function useTriangulacion(sigla?: string) {
+  return useQuery({
+    queryKey: ['pou', 'triangulacion', sigla ?? 'todos'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: TriangulacionRow[] }>('/api/v1/pou/triangulacion', {
+        params: sigla ? { sigla } : undefined,
+      })
+      return res.data.data
+    },
+  })
+}
+
+export function useSuplentes() {
+  return useQuery({
+    queryKey: ['pou', 'triangulacion', 'suplentes'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: TriangulacionRow[] }>('/api/v1/pou/triangulacion')
+      return res.data.data.filter((r) => r.estadoPou === 'SUPLENTE')
+    },
+  })
+}
+
 // Módulo de carga (solo admin) — reemplaza toda la tabla `pou` desde un Excel.
 export function useSubirPou() {
   const queryClient = useQueryClient()
