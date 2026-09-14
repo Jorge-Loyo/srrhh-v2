@@ -688,25 +688,23 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     }
   }
 
-  // Para diffs nuevos aprobados: enriquecer con el código real del cargo creado
+  // Para diffs nuevos aprobados: enriquecer con el código real del cargo creado.
+  // Se busca via ocupacion.idSialRol → cargo.codigo porque algunos cargos se
+  // crean via B-12 (clave estructural) y quedan con un id_sial distinto al del
+  // diff — la ocupación es la única relación que siempre existe tras aprobar.
   const codigoRealMap = new Map<string, string>()
   if (query.tipo === 'nuevo') {
     const diffsAprobados = diffs.filter((d) => d.aprobado === true)
     if (diffsAprobados.length > 0) {
-      const idSialsAprobados = diffsAprobados
-        .map((d) => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })
-        .filter((v): v is string => Boolean(v))
-      const cargosCreados = await prisma.cargo.findMany({
-        where: { idSial: { in: idSialsAprobados } },
-        select: { idSial: true, codigo: true },
+      const idSialRoles = diffsAprobados.map((d) => d.idSialRol)
+      const ocupaciones = await prisma.ocupacion.findMany({
+        where: { idSialRol: { in: idSialRoles } },
+        select: { idSialRol: true, cargo: { select: { codigo: true } } },
       })
-      const cargoCodigoMap = new Map(cargosCreados.map((c) => [c.idSial, c.codigo]))
+      const ocupMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.cargo.codigo]))
       for (const d of diffsAprobados) {
-        try {
-          const idSial = (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string
-          const codigo = idSial ? cargoCodigoMap.get(idSial) : null
-          if (codigo) codigoRealMap.set(d.id, codigo)
-        } catch { /* ignorar */ }
+        const codigo = ocupMap.get(d.idSialRol)
+        if (codigo) codigoRealMap.set(d.id, codigo)
       }
     }
   }
