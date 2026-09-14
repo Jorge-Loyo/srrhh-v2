@@ -369,6 +369,8 @@ export function AltaCargosPage() {
   // rechazada) — el Cargo real recién existe cuando el director aprueba.
   const { data: solicitudesData, refetch: refetchSolicitudes } = useSolicitudesAlta({
     ...(filtroEstado && { estado: filtroEstado }),
+    ...(tab === 'transferencia' && { esTransferencia: true }),
+    ...(tab === 'historial' && { esTransferencia: false }),
   })
   const solicitudes = solicitudesData?.data ?? []
   const solicitudesFiltradas = search.trim()
@@ -536,9 +538,12 @@ export function AltaCargosPage() {
 
         {/* Contenido pestaña Transferencia */}
         {tab === 'transferencia' && (
-          <div className="p-8 text-center text-sm text-gray-400">
-            Próximamente — funcionalidad de transferencia de cargos.
-          </div>
+          <HistorialSolicitudes
+            search={search} setSearch={setSearch}
+            filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
+            solicitudes={solicitudesFiltradas}
+            esTransferencia
+          />
         )}
       </div>
     </div>
@@ -628,13 +633,14 @@ async function generarPDF(solicitud: SolicitudAlta) {
 
 // ── Historial de solicitudes de alta ──────────────────────────────────────────
 function HistorialSolicitudes({
-  search, setSearch, filtroEstado, setFiltroEstado, solicitudes,
+  search, setSearch, filtroEstado, setFiltroEstado, solicitudes, esTransferencia = false,
 }: {
   search: string
   setSearch: (v: string) => void
   filtroEstado: SolicitudAltaEstado | ''
   setFiltroEstado: (v: SolicitudAltaEstado | '') => void
   solicitudes: SolicitudAlta[]
+  esTransferencia?: boolean
 }) {
   const [modalId, setModalId] = useState<string | null>(null)
   const [generandoPdf, setGenerandoPdf] = useState(false)
@@ -747,7 +753,7 @@ function HistorialSolicitudes({
         </table>
       ) : (
         <p className="p-8 text-center text-sm text-gray-400">
-          No hay solicitudes de alta{search ? ` para "${search}"` : ''}.
+          No hay {esTransferencia ? 'transferencias' : 'solicitudes de alta'}{search ? ` para "${search}"` : ''}.
         </p>
       )}
     </div>

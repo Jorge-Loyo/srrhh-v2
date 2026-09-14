@@ -787,6 +787,7 @@ model SolicitudAlta {
   estado           SolicitudAltaEstado @default(pendiente)
   // S16-8: vincula la solicitud con la baja que originó la vacante que viene a cubrir
   bajaOrigenId     String?            @map("baja_origen_id") @db.Uuid
+  esTransferencia  Boolean            @default(false) @map("es_transferencia")
   solicitadoPorId  String?            @map("solicitado_por_id") @db.Uuid
   // IDs de los Cargo creados al aprobar (uno por cada unidad de cantidad)
   cargosCreadosIds String[]           @map("cargos_creados_ids") @db.Uuid

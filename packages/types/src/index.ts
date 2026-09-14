@@ -570,6 +570,7 @@ export interface SolicitudAlta {
   desde: string | null
   cantidad: number
   etiqueta: string | null
+  esTransferencia: boolean
   estado: SolicitudAltaEstado
   solicitadoPorId: string | null
   cargosCreadosIds: string[]
@@ -889,6 +890,7 @@ export interface CreateSolicitudAltaRequest {
   desde?: string
   cantidad?: number
   etiqueta?: string
+  esTransferencia?: boolean
   bajaOrigenId?: string
 }
 

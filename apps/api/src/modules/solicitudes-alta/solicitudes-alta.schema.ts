@@ -17,13 +17,16 @@ export const createSolicitudAltaSchema = z.object({
   etiqueta:         z.string().trim().max(100).optional(),
   // S16-8: baja que originó la vacante que esta alta viene a cubrir
   bajaOrigenId:     z.string().uuid().optional(),
+  // Transferencia desde otro ministerio — se crea aprobada directamente
+  esTransferencia:  z.boolean().optional(),
 })
 
 export const solicitudesAltaQuerySchema = z.object({
-  page:       z.coerce.number().int().min(1).default(1),
-  limit:      z.coerce.number().int().min(1).max(100).default(20),
-  hospitalId: z.string().uuid().optional(),
-  estado:     z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
+  page:            z.coerce.number().int().min(1).default(1),
+  limit:           z.coerce.number().int().min(1).max(100).default(20),
+  hospitalId:      z.string().uuid().optional(),
+  estado:          z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
+  esTransferencia: z.coerce.boolean().optional(),
 })
 
 export type CreateSolicitudAltaBody  = z.infer<typeof createSolicitudAltaSchema>

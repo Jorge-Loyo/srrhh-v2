@@ -12,6 +12,7 @@ export interface SolicitudesAltaFilters {
   limit?: number
   hospitalId?: string
   estado?: SolicitudAltaEstado
+  esTransferencia?: boolean
 }
 
 export function useSolicitudesAlta(filters: SolicitudesAltaFilters = {}) {

@@ -43,31 +43,41 @@ export async function createSolicitudAltaService(
         desde:            body.desde ? new Date(body.desde) : null,
         cantidad:         body.cantidad,
         bajaOrigenId:     body.bajaOrigenId ?? null,
+        esTransferencia:  body.esTransferencia ?? false,
         solicitadoPorId,
       },
       include,
     })
 
-    await crearAutorizacion(tx as typeof prisma, {
-      tipo:               'alta_cargo',
-      referenciaId:       solicitud.id,
-      referenciaTipo:     'solicitud_alta',
-      solicitadoPorId,
-      resolverPorRolSlug: 'director',
-    })
+    // Transferencias se aprueban directamente — no requieren autorización
+    if (!body.esTransferencia) {
+      await crearAutorizacion(tx as typeof prisma, {
+        tipo:               'alta_cargo',
+        referenciaId:       solicitud.id,
+        referenciaTipo:     'solicitud_alta',
+        solicitadoPorId,
+        resolverPorRolSlug: 'director',
+      })
+    } else {
+      await tx.solicitudAlta.update({
+        where: { id: solicitud.id },
+        data: { estado: 'aprobada' },
+      })
+    }
 
-    return solicitud
+    return tx.solicitudAlta.findUnique({ where: { id: solicitud.id }, include })
   })
 }
 
 // --- GET / --- listado paginado ---------------------------------------------
 export async function listSolicitudesAltaService(query: SolicitudesAltaQuery) {
-  const { page, limit, hospitalId, estado } = query
+  const { page, limit, hospitalId, estado, esTransferencia } = query
   const offset = (page - 1) * limit
 
   const where = {
-    ...(hospitalId && { hospitalId }),
-    ...(estado     && { estado }),
+    ...(hospitalId       && { hospitalId }),
+    ...(estado           && { estado }),
+    ...(esTransferencia !== undefined && { esTransferencia }),
   }
 
   const [total, data] = await Promise.all([

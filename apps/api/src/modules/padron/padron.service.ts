@@ -1601,6 +1601,57 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
   return { ok: true, diffId }
 }
 
+// ─── Marcar un diff nuevo como transferencia de otro ministerio ─────────────
+// Aprueba el cargo igual que aprobarDiffNuevoService pero además crea una
+// SolicitudAlta con esTransferencia=true y estado='aprobada' para que quede
+// registrada en Alta de Cargos > Transferencia.
+export async function marcarTransferenciaService(snapshotId: string, diffId: string, usuarioId: string) {
+  // Primero aprobar el diff normalmente (crea Cargo + Persona + Ocupacion)
+  await aprobarDiffNuevoService(snapshotId, diffId, usuarioId)
+
+  // Leer el diff para obtener los datos del cargo recién creado
+  const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
+  if (!diff) throw AppError.notFound('Diff no encontrado')
+  const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+
+  // Resolver hospital y escalafón para la SolicitudAlta
+  const sigla = datos.siglas ?? ''
+  const hospital = await prisma.hospital.findUnique({ where: { sigla } })
+  if (!hospital) throw AppError.notFound('Hospital no encontrado')
+
+  let escalafon: EscalafonRow | null = null
+  if (datos.codigo_de_registro) {
+    const cr = await prisma.codigoRegistro.findUnique({
+      where: { codigo: datos.codigo_de_registro },
+      include: { escalafon: true },
+    }) as { escalafon: EscalafonRow } | null
+    escalafon = cr?.escalafon ?? null
+  }
+  if (!escalafon && datos.escalafon) {
+    escalafon = await prisma.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+  }
+  if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado (${datos.escalafon ?? ''})`)
+
+  // Crear SolicitudAlta como transferencia aprobada directamente
+  await prisma.solicitudAlta.create({
+    data: {
+      hospitalId:      hospital.id,
+      escalafonId:     escalafon.id,
+      literalPuesto:   datos.literal_puesto ?? '',
+      especialidad:    datos.especialidad || null,
+      agrupador:       datos.agrupador || null,
+      unificadorPuesto: datos.unificador_de_puestos || null,
+      regimen:         datos.regimen || null,
+      cantidad:        1,
+      esTransferencia: true,
+      estado:          'aprobada',
+      solicitadoPorId: usuarioId,
+    },
+  })
+
+  return { ok: true, diffId }
+}
+
 // ─── Rechazar un diff nuevo individual (crea sin código de cargo) ────────────
 
 export async function rechazarDiffNuevoService(snapshotId: string, diffId: string) {

@@ -137,6 +137,13 @@ export function PadronDiffPage() {
     onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
   })
 
+  const transferenciaDiff = useMutation({
+    mutationFn: (diffId: string) => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/transferencia`),
+    onMutate: (diffId) => optimisticDecision(diffId, true),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
+  })
+
   const rechazarDiff = useMutation({
     mutationFn: (diffId: string) => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/rechazar`),
     onMutate: (diffId) => optimisticDecision(diffId, false),
@@ -488,10 +495,17 @@ export function PadronDiffPage() {
                               )
                               : (
                                 <div className="flex gap-1 justify-end">
-                                  <button className="btn-primary text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending} onClick={() => aprobarDiff.mutate(d.id)}>
+                                  <button className="btn-primary text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending} onClick={() => aprobarDiff.mutate(d.id)}>
                                     Aprobar
                                   </button>
-                                  <button className="btn-outline text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending} onClick={() => rechazarDiff.mutate(d.id)}>
+                                  <button
+                                    className="text-xs px-3 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                    disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending}
+                                    onClick={() => transferenciaDiff.mutate(d.id)}
+                                  >
+                                    Transferencia
+                                  </button>
+                                  <button className="btn-outline text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending} onClick={() => rechazarDiff.mutate(d.id)}>
                                     Sin código
                                   </button>
                                 </div>

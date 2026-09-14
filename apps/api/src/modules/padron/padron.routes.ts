@@ -17,6 +17,7 @@ import {
   getConflictosValidacionService,
   aprobarDiffNuevoService,
   rechazarDiffNuevoService,
+  marcarTransferenciaService,
   aprobarTodosDiffsPendientesService,
   diagnosticarDiffsNuevosService,
   getCamposModificadosService,
@@ -122,6 +123,17 @@ export async function padronRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const user = request.user as { id: string }
       const result = await aprobarDiffNuevoService(request.params.id, request.params.diffId, user.id)
+      return reply.send({ data: result })
+    }
+  )
+
+  // POST /snapshots/:id/diffs/:diffId/transferencia — aprobar como transferencia de otro ministerio
+  app.post<{ Params: { id: string; diffId: string } }>(
+    '/snapshots/:id/diffs/:diffId/transferencia',
+    { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
+    async (request, reply) => {
+      const user = request.user as { id: string }
+      const result = await marcarTransferenciaService(request.params.id, request.params.diffId, user.id)
       return reply.send({ data: result })
     }
   )
