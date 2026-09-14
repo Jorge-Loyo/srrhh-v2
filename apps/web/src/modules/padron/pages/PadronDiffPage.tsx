@@ -108,6 +108,12 @@ export function PadronDiffPage() {
   const cambioRolSet = new Set(
     diagnostico.data?.detalle.filter((d) => d.clasificacion === 'nuevo_rol').map((d) => d.idSialRol) ?? []
   )
+  // Mapa idSialRol → info de concurso abierto (si existe)
+  const concursoMap = new Map(
+    (diagnostico.data?.detalle ?? [])
+      .filter((d) => d.concursoCphId)
+      .map((d) => [d.idSialRol, { concursoCphId: d.concursoCphId!, concursoCodigo: d.concursoCodigo, estadoConcurso: d.estadoConcurso }])
+  )
 
   function optimisticDecision(diffId: string, decision: boolean) {
     queryClient.setQueriesData(
@@ -131,8 +137,9 @@ export function PadronDiffPage() {
   }
 
   const aprobarDiff = useMutation({
-    mutationFn: (diffId: string) => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/aprobar`),
-    onMutate: (diffId) => optimisticDecision(diffId, true),
+    mutationFn: ({ diffId, vincularConcursoId }: { diffId: string; vincularConcursoId?: string }) =>
+      apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/aprobar`, { vincularConcursoId }),
+    onMutate: ({ diffId }) => optimisticDecision(diffId, true),
     onSuccess: () => { if (soloPendientes) queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }) },
     onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
   })
@@ -493,23 +500,61 @@ export function PadronDiffPage() {
                                   {isAprobado ? '✓ Aprobado' : '✕ Sin código'}
                                 </span>
                               )
-                              : (
-                                <div className="flex gap-1 justify-end">
-                                  <button className="btn-primary text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending} onClick={() => aprobarDiff.mutate(d.id)}>
-                                    Aprobar
-                                  </button>
-                                  <button
-                                    className="text-xs px-3 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
-                                    disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending}
-                                    onClick={() => transferenciaDiff.mutate(d.id)}
-                                  >
-                                    Transferencia
-                                  </button>
-                                  <button className="btn-outline text-xs px-3 py-1" disabled={aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending} onClick={() => rechazarDiff.mutate(d.id)}>
-                                    Sin código
-                                  </button>
-                                </div>
-                              )
+                              : (() => {
+                                  const concurso = concursoMap.get(d.idSialRol)
+                                  const busy = aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending
+                                  return (
+                                    <div className="flex flex-col items-end gap-1.5">
+                                      {concurso && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                                          ⚠ Concurso abierto: {concurso.concursoCodigo ?? concurso.concursoCphId.slice(0, 8)}
+                                        </span>
+                                      )}
+                                      <div className="flex gap-1">
+                                        {concurso ? (
+                                          <>
+                                            <button
+                                              className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-green-600 border-green-700 text-white hover:bg-green-700"
+                                              disabled={busy}
+                                              onClick={() => aprobarDiff.mutate({ diffId: d.id, vincularConcursoId: concurso.concursoCphId })}
+                                            >
+                                              Aprobar + vincular
+                                            </button>
+                                            <button
+                                              className="btn-primary text-xs px-2 py-1"
+                                              disabled={busy}
+                                              onClick={() => aprobarDiff.mutate({ diffId: d.id })}
+                                            >
+                                              Aprobar
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <button
+                                            className="btn-primary text-xs px-3 py-1"
+                                            disabled={busy}
+                                            onClick={() => aprobarDiff.mutate({ diffId: d.id })}
+                                          >
+                                            Aprobar
+                                          </button>
+                                        )}
+                                        <button
+                                          className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                          disabled={busy}
+                                          onClick={() => transferenciaDiff.mutate(d.id)}
+                                        >
+                                          Transferencia
+                                        </button>
+                                        <button
+                                          className="btn-outline text-xs px-2 py-1"
+                                          disabled={busy}
+                                          onClick={() => rechazarDiff.mutate(d.id)}
+                                        >
+                                          Sin código
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )
+                                })()
                           )}
                         </td>
                       </tr>

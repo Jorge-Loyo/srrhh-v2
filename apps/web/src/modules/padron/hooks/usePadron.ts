@@ -127,6 +127,9 @@ export interface DiagnosticoNuevosItem {
   clasificacion: 'falso_nuevo' | 'nuevo_rol' | 'nuevo_de_0'
   estadoCargo: string | null
   codigoCargo: string | null
+  concursoCphId: string | null
+  concursoCodigo: string | null
+  estadoConcurso: string | null
 }
 
 export interface DiagnosticoNuevosResponse {

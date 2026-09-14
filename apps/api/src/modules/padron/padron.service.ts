@@ -1365,30 +1365,99 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   const parsed = diffs.map((d) => {
     const datos = JSON.parse(d.valorNuevo ?? '{}')
     const cuil = cuilDe(datos)
-    return { idSialRol: d.idSialRol, idSial: datos.id_sial as string | undefined, cuil, ayn: datos.ayn as string | undefined }
+    return {
+      diffId: d.id,
+      idSialRol: d.idSialRol,
+      idSial: datos.id_sial as string | undefined,
+      cuil,
+      ayn: datos.ayn as string | undefined,
+      siglas: datos.siglas as string | undefined,
+      escalafon: datos.escalafon as string | undefined,
+      literalPuesto: datos.literal_puesto as string | undefined,
+      codigoDeRegistro: datos.codigo_de_registro as string | undefined,
+    }
   })
 
-  const idSials = parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v))
-  const cuils   = parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v))
+  const idSials  = parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v))
+  const cuils    = parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v))
+  const siglas   = [...new Set(parsed.map((p) => p.siglas).filter((v): v is string => Boolean(v)))]
+  const codRegs  = [...new Set(parsed.map((p) => p.codigoDeRegistro).filter((v): v is string => Boolean(v)))]
+  const escNames = [...new Set(parsed.map((p) => p.escalafon).filter((v): v is string => Boolean(v)))]
 
-  const [cargosExistentes, personasExistentes] = await Promise.all([
+  const [cargosExistentes, personasExistentes, hospitalesLookup, codRegsLookup, escalafonesLookup] = await Promise.all([
     prisma.cargo.findMany({ where: { idSial: { in: idSials } }, select: { idSial: true, estado: true, codigo: true } }),
     prisma.persona.findMany({ where: { cuil: { in: cuils } }, select: { cuil: true } }),
+    prisma.hospital.findMany({ where: { sigla: { in: siglas } }, select: { id: true, sigla: true } }),
+    prisma.codigoRegistro.findMany({ where: { codigo: { in: codRegs } }, select: { codigo: true, escalafonId: true } }),
+    prisma.escalafon.findMany({ where: { nombre: { in: escNames }, activo: true }, select: { id: true, nombre: true } }),
   ])
 
-  const cargoMap   = new Map(cargosExistentes.map((c) => [c.idSial, c]))
-  const personaSet = new Set(personasExistentes.map((p) => p.cuil))
+  const cargoMap      = new Map(cargosExistentes.map((c) => [c.idSial, c]))
+  const personaSet    = new Set(personasExistentes.map((p) => p.cuil))
+  const hospitalMap   = new Map(hospitalesLookup.map((h) => [h.sigla, h.id]))
+  const codRegEscMap  = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap  = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+
+  // Buscar concursos CPH abiertos por clave estructural (hospital + escalafon + literal_puesto)
+  // para cada diff nuevo — un query por lote en vez de uno por fila.
+  // Clave: hospitalId:escalafonId:literalPuesto (normalizado a mayúsculas)
+  const clavesConcurso: { hospitalId: string; escalafonId: string; literalPuesto: string }[] = []
+  for (const p of parsed) {
+    const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
+    const escalafonId = (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro))
+      ?? (p.escalafon && escNombreMap.get(p.escalafon))
+    const literalPuesto = p.literalPuesto?.toUpperCase().trim()
+    if (hospitalId && escalafonId && literalPuesto) {
+      clavesConcurso.push({ hospitalId, escalafonId, literalPuesto })
+    }
+  }
+
+  // Traer todos los cargos vigentes con concurso abierto que matcheen alguna clave
+  const concursosCandidatos = clavesConcurso.length > 0
+    ? await prisma.concursoCph.findMany({
+        where: {
+          estado: { not: 'finalizado' },
+          suspendido: false,
+          cargo: {
+            estado: 'vigente',
+            hospitalId:  { in: [...new Set(clavesConcurso.map((c) => c.hospitalId))] },
+            escalafonId: { in: [...new Set(clavesConcurso.map((c) => c.escalafonId))] },
+          },
+        },
+        select: {
+          id: true,
+          estado: true,
+          cargo: { select: { id: true, hospitalId: true, escalafonId: true, literalPuesto: true, codigo: true } },
+          concurso: { select: { id: true } },
+        },
+      })
+    : []
+
+  // Índice: hospitalId:escalafonId:literalPuesto → concursoCph
+  type ConcursoInfo = { concursoCphId: string; concursoCodigo: string | null; estadoConcurso: string }
+  const concursoMap = new Map<string, ConcursoInfo>()
+  for (const cc of concursosCandidatos) {
+    const key = `${cc.cargo.hospitalId}:${cc.cargo.escalafonId}:${(cc.cargo.literalPuesto ?? '').toUpperCase().trim()}`
+    if (!concursoMap.has(key)) {
+      concursoMap.set(key, { concursoCphId: cc.id, concursoCodigo: cc.cargo.codigo, estadoConcurso: cc.estado })
+    }
+  }
 
   const resultado = parsed.map((p) => {
     const cargo         = p.idSial ? cargoMap.get(p.idSial) : undefined
     const personaExiste = p.cuil ? personaSet.has(p.cuil) : false
-    // Clasificación:
-    //   cargoExiste=true  → falso nuevo (cargo ya en DB, estado no_vigente/validacion_vacante)
-    //   personaExiste=true → nuevo rol (persona conocida, cargo genuinamente nuevo)
-    //   ambos false        → nuevo de 0 (persona y cargo nunca vistos)
     const clasificacion = cargo
       ? 'falso_nuevo'
       : personaExiste ? 'nuevo_rol' : 'nuevo_de_0'
+
+    // Buscar concurso abierto por clave estructural
+    const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
+    const escalafonId = (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro))
+      ?? (p.escalafon && escNombreMap.get(p.escalafon))
+    const literalPuesto = p.literalPuesto?.toUpperCase().trim() ?? ''
+    const concursoKey = hospitalId && escalafonId ? `${hospitalId}:${escalafonId}:${literalPuesto}` : null
+    const concursoAbierto = concursoKey ? concursoMap.get(concursoKey) : undefined
+
     return {
       idSialRol: p.idSialRol,
       idSial: p.idSial,
@@ -1397,6 +1466,10 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
       clasificacion,
       estadoCargo: cargo?.estado ?? null,
       codigoCargo: cargo?.codigo ?? null,
+      // Concurso CPH abierto que matchea estructuralmente con este diff
+      concursoCphId:     concursoAbierto?.concursoCphId ?? null,
+      concursoCodigo:    concursoAbierto?.concursoCodigo ?? null,
+      estadoConcurso:    concursoAbierto?.estadoConcurso ?? null,
     }
   })
 
@@ -1405,6 +1478,7 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
     falsosNuevos: resultado.filter((r) => r.clasificacion === 'falso_nuevo').length,
     nuevosRol:    resultado.filter((r) => r.clasificacion === 'nuevo_rol').length,
     nuevosDe0:    resultado.filter((r) => r.clasificacion === 'nuevo_de_0').length,
+    conConcursoAbierto: resultado.filter((r) => r.concursoCphId !== null).length,
     porEstadoCargo: Object.entries(
       resultado.filter((r) => r.estadoCargo).reduce((acc, r) => {
         acc[r.estadoCargo!] = (acc[r.estadoCargo!] ?? 0) + 1
@@ -1441,7 +1515,7 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
 
 // ─── Aprobar un diff nuevo individual ───────────────────────────────────────
 
-export async function aprobarDiffNuevoService(snapshotId: string, diffId: string, usuarioId: string) {
+export async function aprobarDiffNuevoService(snapshotId: string, diffId: string, usuarioId: string, vincularConcursoId?: string) {
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden aprobar diffs de tipo nuevo')
@@ -1592,6 +1666,19 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
           },
         })
       }
+    }
+
+    // Vincular concurso CPH: marcar como finalizado con la persona designada
+    if (vincularConcursoId && persona && cargo) {
+      await tx.concursoCph.update({
+        where: { id: vincularConcursoId },
+        data: {
+          estado: 'finalizado',
+          personaDesignadaId: persona.id,
+          // Actualizar el cargo del concurso al cargo real designado
+          cargoSial: datos.id_sial ?? null,
+        },
+      })
     }
 
     // Marcar diff como aprobado

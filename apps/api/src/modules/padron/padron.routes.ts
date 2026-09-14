@@ -117,12 +117,13 @@ export async function padronRoutes(app: FastifyInstance) {
   )
 
   // POST /snapshots/:id/diffs/:diffId/aprobar — aprobar un cargo nuevo individual
-  app.post<{ Params: { id: string; diffId: string } }>(
+  app.post<{ Params: { id: string; diffId: string }; Body: { vincularConcursoId?: string } }>(
     '/snapshots/:id/diffs/:diffId/aprobar',
     { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
     async (request, reply) => {
       const user = request.user as { id: string }
-      const result = await aprobarDiffNuevoService(request.params.id, request.params.diffId, user.id)
+      const { vincularConcursoId } = request.body ?? {}
+      const result = await aprobarDiffNuevoService(request.params.id, request.params.diffId, user.id, vincularConcursoId)
       return reply.send({ data: result })
     }
   )
