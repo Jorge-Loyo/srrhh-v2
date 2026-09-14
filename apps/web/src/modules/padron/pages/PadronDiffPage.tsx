@@ -493,8 +493,8 @@ export function PadronDiffPage() {
                                     {d.codigoReal ?? '✓ Asignado'}
                                   </span>
                                   {d.codigoReutilizado && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-                                      ↺ Cargo existente reutilizado
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                                      ↺ Cargo de concurso{d.concursoCodigo ? `: ${d.concursoCodigo}` : ''}
                                     </span>
                                   )}
                                 </div>

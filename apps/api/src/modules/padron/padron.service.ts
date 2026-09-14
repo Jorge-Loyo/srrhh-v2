@@ -689,27 +689,35 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   }
 
   // Para diffs nuevos aprobados: enriquecer con el código real del cargo creado.
-  // Se busca via ocupacion.idSialRol → cargo.codigo porque algunos cargos se
-  // crean via B-12 (clave estructural) y quedan con un id_sial distinto al del
-  // diff — la ocupación es la única relación que siempre existe tras aprobar.
-  // Si cargo.idSial != id_sial del diff → se marcó codigoReutilizado=true.
-  const codigoRealMap = new Map<string, { codigo: string; reutilizado: boolean }>()
+  // codigoReutilizado=true solo cuando el cargo proviene de un concurso CPH
+  // (el cargo ya existía con código asignado antes de la aprobación del diff).
+  const codigoRealMap = new Map<string, { codigo: string; reutilizado: boolean; concursoCodigo?: string | null }>()
   if (query.tipo === 'nuevo') {
     const diffsAprobados = diffs.filter((d) => d.aprobado === true)
     if (diffsAprobados.length > 0) {
       const idSialRoles = diffsAprobados.map((d) => d.idSialRol)
       const ocupaciones = await prisma.ocupacion.findMany({
         where: { idSialRol: { in: idSialRoles } },
-        select: { idSialRol: true, cargo: { select: { idSial: true, codigo: true } } },
+        select: {
+          idSialRol: true,
+          cargo: {
+            select: {
+              idSial: true,
+              codigo: true,
+              concursosCph: { select: { id: true, concurso: { select: { id: true } } }, take: 1 },
+            },
+          },
+        },
       })
       const ocupMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.cargo]))
       for (const d of diffsAprobados) {
         const cargo = ocupMap.get(d.idSialRol)
         if (!cargo?.codigo) continue
-        const idSialDiff = (() => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })()
+        const concursoCph = cargo.concursosCph[0]
         codigoRealMap.set(d.id, {
           codigo: cargo.codigo,
-          reutilizado: !!idSialDiff && cargo.idSial !== idSialDiff,
+          reutilizado: !!concursoCph,
+          concursoCodigo: concursoCph ? cargo.codigo : null,
         })
       }
     }
@@ -764,6 +772,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         codigoPreview: codigoPreviewMap.get(d.id) ?? null,
         codigoReal: codigoRealMap.get(d.id)?.codigo ?? null,
         codigoReutilizado: codigoRealMap.get(d.id)?.reutilizado ?? false,
+        concursoCodigo: codigoRealMap.get(d.id)?.concursoCodigo ?? null,
       })),
       meta: {
         total,
@@ -1612,37 +1621,35 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
       }
     }
 
-    // Crear o recuperar cargo — primero por idSial, luego por clave estructural (B-12)
-    let cargo: CargoRow | null = datos.id_sial
-      ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
-      : null
+    // Si hay concurso a vincular, usar el cargo del concurso directamente
+    // (no crear uno nuevo — el cargo ya existe y tiene código asignado)
+    let cargo: CargoRow | null = null
+    if (vincularConcursoId) {
+      const concurso = await tx.concursoCph.findUnique({
+        where: { id: vincularConcursoId },
+        select: { cargo: { select: { id: true, idSial: true, estado: true } } },
+      }) as { cargo: CargoRow } | null
+      if (concurso?.cargo) {
+        cargo = concurso.cargo
+        // Actualizar idSial del cargo del concurso al id_sial del padrón
+        await tx.cargo.update({
+          where: { id: cargo.id },
+          data: { idSial: datos.id_sial },
+        })
+        cargo = { ...cargo, idSial: datos.id_sial }
+      }
+    }
+
+    // Si no hay concurso, buscar por idSial exacto (fuente de verdad del padrón)
+    if (!cargo) {
+      cargo = datos.id_sial
+        ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
+        : null
+    }
 
     if (cargo) {
       if (cargo.estado === 'no_vigente' || cargo.estado === 'validacion_vacante') {
         await tx.cargo.update({ where: { id: cargo.id }, data: { estado: 'vigente', estadoDesde: null } })
-      }
-    }
-
-    // B-12: si no matchea por idSial, buscar por clave estructural antes de crear uno nuevo
-    if (!cargo && datos.id_sial && datos.codigo_repa && datos.literal_puesto) {
-      const cargoEstructural = await tx.cargo.findFirst({
-        where: {
-          hospitalId: hospital.id,
-          escalafonId: escalafon.id,
-          codigoRepa: datos.codigo_repa,
-          literalPuesto: datos.literal_puesto,
-        },
-        select: { id: true, idSial: true, estado: true },
-      }) as CargoRow | null
-      if (cargoEstructural) {
-        await tx.cargo.update({
-          where: { id: cargoEstructural.id },
-          data: {
-            idSial: datos.id_sial,
-            ...(cargoEstructural.estado !== 'vigente' ? { estado: 'vigente', estadoDesde: null } : {}),
-          },
-        })
-        cargo = { id: cargoEstructural.id, idSial: datos.id_sial, estado: 'vigente' }
       }
     }
 
@@ -1701,13 +1708,12 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     }
 
     // Vincular concurso CPH: marcar como finalizado con la persona designada
-    if (vincularConcursoId && persona && cargo) {
+    if (vincularConcursoId && persona) {
       await tx.concursoCph.update({
         where: { id: vincularConcursoId },
         data: {
           estado: 'finalizado',
           personaDesignadaId: persona.id,
-          // Actualizar el cargo del concurso al cargo real designado
           cargoSial: datos.id_sial ?? null,
         },
       })

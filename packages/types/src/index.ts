@@ -265,7 +265,8 @@ export interface PadronDiff {
   aprobado: boolean | null
   codigoPreview?: string | null     // solo en tab nuevos pendientes: código que se generaría
   codigoReal?: string | null         // solo en tab nuevos aprobados: código real asignado
-  codigoReutilizado?: boolean        // true si el cargo ya existía (B-12) y no se creó uno nuevo
+  codigoReutilizado?: boolean        // true si el cargo proviene de un concurso CPH vinculado
+  concursoCodigo?: string | null     // código del cargo del concurso (cuando codigoReutilizado=true)
   apellidoNombre?: string | null  // modificados y eliminados: nombre de la persona
   clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null  // solo eliminados
   codigoCargo?: string | null  // solo eliminados: código del cargo en la BD
