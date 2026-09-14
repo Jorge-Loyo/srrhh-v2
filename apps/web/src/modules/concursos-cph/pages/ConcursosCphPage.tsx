@@ -7,6 +7,7 @@ import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
+import { apiClient } from '@/shared/lib/api-client'
 import {
   ESTADO_LABEL,
   ESTADO_BADGE,
@@ -29,7 +30,23 @@ export function ConcursosCphPage() {
   const [suspendido, setSuspendido] = useState<'' | 'true' | 'false'>('')
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [importResult, setImportResult] = useState<{ total: number; actualizados: number; noEncontrados: number } | null>(null)
   const searchDebounced = useDebounce(search, 300)
+
+  async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportando(true)
+    setImportResult(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await apiClient.post('/api/v1/concursos-cph/importar-csv', form)
+      setImportResult(res.data.data)
+    } catch { alert('Error al importar el archivo') }
+    finally { setImportando(false); e.target.value = '' }
+  }
 
   const filters: ConcursoCphFilters = {
     page,
@@ -57,10 +74,21 @@ export function ConcursosCphPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
-          <button className="btn-outline" onClick={() => setShowFlujo(true)}>
-            📋 Flujo del concurso
-          </button>
+          <div className="flex items-center gap-2">
+            <label className={`btn-outline text-sm cursor-pointer ${importando ? 'opacity-50 pointer-events-none' : ''}`}>
+              {importando ? 'Importando...' : '↑ Importar CSV'}
+              <input type="file" accept=".csv" className="hidden" onChange={handleImportarCsv} disabled={importando} />
+            </label>
+            <button className="btn-outline" onClick={() => setShowFlujo(true)}>
+              📋 Flujo del concurso
+            </button>
+          </div>
         </div>
+        {importResult && (
+          <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
+            Importación completada — {importResult.actualizados} actualizados, {importResult.noEncontrados} no encontrados de {importResult.total} filas.
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3">
           <input

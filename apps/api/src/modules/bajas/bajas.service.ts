@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
@@ -438,6 +439,86 @@ export async function rechazarValidacionService(cargoId: string) {
       data: { estado: 'vigente', estadoDesde: null },
     })
   })
+}
+
+// ─── Importar CSV de bajas CPH ──────────────────────────────────────────────────
+// Clave de match: cargo (id_sial) + ex_baja_ampliacion (ee_baja).
+// Crea la baja si no existe, actualiza si ya existe.
+export async function importarBajasCsvService(buffer: Buffer) {
+  const rows: Record<string, string>[] = parseCsv(buffer, {
+    columns: true, skip_empty_lines: true, trim: true, relax_quotes: true,
+  })
+
+  function fecha(v: string | undefined): Date | null {
+    if (!v || v.trim() === '' || v === 'nan') return null
+    const d = new Date(v)
+    return isNaN(d.getTime()) ? null : d
+  }
+  function str(v: string | undefined): string | null {
+    if (!v || v.trim() === '' || v === 'nan') return null
+    return v.trim()
+  }
+
+  let creados = 0, actualizados = 0, noEncontrados = 0
+
+  for (const row of rows) {
+    const idSial  = str(row['cargo'])
+    const eeBaja  = str(row['ex_baja_ampliacion'])
+    if (!idSial) { noEncontrados++; continue }
+
+    const cargo = await prisma.cargo.findFirst({ where: { idSial } })
+    if (!cargo) { noEncontrados++; continue }
+
+    const fechaBaja    = fecha(row['fecha_de_baja_ampliacion'])
+    const tipoBaja     = str(row['motivo_de_baja'])
+    const observaciones = str(row['observaciones'])
+    const cuil         = str(row['cuil'])?.replace(/-/g, '')
+
+    // Buscar persona por CUIL si viene en el CSV
+    let personaId: string | null = null
+    if (cuil) {
+      const persona = await prisma.persona.findFirst({ where: { cuil } })
+      personaId = persona?.id ?? null
+    }
+
+    // Buscar baja existente por cargoId + eeBaja
+    const bajaExistente = eeBaja
+      ? await prisma.baja.findFirst({ where: { cargoId: cargo.id, eeBaja } })
+      : await prisma.baja.findFirst({ where: { cargoId: cargo.id } })
+
+    if (bajaExistente) {
+      await prisma.baja.update({
+        where: { id: bajaExistente.id },
+        data: {
+          ...(fechaBaja   && { fechaBaja }),
+          ...(tipoBaja    && { tipoBaja }),
+          ...(eeBaja      && { eeBaja }),
+          ...(personaId   && { personaId }),
+          ...(observaciones && { observaciones }),
+        },
+      })
+      actualizados++
+    } else {
+      // Crear baja en estado confirmada (viene del CSV histórico)
+      await prisma.baja.create({
+        data: {
+          cargoId:    cargo.id,
+          hospitalId: cargo.hospitalId,
+          personaId,
+          fechaBaja:  fechaBaja ?? new Date(),
+          tipoBaja,
+          eeBaja,
+          observaciones,
+          generaConcurso: true,
+          estado: 'confirmada',
+          tipificadorOrigen: str(row['tipificador_1_origen']) ?? 'Importado CSV',
+        },
+      })
+      creados++
+    }
+  }
+
+  return { total: rows.length, creados, actualizados, noEncontrados }
 }
 
 export async function createBajaService(body: CreateBajaBody, usuarioId: string) {

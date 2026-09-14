@@ -124,7 +124,23 @@ export function BajaCargosPage() {
   const [estado,     setEstado]     = useState('')
   const [page,       setPage]       = useState(1)
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [importResult, setImportResult] = useState<{ total: number; creados: number; actualizados: number; noEncontrados: number } | null>(null)
   const searchDebounced = useDebounce(search, 300)
+
+  async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportando(true)
+    setImportResult(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await apiClient.post('/api/v1/bajas/importar-csv', form)
+      setImportResult(res.data.data)
+    } catch { alert('Error al importar el archivo') }
+    finally { setImportando(false); e.target.value = '' }
+  }
 
   const filters = {
     page, limit: LIMIT,
@@ -144,12 +160,25 @@ export function BajaCargosPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Baja de Cargos</h1>
-          {puedeCrear && (
-            <button className="btn-danger" onClick={() => navigate('/cargos/baja/nueva?sinConcurso=1')}>
-              + Nueva Baja
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {puedeCrear && (
+              <label className={`btn-outline text-sm cursor-pointer ${importando ? 'opacity-50 pointer-events-none' : ''}`}>
+                {importando ? 'Importando...' : '↑ Importar CSV'}
+                <input type="file" accept=".csv" className="hidden" onChange={handleImportarCsv} disabled={importando} />
+              </label>
+            )}
+            {puedeCrear && (
+              <button className="btn-danger" onClick={() => navigate('/cargos/baja/nueva?sinConcurso=1')}>
+                + Nueva Baja
+              </button>
+            )}
+          </div>
         </div>
+        {importResult && (
+          <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
+            Importación completada — {importResult.actualizados} actualizadas, {importResult.creados} creadas, {importResult.noEncontrados} no encontradas de {importResult.total} filas.
+          </div>
+        )}
         <div className="flex flex-wrap gap-3">
           <input type="text" placeholder="Buscar por código de cargo, persona, motivo..."
             value={search} onChange={(e) => resetPage(setSearch)(e.target.value)}

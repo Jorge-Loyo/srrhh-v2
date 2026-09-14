@@ -1,13 +1,24 @@
 import type { FastifyInstance } from 'fastify'
+import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema, updateBajaSchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, confirmarValidacionService, rechazarValidacionService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
 export async function bajasRoutes(app: FastifyInstance) {
+  await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } })
   app.addHook('preHandler', authenticate)
+
+  // POST /importar-csv — actualizar bajas CPH desde CSV semanal
+  app.post('/importar-csv', { preHandler: requirePermiso(WRITE_PERMISO) }, async (request, reply) => {
+    const data = await request.file()
+    if (!data) throw new Error('Archivo requerido')
+    const buffer = await data.toBuffer()
+    const result = await importarBajasCsvService(buffer)
+    return reply.send({ data: result })
+  })
 
   // GET / — S5-4: listado paginado con filtros
   app.get('/', async (request, reply) => {

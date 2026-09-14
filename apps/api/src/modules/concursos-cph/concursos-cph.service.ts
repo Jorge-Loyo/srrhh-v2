@@ -1,4 +1,5 @@
 import { Prisma, type ConcursoCph } from '@prisma/client'
+import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody, DesignarCphBody, DeclararDesiertoBody } from './concursos-cph.schema.js'
@@ -511,7 +512,124 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
   })
 }
 
-// ─── PS16D-3: declarar desierto ──────────────────────────────────────────────
+// ─── Importar CSV de concursos CPH ─────────────────────────────────────────
+// Clave de match: ee_concurso (expediente). Si no existe, intenta por cargo_baja (id_sial).
+// Actualiza campos sin tocar el flujo de autorizaciones.
+export async function importarConcursosCsvService(buffer: Buffer) {
+  const rows: Record<string, string>[] = parseCsv(buffer, {
+    columns: true, skip_empty_lines: true, trim: true, relax_quotes: true,
+  })
+
+  function fecha(v: string | undefined): Date | null {
+    if (!v || v.trim() === '' || v === 'nan') return null
+    const d = new Date(v)
+    return isNaN(d.getTime()) ? null : d
+  }
+  function bool(v: string | undefined): boolean | null {
+    if (!v || v.trim() === '') return null
+    return v.toLowerCase() === 'true' || v === '1' || v.toLowerCase() === 'si'
+  }
+  function str(v: string | undefined): string | null {
+    if (!v || v.trim() === '' || v === 'nan') return null
+    return v.trim()
+  }
+  function num(v: string | undefined): number | null {
+    if (!v || v.trim() === '') return null
+    const n = parseInt(v, 10)
+    return isNaN(n) ? null : n
+  }
+
+  let actualizados = 0, noEncontrados = 0
+
+  for (const row of rows) {
+    const eeConcurso   = str(row['ee_concurso'])
+    const cargoBaja    = str(row['cargo_baja'])
+    const suspendido   = bool(row['suspendido'])
+
+    // Buscar el ConcursoCph por ee_concurso o por cargo (id_sial)
+    let concursoCph = eeConcurso
+      ? await prisma.concursoCph.findFirst({ where: { eeConcurso } })
+      : null
+
+    if (!concursoCph && cargoBaja) {
+      const cargo = await prisma.cargo.findFirst({ where: { idSial: cargoBaja } })
+      if (cargo) {
+        concursoCph = await prisma.concursoCph.findFirst({ where: { cargoId: cargo.id } })
+      }
+    }
+
+    if (!concursoCph) { noEncontrados++; continue }
+
+    // Construir patch con los campos del CSV
+    const patch: Prisma.ConcursoCphUpdateInput = {
+      ...(eeConcurso                          && { eeConcurso }),
+      ...(fecha(row['fecha_ee_concurso'])      && { fechaEeConcurso:    fecha(row['fecha_ee_concurso']) }),
+      ...(fecha(row['fecha_autorizacion'])     && { fechaAutorizacion:  fecha(row['fecha_autorizacion']) }),
+      ...(fecha(row['sorteo_de_jurado'])       && { sorteoJurado:       fecha(row['sorteo_de_jurado']) }),
+      ...(str(row['disposicion'])              && { disposicion:        str(row['disposicion']) }),
+      ...(fecha(row['fecha_insc_desde'])       && { fechaInscDesde:     fecha(row['fecha_insc_desde']) }),
+      ...(fecha(row['fecha_insc_hasta'])       && { fechaInscHasta:     fecha(row['fecha_insc_hasta']) }),
+      ...(num(row['q_inscriptos']) !== null    && { qInscriptos:        num(row['q_inscriptos']) }),
+      ...(fecha(row['fecha_examen'])           && { fechaExamen:        fecha(row['fecha_examen']) }),
+      ...(fecha(row['fecha_om'])               && { fechaOrdenMerito:   fecha(row['fecha_om']) }),
+      ...(fecha(row['fecha_ifacs'])            && { fechaIfacs:         fecha(row['fecha_ifacs']) }),
+      ...(str(row['insal'])                    && { insal:              str(row['insal']) }),
+      ...(fecha(row['fecha_insal'])            && { fechaInsal:         fecha(row['fecha_insal']) }),
+      ...(str(row['ee_designacion'])           && { eeDesignacion:      str(row['ee_designacion']) }),
+      ...(bool(row['carga_de_documentacion']) !== null && { cargaDocumentacion: bool(row['carga_de_documentacion']) }),
+      ...(fecha(row['fecha_apto_medico'])      && { fechaAptoMedico:    fecha(row['fecha_apto_medico']) }),
+      ...(fecha(row['fecha_ite'])              && { fechaIte:           fecha(row['fecha_ite']) }),
+      ...(fecha(row['fecha_resolucion'])       && { fechaResolucion:    fecha(row['fecha_resolucion']) }),
+      ...(bool(row['proyecto_de_resolucion']) !== null && { proyectoResolucion: bool(row['proyecto_de_resolucion']) }),
+      ...(bool(row['reso_a_la_firma'])        !== null && { resoALaFirma:       bool(row['reso_a_la_firma']) }),
+      ...(str(row['resolucion_de_designacion']) && { resolucionDesignacion: str(row['resolucion_de_designacion']) }),
+      ...(str(row['cargo_sial'])               && { cargoSial:          str(row['cargo_sial']) }),
+      ...(suspendido !== null                  && { suspendido: suspendido! }),
+      ...(str(row['dispo_desierta'])           && { dispoDesierta:      str(row['dispo_desierta']) }),
+      ...(fecha(row['fecha_dispo_desierta'])   && { fechaDispoDesierta: fecha(row['fecha_dispo_desierta']) }),
+      ...(str(row['observaciones'])            && { observaciones:      str(row['observaciones']) }),
+      ...(str(row['especialidad_solicitada_2']) && { especialidadSolicitada: str(row['especialidad_solicitada_2']) }),
+      ...(str(row['puesto_2'])                 && { puestoSolicitado:   str(row['puesto_2']) }),
+    }
+
+    // Recalcular estado/subEstado
+    const merged = { ...concursoCph, ...patch } as unknown as ConcursoCph
+    const calc = calcConcursoCph({
+      suspendido:            merged.suspendido,
+      eeBaja:                merged.eeBaja,
+      fechaBaja:             merged.fechaBaja,
+      eeConcurso:            merged.eeConcurso,
+      fechaEeConcurso:       merged.fechaEeConcurso,
+      fechaAutorizacion:     merged.fechaAutorizacion,
+      sorteoJurado:          merged.sorteoJurado,
+      disposicion:           merged.disposicion,
+      fechaInscHasta:        merged.fechaInscHasta,
+      fechaExamen:           merged.fechaExamen,
+      fechaOrdenMerito:      merged.fechaOrdenMerito,
+      fechaIfacs:            merged.fechaIfacs,
+      fechaInsal:            merged.fechaInsal,
+      eeDesignacion:         merged.eeDesignacion,
+      cargaDocumentacion:    merged.cargaDocumentacion,
+      fechaAptoMedico:       merged.fechaAptoMedico,
+      fechaIte:              merged.fechaIte,
+      proyectoResolucion:    merged.proyectoResolucion,
+      resoALaFirma:          merged.resoALaFirma,
+      resolucionDesignacion: merged.resolucionDesignacion,
+      fechaResolucion:       merged.fechaResolucion,
+      cargoSial:             merged.cargoSial,
+      dispoDesierta:         merged.dispoDesierta,
+      fechaDispoDesierta:    merged.fechaDispoDesierta,
+    })
+
+    await prisma.concursoCph.update({
+      where: { id: concursoCph.id },
+      data: { ...patch, estado: calc.estado, subEstado: calc.subEstado, subEstado3: calc.subEstado3 },
+    })
+    actualizados++
+  }
+
+  return { total: rows.length, actualizados, noEncontrados }
+}
 // Guarda snapshot en ConcursoCphDesierto, limpia campos de la ronda,
 // pone suspendido=true y sub-estado Q-DESIERTO.
 export async function declararDesiertoService(id: string, body: DeclararDesiertoBody, usuarioId: string) {

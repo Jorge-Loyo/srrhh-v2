@@ -1294,7 +1294,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }
       if (Object.keys(updateOcupacion).length > 0) {
-        await tx.ocupacion.update({ where: { idSialRol }, data: updateOcupacion })
+        await tx.ocupacion.updateMany({ where: { idSialRol }, data: updateOcupacion })
       }
     }
 

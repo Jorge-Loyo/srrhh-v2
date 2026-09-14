@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema } from './concursos-cph.schema.js'
@@ -10,6 +11,7 @@ import {
   getPersonaDesignadaService,
   designarConcursoCphService,
   declararDesiertoService,
+  importarConcursosCsvService,
 } from './concursos-cph.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -17,7 +19,17 @@ import {
 const WRITE_PERMISO = { modulo: 'concursos-cph', accion: 'editar' }
 
 export async function concursosCphRoutes(app: FastifyInstance) {
+  await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } })
   app.addHook('preHandler', authenticate)
+
+  // POST /importar-csv — actualizar concursos CPH desde CSV semanal
+  app.post('/importar-csv', { preHandler: requirePermiso(WRITE_PERMISO) }, async (request, reply) => {
+    const data = await request.file()
+    if (!data) throw new Error('Archivo requerido')
+    const buffer = await data.toBuffer()
+    const result = await importarConcursosCsvService(buffer)
+    return reply.send({ data: result })
+  })
 
   // GET / — S4-1: listado paginado con filtros
   app.get('/', async (request, reply) => {
