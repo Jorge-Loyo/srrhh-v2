@@ -688,6 +688,29 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     }
   }
 
+  // Para diffs nuevos aprobados: enriquecer con el código real del cargo creado
+  const codigoRealMap = new Map<string, string>()
+  if (query.tipo === 'nuevo') {
+    const diffsAprobados = diffs.filter((d) => d.aprobado === true)
+    if (diffsAprobados.length > 0) {
+      const idSialsAprobados = diffsAprobados
+        .map((d) => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })
+        .filter((v): v is string => Boolean(v))
+      const cargosCreados = await prisma.cargo.findMany({
+        where: { idSial: { in: idSialsAprobados } },
+        select: { idSial: true, codigo: true },
+      })
+      const cargoCodigoMap = new Map(cargosCreados.map((c) => [c.idSial, c.codigo]))
+      for (const d of diffsAprobados) {
+        try {
+          const idSial = (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string
+          const codigo = idSial ? cargoCodigoMap.get(idSial) : null
+          if (codigo) codigoRealMap.set(d.id, codigo)
+        } catch { /* ignorar */ }
+      }
+    }
+  }
+
   // Preview de código para diffs nuevos pendientes/rechazados — un MAX por
   // prefijo distinto (~15 prefijos), no uno por diff.
   const codigoPreviewMap = new Map<string, string>()
@@ -732,7 +755,11 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     },
     summary: { nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados, eliminadosConPersona, eliminadosEnValidacion, eliminadosSinPersona },
     diffs: {
-      data: diffsConNombre.map((d) => ({ ...d, codigoPreview: codigoPreviewMap.get(d.id) ?? null })),
+      data: diffsConNombre.map((d) => ({
+        ...d,
+        codigoPreview: codigoPreviewMap.get(d.id) ?? null,
+        codigoReal: codigoRealMap.get(d.id) ?? null,
+      })),
       meta: {
         total,
         page: query.page,

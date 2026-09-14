@@ -279,8 +279,8 @@ export function PadronDiffPage() {
           })}
         </div>
 
-        {/* Sub-tabs: Nuevos cargos */}
-        {tab === TipoDiff.NUEVO && (
+        {/* Sub-tabs: Nuevos cargos — solo cuando está pendiente (el diagnóstico solo carga pendientes) */}
+        {tab === TipoDiff.NUEVO && snapshot.estado !== 'aprobado' && (
           <div className="flex gap-1 border-b border-gray-100 bg-gray-50 px-4">
             {([
               { key: 'ingreso' as SubTabNuevos, label: 'Ingreso', count: ingresosSet.size },
@@ -460,6 +460,8 @@ export function PadronDiffPage() {
                 {diffs.data
                   .filter((d) => {
                     if (tab !== 'nuevo' || !diagnostico.data) return true
+                    // Si el snapshot está aprobado no hay diagnóstico (solo carga pendientes) — mostrar todos
+                    if (snapshot.estado === 'aprobado') return true
                     return subTabNuevos === 'ingreso' ? ingresosSet.has(d.idSialRol) : cambioRolSet.has(d.idSialRol)
                   })
                   .map((d) => {
@@ -485,7 +487,7 @@ export function PadronDiffPage() {
                         {tab === 'nuevo' && (
                           <td className="px-4 py-3 text-gray-500 font-mono text-xs">
                             {isAprobado
-                              ? <span className="text-green-600 font-semibold">✓ Asignado</span>
+                              ? <span className="text-green-600 font-semibold">{(d as any).codigoReal ?? '✓ Asignado'}</span>
                               : isRechazado
                                 ? <span className="text-gray-400">⚠ Sin asignar</span>
                                 : d.codigoPreview ? <span className="text-blue-700">{d.codigoPreview}</span> : '—'
