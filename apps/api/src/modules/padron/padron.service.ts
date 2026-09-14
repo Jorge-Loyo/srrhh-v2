@@ -8,6 +8,18 @@ import { env } from '../../config/env.js'
 import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
 import type { DiffQuery } from './padron.schema.js'
 
+// Prefijos que se aprueban automáticamente al subir el padrón:
+// Residentes (RES), Docentes (DOC) y Autoridades Superiores (AS-*)
+// no pasan por revisión de este departamento.
+function esAutoAprobable(datos: Record<string, string>): boolean {
+  const prefijo = prefijoDeCargo({
+    escalafon: datos.escalafon ?? null,
+    unificadorPuesto: datos.unificador_de_puestos ?? null,
+    agrupador: datos.agrupador ?? null,
+  })
+  return prefijo === 'RES' || prefijo === 'DOC' || prefijo.startsWith('AS-')
+}
+
 // Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
 // sobre por qué no se recibe el MultipartFile crudo acá (el stream tiene que
 // consumirse mientras el part está activo en el iterador de request.parts()).
@@ -423,13 +435,14 @@ async function runPipeline(
       // arriesga pasarse del límite de parámetros de Postgres.
       for (const lote of chunk(diffs, 2000)) {
         await tx.padronDiff.createMany({
-          data: lote.map((d) => ({
-            ...d,
-            snapshotId,
-            // Los diffs "nuevo" requieren aprobación individual antes de
-            // crear el cargo — nacen con aprobado=null (pendiente decisión).
-            aprobado: d.tipo !== 'nuevo' ? true : null,
-          })),
+          data: lote.map((d) => {
+            if (d.tipo !== 'nuevo') return { ...d, snapshotId, aprobado: true }
+            // RES / DOC / AS-* se aprueban automáticamente — no requieren
+            // revisión manual de este departamento.
+            const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+            const autoAprobado = esAutoAprobable(datos)
+            return { ...d, snapshotId, aprobado: autoAprobado ? true : null }
+          }),
         })
       }
       await tx.padronSnapshot.update({
