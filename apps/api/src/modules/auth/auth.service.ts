@@ -26,7 +26,7 @@ function refreshExpiresAt() {
   return new Date(Date.now() + ms)
 }
 
-async function createRefreshToken(usuarioId: string, familyId: string, signToken: (p: object) => string) {
+async function createRefreshToken(usuarioId: string, familyId: string, ip: string | null) {
   const raw = crypto.randomBytes(40).toString('hex')
   await prisma.refreshToken.create({
     data: {
@@ -34,6 +34,7 @@ async function createRefreshToken(usuarioId: string, familyId: string, signToken
       tokenHash: hashToken(raw),
       familyId,
       expiresAt: refreshExpiresAt(),
+      ip,
     },
   })
   return raw
@@ -60,7 +61,7 @@ function buildUserPayload(usuario: {
 
 // ─── login ───────────────────────────────────────────────────────────────────
 
-export async function loginService(body: LoginBody, signToken: (payload: object) => string) {
+export async function loginService(body: LoginBody, signToken: (payload: object) => string, ip: string | null = null) {
   const usuario = await prisma.usuario.findUnique({
     where: { username: body.username },
     include: { role: true },
@@ -75,7 +76,7 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
 
   const familyId = crypto.randomUUID()
   const accessToken = signToken(buildUserPayload(usuario))
-  const refreshToken = await createRefreshToken(usuario.id, familyId, signToken)
+  const refreshToken = await createRefreshToken(usuario.id, familyId, ip)
   const permisos = await getPermisosEfectivos(usuario.roleId, usuario.role.slug)
 
   return {
@@ -96,7 +97,7 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
 
 // ─── refresh ─────────────────────────────────────────────────────────────────
 
-export async function refreshTokenService(body: RefreshBody, signToken: (payload: object) => string) {
+export async function refreshTokenService(body: RefreshBody, signToken: (payload: object) => string, ip: string | null = null) {
   const tokenHash = hashToken(body.refreshToken)
 
   // Transacción atómica: revoca el token y lo lee en una sola operación.
@@ -146,7 +147,7 @@ export async function refreshTokenService(body: RefreshBody, signToken: (payload
   if (!usuario || !usuario.activo) throw AppError.unauthorized('Usuario inactivo')
 
   const accessToken = signToken(buildUserPayload(usuario))
-  const newRefreshToken = await createRefreshToken(usuario.id, stored.familyId, signToken)
+  const newRefreshToken = await createRefreshToken(usuario.id, stored.familyId, ip)
 
   return { accessToken, refreshToken: newRefreshToken }
 }

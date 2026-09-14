@@ -8,8 +8,14 @@ export interface TokenRow {
   familyId: string
   expiresAt: string
   revocado: boolean
+  ip: string | null
   createdAt: string
 }
+
+// La pantalla se refresca sola para que "cerrar sesión" se sienta en tiempo
+// real: si alguien más (u otra pestaña) cierra o abre una sesión, se ve acá
+// sin que haga falta recargar a mano — pedido explícito 2026-09-14.
+const REFRESH_INTERVAL_MS = 5000
 
 export interface TokensFilters {
   page: number
@@ -38,6 +44,8 @@ export function useTokens(filters: TokensFilters) {
       return res.data
     },
     placeholderData: (prev) => prev,
+    refetchInterval: REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 }
 

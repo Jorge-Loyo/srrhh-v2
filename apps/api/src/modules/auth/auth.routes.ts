@@ -5,13 +5,13 @@ import { loginService, refreshTokenService, logoutService } from './auth.service
 export async function authRoutes(app: FastifyInstance) {
   app.post('/login', async (request, reply) => {
     const body = loginSchema.parse(request.body)
-    const result = await loginService(body, (payload) => app.jwt.sign(payload))
+    const result = await loginService(body, (payload) => app.jwt.sign(payload), request.ip)
     return reply.send({ data: result })
   })
 
   app.post('/refresh', async (request, reply) => {
     const body = refreshSchema.parse(request.body)
-    const result = await refreshTokenService(body, (payload) => app.jwt.sign(payload))
+    const result = await refreshTokenService(body, (payload) => app.jwt.sign(payload), request.ip)
     return reply.send({ data: result })
   })
 
