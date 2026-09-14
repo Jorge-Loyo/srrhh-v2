@@ -529,7 +529,7 @@ export function PadronDiffPage() {
                               ? (
                                 <div className="flex flex-col items-end gap-1">
                                   <span className="text-green-600 font-semibold font-mono">
-                                    {d.codigoReal ?? '✓ Asignado'}
+                                    {d.codigoReal ?? d.codigoPreview ?? '✓ Asignado'}
                                   </span>
                                   {d.codigoReutilizado && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
@@ -704,6 +704,9 @@ export function PadronDiffPage() {
                         {' '}
                         <span className="font-normal text-gray-600">{c.literalPuesto}</span>
                       </p>
+                      {c.especialidad && (
+                        <p className="text-xs text-indigo-600 font-medium mt-0.5 truncate">{c.especialidad}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-0.5">
                         {c.hospital}
                         {c.eeConcurso && <> · {c.eeConcurso}</>}

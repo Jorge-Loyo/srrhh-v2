@@ -34,7 +34,7 @@ function RowDetalle({ label, value }: { label: string; value: React.ReactNode })
   )
 }
 
-function ModalDetalleBaja({ baja, onClose }: { baja: Baja & { solicitudesAlta?: { id: string; expediente: string | null; estado: string; literalPuesto: string }[] }; onClose: () => void }) {
+function ModalDetalleBaja({ baja, onClose }: { baja: Baja & { enSial?: boolean; solicitudesAlta?: { id: string; expediente: string | null; estado: string; literalPuesto: string }[] }; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
@@ -72,6 +72,11 @@ function ModalDetalleBaja({ baja, onClose }: { baja: Baja & { solicitudesAlta?: 
               baja.generaConcurso
                 ? <span className="badge-info">Sí</span>
                 : <span className="badge-default">No</span>
+            } />
+            <RowDetalle label="En SIAL" value={
+              baja.enSial
+                ? <span className="badge-success">✓ Vinculada en SIAL</span>
+                : <span className="badge-default">No encontrada en SIAL</span>
             } />
             {baja.observaciones && <RowDetalle label="Observaciones" value={baja.observaciones} />}
             <RowDetalle label="Registrado por" value={baja.registradoPor?.username} />
@@ -125,7 +130,7 @@ export function BajaCargosPage() {
   const [page,       setPage]       = useState(1)
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
   const [importando, setImportando] = useState(false)
-  const [importResult, setImportResult] = useState<{ total: number; creados: number; actualizados: number; noEncontrados: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ total: number; creados: number; actualizados: number; noEncontrados: number; omitidos: number } | null>(null)
   const searchDebounced = useDebounce(search, 300)
 
   async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
@@ -176,7 +181,8 @@ export function BajaCargosPage() {
         </div>
         {importResult && (
           <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
-            Importación completada — {importResult.actualizados} actualizadas, {importResult.creados} creadas, {importResult.noEncontrados} no encontradas de {importResult.total} filas.
+            Importación completada — {importResult.actualizados} actualizadas, {importResult.creados} creadas,
+            {' '}{importResult.noEncontrados} no encontradas, {importResult.omitidos} omitidas (otros años) de {importResult.total} filas.
           </div>
         )}
         <div className="flex flex-wrap gap-3">
@@ -218,6 +224,7 @@ export function BajaCargosPage() {
                     <th className="px-4 py-3 font-semibold">Hospital</th>
                     <th className="px-4 py-3 font-semibold">Persona</th>
                     <th className="px-4 py-3 font-semibold">Motivo</th>
+                    <th className="px-4 py-3 font-semibold">SIAL</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
                     <th className="px-4 py-3 font-semibold" />
                   </tr>
@@ -231,6 +238,12 @@ export function BajaCargosPage() {
                       <td className="px-4 py-3 text-gray-600">{b.cargo?.hospital?.sigla ?? b.hospital?.sigla ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{b.persona?.apellidoNombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{b.motivo ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        {(b as any).enSial
+                          ? <span className="badge-success text-xs">✓ En SIAL</span>
+                          : <span className="badge-default text-xs">No</span>
+                        }
+                      </td>
                       <td className="px-4 py-3">
                         <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
                           {fmtEstado(b.estado)}

@@ -25,6 +25,14 @@ const include = {
   },
 } satisfies Prisma.BajaInclude
 
+// Set de id_sial presentes en algún snapshot SIAL (cache por request)
+async function getSialIdSialSet(): Promise<Set<string>> {
+  const rows = await prisma.$queryRaw<{ cargo: string }[]>`
+    SELECT DISTINCT cargo FROM baja_sial_registros
+  `
+  return new Set(rows.map((r) => r.cargo))
+}
+
 // --- S5-4: listado paginado con filtros -------------------------------------
 export async function listBajasService(query: BajasQuery) {
   const { page, limit, hospitalId, estado, search } = query
@@ -44,7 +52,7 @@ export async function listBajasService(query: BajasQuery) {
     }),
   }
 
-  const [total, data] = await Promise.all([
+  const [total, data, sialSet] = await Promise.all([
     prisma.baja.count({ where }),
     prisma.baja.findMany({
       where,
@@ -53,9 +61,15 @@ export async function listBajasService(query: BajasQuery) {
       skip: offset,
       take: limit,
     }),
+    getSialIdSialSet(),
   ])
 
-  return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
+  const dataConSial = data.map((b) => ({
+    ...b,
+    enSial: b.cargo?.idSial ? sialSet.has(b.cargo.idSial) : false,
+  }))
+
+  return { data: dataConSial, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
 // --- GET /:id ---------------------------------------------------------------
@@ -442,8 +456,8 @@ export async function rechazarValidacionService(cargoId: string) {
 }
 
 // ─── Importar CSV de bajas CPH ──────────────────────────────────────────────────
-// Clave de match: cargo (id_sial) + ex_baja_ampliacion (ee_baja).
-// Crea la baja si no existe, actualiza si ya existe.
+// Solo procesa filas de 2026. Match por cargo (id_sial).
+// Vincula con BajaSialRegistro del snapshot más reciente para traer motivo.
 export async function importarBajasCsvService(buffer: Buffer) {
   const rows: Record<string, string>[] = parseCsv(buffer, {
     columns: true, skip_empty_lines: true, trim: true, relax_quotes: true,
@@ -459,29 +473,49 @@ export async function importarBajasCsvService(buffer: Buffer) {
     return v.trim()
   }
 
-  let creados = 0, actualizados = 0, noEncontrados = 0
+  // Cargar mot_baja más reciente por cargo/cuil de todos los snapshots aprobados
+  // (un cargo puede estar en snapshots viejos pero no en el más reciente)
+  const registrosSial = await prisma.$queryRaw<{ cargo: string; cuil: string; mot_baja: string | null }[]>`
+    SELECT DISTINCT ON (cargo) cargo, cuil, mot_baja
+    FROM baja_sial_registros bsr
+    JOIN baja_sial_snapshots bss ON bss.id = bsr.snapshot_id
+    WHERE bss.estado IN ('pendiente', 'aprobado')
+    ORDER BY cargo, bss.fecha_archivo DESC
+  `
+  const sialPorIdSial = new Map(registrosSial.map((r) => [r.cargo, r]))
+  const sialPorCuil   = new Map(registrosSial.map((r) => [r.cuil.replace(/-/g, ''), r]))
+
+  let creados = 0, actualizados = 0, noEncontrados = 0, omitidos = 0
 
   for (const row of rows) {
-    const idSial  = str(row['cargo'])
-    const eeBaja  = str(row['ex_baja_ampliacion'])
+    // Solo 2026
+    const fechaStr = str(row['fecha_de_baja_ampliacion'])
+    if (!fechaStr?.startsWith('2026')) { omitidos++; continue }
+
+    const idSial = str(row['cargo'])
+    const eeBaja = str(row['ex_baja_ampliacion'])
     if (!idSial) { noEncontrados++; continue }
 
     const cargo = await prisma.cargo.findFirst({ where: { idSial } })
     if (!cargo) { noEncontrados++; continue }
 
-    const fechaBaja    = fecha(row['fecha_de_baja_ampliacion'])
-    const tipoBaja     = str(row['motivo_de_baja'])
+    const fechaBaja     = fecha(fechaStr)
+    const tipoBaja      = str(row['motivo_de_baja'])
     const observaciones = str(row['observaciones'])
-    const cuil         = str(row['cuil'])?.replace(/-/g, '')
+    const cuil          = str(row['cuil'])?.replace(/-/g, '')
 
-    // Buscar persona por CUIL si viene en el CSV
+    // Vincular con BajaSialRegistro para traer motivo (id_sial primero, fallback cuil)
+    const sialReg = sialPorIdSial.get(idSial) ?? (cuil ? sialPorCuil.get(cuil) : undefined)
+    const motivoSial = sialReg?.mot_baja ?? null
+
+    // Buscar persona por CUIL
     let personaId: string | null = null
     if (cuil) {
       const persona = await prisma.persona.findFirst({ where: { cuil } })
       personaId = persona?.id ?? null
     }
 
-    // Buscar baja existente por cargoId + eeBaja
+    // Buscar baja existente por cargoId + eeBaja (o solo cargoId si no hay ee)
     const bajaExistente = eeBaja
       ? await prisma.baja.findFirst({ where: { cargoId: cargo.id, eeBaja } })
       : await prisma.baja.findFirst({ where: { cargoId: cargo.id } })
@@ -490,27 +524,28 @@ export async function importarBajasCsvService(buffer: Buffer) {
       await prisma.baja.update({
         where: { id: bajaExistente.id },
         data: {
-          ...(fechaBaja   && { fechaBaja }),
-          ...(tipoBaja    && { tipoBaja }),
-          ...(eeBaja      && { eeBaja }),
-          ...(personaId   && { personaId }),
+          ...(fechaBaja    && { fechaBaja }),
+          ...(tipoBaja     && { tipoBaja }),
+          ...(eeBaja       && { eeBaja }),
+          ...(personaId    && { personaId }),
+          ...(motivoSial   && { motivo: motivoSial }),
           ...(observaciones && { observaciones }),
         },
       })
       actualizados++
     } else {
-      // Crear baja en estado confirmada (viene del CSV histórico)
       await prisma.baja.create({
         data: {
-          cargoId:    cargo.id,
-          hospitalId: cargo.hospitalId,
+          cargoId:           cargo.id,
+          hospitalId:        cargo.hospitalId,
           personaId,
-          fechaBaja:  fechaBaja ?? new Date(),
+          fechaBaja:         fechaBaja ?? new Date(),
           tipoBaja,
+          motivo:            motivoSial,
           eeBaja,
           observaciones,
-          generaConcurso: true,
-          estado: 'confirmada',
+          generaConcurso:    true,
+          estado:            'confirmada',
           tipificadorOrigen: str(row['tipificador_1_origen']) ?? 'Importado CSV',
         },
       })
@@ -518,7 +553,7 @@ export async function importarBajasCsvService(buffer: Buffer) {
     }
   }
 
-  return { total: rows.length, creados, actualizados, noEncontrados }
+  return { total: rows.length, creados, actualizados, noEncontrados, omitidos }
 }
 
 export async function createBajaService(body: CreateBajaBody, usuarioId: string) {

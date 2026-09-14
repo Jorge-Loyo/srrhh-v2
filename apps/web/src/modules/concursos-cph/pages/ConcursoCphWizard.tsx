@@ -926,6 +926,51 @@ export function ConcursoCphWizard() {
             📝 {c.observaciones}
           </div>
         )}
+
+        {/* Banner campos faltantes */}
+        {!esNuevo && cphData && (() => {
+          const sub = cphData.subEstado ?? ''
+          const SUB_IDX: Record<string, number> = {
+            'A-CARATULADO': 1, 'A-AUTZN': 2, 'B-SORTEO JUR': 3,
+            'C-DISPO DE LLAMADO': 4, 'D-EXAMEN PUBLICADO': 5, 'E-ORDEN DE MERITO': 6,
+            'F-IFACS': 7, 'G-INSAL': 8, 'H-TAD': 9, 'I-CARGA DOCU': 10,
+            'J-APTO MED': 11, 'K-ITE': 12, 'L-PYCTO DE RESO': 13,
+            'M-RESO A LA FIRMA': 14, 'N-DESIGNADO': 15, 'O-ALTA SIAL': 16,
+          }
+          const idx = SUB_IDX[sub] ?? 0
+          const faltantes: string[] = []
+          if (idx >= 2  && !cphData.fechaAutorizacion)     faltantes.push('Fecha de autorización')
+          if (idx >= 3  && !cphData.sorteoJurado)          faltantes.push('Sorteo de jurado')
+          if (idx >= 4  && !cphData.disposicion)           faltantes.push('Disposición de llamado')
+          if (idx >= 5  && !cphData.fechaInscDesde)        faltantes.push('Fecha inscripción desde')
+          if (idx >= 5  && !cphData.fechaInscHasta)        faltantes.push('Fecha inscripción hasta')
+          if (idx >= 6  && !cphData.fechaOrdenMerito)      faltantes.push('Fecha orden de mérito')
+          if (idx >= 7  && !cphData.fechaIfacs)            faltantes.push('Fecha IFACS')
+          if (idx >= 8  && !cphData.fechaInsal)            faltantes.push('Fecha INSAL')
+          if (idx >= 9  && !cphData.eeDesignacion)         faltantes.push('EE de designación (TAD)')
+          if (idx >= 10 && !cphData.cargaDocumentacion)    faltantes.push('Carga de documentación')
+          if (idx >= 11 && !cphData.fechaAptoMedico)       faltantes.push('Fecha apto médico')
+          if (idx >= 12 && !cphData.fechaIte)              faltantes.push('Fecha ITE')
+          if (idx >= 13 && !cphData.proyectoResolucion)    faltantes.push('Proyecto de resolución')
+          if (idx >= 14 && !cphData.resoALaFirma)          faltantes.push('Reso a la firma')
+          if (idx >= 15 && !cphData.resolucionDesignacion) faltantes.push('Resolución de designación')
+          if (faltantes.length === 0) return null
+          return (
+            <div className="mx-6 mb-3 bg-orange-50 border border-orange-300 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-orange-800 mb-1.5">
+                ⚠️ Completar documentación — el concurso está en <span className="font-mono">{sub}</span> pero faltan {faltantes.length} campo{faltantes.length > 1 ? 's' : ''}:
+              </p>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                {faltantes.map((f) => (
+                  <li key={f} className="text-xs text-orange-700 flex items-center gap-1">
+                    <span className="text-orange-400">•</span> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })()}
+
       </div>
 
       {/* ── CUERPO: stepper izq + formulario centro + estado derecho ─────── */}

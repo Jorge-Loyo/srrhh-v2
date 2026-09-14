@@ -2049,7 +2049,7 @@ export async function buscarConcursosParaDiffService(snapshotId: string, diffId:
       resolucionDesignacion: true,
       eeConcurso: true,
       personaDesignadaId: true,
-      cargo: { select: { id: true, codigo: true, literalPuesto: true, escalafonId: true } },
+      cargo: { select: { id: true, codigo: true, literalPuesto: true, escalafonId: true, especialidadLegacy: true } },
       hospital: { select: { sigla: true, nombre: true } },
       concurso: { select: { expediente: true } },
     },
@@ -2071,6 +2071,7 @@ export async function buscarConcursosParaDiffService(snapshotId: string, diffId:
     expediente: c.concurso.expediente,
     codigoCargo: c.cargo.codigo,
     literalPuesto: c.cargo.literalPuesto,
+    especialidad: c.cargo.especialidadLegacy,
     hospital: c.hospital.sigla,
   }))
 }

@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Sprint 15 — cantidadCargos exportables + bloqueo autorización sin caratula)
+> Última actualización: 2026-09 (Post-Sprint 16 — filtro conFaltantes concursos CPH + tests + actualización modales flujo)
 > Estado: VIGENTE
 
 ---
@@ -273,7 +273,35 @@ La página `/bajas/validacion` cruza tres fuentes para detectar inconsistencias 
 
 ## Módulo Concursos CPH — estado calculado y autorizaciones
 
-`calcConcursoCph()` calcula `estado`, `subEstado` (19 niveles) y `subEstado3` (8 niveles) server-side en cada create/PATCH. El schema Zod del PATCH usa `.strict()` — no acepta `estado`/`subEstado`/`subEstado3` en el body.
+`calcConcursoCph()` calcula `estado`, `subEstado` (17 niveles: VACANTE + 16 sub-estados reales) y `subEstado3` (8 niveles) server-side en cada create/PATCH. El schema Zod del PATCH usa `.strict()` — no acepta `estado`/`subEstado`/`subEstado3` en el body.
+
+### Sub-estados reales del concurso CPH (`subEstado`)
+
+Orden cronológico del proceso real:
+
+| Sub-estado | Descripción |
+|---|---|
+| `VACANTE` | Concurso creado, sin expediente todavía |
+| `A-CARATULADO` | EE Concurso caratulado |
+| `A-AUTZN` | En trámite de autorización |
+| `B-SORTEO JUR` | Sorteo de jurado realizado |
+| `C-DISPO DE LLAMADO` | Disposición de llamado emitida y publicada |
+| `D-EXAMEN PUBLICADO` | Inscripción abierta, fecha de examen publicada |
+| `E-ORDEN DE MERITO` | Orden de mérito confeccionado |
+| `F-IFACS` | Adjudicado tramitando IFACS (aptitud médica) |
+| `G-INSAL` | Tramitando INSAL (informe situación laboral) |
+| `H-TAD` | EE Designación iniciado en TAD |
+| `I-CARGA DOCU` | Documentación del adjudicado cargada |
+| `J-APTO MED` | Apto médico confirmado |
+| `K-ITE` | Informe Técnico Económico (verificación presupuestaria) |
+| `L-PYCTO DE RESO` | Proyecto de resolución en revisión legal |
+| `M-RESO A LA FIRMA` | Resolución aguardando firma ministerial |
+| `N-DESIGNADO` | Resolución firmada — persona designada |
+| `O-ALTA SIAL` | Alta procesada en SIAL — cargo ocupado |
+
+### Filtro `conFaltantes` en `listConcursosCphService`
+
+Filtro booleano que devuelve solo concursos con campos vacíos según su sub-estado actual. Implementado con `$queryRaw` en `concursos-cph.service.ts`. Schema Zod usa `z.enum(['true','false']).transform(v => v === 'true')` (no `z.coerce.boolean()` — no parsea `'false'` correctamente).
 
 ### Campo `pendienteAutorizacion` y flujo Director → SGRASV
 

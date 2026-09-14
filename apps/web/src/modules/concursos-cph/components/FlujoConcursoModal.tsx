@@ -51,7 +51,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
         <div className="flex gap-1 px-6 pt-4 border-b border-gray-100 flex-shrink-0">
           {([
             { id: 'flujo', label: '📋 Flujo completo' },
-            { id: 'etapas', label: '🔢 Etapas A–G' },
+            { id: 'etapas', label: '🔢 Etapas' },
             { id: 'actores', label: '👥 Actores' },
             { id: 'docs', label: '📄 Documentación' },
             { id: 'baja', label: '🔴 Baja de cargo' },
@@ -171,15 +171,23 @@ export function FlujoConcursoModal({ onClose }: Props) {
                 </h3>
                 <div className="flex items-center gap-0 overflow-x-auto pb-2">
                   {[
-                    { label: 'Origen', color: 'gray' as Color },
-                    { label: 'A\nValidación', color: 'orange' as Color },
-                    { label: 'B\nAutorizado', color: 'blue' as Color },
-                    { label: 'C\nInscripción', color: 'yellow' as Color },
-                    { label: 'D\nEvaluación', color: 'purple' as Color },
-                    { label: 'E\nAdjudicado', color: 'green' as Color },
-                    { label: 'F\nPróx. Desig.', color: 'blue' as Color },
-                    { label: 'G\nResolución', color: 'green' as Color },
-                    { label: 'Cargo\nOcupado', color: 'green' as Color },
+                    { label: 'VACANTE', color: 'gray' as Color },
+                    { label: 'A\nCaratulado', color: 'orange' as Color },
+                    { label: 'A\nAutzn', color: 'orange' as Color },
+                    { label: 'B\nSorteo Jur', color: 'blue' as Color },
+                    { label: 'C\nDispo', color: 'blue' as Color },
+                    { label: 'D\nExamen', color: 'yellow' as Color },
+                    { label: 'E\nMérito', color: 'purple' as Color },
+                    { label: 'F\nIFACS', color: 'purple' as Color },
+                    { label: 'G\nINSAL', color: 'purple' as Color },
+                    { label: 'H\nTAD', color: 'blue' as Color },
+                    { label: 'I\nDocu', color: 'blue' as Color },
+                    { label: 'J\nApto Med', color: 'green' as Color },
+                    { label: 'K\nITE', color: 'blue' as Color },
+                    { label: 'L\nPycto Reso', color: 'blue' as Color },
+                    { label: 'M\nFirma', color: 'blue' as Color },
+                    { label: 'N\nDesignado', color: 'green' as Color },
+                    { label: 'O\nAlta SIAL', color: 'green' as Color },
                   ].map((step, i, arr) => (
                     <div key={i} className="flex items-center flex-shrink-0">
                       <div className={`flex flex-col items-center px-3 py-2 rounded-lg border text-center min-w-[72px] ${NODE_BG[step.color]} ${NODE_BORDER[step.color]}`}>
@@ -192,30 +200,31 @@ export function FlujoConcursoModal({ onClose }: Props) {
                   ))}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-2">
-                  ⚠️ En cualquier etapa puede declararse desierto → rellamado (vuelve a B). El proceso puede tener múltiples rellamados.
+                  ⚠️ En cualquier etapa puede declararse desierto → rellamado (vuelve a C-DISPO DE LLAMADO). El proceso puede tener múltiples rellamados.
                 </p>
               </div>
 
             </div>
           )}
 
-          {/* ── TAB: Etapas A–G ── */}
+          {/* ── TAB: Etapas ── */}
           {tab === 'etapas' && (
             <div className="flex gap-4 min-h-0">
               {/* Sidebar */}
-              <div className="w-44 flex-shrink-0">
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Etapas</p>
+              <div className="w-52 flex-shrink-0">
+                <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Sub-estados ({ETAPAS_CPH.length})</p>
                 {ETAPAS_CPH.map((e, i) => (
                   <button
                     key={e.id}
                     onClick={() => setEtapaIdx(i)}
-                    className={`w-full text-left px-3 py-2 rounded text-xs mb-1 transition-colors ${
+                    className={`w-full text-left px-3 py-1.5 rounded text-xs mb-0.5 transition-colors ${
                       i === etapaIdx
                         ? `${SIDEBAR_ACTIVE[e.color]} font-semibold`
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    {e.label}
+                    <span className="block text-[10px] font-semibold">{e.label}</span>
+                    <span className="block font-mono text-[9px] opacity-50">{e.subEstado}</span>
                   </button>
                 ))}
               </div>
@@ -227,23 +236,12 @@ export function FlujoConcursoModal({ onClose }: Props) {
                   return (
                     <>
                       <div className={`rounded-lg border p-4 ${NODE_BG[etapa.color]} ${NODE_BORDER[etapa.color]}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <code className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${NODE_BG[etapa.color]} border ${NODE_BORDER[etapa.color]} ${TEXT[etapa.color]}`}>{etapa.subEstado}</code>
+                        </div>
                         <p className={`text-sm font-bold ${TEXT[etapa.color]}`}>{etapa.label}</p>
                         <p className="text-xs text-gray-600 mt-1">{etapa.descripcion}</p>
                       </div>
-
-                      {etapa.origen && (
-                        <div>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Orígenes posibles</p>
-                          <div className="space-y-1">
-                            {etapa.origen.map((o, i) => (
-                              <div key={i} className="flex gap-2 text-xs text-gray-600">
-                                <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${DOT[etapa.color]}`} />
-                                {o}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
 
                       <div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Campos del sistema</p>

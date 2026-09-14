@@ -1,7 +1,7 @@
 ﻿# Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 15 — Organigrama: personas en cargos, PersonaModal enriquecido, vínculos a persona/cargo; reordenamiento menú lateral: Dotación bajo KPIs, Personas sobre Cargos)
+> Última actualización: 2026-09 (Post-Sprint 16 — filtro conFaltantes + tests + actualización modales flujo CPH)
 > Estado: VIGENTE
 
 ---
@@ -68,9 +68,11 @@ apps/web/
 │   │   ├── concursos-cph/
 │   │   │   ├── components/
 │   │   │   │   ├── SubEstadoTimeline.tsx
-│   │   │   │   └── AlertasSinMovimiento.tsx
+│   │   │   │   ├── AlertasSinMovimiento.tsx
+│   │   │   │   ├── concursoFlowData.ts      ← 17 etapas reales (VACANTE + A-CARATULADO → O-ALTA SIAL)
+│   │   │   │   └── FlujoConcursoModal.tsx   ← Modal flujo CPH con 6 tabs
 │   │   │   └── pages/
-│   │   │       ├── ConcursosCphPage.tsx
+│   │   │       ├── ConcursosCphPage.tsx     ← filtro conFaltantes (botón toggle naranja)
 │   │   │       └── ConcursoCphWizard.tsx
 │   │   ├── concursos-ceetps/
 │   │   │   └── pages/

@@ -3,181 +3,269 @@ export type Color = 'blue' | 'yellow' | 'green' | 'red' | 'gray' | 'purple' | 'o
 export interface EtapaFlujo {
   id: string
   label: string
+  subEstado: string
   color: Color
   descripcion: string
   campos: { campo: string; desc: string }[]
   reglas: string[]
-  origen?: string[]
 }
 
-// ── Etapas del sub-estado CPH (A → G) ────────────────────────────────────────
+// ── 16 etapas reales del subEstado CPH ───────────────────────────────────────
 
 export const ETAPAS_CPH: EtapaFlujo[] = [
   {
-    id: 'origen',
-    label: 'Origen del concurso',
+    id: 'vacante',
+    label: 'Vacante',
+    subEstado: 'VACANTE',
     color: 'gray',
     descripcion:
-      'Un concurso CPH nace de dos situaciones: un cargo nuevo (alta POF/POU aprobada por el director) o una baja con genera_concurso = true (la persona deja el cargo y se habilita el proceso de selección).',
+      'El cargo está vacante y el concurso fue creado pero aún no tiene expediente. Estado inicial antes de que el área de concursos caratule el expediente.',
     campos: [
-      { campo: 'motivoConcurso', desc: '"nuevo_cargo" si viene de alta aprobada, "alta_por_baja" si viene de baja con genera_concurso = true' },
-      { campo: 'cargoId', desc: 'Cargo CPH (POF, POU o Jefatura) que origina el concurso' },
-      { campo: 'hospitalId', desc: 'Hospital al que pertenece el cargo' },
+      { campo: 'motivoConcurso', desc: '"nuevo_cargo" o "alta_por_baja"' },
+      { campo: 'cargoId', desc: 'Cargo CPH que origina el concurso' },
     ],
     reglas: [
-      'Solo cargos CPH (escalafón código 22 o 37) pueden iniciar un concurso CPH.',
-      'Para "nuevo_cargo": el director aprueba el alta desde Autorizaciones → el sistema ofrece iniciar el concurso.',
-      'Para "alta_por_baja": la baja se registra con genera_concurso = true → el cargo queda vigente + vacante → se inicia el concurso.',
-      'Un cargo en estado no_vigente o validacion_vacante NO puede iniciar concurso.',
-      'No puede haber dos concursos activos para el mismo cargo simultáneamente.',
-    ],
-    origen: [
-      'Alta de cargo aprobada por director (motivoConcurso = nuevo_cargo)',
-      'Baja registrada con genera_concurso = true (motivoConcurso = alta_por_baja)',
+      'El concurso se crea automáticamente al aprobar un alta CPH o al registrar una baja con genera_concurso = true.',
+      'El cargo debe estar vigente + vacante para que el concurso pueda avanzar.',
+      'No puede haber dos concursos activos para el mismo cargo.',
     ],
   },
   {
-    id: 'a',
-    label: 'A — Validación vacante',
+    id: 'a-caratulado',
+    label: 'A — Caratulado',
+    subEstado: 'A-CARATULADO',
     color: 'orange',
     descripcion:
-      'Estado inicial del concurso. El área de RRHH verifica que el cargo esté efectivamente vacante y que la documentación de baja (o el acto de alta) sea correcta antes de autorizar el llamado.',
+      'Se caratuló el expediente electrónico del concurso. El área de concursos inicia formalmente el trámite administrativo.',
     campos: [
-      { campo: 'eeBaja', desc: 'Expediente electrónico de la baja que originó la vacante (solo para alta_por_baja)' },
-      { campo: 'subEstado', desc: '"A-VALID.VCTE"' },
+      { campo: 'eeConcurso', desc: 'Expediente electrónico del concurso (distinto al de la baja)' },
+      { campo: 'eeBaja', desc: 'Expediente de la baja que originó la vacante (solo alta_por_baja)' },
     ],
     reglas: [
-      'El concurso queda en este sub-estado hasta que RRHH valide la documentación.',
-      'Para nuevo_cargo: se valida el acto administrativo de alta.',
-      'Para alta_por_baja: se valida el expediente de baja (eeBaja) y que ocupacion.hasta esté seteado.',
-      'Si la documentación es incorrecta, el concurso puede ser rechazado y el cargo vuelve a vigente + vacante sin concurso.',
+      'El EE Concurso es diferente al EE Baja — son expedientes independientes.',
+      'Sin EE Concurso no puede avanzar a la siguiente etapa.',
     ],
   },
   {
-    id: 'b',
-    label: 'B — Autorizado',
-    color: 'blue',
+    id: 'a-autzn',
+    label: 'A — Autorización',
+    subEstado: 'A-AUTZN',
+    color: 'orange',
     descripcion:
-      'El concurso fue autorizado por la autoridad competente. Se registra la fecha de autorización y se sortea el jurado.',
+      'El concurso está en trámite de autorización. Se gestiona la disposición de llamado ante la autoridad competente.',
     campos: [
-      { campo: 'fechaAutorizacion', desc: 'Fecha en que la autoridad aprueba el llamado a concurso' },
-      { campo: 'eeConcurso', desc: 'Expediente electrónico del concurso (distinto al de la baja)' },
+      { campo: 'fechaAutorizacion', desc: 'Fecha en que la autoridad aprueba el llamado' },
       { campo: 'disposicion', desc: 'Número de disposición de llamado a concurso' },
-      { campo: 'subEstado', desc: '"B-AUTORIZADO"' },
     ],
     reglas: [
       'La fecha de autorización es el punto de partida para los plazos legales.',
-      'El EE Concurso es diferente al EE Baja — son dos expedientes distintos.',
       'La disposición de llamado es el acto administrativo que habilita la inscripción.',
-      'El jurado se sortea en esta etapa (campo sorteoJurado).',
     ],
   },
   {
-    id: 'c',
-    label: 'C — Inscripción',
+    id: 'b-sorteo-jur',
+    label: 'B — Sorteo jurado',
+    subEstado: 'B-SORTEO JUR',
+    color: 'blue',
+    descripcion:
+      'Se realiza el sorteo del jurado evaluador. El acta de sorteo queda registrada en el expediente.',
+    campos: [
+      { campo: 'sorteoJurado', desc: 'Fecha y acta del sorteo del jurado evaluador' },
+    ],
+    reglas: [
+      'El jurado se sortea entre los profesionales habilitados según la especialidad del cargo.',
+      'El acta de sorteo debe quedar incorporada al EE Concurso.',
+    ],
+  },
+  {
+    id: 'c-dispo-llamado',
+    label: 'C — Dispo. de llamado',
+    subEstado: 'C-DISPO DE LLAMADO',
+    color: 'blue',
+    descripcion:
+      'La disposición de llamado fue emitida y publicada. El concurso está formalmente convocado.',
+    campos: [
+      { campo: 'disposicion', desc: 'Número de disposición de llamado (confirmado)' },
+    ],
+    reglas: [
+      'La disposición debe publicarse en el Boletín Oficial antes de abrir la inscripción.',
+    ],
+  },
+  {
+    id: 'd-examen-publicado',
+    label: 'D — Examen publicado',
+    subEstado: 'D-EXAMEN PUBLICADO',
     color: 'yellow',
     descripcion:
-      'Período de inscripción abierto. Los postulantes presentan sus antecedentes. Se registran las fechas de apertura y cierre.',
+      'El período de inscripción está abierto y la fecha de examen fue publicada. Los postulantes presentan sus antecedentes.',
     campos: [
       { campo: 'inscripcionDesde', desc: 'Fecha de apertura del período de inscripción' },
       { campo: 'inscripcionHasta', desc: 'Fecha de cierre del período de inscripción' },
-      { campo: 'subEstado', desc: '"C-INSCRIPCION"' },
+      { campo: 'fechaExamen', desc: 'Fecha publicada del examen o evaluación de antecedentes' },
     ],
     reglas: [
-      'El período de inscripción debe estar publicado en el Boletín Oficial.',
       'Los postulantes presentan CV, títulos y antecedentes en el hospital.',
-      'Al cerrar la inscripción, el área de concursos evalúa los antecedentes.',
-      'Si no hay postulantes: el concurso puede declararse desierto (→ rellamado).',
+      'Si no hay postulantes al cierre: el concurso puede declararse desierto.',
     ],
   },
   {
-    id: 'd',
-    label: 'D — Etapa evaluación',
+    id: 'e-orden-merito',
+    label: 'E — Orden de mérito',
+    subEstado: 'E-ORDEN DE MERITO',
     color: 'purple',
     descripcion:
-      'El jurado evalúa los antecedentes y toma el examen. Se confecciona el orden de mérito.',
+      'El jurado evaluó los antecedentes y tomó el examen. Se confeccionó el orden de mérito.',
     campos: [
-      { campo: 'fechaExamen', desc: 'Fecha del examen o evaluación de antecedentes' },
       { campo: 'ordenMerito', desc: 'Texto libre con el orden de mérito resultante' },
-      { campo: 'subEstado', desc: '"D-ETAPA EVAL"' },
     ],
     reglas: [
-      'El jurado evalúa: antecedentes curriculares + examen escrito/oral.',
-      'El orden de mérito es vinculante — el primero en la lista tiene derecho preferente.',
-      'Si el primero renuncia o no acepta, se ofrece al siguiente en el orden.',
+      'El jurado evalúa antecedentes curriculares + examen escrito/oral.',
+      'El orden de mérito es vinculante — el primero tiene derecho preferente.',
+      'Si el primero renuncia, se ofrece al siguiente en el orden.',
       'El orden de mérito tiene vigencia de 2 años para cubrir vacantes similares.',
     ],
   },
   {
-    id: 'e',
-    label: 'E — Adjudicado',
-    color: 'green',
+    id: 'f-ifacs',
+    label: 'F — IFACS',
+    subEstado: 'F-IFACS',
+    color: 'purple',
     descripcion:
-      'Se adjudica el cargo al ganador del concurso. El jurado eleva el acta de adjudicación.',
+      'El ganador del concurso tramita el IFACS (aptitud médica). Es obligatorio antes de emitir la resolución de designación.',
     campos: [
-      { campo: 'subEstado', desc: '"E-ADJUDI"' },
-      { campo: 'especialidadSolicitada', desc: 'Especialidad del cargo que se adjudica' },
+      { campo: 'ifacs', desc: 'Número o referencia del certificado de aptitud médica (IFACS)' },
     ],
     reglas: [
-      'La adjudicación es el acto formal del jurado — no es la designación todavía.',
-      'El ganador debe aceptar formalmente la adjudicación.',
-      'Si rechaza: se ofrece al siguiente en el orden de mérito.',
-      'Si todos rechazan: el concurso se declara desierto.',
+      'El IFACS es obligatorio — sin él no puede emitirse la resolución.',
+      'Lo tramita el postulante adjudicado ante el organismo correspondiente.',
     ],
   },
   {
-    id: 'f',
-    label: 'F — Próximo a designar',
+    id: 'g-insal',
+    label: 'G — INSAL',
+    subEstado: 'G-INSAL',
+    color: 'purple',
+    descripcion:
+      'Se tramita el INSAL (informe de situación laboral). Verifica que la persona no tenga incompatibilidades.',
+    campos: [
+      { campo: 'insal', desc: 'Número o referencia del informe INSAL' },
+    ],
+    reglas: [
+      'El INSAL verifica incompatibilidades y situación de revista.',
+      'Debe estar aprobado antes de avanzar al TAD.',
+    ],
+  },
+  {
+    id: 'h-tad',
+    label: 'H — TAD',
+    subEstado: 'H-TAD',
     color: 'blue',
     descripcion:
-      'El expediente de designación está en trámite. Se aguarda la resolución ministerial.',
+      'El expediente de designación se inicia en TAD (Trámites a Distancia). Se carga la documentación del ganador.',
     campos: [
-      { campo: 'eeDesignacion', desc: 'Expediente electrónico de designación' },
-      { campo: 'ifacs', desc: 'Aptitud médica (IFACS) — obligatorio antes de la resolución' },
-      { campo: 'insal', desc: 'INSAL — informe de situación laboral' },
-      { campo: 'subEstado', desc: '"F-PROX.A DESIG"' },
+      { campo: 'eeDesignacion', desc: 'Expediente electrónico de designación iniciado en TAD' },
     ],
     reglas: [
-      'El IFACS (aptitud médica) es obligatorio — sin él no puede emitirse la resolución.',
-      'El INSAL verifica que la persona no tenga incompatibilidades.',
       'El EE Designación es el tercer expediente del proceso (Baja → Concurso → Designación).',
-      'Esta etapa puede demorar semanas por los trámites administrativos.',
+      'Se inicia en TAD con la documentación del adjudicado.',
     ],
   },
   {
-    id: 'g',
-    label: 'G — Resolución',
+    id: 'i-carga-docu',
+    label: 'I — Carga documentación',
+    subEstado: 'I-CARGA DOCU',
+    color: 'blue',
+    descripcion:
+      'Se carga la documentación completa del adjudicado en el expediente de designación.',
+    campos: [
+      { campo: 'eeDesignacion', desc: 'EE Designación con documentación completa' },
+    ],
+    reglas: [
+      'Toda la documentación del adjudicado debe estar incorporada al EE Designación.',
+      'Sin documentación completa no puede avanzar a la revisión médica.',
+    ],
+  },
+  {
+    id: 'j-apto-med',
+    label: 'J — Apto médico',
+    subEstado: 'J-APTO MED',
     color: 'green',
     descripcion:
-      'Se emite la resolución de designación. El concurso cierra y el cargo pasa a ocupado.',
+      'Se verifica el apto médico del adjudicado. Confirmación final de aptitud para el cargo.',
+    campos: [
+      { campo: 'ifacs', desc: 'IFACS aprobado — apto médico confirmado' },
+    ],
+    reglas: [
+      'El apto médico es la confirmación final de que el adjudicado puede asumir el cargo.',
+    ],
+  },
+  {
+    id: 'k-ite',
+    label: 'K — ITE',
+    subEstado: 'K-ITE',
+    color: 'blue',
+    descripcion:
+      'El expediente pasa por el ITE (Informe Técnico Económico). Verificación presupuestaria del cargo.',
+    campos: [],
+    reglas: [
+      'El ITE verifica que el cargo tiene financiamiento presupuestario disponible.',
+      'Sin ITE aprobado no puede emitirse el proyecto de resolución.',
+    ],
+  },
+  {
+    id: 'l-pycto-reso',
+    label: 'L — Proyecto de resolución',
+    subEstado: 'L-PYCTO DE RESO',
+    color: 'blue',
+    descripcion:
+      'Se confecciona el proyecto de resolución de designación. Revisión legal y administrativa antes de la firma.',
+    campos: [],
+    reglas: [
+      'El proyecto de resolución es revisado por el área legal antes de elevar a la firma.',
+    ],
+  },
+  {
+    id: 'm-reso-firma',
+    label: 'M — Resolución a la firma',
+    subEstado: 'M-RESO A LA FIRMA',
+    color: 'blue',
+    descripcion:
+      'La resolución de designación está lista y aguarda la firma de la autoridad ministerial.',
+    campos: [],
+    reglas: [
+      'Esta etapa puede demorar días o semanas según la agenda ministerial.',
+    ],
+  },
+  {
+    id: 'n-designado',
+    label: 'N — Designado',
+    subEstado: 'N-DESIGNADO',
+    color: 'green',
+    descripcion:
+      'La resolución fue firmada. El adjudicado queda formalmente designado en el cargo.',
     campos: [
       { campo: 'disposicionDesignacion', desc: 'Número de disposición de designación' },
       { campo: 'resolucionDesignacion', desc: 'Número de resolución ministerial de designación' },
-      { campo: 'subEstado', desc: '"G-RESOLUCION"' },
     ],
     reglas: [
       'La resolución es el acto administrativo final que designa a la persona.',
-      'Al registrar la resolución, el sistema crea la ocupación (persona_id + cargo_id + hasta = NULL).',
-      'El concurso pasa a estado "finalizado" y el cargo a vigente + ocupado.',
-      'La persona queda con situacion_revista = Activo.',
+      'El concurso pasa a estado "finalizado" al registrar la resolución.',
     ],
   },
   {
-    id: 'desierto',
-    label: 'Desierto / Rellamado',
-    color: 'red',
+    id: 'o-alta-sial',
+    label: 'O — Alta SIAL',
+    subEstado: 'O-ALTA SIAL',
+    color: 'green',
     descripcion:
-      'El concurso se declara desierto cuando no hay postulantes, todos rechazan la adjudicación, o el jurado no puede evaluar. Se inicia un rellamado con el mismo expediente.',
+      'El alta de la persona fue procesada en SIAL. El cargo pasa a ocupado y el concurso queda cerrado.',
     campos: [
-      { campo: 'suspendido', desc: 'true si el concurso está suspendido temporalmente' },
-      { campo: 'observaciones', desc: 'Motivo del desierto o suspensión' },
+      { campo: 'resolucionDesignacion', desc: 'Resolución registrada — alta en SIAL confirmada' },
     ],
     reglas: [
-      'El rellamado usa el mismo EE Concurso — no se abre uno nuevo.',
-      'El concurso vuelve al sub-estado B-AUTORIZADO o C-INSCRIPCION según el caso.',
-      'Un concurso puede tener múltiples rellamados.',
-      'Si se suspende: suspendido = true, el cargo sigue vacante.',
-      'Causas frecuentes: sin postulantes, postulantes no aptos, renuncia del ganador.',
+      'Al registrar el alta en SIAL, el sistema crea la ocupación (persona_id + cargo_id + hasta = NULL).',
+      'El cargo pasa a vigente + ocupado.',
+      'La persona queda con situacion_revista = Activo.',
     ],
   },
 ]
@@ -192,19 +280,26 @@ export interface Transicion {
 }
 
 export const TRANSICIONES_CPH: Transicion[] = [
-  { desde: 'Origen', hacia: 'A — Validación', condicion: 'Alta aprobada o baja con genera_concurso = true' },
-  { desde: 'A — Validación', hacia: 'B — Autorizado', condicion: 'RRHH valida documentación' },
-  { desde: 'A — Validación', hacia: 'Cancelado', condicion: 'Documentación incorrecta / cargo no vacante', dashed: true },
-  { desde: 'B — Autorizado', hacia: 'C — Inscripción', condicion: 'Disposición de llamado emitida' },
-  { desde: 'C — Inscripción', hacia: 'D — Evaluación', condicion: 'Cierre del período de inscripción' },
-  { desde: 'C — Inscripción', hacia: 'Desierto', condicion: 'Sin postulantes al cierre', dashed: true },
-  { desde: 'D — Evaluación', hacia: 'E — Adjudicado', condicion: 'Jurado confecciona orden de mérito' },
-  { desde: 'D — Evaluación', hacia: 'Desierto', condicion: 'Sin postulantes aptos', dashed: true },
-  { desde: 'E — Adjudicado', hacia: 'F — Próx. a designar', condicion: 'Ganador acepta la adjudicación' },
-  { desde: 'E — Adjudicado', hacia: 'Desierto', condicion: 'Todos rechazan la adjudicación', dashed: true },
-  { desde: 'F — Próx. a designar', hacia: 'G — Resolución', condicion: 'IFACS + INSAL aprobados, EE Designación completo' },
-  { desde: 'G — Resolución', hacia: 'Finalizado', condicion: 'Resolución emitida → cargo pasa a ocupado' },
-  { desde: 'Desierto', hacia: 'B — Autorizado', condicion: 'Rellamado — mismo EE Concurso', dashed: true },
+  { desde: 'Origen', hacia: 'VACANTE', condicion: 'Alta aprobada o baja con genera_concurso = true' },
+  { desde: 'VACANTE', hacia: 'A-CARATULADO', condicion: 'Área de concursos caratula el expediente' },
+  { desde: 'A-CARATULADO', hacia: 'A-AUTZN', condicion: 'EE Concurso registrado' },
+  { desde: 'A-AUTZN', hacia: 'B-SORTEO JUR', condicion: 'Disposición de llamado emitida' },
+  { desde: 'B-SORTEO JUR', hacia: 'C-DISPO DE LLAMADO', condicion: 'Acta de sorteo de jurado registrada' },
+  { desde: 'C-DISPO DE LLAMADO', hacia: 'D-EXAMEN PUBLICADO', condicion: 'Disposición publicada en Boletín Oficial' },
+  { desde: 'D-EXAMEN PUBLICADO', hacia: 'E-ORDEN DE MERITO', condicion: 'Cierre de inscripción + examen tomado' },
+  { desde: 'D-EXAMEN PUBLICADO', hacia: 'Desierto', condicion: 'Sin postulantes al cierre', dashed: true },
+  { desde: 'E-ORDEN DE MERITO', hacia: 'F-IFACS', condicion: 'Orden de mérito confeccionado' },
+  { desde: 'E-ORDEN DE MERITO', hacia: 'Desierto', condicion: 'Sin postulantes aptos', dashed: true },
+  { desde: 'F-IFACS', hacia: 'G-INSAL', condicion: 'IFACS tramitado' },
+  { desde: 'G-INSAL', hacia: 'H-TAD', condicion: 'INSAL aprobado' },
+  { desde: 'H-TAD', hacia: 'I-CARGA DOCU', condicion: 'EE Designación iniciado en TAD' },
+  { desde: 'I-CARGA DOCU', hacia: 'J-APTO MED', condicion: 'Documentación completa cargada' },
+  { desde: 'J-APTO MED', hacia: 'K-ITE', condicion: 'Apto médico confirmado' },
+  { desde: 'K-ITE', hacia: 'L-PYCTO DE RESO', condicion: 'ITE aprobado' },
+  { desde: 'L-PYCTO DE RESO', hacia: 'M-RESO A LA FIRMA', condicion: 'Proyecto de resolución revisado' },
+  { desde: 'M-RESO A LA FIRMA', hacia: 'N-DESIGNADO', condicion: 'Resolución firmada por autoridad ministerial' },
+  { desde: 'N-DESIGNADO', hacia: 'O-ALTA SIAL', condicion: 'Alta procesada en SIAL → cargo ocupado' },
+  { desde: 'Desierto', hacia: 'C-DISPO DE LLAMADO', condicion: 'Rellamado — mismo EE Concurso', dashed: true },
 ]
 
 // ── Actores del proceso ───────────────────────────────────────────────────────
@@ -230,15 +325,16 @@ export const ACTORES_CPH: Actor[] = [
   {
     nombre: 'Área de Concursos (RRHH)',
     color: 'purple',
-    rol: 'Gestiona el proceso completo desde la validación hasta la resolución',
+    rol: 'Gestiona el proceso completo desde la caratulación hasta el alta en SIAL',
     acciones: [
-      'Valida la documentación de baja o alta (etapa A)',
-      'Registra el EE Concurso, disposición y fecha de autorización (etapa B)',
-      'Carga las fechas de inscripción (etapa C)',
-      'Registra el examen y el orden de mérito (etapa D)',
-      'Registra la adjudicación (etapa E)',
-      'Carga el EE Designación, IFACS e INSAL (etapa F)',
-      'Registra la resolución de designación (etapa G)',
+      'Caratula el expediente electrónico del concurso (A-CARATULADO)',
+      'Gestiona la autorización y disposición de llamado (A-AUTZN → C-DISPO DE LLAMADO)',
+      'Registra las fechas de inscripción y examen (D-EXAMEN PUBLICADO)',
+      'Registra el orden de mérito (E-ORDEN DE MERITO)',
+      'Acompaña el trámite de IFACS, INSAL y TAD (F → I)',
+      'Gestiona el ITE y el proyecto de resolución (K → L)',
+      'Registra la resolución de designación (N-DESIGNADO)',
+      'Confirma el alta en SIAL (O-ALTA SIAL)',
     ],
   },
   {
@@ -246,11 +342,10 @@ export const ACTORES_CPH: Actor[] = [
     color: 'orange',
     rol: 'Evalúa a los postulantes y confecciona el orden de mérito',
     acciones: [
-      'Se sortea en la etapa B (sorteoJurado)',
+      'Se sortea en la etapa B-SORTEO JUR',
       'Evalúa antecedentes curriculares',
       'Toma el examen escrito/oral',
       'Confecciona y firma el acta de orden de mérito',
-      'Eleva el acta de adjudicación',
     ],
   },
   {
@@ -260,8 +355,8 @@ export const ACTORES_CPH: Actor[] = [
     acciones: [
       'Presenta CV, títulos y antecedentes durante el período de inscripción',
       'Rinde el examen en la fecha indicada',
-      'Acepta o rechaza la adjudicación',
       'Tramita el IFACS (aptitud médica) si es adjudicado',
+      'Inicia el trámite en TAD con su documentación',
     ],
   },
   {
@@ -269,9 +364,9 @@ export const ACTORES_CPH: Actor[] = [
     color: 'red',
     rol: 'Emite la resolución de designación',
     acciones: [
-      'Recibe el EE Designación con IFACS e INSAL aprobados',
-      'Emite la resolución ministerial de designación',
-      'La resolución es el acto administrativo final que crea la ocupación',
+      'Recibe el EE Designación con IFACS, INSAL e ITE aprobados',
+      'Revisa el proyecto de resolución (L-PYCTO DE RESO)',
+      'Firma la resolución ministerial de designación (M-RESO A LA FIRMA → N-DESIGNADO)',
     ],
   },
 ]
@@ -287,16 +382,16 @@ export interface DocRequerido {
 }
 
 export const DOCS_CPH: DocRequerido[] = [
-  { nombre: 'EE Baja', campo: 'eeBaja', etapa: 'A', obligatorio: false, desc: 'Expediente de la baja que originó la vacante. Solo para alta_por_baja.' },
-  { nombre: 'EE Concurso', campo: 'eeConcurso', etapa: 'B', obligatorio: true, desc: 'Expediente electrónico del proceso de concurso. Distinto al de la baja.' },
-  { nombre: 'Disposición de llamado', campo: 'disposicion', etapa: 'B', obligatorio: true, desc: 'Acto administrativo que habilita la inscripción pública.' },
-  { nombre: 'Sorteo de jurado', campo: 'sorteoJurado', etapa: 'B', obligatorio: true, desc: 'Fecha y acta del sorteo del jurado evaluador.' },
-  { nombre: 'Período de inscripción', campo: 'inscripcionDesde / inscripcionHasta', etapa: 'C', obligatorio: true, desc: 'Fechas de apertura y cierre de la inscripción.' },
-  { nombre: 'Fecha de examen', campo: 'fechaExamen', etapa: 'D', obligatorio: true, desc: 'Fecha en que se toma el examen o se evalúan antecedentes.' },
-  { nombre: 'Orden de mérito', campo: 'ordenMerito', etapa: 'D', obligatorio: true, desc: 'Listado de postulantes ordenados por puntaje.' },
-  { nombre: 'EE Designación', campo: 'eeDesignacion', etapa: 'F', obligatorio: true, desc: 'Expediente de designación del ganador. Tercer expediente del proceso.' },
-  { nombre: 'IFACS', campo: 'ifacs', etapa: 'F', obligatorio: true, desc: 'Aptitud médica del postulante. Obligatorio antes de la resolución.' },
-  { nombre: 'INSAL', campo: 'insal', etapa: 'F', obligatorio: true, desc: 'Informe de situación laboral. Verifica incompatibilidades.' },
-  { nombre: 'Disposición de designación', campo: 'disposicionDesignacion', etapa: 'G', obligatorio: true, desc: 'Disposición previa a la resolución ministerial.' },
-  { nombre: 'Resolución de designación', campo: 'resolucionDesignacion', etapa: 'G', obligatorio: true, desc: 'Resolución ministerial final. Crea la ocupación en el sistema.' },
+  { nombre: 'EE Baja', campo: 'eeBaja', etapa: 'A-CARATULADO', obligatorio: false, desc: 'Expediente de la baja que originó la vacante. Solo para alta_por_baja.' },
+  { nombre: 'EE Concurso', campo: 'eeConcurso', etapa: 'A-CARATULADO', obligatorio: true, desc: 'Expediente electrónico del proceso de concurso. Distinto al de la baja.' },
+  { nombre: 'Disposición de llamado', campo: 'disposicion', etapa: 'A-AUTZN', obligatorio: true, desc: 'Acto administrativo que habilita la inscripción pública.' },
+  { nombre: 'Sorteo de jurado', campo: 'sorteoJurado', etapa: 'B-SORTEO JUR', obligatorio: true, desc: 'Fecha y acta del sorteo del jurado evaluador.' },
+  { nombre: 'Período de inscripción', campo: 'inscripcionDesde / inscripcionHasta', etapa: 'D-EXAMEN PUBLICADO', obligatorio: true, desc: 'Fechas de apertura y cierre de la inscripción.' },
+  { nombre: 'Fecha de examen', campo: 'fechaExamen', etapa: 'D-EXAMEN PUBLICADO', obligatorio: true, desc: 'Fecha en que se toma el examen o se evalúan antecedentes.' },
+  { nombre: 'Orden de mérito', campo: 'ordenMerito', etapa: 'E-ORDEN DE MERITO', obligatorio: true, desc: 'Listado de postulantes ordenados por puntaje.' },
+  { nombre: 'IFACS', campo: 'ifacs', etapa: 'F-IFACS', obligatorio: true, desc: 'Aptitud médica del postulante. Obligatorio antes de la resolución.' },
+  { nombre: 'INSAL', campo: 'insal', etapa: 'G-INSAL', obligatorio: true, desc: 'Informe de situación laboral. Verifica incompatibilidades.' },
+  { nombre: 'EE Designación (TAD)', campo: 'eeDesignacion', etapa: 'H-TAD', obligatorio: true, desc: 'Expediente de designación iniciado en TAD. Tercer expediente del proceso.' },
+  { nombre: 'Disposición de designación', campo: 'disposicionDesignacion', etapa: 'N-DESIGNADO', obligatorio: true, desc: 'Disposición previa a la resolución ministerial.' },
+  { nombre: 'Resolución de designación', campo: 'resolucionDesignacion', etapa: 'N-DESIGNADO', obligatorio: true, desc: 'Resolución ministerial final. Crea la ocupación en el sistema.' },
 ]

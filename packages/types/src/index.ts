@@ -860,6 +860,7 @@ export interface ConcursoCphFilters {
   subEstado3?: string
   suspendido?: boolean
   search?: string
+  conFaltantes?: boolean
 }
 
 export interface ConcursoCeetpsFilters {

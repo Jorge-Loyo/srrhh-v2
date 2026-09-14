@@ -16,8 +16,9 @@ export const concursosCphQuerySchema = z.object({
   estado: z.nativeEnum(EstadoConcursoCph).optional(),
   subEstado: z.string().trim().min(1).optional(),
   subEstado3: z.string().trim().min(1).optional(),
-  suspendido: z.coerce.boolean().optional(),
+  suspendido: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   pendienteAutorizacion: z.coerce.boolean().optional(),
+  conFaltantes: z.coerce.boolean().optional(),
   search: z.string().trim().min(1).optional(),
 })
 

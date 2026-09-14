@@ -30,8 +30,9 @@ export function ConcursosCphPage() {
   const [suspendido, setSuspendido] = useState<'' | 'true' | 'false'>('')
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
+  const [conFaltantes, setConFaltantes] = useState(false)
   const [importando, setImportando] = useState(false)
-  const [importResult, setImportResult] = useState<{ total: number; actualizados: number; noEncontrados: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ total: number; actualizados: number; creados: number; noEncontrados: number } | null>(null)
   const searchDebounced = useDebounce(search, 300)
 
   async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
@@ -57,6 +58,7 @@ export function ConcursosCphPage() {
     ...(subEstado && { subEstado }),
     ...(subEstado3 && { subEstado3 }),
     ...(suspendido && { suspendido: suspendido === 'true' }),
+    ...(conFaltantes && { conFaltantes: true }),
   }
 
   const { data, isLoading, isFetching, isError } = useConcursosCph(filters)
@@ -82,11 +84,17 @@ export function ConcursosCphPage() {
             <button className="btn-outline" onClick={() => setShowFlujo(true)}>
               📋 Flujo del concurso
             </button>
+            <button
+              onClick={() => { setConFaltantes((v) => !v); setPage(1) }}
+              className={`btn-outline text-sm ${conFaltantes ? 'bg-orange-100 border-orange-400 text-orange-800 font-semibold' : ''}`}
+            >
+              ⚠️ Con documentación faltante
+            </button>
           </div>
         </div>
         {importResult && (
           <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
-            Importación completada — {importResult.actualizados} actualizados, {importResult.noEncontrados} no encontrados de {importResult.total} filas.
+            Importación completada — {importResult.actualizados} actualizados, {importResult.creados} creados, {importResult.noEncontrados} no encontrados de {importResult.total} filas.
           </div>
         )}
 

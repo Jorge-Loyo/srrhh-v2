@@ -50,7 +50,7 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
 export async function listConcursosCphService(query: ConcursosCphQuery) {
-  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, pendienteAutorizacion, search } = query
+  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, pendienteAutorizacion, search, conFaltantes } = query
   const offset = (page - 1) * limit
 
   // subEstado3 depende de la fecha de hoy (ver concursosCph.calc.ts) — el
@@ -68,6 +68,25 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
 
   // search: busca en campos del concurso Y en la persona de la baja
   // (apellido_nombre, cuil, numero_doc, id_sial_rol de la ocupación)
+  let conFaltantesIds: string[] | undefined
+  if (conFaltantes) {
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM concursos_cph
+      WHERE estado IN ('activo','no_iniciado') AND suspendido = false
+        AND (
+          (sub_estado IN ('A-AUTZN','B-SORTEO JUR','C-DISPO DE LLAMADO','D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_autorizacion IS NULL)
+          OR (sub_estado IN ('C-DISPO DE LLAMADO','D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND disposicion IS NULL)
+          OR (sub_estado IN ('D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND (fecha_insc_desde IS NULL OR fecha_insc_hasta IS NULL))
+          OR (sub_estado IN ('E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_orden_merito IS NULL)
+          OR (sub_estado IN ('F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_ifacs IS NULL)
+          OR (sub_estado IN ('G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_insal IS NULL)
+          OR (sub_estado IN ('H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND ee_designacion IS NULL)
+          OR (sub_estado IN ('N-DESIGNADO','O-ALTA SIAL') AND resolucion_designacion IS NULL)
+        )
+    `)
+    conFaltantesIds = rows.map((r) => r.id)
+  }
+
   let searchIds: string[] | undefined
   if (search) {
     const like = `%${search}%`
@@ -109,6 +128,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(subEstado3Ids && { id: { in: subEstado3Ids } }),
     ...(searchIds !== undefined && { id: { in: searchIds } }),
+    ...(conFaltantesIds !== undefined && { id: { in: conFaltantesIds } }),
   }
 
   const [total, data] = await Promise.all([
@@ -539,7 +559,13 @@ export async function importarConcursosCsvService(buffer: Buffer) {
     return isNaN(n) ? null : n
   }
 
-  let actualizados = 0, noEncontrados = 0
+  // Pre-cargar todos los id_sial de cargos en memoria para evitar N queries
+  const cargosMap = new Map(
+    (await prisma.cargo.findMany({ select: { id: true, idSial: true, hospitalId: true } }))
+      .map((c) => [c.idSial, c])
+  )
+
+  let actualizados = 0, creados = 0, noEncontrados = 0
 
   for (const row of rows) {
     const eeConcurso   = str(row['ee_concurso'])
@@ -552,13 +578,107 @@ export async function importarConcursosCsvService(buffer: Buffer) {
       : null
 
     if (!concursoCph && cargoBaja) {
-      const cargo = await prisma.cargo.findFirst({ where: { idSial: cargoBaja } })
+      const cargo = cargosMap.get(cargoBaja)
       if (cargo) {
         concursoCph = await prisma.concursoCph.findFirst({ where: { cargoId: cargo.id } })
       }
     }
 
-    if (!concursoCph) { noEncontrados++; continue }
+    // Si no existe, crear si el cargo está en DB
+    if (!concursoCph) {
+      const cargo = cargoBaja ? cargosMap.get(cargoBaja) : null
+      if (!cargo) { noEncontrados++; continue }
+
+      const estadoCsv = str(row['estado'])?.toUpperCase()
+      // Solo crear si tiene ee_concurso (mínimo identificador)
+      if (!eeConcurso) { noEncontrados++; continue }
+
+      const fechaBajaVal  = fecha(row['fecha_baja'])
+      const eeBajaVal     = str(row['ee_baja_ampliacion'])
+      const calcInput = {
+        suspendido:            suspendido ?? (estadoCsv === 'SUSPENDIDO'),
+        eeBaja:                eeBajaVal,
+        fechaBaja:             fechaBajaVal,
+        eeConcurso,
+        fechaEeConcurso:       fecha(row['fecha_ee_concurso']),
+        fechaAutorizacion:     fecha(row['fecha_autorizacion']),
+        sorteoJurado:          fecha(row['sorteo_de_jurado']),
+        disposicion:           str(row['disposicion']),
+        fechaInscHasta:        fecha(row['fecha_insc_hasta']),
+        fechaExamen:           fecha(row['fecha_examen']),
+        fechaOrdenMerito:      fecha(row['fecha_om']),
+        fechaIfacs:            fecha(row['fecha_ifacs']),
+        fechaInsal:            fecha(row['fecha_insal']),
+        eeDesignacion:         str(row['ee_designacion']),
+        cargaDocumentacion:    bool(row['carga_de_documentacion']),
+        fechaAptoMedico:       fecha(row['fecha_apto_medico']),
+        fechaIte:              fecha(row['fecha_ite']),
+        proyectoResolucion:    bool(row['proyecto_de_resolucion']),
+        resoALaFirma:          bool(row['reso_a_la_firma']),
+        resolucionDesignacion: str(row['resolucion_de_designacion']),
+        fechaResolucion:       fecha(row['fecha_resolucion']),
+        cargoSial:             str(row['cargo_sial']),
+        dispoDesierta:         str(row['dispo_desierta']),
+        fechaDispoDesierta:    fecha(row['fecha_dispo_desierta']),
+      }
+      // Si el CSV dice FINALIZADO, forzar estado finalizado independientemente del calc
+      const calc = calcConcursoCph(calcInput)
+      const estadoFinal = estadoCsv === 'FINALIZADO' ? 'finalizado' as const : calc.estado
+
+      await prisma.$transaction(async (tx) => {
+        const concurso = await tx.concurso.create({
+          data: {
+            cargoId:     cargo.id,
+            hospitalId:  cargo.hospitalId,
+            origen:      'Importado CSV',
+            fechaVacante: fechaBajaVal ?? new Date('2000-01-01'),
+            tipoConcurso: 'CPH',
+          },
+        })
+        concursoCph = await tx.concursoCph.create({
+          data: {
+            concursoId:            concurso.id,
+            cargoId:               cargo.id,
+            hospitalId:            cargo.hospitalId,
+            eeBaja:                eeBajaVal,
+            fechaBaja:             fechaBajaVal,
+            eeConcurso,
+            fechaEeConcurso:       calcInput.fechaEeConcurso,
+            fechaAutorizacion:     calcInput.fechaAutorizacion,
+            sorteoJurado:          calcInput.sorteoJurado,
+            disposicion:           calcInput.disposicion,
+            fechaInscDesde:        fecha(row['fecha_insc_desde']),
+            fechaInscHasta:        calcInput.fechaInscHasta,
+            qInscriptos:           num(row['q_inscriptos']),
+            fechaExamen:           calcInput.fechaExamen,
+            fechaOrdenMerito:      calcInput.fechaOrdenMerito,
+            fechaIfacs:            calcInput.fechaIfacs,
+            insal:                 str(row['insal']),
+            fechaInsal:            calcInput.fechaInsal,
+            eeDesignacion:         calcInput.eeDesignacion,
+            cargaDocumentacion:    calcInput.cargaDocumentacion,
+            fechaAptoMedico:       calcInput.fechaAptoMedico,
+            fechaIte:              calcInput.fechaIte,
+            proyectoResolucion:    calcInput.proyectoResolucion,
+            resoALaFirma:          calcInput.resoALaFirma,
+            resolucionDesignacion: calcInput.resolucionDesignacion,
+            fechaResolucion:       calcInput.fechaResolucion,
+            cargoSial:             calcInput.cargoSial,
+            suspendido:            calcInput.suspendido ?? false,
+            dispoDesierta:         calcInput.dispoDesierta,
+            fechaDispoDesierta:    calcInput.fechaDispoDesierta,
+            especialidadSolicitada: str(row['especialidad_solicitada_2']),
+            puestoSolicitado:      str(row['puesto_2']),
+            observaciones:         str(row['observaciones']),
+            estado:                estadoFinal,
+            subEstado:             calc.subEstado,
+            subEstado3:            calc.subEstado3,
+          },
+        })
+      })
+      creados++
+      continue
+    }
 
     // Construir patch con los campos del CSV
     const patch: Prisma.ConcursoCphUpdateInput = {
@@ -628,7 +748,7 @@ export async function importarConcursosCsvService(buffer: Buffer) {
     actualizados++
   }
 
-  return { total: rows.length, actualizados, noEncontrados }
+  return { total: rows.length, actualizados, creados, noEncontrados }
 }
 // Guarda snapshot en ConcursoCphDesierto, limpia campos de la ronda,
 // pone suspendido=true y sub-estado Q-DESIERTO.
