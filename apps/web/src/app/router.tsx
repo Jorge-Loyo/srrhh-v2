@@ -16,6 +16,8 @@ import { PouHomePage } from '../modules/pou/pages/PouHomePage'
 import { PouDetallePage } from '../modules/pou/pages/PouDetallePage'
 import { PouComparativaPage } from '../modules/pou/pages/PouComparativaPage'
 import { PouCargaPage } from '../modules/pou/pages/PouCargaPage'
+import { PouTriangulacionPage } from '../modules/pou/pages/PouTriangulacionPage'
+import { SuplentesPage } from '../modules/pou/pages/SuplentesPage'
 import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
@@ -71,7 +73,9 @@ export const router = createBrowserRouter([
           { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
           { path: 'pou', element: <PouHomePage /> },
           { path: 'pou/comparativa', element: <PouComparativaPage /> },
+          { path: 'pou/triangulacion', element: <PouTriangulacionPage /> },
           { path: 'pou/:sigla', element: <PouDetallePage /> },
+          { path: 'suplentes', element: <SuplentesPage /> },
           { path: 'cargos', element: <CargosPage /> },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
           { path: 'cargos/alta', element: <AltaCargosPage /> },
