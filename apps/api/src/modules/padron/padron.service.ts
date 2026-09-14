@@ -692,19 +692,25 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   // Se busca via ocupacion.idSialRol → cargo.codigo porque algunos cargos se
   // crean via B-12 (clave estructural) y quedan con un id_sial distinto al del
   // diff — la ocupación es la única relación que siempre existe tras aprobar.
-  const codigoRealMap = new Map<string, string>()
+  // Si cargo.idSial != id_sial del diff → se marcó codigoReutilizado=true.
+  const codigoRealMap = new Map<string, { codigo: string; reutilizado: boolean }>()
   if (query.tipo === 'nuevo') {
     const diffsAprobados = diffs.filter((d) => d.aprobado === true)
     if (diffsAprobados.length > 0) {
       const idSialRoles = diffsAprobados.map((d) => d.idSialRol)
       const ocupaciones = await prisma.ocupacion.findMany({
         where: { idSialRol: { in: idSialRoles } },
-        select: { idSialRol: true, cargo: { select: { codigo: true } } },
+        select: { idSialRol: true, cargo: { select: { idSial: true, codigo: true } } },
       })
-      const ocupMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.cargo.codigo]))
+      const ocupMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.cargo]))
       for (const d of diffsAprobados) {
-        const codigo = ocupMap.get(d.idSialRol)
-        if (codigo) codigoRealMap.set(d.id, codigo)
+        const cargo = ocupMap.get(d.idSialRol)
+        if (!cargo?.codigo) continue
+        const idSialDiff = (() => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })()
+        codigoRealMap.set(d.id, {
+          codigo: cargo.codigo,
+          reutilizado: !!idSialDiff && cargo.idSial !== idSialDiff,
+        })
       }
     }
   }
@@ -756,7 +762,8 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       data: diffsConNombre.map((d) => ({
         ...d,
         codigoPreview: codigoPreviewMap.get(d.id) ?? null,
-        codigoReal: codigoRealMap.get(d.id) ?? null,
+        codigoReal: codigoRealMap.get(d.id)?.codigo ?? null,
+        codigoReutilizado: codigoRealMap.get(d.id)?.reutilizado ?? false,
       })),
       meta: {
         total,

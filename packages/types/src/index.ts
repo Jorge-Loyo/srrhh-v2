@@ -263,8 +263,9 @@ export interface PadronDiff {
   valorNuevo: string | null
   // null = pendiente, true = aprobado, false = rechazado
   aprobado: boolean | null
-  codigoPreview?: string | null  // solo en tab nuevos pendientes: código que se generaría
-  codigoReal?: string | null     // solo en tab nuevos aprobados: código real asignado
+  codigoPreview?: string | null     // solo en tab nuevos pendientes: código que se generaría
+  codigoReal?: string | null         // solo en tab nuevos aprobados: código real asignado
+  codigoReutilizado?: boolean        // true si el cargo ya existía (B-12) y no se creó uno nuevo
   apellidoNombre?: string | null  // modificados y eliminados: nombre de la persona
   clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null  // solo eliminados
   codigoCargo?: string | null  // solo eliminados: código del cargo en la BD

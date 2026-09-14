@@ -487,7 +487,18 @@ export function PadronDiffPage() {
                         {tab === 'nuevo' && (
                           <td className="px-4 py-3 text-gray-500 font-mono text-xs">
                             {isAprobado
-                              ? <span className="text-green-600 font-semibold font-mono">{d.codigoReal ?? '✓ Asignado'}</span>
+                              ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="text-green-600 font-semibold font-mono">
+                                    {d.codigoReal ?? '✓ Asignado'}
+                                  </span>
+                                  {d.codigoReutilizado && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                      ↺ Cargo existente reutilizado
+                                    </span>
+                                  )}
+                                </div>
+                              )
                               : isRechazado
                                 ? <span className="text-gray-400">⚠ Sin asignar</span>
                                 : d.codigoPreview ? <span className="text-blue-700">{d.codigoPreview}</span> : '—'
