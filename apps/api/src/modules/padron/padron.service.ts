@@ -1707,14 +1707,20 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
       }
     }
 
-    // Vincular concurso CPH: marcar como finalizado con la persona designada
+    // Vincular concurso CPH: si tiene resolucionDesignacion → finalizado;
+    // si no → solo asignar persona designada (queda activo, pendiente de completar)
     if (vincularConcursoId && persona) {
+      const concursoActual = await tx.concursoCph.findUnique({
+        where: { id: vincularConcursoId },
+        select: { resolucionDesignacion: true },
+      })
+      const estaCompleto = !!concursoActual?.resolucionDesignacion
       await tx.concursoCph.update({
         where: { id: vincularConcursoId },
         data: {
-          estado: 'finalizado',
           personaDesignadaId: persona.id,
           cargoSial: datos.id_sial ?? null,
+          ...(estaCompleto ? { estado: 'finalizado' } : {}),
         },
       })
     }
@@ -1983,6 +1989,90 @@ export async function deleteSnapshotService(id: string) {
   })
 
   return { ok: true, snapshotId: id }
+}
+
+// ─── Buscar concursos CPH para vincular a un diff nuevo ────────────────────
+// Pre-filtra por hospital + escalafón del diff. Acepta búsqueda libre (q)
+// para afinar. Solo devuelve concursos no finalizados y no suspendidos.
+export async function buscarConcursosParaDiffService(snapshotId: string, diffId: string, q?: string) {
+  const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
+  if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
+
+  const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+
+  // Resolver hospital y escalafón del diff para pre-filtrar
+  const hospital = datos.siglas
+    ? await prisma.hospital.findUnique({ where: { sigla: datos.siglas }, select: { id: true } })
+    : null
+
+  let escalafonId: string | null = null
+  if (datos.codigo_de_registro) {
+    const cr = await prisma.codigoRegistro.findUnique({
+      where: { codigo: datos.codigo_de_registro },
+      select: { escalafonId: true },
+    })
+    escalafonId = cr?.escalafonId ?? null
+  }
+  if (!escalafonId && datos.escalafon) {
+    const esc = await prisma.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true }, select: { id: true } })
+    escalafonId = esc?.id ?? null
+  }
+
+  // Búsqueda libre por texto en literal_puesto, hospital sigla/nombre, código cargo
+  let searchIds: string[] | undefined
+  if (q) {
+    const like = `%${q}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT DISTINCT cc.id
+      FROM concursos_cph cc
+      JOIN cargos ca ON ca.id = cc.cargo_id
+      JOIN hospitales h ON h.id = cc.hospital_id
+      WHERE unaccent(coalesce(ca.literal_puesto,'')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(h.sigla,''))           ILIKE unaccent(${like})
+         OR unaccent(coalesce(h.nombre,''))          ILIKE unaccent(${like})
+         OR unaccent(coalesce(ca.codigo,''))         ILIKE unaccent(${like})
+         OR unaccent(coalesce(cc.ee_concurso,''))    ILIKE unaccent(${like})
+    `
+    searchIds = rows.map((r) => r.id)
+  }
+
+  const concursos = await prisma.concursoCph.findMany({
+    where: {
+      estado: { notIn: ['finalizado', 'suspendido'] },
+      suspendido: false,
+      ...(hospital && { hospitalId: hospital.id }),
+      ...(searchIds !== undefined && { id: { in: searchIds } }),
+    },
+    select: {
+      id: true,
+      estado: true,
+      resolucionDesignacion: true,
+      eeConcurso: true,
+      personaDesignadaId: true,
+      cargo: { select: { id: true, codigo: true, literalPuesto: true, escalafonId: true } },
+      hospital: { select: { sigla: true, nombre: true } },
+      concurso: { select: { expediente: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 30,
+  })
+
+  // Filtrar por escalafón si se pudo resolver (post-query para no complicar el where)
+  const filtrados = escalafonId
+    ? concursos.filter((c) => c.cargo.escalafonId === escalafonId)
+    : concursos
+
+  return filtrados.map((c) => ({
+    id: c.id,
+    estado: c.estado,
+    estaCompleto: !!c.resolucionDesignacion,
+    yaDesignado: !!c.personaDesignadaId,
+    eeConcurso: c.eeConcurso,
+    expediente: c.concurso.expediente,
+    codigoCargo: c.cargo.codigo,
+    literalPuesto: c.cargo.literalPuesto,
+    hospital: c.hospital.sigla,
+  }))
 }
 
 // ─── S2-8: rechazar snapshot ──────────────────────────────────────────────────

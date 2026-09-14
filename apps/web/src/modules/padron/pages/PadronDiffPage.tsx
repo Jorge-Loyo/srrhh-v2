@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TipoDiff } from '@srrhh/types'
@@ -62,6 +62,11 @@ export function PadronDiffPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [soloPendientes, setSoloPendientes] = useState(false)
   const [modalAprobarTodos, setModalAprobarTodos] = useState(false)
+  const [modalConcurso, setModalConcurso] = useState<{ diffId: string; idSialRol: string } | null>(null)
+  const [concursoSearch, setConcursoSearch] = useState('')
+  const [concursoResultados, setConcursoResultados] = useState<any[]>([])
+  const [concursoLoading, setConcursoLoading] = useState(false)
+  const concursoSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [subTabNuevos, setSubTabNuevos] = useState<SubTabNuevos>('ingreso')
   const [subTabEliminados, setSubTabEliminados] = useState<'con_persona' | 'en_validacion' | 'sin_persona'>('con_persona')
   const [campoFiltro, setCampoFiltro] = useState<string | null>(null)
@@ -134,6 +139,40 @@ export function PadronDiffPage() {
         }
       }
     )
+  }
+
+  // Buscar concursos cuando cambia el texto en el modal
+  useEffect(() => {
+    if (!modalConcurso) return
+    if (concursoSearchRef.current) clearTimeout(concursoSearchRef.current)
+    concursoSearchRef.current = setTimeout(async () => {
+      setConcursoLoading(true)
+      try {
+        const params = concursoSearch ? `?q=${encodeURIComponent(concursoSearch)}` : ''
+        const res = await apiClient.get(`/api/v1/padron/snapshots/${snapshotId}/diffs/${modalConcurso.diffId}/concursos${params}`)
+        setConcursoResultados(res.data.data ?? [])
+      } catch { setConcursoResultados([]) }
+      finally { setConcursoLoading(false) }
+    }, 300)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [concursoSearch, modalConcurso])
+
+  function abrirModalConcurso(diffId: string, idSialRol: string) {
+    setConcursoSearch('')
+    setConcursoResultados([])
+    setModalConcurso({ diffId, idSialRol })
+  }
+
+  function cerrarModalConcurso() {
+    setModalConcurso(null)
+    setConcursoSearch('')
+    setConcursoResultados([])
+  }
+
+  function vincularConcurso(concursoCphId: string) {
+    if (!modalConcurso) return
+    aprobarDiff.mutate({ diffId: modalConcurso.diffId, vincularConcursoId: concursoCphId })
+    cerrarModalConcurso()
   }
 
   const aprobarDiff = useMutation({
@@ -551,6 +590,13 @@ export function PadronDiffPage() {
                                           </button>
                                         )}
                                         <button
+                                          className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
+                                          disabled={busy}
+                                          onClick={() => abrirModalConcurso(d.id, d.idSialRol)}
+                                        >
+                                          Concurso
+                                        </button>
+                                        <button
                                           className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
                                           disabled={busy}
                                           onClick={() => transferenciaDiff.mutate(d.id)}
@@ -613,6 +659,80 @@ export function PadronDiffPage() {
           )}
         </div>
       </div>
+
+      {/* Modal buscar concurso */}
+      {modalConcurso && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) cerrarModalConcurso() }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-primary text-lg font-bold text-gray-900">Vincular a concurso CPH</h2>
+              <button onClick={cerrarModalConcurso} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <p className="text-sm text-gray-500">
+              Buscá el concurso al que pertenece esta designación. El cargo tomará el código del concurso — no se generará uno nuevo.
+            </p>
+            <input
+              autoFocus
+              type="search"
+              placeholder="Buscar por puesto, hospital, código de cargo..."
+              value={concursoSearch}
+              onChange={(e) => setConcursoSearch(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 rounded-md border border-gray-200">
+              {concursoLoading && (
+                <p className="p-4 text-sm text-gray-400 text-center">Buscando...</p>
+              )}
+              {!concursoLoading && concursoResultados.length === 0 && (
+                <p className="p-4 text-sm text-gray-400 text-center">
+                  {concursoSearch ? 'Sin resultados para esa búsqueda.' : 'Cargando concursos del hospital...'}
+                </p>
+              )}
+              {!concursoLoading && concursoResultados.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => vincularConcurso(c.id)}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {c.codigoCargo ?? <span className="text-gray-400 font-normal">Sin código</span>}
+                        {' '}
+                        <span className="font-normal text-gray-600">{c.literalPuesto}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {c.hospital}
+                        {c.eeConcurso && <> · {c.eeConcurso}</>}
+                        {c.expediente && <> · Exp: {c.expediente}</>}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        c.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {c.estado}
+                      </span>
+                      {!c.estaCompleto && (
+                        <span className="text-[10px] text-orange-600 font-medium">⚠ Pendiente de completar</span>
+                      )}
+                      {c.yaDesignado && (
+                        <span className="text-[10px] text-blue-600 font-medium">Ya tiene designado</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end pt-1">
+              <button className="btn-outline" onClick={cerrarModalConcurso}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal aprobar todos */}
       {modalAprobarTodos && (

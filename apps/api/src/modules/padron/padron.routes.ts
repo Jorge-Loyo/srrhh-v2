@@ -21,6 +21,7 @@ import {
   aprobarTodosDiffsPendientesService,
   diagnosticarDiffsNuevosService,
   getCamposModificadosService,
+  buscarConcursosParaDiffService,
 } from './padron.service.js'
 
 export async function padronRoutes(app: FastifyInstance) {
@@ -112,6 +113,16 @@ export async function padronRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const user = request.user as { id: string }
       const result = await aprobarTodosDiffsPendientesService(request.params.id, user.id)
+      return reply.send({ data: result })
+    }
+  )
+
+  // GET /snapshots/:id/diffs/:diffId/concursos — buscar concursos CPH para vincular
+  app.get<{ Params: { id: string; diffId: string }; Querystring: { q?: string } }>(
+    '/snapshots/:id/diffs/:diffId/concursos',
+    async (request, reply) => {
+      const { q } = request.query
+      const result = await buscarConcursosParaDiffService(request.params.id, request.params.diffId, q)
       return reply.send({ data: result })
     }
   )
