@@ -452,7 +452,7 @@ export function PadronDiffPage() {
                   <th className="px-4 py-3 font-semibold">Puesto</th>
                   <th className="px-4 py-3 font-semibold">Especialidad</th>
                   {tab === 'eliminado' && <th className="px-4 py-3 font-semibold">Código cargo</th>}
-                  {tab === 'nuevo' && <th className="px-4 py-3 font-semibold">Código a generar</th>}
+                  {tab === 'nuevo' && <th className="px-4 py-3 font-semibold">{snapshot.estado === 'aprobado' ? 'Código asignado' : 'Código a generar'}</th>}
                   <th className="px-4 py-3 rounded-tr-lg" />
                 </tr>
               </thead>
@@ -487,7 +487,7 @@ export function PadronDiffPage() {
                         {tab === 'nuevo' && (
                           <td className="px-4 py-3 text-gray-500 font-mono text-xs">
                             {isAprobado
-                              ? <span className="text-green-600 font-semibold">{(d as any).codigoReal ?? '✓ Asignado'}</span>
+                              ? <span className="text-green-600 font-semibold font-mono">{d.codigoReal ?? '✓ Asignado'}</span>
                               : isRechazado
                                 ? <span className="text-gray-400">⚠ Sin asignar</span>
                                 : d.codigoPreview ? <span className="text-blue-700">{d.codigoPreview}</span> : '—'
