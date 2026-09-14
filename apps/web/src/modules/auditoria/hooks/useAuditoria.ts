@@ -5,9 +5,12 @@ export interface AuditoriaRow {
   id: string
   usuarioId: string | null
   username: string | null
+  rol: string | null
   accion: string
   entidad: string
   entidadId: string | null
+  metodo: string | null
+  ruta: string | null
   cambios: unknown
   ip: string | null
   createdAt: string

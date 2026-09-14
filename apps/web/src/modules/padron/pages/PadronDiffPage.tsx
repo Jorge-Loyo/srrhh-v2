@@ -7,6 +7,12 @@ import { can } from '@/shared/lib/can'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff, useDiagnosticoNuevos, useCamposModificados } from '../hooks/usePadron'
 import { apiClient } from '@/shared/lib/api-client'
 
+interface ResultadoAprobarTodos {
+  ok: boolean
+  aprobados: number
+  fallidos: Array<{ diffId: string; cargo: string; motivo: string }>
+}
+
 const TABS: { tipo: TipoDiff; label: string }[] = [
   { tipo: TipoDiff.NUEVO, label: 'Nuevos cargos' },
   { tipo: TipoDiff.MODIFICADO, label: 'Modificados' },
@@ -198,9 +204,15 @@ export function PadronDiffPage() {
   })
 
   const aprobarTodos = useMutation({
-    mutationFn: () => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/aprobar-todos`),
-    onSuccess: () => {
-      setModalAprobarTodos(false)
+    mutationFn: async () => {
+      const res = await apiClient.post<{ data: ResultadoAprobarTodos }>(`/api/v1/padron/snapshots/${snapshotId}/diffs/aprobar-todos`)
+      return res.data.data
+    },
+    onSuccess: (resultado) => {
+      // Con fallidos: se deja el modal abierto mostrando el detalle (no
+      // tiene sentido cerrarlo como si nada, el usuario necesita ver qué
+      // quedó pendiente y por qué antes de decidir el siguiente paso).
+      if (resultado.fallidos.length === 0) setModalAprobarTodos(false)
       queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] })
     },
   })
@@ -745,17 +757,66 @@ export function PadronDiffPage() {
         >
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <h2 className="font-primary text-lg font-bold text-gray-900">Aprobar todos los pendientes</h2>
-            <p className="text-sm text-gray-600">
-              Se generará un código para cada uno de los{' '}
-              <span className="font-semibold text-gray-900">{nuevosPendientes} cargos pendientes</span>.
-              Esta acción no se puede deshacer.
-            </p>
-            {aprobarTodos.isError && <p className="text-sm text-danger">Ocurrió un error. Volvé a intentar.</p>}
+
+            {!aprobarTodos.data && (
+              <p className="text-sm text-gray-600">
+                Se generará un código para cada uno de los{' '}
+                <span className="font-semibold text-gray-900">{nuevosPendientes} cargos pendientes</span>.
+                Esta acción no se puede deshacer.
+              </p>
+            )}
+
+            {aprobarTodos.isError && (
+              <p className="text-sm text-danger">
+                No se pudo completar la operación. Volvé a intentar — lo que ya se haya aprobado queda guardado.
+              </p>
+            )}
+
+            {aprobarTodos.data && (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-700">
+                  Se aprobaron <span className="font-semibold text-green-700">{aprobarTodos.data.aprobados}</span> cargos.
+                  {aprobarTodos.data.fallidos.length > 0 && (
+                    <> Quedaron <span className="font-semibold text-danger">{aprobarTodos.data.fallidos.length}</span> sin aprobar:</>
+                  )}
+                </p>
+                {aprobarTodos.data.fallidos.length > 0 && (
+                  <div className="max-h-56 overflow-y-auto border border-gray-200 rounded">
+                    <table className="text-xs w-full">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Cargo</th>
+                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {aprobarTodos.data.fallidos.map((f) => (
+                          <tr key={f.diffId}>
+                            <td className="px-2 py-1.5 font-mono text-gray-600 align-top">{f.cargo}</td>
+                            <td className="px-2 py-1.5 text-gray-700 align-top">{f.motivo}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-end gap-3 pt-2">
-              <button className="btn-outline" onClick={() => setModalAprobarTodos(false)} disabled={aprobarTodos.isPending}>Cancelar</button>
-              <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
-                {aprobarTodos.isPending ? 'Aprobando...' : `Aprobar ${nuevosPendientes} cargos`}
+              <button className="btn-outline" onClick={() => setModalAprobarTodos(false)} disabled={aprobarTodos.isPending}>
+                {aprobarTodos.data ? 'Cerrar' : 'Cancelar'}
               </button>
+              {!aprobarTodos.data && (
+                <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
+                  {aprobarTodos.isPending ? 'Aprobando...' : `Aprobar ${nuevosPendientes} cargos`}
+                </button>
+              )}
+              {aprobarTodos.data && aprobarTodos.data.fallidos.length > 0 && (
+                <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
+                  {aprobarTodos.isPending ? 'Reintentando...' : `Reintentar ${aprobarTodos.data.fallidos.length} pendientes`}
+                </button>
+              )}
             </div>
           </div>
         </div>

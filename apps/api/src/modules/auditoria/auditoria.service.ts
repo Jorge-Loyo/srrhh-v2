@@ -5,10 +5,12 @@ import type { ListAuditoriaQuery } from './auditoria.schema.js'
 const AUDITORIA_SELECT = {
   id: true,
   usuarioId: true,
-  usuario: { select: { username: true } },
+  usuario: { select: { username: true, role: { select: { nombre: true } } } },
   accion: true,
   entidad: true,
   entidadId: true,
+  metodo: true,
+  ruta: true,
   cambios: true,
   ip: true,
   createdAt: true,
@@ -17,20 +19,25 @@ const AUDITORIA_SELECT = {
 type AuditoriaRow = {
   id: string
   usuarioId: string | null
-  usuario: { username: string } | null
+  usuario: { username: string; role: { nombre: string } | null } | null
   accion: string
   entidad: string
   entidadId: string | null
+  metodo: string | null
+  ruta: string | null
   cambios: unknown
   ip: string | null
   createdAt: Date
 }
 
-// Aplana `usuario: { username } | null` → `username`, mismo criterio que en
-// tokens.service.ts / usuarios.service.ts.
+// Aplana `usuario: { username, role } | null` → `username`/`rol`, mismo
+// criterio que en tokens.service.ts / usuarios.service.ts. `rol` se agrega
+// para que la pantalla pueda mostrar "quién lo hizo" completo (usuario + rol
+// que tenía en ese momento) sin una consulta aparte — pedido explícito para
+// que el detalle de un evento diga exactamente quién lo hizo.
 function toAuditoriaDto(row: AuditoriaRow) {
   const { usuario, ...rest } = row
-  return { ...rest, username: usuario?.username ?? null }
+  return { ...rest, username: usuario?.username ?? null, rol: usuario?.role?.nombre ?? null }
 }
 
 export async function listAuditoriaService(query: ListAuditoriaQuery) {

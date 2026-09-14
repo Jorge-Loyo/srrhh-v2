@@ -276,7 +276,12 @@ async function procesarSnapshot(
     const lote = diffs.slice(i, i + 500)
     const ph = lote.map((_, j) => {
       const b = j * 19
-      return `($${b+1}::uuid,$${b+2}::uuid,$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14},$${b+15},$${b+16},$${b+17},$${b+18},$${b+19})`
+      // $3 (tipo) necesita cast explícito al enum "TipoDiff" — a diferencia
+      // de un literal ('nuevo' en un INSERT sin placeholder), Postgres no
+      // castea sola una expresión parametrizada de tipo texto a un enum
+      // custom, tira 42804 ("column is of type TipoDiff but expression is
+      // of type text"). Hallazgo 2026-09-14 subiendo un archivo real.
+      return `($${b+1}::uuid,$${b+2}::uuid,$${b+3}::"TipoDiff",$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14},$${b+15},$${b+16},$${b+17},$${b+18},$${b+19})`
     }).join(',')
     const vals = lote.flatMap((d) => [
       d.id, d.snapshot_id, d.tipo, d.cargo, d.cuil, d.ayn, d.escalafon,

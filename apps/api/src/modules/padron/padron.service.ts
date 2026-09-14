@@ -1540,18 +1540,35 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   const pendientes = await prisma.padronDiff.findMany({
     where: { snapshotId, tipo: 'nuevo', aprobado: null },
   })
-  if (pendientes.length === 0) return { ok: true, aprobados: 0 }
+  if (pendientes.length === 0) return { ok: true, aprobados: 0, fallidos: [] }
 
-  // Procesar cada uno secuencialmente para no saturar el pool — reutiliza
-  // aprobarDiffNuevoService que ya maneja la lógica completa por diff.
-  // Con ~657 diffs tarda ~10-20s pero es seguro y correcto.
+  // Procesar cada uno de forma INDEPENDIENTE — antes, un solo cargo con datos
+  // problemáticos (ej. un código de registro sin escalafón mapeado) cortaba
+  // el loop entero con una excepción sin capturar, dejando TODOS los
+  // siguientes sin ni siquiera intentarse (no es que fallaran, nunca
+  // llegaban a correr). Hallazgo real 2026-09-14: de 2343 pendientes, uno
+  // malo a mitad de camino dejó 298 sin procesar, de los cuales solo ~107
+  // tenían un problema real — los otros 191 simplemente nunca se probaron.
+  // Ahora cada fallo se registra y se sigue con el resto; el resumen final
+  // le dice al usuario exactamente cuáles quedaron pendientes y por qué,
+  // en vez de un error genérico que además esconde que la mayoría sí se
+  // pudo aprobar.
   let aprobados = 0
+  const fallidos: Array<{ diffId: string; cargo: string; motivo: string }> = []
   for (const diff of pendientes) {
-    await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
-    aprobados++
+    try {
+      await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+      aprobados++
+    } catch (err) {
+      fallidos.push({
+        diffId: diff.id,
+        cargo: diff.idSialRol,
+        motivo: err instanceof AppError ? err.message : (err instanceof Error ? err.message : String(err)),
+      })
+    }
   }
 
-  return { ok: true, aprobados }
+  return { ok: true, aprobados, fallidos }
 }
 
 // ─── Aprobar un diff nuevo individual ───────────────────────────────────────

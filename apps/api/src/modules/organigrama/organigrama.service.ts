@@ -481,13 +481,82 @@ function celda(norm: Record<string, unknown>, key: string): string | null {
   return s === '' ? null : s
 }
 
-function normalizarFilaExcel(row: Record<string, unknown>, numeroFila: number): Prisma.OrganigramaCreateManyInput {
+function normalizarClavesFila(row: Record<string, unknown>): Record<string, unknown> {
   const norm: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(row)) {
     const header = normalizarHeader(k)
     norm[ALIASES_HEADER[header] ?? header] = v
   }
+  return norm
+}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Soporte al "Árbol Salud" ORIGINAL (sin curar a mano) — análisis 2026-09-14
+// comparando el Excel original contra "Arbol Salud Nuevo.xlsx" (el que sí
+// tiene UNIVERSO TOTALIZADOR / REGIMEN EMPLEO) fila por fila y contra la
+// tabla `hospitales`:
+//
+// 1. TIPO="AREA" (siempre "<algo> - Residentes" / "<algo> - Sup. Guardia"):
+//    67/67 filas verificadas, CERO excepciones — nunca representan un puesto
+//    de conducción real (mismo criterio que ya excluye guardia/residencia en
+//    esCargoDeConduccion), así que se descartan directo, ni se insertan.
+//
+// 2. REGIMEN EMPLEO no es deducible de TIPO/DESC_REP (ej. "SECCION CA" se
+//    reparte en 3 regímenes distintos sin ningún patrón textual) — es una
+//    clasificación curada código por código. Pero el 98%+ de los códigos de
+//    cada carga nueva ya existen en la tabla de la carga anterior, así que se
+//    hereda por codigo_reparticion. Solo los códigos GENUINAMENTE nuevos (sin
+//    historial) quedan sin poder resolverse solos → cortan la carga (ver
+//    reemplazarOrganigramaService) pidiendo que se complete a mano esa columna
+//    puntual para esos códigos.
+//
+// 3. UNIVERSO TOTALIZADOR también se hereda por historial cuando existe. Para
+//    códigos nuevos se sugiere automáticamente: si la sigla es una de
+//    `hospitales.tipo` (agudos/monovalente/salud mental/niños) se usa esa
+//    categoría (matchea 1 a 1 contra el Excel curado, ver HOSPITAL_TIPO_A_UNIVERSO
+//    — el campo `hospitales.universo_totalizador`, ojo, es un concepto
+//    DISTINTO — Nivel Central/APS/Hospitales/SAME/Bienestar — y NO debe
+//    usarse acá). Si no es un hospital, el valor por defecto es NIVEL CENTRAL,
+//    con una única excepción real detectada: todo lo que cuelga bajo la
+//    Subsecretaría de Atención Primaria (sigla SSAPAC) es ATENCION PRIMARIA,
+//    salvo el nodo de la propia subsecretaría (TIPO=SSEC/DIREJE).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HOSPITAL_TIPO_A_UNIVERSO: Record<string, string> = {
+  'hospitales de agudos': 'HOSPITALES DE AGUDOS',
+  'hospitales monovalentes': 'HOSPITALES MONOVALENTES',
+  'hospitales de salud mental': 'HOSPITALES SALUD MENTAL',
+  'hospitales de ninos': 'HOSPITALES DE NIÑOS',
+}
+
+// Única excepción real detectada (ver punto 3 arriba): la Subsecretaría de
+// Atención Primaria en sí misma es Nivel Central, pero todo lo que cuelga
+// debajo es Atención Primaria.
+const SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA = 'SSAPAC'
+
+function normalizarTexto(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
+}
+
+export function esFilaArea(tipo: string | null | undefined): boolean {
+  return normalizarHeader(tipo ?? '') === 'area'
+}
+
+export function inferirUniversoTotalizador(
+  sigla: string,
+  tipo: string,
+  hospitalTipoPorSigla: Map<string, string | null>
+): string {
+  const hospitalTipo = hospitalTipoPorSigla.get(sigla)
+  if (hospitalTipo) {
+    const universo = HOSPITAL_TIPO_A_UNIVERSO[normalizarTexto(hospitalTipo)]
+    if (universo) return universo
+  }
+  if (sigla === SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA && tipo.trim().toUpperCase() !== 'SSEC/DIREJE') return 'ATENCION PRIMARIA'
+  return 'NIVEL CENTRAL'
+}
+
+function normalizarFilaExcel(norm: Record<string, unknown>, numeroFila: number): Prisma.OrganigramaCreateManyInput {
   const lvlRaw = celda(norm, 'lvl')
   const tipo = celda(norm, 'tipo')
   const codigoReparticion = celda(norm, 'codigo_reparticion')
@@ -527,7 +596,13 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
   if (filasCrudas.length === 0) throw AppError.badRequest('El archivo no tiene filas de datos')
 
   // La fila 1 del Excel es el header; sheet_to_json devuelve solo las de datos.
-  const filas = filasCrudas.map((row, i) => normalizarFilaExcel(row, i + 2))
+  // TIPO=AREA se descarta antes de normalizar (ver comentario arriba de
+  // esFilaArea) — el numeroFila de error sigue contando sobre el archivo
+  // original (i+2) para que tenga sentido si el usuario lo abre a corregir.
+  const filas = filasCrudas
+    .map((row, i) => ({ norm: normalizarClavesFila(row), numeroFila: i + 2 }))
+    .filter(({ norm }) => !esFilaArea(celda(norm, 'tipo')))
+    .map(({ norm, numeroFila }) => normalizarFilaExcel(norm, numeroFila))
 
   const vistos = new Set<string>()
   for (const f of filas) {
@@ -535,6 +610,63 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
       throw AppError.badRequest(`codigo_reparticion duplicado en el archivo: ${f.codigoReparticion}`)
     }
     vistos.add(f.codigoReparticion)
+  }
+
+  // ── Completar UNIVERSO TOTALIZADOR / REGIMEN EMPLEO cuando el Excel no las
+  // trae (formato "Árbol Salud" original) — ver comentario extenso arriba. Se
+  // hereda por codigo_reparticion de la carga anterior; si el código es nuevo
+  // se sugiere el universo y se corta la carga pidiendo el régimen a mano.
+  const historial = new Map<string, { regimenEmpleo: string | null; universoTotalizador: string | null }>()
+  for (const r of await prisma.organigrama.findMany({
+    select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
+  })) {
+    historial.set(r.codigoReparticion, { regimenEmpleo: r.regimenEmpleo, universoTotalizador: r.universoTotalizador })
+  }
+  const hospitalTipoPorSigla = new Map<string, string | null>()
+  for (const h of await prisma.hospital.findMany({ select: { sigla: true, tipo: true } })) {
+    hospitalTipoPorSigla.set(h.sigla, h.tipo)
+  }
+
+  const pendientes: Array<{ codigoReparticion: string; tipo: string; descRep: string | null; sigla: string; universoSugerido: string }> = []
+  for (const f of filas) {
+    const hist = historial.get(f.codigoReparticion)
+    if (!f.universoTotalizador) {
+      f.universoTotalizador = hist?.universoTotalizador ?? inferirUniversoTotalizador(f.sigla, f.tipo, hospitalTipoPorSigla)
+    }
+    if (!f.regimenEmpleo) {
+      if (hist?.regimenEmpleo) {
+        f.regimenEmpleo = hist.regimenEmpleo
+      } else {
+        pendientes.push({
+          codigoReparticion: f.codigoReparticion,
+          tipo: f.tipo,
+          descRep: f.descRep,
+          sigla: f.sigla,
+          universoSugerido: f.universoTotalizador,
+        })
+      }
+    }
+  }
+  if (pendientes.length > 0) {
+    // Tope de items listados en el mensaje: si `organigramas` está vacía (ambiente
+    // nuevo, post-reset) TODAS las filas del archivo original caerían acá — sin
+    // tope el mensaje sería una lista de miles de items, inútil para leer. En ese
+    // caso real, lo que corresponde es cargar primero el histórico ya clasificado
+    // (apps/api/scripts/import-organigrama.ts o un Excel "Nuevo" curado) y usar
+    // este endpoint después, para altas puntuales — no para la carga inicial.
+    const TOPE_DETALLE = 25
+    const detalle = pendientes
+      .slice(0, TOPE_DETALLE)
+      .map((p) => `${p.codigoReparticion} (${p.tipo}, "${p.descRep ?? 'sin descripción'}", sigla ${p.sigla}, universo sugerido: ${p.universoSugerido})`)
+      .join('; ')
+    const resto = pendientes.length > TOPE_DETALLE ? ` ... y ${pendientes.length - TOPE_DETALLE} más.` : ''
+    const sugerenciaVacio = historial.size === 0
+      ? ' La tabla "organigramas" está vacía — si es una carga inicial, cargá primero el histórico ya clasificado (script import-organigrama.ts o un Excel ya curado con REGIMEN EMPLEO) antes de usar este endpoint para altas puntuales.'
+      : ''
+    throw AppError.badRequest(
+      `${pendientes.length} repartición(es) nueva(s) sin REGIMEN EMPLEO (no se puede inferir solo): ${detalle}.${resto} ` +
+        `Agregá la columna "REGIMEN EMPLEO" con el valor correspondiente para estos códigos puntuales y volvé a subir el archivo.${sugerenciaVacio}`
+    )
   }
 
   // Swap atómico via transacción interactiva con timeout extendido:

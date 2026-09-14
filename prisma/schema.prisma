@@ -904,6 +904,7 @@ model RefreshToken {
   familyId  String    @map("family_id") @db.VarChar(64)
   expiresAt DateTime  @map("expires_at") @db.Timestamptz
   revocado  Boolean   @default(false)
+  ip        String?   @db.VarChar(64)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones
@@ -919,6 +920,12 @@ model AuditLog {
   accion     String   @db.VarChar(32)
   entidad    String   @db.VarChar(64)
   entidadId  String?  @map("entidad_id") @db.VarChar(64)
+  // Método HTTP + ruta completa de la request (ej. "POST", "/api/v1/padron/
+  // snapshots/xxx/rechazar") — red de seguridad para cuando `accion` no
+  // alcanza a describir qué pasó exactamente (ver auditoria.service.ts).
+  // Nullable: los registros previos a esta columna no lo tienen.
+  metodo     String?  @db.VarChar(10)
+  ruta       String?  @db.VarChar(300)
   cambios    Json?
   ip         String?  @db.VarChar(64)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1327,6 +1334,14 @@ model BajaSialDiff {
   // triangulacion: si el CUIL existe en personas y si tiene ocupacion activa
   existeEnPersonas   Boolean @default(false) @map("existe_en_personas")
   tieneOcupActiva    Boolean @default(false) @map("tiene_ocup_activa")
+  // Datos del cargo v2 cuando `tieneOcupActiva` (ver triangular() en
+  // bajas-sial.service.ts) — faltaban en el modelo pese a que el INSERT de
+  // procesarSnapshot() ya los usaba desde que se escribió el service; sin
+  // esto ninguna carga de Bajas Salud podía funcionar (hallazgo 2026-09-14).
+  codRegistro String? @map("cod_registro") @db.VarChar(30)
+  hospital    String? @db.VarChar(20)
+  especialidad String? @db.VarChar(200)
+  codReg      String? @map("cod_reg") @db.VarChar(10)
   campo       String?  @db.VarChar(100)  // solo para tipo=modificado
   valorAnterior String? @map("valor_anterior") @db.Text
   valorNuevo  String?  @map("valor_nuevo") @db.Text

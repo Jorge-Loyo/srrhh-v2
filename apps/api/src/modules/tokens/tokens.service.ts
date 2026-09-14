@@ -10,6 +10,7 @@ const TOKEN_SELECT = {
   familyId: true,
   expiresAt: true,
   revocado: true,
+  ip: true,
   createdAt: true,
 } as const
 
@@ -20,6 +21,7 @@ type TokenRow = {
   familyId: string
   expiresAt: Date
   revocado: boolean
+  ip: string | null
   createdAt: Date
 }
 
@@ -34,9 +36,23 @@ export async function listTokensService(query: ListTokensQuery) {
   const { page, limit, username, activo } = query
   const skip = (page - 1) * limit
 
+  // "Activo" = sesión realmente utilizable ahora mismo: no alcanza con
+  // `revocado: false` — un token puede no estar marcado revocado y sin
+  // embargo ya haber vencido (la expiración se revisa recién al usarlo en
+  // refreshTokenService, no se marca `revocado` proactivamente al pasar la
+  // fecha). Sin el chequeo de `expiresAt`, "Sesiones activas" mostraba
+  // sesiones fantasma que en realidad ya no servían para nada — encontrado
+  // rediseñando la pantalla de Tokens 2026-09-14.
+  //
+  // Nota sobre por qué esto ya alcanza para representar "una sesión por
+  // fila" sin agrupar por familyId: por la rotación en refreshTokenService,
+  // en todo momento una familia tiene A LO SUMO una fila no revocada y
+  // vigente (la más nueva) — las anteriores quedan `revocado: true` al
+  // rotar. Este filtro entonces ya da, 1 a 1, la lista de sesiones vivas.
   const where: Prisma.RefreshTokenWhereInput = {
     ...(username && { usuario: { username: { contains: username, mode: 'insensitive' } } }),
-    ...(activo !== undefined && { revocado: !activo }),
+    ...(activo === true && { revocado: false, expiresAt: { gt: new Date() } }),
+    ...(activo === false && { OR: [{ revocado: true }, { expiresAt: { lte: new Date() } }] }),
   }
 
   const [rows, total] = await Promise.all([
@@ -53,21 +69,26 @@ export async function listTokensService(query: ListTokensQuery) {
   return { data: rows.map(toTokenDto), meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
+// Cierra la SESIÓN completa (toda la familia de rotación), no solo esta fila
+// puntual — la fila que ve la pantalla es la última de la familia (por
+// rotación en refreshTokenService nunca hay más de una viva a la vez), pero
+// "cerrar esta sesión" tiene que significar eso: la sesión, no un token
+// interno que el usuario ni sabe que existe. Mismo criterio que logout() en
+// auth.service.ts (revoca por familyId), pero disparado por un admin sobre
+// la sesión de cualquier usuario, no por el dueño de la sesión.
 export async function revokeTokenService(id: string) {
   const token = await prisma.refreshToken.findUnique({ where: { id } })
-  if (!token) throw AppError.notFound('Token no encontrado')
+  if (!token) throw AppError.notFound('Sesión no encontrada')
 
-  const row = await prisma.refreshToken.update({
-    where: { id },
+  const { count } = await prisma.refreshToken.updateMany({
+    where: { familyId: token.familyId, revocado: false },
     data: { revocado: true },
-    select: TOKEN_SELECT,
   })
-  return toTokenDto(row)
+  return { ok: true, cerradas: count }
 }
 
-// Revoca TODAS las familias de tokens del usuario (no solo la del token que
-// disparó la acción) — a diferencia de logout() en auth.service.ts, que solo
-// revoca la familia del token que se está cerrando.
+// Revoca TODAS las sesiones (familias) del usuario, no solo una — para
+// cuando se sospecha una cuenta comprometida y hay que cerrar todo de una.
 export async function revokeAllForUserService(usuarioId: string) {
   const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId } })
   if (!usuario) throw AppError.notFound('Usuario no encontrado')
