@@ -318,7 +318,9 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
   const [concursosVencidos, bajasSinConcurso] = await Promise.all([
     prisma.concursoCph.findMany({
       where: {
-        estado: { notIn: ['finalizado', 'desierto', 'suspendido'] },
+        // PS16D: 'desierto' ya no es un estado — se excluye vía suspendido=false
+        estado: { notIn: ['finalizado', 'suspendido'] },
+        suspendido: false,
         fechaInscHasta: { lt: hoy },
         fechaExamen: null,
         ...(hospitalId && { hospitalId }),

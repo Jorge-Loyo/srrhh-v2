@@ -55,7 +55,6 @@ export async function createConcursoTx(
       motivo: body.motivo ?? null,
       expediente: body.expediente ?? null,
       tipoConcurso: body.tipoConcurso,
-      motivoConcurso: body.motivoConcurso ?? null,
       registradoPorId: usuarioId,
     },
   })
@@ -149,8 +148,10 @@ export async function createConcursoService(body: CreateConcursoBody, usuarioId:
   if (!hospital) throw AppError.notFound('Hospital no encontrado')
 
   if (body.tipoConcurso === TipoConcurso.CPH) {
+    // PS16D: 'desierto' ya no es un estado — una ronda desierta queda
+    // registrada en concursoCphDesierto con estado='activo'+suspendido=true
     const abierto = await prisma.concursoCph.findFirst({
-      where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+      where: { cargoId: body.cargoId, estado: { not: 'finalizado' }, suspendido: false },
     })
     if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
   }
