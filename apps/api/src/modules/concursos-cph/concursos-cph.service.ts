@@ -632,7 +632,7 @@ export async function importarConcursosCsvService(buffer: Buffer) {
             hospitalId:  cargo.hospitalId,
             origen:      'Importado CSV',
             fechaVacante: fechaBajaVal ?? new Date('2000-01-01'),
-            tipoConcurso: 'CPH',
+            tipoConcurso: 'cph',
           },
         })
         concursoCph = await tx.concursoCph.create({
