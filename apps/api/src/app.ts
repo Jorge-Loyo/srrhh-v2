@@ -72,7 +72,7 @@ app.setErrorHandler(errorHandler)
 // del root y los de cada plugin anidado) terminan antes de cualquier
 // onResponse, así que acá request.user ya está seteado si la request
 // pasó la autenticación.
-app.addHook('onResponse', auditLog)
+app.addHook('onSend', auditLog)
 
 // Health check (público)
 app.get('/health', async () => ({
