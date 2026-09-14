@@ -994,7 +994,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         hospitalId: string
         escalafonId: string
         literalPuesto: string | null
-        especialidad: string | null
+        especialidadLegacy: string | null
         agrupador: string | null
         unificadorPuesto: string | null
         regimen: string | null
@@ -1070,7 +1070,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
           literalPuesto: datos.literal_puesto ?? null,
-          especialidad: datos.especialidad ?? null,
+          especialidadLegacy: datos.especialidad ?? null,
           agrupador: datos.agrupador ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           regimen: datos.regimen || null,
@@ -1399,7 +1399,7 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   await getSnapshotOrThrow(snapshotId)
 
   const diffs = await prisma.padronDiff.findMany({
-    where: { snapshotId, tipo: 'nuevo', aprobado: null },
+    where: { snapshotId, tipo: 'nuevo' },
     select: { id: true, idSialRol: true, valorNuevo: true },
   })
 
