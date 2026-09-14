@@ -23,13 +23,14 @@ INSERT INTO pou_especialidad_mapeo VALUES
   ('ORTOPEDIA Y TRAUMATOLOGIA INFANTIL',                    'TRAUMATOLOGIA')
 ON CONFLICT DO NOTHING;
 
--- Fix capitalización y normalización de unificador_puesto en cargos.
--- Idempotente — safe para re-ejecutar.
-UPDATE cargos SET unificador_puesto = 'CPH DE PLANTA'       WHERE unificador_puesto = 'CPH de Planta';
-UPDATE cargos SET unificador_puesto = 'CPH DE GUARDIA'      WHERE unificador_puesto = 'CPH de Guardia';
-UPDATE cargos SET unificador_puesto = 'JEFE/A DE DIVISION'      WHERE unificador_puesto = 'JEFE DE DIVISION (04)';
-UPDATE cargos SET unificador_puesto = 'JEFE/A DE DEPARTAMENTO'  WHERE unificador_puesto = 'JEFE DE DEPARTAMENTO (02)';
-UPDATE cargos SET unificador_puesto = 'SUB-DIRECTOR'            WHERE unificador_puesto = 'SUB-DIRECTOR (03)';
+-- NOTA (2026-09-11): se sacaron los UPDATE de normalización de
+-- unificador_puesto que estaban acá — pisaban a mayúscula solo 5 valores
+-- puntuales, dejando el resto de la dotación (backfileada completa el mismo
+-- día desde ref_unificadores_puesto, formato "Cph de Guardia"/"Jefe/a de
+-- UNIDAD"/etc.) en un formato distinto e inconsistente dentro de la misma
+-- columna. La vista de abajo ahora compara con UPPER() de los dos lados en
+-- vez de exigir mayúscula exacta, así funciona con el formato real de la
+-- tabla sin tener que reescribir 46.885 filas.
 
 -- Vista de triangulación POU vs concursos.
 -- Cruza concursos activos con filas POU usando similitud de texto + mapeo explícito.
@@ -55,7 +56,7 @@ SELECT
   p.activos         AS pou_activos,
   p.vacantes        AS pou_vacantes,
   CASE
-    WHEN c.unificador_puesto = 'SUPLENTE DE GUARDIA' THEN 'SUPLENTE'
+    WHEN UPPER(c.unificador_puesto) = 'SUPLENTE DE GUARDIA' THEN 'SUPLENTE'
     WHEN c.unificador_puesto IS NULL OR c.unificador_puesto = '' THEN 'SIN CLASIFICAR'
     WHEN p.id IS NOT NULL THEN 'CON POU'
     ELSE 'SIN POU'
@@ -75,10 +76,10 @@ LEFT JOIN pou p ON p.sigla = h.sigla
     )
   )
   AND (
-    (p.perfil = 'ESPECIALISTA EN LA GUARDIA MEDICO'  AND c.unificador_puesto = 'CPH DE GUARDIA'       AND c.agrupador = 'MEDICO')
-    OR (p.perfil = 'PROFESIONAL DE LA GUARDIA MEDICO' AND c.unificador_puesto = 'CPH DE GUARDIA'      AND c.agrupador = 'NO MEDICO')
-    OR (p.perfil = 'PROFESIONAL DE LA SALUD'          AND c.unificador_puesto = 'CPH DE PLANTA'       AND c.agrupador = 'NO MEDICO')
-    OR (p.perfil = 'TECNICO/A DE LA SALUD'            AND c.unificador_puesto = 'TECNICO/A DE LA SALUD')
-    OR (p.perfil = 'Jefe de SECCIÓN'                  AND c.unificador_puesto = 'JEFE/A DE SECCION'   AND c.agrupador = 'JEFES CPH')
-    OR (p.perfil = 'Jefe de UNIDAD'                   AND c.unificador_puesto = 'JEFE/A DE UNIDAD'    AND c.agrupador = 'JEFES CPH')
+    (p.perfil = 'ESPECIALISTA EN LA GUARDIA MEDICO'  AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'       AND UPPER(c.agrupador) = 'MEDICO')
+    OR (p.perfil = 'PROFESIONAL DE LA GUARDIA MEDICO' AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'      AND UPPER(c.agrupador) = 'NO MEDICO')
+    OR (p.perfil = 'PROFESIONAL DE LA SALUD'          AND UPPER(c.unificador_puesto) = 'CPH DE PLANTA'       AND UPPER(c.agrupador) = 'NO MEDICO')
+    OR (p.perfil = 'TECNICO/A DE LA SALUD'            AND UPPER(c.unificador_puesto) = 'TECNICO/A DE LA SALUD')
+    OR (p.perfil = 'Jefe de SECCIÓN'                  AND UPPER(c.unificador_puesto) = 'JEFE/A DE SECCION'   AND UPPER(c.agrupador) = 'JEFES CPH')
+    OR (p.perfil = 'Jefe de UNIDAD'                   AND UPPER(c.unificador_puesto) = 'JEFE/A DE UNIDAD'    AND UPPER(c.agrupador) = 'JEFES CPH')
   );

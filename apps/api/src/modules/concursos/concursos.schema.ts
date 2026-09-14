@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { TipoConcurso, MotivoConcurso } from '@srrhh/types'
+import { TipoConcurso } from '@srrhh/types'
+// MotivoConcurso viene del cliente Prisma (nuevo_cargo/alta_por_baja, S14-1)
+// — no confundir con el MotivoConcurso de @srrhh/types (concepto legacy
+// distinto y sin uso: baja/ampliacion/cobertura_pou/jefatura/otro).
+import { MotivoConcurso } from '@prisma/client'
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 

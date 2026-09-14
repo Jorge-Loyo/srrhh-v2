@@ -52,16 +52,13 @@ export async function listCargosService(query: CargosQuery) {
     const term = search.toLowerCase()
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT c.id FROM cargos c
-      LEFT JOIN especialidades e ON e.id = c.especialidad_id
       WHERE unaccent(c.id_sial) ILIKE unaccent(${like})
          OR unaccent(c.codigo) ILIKE unaccent(${like})
          OR unaccent(c.literal_puesto) ILIKE unaccent(${like})
          OR unaccent(coalesce(c.especialidad_legacy, '')) ILIKE unaccent(${like})
-         OR unaccent(coalesce(e.nombre, '')) ILIKE unaccent(${like})
          OR unaccent(coalesce(c.agrupador, '')) ILIKE unaccent(${like})
          OR unaccent(coalesce(c.unificador_puesto, '')) ILIKE unaccent(${like})
          OR similarity(unaccent(lower(coalesce(c.especialidad_legacy, ''))), unaccent(${term})) > 0.4
-         OR similarity(unaccent(lower(coalesce(e.nombre, ''))), unaccent(${term})) > 0.4
          OR similarity(unaccent(lower(coalesce(c.literal_puesto, ''))), unaccent(${term})) > 0.4
     `)
     searchIds = rows.map((r) => r.id)
