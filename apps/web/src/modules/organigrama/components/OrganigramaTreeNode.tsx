@@ -161,11 +161,20 @@ export const TreeNode = memo(function TreeNode({
       >
         <button
           onClick={handleToggleSelf}
+          disabled={!hasChildren}
           className={`flex-shrink-0 mt-0.5 w-5 h-5 flex items-center justify-center rounded ${
-            hasChildren ? 'text-gray-500 hover:text-gray-800' : 'text-transparent cursor-default'
+            hasChildren ? 'text-gray-500 hover:text-gray-800' : 'cursor-default'
           }`}
         >
-          {hasChildren ? isOpen ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" /> : null}
+          {hasChildren ? (
+            isOpen ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />
+          ) : (
+            // Marcador de nodo hoja — antes acá no se renderizaba nada y la
+            // única forma de notar "esto no se puede desplegar" era fijarse
+            // que faltaba la flechita. Un punto explícito es una señal
+            // positiva en vez de depender de una ausencia.
+            <span className="w-1 h-1 rounded-full bg-gray-300" aria-hidden="true" />
+          )}
         </button>
 
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 mt-0.5 ${tipoColor(node.tipo)}`}>

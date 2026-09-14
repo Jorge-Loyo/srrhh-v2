@@ -34,19 +34,26 @@ const SIGLAS_FILTERS: { key: keyof DotacionFilters; label: string }[] = [
   { key: 'monovalencia', label: 'Monovalencia' },
 ]
 
+// Orden calcado de la app legacy (DotacionPadronPage.jsx → COLUMNS):
+// ID SIAL, CUIL, Apellido y Nombre, Sigla, Escalafón, Cód. Registro, Puesto,
+// Especialidad, Agrupador, Unificador, Sit. Revista — el resto (Estado,
+// Universo, Tipo Hospital, Fecha Proceso) no existe como columna acá, solo
+// como filtro. sexo/reparticion/edad/antiguedad son campos nuevos sin
+// equivalente legacy, van al final.
 const COLUMNS: { key: keyof DotacionRow; label: string; sortKey: string }[] = [
-  { key: 'codigoCargo', label: 'Cód. Cargo', sortKey: 'codigoCargo' },
-  { key: 'nombreApellido', label: 'Apellido y Nombre', sortKey: 'nombreApellido' },
+  { key: 'codigoRol', label: 'Cód. SIAL', sortKey: 'codigoRol' },
   { key: 'cuil', label: 'CUIL', sortKey: 'cuil' },
-  { key: 'sexo', label: 'Sexo', sortKey: 'sexo' },
+  { key: 'nombreApellido', label: 'Apellido y Nombre', sortKey: 'nombreApellido' },
+  { key: 'sigla', label: 'Hospital', sortKey: 'sigla' },
+  { key: 'escalafon', label: 'Escalafón', sortKey: 'escalafon' },
+  { key: 'codigoCargo', label: 'Cód. Cargo', sortKey: 'codigoCargo' },
   { key: 'literalPuesto', label: 'Puesto', sortKey: 'literalPuesto' },
   { key: 'especialidad', label: 'Especialidad', sortKey: 'especialidad' },
-  { key: 'unificadorPuesto', label: 'Unificador', sortKey: 'unificadorPuesto' },
   { key: 'agrupador', label: 'Agrupamiento', sortKey: 'agrupador' },
-  { key: 'escalafon', label: 'Escalafón', sortKey: 'escalafon' },
+  { key: 'unificadorPuesto', label: 'Unificador', sortKey: 'unificadorPuesto' },
   { key: 'situacionRevista', label: 'Situación de Revista', sortKey: 'situacionRevista' },
   { key: 'reparticion', label: 'Repartición', sortKey: 'reparticion' },
-  { key: 'sigla', label: 'Hospital', sortKey: 'sigla' },
+  { key: 'sexo', label: 'Sexo', sortKey: 'sexo' },
   { key: 'edad', label: 'Edad', sortKey: 'edad' },
   { key: 'antiguedad', label: 'Antigüedad', sortKey: 'antiguedad' },
 ]
@@ -151,12 +158,12 @@ export function DotacionPage() {
     setExportando(kind)
     try {
       const rowsMapper = (rows: DotacionRow[]) => rows.map((r) => ({
-        'Cód. Cargo': r.codigoCargo ?? '', 'Apellido y Nombre': r.nombreApellido, CUIL: r.cuil,
-        Sexo: r.sexo ?? '', Puesto: r.literalPuesto ?? '', Especialidad: r.especialidad ?? '',
-        Unificador: r.unificadorPuesto ?? '', Agrupamiento: r.agrupador ?? '', Escalafón: r.escalafon,
-        'Situación de Revista': r.situacionRevista ?? '', Repartición: r.reparticion ?? '', Hospital: r.sigla,
-        'Cód. SIAL': r.codigoRol, 'Mail Laboral': r.mailLaboral ?? '', Teléfono: r.telefono ?? '',
-        Edad: r.edad ?? '', Antigüedad: r.antiguedad ?? '',
+        'Cód. SIAL': r.codigoRol, CUIL: r.cuil, 'Apellido y Nombre': r.nombreApellido,
+        Hospital: r.sigla, Escalafón: r.escalafon, 'Cód. Cargo': r.codigoCargo ?? '',
+        Puesto: r.literalPuesto ?? '', Especialidad: r.especialidad ?? '', Agrupamiento: r.agrupador ?? '',
+        Unificador: r.unificadorPuesto ?? '', 'Situación de Revista': r.situacionRevista ?? '',
+        Repartición: r.reparticion ?? '', Sexo: r.sexo ?? '', Edad: r.edad ?? '', Antigüedad: r.antiguedad ?? '',
+        'Mail Laboral': r.mailLaboral ?? '', Teléfono: r.telefono ?? '',
       }))
       const filename = `dotacion_${new Date().toISOString().slice(0, 10)}.xlsx`
       if (kind === 'pagina') {

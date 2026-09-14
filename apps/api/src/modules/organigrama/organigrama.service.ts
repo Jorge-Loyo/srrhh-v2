@@ -333,15 +333,36 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     else raices.push(nodo)
   }
 
-  // Si hay un único nodo ancla externo que agrupa todas las raíces, usarlo como raíz visual.
+  // Caso normal (la inmensa mayoría de los hospitales): el nodo tope del
+  // hospital (DHOS) tiene un `padre` que SÍ existe pero está fuera de este
+  // recorte (ej. 40016000 "DG Hospitales", el paraguas administrativo que
+  // agrupa a TODOS los hospitales) — por eso DHOS nunca llega a `raices`
+  // (su padreNodo se resuelve contra el ancla externa ya en el paso 6) y
+  // `raices` queda vacío. Antes acá se promovía el ancla externa completo
+  // como raíz visual para no romper con un 404 — pero eso mostraba "DG
+  // Hospitales" como caja tope arriba de CADA hospital, algo que la app
+  // legacy nunca hacía (ver captura: la raíz visual siempre es el hospital
+  // mismo). Como ese ancla es puro trámite (un solo hijo, sin nada más que
+  // agrupar), la raíz real es directamente ese único hijo.
+  //
+  // Caso roto (ej. HGADS): además del hospital, el recorte trae una fila con
+  // `padre` que no existe en NINGÚN lado de la tabla (dato de origen
+  // incompleto) — un huérfano total que sí cae en `raices`. Ahí el ancla
+  // aporta algo que `raices` no tiene (el hospital real), así que conviene
+  // usarla como raíz visual y colgarle el huérfano al lado, para no perder
+  // esa fila silenciosamente ni tapar el árbol real.
   const anclaExterna = padresFuera.length === 1 ? mapa.get(padresFuera[0]!.codigoReparticion) : undefined
-  if (anclaExterna && anclaExterna.hijos.length > 0 && raices.every((r) => anclaExterna.hijos.includes(r))) {
-    raices.length = 0
-    raices.push(anclaExterna)
-  }
 
   let raiz: OrganigramaNodo | null = null
-  if (raices.length === 1) {
+  if (anclaExterna && anclaExterna.hijos.length > 0) {
+    const huerfanosReales = raices.filter((r) => !anclaExterna.hijos.includes(r))
+    if (anclaExterna.hijos.length === 1 && huerfanosReales.length === 0) {
+      raiz = anclaExterna.hijos[0]!
+    } else {
+      anclaExterna.hijos.push(...huerfanosReales)
+      raiz = anclaExterna
+    }
+  } else if (raices.length === 1) {
     raiz = raices[0]!
   } else if (raices.length > 1) {
     // Huérfanos que comparten un mismo padre fuera de este recorte (ej. la SS
