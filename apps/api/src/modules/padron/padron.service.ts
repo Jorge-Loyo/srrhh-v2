@@ -1250,8 +1250,30 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         select: { cargoId: true },
       }) as { cargoId: string }[]
       const cargosConVigenteSet = new Set(cargosConVigente.map((o) => o.cargoId))
-      const cargosAValidacion = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
-      for (const lote of chunk(cargosAValidacion, 2000)) {
+      // S17-3: cargos sin ocupación vigente — antes de poner validacion_vacante,
+      // buscar bajas confirmadas para esos cargos. Si existe una, vincularla
+      // automáticamente y saltear validacion_vacante (el cargo ya está definido).
+      const bajasConfirmadas = await tx.baja.findMany({
+        where: {
+          cargoId: { in: cargosAValidacion },
+          estado: 'confirmada',
+          snapshotVinculadoId: null,
+        },
+        select: { id: true, cargoId: true },
+      })
+      const cargosBajaConfirmadaSet = new Set(bajasConfirmadas.map((b) => b.cargoId))
+
+      // Vincular bajas existentes al snapshot actual
+      if (bajasConfirmadas.length > 0) {
+        await tx.baja.updateMany({
+          where: { id: { in: bajasConfirmadas.map((b) => b.id) } },
+          data: { padronVinculadoAt: new Date(), snapshotVinculadoId: snapshot.id },
+        })
+      }
+
+      // Solo van a validacion_vacante los cargos SIN baja confirmada previa
+      const cargosRealmenteAValidacion = cargosAValidacion.filter((cid) => !cargosBajaConfirmadaSet.has(cid))
+      for (const lote of chunk(cargosRealmenteAValidacion, 2000)) {
         await tx.cargo.updateMany({
           where: { id: { in: lote } },
           data: { estado: 'validacion_vacante', estadoDesde: fechaPadron },

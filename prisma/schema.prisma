@@ -405,6 +405,7 @@ model PadronSnapshot {
   diffs           PadronDiff[]
   ocupaciones     Ocupacion[]
   padronHistorico PadronHistorico[]
+  bajasVinculadas Baja[]            @relation("BajaSnapshotVinculado")
 
   @@map("padron_snapshots")
 }
@@ -715,6 +716,9 @@ model Baja {
   estado           EstadoBaja @default(pendiente)
   observaciones    String?    @db.Text
   registradoPorId  String?    @map("registrado_por") @db.Uuid
+  // S17: vinculación al archivo semanal del padrón
+  padronVinculadoAt   DateTime? @map("padron_vinculado_at") @db.Timestamptz
+  snapshotVinculadoId String?   @map("snapshot_vinculado_id") @db.Uuid
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -723,6 +727,7 @@ model Baja {
   hospital        Hospital  @relation(fields: [hospitalId], references: [id])
   persona         Persona?  @relation(fields: [personaId], references: [id])
   registradoPor   Usuario?  @relation(fields: [registradoPorId], references: [id])
+  snapshotVinculado PadronSnapshot? @relation("BajaSnapshotVinculado", fields: [snapshotVinculadoId], references: [id])
   // baja_id nullable en ConcursoCph: hay concursos por ampliación sin baja
   // previa (22% de los datos reales — ver análisis CSV)
   concursos       Concurso[]

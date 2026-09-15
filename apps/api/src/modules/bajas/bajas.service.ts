@@ -5,7 +5,6 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
-import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -639,19 +638,11 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       })
     }
 
-    // S15: baja queda en pendiente — el director la confirma/anula vía autorizaciones
+    // S17-2: baja nace confirmada — SGRASV ya tiene la potestad, no necesita
+    // autorización del director. El flujo pendiente+autorizacion era incorrecto.
     await tx.baja.update({
       where: { id: baja.id },
-      data: { estado: 'pendiente' },
-    })
-
-    // Crear autorización para el director
-    await crearAutorizacion(tx as typeof prisma, {
-      tipo:               'baja_cargo',
-      referenciaId:       baja.id,
-      referenciaTipo:     'baja',
-      solicitadoPorId:    usuarioId,
-      resolverPorRolSlug: 'director',
+      data: { estado: 'confirmada' },
     })
 
     return prisma.baja.findUnique({ where: { id: baja.id }, include })
