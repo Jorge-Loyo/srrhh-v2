@@ -77,16 +77,6 @@ export function useTriangulacion(sigla?: string) {
   })
 }
 
-export function useSuplentes() {
-  return useQuery({
-    queryKey: ['pou', 'triangulacion', 'suplentes'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ data: TriangulacionRow[] }>('/api/v1/pou/triangulacion')
-      return res.data.data.filter((r) => r.estadoPou === 'SUPLENTE')
-    },
-  })
-}
-
 export interface PouCarga {
   id: string
   archivo: string
