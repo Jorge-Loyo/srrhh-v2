@@ -542,6 +542,13 @@ export function esFilaArea(tipo: string | null | undefined): boolean {
   return normalizarHeader(tipo ?? '') === 'area'
 }
 
+const TIPOS_AUTORIDADES_SUPERIORES = new Set(['ministerio', 'ssec/direje', 'f/n dg', 'f/n ssec'])
+
+export function inferirRegimenEmpleoPorTipo(tipo: string): string | null {
+  if (TIPOS_AUTORIDADES_SUPERIORES.has(tipo.trim().toLowerCase())) return 'Autoridades Superiores'
+  return null
+}
+
 export function inferirUniversoTotalizador(
   sigla: string,
   tipo: string,
@@ -654,6 +661,7 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
         f.regimenEmpleo = hist.regimenEmpleo
       } else {
         const inferido = regimenPorSiglaUniverso.get(`${f.sigla}|${f.universoTotalizador ?? ''}`)
+          ?? inferirRegimenEmpleoPorTipo(f.tipo)
         if (inferido) {
           f.regimenEmpleo = inferido
         } else {
