@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { BajasQuery, CreateBajaBody } from './bajas.schema.js'
+import type { BajasQuery, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
 
@@ -69,6 +69,63 @@ export async function listBajasService(query: BajasQuery) {
   }))
 
   return { data: dataConSial, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
+}
+
+// --- S17-5: GET /vinculacion — bajas confirmadas y su estado de vinculación
+// al padrón semanal (ver SPRINT_17_bajas_sgrasv_padron.md) --------------------
+export async function listVinculacionService(query: VinculacionQuery) {
+  const { search, vinculacion } = query
+
+  const where: Prisma.BajaWhereInput = {
+    estado: 'confirmada',
+    ...(vinculacion === 'vinculadas' && { snapshotVinculadoId: { not: null } }),
+    ...(vinculacion === 'sin_vincular' && { snapshotVinculadoId: null }),
+    ...(search && {
+      OR: [
+        { cargo: { codigo: { contains: search, mode: 'insensitive' } } },
+        { hospital: { nombre: { contains: search, mode: 'insensitive' } } },
+        { persona: { apellidoNombre: { contains: search, mode: 'insensitive' } } },
+      ],
+    }),
+  }
+
+  const bajas = await prisma.baja.findMany({
+    where,
+    orderBy: { fechaBaja: 'asc' },
+    select: {
+      id: true,
+      cargoId: true,
+      fechaBaja: true,
+      estado: true,
+      generaConcurso: true,
+      padronVinculadoAt: true,
+      cargo: { select: { codigo: true } },
+      hospital: { select: { nombre: true } },
+      persona: { select: { apellidoNombre: true } },
+      snapshotVinculado: { select: { id: true, filename: true, fechaAsignada: true } },
+      concursos: {
+        select: { concursoCph: { select: { id: true } } },
+        take: 1,
+        orderBy: { createdAt: 'desc' as const },
+      },
+    },
+  })
+
+  return bajas.map((b) => ({
+    id: b.id,
+    cargoId: b.cargoId,
+    cargoCodigo: b.cargo?.codigo ?? null,
+    hospitalNombre: b.hospital?.nombre ?? '',
+    personaApellidoNombre: b.persona?.apellidoNombre ?? null,
+    fechaBaja: b.fechaBaja,
+    estado: b.estado,
+    generaConcurso: b.generaConcurso,
+    concursoId: b.concursos[0]?.concursoCph?.id ?? null,
+    padronVinculadoAt: b.padronVinculadoAt,
+    snapshotVinculado: b.snapshotVinculado
+      ? { id: b.snapshotVinculado.id, filename: b.snapshotVinculado.filename, fechaArchivo: b.snapshotVinculado.fechaAsignada }
+      : null,
+  }))
 }
 
 // --- GET /:id ---------------------------------------------------------------
@@ -645,6 +702,6 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
       data: { estado: 'confirmada' },
     })
 
-    return prisma.baja.findUnique({ where: { id: baja.id }, include })
+    return tx.baja.findUnique({ where: { id: baja.id }, include })
   })
 }

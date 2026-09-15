@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { bajasQuerySchema, createBajaSchema, updateBajaSchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
+import { bajasQuerySchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -25,6 +25,13 @@ export async function bajasRoutes(app: FastifyInstance) {
     const query = bajasQuerySchema.parse(request.query)
     const result = await listBajasService(query)
     return reply.send(result)
+  })
+
+  // S17-5: GET /vinculacion — bajas confirmadas y su estado de vinculación al padrón
+  app.get('/vinculacion', async (request, reply) => {
+    const query = vinculacionQuerySchema.parse(request.query)
+    const data = await listVinculacionService(query)
+    return reply.send({ data })
   })
 
   // GET /:id — detalle de una baja

@@ -216,6 +216,16 @@ export function AppShell() {
             </NavLink>
           )}
 
+          {/* Estado de vinculación de bajas (S17-6) */}
+          {can(user, 'bajas', 'crear') && (
+            <NavLink to="/bajas/vinculacion"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Vinculación de Bajas' : undefined}>
+              <span className="text-base shrink-0">🔗</span>
+              {!collapsed && <span className="truncate">Vinculación de Bajas</span>}
+            </NavLink>
+          )}
+
           {/* Concursos */}
           {can(user, 'concursos-cph', 'ver') && (
             <NavLink to="/concursos/cph"
