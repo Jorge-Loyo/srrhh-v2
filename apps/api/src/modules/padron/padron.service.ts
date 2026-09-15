@@ -1255,12 +1255,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       // automáticamente y saltear validacion_vacante (el cargo ya está definido).
       const bajasConfirmadas = await tx.baja.findMany({
         where: {
-          cargoId: { in: cargosAValidacion },
+          cargoId: { in: aConfirmarBaja },
           estado: 'confirmada',
           snapshotVinculadoId: null,
         },
         select: { id: true, cargoId: true },
-      })
+      }) as { id: string; cargoId: string }[]
       const cargosBajaConfirmadaSet = new Set(bajasConfirmadas.map((b) => b.cargoId))
 
       // Vincular bajas existentes al snapshot actual
@@ -1272,7 +1272,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
 
       // Solo van a validacion_vacante los cargos SIN baja confirmada previa
-      const cargosRealmenteAValidacion = cargosAValidacion.filter((cid) => !cargosBajaConfirmadaSet.has(cid))
+      const cargosRealmenteAValidacion = aConfirmarBaja.filter((cid) => !cargosBajaConfirmadaSet.has(cid))
       for (const lote of chunk(cargosRealmenteAValidacion, 2000)) {
         await tx.cargo.updateMany({
           where: { id: { in: lote } },

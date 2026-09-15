@@ -200,7 +200,7 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
       SELECT
         count(*)::bigint AS total,
         count(*) FILTER (WHERE situacion_revista = 'Activo')::bigint AS activos,
-        count(*) FILTER (WHERE situacion_revista = 'Retención de Cargo')::bigint AS retencion,
+        count(*) FILTER (WHERE situacion_revista = 'Retencion de Cargo')::bigint AS retencion,
         count(*) FILTER (WHERE situacion_revista = 'Comisión')::bigint AS comision,
         count(*) FILTER (WHERE sexo = 'F')::bigint AS mujeres,
         count(*) FILTER (WHERE sexo = 'M')::bigint AS varones
