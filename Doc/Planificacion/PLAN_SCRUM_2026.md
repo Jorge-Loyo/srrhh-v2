@@ -43,7 +43,7 @@
 | Sprint 16 — Flujo completo: Vacante → Concurso → Designación | ✅ Completado (S16-1 a S16-8) — S16-9 verificación e2e pendiente | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
 | Post-Sprint 16 — Corrección modelo Desierto CPH | ✅ Completado — commits `348a466`, `957acc7` | — | `Sprints/POST_SPRINT_16_desierto_cph.md` |
 | Post-Sprint 16 — Fixes varios + Módulo Cadena de Mando | ✅ Completado — 2026-09 | — | `Sprints/POST_SPRINT_16_fixes_cadena_mando.md` |
-| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón | 📋 Planificado | S17-1 a S17-8 | `Sprints/SPRINT_17_bajas_sgrasv_padron.md` |
+| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón | 🔄 En curso (backend Jorge ✅) | S17-1 a S17-8 | `Sprints/SPRINT_17_bajas_sgrasv_padron.md` |
 | Post-Sprint — Triangulación POU vs Concursos + Mejoras de datos | ✅ Completado — 2026-09 | — | `Sprints/POST_SPRINT_POU_TRIANGULACION.md` |
 | Post-Sprint — Filtro conFaltantes + Tests + Modales flujo CPH | ✅ Completado — 2026-09 | — | ver notas abajo |
 | Sprint 18 — Retenciones: schema + generación automática de cargos R/TTR | 📋 Planificado | S18-1 a S18-10 | `Sprints/SPRINT_18_retenciones_cadena_cargos.md` |
