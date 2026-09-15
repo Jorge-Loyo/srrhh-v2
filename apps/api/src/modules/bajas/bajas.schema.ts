@@ -14,6 +14,14 @@ export const bajasQuerySchema = z.object({
 
 export type BajasQuery = z.infer<typeof bajasQuerySchema>
 
+// S17-5: listado de bajas confirmadas con estado de vinculación al padrón
+export const vinculacionQuerySchema = z.object({
+  search: z.string().trim().min(1).optional(),
+  vinculacion: z.enum(['todas', 'vinculadas', 'sin_vincular']).default('todas'),
+})
+
+export type VinculacionQuery = z.infer<typeof vinculacionQuerySchema>
+
 // S5-4: crear baja. `tipoBaja` y `tipificadorOrigen` son opcionales —
 // 97% de los datos reales no tienen tipo de baja (ver análisis CSV en
 // PLAN_SCRUM_2026.md POST-SPRINT 4 (4)).

@@ -1250,6 +1250,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         select: { cargoId: true },
       }) as { cargoId: string }[]
       const cargosConVigenteSet = new Set(cargosConVigente.map((o) => o.cargoId))
+      const cargosAValidacion = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
       // S17-3: cargos sin ocupación vigente — antes de poner validacion_vacante,
       // buscar bajas confirmadas para esos cargos. Si existe una, vincularla
       // automáticamente y saltear validacion_vacante (el cargo ya está definido).
