@@ -627,6 +627,22 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
     hospitalTipoPorSigla.set(h.sigla, h.tipo)
   }
 
+  // Mapa sigla|universo -> regimenEmpleo: si todos los nodos existentes de esa
+  // combinación tienen el mismo régimen, se puede inferir para nodos nuevos.
+  const regimenSetPorSiglaUniverso = new Map<string, Set<string>>()
+  for (const r of await prisma.organigrama.findMany({
+    select: { sigla: true, universoTotalizador: true, regimenEmpleo: true },
+    where: { regimenEmpleo: { not: '' } },
+  })) {
+    const key = `${r.sigla}|${r.universoTotalizador ?? ''}`
+    if (!regimenSetPorSiglaUniverso.has(key)) regimenSetPorSiglaUniverso.set(key, new Set())
+    regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo)
+  }
+  const regimenPorSiglaUniverso = new Map<string, string>()
+  for (const [key, set] of regimenSetPorSiglaUniverso) {
+    if (set.size === 1) regimenPorSiglaUniverso.set(key, [...set][0])
+  }
+
   const pendientes: Array<{ codigoReparticion: string; tipo: string; descRep: string | null; sigla: string; universoSugerido: string }> = []
   for (const f of filas) {
     const hist = historial.get(f.codigoReparticion)
@@ -637,13 +653,18 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
       if (hist?.regimenEmpleo) {
         f.regimenEmpleo = hist.regimenEmpleo
       } else {
-        pendientes.push({
-          codigoReparticion: f.codigoReparticion,
-          tipo: f.tipo,
-          descRep: f.descRep,
-          sigla: f.sigla,
-          universoSugerido: f.universoTotalizador,
-        })
+        const inferido = regimenPorSiglaUniverso.get(`${f.sigla}|${f.universoTotalizador ?? ''}`)
+        if (inferido) {
+          f.regimenEmpleo = inferido
+        } else {
+          pendientes.push({
+            codigoReparticion: f.codigoReparticion,
+            tipo: f.tipo,
+            descRep: f.descRep,
+            sigla: f.sigla,
+            universoSugerido: f.universoTotalizador,
+          })
+        }
       }
     }
   }
