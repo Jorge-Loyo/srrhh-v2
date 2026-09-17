@@ -181,7 +181,7 @@ export function KpisPage() {
                 <p className="text-sm font-semibold text-gray-700 mb-2">
                   Concursos CPH vencidos ({alertas?.concursosVencidos.length ?? 0})
                 </p>
-                <p className="text-xs text-gray-400 mb-2">Venció el plazo de inscripción sin haberse programado examen.</p>
+                <p className="text-xs text-gray-400 mb-2">El plazo de inscripción cerró y no se registró fecha de examen.</p>
                 <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                   {alertas?.concursosVencidos.map((c) => (
                     <Link
@@ -190,7 +190,7 @@ export function KpisPage() {
                       className="flex justify-between text-sm py-1.5 border-b border-gray-100 hover:bg-gray-50 rounded px-1"
                     >
                       <span className="text-gray-700">{c.cargoCodigo} · {c.hospitalSigla}</span>
-                      <span className="text-danger font-semibold">{c.diasVencido}d vencido</span>
+                      <span className="text-danger font-semibold">{c.diasVencido}d sin avanzar</span>
                     </Link>
                   ))}
                 </div>
