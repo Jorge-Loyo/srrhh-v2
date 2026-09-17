@@ -276,7 +276,7 @@ export async function getKpisConcursosService(query: KpisConcursosQuery) {
   const etapaRow = etapaRows[0] ?? {}
   const tiempoPromedioPorEtapa = ETAPAS_CPH.map((e, i) => ({
     etapa: e.etapa,
-    diasPromedio: etapaRow[`d${i}`] !== null && etapaRow[`d${i}`] !== undefined ? Number(etapaRow[`d${i}`]) : null,
+    diasPromedio: etapaRow[`d${i}`] !== null && etapaRow[`d${i}`] !== undefined ? parseFloat(String(etapaRow[`d${i}`])) : null,
     muestras: Number(etapaRow[`n${i}`] ?? 0),
   }))
 
