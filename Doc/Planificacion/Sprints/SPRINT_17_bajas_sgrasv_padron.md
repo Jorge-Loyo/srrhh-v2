@@ -1,6 +1,6 @@
 # SPRINT 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón
 
-**Estado:** 🔄 En curso
+**Estado:** ✅ Completado
 **Fecha de inicio:** 2026-09-27
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea
@@ -104,10 +104,10 @@ se defina la migración.
 | S17-2 | Fix `createBajaService`: baja nace `confirmada` directamente, sin `crearAutorizacion` al director. | Jorge | 1h | 🔴 | ✅ `60657da` |
 | S17-3 | Fix `aprobarSnapshotService` (paso 5 — eliminados): busca baja `confirmada` para el `cargoId`. Si existe → vincula y saltea `validacion_vacante`. Si no → flujo normal. | Jorge | 2h | 🔴 | ✅ `60657da` |
 | S17-4 | Fix `updateBajaService`: path de confirmación desde borrador nace `confirmada`. | Jorge | 0.5h | 🔴 | ✅ ya estaba hecho |
-| S17-5 | Backend: endpoint `GET /bajas/vinculacion` — listado con estado de vinculación, días transcurridos, datos del snapshot vinculado. | Jorge | 1.5h | 🔴 | 📋 Pendiente (Agustín) |
-| S17-6 | Frontend: vista "Estado de vinculación de bajas" — tabla con filtros, badge días sin vincular, link al concurso. | Agustín | 4h | 🔴 | 📋 Pendiente |
+| S17-5 | Backend: endpoint `GET /bajas/vinculacion` — listado con estado de vinculación, días transcurridos, datos del snapshot vinculado. | Jorge | 1.5h | 🔴 | ✅ `38e8a1c` |
+| S17-6 | Frontend: vista "Estado de vinculación de bajas" — tabla con filtros, badge días sin vincular, link al concurso. | Agustín | 4h | 🔴 | ✅ `ca87ae1` |
 | S17-7 | Revisar guards por `baja.estado === 'pendiente'` en concursos/autorizaciones. | Jorge | 1h | 🟡 | ✅ Revisado — sin guards problemáticos |
-| S17-8 | Verificación end-to-end: baja → concurso → padrón → vinculación automática → vista correcta. | Jorge + Agustín | 2h | 🔴 | 📋 Pendiente |
+| S17-8 | Verificación end-to-end: baja → concurso → padrón → vinculación automática → vista correcta. | Jorge + Agustín | 2h | 🔴 | ✅ Verificado |
 
 **Total estimado**: ~13h
 
@@ -201,8 +201,8 @@ const cargosRealmenteAValidacion = cargosAValidacion
 - [x] Baja creada por SGRASV nace `confirmada` — sin autorización pendiente ✅ S17-2
 - [x] Concurso puede iniciarse inmediatamente después de crear la baja ✅ S17-2
 - [x] Padrón con `eliminado` para cargo con baja confirmada → vincula automáticamente, no crea `validacion_vacante` ✅ S17-3
-- [ ] Padrón con `eliminado` para cargo sin baja previa → flujo normal `validacion_vacante` (pendiente verificación E2E)
-- [ ] Vista de vinculación muestra correctamente bajas vinculadas vs sin vincular (pendiente S17-5/S17-6)
+- [x] Padrón con `eliminado` para cargo sin baja previa → flujo normal `validacion_vacante` ✅ S17-3
+- [x] Vista de vinculación muestra correctamente bajas vinculadas vs sin vincular ✅ S17-5/S17-6
 - [x] Director no recibe autorizaciones de bajas ✅ S17-2
 - [x] Sin regresiones en autorizaciones de altas de cargo y modificaciones de concurso ✅ S17-7
 
