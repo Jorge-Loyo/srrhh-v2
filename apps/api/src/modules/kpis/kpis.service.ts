@@ -249,7 +249,7 @@ export async function getKpisConcursosService(query: KpisConcursosQuery) {
   const etapaSelect = Prisma.join(
     ETAPAS_CPH.map(
       (e, i) => Prisma.sql`
-        AVG(EXTRACT(EPOCH FROM (${Prisma.raw(e.hasta)} - ${Prisma.raw(e.desde)})) / 86400) FILTER (
+        AVG((${Prisma.raw(e.hasta)}::date - ${Prisma.raw(e.desde)}::date)) FILTER (
           WHERE ${Prisma.raw(e.hasta)} IS NOT NULL AND ${Prisma.raw(e.desde)} IS NOT NULL
             AND ${Prisma.raw(e.hasta)} >= ${Prisma.raw(e.desde)}
         ) AS "d${i}",
