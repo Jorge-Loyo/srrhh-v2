@@ -186,7 +186,7 @@ export function KpisPage() {
                   {alertas?.concursosVencidos.map((c) => (
                     <Link
                       key={c.id}
-                      to={`/concursos/cph/${c.id}`}
+                      to={`/concursos/cph/${c.id}/wizard`}
                       className="flex justify-between text-sm py-1.5 border-b border-gray-100 hover:bg-gray-50 rounded px-1"
                     >
                       <span className="text-gray-700">{c.cargoCodigo} · {c.hospitalSigla}</span>
@@ -204,7 +204,10 @@ export function KpisPage() {
                 <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                   {alertas?.bajasSinConcurso.map((b) => (
                     <div key={b.id} className="flex justify-between text-sm py-1.5 border-b border-gray-100 px-1">
-                      <span className="text-gray-700">{b.cargoCodigo} · {b.hospitalSigla}</span>
+                      <span className="text-gray-700">
+                        {b.cargoCodigo} · {b.hospitalSigla}
+                        {b.personaApellidoNombre && <span className="text-gray-400"> · {b.personaApellidoNombre}</span>}
+                      </span>
                       <span className="text-danger font-semibold">{b.diasSinConcurso}d sin concurso</span>
                     </div>
                   ))}

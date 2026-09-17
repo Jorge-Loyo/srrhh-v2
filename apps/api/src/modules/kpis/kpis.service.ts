@@ -332,11 +332,16 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
     prisma.baja.findMany({
       where: {
         generaConcurso: false,
-        estado: 'pendiente',
+        estado: 'confirmada',
         concursos: { none: {} },
+        cargo: { estado: { in: ['vigente', 'validacion_vacante'] } },
         ...(hospitalId && { hospitalId }),
       },
-      include: { hospital: { select: { sigla: true } }, cargo: { select: { codigo: true, idSial: true } } },
+      include: {
+        hospital: { select: { sigla: true } },
+        cargo: { select: { codigo: true, idSial: true } },
+        persona: { select: { apellidoNombre: true } },
+      },
       orderBy: { fechaBaja: 'asc' },
     }),
   ])
@@ -354,6 +359,7 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
       id: b.id,
       cargoCodigo: b.cargo.codigo ?? b.cargo.idSial,
       hospitalSigla: b.hospital.sigla,
+      personaApellidoNombre: b.persona?.apellidoNombre ?? null,
       fechaBaja: b.fechaBaja,
       diasSinConcurso: diasDesde(b.fechaBaja, hoy),
     })),
