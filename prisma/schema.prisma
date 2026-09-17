@@ -244,6 +244,10 @@ model Persona {
   fechaNacimiento       DateTime? @map("fecha_nacimiento") @db.Date
   sexo                  String?   @db.VarChar(10)
   especialidadPrincipal String?   @map("especialidad_principal") @db.VarChar(200)
+  // Especialidad CPH canónica — viene de ref_especialidades_cuil tipo=cph.
+  // Distinta de especialidadPrincipal (que es la del cargo actual del padrón).
+  // Se popula al aprobar cada snapshot y no cambia con el cargo.
+  especialidadCph       String?   @map("especialidad_cph") @db.VarChar(200)
   // S2-17: contacto y domicilio
   telefono              String?   @db.VarChar(20)
   mailPersonal          String?   @map("mail_personal") @db.VarChar(255)
@@ -267,6 +271,7 @@ model Persona {
   ordenMeritoIntegrante    OrdenMeritoIntegrante[]
 
   @@index([numeroDoc])
+  @@index([especialidadCph])
   @@map("personas")
 }
 

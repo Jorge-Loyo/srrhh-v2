@@ -1321,6 +1321,34 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     }
 
+    // ── 6b. Actualizar especialidad_cph para personas nuevas y existentes
+    //        que aparecen en este padrón — desde ref_especialidades_cuil ────
+    const cuilsEnEstePadron = [...new Set(
+      [...nuevos, ...rechazados].map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v))
+    )]
+    if (cuilsEnEstePadron.length > 0) {
+      for (const lote of chunk(cuilsEnEstePadron, 1000)) {
+        await tx.$executeRaw`
+          UPDATE personas p
+          SET especialidad_cph = ec.especialidad, updated_at = now()
+          FROM (
+            SELECT DISTINCT ON (cuil) cuil, especialidad
+            FROM (
+              SELECT cuil, especialidad, count(*) AS freq,
+                CASE WHEN especialidad = 'Sin Especialidad' THEN 1 ELSE 0 END AS es_sin_esp
+              FROM ref_especialidades_cuil
+              WHERE tipo = 'cph' AND cuil = ANY(${lote})
+              GROUP BY cuil, especialidad
+            ) ranked
+            ORDER BY cuil, es_sin_esp ASC, freq DESC
+          ) ec
+          WHERE p.cuil = ec.cuil
+            AND p.especialidad_cph IS DISTINCT FROM ec.especialidad
+            AND NOT (ec.especialidad = 'Sin Especialidad' AND p.especialidad_cph IS NOT NULL)
+        `
+      }
+    }
+
     // ── 7. Histórico: una sola lectura en bloque del estado final de todas
     //       las ocupaciones tocadas, y un createMany en vez de un create por
     //       fila ────────────────────────────────────────────────────────────
@@ -1658,6 +1686,23 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
             provincia: datos.provincia || null,
           },
         }) as PersonaRow
+        // Poblar especialidad_cph desde ref_especialidades_cuil
+        await tx.$executeRaw`
+          UPDATE personas p
+          SET especialidad_cph = ec.especialidad, updated_at = now()
+          FROM (
+            SELECT DISTINCT ON (cuil) cuil, especialidad
+            FROM (
+              SELECT cuil, especialidad, count(*) AS freq,
+                CASE WHEN especialidad = 'Sin Especialidad' THEN 1 ELSE 0 END AS es_sin_esp
+              FROM ref_especialidades_cuil
+              WHERE tipo = 'cph' AND cuil = ${cuil}
+              GROUP BY cuil, especialidad
+            ) ranked
+            ORDER BY cuil, es_sin_esp ASC, freq DESC
+          ) ec
+          WHERE p.cuil = ec.cuil
+        `
       }
     }
 

@@ -12,6 +12,7 @@ interface PersonaRow {
   fechaNacimiento: Date | null
   sexo: string | null
   especialidadPrincipal: string | null
+  especialidadCph: string | null
   activo: boolean
   createdAt: Date
   updatedAt: Date
@@ -66,6 +67,7 @@ export async function listPersonasService(query: PersonasQuery) {
         p.apellido_nombre AS "apellidoNombre",
         p.fecha_nacimiento AS "fechaNacimiento",
         p.sexo, p.especialidad_principal AS "especialidadPrincipal",
+        p.especialidad_cph AS "especialidadCph",
         p.activo, p.created_at AS "createdAt", p.updated_at AS "updatedAt",
         c.literal_puesto AS "puesto",
         REGEXP_REPLACE(c.id_sial, '-[^-]+$', '') AS "idSial"
