@@ -1,6 +1,7 @@
 // Wizard de seguimiento CPH — funciona en dos modos:
-// - id === 'nuevo': formulario limpio (sin datos reales aún)
-// - id === UUID:    carga el concurso real de la API
+// Wizard de seguimiento de un concurso CPH — carga el concurso real por su UUID
+// (id de la ruta) y guía las 6 etapas del proceso: Baja/Apertura, Autorización/
+// Jurado, Inscripción/Examen/OM, IFACS/INSAL, Designación y Declarar desierto.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
@@ -49,64 +50,14 @@ import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { useConfirm } from '@/shared/components/ui/useConfirm'
 import { useToast } from '@/shared/components/ui/useToast'
-
-type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
-
-interface Campo {
-  key: string
-  label: string
-  tipo: 'texto' | 'fecha' | 'checkbox' | 'textarea'
-  valor: string | boolean
-  requerido?: boolean
-  readonly?: boolean
-}
-
-interface Etapa {
-  id: string
-  numero: number
-  titulo: string
-  descripcion: string
-  estado: EstadoEtapa
-  campos: Campo[]
-  fechaCompletada?: string
-}
-
-const ESTADO_ETAPA_CONFIG: Record<EstadoEtapa, { label: string; dot: string; badge: string }> = {
-  completada: {
-    label: 'Completada',
-    dot: 'bg-green-500',
-    badge: 'badge-success',
-  },
-  activa: {
-    label: 'En curso',
-    dot: 'bg-amber-400 animate-pulse',
-    badge: 'badge-warning',
-  },
-  pendiente: { label: 'Pendiente', dot: 'bg-gray-300', badge: 'badge-default' },
-  bloqueada: { label: 'Bloqueada', dot: 'bg-gray-200', badge: 'badge-default' },
-}
-
-// Orden canónico del sub-estado — igual que calcSubEstado en el backend
-const SUB_ESTADOS: { key: string; label: string }[] = [
-  { key: 'VACANTE', label: 'Vacante' },
-  { key: 'A-CARATULADO', label: 'A — Caratulado' },
-  { key: 'A-AUTZN', label: 'A — Autorización' },
-  { key: 'B-SORTEO JUR', label: 'B — Sorteo de jurado' },
-  { key: 'C-DISPO DE LLAMADO', label: 'C — Dispo de llamado' },
-  { key: 'C2-INSCRIPCION EX', label: 'C — Inscripción de exámenes' },
-  { key: 'D-EXAMEN PUBLICADO', label: 'D — Publicación Examen' },
-  { key: 'E-ORDEN DE MERITO', label: 'E — Orden de mérito' },
-  { key: 'F-IFACS', label: 'F — IFACS' },
-  { key: 'G-INSAL', label: 'G — INSAL' },
-  { key: 'H-TAD', label: 'H — TAD' },
-  { key: 'I-CARGA DOCU', label: 'I — Carga documentación' },
-  { key: 'J-APTO MED', label: 'J — Apto médico' },
-  { key: 'K-ITE', label: 'K — ITE' },
-  { key: 'L-PYCTO DE RESO', label: 'L — Proyecto resolución' },
-  { key: 'M-RESO A LA FIRMA', label: 'M — Reso a la firma' },
-  { key: 'N-DESIGNADO', label: 'N — Designado' },
-  { key: 'O-ALTA SIAL', label: 'O — Alta SIAL' },
-]
+import {
+  type EstadoEtapa,
+  type Etapa,
+  ESTADO_ETAPA_CONFIG,
+  SUB_ESTADOS,
+} from '../lib/wizard.constants'
+import { PanelSubEstados } from '../components/PanelSubEstados'
+import { HistorialCambios } from '../components/HistorialCambios'
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
@@ -867,14 +818,12 @@ export function ConcursoCphWizard() {
     enabled: !esNuevo && !!id && etapaActiva === 'designacion',
     retry: false,
   })
-  const [suspendido, setSuspendido] = useState(false)
   const [guardado, setGuardado] = useState(false)
   const [faltantesEtapa2, setFaltantesEtapa2] = useState<string[]>([])
   const [faltantesEtapa3, setFaltantesEtapa3] = useState<string[]>([])
-  const [etapas, setEtapas] = useState<Etapa[]>(etapasIniciales)
-
-  // Sincronizar etapas cuando llegan datos de la API
-  const etapasActuales = cphData ? etapasIniciales : etapas
+  // Las etapas se derivan siempre de cphData (el wizard hace early return si no
+  // hay concurso), por eso se usa directamente el useMemo.
+  const etapasActuales = etapasIniciales
 
   const etapa = etapasActuales.find((e) => e.id === etapaActiva)!
 
@@ -1028,29 +977,6 @@ export function ConcursoCphWizard() {
       sigla: siglaConcurso || null,
       codigoRegistroId: crIdDeEscalafon(escalafonId),
       especialidadSolicitada: especialidadConcurso || null,
-    })
-    setGuardado(true)
-    setTimeout(() => setGuardado(false), 2500)
-  }
-
-  function handleMarcarCompleta() {
-    const hoy = new Date().toISOString().split('T')[0]
-    setEtapas((prev) => {
-      const idx = prev.findIndex((e) => e.id === etapaActiva)
-      if (idx === -1) return prev
-      const next: Etapa[] = prev.map((e, i) => {
-        if (i === idx)
-          return {
-            ...e,
-            estado: 'completada' as EstadoEtapa,
-            fechaCompletada: hoy,
-          }
-        if (i === idx + 1) return { ...e, estado: 'activa' as EstadoEtapa }
-        return e
-      })
-      const siguienteId = next[idx + 1]?.id
-      if (siguienteId) setEtapaActiva(siguienteId)
-      return next
     })
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
@@ -4145,200 +4071,14 @@ export function ConcursoCphWizard() {
           </div>
 
           {/* Historial */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h3 className="font-primary text-sm font-bold text-gray-700 mb-3">
-              Historial de cambios
-            </h3>
-            {(() => {
-              if (esNuevo || !cphData)
-                return <p className="text-sm text-gray-400">Sin historial aún.</p>
-              // Fecha de referencia para hitos que ocurrieron pero no tienen
-              // una fecha propia (bool/expediente sin fecha): se usa la última
-              // actualización del concurso como aproximación, para que el hito
-              // igual aparezca en el historial.
-              const ref = (cphData.updatedAt ?? cphData.createdAt ?? '') as string
-              const bool = (b: boolean | null | undefined) => b === true
-
-              const eventos: { fecha: string; texto: string }[] = [
-                {
-                  fecha: cphData.fechaBaja,
-                  texto: 'Baja registrada' + (cphData.eeBaja ? `: ${cphData.eeBaja}` : ''),
-                },
-                {
-                  fecha: cphData.fechaEeConcurso ?? (cphData.eeConcurso ? ref : null),
-                  texto:
-                    'Expediente de concurso' +
-                    (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : ''),
-                },
-                {
-                  fecha: cphData.fechaAutorizacion,
-                  texto: 'Autorización registrada',
-                },
-                // Sorteo de jurado: generado y (si aplica) confirmado.
-                {
-                  fecha: juradoData?.fechaSorteo ?? cphData.sorteoJurado,
-                  texto: 'Sorteo de jurado realizado',
-                },
-                {
-                  fecha: juradoData?.confirmado
-                    ? (juradoData.confirmadoAt ?? juradoData.fechaSorteo)
-                    : null,
-                  texto: 'Jurado confirmado',
-                },
-                {
-                  fecha: cphData.disposicion ? (cphData.fechaInscDesde ?? ref) : null,
-                  texto:
-                    'Disposición de llamado' +
-                    (cphData.disposicion ? `: ${cphData.disposicion}` : ''),
-                },
-                {
-                  fecha: cphData.fechaInscDesde,
-                  texto: 'Apertura de inscripción',
-                },
-                {
-                  fecha: cphData.fechaInscHasta,
-                  texto: 'Cierre de inscripción',
-                },
-                {
-                  fecha: cphData.qInscriptos != null ? (cphData.fechaInscHasta ?? ref) : null,
-                  texto: `Inscriptos: ${cphData.qInscriptos ?? ''}`,
-                },
-                { fecha: cphData.fechaExamen, texto: 'Publicación de examen' },
-                {
-                  fecha: cphData.fechaOrdenMerito,
-                  texto: 'Orden de mérito registrado',
-                },
-                {
-                  fecha: cphData.fechaIfacs ?? (cphData.ifacs ? ref : null),
-                  texto: 'IFACS registrado' + (cphData.ifacs ? `: ${cphData.ifacs}` : ''),
-                },
-                {
-                  fecha: cphData.fechaInsal ?? (cphData.insal ? ref : null),
-                  texto: 'INSAL registrado' + (cphData.insal ? `: ${cphData.insal}` : ''),
-                },
-                {
-                  fecha: cphData.eeDesignacion ? ref : null,
-                  texto:
-                    'TAD / EE de designación' +
-                    (cphData.eeDesignacion ? `: ${cphData.eeDesignacion}` : ''),
-                },
-                {
-                  fecha: bool(cphData.cargaDocumentacion) ? ref : null,
-                  texto: 'Carga de documentación',
-                },
-                { fecha: cphData.fechaAptoMedico, texto: 'Apto médico' },
-                { fecha: cphData.fechaIte, texto: 'ITE registrado' },
-                {
-                  fecha: bool(cphData.proyectoResolucion) ? ref : null,
-                  texto: 'Proyecto de resolución',
-                },
-                {
-                  fecha: bool(cphData.resoALaFirma) ? ref : null,
-                  texto: 'Resolución a la firma',
-                },
-                {
-                  fecha: cphData.fechaResolucion,
-                  texto:
-                    'Resolución de designación' +
-                    (cphData.resolucionDesignacion ? `: ${cphData.resolucionDesignacion}` : ''),
-                },
-                {
-                  fecha: cphData.cargoSial ? ref : null,
-                  texto: 'Alta SIAL' + (cphData.cargoSial ? `: ${cphData.cargoSial}` : ''),
-                },
-                {
-                  fecha: cphData.fechaDispoDesierta,
-                  texto:
-                    'Disposición de desierto' +
-                    (cphData.dispoDesierta ? `: ${cphData.dispoDesierta}` : ''),
-                },
-              ]
-                .filter((e): e is { fecha: string; texto: string } => !!e.fecha)
-                .sort((a, b) => b.fecha.localeCompare(a.fecha))
-
-              if (eventos.length === 0)
-                return <p className="text-sm text-gray-400">Sin eventos registrados aún.</p>
-              return (
-                <div className="space-y-2 text-sm text-gray-500">
-                  {eventos.map((h) => (
-                    <div key={h.fecha + h.texto} className="flex gap-3">
-                      <span className="text-gray-300 whitespace-nowrap tabular-nums">
-                        {h.fecha.slice(0, 10).split('-').reverse().join('/')}
-                      </span>
-                      <span>{h.texto}</span>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
-          </div>
+          <HistorialCambios esNuevo={esNuevo} cphData={cphData} juradoData={juradoData} />
         </div>
 
         {/* Columna derecha — panel de estado sticky */}
-        <div className="w-52 shrink-0 sticky top-[var(--header-offset,160px)]">
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
-              Sub-estado actual
-            </p>
-            {pendienteAutorizacion && (
-              <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
-                <span className="text-amber-500 text-sm">⏳</span>
-                <div>
-                  <p className="text-[10px] font-bold text-amber-700 leading-tight">
-                    Autorización pendiente
-                  </p>
-                  <p className="text-[10px] text-amber-600 leading-tight">
-                    Esperando aprobación de SGRASV para continuar
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              {SUB_ESTADOS.map((s, idx) => {
-                const isCurrent = idx === currentIdxDinamico
-                const isPast = idx < currentIdxDinamico
-                return (
-                  <div key={s.key} className="flex items-center gap-2">
-                    <div className="flex flex-col items-center self-stretch">
-                      <span
-                        className={[
-                          'w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5',
-                          isCurrent && pendienteAutorizacion
-                            ? 'bg-amber-400 ring-2 ring-amber-200 animate-pulse'
-                            : isCurrent
-                              ? 'bg-amber-400 ring-2 ring-amber-200'
-                              : isPast
-                                ? 'bg-green-400'
-                                : 'bg-gray-200',
-                        ].join(' ')}
-                      />
-                      {idx < SUB_ESTADOS.length - 1 && (
-                        <span
-                          className={`w-px flex-1 mt-0.5 ${isPast ? 'bg-green-300' : 'bg-gray-200'}`}
-                        />
-                      )}
-                    </div>
-                    <span
-                      className={[
-                        'text-xs pb-1.5 leading-tight',
-                        isCurrent
-                          ? 'font-bold text-amber-700'
-                          : isPast
-                            ? 'text-gray-500'
-                            : 'text-gray-300',
-                      ].join(' ')}
-                    >
-                      {s.label}
-                      {isCurrent && pendienteAutorizacion && (
-                        <span className="ml-1 text-[10px] text-amber-500">⏳</span>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+        <PanelSubEstados
+          currentIdx={currentIdxDinamico}
+          pendienteAutorizacion={pendienteAutorizacion}
+        />
       </div>
     </div>
   )
