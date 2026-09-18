@@ -38,6 +38,69 @@ function semaforoLabel(c: ConcursoCph): string {
   return 'No iniciado'
 }
 
+// Las 5 etapas del concurso CPH (mismas que el wizard).
+const ETAPAS = [
+  'Baja / Apertura',
+  'Autorización / Jurado',
+  'Inscripción / Examen / OM',
+  'IFACS / INSAL',
+  'Designación',
+] as const
+
+// Mapea el subEstado (con su prefijo de letra) al número de etapa 1..5.
+function etapaActual(subEstado: string | null): number {
+  const s = subEstado ?? ''
+  if (['A-AUTZN', 'B-SORTEO JUR', 'C-DISPO DE LLAMADO'].includes(s)) return 2
+  if (['C2-INSCRIPCION EX', 'D-EXAMEN PUBLICADO', 'E-ORDEN DE MERITO'].includes(s)) return 3
+  if (['F-IFACS', 'G-INSAL'].includes(s)) return 4
+  if (
+    [
+      'H-TAD',
+      'I-CARGA DOCU',
+      'J-APTO MED',
+      'K-ITE',
+      'L-PYCTO DE RESO',
+      'M-RESO A LA FIRMA',
+      'N-DESIGNADO',
+      'O-ALTA SIAL',
+      'Q-DESIERTO',
+    ].includes(s)
+  )
+    return 5
+  return 1 // VACANTE, NO INICIADO, A-CARATULADO
+}
+
+// Mini-stepper de 5 pasos para la columna "Etapa". El paso actual se resalta,
+// los anteriores van con check, los siguientes en gris.
+function EtapaStepper({ subEstado }: { subEstado: string | null }) {
+  const actual = etapaActual(subEstado)
+  return (
+    <div className="flex items-center gap-1">
+      {ETAPAS.map((titulo, idx) => {
+        const num = idx + 1
+        const completa = num < actual
+        const esActual = num === actual
+        return (
+          <span
+            key={num}
+            title={`${num}. ${titulo}${esActual ? ' (actual)' : completa ? ' ✓' : ''}`}
+            className={[
+              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              esActual
+                ? 'bg-secondary text-white ring-2 ring-secondary/30'
+                : completa
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-200 text-gray-400',
+            ].join(' ')}
+          >
+            {completa ? '✓' : num}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ConcursosCphPage() {
   const [search, setSearch] = useState('')
   const [especialidad, setEspecialidad] = useState('')
@@ -347,14 +410,11 @@ export function ConcursosCphPage() {
                         </th>
                       )}
                       <th className="px-3 py-3 font-semibold w-8" title="Estado" />
-                      <th className="px-4 py-3 font-semibold">Hospital</th>
-                      <th className="px-4 py-3 font-semibold">Cargo</th>
-                      <th className="px-4 py-3 font-semibold">Especialidad</th>
-                      <th className="px-4 py-3 font-semibold">Persona</th>
                       <th className="px-4 py-3 font-semibold">Expediente de baja</th>
-                      <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Cargo</th>
+                      <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
-                      <th className="px-4 py-3 font-semibold">Motivo</th>
+                      <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
                       <th className="px-4 py-3 font-semibold" />
@@ -383,31 +443,17 @@ export function ConcursosCphPage() {
                               aria-label={semaforoLabel(c)}
                             />
                           </td>
-                          <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-gray-600 text-xs">
-                            {c.especialidadSolicitada ?? c.concurso?.cargo?.especialidad ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {c.concurso?.persona?.apellidoNombre ?? 'Vacante'}
-                          </td>
                           <td className="px-4 py-3 font-mono text-xs text-gray-500">
                             {c.eeBaja ?? '—'}
                           </td>
-                          <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
-                          <td className="px-4 py-3 text-xs text-gray-500">{c.subEstado3 ?? '—'}</td>
-                          <td className="px-4 py-3">
-                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
-                              <span className="badge-info text-xs">Nuevo cargo</span>
-                            )}
-                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
-                                Alta por baja
-                              </span>
-                            )}
+                          <td className="px-4 py-3 text-gray-600">
+                            {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
                           </td>
+                          <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                          <td className="px-4 py-3">
+                            <EtapaStepper subEstado={c.subEstado} />
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
                               concursoCphId={c.id}
