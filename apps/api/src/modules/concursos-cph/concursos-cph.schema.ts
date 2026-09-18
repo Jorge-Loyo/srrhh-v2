@@ -23,6 +23,9 @@ export const concursosCphQuerySchema = z.object({
   pendienteAutorizacion: z.coerce.boolean().optional(),
   conFaltantes: z.coerce.boolean().optional(),
   search: z.string().trim().min(1).optional(),
+  // Filtro dedicado por especialidad (busca en especialidad_solicitada del
+  // concurso y en la especialidad del cargo).
+  especialidad: z.string().trim().min(1).optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>

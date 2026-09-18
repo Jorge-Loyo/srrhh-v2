@@ -97,6 +97,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     pendienteAutorizacion,
     search,
     conFaltantes,
+    especialidad,
   } = query
   const offset = (page - 1) * limit
 
@@ -166,6 +167,34 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     searchIds = rows.map((r) => r.id)
   }
 
+  // Filtro dedicado por especialidad: busca en la especialidad solicitada del
+  // concurso y en la especialidad del cargo (legacy incluida).
+  let especialidadIds: string[] | undefined
+  if (especialidad) {
+    const like = `%${especialidad}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT cc.id
+      FROM concursos_cph cc
+      JOIN concursos c ON c.id = cc.concurso_id
+      LEFT JOIN cargos ca ON ca.id = c.cargo_id
+      WHERE unaccent(coalesce(cc.especialidad_solicitada,'')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(ca.especialidad_legacy,''))     ILIKE unaccent(${like})
+    `)
+    especialidadIds = rows.map((r) => r.id)
+  }
+
+  // Varios filtros resuelven a un conjunto de ids (subEstado3, search,
+  // conFaltantes, especialidad). Como todos aplican sobre `id`, hay que
+  // INTERSECTARLOS — antes cada uno escribía `id: { in }` por separado y el
+  // último ganaba, ignorando a los demás.
+  const idFilters = [subEstado3Ids, searchIds, conFaltantesIds, especialidadIds].filter(
+    (x): x is string[] => x !== undefined,
+  )
+  let idIn: string[] | undefined
+  if (idFilters.length > 0) {
+    idIn = idFilters.reduce((acc, cur) => acc.filter((id) => cur.includes(id)))
+  }
+
   const where: Prisma.ConcursoCphWhereInput = {
     ...(hospitalId && { hospitalId }),
     ...(cargoId && { cargoId }),
@@ -173,9 +202,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(subEstado && { subEstado }),
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
-    ...(subEstado3Ids && { id: { in: subEstado3Ids } }),
-    ...(searchIds !== undefined && { id: { in: searchIds } }),
-    ...(conFaltantesIds !== undefined && { id: { in: conFaltantesIds } }),
+    ...(idIn !== undefined && { id: { in: idIn } }),
   }
 
   const [total, data] = await Promise.all([

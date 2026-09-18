@@ -915,6 +915,7 @@ export interface ConcursoCphFilters {
   suspendido?: boolean
   search?: string
   conFaltantes?: boolean
+  especialidad?: string
 }
 
 export interface ConcursoCeetpsFilters {

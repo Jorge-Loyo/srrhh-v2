@@ -6,9 +6,11 @@ import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
+import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '../hooks/useEtiquetas'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import { EtiquetasControl } from '../components/EtiquetasControl'
 import { apiClient } from '@/shared/lib/api-client'
+import { useToast } from '@/shared/components/ui/useToast'
 import {
   ESTADO_LABEL,
   SUB_ESTADO_OPTIONS,
@@ -38,11 +40,11 @@ function semaforoLabel(c: ConcursoCph): string {
 
 export function ConcursosCphPage() {
   const [search, setSearch] = useState('')
+  const [especialidad, setEspecialidad] = useState('')
   const [hospitalId, setHospitalId] = useState('')
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
-  const [suspendido, setSuspendido] = useState<'' | 'true' | 'false'>('')
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
@@ -54,6 +56,17 @@ export function ConcursosCphPage() {
     noEncontrados: number
   } | null>(null)
   const searchDebounced = useDebounce(search, 300)
+  const especialidadDebounced = useDebounce(especialidad, 300)
+
+  // ── Etiquetado masivo ──
+  const [modoSeleccion, setModoSeleccion] = useState(false)
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const [etiquetaMasiva, setEtiquetaMasiva] = useState('') // nombre elegido o nuevo
+  const [aplicandoMasivo, setAplicandoMasivo] = useState(false)
+  const { data: catalogoEtiquetas = [] } = useEtiquetas()
+  const asignarEtiqueta = useAsignarEtiqueta()
+  const crearEtiqueta = useCrearEtiqueta()
+  const { toast, ToastUI } = useToast()
 
   async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -66,7 +79,7 @@ export function ConcursosCphPage() {
       const res = await apiClient.post('/api/v1/concursos-cph/importar-csv', form)
       setImportResult(res.data.data)
     } catch {
-      alert('Error al importar el archivo')
+      toast.error('Error al importar el archivo')
     } finally {
       setImportando(false)
       e.target.value = ''
@@ -77,11 +90,11 @@ export function ConcursosCphPage() {
     page,
     limit: LIMIT,
     ...(searchDebounced && { search: searchDebounced }),
+    ...(especialidadDebounced && { especialidad: especialidadDebounced }),
     ...(hospitalId && { hospitalId }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(subEstado3 && { subEstado3 }),
-    ...(suspendido && { suspendido: suspendido === 'true' }),
     ...(conFaltantes && { conFaltantes: true }),
   }
 
@@ -95,6 +108,69 @@ export function ConcursosCphPage() {
     }
   }
 
+  const filasVisibles = data?.data ?? []
+  const todasSeleccionadas =
+    filasVisibles.length > 0 && filasVisibles.every((c) => seleccionados.has(c.id))
+
+  function toggleSeleccion(id: string) {
+    setSeleccionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleTodas() {
+    setSeleccionados((prev) => {
+      if (filasVisibles.every((c) => prev.has(c.id))) {
+        // deseleccionar solo las visibles
+        const next = new Set(prev)
+        filasVisibles.forEach((c) => next.delete(c.id))
+        return next
+      }
+      const next = new Set(prev)
+      filasVisibles.forEach((c) => next.add(c.id))
+      return next
+    })
+  }
+
+  function salirModoSeleccion() {
+    setModoSeleccion(false)
+    setSeleccionados(new Set())
+    setEtiquetaMasiva('')
+  }
+
+  // Aplica la etiqueta elegida (existente por nombre, o nueva) a todos los
+  // concursos seleccionados. Crea la etiqueta si el nombre no existe.
+  async function aplicarEtiquetaMasiva() {
+    const nombre = etiquetaMasiva.trim()
+    const ids = [...seleccionados]
+    if (!nombre || ids.length === 0) return
+    setAplicandoMasivo(true)
+    try {
+      const existente = catalogoEtiquetas.find(
+        (e) => e.nombre.toLowerCase() === nombre.toLowerCase(),
+      )
+      const etiquetaId = existente ? existente.id : (await crearEtiqueta.mutateAsync({ nombre })).id
+      let ok = 0
+      for (const concursoCphId of ids) {
+        try {
+          await asignarEtiqueta.mutateAsync({ etiquetaId, concursoCphId })
+          ok++
+        } catch {
+          // sigue con los demás
+        }
+      }
+      toast.success(`Etiqueta "${nombre}" aplicada a ${ok} de ${ids.length} concurso(s)`)
+      salirModoSeleccion()
+    } catch {
+      toast.error('No se pudo aplicar la etiqueta')
+    } finally {
+      setAplicandoMasivo(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
@@ -102,9 +178,11 @@ export function ConcursosCphPage() {
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
           <div className="flex items-center gap-2">
             <label
-              className={`btn-outline text-sm cursor-pointer ${importando ? 'opacity-50 pointer-events-none' : ''}`}
+              title={importando ? 'Importando...' : 'Importar CSV'}
+              aria-label="Importar CSV"
+              className={`btn-outline text-base cursor-pointer px-3 ${importando ? 'opacity-50 pointer-events-none' : ''}`}
             >
-              {importando ? 'Importando...' : '↑ Importar CSV'}
+              {importando ? '…' : '↑'}
               <input
                 type="file"
                 accept=".csv"
@@ -125,6 +203,12 @@ export function ConcursosCphPage() {
             >
               ⚠️ Con documentación faltante
             </button>
+            <button
+              onClick={() => (modoSeleccion ? salirModoSeleccion() : setModoSeleccion(true))}
+              className={`btn-outline text-sm ${modoSeleccion ? 'bg-secondary/10 border-secondary text-secondary font-semibold' : ''}`}
+            >
+              🏷️ {modoSeleccion ? 'Cancelar selección' : 'Etiquetar varios'}
+            </button>
           </div>
         </div>
         {importResult && (
@@ -135,13 +219,51 @@ export function ConcursosCphPage() {
           </div>
         )}
 
+        {modoSeleccion && (
+          <div className="flex flex-wrap items-center gap-3 bg-secondary/5 border border-secondary/30 rounded px-3 py-2">
+            <span className="text-sm font-medium text-gray-700">
+              {seleccionados.size} concurso(s) seleccionado(s)
+            </span>
+            <input
+              type="text"
+              list="etiquetas-masivo"
+              value={etiquetaMasiva}
+              onChange={(e) => setEtiquetaMasiva(e.target.value)}
+              placeholder="Etiqueta a aplicar (existente o nueva)"
+              className="h-9 px-3 border border-gray-300 rounded text-sm min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+            <datalist id="etiquetas-masivo">
+              {catalogoEtiquetas.map((e) => (
+                <option key={e.id} value={e.nombre} />
+              ))}
+            </datalist>
+            <button
+              onClick={aplicarEtiquetaMasiva}
+              disabled={aplicandoMasivo || seleccionados.size === 0 || !etiquetaMasiva.trim()}
+              className="btn-primary text-sm disabled:opacity-50"
+            >
+              {aplicandoMasivo ? 'Aplicando...' : 'Aplicar etiqueta'}
+            </button>
+            <span className="text-xs text-gray-500">
+              Tip: podés usar el filtro y "Seleccionar todos" para etiquetar por lote.
+            </span>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3">
           <input
             type="text"
-            placeholder="Buscar por expediente, especialidad, observaciones..."
+            placeholder="Buscar por expediente, persona, observaciones..."
             value={search}
             onChange={(e) => resetPage(setSearch)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          />
+          <input
+            type="text"
+            placeholder="Especialidad..."
+            value={especialidad}
+            onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
           <select
             value={hospitalId}
@@ -191,15 +313,6 @@ export function ConcursosCphPage() {
               </option>
             ))}
           </select>
-          <select
-            value={suspendido}
-            onChange={(e) => resetPage(setSuspendido)(e.target.value as '' | 'true' | 'false')}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Suspendidos y activos</option>
-            <option value="false">Solo no suspendidos</option>
-            <option value="true">Solo suspendidos</option>
-          </select>
         </div>
       </div>
 
@@ -222,6 +335,17 @@ export function ConcursosCphPage() {
                 <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
                   <thead className="bg-navy text-white text-left">
                     <tr>
+                      {modoSeleccion && (
+                        <th className="px-3 py-3 font-semibold w-8">
+                          <input
+                            type="checkbox"
+                            checked={todasSeleccionadas}
+                            onChange={toggleTodas}
+                            aria-label="Seleccionar todos los visibles"
+                            className="h-4 w-4 cursor-pointer align-middle"
+                          />
+                        </th>
+                      )}
                       <th className="px-3 py-3 font-semibold w-8" title="Estado" />
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Cargo</th>
@@ -241,6 +365,17 @@ export function ConcursosCphPage() {
                       const dias = diasSinMovimiento(c.updatedAt)
                       return (
                         <tr key={c.id} className="hover:bg-gray-50">
+                          {modoSeleccion && (
+                            <td className="px-3 py-3">
+                              <input
+                                type="checkbox"
+                                checked={seleccionados.has(c.id)}
+                                onChange={() => toggleSeleccion(c.id)}
+                                aria-label={`Seleccionar concurso ${c.eeConcurso ?? c.id}`}
+                                className="h-4 w-4 cursor-pointer align-middle"
+                              />
+                            </td>
+                          )}
                           <td className="px-3 py-3">
                             <span
                               className={`inline-block h-2.5 w-2.5 rounded-full ${semaforoClass(c)}`}
@@ -327,6 +462,7 @@ export function ConcursosCphPage() {
         )}
       </div>
       {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
+      {ToastUI}
     </div>
   )
 }
