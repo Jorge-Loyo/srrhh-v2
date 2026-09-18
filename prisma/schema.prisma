@@ -269,6 +269,7 @@ model Persona {
   bajas                    Baja[]
   postulante               Postulante?
   ordenMeritoIntegrante    OrdenMeritoIntegrante[]
+  juradosSorteados         MiembroJuradoSorteado[] @relation("MiembroJuradoPersona")
 
   @@index([numeroDoc])
   @@index([especialidadCph])
@@ -530,9 +531,23 @@ model ConcursoCph {
   fechaEeConcurso       DateTime?        @map("fecha_ee_concurso") @db.Date
   fechaAutorizacion     DateTime?        @map("fecha_autorizacion") @db.Date
   sorteoJurado          DateTime?        @map("sorteo_jurado") @db.Date
+  // Tipo de gestión del concurso: 'centralizado' (interviene SGOCDCPS y equipo
+  // en la etapa 3) o 'descentralizado' (interviene un tercero). Por ahora es
+  // informativo; se define en la etapa 2 (Autorización / Jurado).
+  tipoGestion           String?          @map("tipo_gestion") @db.VarChar(20)
   disposicion           String?          @db.VarChar(100)
   fechaInscDesde        DateTime?        @map("fecha_insc_desde") @db.Date
   fechaInscHasta        DateTime?        @map("fecha_insc_hasta") @db.Date
+  // Cierre del período de inscripción de exámenes (Etapa 3): al cerrarse, el
+  // sub-estado avanza de "C — Inscripción de exámenes" a "D — Publicación
+  // Examen". Se registra la fecha del cierre.
+  inscripcionCerrada    Boolean          @default(false) @map("inscripcion_cerrada")
+  fechaCierreInscripcion DateTime?       @map("fecha_cierre_inscripcion") @db.Date
+  // Etapa 3 — cierres formales: al confirmar presentados se congela quién se
+  // presentó al examen; al confirmar el orden de mérito se fija el ranking, se
+  // setea fechaOrdenMerito=hoy y avanza el sub-estado a E — Orden de mérito.
+  presentadosConfirmados Boolean         @default(false) @map("presentados_confirmados")
+  ordenMeritoConfirmado  Boolean         @default(false) @map("orden_merito_confirmado")
   fechaExamen           DateTime?        @map("fecha_examen") @db.Date
   fechaOrdenMerito      DateTime?        @map("fecha_orden_merito") @db.Date
   fechaIfacs            DateTime?        @map("fecha_ifacs") @db.Date
@@ -578,6 +593,8 @@ model ConcursoCph {
   postulantes      PostulanteConcurso[]
   integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
   desiertoHistorial     ConcursoCphDesierto[]
+  sorteosJurado         SorteoJurado[]
+  inscriptos            InscriptoConcurso[]
 
   @@index([hospitalId])
   @@index([estado])
@@ -624,6 +641,124 @@ model ConcursoCphDesierto {
 
   @@index([concursoCphId])
   @@map("concursos_cph_desiertos")
+}
+
+// Acta de sorteo de jurado de un concurso CPH (Etapa 2 — Autorización).
+// El jurado se compone de titulares y suplentes sorteados entre profesionales
+// del sistema con cargo activo, misma profesión (escalafón) que el cargo a
+// concursar y condición de idoneidad (cargo de conducción o antigüedad >= 15
+// años). Ver diagrama de formación de jurado (Ley/reglamento CPH). Un concurso
+// puede tener N sorteos (relanzamientos / ronda desierta) — el vigente es el
+// último por fechaSorteo/createdAt.
+model SorteoJurado {
+  id                 String    @id @default(uuid()) @db.Uuid
+  concursoCphId      String    @map("concurso_cph_id") @db.Uuid
+  fechaSorteo        DateTime  @map("fecha_sorteo") @db.Date
+  // Semilla usada por el RNG para poder reproducir/auditar el sorteo.
+  semilla            String    @db.VarChar(64)
+  // Criterios usados (cantidad titulares/suplentes, antigüedad mínima, si
+  // exige misma especialidad, etc.) — snapshot para el acta.
+  criterios          Json      @db.JsonB
+  // Ámbito efectivo alcanzado por el sorteo: 'hospital' si se completó solo
+  // con la misma unidad organizativa, 'sistema' si hubo que ampliar al sistema
+  // de salud completo, 'mixto' si el jurado combina ambos.
+  ambito             String    @db.VarChar(20)
+  // Anotaciones/advertencias del sorteo (ej. "no se completó el suplente 3").
+  observaciones      String?   @db.Text
+  // Confirmación: mientras confirmado=false es un borrador editable (se puede
+  // re-sortear o cancelar). Al confirmarse queda de solo lectura (acta final).
+  confirmado         Boolean   @default(false)
+  confirmadoAt       DateTime? @map("confirmado_at") @db.Timestamptz
+  confirmadoPorId    String?   @map("confirmado_por_id") @db.Uuid
+  generadoPorId      String?   @map("generado_por_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  concursoCph   ConcursoCph              @relation(fields: [concursoCphId], references: [id])
+  generadoPor   Usuario?                 @relation("SorteoJuradoGeneradoPor", fields: [generadoPorId], references: [id])
+  confirmadoPor Usuario?                 @relation("SorteoJuradoConfirmadoPor", fields: [confirmadoPorId], references: [id])
+  miembros      MiembroJuradoSorteado[]
+
+  @@index([concursoCphId])
+  @@map("sorteos_jurado")
+}
+
+// Un integrante del jurado sorteado. Se guarda snapshot de por qué fue
+// elegible (para el acta) además del vínculo a la persona.
+model MiembroJuradoSorteado {
+  id             String  @id @default(uuid()) @db.Uuid
+  sorteoJuradoId String  @map("sorteo_jurado_id") @db.Uuid
+  personaId      String  @map("persona_id") @db.Uuid
+  // 'titular' | 'suplente'
+  rol            String  @db.VarChar(10)
+  // Orden dentro del rol: 1, 2, 3...
+  orden          Int
+  // Snapshot de datos de la persona/cargo al momento del sorteo (el padrón
+  // cambia semanalmente; el acta debe reflejar el estado del día del sorteo).
+  apellidoNombre String  @map("apellido_nombre") @db.VarChar(200)
+  cuil           String  @db.VarChar(11)
+  hospitalId     String? @map("hospital_id") @db.Uuid
+  hospitalNombre String? @map("hospital_nombre") @db.VarChar(200)
+  puesto         String? @db.VarChar(200)
+  especialidad   String? @db.VarChar(200)
+  // 'hospital' (misma unidad organizativa que el concurso) | 'sistema'
+  ambito         String  @db.VarChar(20)
+  // Regla de elegibilidad por la que entró (1, 2 o 3 — ver sorteoJurado.service.ts).
+  reglaAplicada  Int?    @map("regla_aplicada")
+  // Criterios cumplidos por este miembro (para el detalle del resultado).
+  cumpleEspecialidad Boolean @default(false) @map("cumple_especialidad")
+  esConduccion       Boolean @default(false) @map("es_conduccion")
+  antiguedadAnios    Int?    @map("antiguedad_anios")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  sorteoJurado SorteoJurado @relation(fields: [sorteoJuradoId], references: [id], onDelete: Cascade)
+  persona      Persona      @relation("MiembroJuradoPersona", fields: [personaId], references: [id])
+
+  @@index([sorteoJuradoId])
+  @@map("miembros_jurado_sorteados")
+}
+
+// Inscripto a un concurso CPH (Etapa 3 — Inscripción / Examen / OM). Se cargan
+// manualmente (uno por uno) o por importación de Excel/CSV. La "cantidad de
+// inscriptos" del concurso se autocalcula contando estas filas. Por ahora se
+// guardan solo los datos principales de la persona; el modelo está pensado
+// para ampliarse (domicilios, apoderado, cargo actual, etc.).
+model InscriptoConcurso {
+  id             String   @id @default(uuid()) @db.Uuid
+  concursoCphId  String   @map("concurso_cph_id") @db.Uuid
+
+  // Datos personales
+  apellido       String   @db.VarChar(120)
+  nombre         String   @db.VarChar(120)
+  dni            String?  @db.VarChar(20)
+  cuil           String?  @db.VarChar(20)
+  sexo           String?  @db.VarChar(4)   // M / F / NB / X
+  fechaNacimiento DateTime? @map("fecha_nacimiento") @db.Date
+  nacionalidad   String?  @db.VarChar(80)
+
+  // Contacto
+  telefono       String?  @db.VarChar(40)
+  email          String?  @db.VarChar(200)
+
+  // Estudios
+  titulo         String?  @db.VarChar(200)
+  matricula      String?  @db.VarChar(80)
+  especialidad   String?  @db.VarChar(200)
+
+  // Etapa 3 — Examen: si el inscripto se presentó al examen. La cantidad de
+  // presentados se cuenta sobre este flag (base del orden de mérito).
+  presentoExamen Boolean  @default(false) @map("presento_examen")
+  // Posición en el orden de mérito (1 = primero). Solo aplica a los que se
+  // presentaron al examen. Null = sin posición asignada.
+  ordenMerito    Int?     @map("orden_merito")
+
+  observaciones  String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  concursoCph    ConcursoCph @relation(fields: [concursoCphId], references: [id], onDelete: Cascade)
+
+  @@index([concursoCphId])
+  @@map("inscriptos_concurso")
 }
 
 model ConcursoCeetps {
@@ -857,6 +992,8 @@ model Usuario {
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")
   desiertosCph              ConcursoCphDesierto[] @relation("DesiertoRegistradoPor")
+  sorteosJuradoGenerados    SorteoJurado[]        @relation("SorteoJuradoGeneradoPor")
+  sorteosJuradoConfirmados  SorteoJurado[]        @relation("SorteoJuradoConfirmadoPor")
   organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
 
   @@map("usuarios")
