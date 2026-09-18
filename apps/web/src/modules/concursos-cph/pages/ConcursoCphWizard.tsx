@@ -1170,56 +1170,6 @@ export function ConcursoCphWizard() {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Antigüedad mínima (años)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={60}
-                  value={sorteoCriterios.antiguedadMinimaAnios}
-                  onChange={(e) =>
-                    setSorteoCriterios((s) => ({
-                      ...s,
-                      antiguedadMinimaAnios: Number(e.target.value),
-                    }))
-                  }
-                  className="input h-10 w-full"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  La fecha del sorteo es la del día en que se genera (hoy).
-                </p>
-              </div>
-              <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[11px] text-gray-500 leading-relaxed">
-                El jurado se arma por reglas en cascada (se baja de regla solo si no se completa el
-                total):
-                <br />
-                <strong>1.</strong> mismo hospital + conducción + misma especialidad ·
-                <strong> 2.</strong> mismo hospital + antigüedad ≥{' '}
-                {sorteoCriterios.antiguedadMinimaAnios} años ·<strong> 3.</strong> sistema de salud
-                + conducción.
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Semilla (opcional)
-                </label>
-                <input
-                  type="text"
-                  value={sorteoCriterios.semilla}
-                  onChange={(e) =>
-                    setSorteoCriterios((s) => ({
-                      ...s,
-                      semilla: e.target.value,
-                    }))
-                  }
-                  className="input h-10 w-full font-mono"
-                  placeholder="Dejar vacío para semilla aleatoria"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  La semilla permite reproducir un sorteo idéntico (auditoría).
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
                   Observaciones (opcional)
                 </label>
                 <textarea
