@@ -136,6 +136,50 @@ export function useDesignarConcursoCph(id: string) {
   })
 }
 
+// Órdenes de mérito compatibles con un concurso (Etapa 4) — GET /:id/om-compatibles.
+export function useOmCompatibles(id: string | undefined) {
+  return useQuery({
+    queryKey: ['concurso-cph-om-compatibles', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: OrdenMeritoVigente[] }>(
+        `/api/v1/concursos-cph/${id}/om-compatibles`,
+      )
+      return res.data.data
+    },
+    enabled: !!id,
+  })
+}
+
+// Reservar un integrante de OM compatible para el concurso (Etapa 4).
+export function useReservarIntegranteOm(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (integranteId: string) => {
+      await apiClient.post(`/api/v1/concursos-cph/${id}/om/reservar`, { integranteId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
+
+// Liberar la reserva de un integrante de OM.
+export function useLiberarIntegranteOm(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (integranteId: string) => {
+      await apiClient.post(`/api/v1/concursos-cph/${id}/om/liberar`, { integranteId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
+
 // Órdenes de mérito vigentes (reutilizables) — GET /concursos-cph/ordenes-merito-vigentes.
 export function useOrdenesMeritoVigentes() {
   return useQuery({

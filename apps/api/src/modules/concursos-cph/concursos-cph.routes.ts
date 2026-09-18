@@ -50,6 +50,9 @@ import {
   confirmarOrdenMeritoService,
   revertirOrdenMeritoService,
   listOrdenesMeritoVigentesService,
+  listOmCompatiblesService,
+  reservarIntegranteOmService,
+  liberarIntegranteOmService,
 } from './inscriptos.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -334,6 +337,42 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const data = await revertirOrdenMeritoService(request.params.id)
+      return reply.send({ data })
+    },
+  )
+
+  // GET /:id/om-compatibles — órdenes de mérito compatibles con integrantes
+  // disponibles para reutilizar en este concurso (Etapa 4).
+  app.get<{ Params: { id: string } }>('/:id/om-compatibles', async (request, reply) => {
+    const data = await listOmCompatiblesService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // POST /:id/om/reservar — reserva un integrante disponible de una OM
+  // compatible para este concurso (marca designado, NO finaliza el concurso).
+  app.post<{ Params: { id: string }; Body: { integranteId?: string } }>(
+    '/:id/om/reservar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const integranteId = request.body?.integranteId
+      if (!integranteId) throw new Error('integranteId requerido')
+      const data = await reservarIntegranteOmService(
+        request.params.id,
+        integranteId,
+        (request as any).user?.id ?? null,
+      )
+      return reply.send({ data })
+    },
+  )
+
+  // POST /:id/om/liberar — libera la reserva de un integrante.
+  app.post<{ Params: { id: string }; Body: { integranteId?: string } }>(
+    '/:id/om/liberar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const integranteId = request.body?.integranteId
+      if (!integranteId) throw new Error('integranteId requerido')
+      const data = await liberarIntegranteOmService(integranteId)
       return reply.send({ data })
     },
   )

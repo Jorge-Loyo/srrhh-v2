@@ -61,6 +61,7 @@ import {
 import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '../components/EtiquetasControl'
+import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
@@ -3689,6 +3690,9 @@ export function ConcursoCphWizard() {
                           {insalSinCambios && !insalVacio ? '✓ INSAL guardado' : '💾 Guardar INSAL'}
                         </button>
                       </div>
+
+                      {/* Reutilizar integrante de una orden de mérito compatible */}
+                      {id && <PanelReutilizarOm concursoId={id} />}
                     </div>
                   )
                 })()

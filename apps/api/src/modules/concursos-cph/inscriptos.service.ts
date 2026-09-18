@@ -556,3 +556,141 @@ export async function listOrdenesMeritoVigentesService() {
     })
     .filter((o) => o.disponibles > 0)
 }
+
+// ── Reservar un integrante de una orden de mérito compatible ────────────────
+// Toma un integrante DISPONIBLE (no designado, no anulado) de una OM vigente
+// y compatible (mismo puesto + especialidad + escalafón que el concurso
+// destino) y lo "reserva" para ese concurso: marca el integrante como
+// designado + concursoCphDesignadoId, y lo registra como persona designada del
+// concurso destino (si el integrante está vinculado al padrón). NO finaliza el
+// concurso: la designación formal (ocupación) y la terminación son pasos
+// aparte.
+export async function reservarIntegranteOmService(
+  concursoDestinoId: string,
+  integranteId: string,
+  _usuarioId: string | null,
+) {
+  const destino = await prisma.concursoCph.findUnique({
+    where: { id: concursoDestinoId },
+    include: { concurso: { include: { cargo: true } } },
+  })
+  if (!destino) throw AppError.notFound('Concurso CPH no encontrado')
+  if (destino.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+
+  const integrante = await prisma.ordenMeritoIntegrante.findUnique({
+    where: { id: integranteId },
+    include: { ordenMerito: true },
+  })
+  if (!integrante) throw AppError.notFound('Integrante de orden de mérito no encontrado')
+  if (integrante.designado)
+    throw AppError.conflict('El integrante ya fue designado en otro concurso')
+  if (integrante.anulado) throw AppError.conflict('El integrante está anulado')
+
+  // Vigencia de la OM de origen.
+  const om = integrante.ordenMerito
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  const vence = om.fechaProrroga ?? om.fechaVencimiento
+  if (om.estado === 'vencida' || vence < hoy) {
+    throw AppError.conflict('La orden de mérito de origen ya no está vigente')
+  }
+
+  // Compatibilidad: mismo puesto + especialidad + escalafón que el destino.
+  const cargo = destino.concurso?.cargo
+  const especialidadDestino = destino.especialidadSolicitada ?? cargo?.especialidadLegacy ?? null
+  const puestoDestino = destino.puestoSolicitado ?? cargo?.literalPuesto ?? null
+  const norm = (s: string | null | undefined) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+  if (norm(om.especialidad) !== norm(especialidadDestino)) {
+    throw AppError.conflict('La orden de mérito no es compatible: especialidad distinta')
+  }
+  if (om.puesto && puestoDestino && norm(om.puesto) !== norm(puestoDestino)) {
+    throw AppError.conflict('La orden de mérito no es compatible: puesto distinto')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.ordenMeritoIntegrante.update({
+      where: { id: integranteId },
+      data: { designado: true, concursoCphDesignadoId: concursoDestinoId },
+    })
+
+    // Registrar la persona designada del concurso destino solo si el integrante
+    // está vinculado al padrón (personaDesignadaId es FK a Persona). Si no,
+    // la reserva queda registrada por la relación integrantesDesignados.
+    if (integrante.personaId) {
+      await tx.concursoCph.update({
+        where: { id: concursoDestinoId },
+        data: { personaDesignadaId: integrante.personaId },
+      })
+    }
+
+    return tx.ordenMeritoIntegrante.findUnique({
+      where: { id: integranteId },
+      include: { ordenMerito: true },
+    })
+  })
+}
+
+// Libera una reserva de integrante (revierte designado + concursoCphDesignadoId)
+// y limpia la persona designada del concurso destino.
+export async function liberarIntegranteOmService(integranteId: string) {
+  const integrante = await prisma.ordenMeritoIntegrante.findUnique({
+    where: { id: integranteId },
+  })
+  if (!integrante) throw AppError.notFound('Integrante de orden de mérito no encontrado')
+  if (!integrante.designado) throw AppError.conflict('El integrante no está reservado')
+
+  const destinoId = integrante.concursoCphDesignadoId
+
+  return prisma.$transaction(async (tx) => {
+    await tx.ordenMeritoIntegrante.update({
+      where: { id: integranteId },
+      data: { designado: false, concursoCphDesignadoId: null },
+    })
+    if (destinoId && integrante.personaId) {
+      const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
+      if (c?.personaDesignadaId === integrante.personaId) {
+        await tx.concursoCph.update({
+          where: { id: destinoId },
+          data: { personaDesignadaId: null },
+        })
+      }
+    }
+    return { ok: true }
+  })
+}
+
+// Órdenes de mérito COMPATIBLES con un concurso destino (mismo puesto +
+// especialidad + escalafón) que tengan integrantes disponibles. Usado en la
+// Etapa 4 para ofrecer reutilizar un integrante.
+export async function listOmCompatiblesService(concursoDestinoId: string) {
+  const destino = await prisma.concursoCph.findUnique({
+    where: { id: concursoDestinoId },
+    include: { concurso: { include: { cargo: true } } },
+  })
+  if (!destino) throw AppError.notFound('Concurso CPH no encontrado')
+
+  const cargo = destino.concurso?.cargo
+  const especialidadDestino = destino.especialidadSolicitada ?? cargo?.especialidadLegacy ?? null
+  const puestoDestino = destino.puestoSolicitado ?? cargo?.literalPuesto ?? null
+  const norm = (s: string | null | undefined) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+
+  const vigentes = await listOrdenesMeritoVigentesService()
+  return vigentes.filter((o) => {
+    if (o.concursoCphId === concursoDestinoId) return false
+    if (norm(o.especialidad) !== norm(especialidadDestino)) return false
+    // Puesto: si ambos tienen puesto, deben coincidir; si el destino no lo
+    // define, no se exige.
+    if (o.puesto && puestoDestino && norm(o.puesto) !== norm(puestoDestino)) return false
+    return true
+  })
+}
