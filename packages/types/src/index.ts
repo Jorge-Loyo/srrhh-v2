@@ -315,9 +315,14 @@ export interface ConcursoCph {
   fechaEeConcurso: string | null
   fechaAutorizacion: string | null
   sorteoJurado: string | null
+  tipoGestion: 'centralizado' | 'descentralizado' | null
   disposicion: string | null
   fechaInscDesde: string | null
   fechaInscHasta: string | null
+  inscripcionCerrada: boolean
+  fechaCierreInscripcion: string | null
+  presentadosConfirmados: boolean
+  ordenMeritoConfirmado: boolean
   fechaExamen: string | null
   fechaOrdenMerito: string | null
   fechaIfacs: string | null
@@ -665,6 +670,7 @@ export interface PatchConcursoCphRequest {
   fechaEeConcurso?: string | null
   fechaAutorizacion?: string | null
   sorteoJurado?: string | null
+  tipoGestion?: 'centralizado' | 'descentralizado' | null
   disposicion?: string | null
   fechaInscDesde?: string | null
   fechaInscHasta?: string | null
@@ -799,6 +805,7 @@ export interface KpiAlertas {
     hospitalSigla: string
     fechaBaja: string
     diasSinConcurso: number
+    personaApellidoNombre: string | null
   }[]
 }
 
@@ -1042,6 +1049,121 @@ export interface DeclararDesiertoRequest {
   fechaResolucion?: string | null
   cargoSial?: string | null
   observaciones?: string | null
+}
+
+// Etapa 2 — Sorteo de jurado CPH.
+// POST /api/v1/concursos-cph/:id/generar-sorteo
+export interface GenerarSorteoJuradoRequest {
+  cantTitulares?: number
+  cantSuplentes?: number
+  antiguedadMinimaAnios?: number
+  semilla?: string
+  observaciones?: string
+}
+
+export type RolJurado = 'titular' | 'suplente'
+export type AmbitoJurado = 'hospital' | 'sistema' | 'mixto'
+
+export interface MiembroJuradoSorteado {
+  id: string
+  sorteoJuradoId: string
+  personaId: string
+  rol: RolJurado
+  orden: number
+  apellidoNombre: string
+  cuil: string
+  hospitalId: string | null
+  hospitalNombre: string | null
+  puesto: string | null
+  especialidad: string | null
+  ambito: 'hospital' | 'sistema'
+  reglaAplicada: number | null
+  cumpleEspecialidad: boolean
+  esConduccion: boolean
+  antiguedadAnios: number | null
+  createdAt: string
+}
+
+// Snapshot de criterios usados, guardado en el acta (SorteoJurado.criterios).
+export interface CriteriosSorteoJurado {
+  cantTitulares: number
+  cantSuplentes: number
+  antiguedadMinimaAnios: number
+  escalafonId: string
+  escalafonNombre: string | null
+  hospitalId: string
+  hospitalNombre: string | null
+  especialidadConcurso: string | null
+  totalCandidatos: number
+  candidatosMismoHospital: number
+  // Cascada de reglas: hasta qué regla se bajó (1|2|3) y cuántos candidatos por regla.
+  reglaUsada?: number
+  candidatosPorRegla?: { 1: number; 2: number; 3: number }
+}
+
+export interface SorteoJurado {
+  id: string
+  concursoCphId: string
+  fechaSorteo: string
+  semilla: string
+  criterios: CriteriosSorteoJurado
+  ambito: AmbitoJurado
+  observaciones: string | null
+  confirmado: boolean
+  confirmadoAt: string | null
+  confirmadoPorId: string | null
+  generadoPorId: string | null
+  createdAt: string
+  miembros: MiembroJuradoSorteado[]
+}
+
+// Etapa 3 — Inscriptos al concurso CPH.
+export interface InscriptoConcurso {
+  id: string
+  concursoCphId: string
+  apellido: string
+  nombre: string
+  dni: string | null
+  cuil: string | null
+  sexo: string | null
+  fechaNacimiento: string | null
+  nacionalidad: string | null
+  telefono: string | null
+  email: string | null
+  titulo: string | null
+  matricula: string | null
+  especialidad: string | null
+  presentoExamen: boolean
+  ordenMerito: number | null
+  observaciones: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// POST/PATCH /api/v1/concursos-cph/:id/inscriptos
+export interface InscriptoRequest {
+  apellido: string
+  nombre: string
+  dni?: string | null
+  cuil?: string | null
+  sexo?: string | null
+  fechaNacimiento?: string | null
+  nacionalidad?: string | null
+  telefono?: string | null
+  email?: string | null
+  titulo?: string | null
+  matricula?: string | null
+  especialidad?: string | null
+  presentoExamen?: boolean
+  ordenMerito?: number | null
+  observaciones?: string | null
+}
+
+// Resultado de POST /api/v1/concursos-cph/:id/inscriptos/importar
+export interface ImportarInscriptosResult {
+  creados: number
+  ignorados: number
+  total: number
 }
 
 // S16 — POST /api/v1/concursos-cph/:id/designar y /concursos-ceetps/:id/designar

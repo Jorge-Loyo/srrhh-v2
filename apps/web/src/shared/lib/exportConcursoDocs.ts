@@ -524,6 +524,149 @@ export function exportCeetpsPdf(data: ConcursoCeetps, tipo: 'validacion' | 'auto
   renderCasoPdf(seccion, tipo, nombreArchivo('ceetps', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'pdf'))
 }
 
+// ─── PDF: Acta de sorteo de jurado ──────────────────────────────────────────
+// Genera el acta del jurado sorteado (titulares/suplentes) para un ConcursoCph.
+// Solo PDF (no hay versión Word del acta, a diferencia de Validación/Autorización).
+interface MiembroJuradoActa {
+  rol: 'titular' | 'suplente'
+  orden: number
+  apellidoNombre: string
+  cuil: string
+  hospitalNombre?: string | null
+  puesto?: string | null
+  especialidad?: string | null
+  ambito: 'hospital' | 'sistema'
+  reglaAplicada?: number | null
+  cumpleEspecialidad?: boolean
+  esConduccion?: boolean
+  antiguedadAnios?: number | null
+}
+interface SorteoJuradoActa {
+  fechaSorteo: string
+  ambito: string
+  confirmado?: boolean
+  observaciones?: string | null
+  criterios?: { escalafonNombre?: string | null; especialidadConcurso?: string | null; hospitalNombre?: string | null; reglaUsada?: number } | null
+  miembros: MiembroJuradoActa[]
+}
+
+export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const pw = doc.internal.pageSize.getWidth()
+
+  // Banner
+  doc.setFillColor(...TEAL)
+  doc.rect(0, 0, pw, 20, 'F')
+  doc.setTextColor(...WHITE)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('ACTA DE SORTEO DE JURADO', pw / 2, 13, { align: 'center' })
+  let y = 30
+
+  const cargo = data.concurso?.cargo
+  const hospital = data.hospital ?? cargo?.hospital
+  const encabezado: Campo[] = [
+    ['Expediente de Concurso', data.eeConcurso],
+    ['Efector', efectorTexto(hospital?.sigla, hospital?.nombre)],
+    ['Puesto', data.puestoSolicitado || cargo?.literalPuesto],
+    ['Especialidad', jurado.criterios?.especialidadConcurso ?? data.especialidadSolicitada ?? cargo?.especialidadLegacy],
+    ['Profesión / Carrera', jurado.criterios?.escalafonNombre],
+    ['Fecha del sorteo', vFecha(jurado.fechaSorteo)],
+    ['Ámbito', jurado.ambito === 'hospital' ? 'Misma unidad organizativa'
+      : jurado.ambito === 'sistema' ? 'Sistema de salud' : 'Mixto (hospital + sistema)'],
+    ...(jurado.criterios?.reglaUsada != null ? [['Cascada de reglas', `Hasta Regla ${jurado.criterios.reglaUsada}`] as Campo] : []),
+    ['Estado', jurado.confirmado ? 'Confirmado' : 'Borrador (sin confirmar)'],
+  ]
+  y = pdfSeccion(doc, y, 'CONCURSO', TEAL, encabezado) + 8
+
+  const filasRol = (rol: 'titular' | 'suplente'): Campo[] =>
+    jurado.miembros
+      .filter((m) => m.rol === rol)
+      .sort((a, b) => a.orden - b.orden)
+      .map((m) => {
+        const marcas = [
+          m.reglaAplicada != null ? `Regla ${m.reglaAplicada}` : null,
+          m.cumpleEspecialidad ? 'especialidad ✓' : null,
+          m.esConduccion ? 'conducción' : null,
+          m.antiguedadAnios != null ? `${m.antiguedadAnios} años` : null,
+          m.ambito === 'hospital' ? 'mismo hospital' : 'sistema',
+        ].filter(Boolean).join(' · ')
+        const detalle = [m.cuil, m.especialidad, m.puesto, m.hospitalNombre, marcas].filter(Boolean).join(' — ')
+        return [`${rol === 'titular' ? 'Titular' : 'Suplente'} ${m.orden}`, `${m.apellidoNombre}\n${detalle}`]
+      })
+
+  const titulares = filasRol('titular')
+  const suplentes = filasRol('suplente')
+
+  if (titulares.length) y = pdfSeccion(doc, y, 'TITULARES', GREEN, titulares) + 6
+  if (suplentes.length) {
+    const ph = doc.internal.pageSize.getHeight()
+    if (ph - y < 60) { doc.addPage(); y = 20 }
+    y = pdfSeccion(doc, y, 'SUPLENTES', GREEN, suplentes) + 6
+  }
+
+  if (jurado.observaciones) {
+    y += 2
+    y = pdfParrafo(doc, y, `Observaciones: ${jurado.observaciones}`, { fontSize: 9 })
+  }
+
+  doc.save(nombreArchivo('jurado', 'acta', v(data.eeConcurso ?? data.id), 'pdf'))
+}
+
+// ─── PDF: Acta de orden de mérito ────────────────────────────────────────────
+interface InscriptoActa {
+  apellido: string
+  nombre: string
+  cuil?: string | null
+  dni?: string | null
+  email?: string | null
+  presentoExamen?: boolean
+  ordenMerito?: number | null
+}
+
+export function exportOrdenMeritoPdf(data: ConcursoCph, inscriptos: InscriptoActa[]) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const pw = doc.internal.pageSize.getWidth()
+
+  doc.setFillColor(...TEAL)
+  doc.rect(0, 0, pw, 20, 'F')
+  doc.setTextColor(...WHITE)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('ACTA DE ORDEN DE MÉRITO', pw / 2, 13, { align: 'center' })
+  let y = 30
+
+  const cargo = data.concurso?.cargo
+  const hospital = data.hospital ?? cargo?.hospital
+  const encabezado: Campo[] = [
+    ['Expediente de Concurso', data.eeConcurso],
+    ['Efector', efectorTexto(hospital?.sigla, hospital?.nombre)],
+    ['Puesto', data.puestoSolicitado || cargo?.literalPuesto],
+    ['Especialidad', data.especialidadSolicitada ?? cargo?.especialidadLegacy],
+    ['Fecha de examen', vFecha(data.fechaExamen)],
+    ['Fecha orden de mérito', vFecha(data.fechaOrdenMerito)],
+    ['Estado', data.ordenMeritoConfirmado ? 'Confirmado' : 'Borrador (sin confirmar)'],
+  ]
+  y = pdfSeccion(doc, y, 'CONCURSO', TEAL, encabezado) + 8
+
+  // Ranking: presentados con posición, ordenados por posición.
+  const ranking = inscriptos
+    .filter((i) => i.presentoExamen && i.ordenMerito != null)
+    .sort((a, b) => (a.ordenMerito as number) - (b.ordenMerito as number))
+    .map((i) => {
+      const detalle = [i.dni ? `DNI ${i.dni}` : null, i.cuil, i.email].filter(Boolean).join(' — ')
+      return [String(i.ordenMerito), `${i.apellido}, ${i.nombre}${detalle ? `\n${detalle}` : ''}`] as Campo
+    })
+
+  if (ranking.length) {
+    y = pdfSeccion(doc, y, 'ORDEN DE MÉRITO', GREEN, ranking) + 6
+  } else {
+    y = pdfParrafo(doc, y, 'No hay inscriptos con posición asignada en el orden de mérito.', { fontSize: 9 })
+  }
+
+  doc.save(nombreArchivo('orden-merito', 'acta', v(data.eeConcurso ?? data.id), 'pdf'))
+}
+
 // ─── WORD: helpers ────────────────────────────────────────────────────────────
 // Bordes negros, sin franjas — igual que el PDF (ver comentario de paleta arriba).
 const BORDE = (color = '000000') => ({
