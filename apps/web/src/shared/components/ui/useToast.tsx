@@ -1,22 +1,22 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from 'react'
 
-type ToastTipo = "success" | "error" | "info";
+type ToastTipo = 'success' | 'error' | 'info'
 interface ToastItem {
-  id: number;
-  tipo: ToastTipo;
-  mensaje: string;
+  id: number
+  tipo: ToastTipo
+  mensaje: string
 }
 
 const ESTILO: Record<ToastTipo, string> = {
-  success: "bg-green-600 text-white",
-  error: "bg-red-600 text-white",
-  info: "bg-gray-800 text-white",
-};
+  success: 'bg-green-600 text-white',
+  error: 'bg-red-600 text-white',
+  info: 'bg-gray-800 text-white',
+}
 const ICONO: Record<ToastTipo, string> = {
-  success: "✓",
-  error: "⚠",
-  info: "ℹ",
-};
+  success: '✓',
+  error: '⚠',
+  info: 'ℹ',
+}
 
 /**
  * Reemplazo de window.alert() con notificaciones no bloqueantes (toasts) del
@@ -27,22 +27,22 @@ const ICONO: Record<ToastTipo, string> = {
  *   return (<>{ToastUI}...</>)
  */
 export function useToast() {
-  const [items, setItems] = useState<ToastItem[]>([]);
-  const nextId = useRef(1);
+  const [items, setItems] = useState<ToastItem[]>([])
+  const nextId = useRef(1)
 
   const push = useCallback((tipo: ToastTipo, mensaje: string) => {
-    const id = nextId.current++;
-    setItems((prev) => [...prev, { id, tipo, mensaje }]);
+    const id = nextId.current++
+    setItems((prev) => [...prev, { id, tipo, mensaje }])
     setTimeout(() => {
-      setItems((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
+      setItems((prev) => prev.filter((t) => t.id !== id))
+    }, 4000)
+  }, [])
 
   const toast = {
-    success: (m: string) => push("success", m),
-    error: (m: string) => push("error", m),
-    info: (m: string) => push("info", m),
-  };
+    success: (m: string) => push('success', m),
+    error: (m: string) => push('error', m),
+    info: (m: string) => push('info', m),
+  }
 
   const ToastUI = (
     <div className="fixed top-4 right-4 z-[70] flex flex-col gap-2 max-w-sm">
@@ -56,7 +56,7 @@ export function useToast() {
         </div>
       ))}
     </div>
-  );
+  )
 
-  return { toast, ToastUI };
+  return { toast, ToastUI }
 }

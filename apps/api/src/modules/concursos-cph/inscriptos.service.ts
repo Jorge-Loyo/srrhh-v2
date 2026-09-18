@@ -24,7 +24,10 @@ async function recalcularCantidad(concursoCphId: string) {
 }
 
 async function assertConcurso(concursoCphId: string) {
-  const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId }, select: { id: true } })
+  const c = await prisma.concursoCph.findUnique({
+    where: { id: concursoCphId },
+    select: { id: true },
+  })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
 }
 
@@ -63,8 +66,15 @@ export async function createInscriptoService(concursoCphId: string, body: Inscri
 }
 
 // Edición de un inscripto.
-export async function updateInscriptoService(concursoCphId: string, inscriptoId: string, body: InscriptoPatchBody) {
-  const existe = await prisma.inscriptoConcurso.findFirst({ where: { id: inscriptoId, concursoCphId }, select: { id: true } })
+export async function updateInscriptoService(
+  concursoCphId: string,
+  inscriptoId: string,
+  body: InscriptoPatchBody,
+) {
+  const existe = await prisma.inscriptoConcurso.findFirst({
+    where: { id: inscriptoId, concursoCphId },
+    select: { id: true },
+  })
   if (!existe) throw AppError.notFound('Inscripto no encontrado')
   return prisma.inscriptoConcurso.update({
     where: { id: inscriptoId },
@@ -74,7 +84,9 @@ export async function updateInscriptoService(concursoCphId: string, inscriptoId:
       ...(body.dni !== undefined ? { dni: body.dni } : {}),
       ...(body.cuil !== undefined ? { cuil: body.cuil } : {}),
       ...(body.sexo !== undefined ? { sexo: body.sexo } : {}),
-      ...(body.fechaNacimiento !== undefined ? { fechaNacimiento: toDate(body.fechaNacimiento) } : {}),
+      ...(body.fechaNacimiento !== undefined
+        ? { fechaNacimiento: toDate(body.fechaNacimiento) }
+        : {}),
       ...(body.nacionalidad !== undefined ? { nacionalidad: body.nacionalidad } : {}),
       ...(body.telefono !== undefined ? { telefono: body.telefono } : {}),
       ...(body.email !== undefined ? { email: body.email } : {}),
@@ -90,7 +102,10 @@ export async function updateInscriptoService(concursoCphId: string, inscriptoId:
 
 // Baja de un inscripto.
 export async function deleteInscriptoService(concursoCphId: string, inscriptoId: string) {
-  const existe = await prisma.inscriptoConcurso.findFirst({ where: { id: inscriptoId, concursoCphId }, select: { id: true } })
+  const existe = await prisma.inscriptoConcurso.findFirst({
+    where: { id: inscriptoId, concursoCphId },
+    select: { id: true },
+  })
   if (!existe) throw AppError.notFound('Inscripto no encontrado')
   await prisma.inscriptoConcurso.delete({ where: { id: inscriptoId } })
   await recalcularCantidad(concursoCphId)
@@ -101,7 +116,12 @@ export async function deleteInscriptoService(concursoCphId: string, inscriptoId:
 // Acepta .xlsx/.xls/.csv (xlsx.read maneja los tres). Reconoce encabezados de
 // forma flexible (acentos, mayúsculas, sinónimos). Solo apellido y nombre son
 // obligatorios por fila; las filas sin ambos se ignoran.
-const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+const norm = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 
 // Solo campos de texto del inscripto (excluye presentoExamen, que es boolean y
 // no viene en la importación — los inscriptos importados aún no se presentaron).
@@ -109,19 +129,36 @@ type CampoTextoInscripto = Exclude<keyof InscriptoBody, 'presentoExamen' | 'orde
 
 // Mapa de sinónimos de encabezado → campo del modelo.
 const HEADERS: Record<string, CampoTextoInscripto> = {
-  apellido: 'apellido', apellidos: 'apellido',
-  nombre: 'nombre', nombres: 'nombre',
-  dni: 'dni', documento: 'dni', 'nro documento': 'dni', 'numero de documento': 'dni',
-  cuil: 'cuil', cuit: 'cuil',
-  sexo: 'sexo', genero: 'sexo',
-  'fecha de nacimiento': 'fechaNacimiento', 'fecha nacimiento': 'fechaNacimiento', nacimiento: 'fechaNacimiento',
+  apellido: 'apellido',
+  apellidos: 'apellido',
+  nombre: 'nombre',
+  nombres: 'nombre',
+  dni: 'dni',
+  documento: 'dni',
+  'nro documento': 'dni',
+  'numero de documento': 'dni',
+  cuil: 'cuil',
+  cuit: 'cuil',
+  sexo: 'sexo',
+  genero: 'sexo',
+  'fecha de nacimiento': 'fechaNacimiento',
+  'fecha nacimiento': 'fechaNacimiento',
+  nacimiento: 'fechaNacimiento',
   nacionalidad: 'nacionalidad',
-  telefono: 'telefono', 'telefono celular': 'telefono', celular: 'telefono', tel: 'telefono',
-  email: 'email', correo: 'email', mail: 'email', 'correo electronico': 'email',
+  telefono: 'telefono',
+  'telefono celular': 'telefono',
+  celular: 'telefono',
+  tel: 'telefono',
+  email: 'email',
+  correo: 'email',
+  mail: 'email',
+  'correo electronico': 'email',
   titulo: 'titulo',
-  matricula: 'matricula', 'matricula profesional': 'matricula',
+  matricula: 'matricula',
+  'matricula profesional': 'matricula',
   especialidad: 'especialidad',
-  observaciones: 'observaciones', observacion: 'observaciones',
+  observaciones: 'observaciones',
+  observacion: 'observaciones',
 }
 
 // Convierte un valor de celda de fecha (string o serial de Excel) a YYYY-MM-DD.
@@ -160,7 +197,10 @@ export async function importarInscriptosService(concursoCphId: string, buffer: B
       const val = campo === 'fechaNacimiento' ? celdaAFecha(valor) : String(valor ?? '').trim()
       if (val) registro[campo] = val
     }
-    if (!registro.apellido || !registro.nombre) { ignorados++; continue }
+    if (!registro.apellido || !registro.nombre) {
+      ignorados++
+      continue
+    }
     datos.push({ apellido: registro.apellido, nombre: registro.nombre, ...registro })
   }
 
@@ -241,8 +281,10 @@ export async function cerrarInscripcionService(
   if (!fechaInscDesde || !fechaInscHasta) {
     throw AppError.conflict('Cargá las fechas de inscripción (desde y hasta) antes de publicarlas.')
   }
-  if (c.fechaExamen) throw AppError.conflict('El examen ya fue publicado; las inscripciones ya están cerradas.')
-  if (c.inscripcionCerrada) throw AppError.conflict('Las fechas de inscripción ya fueron publicadas.')
+  if (c.fechaExamen)
+    throw AppError.conflict('El examen ya fue publicado; las inscripciones ya están cerradas.')
+  if (c.inscripcionCerrada)
+    throw AppError.conflict('Las fechas de inscripción ya fueron publicadas.')
 
   const merged = { ...c, fechaInscDesde, fechaInscHasta, inscripcionCerrada: true } as ConcursoCph
   const calc = recalcCph(merged)
@@ -262,10 +304,7 @@ export async function cerrarInscripcionService(
 
 // "Publicar examen": requiere inscripción publicada. Guarda la fecha de examen
 // (si viene en el body) → el sub-estado queda en D con E como próximo pendiente.
-export async function publicarExamenService(
-  concursoCphId: string,
-  fechaExamenStr?: string | null,
-) {
+export async function publicarExamenService(concursoCphId: string, fechaExamenStr?: string | null) {
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.inscripcionCerrada) throw AppError.conflict('Publicá primero las fechas de inscripción.')
@@ -291,7 +330,8 @@ export async function despublicarExamenService(concursoCphId: string) {
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.fechaExamen) throw AppError.conflict('El examen no está publicado.')
-  if (c.presentadosConfirmados) throw AppError.conflict('Revertí primero la confirmación de presentados.')
+  if (c.presentadosConfirmados)
+    throw AppError.conflict('Revertí primero la confirmación de presentados.')
 
   const merged = { ...c, fechaExamen: null } as ConcursoCph
   const calc = recalcCph(merged)
@@ -334,7 +374,8 @@ export async function reabrirInscripcionService(concursoCphId: string) {
 export async function confirmarPresentadosService(concursoCphId: string) {
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
-  if (!c.fechaExamen) throw AppError.conflict('Cargá la fecha de examen antes de confirmar los presentados.')
+  if (!c.fechaExamen)
+    throw AppError.conflict('Cargá la fecha de examen antes de confirmar los presentados.')
   if (c.presentadosConfirmados) throw AppError.conflict('Los presentados ya fueron confirmados.')
   return prisma.concursoCph.update({
     where: { id: concursoCphId },
@@ -346,7 +387,8 @@ export async function revertirPresentadosService(concursoCphId: string) {
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.presentadosConfirmados) throw AppError.conflict('Los presentados no están confirmados.')
-  if (c.ordenMeritoConfirmado) throw AppError.conflict('Revertí primero la confirmación del orden de mérito.')
+  if (c.ordenMeritoConfirmado)
+    throw AppError.conflict('Revertí primero la confirmación del orden de mérito.')
   return prisma.concursoCph.update({
     where: { id: concursoCphId },
     data: { presentadosConfirmados: false },
@@ -360,7 +402,8 @@ export async function revertirPresentadosService(concursoCphId: string) {
 export async function confirmarOrdenMeritoService(concursoCphId: string) {
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
-  if (!c.presentadosConfirmados) throw AppError.conflict('Confirmá primero los presentados al examen.')
+  if (!c.presentadosConfirmados)
+    throw AppError.conflict('Confirmá primero los presentados al examen.')
   if (c.ordenMeritoConfirmado) throw AppError.conflict('El orden de mérito ya fue confirmado.')
 
   const presentados = await prisma.inscriptoConcurso.findMany({

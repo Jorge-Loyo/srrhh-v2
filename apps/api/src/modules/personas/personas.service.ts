@@ -21,14 +21,19 @@ interface PersonaRow {
 }
 
 export async function listPersonasService(query: PersonasQuery) {
-  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad, idSial } = query
+  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad, idSial } =
+    query
   const offset = (page - 1) * limit
 
   const conditions: Prisma.Sql[] = []
 
   if (search) {
     const like = `%${search}%`
-    const tsQuery = search.trim().split(/\s+/).map((t) => `${t}:*`).join(' & ')
+    const tsQuery = search
+      .trim()
+      .split(/\s+/)
+      .map((t) => `${t}:*`)
+      .join(' & ')
     conditions.push(Prisma.sql`(
       to_tsvector('spanish_unaccent', p.apellido_nombre) @@ to_tsquery('spanish_unaccent', ${tsQuery})
       OR p.cuil ILIKE ${like}
@@ -40,14 +45,17 @@ export async function listPersonasService(query: PersonasQuery) {
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
   if (puesto) conditions.push(Prisma.sql`c.literal_puesto = ${puesto}`)
   if (especialidad) conditions.push(Prisma.sql`c.especialidad_legacy = ${especialidad}`)
-  if (idSial) conditions.push(Prisma.sql`EXISTS (
+  if (idSial)
+    conditions.push(Prisma.sql`EXISTS (
       SELECT 1 FROM ocupaciones o2
       JOIN cargos c2 ON c2.id = o2.cargo_id
       WHERE o2.persona_id = p.id
         AND (TRIM(c2.id_sial) = TRIM(${idSial}) OR TRIM(c2.id_sial) LIKE ${idSial + '-%'})
     )`)
 
-  const where = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
+  const where = conditions.length
+    ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
+    : Prisma.empty
 
   const joinCargoVigente = Prisma.sql`
     LEFT JOIN LATERAL (
@@ -117,14 +125,16 @@ export async function getPersonaSialRolesService(id: string) {
   const persona = await prisma.persona.findUnique({ where: { id }, select: { id: true } })
   if (!persona) throw AppError.notFound('Persona no encontrada')
 
-  return prisma.$queryRaw<{
-    idSialRol: string
-    cargoId: string
-    codigoCargo: string | null
-    literalPuesto: string | null
-    hospitalSigla: string
-    desde: Date | null
-  }[]>`
+  return prisma.$queryRaw<
+    {
+      idSialRol: string
+      cargoId: string
+      codigoCargo: string | null
+      literalPuesto: string | null
+      hospitalSigla: string
+      desde: Date | null
+    }[]
+  >`
     SELECT
       o.id_sial_rol AS "idSialRol",
       o.cargo_id    AS "cargoId",
@@ -149,12 +159,20 @@ export async function getPersonaBajasSialService(id: string) {
   const cuil = persona.cuil
   const cuilConGuiones = `${cuil.slice(0, 2)}-${cuil.slice(2, 10)}-${cuil.slice(10)}`
 
-  return prisma.$queryRaw<{
-    cargo: string; lit_puesto: string | null; escalafon: string | null
-    cargo_desde: Date | null; cargo_hasta: Date | null; mot_baja: string | null
-    doc_resp_baja: string | null; desc_rep: string | null; car_codigo: string | null
-    codigo_cargo: string | null
-  }[]>`
+  return prisma.$queryRaw<
+    {
+      cargo: string
+      lit_puesto: string | null
+      escalafon: string | null
+      cargo_desde: Date | null
+      cargo_hasta: Date | null
+      mot_baja: string | null
+      doc_resp_baja: string | null
+      desc_rep: string | null
+      car_codigo: string | null
+      codigo_cargo: string | null
+    }[]
+  >`
     SELECT r.cargo, r.lit_puesto, r.escalafon, r.cargo_desde, r.cargo_hasta,
            r.mot_baja, r.doc_resp_baja, r.desc_rep, r.car_codigo,
            c.codigo as codigo_cargo

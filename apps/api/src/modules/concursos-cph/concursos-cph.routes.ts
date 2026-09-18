@@ -2,7 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema, generarSorteoJuradoSchema } from './concursos-cph.schema.js'
+import {
+  concursosCphQuerySchema,
+  patchConcursoCphSchema,
+  suspenderConcursoCphSchema,
+  designarCphSchema,
+  declararDesiertoSchema,
+  generarSorteoJuradoSchema,
+} from './concursos-cph.schema.js'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
@@ -13,9 +20,34 @@ import {
   declararDesiertoService,
   importarConcursosCsvService,
 } from './concursos-cph.service.js'
-import { generarSorteoJuradoService, getJuradoVigenteService, confirmarSorteoService, cancelarSorteoService, revertirConfirmacionSorteoService } from './sorteoJurado.service.js'
-import { inscriptoSchema, inscriptoPatchSchema, publicarInscripcionSchema, publicarExamenSchema } from './inscriptos.schema.js'
-import { listInscriptosService, createInscriptoService, updateInscriptoService, deleteInscriptoService, importarInscriptosService, cerrarInscripcionService, reabrirInscripcionService, publicarExamenService, despublicarExamenService, confirmarPresentadosService, revertirPresentadosService, confirmarOrdenMeritoService, revertirOrdenMeritoService } from './inscriptos.service.js'
+import {
+  generarSorteoJuradoService,
+  getJuradoVigenteService,
+  confirmarSorteoService,
+  cancelarSorteoService,
+  revertirConfirmacionSorteoService,
+} from './sorteoJurado.service.js'
+import {
+  inscriptoSchema,
+  inscriptoPatchSchema,
+  publicarInscripcionSchema,
+  publicarExamenSchema,
+} from './inscriptos.schema.js'
+import {
+  listInscriptosService,
+  createInscriptoService,
+  updateInscriptoService,
+  deleteInscriptoService,
+  importarInscriptosService,
+  cerrarInscripcionService,
+  reabrirInscripcionService,
+  publicarExamenService,
+  despublicarExamenService,
+  confirmarPresentadosService,
+  revertirPresentadosService,
+  confirmarOrdenMeritoService,
+  revertirOrdenMeritoService,
+} from './inscriptos.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
 // admin/editor/concursales_cph, editable en caliente). Lectura: cualquier autenticado.
@@ -26,13 +58,17 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
   // POST /importar-csv — actualizar concursos CPH desde CSV semanal
-  app.post('/importar-csv', { preHandler: requirePermiso(WRITE_PERMISO) }, async (request, reply) => {
-    const data = await request.file()
-    if (!data) throw new Error('Archivo requerido')
-    const buffer = await data.toBuffer()
-    const result = await importarConcursosCsvService(buffer)
-    return reply.send({ data: result })
-  })
+  app.post(
+    '/importar-csv',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await request.file()
+      if (!data) throw new Error('Archivo requerido')
+      const buffer = await data.toBuffer()
+      const result = await importarConcursosCsvService(buffer)
+      return reply.send({ data: result })
+    },
+  )
 
   // GET / — S4-1: listado paginado con filtros
   app.get('/', async (request, reply) => {
@@ -55,7 +91,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = patchConcursoCphSchema.parse(request.body)
       const data = await patchConcursoCphService(request.params.id, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/suspender — S4-5
@@ -66,7 +102,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = suspenderConcursoCphSchema.parse(request.body ?? {})
       const data = await suspenderConcursoCphService(request.params.id, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // GET /:id/persona-designada — busca la persona designada por personaDesignadaId
@@ -84,7 +120,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = designarCphSchema.parse(request.body)
       const data = await designarConcursoCphService(request.params.id, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/declarar-desierto — PS16D-3
@@ -95,7 +131,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = declararDesiertoSchema.parse(request.body)
       const data = await declararDesiertoService(request.params.id, body, (request as any).user.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // GET /:id/jurado — Etapa 2: acta del último sorteo de jurado (o null)
@@ -111,9 +147,13 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
       const body = generarSorteoJuradoSchema.parse(request.body)
-      const data = await generarSorteoJuradoService(request.params.id, body, (request as any).user?.id ?? null)
+      const data = await generarSorteoJuradoService(
+        request.params.id,
+        body,
+        (request as any).user?.id ?? null,
+      )
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/jurado/confirmar — fija el acta (queda de solo lectura)
@@ -121,9 +161,12 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     '/:id/jurado/confirmar',
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
-      const data = await confirmarSorteoService(request.params.id, (request as any).user?.id ?? null)
+      const data = await confirmarSorteoService(
+        request.params.id,
+        (request as any).user?.id ?? null,
+      )
       return reply.send({ data })
-    }
+    },
   )
 
   // ── Etapa 3: inscriptos al concurso ──────────────────────────────────────
@@ -141,7 +184,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = inscriptoSchema.parse(request.body)
       const data = await createInscriptoService(request.params.id, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // PATCH /:id/inscriptos/:inscriptoId — editar un inscripto
@@ -152,7 +195,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = inscriptoPatchSchema.parse(request.body)
       const data = await updateInscriptoService(request.params.id, request.params.inscriptoId, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // DELETE /:id/inscriptos/:inscriptoId — baja de un inscripto
@@ -162,7 +205,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await deleteInscriptoService(request.params.id, request.params.inscriptoId)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/inscriptos/importar — importar inscriptos desde Excel/CSV
@@ -175,7 +218,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const buffer = await file.toBuffer()
       const data = await importarInscriptosService(request.params.id, buffer)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/inscripciones/cerrar — publica las fechas de inscripción y cierra
@@ -187,7 +230,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = publicarInscripcionSchema.parse(request.body ?? {})
       const data = await cerrarInscripcionService(request.params.id, body)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/examen/publicar — guarda y publica la fecha de examen
@@ -198,7 +241,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const body = publicarExamenSchema.parse(request.body ?? {})
       const data = await publicarExamenService(request.params.id, body.fechaExamen ?? undefined)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/examen/despublicar — revierte la publicación del examen
@@ -208,7 +251,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await despublicarExamenService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/inscripciones/reabrir — reabre el período de inscripción
@@ -218,7 +261,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await reabrirInscripcionService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/presentados/confirmar — congela quién se presentó al examen
@@ -228,7 +271,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await confirmarPresentadosService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/presentados/revertir
@@ -238,7 +281,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await revertirPresentadosService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/orden-merito/confirmar — fija la OM (fecha=hoy, avanza a E)
@@ -248,7 +291,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await confirmarOrdenMeritoService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/orden-merito/revertir
@@ -258,7 +301,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await revertirOrdenMeritoService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // POST /:id/jurado/revertir — revierte la confirmación (vuelve a borrador)
@@ -268,7 +311,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await revertirConfirmacionSorteoService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // DELETE /:id/jurado — cancela (descarta) el sorteo vigente NO confirmado
@@ -278,7 +321,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const data = await cancelarSorteoService(request.params.id)
       return reply.send({ data })
-    }
+    },
   )
 
   // NOTA S13-C: POST /:id/autorizar (aprobar/rechazar modificación CPH) se

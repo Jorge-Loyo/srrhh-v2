@@ -1,9 +1,7 @@
-import { z } from "zod";
-import { EstadoConcursoCph } from "@srrhh/types";
+import { z } from 'zod'
+import { EstadoConcursoCph } from '@srrhh/types'
 
-const fecha = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato YYYY-MM-DD requerido");
+const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 
 // S4-1: listado paginado con filtros. `subEstado` filtra contra el valor
 // persistido (no depende de "hoy", se recalcula en cada write — ver
@@ -19,15 +17,15 @@ export const concursosCphQuerySchema = z.object({
   subEstado: z.string().trim().min(1).optional(),
   subEstado3: z.string().trim().min(1).optional(),
   suspendido: z
-    .enum(["true", "false"])
-    .transform((v) => v === "true")
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
     .optional(),
   pendienteAutorizacion: z.coerce.boolean().optional(),
   conFaltantes: z.coerce.boolean().optional(),
   search: z.string().trim().min(1).optional(),
-});
+})
 
-export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>;
+export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>
 
 // S4-3: PATCH por fase. `estado`/`subEstado`/`subEstado3` NO forman parte de
 // este contrato a propósito — son calculados por calcConcursoCph() en cada
@@ -86,9 +84,9 @@ export const patchConcursoCphSchema = z
     codigoRegistroId: z.string().uuid().nullable(),
   })
   .partial()
-  .strict();
+  .strict()
 
-export type PatchConcursoCphBody = z.infer<typeof patchConcursoCphSchema>;
+export type PatchConcursoCphBody = z.infer<typeof patchConcursoCphSchema>
 
 // S4-5: suspender/reanudar. `suspendido` por defecto true — el mismo
 // endpoint reanuda si se manda explícitamente en false, para no necesitar un
@@ -96,36 +94,30 @@ export type PatchConcursoCphBody = z.infer<typeof patchConcursoCphSchema>;
 export const suspenderConcursoCphSchema = z.object({
   suspendido: z.boolean().default(true),
   observaciones: z.string().trim().max(2000).optional(),
-});
+})
 
-export type SuspenderConcursoCphBody = z.infer<
-  typeof suspenderConcursoCphSchema
->;
+export type SuspenderConcursoCphBody = z.infer<typeof suspenderConcursoCphSchema>
 
 // S16-1: registrar designación — crea Ocupacion y avanza sub-estado a N-DESIGNADO.
 // idSialRol opcional: si no se conoce todavía (el padrón no llegó), se genera
 // un valor sintético MANUAL-{cargoId}-{fecha} que el padrón siguiente sobreescribe.
 export const designarCphSchema = z.object({
   personaId: z.string().uuid(),
-  fechaDesde: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato YYYY-MM-DD requerido"),
+  fechaDesde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
   idSialRol: z.string().trim().max(50).optional(),
-});
+})
 
-export type DesignarCphBody = z.infer<typeof designarCphSchema>;
+export type DesignarCphBody = z.infer<typeof designarCphSchema>
 
 // PS16D-3: declarar desierto — guarda snapshot en ConcursoCphDesierto,
 // limpia campos de la ronda, pone suspendido=true, sub-estado Q-DESIERTO.
 export const declararDesiertoSchema = z.object({
   dispoDesierta: z.string().trim().min(1).max(50),
-  fechaDispoDesierta: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato YYYY-MM-DD requerido"),
+  fechaDispoDesierta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido'),
   observaciones: z.string().trim().max(2000).optional(),
-});
+})
 
-export type DeclararDesiertoBody = z.infer<typeof declararDesiertoSchema>;
+export type DeclararDesiertoBody = z.infer<typeof declararDesiertoSchema>
 
 // Etapa 2 — Sorteo de jurado. Criterios configurables del sorteo:
 // - cantTitulares/cantSuplentes: composición del jurado (default 3+3). El total
@@ -148,6 +140,6 @@ export const generarSorteoJuradoSchema = z.object({
   antiguedadMinimaAnios: z.number().int().min(0).max(60).default(15),
   semilla: z.string().trim().min(1).max(64).optional(),
   observaciones: z.string().trim().max(2000).optional(),
-});
+})
 
-export type GenerarSorteoJuradoBody = z.infer<typeof generarSorteoJuradoSchema>;
+export type GenerarSorteoJuradoBody = z.infer<typeof generarSorteoJuradoSchema>

@@ -8,8 +8,17 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  Document, Packer, Paragraph, Table, TableRow, TableCell,
-  TextRun, AlignmentType, WidthType, ShadingType, BorderStyle,
+  Document,
+  Packer,
+  Paragraph,
+  Table,
+  TableRow,
+  TableCell,
+  TextRun,
+  AlignmentType,
+  WidthType,
+  ShadingType,
+  BorderStyle,
 } from 'docx'
 import type { ConcursoCph, ConcursoCeetps } from '@srrhh/types'
 
@@ -21,14 +30,14 @@ import type { ConcursoCph, ConcursoCeetps } from '@srrhh/types'
 // terminó de igualar el Word oficial). Confirmado igual en 5 casos
 // distintos (CPH y CEETPS): #45818E / #CC0000 / #38761D, la paleta default
 // de Google Docs — el Word original se armó ahí.
-const RED: [number, number, number]   = [204, 0, 0]
+const RED: [number, number, number] = [204, 0, 0]
 const GREEN: [number, number, number] = [56, 118, 29]
-const TEAL: [number, number, number]  = [69, 129, 142]
+const TEAL: [number, number, number] = [69, 129, 142]
 const WHITE: [number, number, number] = [255, 255, 255]
 const BLACK: [number, number, number] = [0, 0, 0]
 // El legacy no tiene franjas alternadas ni texto en gris azulado — todas las
 // filas son blanco liso, texto y bordes en negro (ver FORMULARIOS X CASO).
-const INK: [number, number, number]   = BLACK
+const INK: [number, number, number] = BLACK
 const LABEL: [number, number, number] = BLACK
 
 type Campo = [string, string | null | undefined]
@@ -69,25 +78,25 @@ const ESCALAFON_CPH = 'Carrera de Profesionales de la Salud'
 
 /** Caso de un ConcursoCph (ver FORMULARIOS X CASO del legacy, sección CPH). */
 export function getCasoCph(data: ConcursoCph): Caso {
-  const cargo   = data.concurso?.cargo
+  const cargo = data.concurso?.cargo
   const persona = data.concurso?.persona
-  const baja    = data.concurso?.baja
+  const baja = data.concurso?.baja
   const hospital = data.hospital ?? cargo?.hospital
-  const origen  = data.concurso?.origen ?? ''
+  const origen = data.concurso?.origen ?? ''
 
-  const efector      = efectorTexto(hospital?.sigla, hospital?.nombre)
-  const puestoBaja    = cargo?.literalPuesto || ''
-  const puestoSolic   = data.puestoSolicitado || puestoBaja
+  const efector = efectorTexto(hospital?.sigla, hospital?.nombre)
+  const puestoBaja = cargo?.literalPuesto || ''
+  const puestoSolic = data.puestoSolicitado || puestoBaja
   // cargo.especialidad es una relación (Especialidad?, no viene incluida en
   // el payload de la API) — el string real está en especialidadLegacy, ver
   // migración especialidades_fk. Usar el campo viejo acá dejaba "Especialidad"
   // en blanco ("-") en TODOS los documentos generados.
-  const especBaja     = cargo?.especialidadLegacy || '-'
-  const especSolic    = data.especialidadSolicitada || especBaja
-  const esSolicitud   = origen === 'Ampliación' || origen === 'POU a POF'
-  const esSuplente    = cargo?.unificadorPuesto === 'Suplente de Guardia'
-  const esJefatura    = cargo?.unificadorPuesto === 'Jefaturas'
-  const esCobertura   = origen === 'Cobertura Dotación'
+  const especBaja = cargo?.especialidadLegacy || '-'
+  const especSolic = data.especialidadSolicitada || especBaja
+  const esSolicitud = origen === 'Ampliación' || origen === 'POU a POF'
+  const esSuplente = cargo?.unificadorPuesto === 'Suplente de Guardia'
+  const esJefatura = cargo?.unificadorPuesto === 'Jefaturas'
+  const esCobertura = origen === 'Cobertura Dotación'
   const codigoRegistro = esSuplente ? '23' : '37'
 
   // 4 — Ampliación / POU a POF: no surge de una baja real sino de un expediente
@@ -141,7 +150,8 @@ export function getCasoCph(data: ConcursoCph): Caso {
         intro: 'La presente procesa el registro de la baja de:',
         boxTitulo: 'BAJA',
         campos: camposBaja(`${puestoBaja} - Suplente`),
-        cierre: 'Asimismo, se autoriza la cobertura de la vacante, en reemplazo de la mencionada baja.',
+        cierre:
+          'Asimismo, se autoriza la cobertura de la vacante, en reemplazo de la mencionada baja.',
         camposVerde: [
           ['Expediente de Concurso', data.eeConcurso],
           ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
@@ -229,23 +239,24 @@ const ESCALAFON_CEETPS: Record<string, string> = {
 
 /** Caso de un ConcursoCeetps (Enfermería 87 / Técnicos 85 / Servicios Generales 83). */
 export function getCasoCeetps(data: ConcursoCeetps): Caso {
-  const cargo    = data.concurso?.cargo
-  const persona  = data.concurso?.persona
-  const baja     = data.concurso?.baja
+  const cargo = data.concurso?.cargo
+  const persona = data.concurso?.persona
+  const baja = data.concurso?.baja
   const hospital = data.hospital ?? cargo?.hospital
-  const origen   = data.concurso?.origen ?? ''
+  const origen = data.concurso?.origen ?? ''
 
-  const codigo         = cargo?.codigoRegistro?.codigo ?? ''
-  const efector         = efectorTexto(hospital?.sigla, hospital?.nombre)
-  const escalafonTexto  = ESCALAFON_CEETPS[codigo] || ''
-  const puestoBaja      = cargo?.literalPuesto || ''
-  const puestoSolic     = data.puestoSolicitado || puestoBaja
+  const codigo = cargo?.codigoRegistro?.codigo ?? ''
+  const efector = efectorTexto(hospital?.sigla, hospital?.nombre)
+  const escalafonTexto = ESCALAFON_CEETPS[codigo] || ''
+  const puestoBaja = cargo?.literalPuesto || ''
+  const puestoSolic = data.puestoSolicitado || puestoBaja
   // Ver mismo comentario en getCasoCph — .especialidad es la relación (no
   // viene en el payload), el string real está en especialidadLegacy.
-  const especBaja       = cargo?.especialidadLegacy || '-'
-  const esAmpliacion    = origen === 'Ampliación' || origen === 'POU a POF'
-  const conCarga        = codigo === '87' || codigo === '85'
-  const filaCarga: Campo[] = conCarga && data.cargaHoraria ? [['Carga Horaria', `${data.cargaHoraria} HS`]] : []
+  const especBaja = cargo?.especialidadLegacy || '-'
+  const esAmpliacion = origen === 'Ampliación' || origen === 'POU a POF'
+  const conCarga = codigo === '87' || codigo === '85'
+  const filaCarga: Campo[] =
+    conCarga && data.cargaHoraria ? [['Carga Horaria', `${data.cargaHoraria} HS`]] : []
 
   const camposBaja = (puesto: string = puestoBaja): Campo[] => [
     ['Repartición', efector],
@@ -279,7 +290,8 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
             ['Código de Registro', codigo],
             ...filaCarga,
           ],
-          cierre: 'Asimismo, se AUTORIZA la cobertura de las vacantes que a continuación se detallan.\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
+          cierre:
+            'Asimismo, se AUTORIZA la cobertura de las vacantes que a continuación se detallan.\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
           camposVerde: [
             ['Expediente(s) de Concurso', data.expedienteConcurso],
             ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
@@ -309,7 +321,10 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
           campos: camposBaja(),
           cierre: `Asimismo, se autoriza la vacante por la baja indicada.\n\n${nota}`,
           camposVerde: [
-            ['Expediente(s) de Concurso', [data.expedienteConcurso, data.expedienteConcurso2].filter(Boolean).join(' / ')],
+            [
+              'Expediente(s) de Concurso',
+              [data.expedienteConcurso, data.expedienteConcurso2].filter(Boolean).join(' / '),
+            ],
             ['Cantidad de Cargos', '2'],
             ['Puesto', 'Enfermería'],
             ['Especialidad', '-'],
@@ -365,7 +380,8 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
             ['Código de Registro', codigo],
             ['Fecha de Ampliación', vFecha(baja?.fechaBaja)],
           ],
-          cierre: 'Asimismo, se AUTORIZA la cobertura de la vacante de:\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
+          cierre:
+            'Asimismo, se AUTORIZA la cobertura de la vacante de:\n\n[COMPLETAR: fundamento / justificación de la ampliación]',
           camposVerde: [
             ['Expediente(s) de Concurso', data.expedienteConcurso],
             ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
@@ -417,7 +433,8 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
       intro: 'La presente procesa el registro de la baja de:',
       boxTitulo: 'BAJA',
       campos: camposBaja(),
-      cierre: 'Asimismo, se AUTORIZA la cobertura de la vacante, en reemplazo de la mencionada baja.',
+      cierre:
+        'Asimismo, se AUTORIZA la cobertura de la vacante, en reemplazo de la mencionada baja.',
       camposVerde: [
         ['Expediente de Concurso', data.expedienteConcurso],
         ['Cantidad de Cargos', String(data.cantidadCargos ?? 1)],
@@ -434,7 +451,14 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
 // valorColor: en el cuadro rojo (BAJA/AMPLIACIÓN/etc.) el valor de cada campo
 // va en rojo, igual que el header — en el cuadro verde (AUTORIZACIÓN) va en
 // negro. Confirmado por muestreo de píxeles en FORMULARIOS X CASO.
-function pdfSeccion(doc: jsPDF, y: number, cabecera: string, color: [number, number, number], filas: Campo[], valorColor: [number, number, number] = INK) {
+function pdfSeccion(
+  doc: jsPDF,
+  y: number,
+  cabecera: string,
+  color: [number, number, number],
+  filas: Campo[],
+  valorColor: [number, number, number] = INK,
+) {
   autoTable(doc, {
     startY: y,
     head: [[{ content: cabecera, colSpan: 2 }]],
@@ -465,7 +489,17 @@ function pdfSeccion(doc: jsPDF, y: number, cabecera: string, color: [number, num
   return (doc as any).lastAutoTable.finalY as number
 }
 
-function pdfParrafo(doc: jsPDF, y: number, texto: string, opts: { fontSize?: number; color?: [number, number, number]; maxWidth?: number; lineHeight?: number } = {}) {
+function pdfParrafo(
+  doc: jsPDF,
+  y: number,
+  texto: string,
+  opts: {
+    fontSize?: number
+    color?: [number, number, number]
+    maxWidth?: number
+    lineHeight?: number
+  } = {},
+) {
   const { fontSize = 9.5, color = LABEL, maxWidth = 178, lineHeight = 4.6 } = opts
   doc.setFontSize(fontSize)
   doc.setTextColor(...color)
@@ -501,7 +535,10 @@ function renderCasoPdf(seccion: Seccion, tipo: 'validacion' | 'autorizacion', fi
   if (seccion.camposVerde) {
     y += 6
     const pageHeight = doc.internal.pageSize.getHeight()
-    if (pageHeight - y < 70) { doc.addPage(); y = 20 }
+    if (pageHeight - y < 70) {
+      doc.addPage()
+      y = 20
+    }
     pdfSeccion(doc, y, 'AUTORIZACIÓN', GREEN, seccion.camposVerde)
   }
 
@@ -515,13 +552,21 @@ function nombreArchivo(prefijo: string, tipo: string, sufijo: string, ext: strin
 export function exportCphPdf(data: ConcursoCph, tipo: 'validacion' | 'autorizacion') {
   const seccion = getCasoCph(data)[tipo]
   if (!seccion) return
-  renderCasoPdf(seccion, tipo, nombreArchivo('cph', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'pdf'))
+  renderCasoPdf(
+    seccion,
+    tipo,
+    nombreArchivo('cph', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'pdf'),
+  )
 }
 
 export function exportCeetpsPdf(data: ConcursoCeetps, tipo: 'validacion' | 'autorizacion') {
   const seccion = getCasoCeetps(data)[tipo]
   if (!seccion) return
-  renderCasoPdf(seccion, tipo, nombreArchivo('ceetps', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'pdf'))
+  renderCasoPdf(
+    seccion,
+    tipo,
+    nombreArchivo('ceetps', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'pdf'),
+  )
 }
 
 // ─── PDF: Acta de sorteo de jurado ──────────────────────────────────────────
@@ -546,7 +591,12 @@ interface SorteoJuradoActa {
   ambito: string
   confirmado?: boolean
   observaciones?: string | null
-  criterios?: { escalafonNombre?: string | null; especialidadConcurso?: string | null; hospitalNombre?: string | null; reglaUsada?: number } | null
+  criterios?: {
+    escalafonNombre?: string | null
+    especialidadConcurso?: string | null
+    hospitalNombre?: string | null
+    reglaUsada?: number
+  } | null
   miembros: MiembroJuradoActa[]
 }
 
@@ -569,12 +619,25 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
     ['Expediente de Concurso', data.eeConcurso],
     ['Efector', efectorTexto(hospital?.sigla, hospital?.nombre)],
     ['Puesto', data.puestoSolicitado || cargo?.literalPuesto],
-    ['Especialidad', jurado.criterios?.especialidadConcurso ?? data.especialidadSolicitada ?? cargo?.especialidadLegacy],
+    [
+      'Especialidad',
+      jurado.criterios?.especialidadConcurso ??
+        data.especialidadSolicitada ??
+        cargo?.especialidadLegacy,
+    ],
     ['Profesión / Carrera', jurado.criterios?.escalafonNombre],
     ['Fecha del sorteo', vFecha(jurado.fechaSorteo)],
-    ['Ámbito', jurado.ambito === 'hospital' ? 'Misma unidad organizativa'
-      : jurado.ambito === 'sistema' ? 'Sistema de salud' : 'Mixto (hospital + sistema)'],
-    ...(jurado.criterios?.reglaUsada != null ? [['Cascada de reglas', `Hasta Regla ${jurado.criterios.reglaUsada}`] as Campo] : []),
+    [
+      'Ámbito',
+      jurado.ambito === 'hospital'
+        ? 'Misma unidad organizativa'
+        : jurado.ambito === 'sistema'
+          ? 'Sistema de salud'
+          : 'Mixto (hospital + sistema)',
+    ],
+    ...(jurado.criterios?.reglaUsada != null
+      ? [['Cascada de reglas', `Hasta Regla ${jurado.criterios.reglaUsada}`] as Campo]
+      : []),
     ['Estado', jurado.confirmado ? 'Confirmado' : 'Borrador (sin confirmar)'],
   ]
   y = pdfSeccion(doc, y, 'CONCURSO', TEAL, encabezado) + 8
@@ -590,9 +653,16 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
           m.esConduccion ? 'conducción' : null,
           m.antiguedadAnios != null ? `${m.antiguedadAnios} años` : null,
           m.ambito === 'hospital' ? 'mismo hospital' : 'sistema',
-        ].filter(Boolean).join(' · ')
-        const detalle = [m.cuil, m.especialidad, m.puesto, m.hospitalNombre, marcas].filter(Boolean).join(' — ')
-        return [`${rol === 'titular' ? 'Titular' : 'Suplente'} ${m.orden}`, `${m.apellidoNombre}\n${detalle}`]
+        ]
+          .filter(Boolean)
+          .join(' · ')
+        const detalle = [m.cuil, m.especialidad, m.puesto, m.hospitalNombre, marcas]
+          .filter(Boolean)
+          .join(' — ')
+        return [
+          `${rol === 'titular' ? 'Titular' : 'Suplente'} ${m.orden}`,
+          `${m.apellidoNombre}\n${detalle}`,
+        ]
       })
 
   const titulares = filasRol('titular')
@@ -601,7 +671,10 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
   if (titulares.length) y = pdfSeccion(doc, y, 'TITULARES', GREEN, titulares) + 6
   if (suplentes.length) {
     const ph = doc.internal.pageSize.getHeight()
-    if (ph - y < 60) { doc.addPage(); y = 20 }
+    if (ph - y < 60) {
+      doc.addPage()
+      y = 20
+    }
     y = pdfSeccion(doc, y, 'SUPLENTES', GREEN, suplentes) + 6
   }
 
@@ -655,13 +728,18 @@ export function exportOrdenMeritoPdf(data: ConcursoCph, inscriptos: InscriptoAct
     .sort((a, b) => (a.ordenMerito as number) - (b.ordenMerito as number))
     .map((i) => {
       const detalle = [i.dni ? `DNI ${i.dni}` : null, i.cuil, i.email].filter(Boolean).join(' — ')
-      return [String(i.ordenMerito), `${i.apellido}, ${i.nombre}${detalle ? `\n${detalle}` : ''}`] as Campo
+      return [
+        String(i.ordenMerito),
+        `${i.apellido}, ${i.nombre}${detalle ? `\n${detalle}` : ''}`,
+      ] as Campo
     })
 
   if (ranking.length) {
     y = pdfSeccion(doc, y, 'ORDEN DE MÉRITO', GREEN, ranking) + 6
   } else {
-    y = pdfParrafo(doc, y, 'No hay inscriptos con posición asignada en el orden de mérito.', { fontSize: 9 })
+    y = pdfParrafo(doc, y, 'No hay inscriptos con posición asignada en el orden de mérito.', {
+      fontSize: 9,
+    })
   }
 
   doc.save(nombreArchivo('orden-merito', 'acta', v(data.eeConcurso ?? data.id), 'pdf'))
@@ -670,21 +748,21 @@ export function exportOrdenMeritoPdf(data: ConcursoCph, inscriptos: InscriptoAct
 // ─── WORD: helpers ────────────────────────────────────────────────────────────
 // Bordes negros, sin franjas — igual que el PDF (ver comentario de paleta arriba).
 const BORDE = (color = '000000') => ({
-  top:     { style: BorderStyle.SINGLE, size: 4, color },
-  bottom:  { style: BorderStyle.SINGLE, size: 4, color },
-  left:    { style: BorderStyle.SINGLE, size: 4, color },
-  right:   { style: BorderStyle.SINGLE, size: 4, color },
+  top: { style: BorderStyle.SINGLE, size: 4, color },
+  bottom: { style: BorderStyle.SINGLE, size: 4, color },
+  left: { style: BorderStyle.SINGLE, size: 4, color },
+  right: { style: BorderStyle.SINGLE, size: 4, color },
   insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color },
-  insideVertical:   { style: BorderStyle.SINGLE, size: 2, color },
+  insideVertical: { style: BorderStyle.SINGLE, size: 2, color },
 })
 
 const BORDE_NONE = () => ({
-  top:     { style: BorderStyle.NONE, size: 0, color: 'auto' },
-  bottom:  { style: BorderStyle.NONE, size: 0, color: 'auto' },
-  left:    { style: BorderStyle.NONE, size: 0, color: 'auto' },
-  right:   { style: BorderStyle.NONE, size: 0, color: 'auto' },
+  top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+  bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+  left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+  right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
   insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-  insideVertical:   { style: BorderStyle.NONE, size: 0, color: 'auto' },
+  insideVertical: { style: BorderStyle.NONE, size: 0, color: 'auto' },
 })
 
 // valorColorHex: en el cuadro rojo el valor de cada campo va en rojo, igual
@@ -710,23 +788,32 @@ function wordTabla(cabecera: string, fillHex: string, filas: Campo[], valorColor
         ],
       }),
       // Sin franjas alternadas — todas las filas blanco liso (ver FORMULARIOS X CASO).
-      ...filas.map(([label, value]) =>
-        new TableRow({
-          children: [
-            new TableCell({
-              width: { size: 1750, type: WidthType.PERCENTAGE },
-              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
-              margins: { top: 60, bottom: 60, left: 120, right: 80 },
-              children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 19, color: '000000' })] })],
-            }),
-            new TableCell({
-              width: { size: 3250, type: WidthType.PERCENTAGE },
-              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
-              margins: { top: 60, bottom: 60, left: 120, right: 80 },
-              children: [new Paragraph({ children: [new TextRun({ text: v(value), size: 19, color: valorColorHex })] })],
-            }),
-          ],
-        })
+      ...filas.map(
+        ([label, value]) =>
+          new TableRow({
+            children: [
+              new TableCell({
+                width: { size: 1750, type: WidthType.PERCENTAGE },
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
+                margins: { top: 60, bottom: 60, left: 120, right: 80 },
+                children: [
+                  new Paragraph({
+                    children: [new TextRun({ text: label, bold: true, size: 19, color: '000000' })],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 3250, type: WidthType.PERCENTAGE },
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR, color: 'auto' },
+                margins: { top: 60, bottom: 60, left: 120, right: 80 },
+                children: [
+                  new Paragraph({
+                    children: [new TextRun({ text: v(value), size: 19, color: valorColorHex })],
+                  }),
+                ],
+              }),
+            ],
+          }),
       ),
     ],
   })
@@ -757,7 +844,14 @@ function wordBanner() {
             children: [
               new Paragraph({
                 alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: 'AUTORIZACIÓN PARA LA COBERTURA DE VACANTE', bold: true, size: 26, color: 'FFFFFF' })],
+                children: [
+                  new TextRun({
+                    text: 'AUTORIZACIÓN PARA LA COBERTURA DE VACANTE',
+                    bold: true,
+                    size: 26,
+                    color: 'FFFFFF',
+                  }),
+                ],
               }),
             ],
           }),
@@ -771,18 +865,31 @@ function wordBanner() {
 // aparte para que las notas "[COMPLETAR: ...]" queden editables como texto normal.
 function wordParrafos(texto: string, opts: { color?: string; spacingBefore?: number } = {}) {
   const { color = '000000', spacingBefore = 0 } = opts
-  return texto.split('\n\n').filter(Boolean).map((bloque, i) =>
-    new Paragraph({
-      spacing: { before: i === 0 ? spacingBefore : 160, after: 160 },
-      children: [new TextRun({ text: bloque, size: 20, color })],
-    })
-  )
+  return texto
+    .split('\n\n')
+    .filter(Boolean)
+    .map(
+      (bloque, i) =>
+        new Paragraph({
+          spacing: { before: i === 0 ? spacingBefore : 160, after: 160 },
+          children: [new TextRun({ text: bloque, size: 20, color })],
+        }),
+    )
 }
 
-async function renderCasoWord(seccion: Seccion, tipo: 'validacion' | 'autorizacion', filename: string) {
+async function renderCasoWord(
+  seccion: Seccion,
+  tipo: 'validacion' | 'autorizacion',
+  filename: string,
+) {
   const children = []
   if (tipo === 'autorizacion') children.push(wordBanner())
-  children.push(...wordParrafos(seccion.intro, { color: '000000', spacingBefore: tipo === 'autorizacion' ? 280 : 0 }))
+  children.push(
+    ...wordParrafos(seccion.intro, {
+      color: '000000',
+      spacingBefore: tipo === 'autorizacion' ? 280 : 0,
+    }),
+  )
   children.push(wordTabla(seccion.boxTitulo, 'CC0000', seccion.campos, 'CC0000'))
   children.push(...wordParrafos(seccion.cierre, { color: '000000', spacingBefore: 280 }))
   if (seccion.camposVerde) {
@@ -790,10 +897,12 @@ async function renderCasoWord(seccion: Seccion, tipo: 'validacion' | 'autorizaci
   }
 
   const doc = new Document({
-    sections: [{
-      properties: { page: { margin: { top: 800, right: 900, bottom: 800, left: 900 } } },
-      children,
-    }],
+    sections: [
+      {
+        properties: { page: { margin: { top: 800, right: 900, bottom: 800, left: 900 } } },
+        children,
+      },
+    ],
   })
 
   await descargarDocx(doc, filename)
@@ -802,11 +911,19 @@ async function renderCasoWord(seccion: Seccion, tipo: 'validacion' | 'autorizaci
 export async function exportCphWord(data: ConcursoCph, tipo: 'validacion' | 'autorizacion') {
   const seccion = getCasoCph(data)[tipo]
   if (!seccion) return
-  await renderCasoWord(seccion, tipo, nombreArchivo('cph', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'docx'))
+  await renderCasoWord(
+    seccion,
+    tipo,
+    nombreArchivo('cph', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'docx'),
+  )
 }
 
 export async function exportCeetpsWord(data: ConcursoCeetps, tipo: 'validacion' | 'autorizacion') {
   const seccion = getCasoCeetps(data)[tipo]
   if (!seccion) return
-  await renderCasoWord(seccion, tipo, nombreArchivo('ceetps', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'docx'))
+  await renderCasoWord(
+    seccion,
+    tipo,
+    nombreArchivo('ceetps', tipo, v(data.concurso?.persona?.cuil ?? data.id), 'docx'),
+  )
 }

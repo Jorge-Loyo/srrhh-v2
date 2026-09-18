@@ -44,9 +44,11 @@ export function useConcursosCphAlertas() {
       fetchAllPages<ConcursoCph>(
         (page, limit) =>
           apiClient
-            .get<PaginatedResponse<ConcursoCph>>('/api/v1/concursos-cph', { params: { page, limit } })
+            .get<PaginatedResponse<ConcursoCph>>('/api/v1/concursos-cph', {
+              params: { page, limit },
+            })
             .then((r) => r.data),
-        200
+        200,
       ),
     staleTime: 60_000,
   })
@@ -85,7 +87,10 @@ export function useSuspenderConcursoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: SuspenderConcursoCphRequest) => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/suspender`, body)
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/suspender`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -100,7 +105,10 @@ export function useDeclararDesiertoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: DeclararDesiertoRequest) => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/declarar-desierto`, body)
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/declarar-desierto`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -113,7 +121,10 @@ export function useDesignarConcursoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: DesignarConcursoRequest) => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/designar`, body)
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/designar`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -129,7 +140,9 @@ export function useJuradoCph(id: string | undefined) {
   return useQuery({
     queryKey: ['concurso-cph-jurado', id],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: SorteoJurado | null }>(`/api/v1/concursos-cph/${id}/jurado`)
+      const res = await apiClient.get<{ data: SorteoJurado | null }>(
+        `/api/v1/concursos-cph/${id}/jurado`,
+      )
       return res.data.data
     },
     enabled: !!id,
@@ -142,7 +155,10 @@ export function useGenerarSorteoJurado(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: GenerarSorteoJuradoRequest) => {
-      const res = await apiClient.post<{ data: SorteoJurado }>(`/api/v1/concursos-cph/${id}/generar-sorteo`, body)
+      const res = await apiClient.post<{ data: SorteoJurado }>(
+        `/api/v1/concursos-cph/${id}/generar-sorteo`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -158,7 +174,10 @@ export function useConfirmarSorteoJurado(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ data: SorteoJurado }>(`/api/v1/concursos-cph/${id}/jurado/confirmar`, {})
+      const res = await apiClient.post<{ data: SorteoJurado }>(
+        `/api/v1/concursos-cph/${id}/jurado/confirmar`,
+        {},
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -174,7 +193,10 @@ export function useRevertirConfirmacionSorteo(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ data: SorteoJurado }>(`/api/v1/concursos-cph/${id}/jurado/revertir`, {})
+      const res = await apiClient.post<{ data: SorteoJurado }>(
+        `/api/v1/concursos-cph/${id}/jurado/revertir`,
+        {},
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -190,7 +212,9 @@ export function useCancelarSorteoJurado(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.delete<{ data: { ok: boolean } }>(`/api/v1/concursos-cph/${id}/jurado`)
+      const res = await apiClient.delete<{ data: { ok: boolean } }>(
+        `/api/v1/concursos-cph/${id}/jurado`,
+      )
       return res.data.data
     },
     onSuccess: () => {
@@ -206,7 +230,9 @@ export function useInscriptosCph(id: string | undefined) {
   return useQuery({
     queryKey: ['concurso-cph-inscriptos', id],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: InscriptoConcurso[] }>(`/api/v1/concursos-cph/${id}/inscriptos`)
+      const res = await apiClient.get<{ data: InscriptoConcurso[] }>(
+        `/api/v1/concursos-cph/${id}/inscriptos`,
+      )
       return res.data.data
     },
     enabled: !!id,
@@ -225,7 +251,10 @@ export function useCrearInscriptoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: InscriptoRequest) => {
-      const res = await apiClient.post<{ data: InscriptoConcurso }>(`/api/v1/concursos-cph/${id}/inscriptos`, body)
+      const res = await apiClient.post<{ data: InscriptoConcurso }>(
+        `/api/v1/concursos-cph/${id}/inscriptos`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: () => invalidarInscriptos(queryClient, id),
@@ -235,8 +264,17 @@ export function useCrearInscriptoCph(id: string) {
 export function useActualizarInscriptoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ inscriptoId, body }: { inscriptoId: string; body: Partial<InscriptoRequest> }) => {
-      const res = await apiClient.patch<{ data: InscriptoConcurso }>(`/api/v1/concursos-cph/${id}/inscriptos/${inscriptoId}`, body)
+    mutationFn: async ({
+      inscriptoId,
+      body,
+    }: {
+      inscriptoId: string
+      body: Partial<InscriptoRequest>
+    }) => {
+      const res = await apiClient.patch<{ data: InscriptoConcurso }>(
+        `/api/v1/concursos-cph/${id}/inscriptos/${inscriptoId}`,
+        body,
+      )
       return res.data.data
     },
     onSuccess: () => invalidarInscriptos(queryClient, id),
@@ -247,7 +285,9 @@ export function useBorrarInscriptoCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (inscriptoId: string) => {
-      const res = await apiClient.delete<{ data: { ok: boolean } }>(`/api/v1/concursos-cph/${id}/inscriptos/${inscriptoId}`)
+      const res = await apiClient.delete<{ data: { ok: boolean } }>(
+        `/api/v1/concursos-cph/${id}/inscriptos/${inscriptoId}`,
+      )
       return res.data.data
     },
     onSuccess: () => invalidarInscriptos(queryClient, id),
@@ -276,8 +316,14 @@ export function useImportarInscriptosCph(id: string) {
 export function useCerrarInscripcionCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (fechas?: { fechaInscDesde?: string | null; fechaInscHasta?: string | null }) => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/inscripciones/cerrar`, fechas ?? {})
+    mutationFn: async (fechas?: {
+      fechaInscDesde?: string | null
+      fechaInscHasta?: string | null
+    }) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/inscripciones/cerrar`,
+        fechas ?? {},
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -292,7 +338,10 @@ export function usePublicarExamenCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (fechaExamen?: string | null) => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/examen/publicar`, { fechaExamen })
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/examen/publicar`,
+        { fechaExamen },
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -306,7 +355,10 @@ export function useDespublicarExamenCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/examen/despublicar`, {})
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/examen/despublicar`,
+        {},
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -320,7 +372,10 @@ export function useReabrirInscripcionCph(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/inscripciones/reabrir`, {})
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/inscripciones/reabrir`,
+        {},
+      )
       return res.data.data
     },
     onSuccess: (data) => {
@@ -333,7 +388,10 @@ export function useReabrirInscripcionCph(id: string) {
 // Etapa 3 — confirmar / revertir presentados al examen.
 function accionEtapa3(id: string, path: string) {
   return async () => {
-    const res = await apiClient.post<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}/${path}`, {})
+    const res = await apiClient.post<{ data: ConcursoCph }>(
+      `/api/v1/concursos-cph/${id}/${path}`,
+      {},
+    )
     return res.data.data
   }
 }
@@ -347,17 +405,29 @@ function onSuccessEtapa3(queryClient: ReturnType<typeof useQueryClient>, id: str
 
 export function useConfirmarPresentadosCph(id: string) {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: accionEtapa3(id, 'presentados/confirmar'), onSuccess: onSuccessEtapa3(queryClient, id) })
+  return useMutation({
+    mutationFn: accionEtapa3(id, 'presentados/confirmar'),
+    onSuccess: onSuccessEtapa3(queryClient, id),
+  })
 }
 export function useRevertirPresentadosCph(id: string) {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: accionEtapa3(id, 'presentados/revertir'), onSuccess: onSuccessEtapa3(queryClient, id) })
+  return useMutation({
+    mutationFn: accionEtapa3(id, 'presentados/revertir'),
+    onSuccess: onSuccessEtapa3(queryClient, id),
+  })
 }
 export function useConfirmarOrdenMeritoCph(id: string) {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: accionEtapa3(id, 'orden-merito/confirmar'), onSuccess: onSuccessEtapa3(queryClient, id) })
+  return useMutation({
+    mutationFn: accionEtapa3(id, 'orden-merito/confirmar'),
+    onSuccess: onSuccessEtapa3(queryClient, id),
+  })
 }
 export function useRevertirOrdenMeritoCph(id: string) {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: accionEtapa3(id, 'orden-merito/revertir'), onSuccess: onSuccessEtapa3(queryClient, id) })
+  return useMutation({
+    mutationFn: accionEtapa3(id, 'orden-merito/revertir'),
+    onSuccess: onSuccessEtapa3(queryClient, id),
+  })
 }

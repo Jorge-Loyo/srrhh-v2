@@ -2,13 +2,29 @@ import { Prisma, type ConcursoCph } from '@prisma/client'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { ConcursosCphQuery, PatchConcursoCphBody, SuspenderConcursoCphBody, DesignarCphBody, DeclararDesiertoBody } from './concursos-cph.schema.js'
-import { calcConcursoCph, SUB_ESTADO_3_SQL_PG, type ConcursoCphCalcInput } from './concursosCph.calc.js'
+import type {
+  ConcursosCphQuery,
+  PatchConcursoCphBody,
+  SuspenderConcursoCphBody,
+  DesignarCphBody,
+  DeclararDesiertoBody,
+} from './concursos-cph.schema.js'
+import {
+  calcConcursoCph,
+  SUB_ESTADO_3_SQL_PG,
+  type ConcursoCphCalcInput,
+} from './concursosCph.calc.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
-  concurso: { include: { cargo: { include: { hospital: true, codigoRegistro: true } }, persona: true, baja: true } },
+  concurso: {
+    include: {
+      cargo: { include: { hospital: true, codigoRegistro: true } },
+      persona: true,
+      baja: true,
+    },
+  },
   hospital: true,
   personaDesignada: true,
   codigoRegistroSolicitado: true,
@@ -53,7 +69,19 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
 export async function listConcursosCphService(query: ConcursosCphQuery) {
-  const { page, limit, hospitalId, cargoId, estado, subEstado, subEstado3, suspendido, pendienteAutorizacion, search, conFaltantes } = query
+  const {
+    page,
+    limit,
+    hospitalId,
+    cargoId,
+    estado,
+    subEstado,
+    subEstado3,
+    suspendido,
+    pendienteAutorizacion,
+    search,
+    conFaltantes,
+  } = query
   const offset = (page - 1) * limit
 
   // subEstado3 depende de la fecha de hoy (ver concursosCph.calc.ts) — el
@@ -185,21 +213,30 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
 
   // Detectar cambio de sigla o código de registro (campos que requieren autorización doble: director → sgrasv)
-  const cargo = (existing.concurso as unknown as { cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } } })?.cargo
+  const cargo = (
+    existing.concurso as unknown as {
+      cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } }
+    }
+  )?.cargo
   const siglaActual = cargo?.hospital?.sigla ?? ''
-  const crIdActual  = cargo?.codigoRegistro?.id ?? ''
+  const crIdActual = cargo?.codigoRegistro?.id ?? ''
   const cambiaSigla = body.sigla !== undefined && body.sigla !== siglaActual
-  const cambiaCr    = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
+  const cambiaCr = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
   const requiereAutorizacionDoble = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
 
   // Detectar cambios que requieren solo autorización de SGRASV (sin director)
   const eeConcursoAnterior = existing.eeConcurso
   const eeConcursoCargadoPorPrimeraVez = !eeConcursoAnterior && !!body.eeConcurso
-  const eeConcursoModificado = !!eeConcursoAnterior && body.eeConcurso !== undefined && body.eeConcurso !== eeConcursoAnterior
-  const camposProtegidos: (keyof PatchConcursoCphBody)[] = ['especialidadSolicitada', 'puestoSolicitado']
-  const tieneCambioProtegido = !requiereAutorizacionDoble
-    && !existing.pendienteAutorizacion
-    && (eeConcursoModificado || camposProtegidos.some((k) => body[k] !== undefined))
+  const eeConcursoModificado =
+    !!eeConcursoAnterior && body.eeConcurso !== undefined && body.eeConcurso !== eeConcursoAnterior
+  const camposProtegidos: (keyof PatchConcursoCphBody)[] = [
+    'especialidadSolicitada',
+    'puestoSolicitado',
+  ]
+  const tieneCambioProtegido =
+    !requiereAutorizacionDoble &&
+    !existing.pendienteAutorizacion &&
+    (eeConcursoModificado || camposProtegidos.some((k) => body[k] !== undefined))
   const requiereAutorizacion = requiereAutorizacionDoble || tieneCambioProtegido
 
   const patch: Prisma.ConcursoCphUpdateInput = {}
@@ -207,7 +244,8 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     if (value === undefined) continue
     if (key === 'sigla' || key === 'codigoRegistroId') continue // se manejan aparte
     const isFecha = CAMPOS_FECHA.has(key)
-    ;(patch as Record<string, unknown>)[key] = isFecha && typeof value === 'string' ? new Date(value) : value
+    ;(patch as Record<string, unknown>)[key] =
+      isFecha && typeof value === 'string' ? new Date(value) : value
   }
 
   // Si se carga eeConcurso por primera vez, registrar la fecha automáticamente
@@ -245,32 +283,34 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   if (requiereAutorizacionDoble) {
     // Cambio estructural: director primero, luego sgrasv
     await crearAutorizacion(prisma, {
-      tipo:               'concurso_cph',
-      referenciaId:       id,
-      referenciaTipo:     'concurso_cph',
-      solicitadoPorId:    undefined,
+      tipo: 'concurso_cph',
+      referenciaId: id,
+      referenciaTipo: 'concurso_cph',
+      solicitadoPorId: undefined,
       resolverPorRolSlug: 'director',
     })
   } else if (tieneCambioProtegido) {
     // Cambio de especialidad/puesto/eeConcurso modificado: solo sgrasv
     await crearAutorizacion(prisma, {
-      tipo:               'concurso_cph',
-      referenciaId:       id,
-      referenciaTipo:     'concurso_cph',
-      solicitadoPorId:    undefined,
+      tipo: 'concurso_cph',
+      referenciaId: id,
+      referenciaTipo: 'concurso_cph',
+      solicitadoPorId: undefined,
       resolverPorRolSlug: 'sgrasv',
     })
   } else if (eeConcursoCargadoPorPrimeraVez) {
     // Carga inicial del expediente: notificación informativa a SGRASV (no bloquea)
-    const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    const cargoCodigo =
+      (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
+      id.slice(0, 8)
     await crearNotificacion({
-      tipo:      'autorizacion_pendiente',
-      rolSlug:   'sgrasv',
-      titulo:    `Nuevo expediente de concurso — ${cargoCodigo}`,
-      mensaje:   `Se cargó el expediente ${body.eeConcurso} para el concurso ${cargoCodigo}. Revisá y validá para habilitar la siguiente etapa.`,
+      tipo: 'autorizacion_pendiente',
+      rolSlug: 'sgrasv',
+      titulo: `Nuevo expediente de concurso — ${cargoCodigo}`,
+      mensaje: `Se cargó el expediente ${body.eeConcurso} para el concurso ${cargoCodigo}. Revisá y validá para habilitar la siguiente etapa.`,
       origenTipo: 'concurso_cph',
-      origenId:   id,
-      origenKey:  `ee_concurso_cargado:${id}`,
+      origenId: id,
+      origenKey: `ee_concurso_cargado:${id}`,
     })
   }
 
@@ -278,12 +318,20 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
 }
 
 // ─── Aprobar autorización (flujo dos pasos: director → sgrasv) ──────────────
-export async function aprobarAutorizacionCphService(id: string, rolSlug: string, aprobado: boolean, observaciones?: string) {
+export async function aprobarAutorizacionCphService(
+  id: string,
+  rolSlug: string,
+  aprobado: boolean,
+  observaciones?: string,
+) {
   const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
-  if (!existing.pendienteAutorizacion) throw AppError.conflict('Este concurso no tiene una autorización pendiente')
+  if (!existing.pendienteAutorizacion)
+    throw AppError.conflict('Este concurso no tiene una autorización pendiente')
 
-  const cargoCodigo = (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+  const cargoCodigo =
+    (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
+    id.slice(0, 8)
 
   // Paso 1: director aprueba → notifica a sgrasv para segunda firma
   if (rolSlug === 'director') {
@@ -291,7 +339,13 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
       // Director rechaza → limpia todo y notifica a concursales_cph
       await prisma.concursoCph.update({
         where: { id },
-        data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
+        data: {
+          pendienteAutorizacion: false,
+          aprobadoDirector: false,
+          siglaSolicitada: null,
+          codigoRegistroSolicitadoId: null,
+          ...(observaciones !== undefined && { observaciones }),
+        },
         include,
       })
       await crearNotificacion({
@@ -327,7 +381,9 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
   if (rolSlug === 'sgrasv') {
     const requiereDirector = !!(existing.siglaSolicitada || existing.codigoRegistroSolicitadoId)
     if (requiereDirector && !existing.aprobadoDirector) {
-      throw AppError.conflict('El Director debe autorizar el cambio de sigla o código de registro antes de que SGRASV pueda resolver')
+      throw AppError.conflict(
+        'El Director debe autorizar el cambio de sigla o código de registro antes de que SGRASV pueda resolver',
+      )
     }
 
     return prisma.$transaction(async (tx) => {
@@ -337,7 +393,9 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
         if (cargo?.id) {
           const cargoUpdate: Record<string, unknown> = {}
           if (existing.siglaSolicitada) {
-            const hospital = await tx.hospital.findFirst({ where: { sigla: existing.siglaSolicitada } })
+            const hospital = await tx.hospital.findFirst({
+              where: { sigla: existing.siglaSolicitada },
+            })
             if (hospital) cargoUpdate.hospitalId = hospital.id
           }
           if (existing.codigoRegistroSolicitadoId) {
@@ -351,7 +409,13 @@ export async function aprobarAutorizacionCphService(id: string, rolSlug: string,
 
       const updated = await tx.concursoCph.update({
         where: { id },
-        data: { pendienteAutorizacion: false, aprobadoDirector: false, siglaSolicitada: null, codigoRegistroSolicitadoId: null, ...(observaciones !== undefined && { observaciones }) },
+        data: {
+          pendienteAutorizacion: false,
+          aprobadoDirector: false,
+          siglaSolicitada: null,
+          codigoRegistroSolicitadoId: null,
+          ...(observaciones !== undefined && { observaciones }),
+        },
         include,
       })
 
@@ -384,13 +448,21 @@ export async function getPersonaDesignadaService(id: string) {
   if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
 
   const sel = {
-    id: true, cuil: true, apellidoNombre: true, numeroDoc: true,
-    especialidadPrincipal: true, telefono: true, mailLaboral: true,
+    id: true,
+    cuil: true,
+    apellidoNombre: true,
+    numeroDoc: true,
+    especialidadPrincipal: true,
+    telefono: true,
+    mailLaboral: true,
   } as const
 
   // 1. FK directa
   if (concurso.personaDesignadaId) {
-    const persona = await prisma.persona.findUnique({ where: { id: concurso.personaDesignadaId }, select: sel })
+    const persona = await prisma.persona.findUnique({
+      where: { id: concurso.personaDesignadaId },
+      select: sel,
+    })
     if (persona) return { fuente: 'persona' as const, persona, cargo: null, integrante: null }
   }
 
@@ -399,7 +471,9 @@ export async function getPersonaDesignadaService(id: string) {
     const cargoNuevo = await prisma.cargo.findFirst({
       where: { idSial: concurso.cargoSial },
       select: {
-        id: true, idSial: true, codigo: true,
+        id: true,
+        idSial: true,
+        codigo: true,
         ocupaciones: {
           select: { personaId: true, situacionRevista: true, estadoPersona: true },
           orderBy: { desde: 'desc' },
@@ -409,13 +483,21 @@ export async function getPersonaDesignadaService(id: string) {
     })
     const ocup = cargoNuevo?.ocupaciones[0]
     if (ocup?.personaId) {
-      const persona = await prisma.persona.findUnique({ where: { id: ocup.personaId }, select: sel })
-      if (persona) return {
-        fuente: 'cargo_sial' as const,
-        persona,
-        cargo: { codigo: cargoNuevo!.codigo, idSial: cargoNuevo!.idSial, situacionRevista: ocup.situacionRevista },
-        integrante: null,
-      }
+      const persona = await prisma.persona.findUnique({
+        where: { id: ocup.personaId },
+        select: sel,
+      })
+      if (persona)
+        return {
+          fuente: 'cargo_sial' as const,
+          persona,
+          cargo: {
+            codigo: cargoNuevo!.codigo,
+            idSial: cargoNuevo!.idSial,
+            situacionRevista: ocup.situacionRevista,
+          },
+          integrante: null,
+        }
     }
   }
 
@@ -428,12 +510,13 @@ export async function getPersonaDesignadaService(id: string) {
     },
     orderBy: { posicion: 'asc' },
   })
-  if (integrante) return { fuente: 'orden_merito' as const, persona: integrante.persona, cargo: null, integrante }
+  if (integrante)
+    return { fuente: 'orden_merito' as const, persona: integrante.persona, cargo: null, integrante }
 
   throw AppError.notFound(
     concurso.cargoSial
       ? `El cargo SIAL ${concurso.cargoSial} no tiene persona asignada en el sistema`
-      : 'Este concurso no tiene persona designada asignada en el sistema'
+      : 'Este concurso no tiene persona designada asignada en el sistema',
   )
 }
 
@@ -447,7 +530,7 @@ export async function suspenderConcursoCphService(id: string, body: SuspenderCon
   }
   if (existing.suspendido === body.suspendido) {
     throw AppError.conflict(
-      body.suspendido ? 'El concurso ya está suspendido' : 'El concurso no está suspendido'
+      body.suspendido ? 'El concurso ya está suspendido' : 'El concurso no está suspendido',
     )
   }
 
@@ -520,15 +603,17 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
     })
 
     // Notificar al equipo CPH
-    const cargoCodigo = (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    const cargoCodigo =
+      (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
+      id.slice(0, 8)
     await crearNotificacion({
-      tipo:      'autorizacion_resuelta',
-      rolSlug:   'concursales_cph',
-      titulo:    `Designación registrada — ${cargoCodigo}`,
-      mensaje:   `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
+      tipo: 'autorizacion_resuelta',
+      rolSlug: 'concursales_cph',
+      titulo: `Designación registrada — ${cargoCodigo}`,
+      mensaje: `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
       origenTipo: 'concurso_cph',
-      origenId:   id,
-      origenKey:  `designacion_cph:${id}`,
+      origenId: id,
+      origenKey: `designacion_cph:${id}`,
     })
 
     return updated
@@ -540,7 +625,10 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
 // Actualiza campos sin tocar el flujo de autorizaciones.
 export async function importarConcursosCsvService(buffer: Buffer) {
   const rows: Record<string, string>[] = parseCsv(buffer, {
-    columns: true, skip_empty_lines: true, trim: true, relax_quotes: true,
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    relax_quotes: true,
   })
 
   function fecha(v: string | undefined): Date | null {
@@ -564,16 +652,19 @@ export async function importarConcursosCsvService(buffer: Buffer) {
 
   // Pre-cargar todos los id_sial de cargos en memoria para evitar N queries
   const cargosMap = new Map(
-    (await prisma.cargo.findMany({ select: { id: true, idSial: true, hospitalId: true } }))
-      .map((c) => [c.idSial, c])
+    (await prisma.cargo.findMany({ select: { id: true, idSial: true, hospitalId: true } })).map(
+      (c) => [c.idSial, c],
+    ),
   )
 
-  let actualizados = 0, creados = 0, noEncontrados = 0
+  let actualizados = 0,
+    creados = 0,
+    noEncontrados = 0
 
   for (const row of rows) {
-    const eeConcurso   = str(row['ee_concurso'])
-    const cargoBaja    = str(row['cargo_baja'])
-    const suspendido   = bool(row['suspendido'])
+    const eeConcurso = str(row['ee_concurso'])
+    const cargoBaja = str(row['cargo_baja'])
+    const suspendido = bool(row['suspendido'])
 
     // Buscar el ConcursoCph por ee_concurso o por cargo (id_sial)
     let concursoCph = eeConcurso
@@ -590,95 +681,101 @@ export async function importarConcursosCsvService(buffer: Buffer) {
     // Si no existe, crear si el cargo está en DB
     if (!concursoCph) {
       const cargo = cargoBaja ? cargosMap.get(cargoBaja) : null
-      if (!cargo) { noEncontrados++; continue }
+      if (!cargo) {
+        noEncontrados++
+        continue
+      }
 
       const estadoCsv = str(row['estado'])?.toUpperCase()
       // Solo crear si tiene ee_concurso (mínimo identificador)
-      if (!eeConcurso) { noEncontrados++; continue }
+      if (!eeConcurso) {
+        noEncontrados++
+        continue
+      }
 
-      const fechaBajaVal  = fecha(row['fecha_baja'])
-      const eeBajaVal     = str(row['ee_baja_ampliacion'])
+      const fechaBajaVal = fecha(row['fecha_baja'])
+      const eeBajaVal = str(row['ee_baja_ampliacion'])
       const calcInput = {
-        suspendido:            suspendido ?? (estadoCsv === 'SUSPENDIDO'),
-        eeBaja:                eeBajaVal,
-        fechaBaja:             fechaBajaVal,
+        suspendido: suspendido ?? estadoCsv === 'SUSPENDIDO',
+        eeBaja: eeBajaVal,
+        fechaBaja: fechaBajaVal,
         eeConcurso,
-        fechaEeConcurso:       fecha(row['fecha_ee_concurso']),
-        fechaAutorizacion:     fecha(row['fecha_autorizacion']),
-        sorteoJurado:          fecha(row['sorteo_de_jurado']),
-        disposicion:           str(row['disposicion']),
-        fechaInscDesde:        fecha(row['fecha_insc_desde']),
-        fechaInscHasta:        fecha(row['fecha_insc_hasta']),
-        inscripcionCerrada:    bool(row['inscripcion_cerrada']) ?? false,
+        fechaEeConcurso: fecha(row['fecha_ee_concurso']),
+        fechaAutorizacion: fecha(row['fecha_autorizacion']),
+        sorteoJurado: fecha(row['sorteo_de_jurado']),
+        disposicion: str(row['disposicion']),
+        fechaInscDesde: fecha(row['fecha_insc_desde']),
+        fechaInscHasta: fecha(row['fecha_insc_hasta']),
+        inscripcionCerrada: bool(row['inscripcion_cerrada']) ?? false,
         ordenMeritoConfirmado: bool(row['orden_merito_confirmado']) ?? false,
-        fechaExamen:           fecha(row['fecha_examen']),
-        fechaOrdenMerito:      fecha(row['fecha_om']),
-        fechaIfacs:            fecha(row['fecha_ifacs']),
-        fechaInsal:            fecha(row['fecha_insal']),
-        eeDesignacion:         str(row['ee_designacion']),
-        cargaDocumentacion:    bool(row['carga_de_documentacion']),
-        fechaAptoMedico:       fecha(row['fecha_apto_medico']),
-        fechaIte:              fecha(row['fecha_ite']),
-        proyectoResolucion:    bool(row['proyecto_de_resolucion']),
-        resoALaFirma:          bool(row['reso_a_la_firma']),
+        fechaExamen: fecha(row['fecha_examen']),
+        fechaOrdenMerito: fecha(row['fecha_om']),
+        fechaIfacs: fecha(row['fecha_ifacs']),
+        fechaInsal: fecha(row['fecha_insal']),
+        eeDesignacion: str(row['ee_designacion']),
+        cargaDocumentacion: bool(row['carga_de_documentacion']),
+        fechaAptoMedico: fecha(row['fecha_apto_medico']),
+        fechaIte: fecha(row['fecha_ite']),
+        proyectoResolucion: bool(row['proyecto_de_resolucion']),
+        resoALaFirma: bool(row['reso_a_la_firma']),
         resolucionDesignacion: str(row['resolucion_de_designacion']),
-        fechaResolucion:       fecha(row['fecha_resolucion']),
-        cargoSial:             str(row['cargo_sial']),
-        dispoDesierta:         str(row['dispo_desierta']),
-        fechaDispoDesierta:    fecha(row['fecha_dispo_desierta']),
+        fechaResolucion: fecha(row['fecha_resolucion']),
+        cargoSial: str(row['cargo_sial']),
+        dispoDesierta: str(row['dispo_desierta']),
+        fechaDispoDesierta: fecha(row['fecha_dispo_desierta']),
       }
       // Si el CSV dice FINALIZADO, forzar estado finalizado independientemente del calc
       const calc = calcConcursoCph(calcInput)
-      const estadoFinal = estadoCsv === 'FINALIZADO' ? 'finalizado' as const : calc.estado
+      const estadoFinal = estadoCsv === 'FINALIZADO' ? ('finalizado' as const) : calc.estado
 
       await prisma.$transaction(async (tx) => {
         const concurso = await tx.concurso.create({
           data: {
-            cargoId:     cargo.id,
-            hospitalId:  cargo.hospitalId,
-            origen:      'Importado CSV',
+            cargoId: cargo.id,
+            hospitalId: cargo.hospitalId,
+            origen: 'Importado CSV',
             fechaVacante: fechaBajaVal ?? new Date('2000-01-01'),
             tipoConcurso: 'cph',
           },
         })
         concursoCph = await tx.concursoCph.create({
           data: {
-            concursoId:            concurso.id,
-            cargoId:               cargo.id,
-            hospitalId:            cargo.hospitalId,
-            eeBaja:                eeBajaVal,
-            fechaBaja:             fechaBajaVal,
+            concursoId: concurso.id,
+            cargoId: cargo.id,
+            hospitalId: cargo.hospitalId,
+            eeBaja: eeBajaVal,
+            fechaBaja: fechaBajaVal,
             eeConcurso,
-            fechaEeConcurso:       calcInput.fechaEeConcurso,
-            fechaAutorizacion:     calcInput.fechaAutorizacion,
-            sorteoJurado:          calcInput.sorteoJurado,
-            disposicion:           calcInput.disposicion,
-            fechaInscDesde:        fecha(row['fecha_insc_desde']),
-            fechaInscHasta:        calcInput.fechaInscHasta,
-            qInscriptos:           num(row['q_inscriptos']),
-            fechaExamen:           calcInput.fechaExamen,
-            fechaOrdenMerito:      calcInput.fechaOrdenMerito,
-            fechaIfacs:            calcInput.fechaIfacs,
-            insal:                 str(row['insal']),
-            fechaInsal:            calcInput.fechaInsal,
-            eeDesignacion:         calcInput.eeDesignacion,
-            cargaDocumentacion:    calcInput.cargaDocumentacion,
-            fechaAptoMedico:       calcInput.fechaAptoMedico,
-            fechaIte:              calcInput.fechaIte,
-            proyectoResolucion:    calcInput.proyectoResolucion,
-            resoALaFirma:          calcInput.resoALaFirma,
+            fechaEeConcurso: calcInput.fechaEeConcurso,
+            fechaAutorizacion: calcInput.fechaAutorizacion,
+            sorteoJurado: calcInput.sorteoJurado,
+            disposicion: calcInput.disposicion,
+            fechaInscDesde: fecha(row['fecha_insc_desde']),
+            fechaInscHasta: calcInput.fechaInscHasta,
+            qInscriptos: num(row['q_inscriptos']),
+            fechaExamen: calcInput.fechaExamen,
+            fechaOrdenMerito: calcInput.fechaOrdenMerito,
+            fechaIfacs: calcInput.fechaIfacs,
+            insal: str(row['insal']),
+            fechaInsal: calcInput.fechaInsal,
+            eeDesignacion: calcInput.eeDesignacion,
+            cargaDocumentacion: calcInput.cargaDocumentacion,
+            fechaAptoMedico: calcInput.fechaAptoMedico,
+            fechaIte: calcInput.fechaIte,
+            proyectoResolucion: calcInput.proyectoResolucion,
+            resoALaFirma: calcInput.resoALaFirma,
             resolucionDesignacion: calcInput.resolucionDesignacion,
-            fechaResolucion:       calcInput.fechaResolucion,
-            cargoSial:             calcInput.cargoSial,
-            suspendido:            calcInput.suspendido ?? false,
-            dispoDesierta:         calcInput.dispoDesierta,
-            fechaDispoDesierta:    calcInput.fechaDispoDesierta,
+            fechaResolucion: calcInput.fechaResolucion,
+            cargoSial: calcInput.cargoSial,
+            suspendido: calcInput.suspendido ?? false,
+            dispoDesierta: calcInput.dispoDesierta,
+            fechaDispoDesierta: calcInput.fechaDispoDesierta,
             especialidadSolicitada: str(row['especialidad_solicitada_2']),
-            puestoSolicitado:      str(row['puesto_2']),
-            observaciones:         str(row['observaciones']),
-            estado:                estadoFinal,
-            subEstado:             calc.subEstado,
-            subEstado3:            calc.subEstado3,
+            puestoSolicitado: str(row['puesto_2']),
+            observaciones: str(row['observaciones']),
+            estado: estadoFinal,
+            subEstado: calc.subEstado,
+            subEstado3: calc.subEstado3,
           },
         })
       })
@@ -688,71 +785,88 @@ export async function importarConcursosCsvService(buffer: Buffer) {
 
     // Construir patch con los campos del CSV
     const patch: Prisma.ConcursoCphUpdateInput = {
-      ...(eeConcurso                          && { eeConcurso }),
-      ...(fecha(row['fecha_ee_concurso'])      && { fechaEeConcurso:    fecha(row['fecha_ee_concurso']) }),
-      ...(fecha(row['fecha_autorizacion'])     && { fechaAutorizacion:  fecha(row['fecha_autorizacion']) }),
-      ...(fecha(row['sorteo_de_jurado'])       && { sorteoJurado:       fecha(row['sorteo_de_jurado']) }),
-      ...(str(row['disposicion'])              && { disposicion:        str(row['disposicion']) }),
-      ...(fecha(row['fecha_insc_desde'])       && { fechaInscDesde:     fecha(row['fecha_insc_desde']) }),
-      ...(fecha(row['fecha_insc_hasta'])       && { fechaInscHasta:     fecha(row['fecha_insc_hasta']) }),
-      ...(num(row['q_inscriptos']) !== null    && { qInscriptos:        num(row['q_inscriptos']) }),
-      ...(fecha(row['fecha_examen'])           && { fechaExamen:        fecha(row['fecha_examen']) }),
-      ...(fecha(row['fecha_om'])               && { fechaOrdenMerito:   fecha(row['fecha_om']) }),
-      ...(fecha(row['fecha_ifacs'])            && { fechaIfacs:         fecha(row['fecha_ifacs']) }),
-      ...(str(row['insal'])                    && { insal:              str(row['insal']) }),
-      ...(fecha(row['fecha_insal'])            && { fechaInsal:         fecha(row['fecha_insal']) }),
-      ...(str(row['ee_designacion'])           && { eeDesignacion:      str(row['ee_designacion']) }),
-      ...(bool(row['carga_de_documentacion']) !== null && { cargaDocumentacion: bool(row['carga_de_documentacion']) }),
-      ...(fecha(row['fecha_apto_medico'])      && { fechaAptoMedico:    fecha(row['fecha_apto_medico']) }),
-      ...(fecha(row['fecha_ite'])              && { fechaIte:           fecha(row['fecha_ite']) }),
-      ...(fecha(row['fecha_resolucion'])       && { fechaResolucion:    fecha(row['fecha_resolucion']) }),
-      ...(bool(row['proyecto_de_resolucion']) !== null && { proyectoResolucion: bool(row['proyecto_de_resolucion']) }),
-      ...(bool(row['reso_a_la_firma'])        !== null && { resoALaFirma:       bool(row['reso_a_la_firma']) }),
-      ...(str(row['resolucion_de_designacion']) && { resolucionDesignacion: str(row['resolucion_de_designacion']) }),
-      ...(str(row['cargo_sial'])               && { cargoSial:          str(row['cargo_sial']) }),
-      ...(suspendido !== null                  && { suspendido: suspendido! }),
-      ...(str(row['dispo_desierta'])           && { dispoDesierta:      str(row['dispo_desierta']) }),
-      ...(fecha(row['fecha_dispo_desierta'])   && { fechaDispoDesierta: fecha(row['fecha_dispo_desierta']) }),
-      ...(str(row['observaciones'])            && { observaciones:      str(row['observaciones']) }),
-      ...(str(row['especialidad_solicitada_2']) && { especialidadSolicitada: str(row['especialidad_solicitada_2']) }),
-      ...(str(row['puesto_2'])                 && { puestoSolicitado:   str(row['puesto_2']) }),
+      ...(eeConcurso && { eeConcurso }),
+      ...(fecha(row['fecha_ee_concurso']) && { fechaEeConcurso: fecha(row['fecha_ee_concurso']) }),
+      ...(fecha(row['fecha_autorizacion']) && {
+        fechaAutorizacion: fecha(row['fecha_autorizacion']),
+      }),
+      ...(fecha(row['sorteo_de_jurado']) && { sorteoJurado: fecha(row['sorteo_de_jurado']) }),
+      ...(str(row['disposicion']) && { disposicion: str(row['disposicion']) }),
+      ...(fecha(row['fecha_insc_desde']) && { fechaInscDesde: fecha(row['fecha_insc_desde']) }),
+      ...(fecha(row['fecha_insc_hasta']) && { fechaInscHasta: fecha(row['fecha_insc_hasta']) }),
+      ...(num(row['q_inscriptos']) !== null && { qInscriptos: num(row['q_inscriptos']) }),
+      ...(fecha(row['fecha_examen']) && { fechaExamen: fecha(row['fecha_examen']) }),
+      ...(fecha(row['fecha_om']) && { fechaOrdenMerito: fecha(row['fecha_om']) }),
+      ...(fecha(row['fecha_ifacs']) && { fechaIfacs: fecha(row['fecha_ifacs']) }),
+      ...(str(row['insal']) && { insal: str(row['insal']) }),
+      ...(fecha(row['fecha_insal']) && { fechaInsal: fecha(row['fecha_insal']) }),
+      ...(str(row['ee_designacion']) && { eeDesignacion: str(row['ee_designacion']) }),
+      ...(bool(row['carga_de_documentacion']) !== null && {
+        cargaDocumentacion: bool(row['carga_de_documentacion']),
+      }),
+      ...(fecha(row['fecha_apto_medico']) && { fechaAptoMedico: fecha(row['fecha_apto_medico']) }),
+      ...(fecha(row['fecha_ite']) && { fechaIte: fecha(row['fecha_ite']) }),
+      ...(fecha(row['fecha_resolucion']) && { fechaResolucion: fecha(row['fecha_resolucion']) }),
+      ...(bool(row['proyecto_de_resolucion']) !== null && {
+        proyectoResolucion: bool(row['proyecto_de_resolucion']),
+      }),
+      ...(bool(row['reso_a_la_firma']) !== null && { resoALaFirma: bool(row['reso_a_la_firma']) }),
+      ...(str(row['resolucion_de_designacion']) && {
+        resolucionDesignacion: str(row['resolucion_de_designacion']),
+      }),
+      ...(str(row['cargo_sial']) && { cargoSial: str(row['cargo_sial']) }),
+      ...(suspendido !== null && { suspendido: suspendido! }),
+      ...(str(row['dispo_desierta']) && { dispoDesierta: str(row['dispo_desierta']) }),
+      ...(fecha(row['fecha_dispo_desierta']) && {
+        fechaDispoDesierta: fecha(row['fecha_dispo_desierta']),
+      }),
+      ...(str(row['observaciones']) && { observaciones: str(row['observaciones']) }),
+      ...(str(row['especialidad_solicitada_2']) && {
+        especialidadSolicitada: str(row['especialidad_solicitada_2']),
+      }),
+      ...(str(row['puesto_2']) && { puestoSolicitado: str(row['puesto_2']) }),
     }
 
     // Recalcular estado/subEstado
     const merged = { ...concursoCph, ...patch } as unknown as ConcursoCph
     const calc = calcConcursoCph({
-      suspendido:            merged.suspendido,
-      eeBaja:                merged.eeBaja,
-      fechaBaja:             merged.fechaBaja,
-      eeConcurso:            merged.eeConcurso,
-      fechaEeConcurso:       merged.fechaEeConcurso,
-      fechaAutorizacion:     merged.fechaAutorizacion,
-      sorteoJurado:          merged.sorteoJurado,
-      disposicion:           merged.disposicion,
-      fechaInscDesde:        merged.fechaInscDesde,
-      fechaInscHasta:        merged.fechaInscHasta,
-      inscripcionCerrada:    merged.inscripcionCerrada,
+      suspendido: merged.suspendido,
+      eeBaja: merged.eeBaja,
+      fechaBaja: merged.fechaBaja,
+      eeConcurso: merged.eeConcurso,
+      fechaEeConcurso: merged.fechaEeConcurso,
+      fechaAutorizacion: merged.fechaAutorizacion,
+      sorteoJurado: merged.sorteoJurado,
+      disposicion: merged.disposicion,
+      fechaInscDesde: merged.fechaInscDesde,
+      fechaInscHasta: merged.fechaInscHasta,
+      inscripcionCerrada: merged.inscripcionCerrada,
       ordenMeritoConfirmado: merged.ordenMeritoConfirmado,
-      fechaExamen:           merged.fechaExamen,
-      fechaOrdenMerito:      merged.fechaOrdenMerito,
-      fechaIfacs:            merged.fechaIfacs,
-      fechaInsal:            merged.fechaInsal,
-      eeDesignacion:         merged.eeDesignacion,
-      cargaDocumentacion:    merged.cargaDocumentacion,
-      fechaAptoMedico:       merged.fechaAptoMedico,
-      fechaIte:              merged.fechaIte,
-      proyectoResolucion:    merged.proyectoResolucion,
-      resoALaFirma:          merged.resoALaFirma,
+      fechaExamen: merged.fechaExamen,
+      fechaOrdenMerito: merged.fechaOrdenMerito,
+      fechaIfacs: merged.fechaIfacs,
+      fechaInsal: merged.fechaInsal,
+      eeDesignacion: merged.eeDesignacion,
+      cargaDocumentacion: merged.cargaDocumentacion,
+      fechaAptoMedico: merged.fechaAptoMedico,
+      fechaIte: merged.fechaIte,
+      proyectoResolucion: merged.proyectoResolucion,
+      resoALaFirma: merged.resoALaFirma,
       resolucionDesignacion: merged.resolucionDesignacion,
-      fechaResolucion:       merged.fechaResolucion,
-      cargoSial:             merged.cargoSial,
-      dispoDesierta:         merged.dispoDesierta,
-      fechaDispoDesierta:    merged.fechaDispoDesierta,
+      fechaResolucion: merged.fechaResolucion,
+      cargoSial: merged.cargoSial,
+      dispoDesierta: merged.dispoDesierta,
+      fechaDispoDesierta: merged.fechaDispoDesierta,
     })
 
     await prisma.concursoCph.update({
       where: { id: concursoCph.id },
-      data: { ...patch, estado: calc.estado, subEstado: calc.subEstado, subEstado3: calc.subEstado3 },
+      data: {
+        ...patch,
+        estado: calc.estado,
+        subEstado: calc.subEstado,
+        subEstado3: calc.subEstado3,
+      },
     })
     actualizados++
   }
@@ -761,66 +875,70 @@ export async function importarConcursosCsvService(buffer: Buffer) {
 }
 // Guarda snapshot en ConcursoCphDesierto, limpia campos de la ronda,
 // pone suspendido=true y sub-estado Q-DESIERTO.
-export async function declararDesiertoService(id: string, body: DeclararDesiertoBody, usuarioId: string) {
+export async function declararDesiertoService(
+  id: string,
+  body: DeclararDesiertoBody,
+  usuarioId: string,
+) {
   const concurso = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
   if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
 
-  const nroRonda = await prisma.concursoCphDesierto.count({ where: { concursoCphId: id } }) + 1
+  const nroRonda = (await prisma.concursoCphDesierto.count({ where: { concursoCphId: id } })) + 1
 
   return prisma.$transaction(async (tx) => {
     await tx.concursoCphDesierto.create({
       data: {
-        concursoCphId:         id,
+        concursoCphId: id,
         nroRonda,
-        dispoDesierta:         body.dispoDesierta,
-        fechaDispoDesierta:    new Date(body.fechaDispoDesierta),
-        sorteoJurado:          concurso.sorteoJurado,
-        disposicion:           concurso.disposicion,
-        fechaInscDesde:        concurso.fechaInscDesde,
-        fechaInscHasta:        concurso.fechaInscHasta,
-        fechaExamen:           concurso.fechaExamen,
-        fechaOrdenMerito:      concurso.fechaOrdenMerito,
-        qInscriptos:           concurso.qInscriptos,
-        eeDesignacion:         concurso.eeDesignacion,
-        cargaDocumentacion:    concurso.cargaDocumentacion,
-        fechaAptoMedico:       concurso.fechaAptoMedico,
-        fechaIte:              concurso.fechaIte,
-        proyectoResolucion:    concurso.proyectoResolucion,
-        resoALaFirma:          concurso.resoALaFirma,
+        dispoDesierta: body.dispoDesierta,
+        fechaDispoDesierta: new Date(body.fechaDispoDesierta),
+        sorteoJurado: concurso.sorteoJurado,
+        disposicion: concurso.disposicion,
+        fechaInscDesde: concurso.fechaInscDesde,
+        fechaInscHasta: concurso.fechaInscHasta,
+        fechaExamen: concurso.fechaExamen,
+        fechaOrdenMerito: concurso.fechaOrdenMerito,
+        qInscriptos: concurso.qInscriptos,
+        eeDesignacion: concurso.eeDesignacion,
+        cargaDocumentacion: concurso.cargaDocumentacion,
+        fechaAptoMedico: concurso.fechaAptoMedico,
+        fechaIte: concurso.fechaIte,
+        proyectoResolucion: concurso.proyectoResolucion,
+        resoALaFirma: concurso.resoALaFirma,
         resolucionDesignacion: concurso.resolucionDesignacion,
-        fechaResolucion:       concurso.fechaResolucion,
-        cargoSial:             concurso.cargoSial,
-        observaciones:         body.observaciones ?? null,
-        registradoPorId:       usuarioId,
+        fechaResolucion: concurso.fechaResolucion,
+        cargoSial: concurso.cargoSial,
+        observaciones: body.observaciones ?? null,
+        registradoPorId: usuarioId,
       },
     })
 
     return tx.concursoCph.update({
       where: { id },
       data: {
-        suspendido:            true,
-        dispoDesierta:         body.dispoDesierta,
-        fechaDispoDesierta:    new Date(body.fechaDispoDesierta),
-        sorteoJurado:          null,
-        disposicion:           null,
-        fechaInscDesde:        null,
-        fechaInscHasta:        null,
-        fechaExamen:           null,
-        fechaOrdenMerito:      null,
-        qInscriptos:           null,
-        eeDesignacion:         null,
-        cargaDocumentacion:    null,
-        fechaAptoMedico:       null,
-        fechaIte:              null,
-        proyectoResolucion:    null,
-        resoALaFirma:          null,
+        suspendido: true,
+        dispoDesierta: body.dispoDesierta,
+        fechaDispoDesierta: new Date(body.fechaDispoDesierta),
+        sorteoJurado: null,
+        disposicion: null,
+        fechaInscDesde: null,
+        fechaInscHasta: null,
+        fechaExamen: null,
+        fechaOrdenMerito: null,
+        qInscriptos: null,
+        eeDesignacion: null,
+        cargaDocumentacion: null,
+        fechaAptoMedico: null,
+        fechaIte: null,
+        proyectoResolucion: null,
+        resoALaFirma: null,
         resolucionDesignacion: null,
-        fechaResolucion:       null,
-        cargoSial:             null,
-        estado:                'suspendido',
-        subEstado:             'Q-DESIERTO',
-        subEstado3:            'H-DESIERTO',
+        fechaResolucion: null,
+        cargoSial: null,
+        estado: 'suspendido',
+        subEstado: 'Q-DESIERTO',
+        subEstado3: 'H-DESIERTO',
       },
       include,
     })

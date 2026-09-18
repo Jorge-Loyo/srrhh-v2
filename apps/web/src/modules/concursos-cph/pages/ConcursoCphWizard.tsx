@@ -2,27 +2,27 @@
 // - id === 'nuevo': formulario limpio (sin datos reales aún)
 // - id === UUID:    carga el concurso real de la API
 
-import { useState, useMemo, useEffect, useRef } from "react";
-import { Link, useParams, useSearchParams, Navigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/shared/lib/api-client";
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiClient } from '@/shared/lib/api-client'
 import {
   useEscalafones,
   usePuestosCargoNormalizados,
   useEspecialidadesPuesto,
   useHospitales,
   useCodigosRegistro,
-} from "@/shared/hooks/useCatalogos";
-import { hospitalLabel } from "@/shared/lib/hospitalLabel";
+} from '@/shared/hooks/useCatalogos'
+import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import {
   getCasoCph,
   exportCphPdf,
   exportJuradoPdf,
   exportOrdenMeritoPdf,
-} from "@/shared/lib/exportConcursoDocs";
-import type { ConcursoCph } from "@srrhh/types";
-import { useAuth } from "@/modules/auth/hooks/useAuth";
-import { escalafonLabel } from "@/shared/lib/escalafonLabel";
+} from '@/shared/lib/exportConcursoDocs'
+import type { ConcursoCph } from '@srrhh/types'
+import { useAuth } from '@/modules/auth/hooks/useAuth'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import {
   useDesignarConcursoCph,
   useDeclararDesiertoCph,
@@ -44,365 +44,337 @@ import {
   useRevertirPresentadosCph,
   useConfirmarOrdenMeritoCph,
   useRevertirOrdenMeritoCph,
-} from "../hooks/useConcursosCph";
-import type { GenerarSorteoJuradoRequest, InscriptoRequest } from "@srrhh/types";
-import { SearchableSelect } from "@/shared/components/ui/SearchableSelect";
-import { useConfirm } from "@/shared/components/ui/useConfirm";
-import { useToast } from "@/shared/components/ui/useToast";
+} from '../hooks/useConcursosCph'
+import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { useConfirm } from '@/shared/components/ui/useConfirm'
+import { useToast } from '@/shared/components/ui/useToast'
 
-type EstadoEtapa = "completada" | "activa" | "pendiente" | "bloqueada";
+type EstadoEtapa = 'completada' | 'activa' | 'pendiente' | 'bloqueada'
 
 interface Campo {
-  key: string;
-  label: string;
-  tipo: "texto" | "fecha" | "checkbox" | "textarea";
-  valor: string | boolean;
-  requerido?: boolean;
-  readonly?: boolean;
+  key: string
+  label: string
+  tipo: 'texto' | 'fecha' | 'checkbox' | 'textarea'
+  valor: string | boolean
+  requerido?: boolean
+  readonly?: boolean
 }
 
 interface Etapa {
-  id: string;
-  numero: number;
-  titulo: string;
-  descripcion: string;
-  estado: EstadoEtapa;
-  campos: Campo[];
-  fechaCompletada?: string;
+  id: string
+  numero: number
+  titulo: string
+  descripcion: string
+  estado: EstadoEtapa
+  campos: Campo[]
+  fechaCompletada?: string
 }
 
-const ESTADO_ETAPA_CONFIG: Record<
-  EstadoEtapa,
-  { label: string; dot: string; badge: string }
-> = {
+const ESTADO_ETAPA_CONFIG: Record<EstadoEtapa, { label: string; dot: string; badge: string }> = {
   completada: {
-    label: "Completada",
-    dot: "bg-green-500",
-    badge: "badge-success",
+    label: 'Completada',
+    dot: 'bg-green-500',
+    badge: 'badge-success',
   },
   activa: {
-    label: "En curso",
-    dot: "bg-amber-400 animate-pulse",
-    badge: "badge-warning",
+    label: 'En curso',
+    dot: 'bg-amber-400 animate-pulse',
+    badge: 'badge-warning',
   },
-  pendiente: { label: "Pendiente", dot: "bg-gray-300", badge: "badge-default" },
-  bloqueada: { label: "Bloqueada", dot: "bg-gray-200", badge: "badge-default" },
-};
+  pendiente: { label: 'Pendiente', dot: 'bg-gray-300', badge: 'badge-default' },
+  bloqueada: { label: 'Bloqueada', dot: 'bg-gray-200', badge: 'badge-default' },
+}
 
 // Orden canónico del sub-estado — igual que calcSubEstado en el backend
 const SUB_ESTADOS: { key: string; label: string }[] = [
-  { key: "VACANTE", label: "Vacante" },
-  { key: "A-CARATULADO", label: "A — Caratulado" },
-  { key: "A-AUTZN", label: "A — Autorización" },
-  { key: "B-SORTEO JUR", label: "B — Sorteo de jurado" },
-  { key: "C-DISPO DE LLAMADO", label: "C — Dispo de llamado" },
-  { key: "C2-INSCRIPCION EX", label: "C — Inscripción de exámenes" },
-  { key: "D-EXAMEN PUBLICADO", label: "D — Publicación Examen" },
-  { key: "E-ORDEN DE MERITO", label: "E — Orden de mérito" },
-  { key: "F-IFACS", label: "F — IFACS" },
-  { key: "G-INSAL", label: "G — INSAL" },
-  { key: "H-TAD", label: "H — TAD" },
-  { key: "I-CARGA DOCU", label: "I — Carga documentación" },
-  { key: "J-APTO MED", label: "J — Apto médico" },
-  { key: "K-ITE", label: "K — ITE" },
-  { key: "L-PYCTO DE RESO", label: "L — Proyecto resolución" },
-  { key: "M-RESO A LA FIRMA", label: "M — Reso a la firma" },
-  { key: "N-DESIGNADO", label: "N — Designado" },
-  { key: "O-ALTA SIAL", label: "O — Alta SIAL" },
-];
+  { key: 'VACANTE', label: 'Vacante' },
+  { key: 'A-CARATULADO', label: 'A — Caratulado' },
+  { key: 'A-AUTZN', label: 'A — Autorización' },
+  { key: 'B-SORTEO JUR', label: 'B — Sorteo de jurado' },
+  { key: 'C-DISPO DE LLAMADO', label: 'C — Dispo de llamado' },
+  { key: 'C2-INSCRIPCION EX', label: 'C — Inscripción de exámenes' },
+  { key: 'D-EXAMEN PUBLICADO', label: 'D — Publicación Examen' },
+  { key: 'E-ORDEN DE MERITO', label: 'E — Orden de mérito' },
+  { key: 'F-IFACS', label: 'F — IFACS' },
+  { key: 'G-INSAL', label: 'G — INSAL' },
+  { key: 'H-TAD', label: 'H — TAD' },
+  { key: 'I-CARGA DOCU', label: 'I — Carga documentación' },
+  { key: 'J-APTO MED', label: 'J — Apto médico' },
+  { key: 'K-ITE', label: 'K — ITE' },
+  { key: 'L-PYCTO DE RESO', label: 'L — Proyecto resolución' },
+  { key: 'M-RESO A LA FIRMA', label: 'M — Reso a la firma' },
+  { key: 'N-DESIGNADO', label: 'N — Designado' },
+  { key: 'O-ALTA SIAL', label: 'O — Alta SIAL' },
+]
 
 export function ConcursoCphWizard() {
-  const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const esNuevo = id === "nuevo";
+  const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const esNuevo = id === 'nuevo'
 
   // El wizard solo funciona con un ID real — 'nuevo' ya no se usa
-  if (esNuevo) return <Navigate to="/concursos/cph" replace />;
+  if (esNuevo) return <Navigate to="/concursos/cph" replace />
 
   // Leer concurso real cuando tiene ID
   const { data: cphData, isLoading } = useQuery({
-    queryKey: ["concurso-cph-wizard", id],
+    queryKey: ['concurso-cph-wizard', id],
     queryFn: async () => {
-      const res = await apiClient.get<{ data: ConcursoCph }>(
-        `/api/v1/concursos-cph/${id}`,
-      );
-      return res.data.data;
+      const res = await apiClient.get<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}`)
+      return res.data.data
     },
     enabled: !esNuevo,
-  });
+  })
 
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
 
   // S13-C: la Autorizacion pendiente real (tabla genérica) para este concurso,
   // si existe y le corresponde resolverla al usuario logueado. Reemplaza al
   // viejo POST /concursos-cph/:id/autorizar, que nunca tocaba esta tabla y
   // dejaba la fila huérfana en "pendiente" para siempre.
   const { data: autorizacionPendiente } = useQuery({
-    queryKey: [
-      "autorizaciones",
-      "lista",
-      { tipo: "concurso_cph" as const, referenciaId: id },
-    ],
+    queryKey: ['autorizaciones', 'lista', { tipo: 'concurso_cph' as const, referenciaId: id }],
     queryFn: async () => {
       const res = await apiClient.get<{
         data: {
-          id: string;
-          referenciaId: string;
-          resolverPorRolSlug: string;
-        }[];
-      }>("/api/v1/autorizaciones", {
-        params: { tipo: "concurso_cph", limit: 100 },
-      });
-      return res.data.data.find((a) => a.referenciaId === id) ?? null;
+          id: string
+          referenciaId: string
+          resolverPorRolSlug: string
+        }[]
+      }>('/api/v1/autorizaciones', {
+        params: { tipo: 'concurso_cph', limit: 100 },
+      })
+      return res.data.data.find((a) => a.referenciaId === id) ?? null
     },
     enabled: !esNuevo && !!id,
-  });
+  })
   const puedeResolverAutorizacion =
-    !!autorizacionPendiente &&
-    autorizacionPendiente.resolverPorRolSlug === user?.rolSlug;
+    !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
 
-  const { data: escalafones = [] } = useEscalafones();
-  const { data: hospitales = [] } = useHospitales();
-  const { data: codigosRegistro = [] } = useCodigosRegistro();
+  const { data: escalafones = [] } = useEscalafones()
+  const { data: hospitales = [] } = useHospitales()
+  const { data: codigosRegistro = [] } = useCodigosRegistro()
   // Escalafones ordenados igual que PersonasPage
   const escalafonesOrdenados = [...escalafones].sort((a, b) =>
-    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), "es"),
-  );
+    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es'),
+  )
   // Helper: dado un escalafonId, devuelve el primer codigoRegistroId asociado
   const crIdDeEscalafon = (escId: string) =>
-    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null;
+    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null
   const escalafonCph = escalafones.find(
-    (e) => e.nombre === "Nueva Carrera Profesional Hospitalaria",
-  );
+    (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
+  )
 
   // Query params solo se usan en modo nuevo (vienen de NuevaBajaPage)
   const datosBaja = esNuevo
     ? {
-        codigoCargo: searchParams.get("codigoCargo") ?? "",
-        cargoId: searchParams.get("cargoId") ?? "",
-        eeBaja: searchParams.get("eeBaja") ?? "",
-        fechaBaja: searchParams.get("fechaBaja") ?? "",
-        hospital: searchParams.get("hospital") ?? "",
-        hospitalNombre: searchParams.get("hospitalNombre") ?? "Nuevo concurso",
-        puesto: searchParams.get("puesto") ?? "",
-        especialidad: searchParams.get("especialidad") ?? "",
-        escalafon: searchParams.get("escalafon") ?? "",
-        persona: searchParams.get("persona") ?? "",
-        cuil: searchParams.get("cuil") ?? "",
-        motivo: searchParams.get("motivo") ?? "",
-        cargaHoraria: searchParams.get("cargaHoraria") ?? "",
+        codigoCargo: searchParams.get('codigoCargo') ?? '',
+        cargoId: searchParams.get('cargoId') ?? '',
+        eeBaja: searchParams.get('eeBaja') ?? '',
+        fechaBaja: searchParams.get('fechaBaja') ?? '',
+        hospital: searchParams.get('hospital') ?? '',
+        hospitalNombre: searchParams.get('hospitalNombre') ?? 'Nuevo concurso',
+        puesto: searchParams.get('puesto') ?? '',
+        especialidad: searchParams.get('especialidad') ?? '',
+        escalafon: searchParams.get('escalafon') ?? '',
+        persona: searchParams.get('persona') ?? '',
+        cuil: searchParams.get('cuil') ?? '',
+        motivo: searchParams.get('motivo') ?? '',
+        cargaHoraria: searchParams.get('cargaHoraria') ?? '',
       }
-    : null;
+    : null
 
   // Construir objeto concurso desde la API o desde query params
   const concurso = useMemo(() => {
     if (esNuevo)
       return {
-        hospital: datosBaja?.hospital ?? "",
-        hospitalNombre: datosBaja?.hospitalNombre ?? "Nuevo concurso",
-        cargo: datosBaja?.codigoCargo || "Sin asignar",
-        puesto: datosBaja?.puesto ?? "—",
-        especialidad: datosBaja?.especialidad ?? "—",
-        escalafon: datosBaja?.escalafon ?? "CPH",
-        personaBaja: datosBaja?.persona ?? "—",
-        fechaBaja: datosBaja?.fechaBaja ?? "",
-        eeBaja: datosBaja?.eeBaja ?? "",
-        subEstado: "VACANTE",
-        subEstado3: "",
+        hospital: datosBaja?.hospital ?? '',
+        hospitalNombre: datosBaja?.hospitalNombre ?? 'Nuevo concurso',
+        cargo: datosBaja?.codigoCargo || 'Sin asignar',
+        puesto: datosBaja?.puesto ?? '—',
+        especialidad: datosBaja?.especialidad ?? '—',
+        escalafon: datosBaja?.escalafon ?? 'CPH',
+        personaBaja: datosBaja?.persona ?? '—',
+        fechaBaja: datosBaja?.fechaBaja ?? '',
+        eeBaja: datosBaja?.eeBaja ?? '',
+        subEstado: 'VACANTE',
+        subEstado3: '',
         suspendido: false,
-        observaciones: datosBaja?.motivo
-          ? `Motivo de baja: ${datosBaja.motivo}`
-          : "",
-      };
-    if (!cphData) return null;
-    const c = cphData.concurso;
+        observaciones: datosBaja?.motivo ? `Motivo de baja: ${datosBaja.motivo}` : '',
+      }
+    if (!cphData) return null
+    const c = cphData.concurso
     const baja = (
       c as unknown as {
         baja?: {
-          observaciones?: string | null;
-          fechaBaja?: string | Date | null;
-          eeBaja?: string | null;
-          motivo?: string | null;
-          docRespaldatoria?: string | null;
-          tipificadorOrigen?: string | null;
-          partidaPresupuestaria?: string | null;
-          cargaHoraria?: number | null;
-          fechaPaseParalelo?: string | Date | null;
-        };
+          observaciones?: string | null
+          fechaBaja?: string | Date | null
+          eeBaja?: string | null
+          motivo?: string | null
+          docRespaldatoria?: string | null
+          tipificadorOrigen?: string | null
+          partidaPresupuestaria?: string | null
+          cargaHoraria?: number | null
+          fechaPaseParalelo?: string | Date | null
+        }
       }
-    )?.baja;
-    const eeBajaVal = cphData.eeBaja ?? baja?.eeBaja ?? "";
-    const rawFechaHeader = cphData.fechaBaja ?? baja?.fechaBaja ?? "";
+    )?.baja
+    const eeBajaVal = cphData.eeBaja ?? baja?.eeBaja ?? ''
+    const rawFechaHeader = cphData.fechaBaja ?? baja?.fechaBaja ?? ''
     const fechaBajaVal = rawFechaHeader
-      ? typeof rawFechaHeader === "string"
+      ? typeof rawFechaHeader === 'string'
         ? rawFechaHeader.slice(0, 10)
         : (rawFechaHeader as Date).toISOString().slice(0, 10)
-      : "";
+      : ''
     return {
-      hospital: c?.hospital?.sigla ?? "",
-      hospitalNombre: c?.hospital?.nombre ?? "",
-      cargo: c?.cargo?.codigo ?? "",
-      puesto: c?.cargo?.literalPuesto ?? "—",
+      hospital: c?.hospital?.sigla ?? '',
+      hospitalNombre: c?.hospital?.nombre ?? '',
+      cargo: c?.cargo?.codigo ?? '',
+      puesto: c?.cargo?.literalPuesto ?? '—',
       especialidad:
         cphData.especialidadSolicitada ??
         (c?.cargo as any)?.especialidadLegacy ??
         c?.cargo?.especialidad ??
-        "—",
-      escalafon: "CPH",
-      personaBaja: c?.persona?.apellidoNombre ?? "—",
+        '—',
+      escalafon: 'CPH',
+      personaBaja: c?.persona?.apellidoNombre ?? '—',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
-      subEstado: cphData.subEstado ?? "VACANTE",
-      subEstado3: cphData.subEstado3 ?? "",
+      subEstado: cphData.subEstado ?? 'VACANTE',
+      subEstado3: cphData.subEstado3 ?? '',
       suspendido: cphData.suspendido,
-      observaciones: cphData.observaciones ?? "",
-    };
+      observaciones: cphData.observaciones ?? '',
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esNuevo, cphData]);
+  }, [esNuevo, cphData])
 
   // Acta del jurado (se usa para calcular la completitud de la etapa 2).
-  const { data: juradoData } = useJuradoCph(esNuevo ? undefined : id);
+  const { data: juradoData } = useJuradoCph(esNuevo ? undefined : id)
 
   // Construir etapas: en modo nuevo todas vacías, con ID real leer valores del backend
   const etapasIniciales: Etapa[] = useMemo(() => {
     const v = (key: string): string => {
-      if (!cphData) return "";
-      const val = (cphData as unknown as Record<string, unknown>)[key];
-      if (!val) return "";
+      if (!cphData) return ''
+      const val = (cphData as unknown as Record<string, unknown>)[key]
+      if (!val) return ''
       // Fechas vienen como ISO string desde la API — truncar a YYYY-MM-DD para input[type=date]
-      if (typeof val === "string" && val.length > 10 && val.includes("T"))
-        return val.slice(0, 10);
-      return String(val);
-    };
+      if (typeof val === 'string' && val.length > 10 && val.includes('T')) return val.slice(0, 10)
+      return String(val)
+    }
     const vb = (key: string): boolean => {
-      if (!cphData) return false;
-      return (cphData as unknown as Record<string, boolean>)[key] ?? false;
-    };
+      if (!cphData) return false
+      return (cphData as unknown as Record<string, boolean>)[key] ?? false
+    }
     const bajaDatos = (
       cphData?.concurso as unknown as
         | {
             baja?: {
-              observaciones?: string | null;
-              fechaBaja?: string | Date | null;
-              eeBaja?: string | null;
-              motivo?: string | null;
-              docRespaldatoria?: string | null;
-              tipificadorOrigen?: string | null;
-              partidaPresupuestaria?: string | null;
-              cargaHoraria?: number | null;
-              fechaPaseParalelo?: string | Date | null;
-            };
+              observaciones?: string | null
+              fechaBaja?: string | Date | null
+              eeBaja?: string | null
+              motivo?: string | null
+              docRespaldatoria?: string | null
+              tipificadorOrigen?: string | null
+              partidaPresupuestaria?: string | null
+              cargaHoraria?: number | null
+              fechaPaseParalelo?: string | Date | null
+            }
           }
         | undefined
-    )?.baja;
-    const eeBajaResuelto = cphData?.eeBaja ?? bajaDatos?.eeBaja ?? "";
-    const rawFecha = cphData?.fechaBaja ?? bajaDatos?.fechaBaja ?? "";
+    )?.baja
+    const eeBajaResuelto = cphData?.eeBaja ?? bajaDatos?.eeBaja ?? ''
+    const rawFecha = cphData?.fechaBaja ?? bajaDatos?.fechaBaja ?? ''
     const fechaBajaResuelto = rawFecha
-      ? typeof rawFecha === "string"
+      ? typeof rawFecha === 'string'
         ? rawFecha.slice(0, 10)
         : (rawFecha as Date).toISOString().slice(0, 10)
-      : "";
+      : ''
     // Determinar estado de cada etapa según qué campos tiene completados.
     // Etapa 2 COMPLETA solo con TODOS sus requisitos: fecha de autorización +
     // jurado CONFIRMADO + disposición de llamado. Mientras falte alguno, la
     // etapa sigue "en curso" (amarilla) y no habilita la etapa 3.
-    const juradoConfirmado = !!juradoData?.confirmado;
+    const juradoConfirmado = !!juradoData?.confirmado
     const etapa2Completa =
       !!cphData?.fechaAutorizacion &&
       juradoConfirmado &&
       !!cphData?.disposicion &&
-      !!cphData?.tipoGestion;
+      !!cphData?.tipoGestion
     // "Tiene autorización" (para habilitar la etapa como activa) = ya pasó la
     // autorización de DGAYDRH; la completitud plena la define etapa2Completa.
-    const tieneAutorizacion = !!(
-      cphData?.fechaAutorizacion || cphData?.disposicion
-    );
-    const tieneInscripcion = !!(
-      cphData?.fechaExamen || cphData?.fechaOrdenMerito
-    );
-    const tieneIfacs = !!cphData?.fechaIfacs;
-    const tieneDesignacion = !!(cphData?.fechaResolucion || cphData?.cargoSial);
+    const tieneAutorizacion = !!(cphData?.fechaAutorizacion || cphData?.disposicion)
+    const tieneInscripcion = !!(cphData?.fechaExamen || cphData?.fechaOrdenMerito)
+    const tieneIfacs = !!cphData?.fechaIfacs
+    const tieneDesignacion = !!(cphData?.fechaResolucion || cphData?.cargoSial)
     // Si el concurso ya está designado/finalizado/desierto, las etapas intermedias
     // sin fechas se marcan completadas igual — el concurso pasó por ahí aunque
     // no se registraron todos los datos (gap de datos del legacy)
     const yaFinalizado =
-      tieneDesignacion ||
-      !!cphData?.resolucionDesignacion ||
-      !!cphData?.dispoDesierta;
+      tieneDesignacion || !!cphData?.resolucionDesignacion || !!cphData?.dispoDesierta
 
-    const estadoEtapa = (
-      condicion: boolean,
-      anterior: boolean,
-    ): EstadoEtapa => {
-      if (condicion || yaFinalizado) return "completada";
-      if (anterior) return "activa";
-      return "pendiente";
-    };
+    const estadoEtapa = (condicion: boolean, anterior: boolean): EstadoEtapa => {
+      if (condicion || yaFinalizado) return 'completada'
+      if (anterior) return 'activa'
+      return 'pendiente'
+    }
 
     return [
       {
-        id: "baja",
+        id: 'baja',
         numero: 1,
-        titulo: "Baja / Apertura",
-        descripcion:
-          "Registro de la baja del agente y apertura del expediente de concurso.",
+        titulo: 'Baja / Apertura',
+        descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
         estado:
           esNuevo || !cphData
-            ? "activa"
+            ? 'activa'
             : cphData.eeConcurso && !cphData.pendienteAutorizacion
-              ? "completada"
-              : "activa",
+              ? 'completada'
+              : 'activa',
         fechaCompletada: cphData?.fechaEeConcurso ?? undefined,
         campos: [
           {
-            key: "eeBaja",
-            label: "Expediente de baja",
-            tipo: "texto",
+            key: 'eeBaja',
+            label: 'Expediente de baja',
+            tipo: 'texto',
+            valor: esNuevo ? (datosBaja?.eeBaja ?? '') : eeBajaResuelto || v('eeBaja'),
+            readonly: true,
+          },
+          {
+            key: 'fechaBaja',
+            label: 'Fecha de baja',
+            tipo: 'fecha',
+            valor: esNuevo ? (datosBaja?.fechaBaja ?? '') : fechaBajaResuelto || v('fechaBaja'),
+            readonly: true,
+          },
+          {
+            key: 'puesto',
+            label: 'Puesto',
+            tipo: 'texto',
             valor: esNuevo
-              ? (datosBaja?.eeBaja ?? "")
-              : eeBajaResuelto || v("eeBaja"),
+              ? (datosBaja?.puesto ?? '')
+              : (cphData?.concurso?.cargo?.literalPuesto ?? ''),
             readonly: true,
           },
           {
-            key: "fechaBaja",
-            label: "Fecha de baja",
-            tipo: "fecha",
-            valor: esNuevo
-              ? (datosBaja?.fechaBaja ?? "")
-              : fechaBajaResuelto || v("fechaBaja"),
+            key: '__sep__',
+            label: '',
+            tipo: 'texto',
+            valor: '',
             readonly: true,
           },
           {
-            key: "puesto",
-            label: "Puesto",
-            tipo: "texto",
-            valor: esNuevo
-              ? (datosBaja?.puesto ?? "")
-              : (cphData?.concurso?.cargo?.literalPuesto ?? ""),
-            readonly: true,
-          },
-          {
-            key: "__sep__",
-            label: "",
-            tipo: "texto",
-            valor: "",
-            readonly: true,
-          },
-          {
-            key: "eeConcurso",
-            label: "Expediente de Concurso",
-            tipo: "texto",
-            valor: v("eeConcurso"),
+            key: 'eeConcurso',
+            label: 'Expediente de Concurso',
+            tipo: 'texto',
+            valor: v('eeConcurso'),
           },
         ],
       },
       {
-        id: "autorizacion",
+        id: 'autorizacion',
         numero: 2,
-        titulo: "Autorización / Jurado",
-        descripcion:
-          "Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.",
+        titulo: 'Autorización / Jurado',
+        descripcion: 'Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.',
         estado: estadoEtapa(
           etapa2Completa,
           (!!cphData?.eeConcurso && !cphData?.pendienteAutorizacion) || esNuevo,
@@ -410,478 +382,453 @@ export function ConcursoCphWizard() {
         fechaCompletada: cphData?.fechaAutorizacion ?? undefined,
         campos: [
           {
-            key: "fechaAutorizacion",
-            label: "Fecha de autorización",
-            tipo: "fecha",
-            valor: v("fechaAutorizacion"),
+            key: 'fechaAutorizacion',
+            label: 'Fecha de autorización',
+            tipo: 'fecha',
+            valor: v('fechaAutorizacion'),
           },
           {
-            key: "sorteoJurado",
-            label: "Fecha sorteo de jurado",
-            tipo: "fecha",
-            valor: v("sorteoJurado"),
+            key: 'sorteoJurado',
+            label: 'Fecha sorteo de jurado',
+            tipo: 'fecha',
+            valor: v('sorteoJurado'),
           },
           {
-            key: "disposicion",
-            label: "Disposición de llamado",
-            tipo: "texto",
-            valor: v("disposicion"),
+            key: 'disposicion',
+            label: 'Disposición de llamado',
+            tipo: 'texto',
+            valor: v('disposicion'),
           },
         ],
       },
       {
-        id: "inscripcion",
+        id: 'inscripcion',
         numero: 3,
-        titulo: "Inscripción / Examen / OM",
-        descripcion:
-          "Período de inscripción, publicación del examen y orden de mérito.",
+        titulo: 'Inscripción / Examen / OM',
+        descripcion: 'Período de inscripción, publicación del examen y orden de mérito.',
         // La etapa 3 se habilita recién cuando la etapa 2 está completa
         // (jurado confirmado + fecha de autorización + disposición de llamado).
         estado: estadoEtapa(tieneInscripcion, etapa2Completa),
         fechaCompletada: cphData?.fechaOrdenMerito ?? undefined,
         campos: [
           {
-            key: "fechaInscDesde",
-            label: "Inscripción desde",
-            tipo: "fecha",
-            valor: v("fechaInscDesde"),
+            key: 'fechaInscDesde',
+            label: 'Inscripción desde',
+            tipo: 'fecha',
+            valor: v('fechaInscDesde'),
           },
           {
-            key: "fechaInscHasta",
-            label: "Inscripción hasta",
-            tipo: "fecha",
-            valor: v("fechaInscHasta"),
+            key: 'fechaInscHasta',
+            label: 'Inscripción hasta',
+            tipo: 'fecha',
+            valor: v('fechaInscHasta'),
           },
           {
-            key: "fechaExamen",
-            label: "Fecha de examen",
-            tipo: "fecha",
-            valor: v("fechaExamen"),
+            key: 'fechaExamen',
+            label: 'Fecha de examen',
+            tipo: 'fecha',
+            valor: v('fechaExamen'),
           },
           {
-            key: "fechaOrdenMerito",
-            label: "Fecha orden de mérito",
-            tipo: "fecha",
-            valor: v("fechaOrdenMerito"),
+            key: 'fechaOrdenMerito',
+            label: 'Fecha orden de mérito',
+            tipo: 'fecha',
+            valor: v('fechaOrdenMerito'),
           },
         ],
       },
       {
-        id: "ifacs_insal",
+        id: 'ifacs_insal',
         numero: 4,
-        titulo: "IFACS / INSAL",
-        descripcion:
-          "Informe de Aptitud para el Cargo (IFACS) e Informe INSAL.",
-        estado: estadoEtapa(
-          tieneIfacs && !!cphData?.fechaInsal,
-          tieneInscripcion,
-        ),
+        titulo: 'IFACS / INSAL',
+        descripcion: 'Informe de Aptitud para el Cargo (IFACS) e Informe INSAL.',
+        estado: estadoEtapa(tieneIfacs && !!cphData?.fechaInsal, tieneInscripcion),
         campos: [
           {
-            key: "ifacs",
-            label: "Expediente IFACS",
-            tipo: "texto",
-            valor: v("ifacs"),
+            key: 'ifacs',
+            label: 'Expediente IFACS',
+            tipo: 'texto',
+            valor: v('ifacs'),
           },
           {
-            key: "fechaIfacs",
-            label: "Fecha IFACS",
-            tipo: "fecha",
-            valor: v("fechaIfacs"),
+            key: 'fechaIfacs',
+            label: 'Fecha IFACS',
+            tipo: 'fecha',
+            valor: v('fechaIfacs'),
             requerido: true,
           },
           {
-            key: "insal",
-            label: "Expediente INSAL",
-            tipo: "texto",
-            valor: v("insal"),
+            key: 'insal',
+            label: 'Expediente INSAL',
+            tipo: 'texto',
+            valor: v('insal'),
           },
           {
-            key: "fechaInsal",
-            label: "Fecha INSAL",
-            tipo: "fecha",
-            valor: v("fechaInsal"),
+            key: 'fechaInsal',
+            label: 'Fecha INSAL',
+            tipo: 'fecha',
+            valor: v('fechaInsal'),
             requerido: true,
           },
         ],
       },
       {
-        id: "designacion",
+        id: 'designacion',
         numero: 5,
-        titulo: "Designación",
-        descripcion:
-          "TAD, documentación, apto médico, ITE y resolución de designación.",
+        titulo: 'Designación',
+        descripcion: 'TAD, documentación, apto médico, ITE y resolución de designación.',
         estado: estadoEtapa(tieneDesignacion, tieneIfacs),
         campos: [
           {
-            key: "eeDesignacion",
-            label: "EE de designación (TAD)",
-            tipo: "texto",
-            valor: v("eeDesignacion"),
+            key: 'eeDesignacion',
+            label: 'EE de designación (TAD)',
+            tipo: 'texto',
+            valor: v('eeDesignacion'),
           },
           {
-            key: "cargaDocumentacion",
-            label: "Carga de documentación",
-            tipo: "checkbox",
-            valor: vb("cargaDocumentacion"),
+            key: 'cargaDocumentacion',
+            label: 'Carga de documentación',
+            tipo: 'checkbox',
+            valor: vb('cargaDocumentacion'),
           },
           {
-            key: "fechaAptoMedico",
-            label: "Fecha apto médico",
-            tipo: "fecha",
-            valor: v("fechaAptoMedico"),
+            key: 'fechaAptoMedico',
+            label: 'Fecha apto médico',
+            tipo: 'fecha',
+            valor: v('fechaAptoMedico'),
           },
           {
-            key: "fechaIte",
-            label: "Fecha ITE",
-            tipo: "fecha",
-            valor: v("fechaIte"),
+            key: 'fechaIte',
+            label: 'Fecha ITE',
+            tipo: 'fecha',
+            valor: v('fechaIte'),
           },
           {
-            key: "proyectoResolucion",
-            label: "Proyecto de resolución",
-            tipo: "checkbox",
-            valor: vb("proyectoResolucion"),
+            key: 'proyectoResolucion',
+            label: 'Proyecto de resolución',
+            tipo: 'checkbox',
+            valor: vb('proyectoResolucion'),
           },
           {
-            key: "resoALaFirma",
-            label: "Reso a la firma",
-            tipo: "checkbox",
-            valor: vb("resoALaFirma"),
+            key: 'resoALaFirma',
+            label: 'Reso a la firma',
+            tipo: 'checkbox',
+            valor: vb('resoALaFirma'),
           },
           {
-            key: "resolucionDesignacion",
-            label: "Resolución de designación",
-            tipo: "texto",
-            valor: v("resolucionDesignacion"),
+            key: 'resolucionDesignacion',
+            label: 'Resolución de designación',
+            tipo: 'texto',
+            valor: v('resolucionDesignacion'),
           },
           {
-            key: "fechaResolucion",
-            label: "Fecha de resolución",
-            tipo: "fecha",
-            valor: v("fechaResolucion"),
+            key: 'fechaResolucion',
+            label: 'Fecha de resolución',
+            tipo: 'fecha',
+            valor: v('fechaResolucion'),
           },
           {
-            key: "cargoSial",
-            label: "Cargo SIAL (alta)",
-            tipo: "texto",
-            valor: v("cargoSial"),
+            key: 'cargoSial',
+            label: 'Cargo SIAL (alta)',
+            tipo: 'texto',
+            valor: v('cargoSial'),
           },
           {
-            key: "personaDesignada",
-            label: "Persona designada",
-            tipo: "texto",
-            valor: "",
+            key: 'personaDesignada',
+            label: 'Persona designada',
+            tipo: 'texto',
+            valor: '',
           },
         ],
       },
       {
-        id: "desierto",
+        id: 'desierto',
         numero: 6,
-        titulo: "Declarar desierto",
-        descripcion: "Registrar una ronda desierta y relanzar el concurso.",
-        estado: cphData?.dispoDesierta ? "completada" : "bloqueada",
+        titulo: 'Declarar desierto',
+        descripcion: 'Registrar una ronda desierta y relanzar el concurso.',
+        estado: cphData?.dispoDesierta ? 'completada' : 'bloqueada',
         campos: [],
       },
-    ];
+    ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esNuevo, cphData, juradoData?.confirmado]);
+  }, [esNuevo, cphData, juradoData?.confirmado])
 
-  const [puestoConcurso, setPuestoConcurso] = useState("");
-  const [especialidadConcurso, setEspecialidadConcurso] = useState("");
-  const [siglaConcurso, setSiglaConcurso] = useState("");
-  const [escalafonId, setEscalafonId] = useState("");
-  const [eeConcursoInput, setEeConcursoInput] = useState("");
+  const [puestoConcurso, setPuestoConcurso] = useState('')
+  const [especialidadConcurso, setEspecialidadConcurso] = useState('')
+  const [siglaConcurso, setSiglaConcurso] = useState('')
+  const [escalafonId, setEscalafonId] = useState('')
+  const [eeConcursoInput, setEeConcursoInput] = useState('')
   // Puestos del escalafón seleccionado (sin filtrar por tipo)
   const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     undefined,
     undefined,
-  );
+  )
   const [modalCambios, setModalCambios] = useState<
     { campo: string; de: string; a: string }[] | null
-  >(null);
-  const [modalAutorizacion, setModalAutorizacion] = useState(false);
-  const [obsAutorizacion, setObsAutorizacion] = useState("");
-  const [modalBaja, setModalBaja] = useState(false);
-  const [modalDesignar, setModalDesignar] = useState(false);
-  const [designarPersonaId, setDesignarPersonaId] = useState("");
-  const [designarPersonaNombre, setDesignarPersonaNombre] = useState("");
-  const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<
-    string | null
-  >(null);
-  const [designarFechaDesde, setDesignarFechaDesde] = useState("");
-  const [designarIdSialRol, setDesignarIdSialRol] = useState("");
-  const [designarSearch, setDesignarSearch] = useState("");
+  >(null)
+  const [modalAutorizacion, setModalAutorizacion] = useState(false)
+  const [obsAutorizacion, setObsAutorizacion] = useState('')
+  const [modalBaja, setModalBaja] = useState(false)
+  const [modalDesignar, setModalDesignar] = useState(false)
+  const [designarPersonaId, setDesignarPersonaId] = useState('')
+  const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
+  const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<string | null>(null)
+  const [designarFechaDesde, setDesignarFechaDesde] = useState('')
+  const [designarIdSialRol, setDesignarIdSialRol] = useState('')
+  const [designarSearch, setDesignarSearch] = useState('')
 
-  const [modalDesierto, setModalDesierto] = useState(false);
-  const [desiertoDisp, setDesiertoDisp] = useState("");
-  const [desiertoFecha, setDesiertoFecha] = useState("");
-  const [desiertoObs, setDesiertoObs] = useState("");
+  const [modalDesierto, setModalDesierto] = useState(false)
+  const [desiertoDisp, setDesiertoDisp] = useState('')
+  const [desiertoFecha, setDesiertoFecha] = useState('')
+  const [desiertoObs, setDesiertoObs] = useState('')
 
   // Diálogos propios (reemplazan window.confirm / window.alert)
-  const { confirm, ConfirmUI } = useConfirm();
-  const { toast, ToastUI } = useToast();
+  const { confirm, ConfirmUI } = useConfirm()
+  const { toast, ToastUI } = useToast()
 
   // ── Sorteo de jurado (Etapa 2) ──
-  const hoyISO = new Date().toISOString().slice(0, 10);
-  const [modalGenerarSorteo, setModalGenerarSorteo] = useState(false);
+  const hoyISO = new Date().toISOString().slice(0, 10)
+  const [modalGenerarSorteo, setModalGenerarSorteo] = useState(false)
   const [sorteoCriterios, setSorteoCriterios] = useState<
-    Required<Omit<GenerarSorteoJuradoRequest, "semilla" | "observaciones">> & {
-      semilla: string;
-      observaciones: string;
+    Required<Omit<GenerarSorteoJuradoRequest, 'semilla' | 'observaciones'>> & {
+      semilla: string
+      observaciones: string
     }
   >({
     cantTitulares: 3,
     cantSuplentes: 3,
     antiguedadMinimaAnios: 15,
-    semilla: "",
-    observaciones: "",
-  });
-  const generarSorteoMutation = useGenerarSorteoJurado(id!);
-  const confirmarSorteoMutation = useConfirmarSorteoJurado(id!);
-  const cancelarSorteoMutation = useCancelarSorteoJurado(id!);
-  const revertirSorteoMutation = useRevertirConfirmacionSorteo(id!);
+    semilla: '',
+    observaciones: '',
+  })
+  const generarSorteoMutation = useGenerarSorteoJurado(id!)
+  const confirmarSorteoMutation = useConfirmarSorteoJurado(id!)
+  const cancelarSorteoMutation = useCancelarSorteoJurado(id!)
+  const revertirSorteoMutation = useRevertirConfirmacionSorteo(id!)
 
   // ── Etapa 3: inscriptos ──
-  const { data: inscriptos = [] } = useInscriptosCph(esNuevo ? undefined : id);
-  const crearInscriptoMutation = useCrearInscriptoCph(id!);
-  const actualizarInscriptoMutation = useActualizarInscriptoCph(id!);
-  const borrarInscriptoMutation = useBorrarInscriptoCph(id!);
-  const importarInscriptosMutation = useImportarInscriptosCph(id!);
-  const cerrarInscripcionMutation = useCerrarInscripcionCph(id!);
-  const reabrirInscripcionMutation = useReabrirInscripcionCph(id!);
-  const publicarExamenMutation = usePublicarExamenCph(id!);
-  const despublicarExamenMutation = useDespublicarExamenCph(id!);
+  const { data: inscriptos = [] } = useInscriptosCph(esNuevo ? undefined : id)
+  const crearInscriptoMutation = useCrearInscriptoCph(id!)
+  const actualizarInscriptoMutation = useActualizarInscriptoCph(id!)
+  const borrarInscriptoMutation = useBorrarInscriptoCph(id!)
+  const importarInscriptosMutation = useImportarInscriptosCph(id!)
+  const cerrarInscripcionMutation = useCerrarInscripcionCph(id!)
+  const reabrirInscripcionMutation = useReabrirInscripcionCph(id!)
+  const publicarExamenMutation = usePublicarExamenCph(id!)
+  const despublicarExamenMutation = useDespublicarExamenCph(id!)
   // ── Etapa 4: IFACS / INSAL (campos controlados para habilitar el guardado) ──
-  const [ifacsForm, setIfacsForm] = useState({ ifacs: "", fechaIfacs: "" });
-  const [insalForm, setInsalForm] = useState({ insal: "", fechaInsal: "" });
+  const [ifacsForm, setIfacsForm] = useState({ ifacs: '', fechaIfacs: '' })
+  const [insalForm, setInsalForm] = useState({ insal: '', fechaInsal: '' })
   useEffect(() => {
     setIfacsForm({
-      ifacs: cphData?.ifacs ?? "",
-      fechaIfacs: cphData?.fechaIfacs?.slice(0, 10) ?? "",
-    });
+      ifacs: cphData?.ifacs ?? '',
+      fechaIfacs: cphData?.fechaIfacs?.slice(0, 10) ?? '',
+    })
     setInsalForm({
-      insal: cphData?.insal ?? "",
-      fechaInsal: cphData?.fechaInsal?.slice(0, 10) ?? "",
-    });
-  }, [cphData]);
+      insal: cphData?.insal ?? '',
+      fechaInsal: cphData?.fechaInsal?.slice(0, 10) ?? '',
+    })
+  }, [cphData])
 
-  const confirmarPresentadosMutation = useConfirmarPresentadosCph(id!);
-  const revertirPresentadosMutation = useRevertirPresentadosCph(id!);
-  const confirmarOrdenMeritoMutation = useConfirmarOrdenMeritoCph(id!);
-  const revertirOrdenMeritoMutation = useRevertirOrdenMeritoCph(id!);
-  const [modalInscripto, setModalInscripto] = useState(false);
+  const confirmarPresentadosMutation = useConfirmarPresentadosCph(id!)
+  const revertirPresentadosMutation = useRevertirPresentadosCph(id!)
+  const confirmarOrdenMeritoMutation = useConfirmarOrdenMeritoCph(id!)
+  const revertirOrdenMeritoMutation = useRevertirOrdenMeritoCph(id!)
+  const [modalInscripto, setModalInscripto] = useState(false)
   const [inscriptoForm, setInscriptoForm] = useState<InscriptoRequest>({
-    apellido: "",
-    nombre: "",
-    dni: "",
-    cuil: "",
-    email: "",
-  });
-  const inscriptoFileRef = useRef<HTMLInputElement>(null);
+    apellido: '',
+    nombre: '',
+    dni: '',
+    cuil: '',
+    email: '',
+  })
+  const inscriptoFileRef = useRef<HTMLInputElement>(null)
 
-  const designarMutation = useDesignarConcursoCph(id!);
-  const declararDesiertoMutation = useDeclararDesiertoCph(id!);
+  const designarMutation = useDesignarConcursoCph(id!)
+  const declararDesiertoMutation = useDeclararDesiertoCph(id!)
 
   // Búsqueda de personas para el selector de designación
   const { data: personasDesignarData } = useQuery({
-    queryKey: ["personas-designar-search", designarSearch],
+    queryKey: ['personas-designar-search', designarSearch],
     queryFn: async () => {
-      if (designarSearch.length < 2) return [];
+      if (designarSearch.length < 2) return []
       // Si parece ID SIAL (solo dígitos, 6-12 chars) buscar por idSial, si no por search
-      const esIdSial = /^\d{6,12}$/.test(designarSearch.trim());
+      const esIdSial = /^\d{6,12}$/.test(designarSearch.trim())
       const res = await apiClient.get<{
         data: {
-          id: string;
-          apellidoNombre: string;
-          cuil: string;
-          numeroDoc?: string | null;
-          especialidadCph?: string | null;
-        }[];
-      }>("/api/v1/personas", {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', {
         params: esIdSial
           ? { idSial: designarSearch.trim(), limit: 20 }
           : { search: designarSearch, limit: 20 },
-      });
-      return res.data.data;
+      })
+      return res.data.data
     },
     enabled: designarSearch.length >= 2,
-  });
+  })
 
   // Roles SIAL activos de la persona seleccionada
   const { data: sialRolesData } = useQuery({
-    queryKey: ["persona-sial-roles", designarPersonaId],
+    queryKey: ['persona-sial-roles', designarPersonaId],
     queryFn: async () => {
       const res = await apiClient.get<{
         data: {
-          idSialRol: string;
-          codigoCargo: string | null;
-          literalPuesto: string | null;
-          hospitalSigla: string;
-        }[];
-      }>(`/api/v1/personas/${designarPersonaId}/sial-roles`);
-      return res.data.data;
+          idSialRol: string
+          codigoCargo: string | null
+          literalPuesto: string | null
+          hospitalSigla: string
+        }[]
+      }>(`/api/v1/personas/${designarPersonaId}/sial-roles`)
+      return res.data.data
     },
     enabled: !!designarPersonaId,
-  });
-  const formRef = useRef<HTMLDivElement>(null);
+  })
+  const formRef = useRef<HTMLDivElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = {
-    sigla: "",
-    escalafonId: "",
-    puesto: "",
-    especialidad: "",
-  };
-  const [originales, setOriginales] = useState(originalesRef);
+    sigla: '',
+    escalafonId: '',
+    puesto: '',
+    especialidad: '',
+  }
+  const [originales, setOriginales] = useState(originalesRef)
   const { data: especialidadesDisponibles = [] } = useEspecialidadesPuesto(
     escalafonId || undefined,
     puestoConcurso || undefined,
-  );
+  )
 
   // Cuando llegan los puestos disponibles, normalizar puestoConcurso contra la BD
   // (los cargos legacy tienen MEDICO DE PLANTA, la BD tiene Medico de Planta)
   useEffect(() => {
-    if (puestosDisponibles.length === 0 || !puestoConcurso) return;
-    if (puestosDisponibles.includes(puestoConcurso)) return;
+    if (puestosDisponibles.length === 0 || !puestoConcurso) return
+    if (puestosDisponibles.includes(puestoConcurso)) return
     const normalize = (s: string) =>
       s
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
-    const match = puestosDisponibles.find(
-      (p) => normalize(p) === normalize(puestoConcurso),
-    );
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+    const match = puestosDisponibles.find((p) => normalize(p) === normalize(puestoConcurso))
     if (match) {
-      setPuestoConcurso(match);
-      setOriginales((prev) => ({ ...prev, puesto: match }));
+      setPuestoConcurso(match)
+      setOriginales((prev) => ({ ...prev, puesto: match }))
     }
-  }, [puestosDisponibles]);
+  }, [puestosDisponibles])
 
   // Cuando llegan las especialidades, normalizar especialidadConcurso contra la BD
   // (ej: 'UROLOGIA' → 'Urologia', 'Ortopedia y Traumatología' vs sin tilde)
   useEffect(() => {
-    if (especialidadesDisponibles.length === 0 || !especialidadConcurso) return;
-    if (especialidadesDisponibles.includes(especialidadConcurso)) return;
+    if (especialidadesDisponibles.length === 0 || !especialidadConcurso) return
+    if (especialidadesDisponibles.includes(especialidadConcurso)) return
     const normalize = (s: string) =>
       s
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
     const match = especialidadesDisponibles.find(
       (e) => normalize(e) === normalize(especialidadConcurso),
-    );
+    )
     if (match) {
-      setEspecialidadConcurso(match);
-      setOriginales((prev) => ({ ...prev, especialidad: match }));
+      setEspecialidadConcurso(match)
+      setOriginales((prev) => ({ ...prev, especialidad: match }))
     }
-  }, [especialidadesDisponibles]);
+  }, [especialidadesDisponibles])
 
   useEffect(() => {
-    if (!cphData) return;
+    if (!cphData) return
     type CargoCph = {
-      hospital?: { sigla?: string };
-      codigoRegistro?: { id?: string; literal?: string };
-      literalPuesto?: string;
-      especialidad?: string;
-      especialidadLegacy?: string;
-    };
-    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo;
-    setSiglaConcurso(cargo?.hospital?.sigla ?? "");
-    // Resolver escalafonId desde el codigoRegistro del cargo
-    const crId = cargo?.codigoRegistro?.id ?? "";
-    const crLiteral = cargo?.codigoRegistro?.literal ?? "";
-    let resolvedEscalafonId = "";
-    if (crId && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.id === crId);
-      resolvedEscalafonId = cr?.escalafonId ?? "";
-    } else if (crLiteral && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.literal === crLiteral);
-      resolvedEscalafonId = cr?.escalafonId ?? "";
+      hospital?: { sigla?: string }
+      codigoRegistro?: { id?: string; literal?: string }
+      literalPuesto?: string
+      especialidad?: string
+      especialidadLegacy?: string
     }
-    setEscalafonId(resolvedEscalafonId);
-    setEeConcursoInput(cphData.eeConcurso ?? "");
+    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    setSiglaConcurso(cargo?.hospital?.sigla ?? '')
+    // Resolver escalafonId desde el codigoRegistro del cargo
+    const crId = cargo?.codigoRegistro?.id ?? ''
+    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+    let resolvedEscalafonId = ''
+    if (crId && codigosRegistro.length > 0) {
+      const cr = codigosRegistro.find((c) => c.id === crId)
+      resolvedEscalafonId = cr?.escalafonId ?? ''
+    } else if (crLiteral && codigosRegistro.length > 0) {
+      const cr = codigosRegistro.find((c) => c.literal === crLiteral)
+      resolvedEscalafonId = cr?.escalafonId ?? ''
+    }
+    setEscalafonId(resolvedEscalafonId)
+    setEeConcursoInput(cphData.eeConcurso ?? '')
     // Normalizar puesto y especialidad contra la BD (los cargos legacy vienen en MAYÚSCULAS)
     // El SearchableSelect ya hace match case-insensitive al cargar, pero los originales
     // deben compararse en el mismo formato que los valores del wizard (BD normalizada).
-    const rawPuesto = cargo?.literalPuesto ?? "";
+    const rawPuesto = cargo?.literalPuesto ?? ''
     const rawEspecialidad =
-      cphData.especialidadSolicitada ??
-      cargo?.especialidadLegacy ??
-      cargo?.especialidad ??
-      "";
-    setPuestoConcurso(rawPuesto);
-    setEspecialidadConcurso(rawEspecialidad);
+      cphData.especialidadSolicitada ?? cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''
+    setPuestoConcurso(rawPuesto)
+    setEspecialidadConcurso(rawEspecialidad)
     setOriginales({
-      sigla: cargo?.hospital?.sigla ?? "",
+      sigla: cargo?.hospital?.sigla ?? '',
       escalafonId: resolvedEscalafonId,
       puesto: rawPuesto,
       especialidad: rawEspecialidad,
-    });
-  }, [cphData, codigosRegistro]);
+    })
+  }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
-  const pendienteAutorizacion = !!(
-    cphData as unknown as { pendienteAutorizacion?: boolean }
-  )?.pendienteAutorizacion;
-  const aprobadoDirector = !!(
-    cphData as unknown as { aprobadoDirector?: boolean }
-  )?.aprobadoDirector;
+  const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })
+    ?.pendienteAutorizacion
+  const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })
+    ?.aprobadoDirector
   const tieneCambioSiglaCr =
     !!(
       cphData as unknown as {
-        siglaSolicitada?: string | null;
-        codigoRegistroSolicitadoId?: string | null;
+        siglaSolicitada?: string | null
+        codigoRegistroSolicitadoId?: string | null
       }
     )?.siglaSolicitada ||
     !!(cphData as unknown as { codigoRegistroSolicitadoId?: string | null })
-      ?.codigoRegistroSolicitadoId;
+      ?.codigoRegistroSolicitadoId
 
   const patchMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      apiClient
-        .patch(`/api/v1/concursos-cph/${id}`, body)
-        .then((r) => r.data.data),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["concurso-cph-wizard", id] }),
-  });
+      apiClient.patch(`/api/v1/concursos-cph/${id}`, body).then((r) => r.data.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] }),
+  })
 
   // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
   // POST /concursos-cph/:id/autorizar (dejaba la Autorizacion huérfana en
   // "pendiente" porque nunca actualizaba esa tabla).
   const autorizarMutation = useMutation({
-    mutationFn: ({
-      aprobado,
-      observaciones,
-    }: {
-      aprobado: boolean;
-      observaciones?: string;
-    }) => {
-      if (!autorizacionPendiente)
-        throw new Error("No hay autorización pendiente para resolver");
-      const accion = aprobado ? "aprobar" : "rechazar";
+    mutationFn: ({ aprobado, observaciones }: { aprobado: boolean; observaciones?: string }) => {
+      if (!autorizacionPendiente) throw new Error('No hay autorización pendiente para resolver')
+      const accion = aprobado ? 'aprobar' : 'rechazar'
       return apiClient
         .post(`/api/v1/autorizaciones/${autorizacionPendiente.id}/${accion}`, {
           observaciones,
         })
-        .then((r) => r.data.data);
+        .then((r) => r.data.data)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["concurso-cph-wizard", id] });
-      queryClient.invalidateQueries({ queryKey: ["autorizaciones"] });
-      setModalAutorizacion(false);
-      setObsAutorizacion("");
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['autorizaciones'] })
+      setModalAutorizacion(false)
+      setObsAutorizacion('')
     },
     onError: (err: unknown) => {
       const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? "Error al resolver la autorización";
-      toast.error(msg);
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Error al resolver la autorización'
+      toast.error(msg)
     },
-  });
+  })
 
   const [etapaActiva, setEtapaActiva] = useState(
-    etapasIniciales.find((e) => e.estado === "activa")?.id ?? "baja",
-  );
+    etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja',
+  )
 
   // Persona designada — se carga al entrar a la etapa de designación
   const {
@@ -889,56 +836,56 @@ export function ConcursoCphWizard() {
     isLoading: loadingPersona,
     error: errorPersona,
   } = useQuery({
-    queryKey: ["concurso-cph-persona-designada", id],
+    queryKey: ['concurso-cph-persona-designada', id],
     queryFn: async () => {
       const res = await apiClient.get<{
         data: {
-          fuente: "persona" | "cargo_sial" | "orden_merito";
+          fuente: 'persona' | 'cargo_sial' | 'orden_merito'
           persona: {
-            id: string;
-            cuil: string;
-            apellidoNombre: string;
-            numeroDoc?: string | null;
-            especialidadPrincipal?: string | null;
-            telefono?: string | null;
-            mailLaboral?: string | null;
-          } | null;
+            id: string
+            cuil: string
+            apellidoNombre: string
+            numeroDoc?: string | null
+            especialidadPrincipal?: string | null
+            telefono?: string | null
+            mailLaboral?: string | null
+          } | null
           cargo: {
-            codigo: string | null;
-            idSial: string;
-            situacionRevista: string | null;
-          } | null;
+            codigo: string | null
+            idSial: string
+            situacionRevista: string | null
+          } | null
           integrante: {
-            posicion: number;
-            especialidad?: string | null;
-            ordenMerito: { especialidad: string; fechaPublicacion: string };
-          } | null;
-        };
-      }>(`/api/v1/concursos-cph/${id}/persona-designada`);
-      return res.data.data;
+            posicion: number
+            especialidad?: string | null
+            ordenMerito: { especialidad: string; fechaPublicacion: string }
+          } | null
+        }
+      }>(`/api/v1/concursos-cph/${id}/persona-designada`)
+      return res.data.data
     },
-    enabled: !esNuevo && !!id && etapaActiva === "designacion",
+    enabled: !esNuevo && !!id && etapaActiva === 'designacion',
     retry: false,
-  });
-  const [suspendido, setSuspendido] = useState(false);
-  const [guardado, setGuardado] = useState(false);
-  const [faltantesEtapa2, setFaltantesEtapa2] = useState<string[]>([]);
-  const [faltantesEtapa3, setFaltantesEtapa3] = useState<string[]>([]);
-  const [etapas, setEtapas] = useState<Etapa[]>(etapasIniciales);
+  })
+  const [suspendido, setSuspendido] = useState(false)
+  const [guardado, setGuardado] = useState(false)
+  const [faltantesEtapa2, setFaltantesEtapa2] = useState<string[]>([])
+  const [faltantesEtapa3, setFaltantesEtapa3] = useState<string[]>([])
+  const [etapas, setEtapas] = useState<Etapa[]>(etapasIniciales)
 
   // Sincronizar etapas cuando llegan datos de la API
-  const etapasActuales = cphData ? etapasIniciales : etapas;
+  const etapasActuales = cphData ? etapasIniciales : etapas
 
-  const etapa = etapasActuales.find((e) => e.id === etapaActiva)!;
+  const etapa = etapasActuales.find((e) => e.id === etapaActiva)!
 
   // Validación de campos requeridos en etapa baja antes de habilitar "Guardar y continuar"
   const etapaBajaCompleta =
-    etapaActiva !== "baja" ||
+    etapaActiva !== 'baja' ||
     (!!eeConcursoInput &&
       !!siglaConcurso &&
       !!escalafonId &&
       !!puestoConcurso &&
-      (especialidadesDisponibles.length === 0 || !!especialidadConcurso));
+      (especialidadesDisponibles.length === 0 || !!especialidadConcurso))
 
   // Índice del marcador "en curso" (amarillo) en el panel de sub-estados.
   // Regla: VERDE = lo ya completado, AMARILLO = el primer paso pendiente.
@@ -949,179 +896,164 @@ export function ConcursoCphWizard() {
   //  - Último sub-estado (O-ALTA SIAL): el proceso terminó → no hay "siguiente".
   //  - Q-DESIERTO no está en la lista lineal → se deja tal cual.
   const currentIdxDinamico = (() => {
-    const sub = concurso?.subEstado ?? "VACANTE";
-    const idx = SUB_ESTADOS.findIndex((s) => s.key === sub);
-    if (idx < 0) return 0; // sub-estado fuera de la lista (ej. Q-DESIERTO)
-    if (idx === 0) return 0; // Vacante: nada completado todavía
-    if (idx >= SUB_ESTADOS.length - 1) return idx; // último: proceso completo
-    return idx + 1; // amarillo = primer pendiente
-  })();
+    const sub = concurso?.subEstado ?? 'VACANTE'
+    const idx = SUB_ESTADOS.findIndex((s) => s.key === sub)
+    if (idx < 0) return 0 // sub-estado fuera de la lista (ej. Q-DESIERTO)
+    if (idx === 0) return 0 // Vacante: nada completado todavía
+    if (idx >= SUB_ESTADOS.length - 1) return idx // último: proceso completo
+    return idx + 1 // amarillo = primer pendiente
+  })()
 
   if (!esNuevo && isLoading)
-    return (
-      <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
-    );
+    return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
   if (!esNuevo && !concurso)
-    return (
-      <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
-    );
-  const c = concurso!;
+    return <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
+  const c = concurso!
 
   function handleGuardar() {
-    if (etapaActiva === "baja" && !esNuevo) {
-      const labelEsc = (eId: string) =>
-        escalafones.find((e) => e.id === eId)?.nombre ?? eId;
-      const cambiosConAutorizacion: { campo: string; de: string; a: string }[] =
-        [];
+    if (etapaActiva === 'baja' && !esNuevo) {
+      const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
+      const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
       // Sigla y escalafón: autorización doble (director → sgrasv)
       if (siglaConcurso !== originales.sigla)
         cambiosConAutorizacion.push({
-          campo: "Sigla",
+          campo: 'Sigla',
           de: originales.sigla,
           a: siglaConcurso,
-        });
+        })
       if (escalafonId !== originales.escalafonId)
         cambiosConAutorizacion.push({
-          campo: "Escalafón",
+          campo: 'Escalafón',
           de: escalafonLabel(labelEsc(originales.escalafonId)),
           a: escalafonLabel(labelEsc(escalafonId)),
-        });
+        })
       // Especialidad y puesto: autorización simple (solo sgrasv)
-      const eeConcursoActual = cphData?.eeConcurso;
+      const eeConcursoActual = cphData?.eeConcurso
       if (especialidadConcurso !== originales.especialidad)
         cambiosConAutorizacion.push({
-          campo: "Especialidad",
+          campo: 'Especialidad',
           de: originales.especialidad,
           a: especialidadConcurso,
-        });
+        })
       if (puestoConcurso !== originales.puesto)
         cambiosConAutorizacion.push({
-          campo: "Puesto",
+          campo: 'Puesto',
           de: originales.puesto,
           a: puestoConcurso,
-        });
+        })
       // eeConcurso: solo si ya tenía valor previo (modificación, no carga inicial)
-      if (
-        eeConcursoActual &&
-        eeConcursoInput &&
-        eeConcursoInput !== eeConcursoActual
-      ) {
+      if (eeConcursoActual && eeConcursoInput && eeConcursoInput !== eeConcursoActual) {
         cambiosConAutorizacion.push({
-          campo: "Expediente de Concurso",
+          campo: 'Expediente de Concurso',
           de: eeConcursoActual,
           a: eeConcursoInput,
-        });
+        })
       }
       if (cambiosConAutorizacion.length > 0) {
-        setModalCambios(cambiosConAutorizacion);
-        return;
+        setModalCambios(cambiosConAutorizacion)
+        return
       }
     }
     // Leer todos los campos del formulario activo y enviar al backend
-    const body: Record<string, unknown> = {};
+    const body: Record<string, unknown> = {}
     if (formRef.current) {
       formRef.current
-        .querySelectorAll<
-          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-        >("input[data-key]:not([readonly]):not([disabled]), select[data-key]:not([disabled]), textarea[data-key]:not([disabled])")
+        .querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+          'input[data-key]:not([readonly]):not([disabled]), select[data-key]:not([disabled]), textarea[data-key]:not([disabled])',
+        )
         .forEach((el) => {
-          const key = el.dataset.key!;
-          if (el instanceof HTMLInputElement && el.type === "checkbox") {
-            body[key] = el.checked;
+          const key = el.dataset.key!
+          if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+            body[key] = el.checked
           } else {
-            body[key] = el.value || null;
+            body[key] = el.value || null
           }
-        });
+        })
     }
     // Incluir valores de SearchableSelect (no tienen data-key, viven en estado React)
-    if (etapaActiva === "baja") {
+    if (etapaActiva === 'baja') {
       if (especialidadConcurso !== originales.especialidad)
-        body.especialidadSolicitada = especialidadConcurso || null;
-      if (puestoConcurso !== originales.puesto)
-        body.puestoSolicitado = puestoConcurso || null;
+        body.especialidadSolicitada = especialidadConcurso || null
+      if (puestoConcurso !== originales.puesto) body.puestoSolicitado = puestoConcurso || null
     }
-    if (Object.keys(body).length > 0) patchMutation.mutate(body);
+    if (Object.keys(body).length > 0) patchMutation.mutate(body)
 
     // Etapa 2: validar que estén TODOS los requisitos antes de avanzar a la 3.
     // Se guardan igual los campos (arriba), pero no se avanza si falta algo.
-    if (etapaActiva === "autorizacion") {
+    if (etapaActiva === 'autorizacion') {
       const fechaAutz =
-        (body.fechaAutorizacion as string | null | undefined) ??
-        cphData?.fechaAutorizacion;
-      const dispo =
-        (body.disposicion as string | null | undefined) ?? cphData?.disposicion;
-      const tipoGest =
-        (body.tipoGestion as string | null | undefined) ?? cphData?.tipoGestion;
-      const faltan: string[] = [];
-      if (!juradoData?.confirmado) faltan.push("Confirmar el sorteo de jurado");
-      if (!fechaAutz) faltan.push("Fecha de autorización");
-      if (!dispo) faltan.push("Disposición de llamado");
-      if (!tipoGest) faltan.push("Tipo de gestión");
+        (body.fechaAutorizacion as string | null | undefined) ?? cphData?.fechaAutorizacion
+      const dispo = (body.disposicion as string | null | undefined) ?? cphData?.disposicion
+      const tipoGest = (body.tipoGestion as string | null | undefined) ?? cphData?.tipoGestion
+      const faltan: string[] = []
+      if (!juradoData?.confirmado) faltan.push('Confirmar el sorteo de jurado')
+      if (!fechaAutz) faltan.push('Fecha de autorización')
+      if (!dispo) faltan.push('Disposición de llamado')
+      if (!tipoGest) faltan.push('Tipo de gestión')
       if (faltan.length > 0) {
-        setFaltantesEtapa2(faltan);
-        setGuardado(true);
-        setTimeout(() => setGuardado(false), 2500);
-        return;
+        setFaltantesEtapa2(faltan)
+        setGuardado(true)
+        setTimeout(() => setGuardado(false), 2500)
+        return
       }
-      setFaltantesEtapa2([]);
+      setFaltantesEtapa2([])
     }
 
     // Etapa 3: para avanzar a la 4, el orden de mérito debe estar confirmado
     // (lo que implica examen + presentados confirmados + posiciones completas).
-    if (etapaActiva === "inscripcion") {
-      const faltan: string[] = [];
-      if (!cphData?.fechaExamen) faltan.push("Fecha de examen");
-      if (!cphData?.presentadosConfirmados) faltan.push("Confirmar presentados");
-      if (!cphData?.ordenMeritoConfirmado) faltan.push("Confirmar orden de mérito");
+    if (etapaActiva === 'inscripcion') {
+      const faltan: string[] = []
+      if (!cphData?.fechaExamen) faltan.push('Fecha de examen')
+      if (!cphData?.presentadosConfirmados) faltan.push('Confirmar presentados')
+      if (!cphData?.ordenMeritoConfirmado) faltan.push('Confirmar orden de mérito')
       if (faltan.length > 0) {
-        setFaltantesEtapa3(faltan);
-        setGuardado(true);
-        setTimeout(() => setGuardado(false), 2500);
-        return;
+        setFaltantesEtapa3(faltan)
+        setGuardado(true)
+        setTimeout(() => setGuardado(false), 2500)
+        return
       }
-      setFaltantesEtapa3([]);
+      setFaltantesEtapa3([])
     }
 
-    const siguiente = etapasActuales[etapa.numero];
-    if (siguiente && siguiente.estado !== "bloqueada")
-      setEtapaActiva(siguiente.id);
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2500);
+    const siguiente = etapasActuales[etapa.numero]
+    if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
+    setGuardado(true)
+    setTimeout(() => setGuardado(false), 2500)
   }
 
   function confirmarCambios() {
-    setModalCambios(null);
+    setModalCambios(null)
     // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado)
     patchMutation.mutate({
       sigla: siglaConcurso || null,
       codigoRegistroId: crIdDeEscalafon(escalafonId),
       especialidadSolicitada: especialidadConcurso || null,
-    });
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2500);
+    })
+    setGuardado(true)
+    setTimeout(() => setGuardado(false), 2500)
   }
 
   function handleMarcarCompleta() {
-    const hoy = new Date().toISOString().split("T")[0];
+    const hoy = new Date().toISOString().split('T')[0]
     setEtapas((prev) => {
-      const idx = prev.findIndex((e) => e.id === etapaActiva);
-      if (idx === -1) return prev;
+      const idx = prev.findIndex((e) => e.id === etapaActiva)
+      if (idx === -1) return prev
       const next: Etapa[] = prev.map((e, i) => {
         if (i === idx)
           return {
             ...e,
-            estado: "completada" as EstadoEtapa,
+            estado: 'completada' as EstadoEtapa,
             fechaCompletada: hoy,
-          };
-        if (i === idx + 1) return { ...e, estado: "activa" as EstadoEtapa };
-        return e;
-      });
-      const siguienteId = next[idx + 1]?.id;
-      if (siguienteId) setEtapaActiva(siguienteId);
-      return next;
-    });
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2500);
+          }
+        if (i === idx + 1) return { ...e, estado: 'activa' as EstadoEtapa }
+        return e
+      })
+      const siguienteId = next[idx + 1]?.id
+      if (siguienteId) setEtapaActiva(siguienteId)
+      return next
+    })
+    setGuardado(true)
+    setTimeout(() => setGuardado(false), 2500)
   }
 
   return (
@@ -1135,42 +1067,79 @@ export function ConcursoCphWizard() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
               <h3 className="font-primary font-bold text-gray-900">Agregar inscripto</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Apellido y nombre son obligatorios. El resto es opcional.</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Apellido y nombre son obligatorios. El resto es opcional.
+              </p>
             </div>
             <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Apellido <span className="text-danger">*</span></label>
-                  <input type="text" className="input h-10 w-full" value={inscriptoForm.apellido}
-                    onChange={(e) => setInscriptoForm((f) => ({ ...f, apellido: e.target.value }))} autoFocus />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Apellido <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input h-10 w-full"
+                    value={inscriptoForm.apellido}
+                    onChange={(e) => setInscriptoForm((f) => ({ ...f, apellido: e.target.value }))}
+                    autoFocus
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Nombre <span className="text-danger">*</span></label>
-                  <input type="text" className="input h-10 w-full" value={inscriptoForm.nombre}
-                    onChange={(e) => setInscriptoForm((f) => ({ ...f, nombre: e.target.value }))} />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Nombre <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input h-10 w-full"
+                    value={inscriptoForm.nombre}
+                    onChange={(e) => setInscriptoForm((f) => ({ ...f, nombre: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">DNI</label>
-                  <input type="text" className="input h-10 w-full" value={inscriptoForm.dni ?? ""}
-                    onChange={(e) => setInscriptoForm((f) => ({ ...f, dni: e.target.value }))} />
+                  <input
+                    type="text"
+                    className="input h-10 w-full"
+                    value={inscriptoForm.dni ?? ''}
+                    onChange={(e) => setInscriptoForm((f) => ({ ...f, dni: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">CUIL</label>
-                  <input type="text" className="input h-10 w-full" value={inscriptoForm.cuil ?? ""}
-                    onChange={(e) => setInscriptoForm((f) => ({ ...f, cuil: e.target.value }))} />
+                  <input
+                    type="text"
+                    className="input h-10 w-full"
+                    value={inscriptoForm.cuil ?? ''}
+                    onChange={(e) => setInscriptoForm((f) => ({ ...f, cuil: e.target.value }))}
+                  />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
-                  <input type="email" className="input h-10 w-full" value={inscriptoForm.email ?? ""}
-                    onChange={(e) => setInscriptoForm((f) => ({ ...f, email: e.target.value }))} />
+                  <input
+                    type="email"
+                    className="input h-10 w-full"
+                    value={inscriptoForm.email ?? ''}
+                    onChange={(e) => setInscriptoForm((f) => ({ ...f, email: e.target.value }))}
+                  />
                 </div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button className="btn-outline" onClick={() => setModalInscripto(false)} disabled={crearInscriptoMutation.isPending}>Cancelar</button>
+              <button
+                className="btn-outline"
+                onClick={() => setModalInscripto(false)}
+                disabled={crearInscriptoMutation.isPending}
+              >
+                Cancelar
+              </button>
               <button
                 className="btn-primary"
-                disabled={!inscriptoForm.apellido.trim() || !inscriptoForm.nombre.trim() || crearInscriptoMutation.isPending}
+                disabled={
+                  !inscriptoForm.apellido.trim() ||
+                  !inscriptoForm.nombre.trim() ||
+                  crearInscriptoMutation.isPending
+                }
                 onClick={async () => {
                   try {
                     await crearInscriptoMutation.mutateAsync({
@@ -1179,15 +1148,15 @@ export function ConcursoCphWizard() {
                       dni: inscriptoForm.dni?.trim() || undefined,
                       cuil: inscriptoForm.cuil?.trim() || undefined,
                       email: inscriptoForm.email?.trim() || undefined,
-                    });
-                    setModalInscripto(false);
-                    toast.success("Inscripto agregado.");
+                    })
+                    setModalInscripto(false)
+                    toast.success('Inscripto agregado.')
                   } catch {
-                    toast.error("No se pudo agregar el inscripto.");
+                    toast.error('No se pudo agregar el inscripto.')
                   }
                 }}
               >
-                {crearInscriptoMutation.isPending ? "Guardando…" : "Agregar"}
+                {crearInscriptoMutation.isPending ? 'Guardando…' : 'Agregar'}
               </button>
             </div>
           </div>
@@ -1270,13 +1239,13 @@ export function ConcursoCphWizard() {
                 </p>
               </div>
               <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[11px] text-gray-500 leading-relaxed">
-                El jurado se arma por reglas en cascada (se baja de regla solo
-                si no se completa el total):
+                El jurado se arma por reglas en cascada (se baja de regla solo si no se completa el
+                total):
                 <br />
-                <strong>1.</strong> mismo hospital + conducción + misma
-                especialidad ·<strong> 2.</strong> mismo hospital + antigüedad ≥{" "}
-                {sorteoCriterios.antiguedadMinimaAnios} años ·
-                <strong> 3.</strong> sistema de salud + conducción.
+                <strong>1.</strong> mismo hospital + conducción + misma especialidad ·
+                <strong> 2.</strong> mismo hospital + antigüedad ≥{' '}
+                {sorteoCriterios.antiguedadMinimaAnios} años ·<strong> 3.</strong> sistema de salud
+                + conducción.
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -1317,10 +1286,7 @@ export function ConcursoCphWizard() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
-              <button
-                className="btn-outline"
-                onClick={() => setModalGenerarSorteo(false)}
-              >
+              <button className="btn-outline" onClick={() => setModalGenerarSorteo(false)}>
                 Cerrar
               </button>
               <button
@@ -1331,20 +1297,17 @@ export function ConcursoCphWizard() {
                     await generarSorteoMutation.mutateAsync({
                       cantTitulares: sorteoCriterios.cantTitulares,
                       cantSuplentes: sorteoCriterios.cantSuplentes,
-                      antiguedadMinimaAnios:
-                        sorteoCriterios.antiguedadMinimaAnios,
+                      antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
                       semilla: sorteoCriterios.semilla || undefined,
                       observaciones: sorteoCriterios.observaciones || undefined,
-                    });
-                    setModalGenerarSorteo(false);
+                    })
+                    setModalGenerarSorteo(false)
                   } catch {
                     /* el error se muestra en el bloque de la etapa */
                   }
                 }}
               >
-                {generarSorteoMutation.isPending
-                  ? "Sorteando…"
-                  : "🎲 Sortear con estos criterios"}
+                {generarSorteoMutation.isPending ? 'Sorteando…' : '🎲 Sortear con estos criterios'}
               </button>
             </div>
           </div>
@@ -1358,12 +1321,9 @@ export function ConcursoCphWizard() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
               <span className="text-green-500 text-xl">👤</span>
               <div>
-                <h3 className="font-primary font-bold text-gray-900">
-                  Registrar designación
-                </h3>
+                <h3 className="font-primary font-bold text-gray-900">Registrar designación</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  El cargo quedará ocupado inmediatamente, sin esperar el
-                  padrón.
+                  El cargo quedará ocupado inmediatamente, sin esperar el padrón.
                 </p>
               </div>
             </div>
@@ -1377,11 +1337,11 @@ export function ConcursoCphWizard() {
                   type="text"
                   value={designarSearch}
                   onChange={(e) => {
-                    setDesignarSearch(e.target.value);
-                    setDesignarPersonaId("");
-                    setDesignarPersonaNombre("");
-                    setDesignarPersonaEspCph(null);
-                    setDesignarIdSialRol("");
+                    setDesignarSearch(e.target.value)
+                    setDesignarPersonaId('')
+                    setDesignarPersonaNombre('')
+                    setDesignarPersonaEspCph(null)
+                    setDesignarIdSialRol('')
                   }}
                   className="input h-10 w-full"
                   placeholder="Nombre, CUIL, DNI o ID SIAL..."
@@ -1392,116 +1352,102 @@ export function ConcursoCphWizard() {
                   personasDesignarData.length > 0 &&
                   !designarPersonaId &&
                   (() => {
-                    const espConcurso = concurso?.especialidad ?? null;
+                    const espConcurso = concurso?.especialidad ?? null
                     const norm = (s: string) =>
                       s
-                        .normalize("NFD")
-                        .replace(/[\u0300-\u036f]/g, "")
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
                         .toLowerCase()
-                        .trim();
+                        .trim()
                     return (
                       <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm max-h-52 overflow-y-auto">
                         {personasDesignarData.map((p) => {
                           const espCph =
                             (
                               p as unknown as {
-                                especialidadCph?: string | null;
+                                especialidadCph?: string | null
                               }
-                            ).especialidadCph ?? null;
+                            ).especialidadCph ?? null
                           const coincide =
-                            espCph && espConcurso
-                              ? norm(espCph) === norm(espConcurso)
-                              : null;
+                            espCph && espConcurso ? norm(espCph) === norm(espConcurso) : null
                           return (
                             <button
                               key={p.id}
                               type="button"
                               className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
                               onClick={() => {
-                                setDesignarPersonaId(p.id);
-                                setDesignarPersonaNombre(p.apellidoNombre);
-                                setDesignarPersonaEspCph(espCph);
-                                setDesignarSearch(p.apellidoNombre);
-                                setDesignarIdSialRol("");
+                                setDesignarPersonaId(p.id)
+                                setDesignarPersonaNombre(p.apellidoNombre)
+                                setDesignarPersonaEspCph(espCph)
+                                setDesignarSearch(p.apellidoNombre)
+                                setDesignarIdSialRol('')
                               }}
                             >
                               <span className="font-medium text-gray-800 block">
                                 {p.apellidoNombre}
                               </span>
-                              <span className="text-xs text-gray-400 font-mono">
-                                {p.cuil}
-                              </span>
+                              <span className="text-xs text-gray-400 font-mono">{p.cuil}</span>
                               {espCph && (
                                 <span
                                   className={`ml-2 text-xs font-medium ${
                                     coincide === true
-                                      ? "text-green-600"
+                                      ? 'text-green-600'
                                       : coincide === false
-                                        ? "text-amber-600"
-                                        : "text-gray-400"
+                                        ? 'text-amber-600'
+                                        : 'text-gray-400'
                                   }`}
                                 >
-                                  {coincide === true
-                                    ? "✓"
-                                    : coincide === false
-                                      ? "⚠️"
-                                      : ""}{" "}
+                                  {coincide === true ? '✓' : coincide === false ? '⚠️' : ''}{' '}
                                   {espCph}
                                 </span>
                               )}
                             </button>
-                          );
+                          )
                         })}
                       </div>
-                    );
+                    )
                   })()}
                 {/* Persona seleccionada */}
                 {designarPersonaId &&
                   (() => {
-                    const espConcurso = concurso?.especialidad ?? null;
+                    const espConcurso = concurso?.especialidad ?? null
                     const norm = (s: string) =>
                       s
-                        .normalize("NFD")
-                        .replace(/[\u0300-\u036f]/g, "")
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
                         .toLowerCase()
-                        .trim();
+                        .trim()
                     const coincide =
                       designarPersonaEspCph && espConcurso
                         ? norm(designarPersonaEspCph) === norm(espConcurso)
-                        : null;
+                        : null
                     return (
                       <div className="mt-1.5 space-y-1">
-                        <p className="text-xs text-green-600">
-                          ✓ Persona seleccionada
-                        </p>
+                        <p className="text-xs text-green-600">✓ Persona seleccionada</p>
                         {designarPersonaEspCph ? (
                           <div
                             className={`rounded px-2.5 py-1.5 text-xs flex items-center gap-1.5 ${
                               coincide === true
-                                ? "bg-green-50 border border-green-200 text-green-700"
-                                : "bg-amber-50 border border-amber-200 text-amber-700"
+                                ? 'bg-green-50 border border-green-200 text-green-700'
+                                : 'bg-amber-50 border border-amber-200 text-amber-700'
                             }`}
                           >
-                            <span>{coincide === true ? "✓" : "⚠️"}</span>
+                            <span>{coincide === true ? '✓' : '⚠️'}</span>
                             <span>
-                              Especialidad CPH:{" "}
-                              <strong>{designarPersonaEspCph}</strong>
+                              Especialidad CPH: <strong>{designarPersonaEspCph}</strong>
                               {coincide === false && espConcurso && (
                                 <>
-                                  {" "}
-                                  — el concurso es de{" "}
-                                  <strong>{espConcurso}</strong>
+                                  {' '}
+                                  — el concurso es de <strong>{espConcurso}</strong>
                                 </>
                               )}
                             </span>
                           </div>
                         ) : (
-                          <p className="text-xs text-gray-400">
-                            Sin especialidad CPH registrada
-                          </p>
+                          <p className="text-xs text-gray-400">Sin especialidad CPH registrada</p>
                         )}
                       </div>
-                    );
+                    )
                   })()}
               </div>
 
@@ -1515,18 +1461,16 @@ export function ConcursoCphWizard() {
                     <div className="border border-gray-200 rounded-lg overflow-hidden">
                       <button
                         type="button"
-                        onClick={() => setDesignarIdSialRol("")}
+                        onClick={() => setDesignarIdSialRol('')}
                         className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 flex items-center gap-2 ${
-                          designarIdSialRol === ""
-                            ? "bg-blue-50"
-                            : "hover:bg-gray-50"
+                          designarIdSialRol === '' ? 'bg-blue-50' : 'hover:bg-gray-50'
                         }`}
                       >
                         <span
                           className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
-                            designarIdSialRol === ""
-                              ? "border-blue-500 bg-blue-500"
-                              : "border-gray-300"
+                            designarIdSialRol === ''
+                              ? 'border-blue-500 bg-blue-500'
+                              : 'border-gray-300'
                           }`}
                         />
                         <span className="text-gray-500 italic">
@@ -1539,44 +1483,35 @@ export function ConcursoCphWizard() {
                           type="button"
                           onClick={() => setDesignarIdSialRol(r.idSialRol)}
                           className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-0 flex items-center gap-2 ${
-                            designarIdSialRol === r.idSialRol
-                              ? "bg-blue-50"
-                              : "hover:bg-gray-50"
+                            designarIdSialRol === r.idSialRol ? 'bg-blue-50' : 'hover:bg-gray-50'
                           }`}
                         >
                           <span
                             className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
                               designarIdSialRol === r.idSialRol
-                                ? "border-blue-500 bg-blue-500"
-                                : "border-gray-300"
+                                ? 'border-blue-500 bg-blue-500'
+                                : 'border-gray-300'
                             }`}
                           />
                           <span>
-                            <span className="font-mono text-gray-700">
-                              {r.idSialRol}
-                            </span>
+                            <span className="font-mono text-gray-700">{r.idSialRol}</span>
                             {r.codigoCargo && (
-                              <span className="ml-2 text-xs text-gray-400">
-                                {r.codigoCargo}
-                              </span>
+                              <span className="ml-2 text-xs text-gray-400">{r.codigoCargo}</span>
                             )}
                             {r.literalPuesto && (
                               <span className="ml-1 text-xs text-gray-500">
                                 · {r.literalPuesto}
                               </span>
                             )}
-                            <span className="ml-1 text-xs text-gray-400">
-                              · {r.hospitalSigla}
-                            </span>
+                            <span className="ml-1 text-xs text-gray-400">· {r.hospitalSigla}</span>
                           </span>
                         </button>
                       ))}
                     </div>
                   ) : (
                     <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-500">
-                      Esta persona no tiene roles activos en el padrón actual.
-                      Se generará un ID provisional que se actualizará
-                      automáticamente con el próximo archivo semanal.
+                      Esta persona no tiene roles activos en el padrón actual. Se generará un ID
+                      provisional que se actualizará automáticamente con el próximo archivo semanal.
                     </div>
                   )}
                 </div>
@@ -1599,10 +1534,9 @@ export function ConcursoCphWizard() {
                 <p className="text-sm text-danger">
                   {(
                     designarMutation.error as {
-                      response?: { data?: { message?: string } };
+                      response?: { data?: { message?: string } }
                     }
-                  )?.response?.data?.message ??
-                    "Error al registrar la designación"}
+                  )?.response?.data?.message ?? 'Error al registrar la designación'}
                 </p>
               )}
             </div>
@@ -1610,24 +1544,20 @@ export function ConcursoCphWizard() {
               <button
                 className="btn-outline"
                 onClick={() => {
-                  setModalDesignar(false);
-                  setDesignarPersonaId("");
-                  setDesignarPersonaNombre("");
-                  setDesignarPersonaEspCph(null);
-                  setDesignarSearch("");
-                  setDesignarFechaDesde("");
-                  setDesignarIdSialRol("");
+                  setModalDesignar(false)
+                  setDesignarPersonaId('')
+                  setDesignarPersonaNombre('')
+                  setDesignarPersonaEspCph(null)
+                  setDesignarSearch('')
+                  setDesignarFechaDesde('')
+                  setDesignarIdSialRol('')
                 }}
               >
                 Cancelar
               </button>
               <button
                 className="btn-primary"
-                disabled={
-                  !designarPersonaId ||
-                  !designarFechaDesde ||
-                  designarMutation.isPending
-                }
+                disabled={!designarPersonaId || !designarFechaDesde || designarMutation.isPending}
                 onClick={() => {
                   designarMutation.mutate(
                     {
@@ -1637,21 +1567,19 @@ export function ConcursoCphWizard() {
                     },
                     {
                       onSuccess: () => {
-                        setModalDesignar(false);
-                        setDesignarPersonaId("");
-                        setDesignarPersonaNombre("");
-                        setDesignarPersonaEspCph(null);
-                        setDesignarSearch("");
-                        setDesignarFechaDesde("");
-                        setDesignarIdSialRol("");
+                        setModalDesignar(false)
+                        setDesignarPersonaId('')
+                        setDesignarPersonaNombre('')
+                        setDesignarPersonaEspCph(null)
+                        setDesignarSearch('')
+                        setDesignarFechaDesde('')
+                        setDesignarIdSialRol('')
                       },
                     },
-                  );
+                  )
                 }}
               >
-                {designarMutation.isPending
-                  ? "Guardando..."
-                  : "Confirmar designación"}
+                {designarMutation.isPending ? 'Guardando...' : 'Confirmar designación'}
               </button>
             </div>
           </div>
@@ -1663,12 +1591,9 @@ export function ConcursoCphWizard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="font-primary font-bold text-gray-900">
-                Declarar desierto
-              </h3>
+              <h3 className="font-primary font-bold text-gray-900">Declarar desierto</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Se guardará un snapshot de la ronda y se limpiarán los campos
-                para el relanzamiento.
+                Se guardará un snapshot de la ronda y se limpiarán los campos para el relanzamiento.
               </p>
             </div>
             <div className="px-6 py-4 space-y-4">
@@ -1713,10 +1638,10 @@ export function ConcursoCphWizard() {
               <button
                 className="btn-outline"
                 onClick={() => {
-                  setModalDesierto(false);
-                  setDesiertoDisp("");
-                  setDesiertoFecha("");
-                  setDesiertoObs("");
+                  setModalDesierto(false)
+                  setDesiertoDisp('')
+                  setDesiertoFecha('')
+                  setDesiertoObs('')
                 }}
                 disabled={declararDesiertoMutation.isPending}
               >
@@ -1725,27 +1650,23 @@ export function ConcursoCphWizard() {
               <button
                 className="btn-danger"
                 disabled={
-                  !desiertoDisp.trim() ||
-                  !desiertoFecha ||
-                  declararDesiertoMutation.isPending
+                  !desiertoDisp.trim() || !desiertoFecha || declararDesiertoMutation.isPending
                 }
                 onClick={async () => {
                   await declararDesiertoMutation.mutateAsync({
                     dispoDesierta: desiertoDisp.trim(),
                     fechaDispoDesierta: desiertoFecha,
                     observaciones: desiertoObs || undefined,
-                  });
-                  setModalDesierto(false);
-                  setDesiertoDisp("");
-                  setDesiertoFecha("");
-                  setDesiertoObs("");
+                  })
+                  setModalDesierto(false)
+                  setDesiertoDisp('')
+                  setDesiertoFecha('')
+                  setDesiertoObs('')
                   // Relanzamiento: el concurso vuelve a la Etapa 1 (Baja / Apertura).
-                  setEtapaActiva("baja");
+                  setEtapaActiva('baja')
                 }}
               >
-                {declararDesiertoMutation.isPending
-                  ? "Guardando..."
-                  : "Confirmar desierto"}
+                {declararDesiertoMutation.isPending ? 'Guardando...' : 'Confirmar desierto'}
               </button>
             </div>
           </div>
@@ -1759,9 +1680,7 @@ export function ConcursoCphWizard() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
               <span className="text-blue-500 text-xl">🔐</span>
               <div>
-                <h3 className="font-primary font-bold text-gray-900">
-                  Resolver autorización
-                </h3>
+                <h3 className="font-primary font-bold text-gray-900">Resolver autorización</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Podés aprobar o rechazar la modificación solicitada.
                 </p>
@@ -1780,10 +1699,7 @@ export function ConcursoCphWizard() {
               />
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button
-                className="btn-outline"
-                onClick={() => setModalAutorizacion(false)}
-              >
+              <button className="btn-outline" onClick={() => setModalAutorizacion(false)}>
                 Cancelar
               </button>
               <button
@@ -1822,15 +1738,11 @@ export function ConcursoCphWizard() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
               <span className="text-amber-500 text-xl">⚠️</span>
               <div>
-                <h3 className="font-primary font-bold text-gray-900">
-                  Confirmar modificación
-                </h3>
+                <h3 className="font-primary font-bold text-gray-900">Confirmar modificación</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {modalCambios?.some(
-                    (c) => c.campo === "Sigla" || c.campo === "Escalafón",
-                  )
-                    ? "Requiere autorización del Director y luego de SGRASV."
-                    : "Requiere autorización de SGRASV."}
+                  {modalCambios?.some((c) => c.campo === 'Sigla' || c.campo === 'Escalafón')
+                    ? 'Requiere autorización del Director y luego de SGRASV.'
+                    : 'Requiere autorización de SGRASV.'}
                 </p>
               </div>
             </div>
@@ -1849,15 +1761,11 @@ export function ConcursoCphWizard() {
                     </p>
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-red-500 line-through">
-                        {c.de || (
-                          <em className="not-italic text-gray-400">vacío</em>
-                        )}
+                        {c.de || <em className="not-italic text-gray-400">vacío</em>}
                       </span>
                       <span className="text-gray-400">→</span>
                       <span className="text-green-700 font-medium">
-                        {c.a || (
-                          <em className="not-italic text-gray-400">vacío</em>
-                        )}
+                        {c.a || <em className="not-italic text-gray-400">vacío</em>}
                       </span>
                     </div>
                   </div>
@@ -1865,10 +1773,7 @@ export function ConcursoCphWizard() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button
-                className="btn-outline"
-                onClick={() => setModalCambios(null)}
-              >
+              <button className="btn-outline" onClick={() => setModalCambios(null)}>
                 Cancelar
               </button>
               <button className="btn-primary" onClick={confirmarCambios}>
@@ -1884,61 +1789,52 @@ export function ConcursoCphWizard() {
         cphData &&
         (() => {
           type BajaExt = {
-            motivo?: string | null;
-            docRespaldatoria?: string | null;
-            tipificadorOrigen?: string | null;
-            partidaPresupuestaria?: string | null;
-            cargaHoraria?: number | null;
-            fechaPaseParalelo?: string | Date | null;
-            observaciones?: string | null;
-            fechaBaja?: string | Date | null;
-            eeBaja?: string | null;
-            tipoBaja?: string | null;
-          };
+            motivo?: string | null
+            docRespaldatoria?: string | null
+            tipificadorOrigen?: string | null
+            partidaPresupuestaria?: string | null
+            cargaHoraria?: number | null
+            fechaPaseParalelo?: string | Date | null
+            observaciones?: string | null
+            fechaBaja?: string | Date | null
+            eeBaja?: string | null
+            tipoBaja?: string | null
+          }
           type CargoExt = {
-            codigo?: string;
-            literalPuesto?: string;
-            especialidad?: string;
-            especialidadLegacy?: string;
-            hospital?: { sigla?: string; nombre?: string };
-            escalafon?: { nombre?: string };
-            codigoRegistro?: { codigo?: string; literal?: string };
-            unificadorPuesto?: string;
-            idSial?: string | null;
-            cargoSial?: string | null;
-          };
+            codigo?: string
+            literalPuesto?: string
+            especialidad?: string
+            especialidadLegacy?: string
+            hospital?: { sigla?: string; nombre?: string }
+            escalafon?: { nombre?: string }
+            codigoRegistro?: { codigo?: string; literal?: string }
+            unificadorPuesto?: string
+            idSial?: string | null
+            cargoSial?: string | null
+          }
           type PersonaExt = {
-            apellidoNombre?: string;
-            cuil?: string;
-            legajo?: string | null;
-          };
-          const b = (cphData?.concurso as unknown as { baja?: BajaExt })?.baja;
-          const cargo = (cphData.concurso as unknown as { cargo?: CargoExt })
-            ?.cargo;
-          const persona = (
-            cphData.concurso as unknown as { persona?: PersonaExt }
-          )?.persona;
+            apellidoNombre?: string
+            cuil?: string
+            legajo?: string | null
+          }
+          const b = (cphData?.concurso as unknown as { baja?: BajaExt })?.baja
+          const cargo = (cphData.concurso as unknown as { cargo?: CargoExt })?.cargo
+          const persona = (cphData.concurso as unknown as { persona?: PersonaExt })?.persona
           const toDate = (val: string | Date | null | undefined) =>
             val
-              ? typeof val === "string"
-                ? val.slice(0, 10).split("-").reverse().join("/")
-                : (val as Date)
-                    .toISOString()
-                    .slice(0, 10)
-                    .split("-")
-                    .reverse()
-                    .join("/")
-              : "";
+              ? typeof val === 'string'
+                ? val.slice(0, 10).split('-').reverse().join('/')
+                : (val as Date).toISOString().slice(0, 10).split('-').reverse().join('/')
+              : ''
           const Row = ({ label, value }: { label: string; value: string }) =>
             value ? (
               <div className="flex gap-2 text-sm">
                 <span className="text-gray-500 w-44 shrink-0">{label}:</span>
                 <span className="text-gray-800 font-medium">{value}</span>
               </div>
-            ) : null;
+            ) : null
           // ID SIAL del agente: puede estar en persona.legajo o cargo.idSial/cargoSial
-          const idSialAgente =
-            persona?.legajo ?? cargo?.idSial ?? cargo?.cargoSial ?? "";
+          const idSialAgente = persona?.legajo ?? cargo?.idSial ?? cargo?.cargoSial ?? ''
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
@@ -1947,9 +1843,7 @@ export function ConcursoCphWizard() {
                     <p className="text-white/60 text-xs uppercase tracking-wider mb-0.5">
                       Datos de la baja
                     </p>
-                    <p className="text-white font-bold font-mono">
-                      {cargo?.codigo ?? "—"}
-                    </p>
+                    <p className="text-white font-bold font-mono">{cargo?.codigo ?? '—'}</p>
                   </div>
                   <button
                     onClick={() => setModalBaja(false)}
@@ -1965,38 +1859,30 @@ export function ConcursoCphWizard() {
                       Cargo
                     </p>
                     <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                      <Row label="Código" value={cargo?.codigo ?? ""} />
+                      <Row label="Código" value={cargo?.codigo ?? ''} />
                       <Row
                         label="Hospital"
                         value={
                           cargo?.hospital
                             ? `${cargo.hospital.sigla} — ${cargo.hospital.nombre}`
-                            : ""
+                            : ''
                         }
                       />
-                      <Row label="Puesto" value={cargo?.literalPuesto ?? ""} />
+                      <Row label="Puesto" value={cargo?.literalPuesto ?? ''} />
                       <Row
                         label="Especialidad"
-                        value={
-                          cargo?.especialidadLegacy ?? cargo?.especialidad ?? ""
-                        }
+                        value={cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''}
                       />
-                      <Row
-                        label="Escalafón"
-                        value={cargo?.escalafon?.nombre ?? ""}
-                      />
+                      <Row label="Escalafón" value={cargo?.escalafon?.nombre ?? ''} />
                       <Row
                         label="Código de registro"
                         value={
                           cargo?.codigoRegistro?.codigo
-                            ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal ?? ""}`
-                            : (cargo?.codigoRegistro?.literal ?? "")
+                            ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal ?? ''}`
+                            : (cargo?.codigoRegistro?.literal ?? '')
                         }
                       />
-                      <Row
-                        label="Tipo de puesto"
-                        value={cargo?.unificadorPuesto ?? ""}
-                      />
+                      <Row label="Tipo de puesto" value={cargo?.unificadorPuesto ?? ''} />
                     </div>
                   </div>
                   {/* Agente */}
@@ -2006,11 +1892,8 @@ export function ConcursoCphWizard() {
                         Agente
                       </p>
                       <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                        <Row
-                          label="Apellido y Nombre"
-                          value={persona.apellidoNombre ?? ""}
-                        />
-                        <Row label="CUIL" value={persona.cuil ?? ""} />
+                        <Row label="Apellido y Nombre" value={persona.apellidoNombre ?? ''} />
+                        <Row label="CUIL" value={persona.cuil ?? ''} />
                         <Row label="ID SIAL" value={idSialAgente} />
                       </div>
                     </div>
@@ -2022,46 +1905,29 @@ export function ConcursoCphWizard() {
                     </p>
                     <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                       <Row label="Fecha de baja" value={toDate(b?.fechaBaja)} />
-                      <Row label="Expediente de baja" value={b?.eeBaja ?? ""} />
-                      <Row label="Tipo de baja" value={b?.tipoBaja ?? ""} />
-                      <Row label="Origen" value={b?.tipificadorOrigen ?? ""} />
-                      <Row label="Motivo" value={b?.motivo ?? ""} />
-                      <Row
-                        label="Doc. respaldatoria"
-                        value={b?.docRespaldatoria ?? ""}
-                      />
-                      <Row
-                        label="Partida presupuestaria"
-                        value={b?.partidaPresupuestaria ?? ""}
-                      />
+                      <Row label="Expediente de baja" value={b?.eeBaja ?? ''} />
+                      <Row label="Tipo de baja" value={b?.tipoBaja ?? ''} />
+                      <Row label="Origen" value={b?.tipificadorOrigen ?? ''} />
+                      <Row label="Motivo" value={b?.motivo ?? ''} />
+                      <Row label="Doc. respaldatoria" value={b?.docRespaldatoria ?? ''} />
+                      <Row label="Partida presupuestaria" value={b?.partidaPresupuestaria ?? ''} />
                       <Row
                         label="Carga horaria"
-                        value={
-                          b?.cargaHoraria != null ? `${b.cargaHoraria} hs` : ""
-                        }
+                        value={b?.cargaHoraria != null ? `${b.cargaHoraria} hs` : ''}
                       />
-                      <Row
-                        label="Fecha pase paralelo"
-                        value={toDate(b?.fechaPaseParalelo)}
-                      />
-                      <Row
-                        label="Observaciones"
-                        value={b?.observaciones ?? ""}
-                      />
+                      <Row label="Fecha pase paralelo" value={toDate(b?.fechaPaseParalelo)} />
+                      <Row label="Observaciones" value={b?.observaciones ?? ''} />
                     </div>
                   </div>
                 </div>
                 <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-                  <button
-                    onClick={() => setModalBaja(false)}
-                    className="btn-outline"
-                  >
+                  <button onClick={() => setModalBaja(false)} className="btn-outline">
                     Cerrar
                   </button>
                 </div>
               </div>
             </div>
-          );
+          )
         })()}
 
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
@@ -2069,27 +1935,19 @@ export function ConcursoCphWizard() {
       <div className="sticky top-0 z-20 bg-white shadow-md rounded-lg mb-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs px-6 pt-3 pb-1 border-b border-gray-100">
-          <Link
-            to="/cargos/alta-por-baja"
-            className="text-secondary hover:underline"
-          >
+          <Link to="/cargos/alta-por-baja" className="text-secondary hover:underline">
             ← Alta por Baja
           </Link>
           {!esNuevo && (
             <>
               <span className="text-gray-300">/</span>
-              <Link
-                to="/concursos/cph"
-                className="text-secondary hover:underline"
-              >
+              <Link to="/concursos/cph" className="text-secondary hover:underline">
                 Concursos CPH
               </Link>
             </>
           )}
           <span className="text-gray-300">/</span>
-          <span className="text-gray-400">
-            {esNuevo ? "Nuevo concurso" : c.cargo}
-          </span>
+          <span className="text-gray-400">{esNuevo ? 'Nuevo concurso' : c.cargo}</span>
         </div>
 
         {/* Datos principales */}
@@ -2099,11 +1957,11 @@ export function ConcursoCphWizard() {
               {esNuevo ? (
                 datosBaja?.codigoCargo ? (
                   <>
-                    <span className="font-mono">{datosBaja.codigoCargo}</span> —{" "}
-                    {datosBaja.puesto || "Nuevo Concurso"}
+                    <span className="font-mono">{datosBaja.codigoCargo}</span> —{' '}
+                    {datosBaja.puesto || 'Nuevo Concurso'}
                   </>
                 ) : (
-                  "Nuevo Concurso CPH"
+                  'Nuevo Concurso CPH'
                 )
               ) : (
                 `${c.cargo} — ${c.puesto}`
@@ -2119,12 +1977,10 @@ export function ConcursoCphWizard() {
                   {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Baja:{" "}
-                  {c.personaBaja !== "—" && (
+                  Baja:{' '}
+                  {c.personaBaja !== '—' && (
                     <>
-                      <span className="text-gray-600 font-medium">
-                        {c.personaBaja}
-                      </span>{" "}
+                      <span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}
                     </>
                   )}
                   {c.eeBaja && <>{c.eeBaja} </>}
@@ -2138,17 +1994,11 @@ export function ConcursoCphWizard() {
           {!esNuevo && cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
               <span className="badge-info text-xs">
-                {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ??
-                  c.subEstado}
+                {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
               <span className="badge-default text-xs">{c.subEstado3}</span>
-              {c.suspendido && (
-                <span className="badge-danger text-xs">Suspendido</span>
-              )}
-              <button
-                onClick={() => setModalBaja(true)}
-                className="btn-outline text-xs py-1 px-3"
-              >
+              {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
+              <button onClick={() => setModalBaja(true)} className="btn-outline text-xs py-1 px-3">
                 📋 Ver baja
               </button>
             </div>
@@ -2166,75 +2016,61 @@ export function ConcursoCphWizard() {
         {!esNuevo &&
           cphData &&
           (() => {
-            const sub = cphData.subEstado ?? "";
+            const sub = cphData.subEstado ?? ''
             const SUB_IDX: Record<string, number> = {
-              "A-CARATULADO": 1,
-              "A-AUTZN": 2,
-              "B-SORTEO JUR": 3,
-              "C-DISPO DE LLAMADO": 4,
-              "C2-INSCRIPCION EX": 5,
-              "D-EXAMEN PUBLICADO": 6,
-              "E-ORDEN DE MERITO": 7,
-              "F-IFACS": 8,
-              "G-INSAL": 9,
-              "H-TAD": 10,
-              "I-CARGA DOCU": 11,
-              "J-APTO MED": 12,
-              "K-ITE": 13,
-              "L-PYCTO DE RESO": 14,
-              "M-RESO A LA FIRMA": 15,
-              "N-DESIGNADO": 16,
-              "O-ALTA SIAL": 17,
-            };
-            const idx = SUB_IDX[sub] ?? 0;
-            const faltantes: string[] = [];
-            if (idx >= 2 && !cphData.fechaAutorizacion)
-              faltantes.push("Fecha de autorización");
-            if (idx >= 3 && !cphData.sorteoJurado)
-              faltantes.push("Sorteo de jurado");
-            if (idx >= 4 && !cphData.disposicion)
-              faltantes.push("Disposición de llamado");
-            if (idx >= 5 && !cphData.fechaInscDesde)
-              faltantes.push("Fecha inscripción desde");
-            if (idx >= 5 && !cphData.fechaInscHasta)
-              faltantes.push("Fecha inscripción hasta");
-            if (idx >= 7 && !cphData.fechaOrdenMerito)
-              faltantes.push("Fecha orden de mérito");
-            if (idx >= 8 && !cphData.fechaIfacs) faltantes.push("Fecha IFACS");
-            if (idx >= 9 && !cphData.fechaInsal) faltantes.push("Fecha INSAL");
-            if (idx >= 10 && !cphData.eeDesignacion)
-              faltantes.push("EE de designación (TAD)");
-            if (idx >= 11 && !cphData.cargaDocumentacion)
-              faltantes.push("Carga de documentación");
-            if (idx >= 12 && !cphData.fechaAptoMedico)
-              faltantes.push("Fecha apto médico");
-            if (idx >= 13 && !cphData.fechaIte) faltantes.push("Fecha ITE");
-            if (idx >= 14 && !cphData.proyectoResolucion)
-              faltantes.push("Proyecto de resolución");
-            if (idx >= 15 && !cphData.resoALaFirma)
-              faltantes.push("Reso a la firma");
+              'A-CARATULADO': 1,
+              'A-AUTZN': 2,
+              'B-SORTEO JUR': 3,
+              'C-DISPO DE LLAMADO': 4,
+              'C2-INSCRIPCION EX': 5,
+              'D-EXAMEN PUBLICADO': 6,
+              'E-ORDEN DE MERITO': 7,
+              'F-IFACS': 8,
+              'G-INSAL': 9,
+              'H-TAD': 10,
+              'I-CARGA DOCU': 11,
+              'J-APTO MED': 12,
+              'K-ITE': 13,
+              'L-PYCTO DE RESO': 14,
+              'M-RESO A LA FIRMA': 15,
+              'N-DESIGNADO': 16,
+              'O-ALTA SIAL': 17,
+            }
+            const idx = SUB_IDX[sub] ?? 0
+            const faltantes: string[] = []
+            if (idx >= 2 && !cphData.fechaAutorizacion) faltantes.push('Fecha de autorización')
+            if (idx >= 3 && !cphData.sorteoJurado) faltantes.push('Sorteo de jurado')
+            if (idx >= 4 && !cphData.disposicion) faltantes.push('Disposición de llamado')
+            if (idx >= 5 && !cphData.fechaInscDesde) faltantes.push('Fecha inscripción desde')
+            if (idx >= 5 && !cphData.fechaInscHasta) faltantes.push('Fecha inscripción hasta')
+            if (idx >= 7 && !cphData.fechaOrdenMerito) faltantes.push('Fecha orden de mérito')
+            if (idx >= 8 && !cphData.fechaIfacs) faltantes.push('Fecha IFACS')
+            if (idx >= 9 && !cphData.fechaInsal) faltantes.push('Fecha INSAL')
+            if (idx >= 10 && !cphData.eeDesignacion) faltantes.push('EE de designación (TAD)')
+            if (idx >= 11 && !cphData.cargaDocumentacion) faltantes.push('Carga de documentación')
+            if (idx >= 12 && !cphData.fechaAptoMedico) faltantes.push('Fecha apto médico')
+            if (idx >= 13 && !cphData.fechaIte) faltantes.push('Fecha ITE')
+            if (idx >= 14 && !cphData.proyectoResolucion) faltantes.push('Proyecto de resolución')
+            if (idx >= 15 && !cphData.resoALaFirma) faltantes.push('Reso a la firma')
             if (idx >= 16 && !cphData.resolucionDesignacion)
-              faltantes.push("Resolución de designación");
-            if (faltantes.length === 0) return null;
+              faltantes.push('Resolución de designación')
+            if (faltantes.length === 0) return null
             return (
               <div className="mx-6 mb-3 bg-orange-50 border border-orange-300 rounded-lg px-4 py-3">
                 <p className="text-xs font-semibold text-orange-800 mb-1.5">
-                  ⚠️ Completar documentación — el concurso está en{" "}
-                  <span className="font-mono">{sub}</span> pero faltan{" "}
-                  {faltantes.length} campo{faltantes.length > 1 ? "s" : ""}:
+                  ⚠️ Completar documentación — el concurso está en{' '}
+                  <span className="font-mono">{sub}</span> pero faltan {faltantes.length} campo
+                  {faltantes.length > 1 ? 's' : ''}:
                 </p>
                 <ul className="flex flex-wrap gap-x-4 gap-y-1">
                   {faltantes.map((f) => (
-                    <li
-                      key={f}
-                      className="text-xs text-orange-700 flex items-center gap-1"
-                    >
+                    <li key={f} className="text-xs text-orange-700 flex items-center gap-1">
                       <span className="text-orange-400">•</span> {f}
                     </li>
                   ))}
                 </ul>
               </div>
-            );
+            )
           })()}
       </div>
 
@@ -2247,37 +2083,33 @@ export function ConcursoCphWizard() {
               Etapas
             </p>
             {etapasActuales.map((e) => {
-              const cfg = ESTADO_ETAPA_CONFIG[e.estado];
-              const isActive = e.id === etapaActiva;
+              const cfg = ESTADO_ETAPA_CONFIG[e.estado]
+              const isActive = e.id === etapaActiva
               return (
                 <button
                   key={e.id}
-                  onClick={() =>
-                    e.estado !== "bloqueada" && setEtapaActiva(e.id)
-                  }
-                  disabled={e.estado === "bloqueada"}
+                  onClick={() => e.estado !== 'bloqueada' && setEtapaActiva(e.id)}
+                  disabled={e.estado === 'bloqueada'}
                   className={[
-                    "w-full text-left px-2.5 py-2 rounded flex items-center gap-2 transition-colors",
+                    'w-full text-left px-2.5 py-2 rounded flex items-center gap-2 transition-colors',
                     isActive
-                      ? "bg-navy text-white"
-                      : e.estado === "bloqueada"
-                        ? "opacity-35 cursor-not-allowed text-gray-400"
-                        : "hover:bg-gray-50 text-gray-700",
-                  ].join(" ")}
+                      ? 'bg-navy text-white'
+                      : e.estado === 'bloqueada'
+                        ? 'opacity-35 cursor-not-allowed text-gray-400'
+                        : 'hover:bg-gray-50 text-gray-700',
+                  ].join(' ')}
                 >
                   <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? "bg-white" : cfg.dot}`}
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-white' : cfg.dot}`}
                   />
                   <span className="text-xs font-medium leading-tight">
                     {e.numero}. {e.titulo}
                   </span>
-                  {e.estado === "completada" && !isActive && (
-                    <span className="ml-auto text-green-500 text-[10px]">
-                      ✓
-                    </span>
+                  {e.estado === 'completada' && !isActive && (
+                    <span className="ml-auto text-green-500 text-[10px]">✓</span>
                   )}
                 </button>
-              );
+              )
             })}
           </div>
 
@@ -2290,7 +2122,7 @@ export function ConcursoCphWizard() {
               {getCasoCph(cphData).validacion && (
                 <button
                   type="button"
-                  onClick={() => exportCphPdf(cphData, "validacion")}
+                  onClick={() => exportCphPdf(cphData, 'validacion')}
                   className="w-full btn-outline text-xs py-1 px-3 flex items-center gap-2"
                 >
                   <span className="w-5 h-5 rounded bg-red-100 flex items-center justify-center text-red-600 text-[9px] font-bold shrink-0">
@@ -2302,7 +2134,7 @@ export function ConcursoCphWizard() {
               {cphData.eeConcurso && (
                 <button
                   type="button"
-                  onClick={() => exportCphPdf(cphData, "autorizacion")}
+                  onClick={() => exportCphPdf(cphData, 'autorizacion')}
                   className="w-full btn-outline text-xs py-1 px-3 flex items-center gap-2"
                 >
                   <span className="w-5 h-5 rounded bg-red-100 flex items-center justify-center text-red-600 text-[9px] font-bold shrink-0">
@@ -2347,22 +2179,16 @@ export function ConcursoCphWizard() {
                 <h2 className="font-primary text-base font-bold text-gray-900">
                   Etapa {etapa.numero}: {etapa.titulo}
                 </h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {etapa.descripcion}
-                </p>
+                <p className="text-sm text-gray-500 mt-0.5">{etapa.descripcion}</p>
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}
-                >
+                <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
                   {ESTADO_ETAPA_CONFIG[etapa.estado].label}
                 </span>
-                {pendienteAutorizacion && etapaActiva === "baja" && (
-                  <span className="badge-warning text-xs">
-                    ⏳ Pendiente de autorización
-                  </span>
+                {pendienteAutorizacion && etapaActiva === 'baja' && (
+                  <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
                 )}
-                {puedeResolverAutorizacion && etapaActiva === "baja" && (
+                {puedeResolverAutorizacion && etapaActiva === 'baja' && (
                   <button
                     className="btn-primary text-xs py-1 px-3"
                     onClick={() => setModalAutorizacion(true)}
@@ -2375,9 +2201,9 @@ export function ConcursoCphWizard() {
 
             <div className="p-6 space-y-6">
               {/* Banner: esta etapa espera que se complete la etapa anterior */}
-              {etapa.estado === "pendiente" &&
+              {etapa.estado === 'pendiente' &&
                 (() => {
-                  const anterior = etapasActuales[etapa.numero - 2];
+                  const anterior = etapasActuales[etapa.numero - 2]
                   return (
                     <div className="flex items-start gap-3 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm">
                       <span className="text-blue-400 text-base mt-0.5">🔒</span>
@@ -2385,33 +2211,30 @@ export function ConcursoCphWizard() {
                         <p className="font-semibold text-blue-800">
                           {anterior
                             ? `Esperando que se complete la Etapa ${anterior.numero}: ${anterior.titulo}`
-                            : "Esperando que se complete la etapa anterior"}
+                            : 'Esperando que se complete la etapa anterior'}
                         </p>
                         <p className="text-blue-600 text-xs mt-0.5">
-                          Esta etapa se habilitará cuando la anterior esté
-                          completa.
+                          Esta etapa se habilitará cuando la anterior esté completa.
                         </p>
                       </div>
                     </div>
-                  );
+                  )
                 })()}
 
-              {etapa.estado === "completada" && etapaActiva === "baja" && (
+              {etapa.estado === 'completada' && etapaActiva === 'baja' && (
                 <div className="flex items-start gap-3 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm">
                   <span className="text-gray-400 text-base mt-0.5">🔒</span>
                   <div>
-                    <p className="font-semibold text-gray-700">
-                      Etapa guardada — solo lectura
-                    </p>
+                    <p className="font-semibold text-gray-700">Etapa guardada — solo lectura</p>
                     <p className="text-gray-500 text-xs mt-0.5">
-                      Para modificar estos datos, SGRASV debe hacerlo desde su
-                      panel de autorizaciones.
+                      Para modificar estos datos, SGRASV debe hacerlo desde su panel de
+                      autorizaciones.
                     </p>
                   </div>
                 </div>
               )}
 
-              {pendienteAutorizacion && etapaActiva === "baja" && (
+              {pendienteAutorizacion && etapaActiva === 'baja' && (
                 <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
                   <span className="text-amber-500 text-base mt-0.5">⏳</span>
                   <div>
@@ -2421,38 +2244,36 @@ export function ConcursoCphWizard() {
                     {tieneCambioSiglaCr ? (
                       aprobadoDirector ? (
                         <p className="text-amber-700 text-xs mt-0.5">
-                          El <strong>Director</strong> ya aprobó. Esperando
-                          resolución final de <strong>SGRASV</strong>.
+                          El <strong>Director</strong> ya aprobó. Esperando resolución final de{' '}
+                          <strong>SGRASV</strong>.
                         </p>
                       ) : (
                         <p className="text-amber-700 text-xs mt-0.5">
-                          Se solicitó un cambio de sigla o código de registro.
-                          El rol <strong>Director</strong> debe autorizar
-                          primero, luego <strong>SGRASV</strong> confirma.
+                          Se solicitó un cambio de sigla o código de registro. El rol{' '}
+                          <strong>Director</strong> debe autorizar primero, luego{' '}
+                          <strong>SGRASV</strong> confirma.
                         </p>
                       )
                     ) : (
                       <p className="text-amber-700 text-xs mt-0.5">
-                        Requiere autorización de <strong>SGRASV</strong> para
-                        continuar.
+                        Requiere autorización de <strong>SGRASV</strong> para continuar.
                       </p>
                     )}
                   </div>
                 </div>
               )}
 
-              {etapa.id === "desierto" ? (
+              {etapa.id === 'desierto' ? (
                 <div className="space-y-4">
                   {/* Botón declarar desierto — solo si el concurso no está finalizado */}
-                  {!esNuevo && cphData && cphData.estado !== "finalizado" && (
+                  {!esNuevo && cphData && cphData.estado !== 'finalizado' && (
                     <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4">
                       <div>
                         <p className="text-sm font-semibold text-red-800">
                           Declarar ronda desierta
                         </p>
                         <p className="text-xs text-red-600 mt-0.5">
-                          Se guardará el historial y se limpiarán los campos
-                          para el relanzamiento.
+                          Se guardará el historial y se limpiarán los campos para el relanzamiento.
                         </p>
                       </div>
                       <button
@@ -2469,16 +2290,16 @@ export function ConcursoCphWizard() {
                   (
                     cphData as unknown as {
                       desiertoHistorial?: {
-                        id: string;
-                        nroRonda: number;
-                        dispoDesierta: string;
-                        fechaDispoDesierta: string;
-                        disposicion: string | null;
-                        fechaInscDesde: string | null;
-                        fechaInscHasta: string | null;
-                        fechaExamen: string | null;
-                        qInscriptos: number | null;
-                      }[];
+                        id: string
+                        nroRonda: number
+                        dispoDesierta: string
+                        fechaDispoDesierta: string
+                        disposicion: string | null
+                        fechaInscDesde: string | null
+                        fechaInscHasta: string | null
+                        fechaExamen: string | null
+                        qInscriptos: number | null
+                      }[]
                     }
                   ).desiertoHistorial?.length ? (
                     <div>
@@ -2489,16 +2310,16 @@ export function ConcursoCphWizard() {
                         {(
                           cphData as unknown as {
                             desiertoHistorial: {
-                              id: string;
-                              nroRonda: number;
-                              dispoDesierta: string;
-                              fechaDispoDesierta: string;
-                              disposicion: string | null;
-                              fechaInscDesde: string | null;
-                              fechaInscHasta: string | null;
-                              fechaExamen: string | null;
-                              qInscriptos: number | null;
-                            }[];
+                              id: string
+                              nroRonda: number
+                              dispoDesierta: string
+                              fechaDispoDesierta: string
+                              disposicion: string | null
+                              fechaInscDesde: string | null
+                              fechaInscHasta: string | null
+                              fechaExamen: string | null
+                              qInscriptos: number | null
+                            }[]
                           }
                         ).desiertoHistorial.map((r) => (
                           <div
@@ -2510,32 +2331,19 @@ export function ConcursoCphWizard() {
                                 Ronda {r.nroRonda}
                               </span>
                               <span className="text-xs text-gray-500">
-                                {r.fechaDispoDesierta?.slice(0, 10)} ·{" "}
-                                {r.dispoDesierta}
+                                {r.fechaDispoDesierta?.slice(0, 10)} · {r.dispoDesierta}
                               </span>
                             </div>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
-                              {r.disposicion && (
-                                <span>Dispo: {r.disposicion}</span>
-                              )}
+                              {r.disposicion && <span>Dispo: {r.disposicion}</span>}
                               {r.fechaInscDesde && (
-                                <span>
-                                  Insc. desde: {r.fechaInscDesde.slice(0, 10)}
-                                </span>
+                                <span>Insc. desde: {r.fechaInscDesde.slice(0, 10)}</span>
                               )}
                               {r.fechaInscHasta && (
-                                <span>
-                                  Insc. hasta: {r.fechaInscHasta.slice(0, 10)}
-                                </span>
+                                <span>Insc. hasta: {r.fechaInscHasta.slice(0, 10)}</span>
                               )}
-                              {r.fechaExamen && (
-                                <span>
-                                  Examen: {r.fechaExamen.slice(0, 10)}
-                                </span>
-                              )}
-                              {r.qInscriptos != null && (
-                                <span>Inscriptos: {r.qInscriptos}</span>
-                              )}
+                              {r.fechaExamen && <span>Examen: {r.fechaExamen.slice(0, 10)}</span>}
+                              {r.qInscriptos != null && <span>Inscriptos: {r.qInscriptos}</span>}
                             </div>
                           </div>
                         ))}
@@ -2543,13 +2351,11 @@ export function ConcursoCphWizard() {
                     </div>
                   ) : (
                     !esNuevo && (
-                      <p className="text-sm text-gray-400">
-                        Sin rondas desiertas registradas.
-                      </p>
+                      <p className="text-sm text-gray-400">Sin rondas desiertas registradas.</p>
                     )
                   )}
                 </div>
-              ) : etapa.id === "baja" ? (
+              ) : etapa.id === 'baja' ? (
                 <>
                   {/* ── Datos de la baja (readonly) ── */}
                   <div>
@@ -2558,21 +2364,17 @@ export function ConcursoCphWizard() {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {etapa.campos
-                        .filter(
-                          (c) => c.key !== "__sep__" && c.key !== "eeConcurso",
-                        )
+                        .filter((c) => c.key !== '__sep__' && c.key !== 'eeConcurso')
                         .map((campo) => (
                           <div
                             key={campo.key}
-                            className={
-                              campo.key === "puesto" ? "sm:col-span-2" : ""
-                            }
+                            className={campo.key === 'puesto' ? 'sm:col-span-2' : ''}
                           >
                             <label className="block text-sm font-semibold text-gray-700 mb-1">
                               {campo.label}
                             </label>
                             <input
-                              type={campo.tipo === "fecha" ? "date" : "text"}
+                              type={campo.tipo === 'fecha' ? 'date' : 'text'}
                               defaultValue={campo.valor as string}
                               className="input h-10 w-full bg-gray-50 text-gray-500"
                               readOnly
@@ -2585,80 +2387,72 @@ export function ConcursoCphWizard() {
                           const b = (
                             cphData?.concurso as unknown as {
                               baja?: {
-                                motivo?: string | null;
-                                docRespaldatoria?: string | null;
-                                tipificadorOrigen?: string | null;
-                                partidaPresupuestaria?: string | null;
-                                cargaHoraria?: number | null;
-                                fechaPaseParalelo?: string | Date | null;
-                                observaciones?: string | null;
-                              };
+                                motivo?: string | null
+                                docRespaldatoria?: string | null
+                                tipificadorOrigen?: string | null
+                                partidaPresupuestaria?: string | null
+                                cargaHoraria?: number | null
+                                fechaPaseParalelo?: string | Date | null
+                                observaciones?: string | null
+                              }
                             }
-                          )?.baja;
-                          if (!b) return null;
-                          const toDate = (
-                            v: string | Date | null | undefined,
-                          ) =>
+                          )?.baja
+                          if (!b) return null
+                          const toDate = (v: string | Date | null | undefined) =>
                             v
-                              ? typeof v === "string"
+                              ? typeof v === 'string'
                                 ? v.slice(0, 10)
                                 : v.toISOString().slice(0, 10)
-                              : "";
+                              : ''
                           const extras: {
-                            label: string;
-                            value: string;
-                            fecha?: boolean;
-                            wide?: boolean;
+                            label: string
+                            value: string
+                            fecha?: boolean
+                            wide?: boolean
                           }[] = [
                             {
-                              label: "Origen",
-                              value: b.tipificadorOrigen ?? "",
+                              label: 'Origen',
+                              value: b.tipificadorOrigen ?? '',
                             },
-                            { label: "Motivo", value: b.motivo ?? "" },
+                            { label: 'Motivo', value: b.motivo ?? '' },
                             {
-                              label: "Doc. respaldatoria",
-                              value: b.docRespaldatoria ?? "",
-                            },
-                            {
-                              label: "Partida presup.",
-                              value: b.partidaPresupuestaria ?? "",
+                              label: 'Doc. respaldatoria',
+                              value: b.docRespaldatoria ?? '',
                             },
                             {
-                              label: "Carga horaria",
-                              value:
-                                b.cargaHoraria != null
-                                  ? `${b.cargaHoraria} hs`
-                                  : "",
+                              label: 'Partida presup.',
+                              value: b.partidaPresupuestaria ?? '',
                             },
                             {
-                              label: "Fecha pase paralelo",
+                              label: 'Carga horaria',
+                              value: b.cargaHoraria != null ? `${b.cargaHoraria} hs` : '',
+                            },
+                            {
+                              label: 'Fecha pase paralelo',
                               value: toDate(b.fechaPaseParalelo),
                               fecha: true,
                             },
                             {
-                              label: "Observaciones",
-                              value: b.observaciones ?? "",
+                              label: 'Observaciones',
+                              value: b.observaciones ?? '',
                               wide: true,
                             },
-                          ];
+                          ]
                           return extras
                             .filter((e) => e.value)
                             .map((e) => (
-                              <div
-                                key={e.label}
-                                className={e.wide ? "sm:col-span-2" : ""}
-                              >
+                              <div key={e.label} className={e.wide ? 'sm:col-span-2' : ''}>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                                   {e.label}
                                 </label>
                                 <input
-                                  type={e.fecha ? "date" : "text"}
+                                  type={e.fecha ? 'date' : 'text'}
                                   defaultValue={e.value}
                                   className="input h-10 w-full bg-gray-50 text-gray-500"
                                   readOnly
                                 />
                               </div>
-                            ));
+                            ))
                         })()}
                     </div>
                   </div>
@@ -2668,10 +2462,10 @@ export function ConcursoCphWizard() {
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
                       Datos del concurso
                     </p>
-                    {etapa.estado === "completada" ? (
+                    {etapa.estado === 'completada' ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {etapa.campos
-                          .filter((c) => c.key === "eeConcurso")
+                          .filter((c) => c.key === 'eeConcurso')
                           .map((campo) => (
                             <div key={campo.key} className="sm:col-span-2">
                               <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -2703,8 +2497,7 @@ export function ConcursoCphWizard() {
                           <input
                             type="text"
                             value={escalafonLabel(
-                              escalafones.find((e) => e.id === escalafonId)
-                                ?.nombre ?? "",
+                              escalafones.find((e) => e.id === escalafonId)?.nombre ?? '',
                             )}
                             className="input h-10 w-full bg-gray-50 text-gray-500"
                             readOnly
@@ -2739,7 +2532,7 @@ export function ConcursoCphWizard() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {/* Expediente de Concurso */}
                         {etapa.campos
-                          .filter((c) => c.key === "eeConcurso")
+                          .filter((c) => c.key === 'eeConcurso')
                           .map((campo) => (
                             <div key={campo.key} className="sm:col-span-2">
                               <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -2748,15 +2541,13 @@ export function ConcursoCphWizard() {
                               <input
                                 type="text"
                                 value={eeConcursoInput}
-                                onChange={(e) =>
-                                  setEeConcursoInput(e.target.value)
-                                }
+                                onChange={(e) => setEeConcursoInput(e.target.value)}
                                 data-key={campo.key}
                                 className="input h-10 w-full"
                                 disabled={
                                   pendienteAutorizacion ||
-                                  etapa.estado === "pendiente" ||
-                                  etapa.estado === "bloqueada"
+                                  etapa.estado === 'pendiente' ||
+                                  etapa.estado === 'bloqueada'
                                 }
                               />
                             </div>
@@ -2773,18 +2564,15 @@ export function ConcursoCphWizard() {
                             placeholder="Buscar sigla..."
                             disabled={
                               pendienteAutorizacion ||
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada"
+                              etapa.estado === 'pendiente' ||
+                              etapa.estado === 'bloqueada'
                             }
                             displayToValue={(label) =>
-                              hospitales.find((h) => hospitalLabel(h) === label)
-                                ?.sigla ?? label
+                              hospitales.find((h) => hospitalLabel(h) === label)?.sigla ?? label
                             }
                             valueToDisplay={(sigla) => {
-                              const h = hospitales.find(
-                                (h) => h.sigla === sigla,
-                              );
-                              return h ? hospitalLabel(h) : sigla;
+                              const h = hospitales.find((h) => h.sigla === sigla)
+                              return h ? hospitalLabel(h) : sigla
                             }}
                           />
                         </div>
@@ -2796,29 +2584,24 @@ export function ConcursoCphWizard() {
                           <SearchableSelect
                             value={escalafonId}
                             onChange={(id) => {
-                              setEscalafonId(id);
-                              setPuestoConcurso("");
-                              setEspecialidadConcurso("");
+                              setEscalafonId(id)
+                              setPuestoConcurso('')
+                              setEspecialidadConcurso('')
                             }}
-                            options={escalafonesOrdenados.map((e) =>
-                              escalafonLabel(e.nombre),
-                            )}
+                            options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
                             placeholder="Buscar escalafón..."
                             disabled={
                               pendienteAutorizacion ||
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada"
+                              etapa.estado === 'pendiente' ||
+                              etapa.estado === 'bloqueada'
                             }
                             displayToValue={(label) =>
-                              escalafonesOrdenados.find(
-                                (e) => escalafonLabel(e.nombre) === label,
-                              )?.id ?? label
+                              escalafonesOrdenados.find((e) => escalafonLabel(e.nombre) === label)
+                                ?.id ?? label
                             }
                             valueToDisplay={(id) => {
-                              const e = escalafonesOrdenados.find(
-                                (e) => e.id === id,
-                              );
-                              return e ? escalafonLabel(e.nombre) : id;
+                              const e = escalafonesOrdenados.find((e) => e.id === id)
+                              return e ? escalafonLabel(e.nombre) : id
                             }}
                           />
                         </div>
@@ -2830,20 +2613,18 @@ export function ConcursoCphWizard() {
                           <SearchableSelect
                             value={puestoConcurso}
                             onChange={(p) => {
-                              setPuestoConcurso(p);
-                              setEspecialidadConcurso("");
+                              setPuestoConcurso(p)
+                              setEspecialidadConcurso('')
                             }}
                             options={puestosDisponibles}
                             placeholder={
-                              escalafonId
-                                ? "Buscar puesto..."
-                                : "Elegí un escalafón primero"
+                              escalafonId ? 'Buscar puesto...' : 'Elegí un escalafón primero'
                             }
                             disabled={
                               pendienteAutorizacion ||
                               !escalafonId ||
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada"
+                              etapa.estado === 'pendiente' ||
+                              etapa.estado === 'bloqueada'
                             }
                           />
                         </div>
@@ -2860,8 +2641,8 @@ export function ConcursoCphWizard() {
                               placeholder="Buscar especialidad..."
                               disabled={
                                 pendienteAutorizacion ||
-                                etapa.estado === "pendiente" ||
-                                etapa.estado === "bloqueada"
+                                etapa.estado === 'pendiente' ||
+                                etapa.estado === 'bloqueada'
                               }
                             />
                           </div>
@@ -2880,20 +2661,16 @@ export function ConcursoCphWizard() {
                               <textarea
                                 data-key="motivoCambioEspecialidad"
                                 defaultValue={
-                                  ((
-                                    cphData as unknown as Record<
-                                      string,
-                                      unknown
-                                    >
-                                  )?.motivoCambioEspecialidad as string) ?? ""
+                                  ((cphData as unknown as Record<string, unknown>)
+                                    ?.motivoCambioEspecialidad as string) ?? ''
                                 }
                                 rows={2}
                                 className="input w-full py-2 border-amber-300 focus:border-amber-500"
                                 placeholder="Justificá por qué se cambia la especialidad del concurso..."
                                 disabled={
                                   pendienteAutorizacion ||
-                                  etapa.estado === "pendiente" ||
-                                  etapa.estado === "bloqueada"
+                                  etapa.estado === 'pendiente' ||
+                                  etapa.estado === 'bloqueada'
                                 }
                               />
                             </div>
@@ -2902,43 +2679,37 @@ export function ConcursoCphWizard() {
                     )}
                   </div>
                 </>
-              ) : etapa.id === "autorizacion" ? (
+              ) : etapa.id === 'autorizacion' ? (
                 <div className="space-y-5">
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
                   {!esNuevo && cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-semibold text-indigo-900">
-                            Sorteo de jurado
-                          </p>
+                          <p className="text-sm font-semibold text-indigo-900">Sorteo de jurado</p>
                           <p className="text-xs text-indigo-600 mt-0.5">
-                            Sortea titulares y suplentes entre profesionales de
-                            la misma profesión con cargo activo, priorizando la
-                            misma unidad organizativa y ampliando al sistema de
-                            salud si es necesario.
+                            Sortea titulares y suplentes entre profesionales de la misma profesión
+                            con cargo activo, priorizando la misma unidad organizativa y ampliando
+                            al sistema de salud si es necesario.
                           </p>
                         </div>
                         <div className="flex gap-2 shrink-0">
                           {(() => {
                             const bloqueada =
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada";
+                              etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'
                             const busy =
                               generarSorteoMutation.isPending ||
                               confirmarSorteoMutation.isPending ||
                               cancelarSorteoMutation.isPending ||
-                              revertirSorteoMutation.isPending;
+                              revertirSorteoMutation.isPending
                             const doSortear = () =>
                               generarSorteoMutation.mutate({
                                 cantTitulares: sorteoCriterios.cantTitulares,
                                 cantSuplentes: sorteoCriterios.cantSuplentes,
-                                antiguedadMinimaAnios:
-                                  sorteoCriterios.antiguedadMinimaAnios,
+                                antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
                                 semilla: sorteoCriterios.semilla || undefined,
-                                observaciones:
-                                  sorteoCriterios.observaciones || undefined,
-                              });
+                                observaciones: sorteoCriterios.observaciones || undefined,
+                              })
 
                             // Confirmado → solo lectura + revertir
                             if (juradoData?.confirmado) {
@@ -2952,21 +2723,21 @@ export function ConcursoCphWizard() {
                                     onClick={async () => {
                                       if (
                                         await confirm({
-                                          titulo: "Revertir confirmación",
+                                          titulo: 'Revertir confirmación',
                                           mensaje:
-                                            "El jurado volverá a estado borrador y podrás re-sortearlo. ¿Continuar?",
+                                            'El jurado volverá a estado borrador y podrás re-sortearlo. ¿Continuar?',
                                         })
                                       )
-                                        revertirSorteoMutation.mutate();
+                                        revertirSorteoMutation.mutate()
                                     }}
                                     disabled={busy}
                                   >
                                     {revertirSorteoMutation.isPending
-                                      ? "Revirtiendo…"
-                                      : "↩ Revertir confirmación"}
+                                      ? 'Revirtiendo…'
+                                      : '↩ Revertir confirmación'}
                                   </button>
                                 </>
-                              );
+                              )
                             }
 
                             // Hay borrador sin confirmar → Re-sortear / Cancelar / Confirmar
@@ -2986,48 +2757,48 @@ export function ConcursoCphWizard() {
                                     disabled={busy || bloqueada}
                                   >
                                     {generarSorteoMutation.isPending
-                                      ? "Sorteando…"
-                                      : "🔄 Re-sortear"}
+                                      ? 'Sorteando…'
+                                      : '🔄 Re-sortear'}
                                   </button>
                                   <button
                                     className="btn-outline text-sm text-danger border-red-200 hover:bg-red-50"
                                     onClick={async () => {
                                       if (
                                         await confirm({
-                                          titulo: "Descartar sorteo",
-                                          mensaje: "¿Descartar el sorteo actual?",
+                                          titulo: 'Descartar sorteo',
+                                          mensaje: '¿Descartar el sorteo actual?',
                                           peligro: true,
-                                          confirmLabel: "Descartar",
+                                          confirmLabel: 'Descartar',
                                         })
                                       )
-                                        cancelarSorteoMutation.mutate();
+                                        cancelarSorteoMutation.mutate()
                                     }}
                                     disabled={busy || bloqueada}
                                   >
                                     {cancelarSorteoMutation.isPending
-                                      ? "Cancelando…"
-                                      : "✕ Cancelar"}
+                                      ? 'Cancelando…'
+                                      : '✕ Cancelar'}
                                   </button>
                                   <button
                                     className="btn-primary text-sm"
                                     onClick={async () => {
                                       if (
                                         await confirm({
-                                          titulo: "Confirmar jurado",
+                                          titulo: 'Confirmar jurado',
                                           mensaje:
-                                            "Una vez confirmado no podrás re-sortearlo (deberás revertir primero). ¿Confirmar el jurado?",
+                                            'Una vez confirmado no podrás re-sortearlo (deberás revertir primero). ¿Confirmar el jurado?',
                                         })
                                       )
-                                        confirmarSorteoMutation.mutate();
+                                        confirmarSorteoMutation.mutate()
                                     }}
                                     disabled={busy || bloqueada}
                                   >
                                     {confirmarSorteoMutation.isPending
-                                      ? "Confirmando…"
-                                      : "✓ Confirmar"}
+                                      ? 'Confirmando…'
+                                      : '✓ Confirmar'}
                                   </button>
                                 </>
-                              );
+                              )
                             }
 
                             // Sin sorteo aún → Criterios / Generar
@@ -3046,26 +2817,25 @@ export function ConcursoCphWizard() {
                                   disabled={busy || bloqueada}
                                 >
                                   {generarSorteoMutation.isPending
-                                    ? "Sorteando…"
-                                    : "🎲 Generar sorteo"}
+                                    ? 'Sorteando…'
+                                    : '🎲 Generar sorteo'}
                                 </button>
                               </>
-                            );
+                            )
                           })()}
                         </div>
                       </div>
 
                       {generarSorteoMutation.isError && (
                         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                          ⚠️{" "}
+                          ⚠️{' '}
                           {(
                             generarSorteoMutation.error as {
                               response?: {
-                                data?: { error?: { message?: string } };
-                              };
+                                data?: { error?: { message?: string } }
+                              }
                             }
-                          )?.response?.data?.error?.message ??
-                            "No se pudo generar el sorteo."}
+                          )?.response?.data?.error?.message ?? 'No se pudo generar el sorteo.'}
                         </div>
                       )}
 
@@ -3074,12 +2844,8 @@ export function ConcursoCphWizard() {
                         <div className="space-y-3">
                           <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold">
-                              Sorteo del{" "}
-                              {juradoData.fechaSorteo
-                                .slice(0, 10)
-                                .split("-")
-                                .reverse()
-                                .join("/")}
+                              Sorteo del{' '}
+                              {juradoData.fechaSorteo.slice(0, 10).split('-').reverse().join('/')}
                             </span>
                             {juradoData.confirmado ? (
                               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800 font-semibold">
@@ -3092,26 +2858,24 @@ export function ConcursoCphWizard() {
                             )}
                             <span
                               className={`px-2 py-0.5 rounded-full font-semibold ${
-                                juradoData.ambito === "hospital"
-                                  ? "bg-green-100 text-green-800"
-                                  : juradoData.ambito === "sistema"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-blue-100 text-blue-800"
+                                juradoData.ambito === 'hospital'
+                                  ? 'bg-green-100 text-green-800'
+                                  : juradoData.ambito === 'sistema'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-blue-100 text-blue-800'
                               }`}
                             >
-                              Ámbito:{" "}
-                              {juradoData.ambito === "hospital"
-                                ? "Misma unidad organizativa"
-                                : juradoData.ambito === "sistema"
-                                  ? "Sistema de salud"
-                                  : "Mixto (hospital + sistema)"}
+                              Ámbito:{' '}
+                              {juradoData.ambito === 'hospital'
+                                ? 'Misma unidad organizativa'
+                                : juradoData.ambito === 'sistema'
+                                  ? 'Sistema de salud'
+                                  : 'Mixto (hospital + sistema)'}
                             </span>
                             <span className="text-gray-500">
-                              {juradoData.criterios.totalCandidatos} candidatos
-                              elegibles
-                              {" · "}
-                              {juradoData.criterios.candidatosMismoHospital} en
-                              el hospital
+                              {juradoData.criterios.totalCandidatos} candidatos elegibles
+                              {' · '}
+                              {juradoData.criterios.candidatosMismoHospital} en el hospital
                             </span>
                             {juradoData.criterios.reglaUsada != null && (
                               <span
@@ -3122,8 +2886,7 @@ export function ConcursoCphWizard() {
                                     : undefined
                                 }
                               >
-                                Cascada hasta Regla{" "}
-                                {juradoData.criterios.reglaUsada}
+                                Cascada hasta Regla {juradoData.criterios.reglaUsada}
                               </span>
                             )}
                           </div>
@@ -3134,17 +2897,13 @@ export function ConcursoCphWizard() {
                             </div>
                           )}
 
-                          {(["titular", "suplente"] as const).map((rol) => {
-                            const miembros = juradoData.miembros.filter(
-                              (m) => m.rol === rol,
-                            );
-                            if (miembros.length === 0) return null;
+                          {(['titular', 'suplente'] as const).map((rol) => {
+                            const miembros = juradoData.miembros.filter((m) => m.rol === rol)
+                            if (miembros.length === 0) return null
                             return (
                               <div key={rol}>
                                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                                  {rol === "titular"
-                                    ? "Titulares"
-                                    : "Suplentes"}
+                                  {rol === 'titular' ? 'Titulares' : 'Suplentes'}
                                 </p>
                                 <div className="space-y-1.5">
                                   {miembros.map((m) => (
@@ -3154,7 +2913,7 @@ export function ConcursoCphWizard() {
                                     >
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-[11px] font-bold">
-                                          {rol === "titular" ? "T" : "S"}
+                                          {rol === 'titular' ? 'T' : 'S'}
                                           {m.orden}
                                         </span>
                                         <span className="text-sm font-semibold text-gray-900">
@@ -3165,14 +2924,14 @@ export function ConcursoCphWizard() {
                                         </span>
                                         <span
                                           className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                            m.ambito === "hospital"
-                                              ? "bg-green-50 text-green-700 border border-green-200"
-                                              : "bg-amber-50 text-amber-700 border border-amber-200"
+                                            m.ambito === 'hospital'
+                                              ? 'bg-green-50 text-green-700 border border-green-200'
+                                              : 'bg-amber-50 text-amber-700 border border-amber-200'
                                           }`}
                                         >
-                                          {m.ambito === "hospital"
-                                            ? "Mismo hospital"
-                                            : "Sistema de salud"}
+                                          {m.ambito === 'hospital'
+                                            ? 'Mismo hospital'
+                                            : 'Sistema de salud'}
                                         </span>
                                       </div>
                                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-gray-500">
@@ -3181,29 +2940,23 @@ export function ConcursoCphWizard() {
                                             className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold"
                                             title={
                                               m.reglaAplicada === 1
-                                                ? "Regla 1: mismo hospital + conducción + misma especialidad"
+                                                ? 'Regla 1: mismo hospital + conducción + misma especialidad'
                                                 : m.reglaAplicada === 2
-                                                  ? "Regla 2: mismo hospital + antigüedad ≥ mínima"
-                                                  : "Regla 3: sistema de salud + conducción"
+                                                  ? 'Regla 2: mismo hospital + antigüedad ≥ mínima'
+                                                  : 'Regla 3: sistema de salud + conducción'
                                             }
                                           >
                                             Regla {m.reglaAplicada}
                                           </span>
                                         )}
-                                        {m.hospitalNombre && (
-                                          <span>🏥 {m.hospitalNombre}</span>
-                                        )}
+                                        {m.hospitalNombre && <span>🏥 {m.hospitalNombre}</span>}
                                         {m.puesto && <span>💼 {m.puesto}</span>}
                                         {m.especialidad && (
                                           <span
-                                            className={
-                                              m.cumpleEspecialidad
-                                                ? "text-green-600"
-                                                : ""
-                                            }
+                                            className={m.cumpleEspecialidad ? 'text-green-600' : ''}
                                           >
                                             🩺 {m.especialidad}
-                                            {m.cumpleEspecialidad ? " ✓" : ""}
+                                            {m.cumpleEspecialidad ? ' ✓' : ''}
                                           </span>
                                         )}
                                         {m.esConduccion && (
@@ -3212,23 +2965,19 @@ export function ConcursoCphWizard() {
                                           </span>
                                         )}
                                         {m.antiguedadAnios != null && (
-                                          <span>
-                                            📅 {m.antiguedadAnios} años de
-                                            antigüedad
-                                          </span>
+                                          <span>📅 {m.antiguedadAnios} años de antigüedad</span>
                                         )}
                                       </div>
                                     </div>
                                   ))}
                                 </div>
                               </div>
-                            );
+                            )
                           })}
                         </div>
                       ) : (
                         <p className="text-xs text-gray-400">
-                          Aún no se generó el sorteo de jurado para este
-                          concurso.
+                          Aún no se generó el sorteo de jurado para este concurso.
                         </p>
                       )}
                     </div>
@@ -3238,24 +2987,19 @@ export function ConcursoCphWizard() {
                       La "Fecha sorteo de jurado" NO se muestra acá: sale solo en el acta. */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {etapa.campos
-                      .filter((campo) => campo.key !== "sorteoJurado")
+                      .filter((campo) => campo.key !== 'sorteoJurado')
                       .map((campo) => (
                         <div key={campo.key}>
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
                             {campo.label}
-                            {campo.requerido && (
-                              <span className="text-danger ml-1">*</span>
-                            )}
+                            {campo.requerido && <span className="text-danger ml-1">*</span>}
                           </label>
                           <input
-                            type={campo.tipo === "fecha" ? "date" : "text"}
+                            type={campo.tipo === 'fecha' ? 'date' : 'text'}
                             defaultValue={campo.valor as string}
                             data-key={campo.key}
                             className="input h-10 w-full"
-                            disabled={
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada"
-                            }
+                            disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                           />
                         </div>
                       ))}
@@ -3267,50 +3011,47 @@ export function ConcursoCphWizard() {
                       </label>
                       <select
                         data-key="tipoGestion"
-                        defaultValue={cphData?.tipoGestion ?? ""}
+                        defaultValue={cphData?.tipoGestion ?? ''}
                         className="input h-10 w-full"
-                        disabled={etapa.estado === "pendiente" || etapa.estado === "bloqueada"}
+                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
                       >
                         <option value="">Sin definir</option>
                         <option value="centralizado">Centralizado</option>
                         <option value="descentralizado">Descentralizado</option>
                       </select>
                       <p className="text-[11px] text-gray-400 mt-1">
-                        Centralizado: interviene SGOCDCPS y su equipo en la etapa 3. Descentralizado: interviene un tercero.
+                        Centralizado: interviene SGOCDCPS y su equipo en la etapa 3.
+                        Descentralizado: interviene un tercero.
                       </p>
                     </div>
                   </div>
                 </div>
-              ) : etapa.id === "inscripcion" ? (
+              ) : etapa.id === 'inscripcion' ? (
                 <div className="space-y-5">
                   {(() => {
-                    const deshab =
-                      etapa.estado === "pendiente" ||
-                      etapa.estado === "bloqueada";
+                    const deshab = etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'
                     // Orden de la tabla: primero los que tienen posición de OM
                     // (asc), luego el resto por apellido/nombre.
                     const inscriptosOrdenados = [...inscriptos].sort((a, b) => {
-                      const pa = a.ordenMerito ?? Infinity;
-                      const pb = b.ordenMerito ?? Infinity;
-                      if (pa !== pb) return pa - pb;
+                      const pa = a.ordenMerito ?? Infinity
+                      const pb = b.ordenMerito ?? Infinity
+                      if (pa !== pb) return pa - pb
                       return (
-                        a.apellido.localeCompare(b.apellido) ||
-                        a.nombre.localeCompare(b.nombre)
-                      );
-                    });
+                        a.apellido.localeCompare(b.apellido) || a.nombre.localeCompare(b.nombre)
+                      )
+                    })
                     // Validación de posiciones del orden de mérito.
                     const posiciones = inscriptos
                       .filter((i) => i.ordenMerito != null)
-                      .map((i) => i.ordenMerito as number);
-                    const hayRepetidas =
-                      new Set(posiciones).size !== posiciones.length;
+                      .map((i) => i.ordenMerito as number)
+                    const hayRepetidas = new Set(posiciones).size !== posiciones.length
                     const presentadosSinPos = inscriptos.filter(
                       (i) => i.presentoExamen && i.ordenMerito == null,
-                    ).length;
+                    ).length
                     const campoInput = (key: string) => {
-                      const campo = etapa.campos.find((c) => c.key === key);
-                      if (!campo) return null;
-                      if (campo.tipo === "checkbox")
+                      const campo = etapa.campos.find((c) => c.key === key)
+                      if (!campo) return null
+                      if (campo.tipo === 'checkbox')
                         return (
                           <div key={key}>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -3327,34 +3068,34 @@ export function ConcursoCphWizard() {
                               <span className="text-sm text-gray-500">Sí</span>
                             </div>
                           </div>
-                        );
+                        )
                       // Las fechas de inscripción quedan de solo lectura una vez
                       // publicadas (inscripción cerrada).
                       const roInsc =
-                        (key === "fechaInscDesde" || key === "fechaInscHasta") &&
-                        !!cphData?.inscripcionCerrada;
+                        (key === 'fechaInscDesde' || key === 'fechaInscHasta') &&
+                        !!cphData?.inscripcionCerrada
                       return (
                         <div key={key}>
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
                             {campo.label}
                           </label>
                           <input
-                            type={campo.tipo === "fecha" ? "date" : "text"}
+                            type={campo.tipo === 'fecha' ? 'date' : 'text'}
                             defaultValue={campo.valor as string}
                             data-key={roInsc ? undefined : key}
                             readOnly={roInsc}
-                            className={`input h-10 w-full ${roInsc ? "bg-gray-50 text-gray-500" : ""}`}
+                            className={`input h-10 w-full ${roInsc ? 'bg-gray-50 text-gray-500' : ''}`}
                             disabled={deshab}
                           />
                         </div>
-                      );
-                    };
+                      )
+                    }
                     return (
                       <>
                         {/* Fechas de inscripción + publicar */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          {campoInput("fechaInscDesde")}
-                          {campoInput("fechaInscHasta")}
+                          {campoInput('fechaInscDesde')}
+                          {campoInput('fechaInscHasta')}
                         </div>
                         {!esNuevo && cphData && (
                           <div>
@@ -3366,22 +3107,20 @@ export function ConcursoCphWizard() {
                                   const desde =
                                     formRef.current?.querySelector<HTMLInputElement>(
                                       'input[data-key="fechaInscDesde"]',
-                                    )?.value || null;
+                                    )?.value || null
                                   const hasta =
                                     formRef.current?.querySelector<HTMLInputElement>(
                                       'input[data-key="fechaInscHasta"]',
-                                    )?.value || null;
+                                    )?.value || null
                                   if (!desde || !hasta) {
-                                    toast.error(
-                                      "Cargá las fechas de inscripción (desde y hasta).",
-                                    );
-                                    return;
+                                    toast.error('Cargá las fechas de inscripción (desde y hasta).')
+                                    return
                                   }
                                   if (
                                     await confirm({
-                                      titulo: "Publicar fechas de inscripción",
+                                      titulo: 'Publicar fechas de inscripción',
                                       mensaje:
-                                        "El sub-estado avanza a “Publicación Examen” y no se podrán agregar más inscriptos. ¿Publicar?",
+                                        'El sub-estado avanza a “Publicación Examen” y no se podrán agregar más inscriptos. ¿Publicar?',
                                     })
                                   )
                                     cerrarInscripcionMutation.mutate(
@@ -3389,38 +3128,42 @@ export function ConcursoCphWizard() {
                                       {
                                         onError: (e) =>
                                           toast.error(
-                                            (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo publicar.",
+                                            (
+                                              e as {
+                                                response?: {
+                                                  data?: { error?: { message?: string } }
+                                                }
+                                              }
+                                            )?.response?.data?.error?.message ??
+                                              'No se pudo publicar.',
                                           ),
                                       },
-                                    );
+                                    )
                                 }}
                               >
                                 {cerrarInscripcionMutation.isPending
-                                  ? "Publicando…"
-                                  : "📢 Publicar fechas de inscripción"}
+                                  ? 'Publicando…'
+                                  : '📢 Publicar fechas de inscripción'}
                               </button>
                             ) : (
                               <div className="flex items-center gap-3 flex-wrap">
                                 <button
                                   className="btn-outline text-xs whitespace-nowrap"
                                   disabled={
-                                    reabrirInscripcionMutation.isPending ||
-                                    !!cphData.fechaExamen
+                                    reabrirInscripcionMutation.isPending || !!cphData.fechaExamen
                                   }
                                   title={
-                                    cphData.fechaExamen
-                                      ? "Despublicá primero el examen"
-                                      : undefined
+                                    cphData.fechaExamen ? 'Despublicá primero el examen' : undefined
                                   }
                                   onClick={async () => {
                                     if (
                                       await confirm({
-                                        titulo: "Reabrir inscripciones",
+                                        titulo: 'Reabrir inscripciones',
                                         mensaje:
-                                          "El sub-estado vuelve a “Inscripción de exámenes”. ¿Reabrir?",
+                                          'El sub-estado vuelve a “Inscripción de exámenes”. ¿Reabrir?',
                                       })
                                     )
-                                      reabrirInscripcionMutation.mutate();
+                                      reabrirInscripcionMutation.mutate()
                                   }}
                                 >
                                   ↩ Reabrir inscripciones
@@ -3440,53 +3183,57 @@ export function ConcursoCphWizard() {
                               type="date"
                               defaultValue={
                                 (cphData?.fechaExamen?.slice(0, 10) ??
-                                  (etapa.campos.find((c) => c.key === "fechaExamen")
-                                    ?.valor as string)) || ""
+                                  (etapa.campos.find((c) => c.key === 'fechaExamen')
+                                    ?.valor as string)) ||
+                                ''
                               }
-                              data-key={cphData?.fechaExamen ? undefined : "fechaExamen"}
+                              data-key={cphData?.fechaExamen ? undefined : 'fechaExamen'}
                               readOnly={!!cphData?.fechaExamen}
-                              className={`input h-10 w-full ${cphData?.fechaExamen ? "bg-gray-50 text-gray-500" : ""}`}
+                              className={`input h-10 w-full ${cphData?.fechaExamen ? 'bg-gray-50 text-gray-500' : ''}`}
                               disabled={deshab}
                             />
                             {!cphData?.fechaExamen ? (
                               <button
                                 className="btn-primary text-xs mt-2 whitespace-nowrap"
                                 disabled={
-                                  publicarExamenMutation.isPending ||
-                                  !cphData?.inscripcionCerrada
+                                  publicarExamenMutation.isPending || !cphData?.inscripcionCerrada
                                 }
                                 title={
                                   !cphData?.inscripcionCerrada
-                                    ? "Publicá primero las fechas de inscripción"
+                                    ? 'Publicá primero las fechas de inscripción'
                                     : undefined
                                 }
                                 onClick={async () => {
                                   const val =
                                     formRef.current?.querySelector<HTMLInputElement>(
                                       'input[data-key="fechaExamen"]',
-                                    )?.value || null;
+                                    )?.value || null
                                   if (!val) {
-                                    toast.error("Cargá la fecha de examen.");
-                                    return;
+                                    toast.error('Cargá la fecha de examen.')
+                                    return
                                   }
                                   if (
                                     await confirm({
-                                      titulo: "Publicar examen",
-                                      mensaje:
-                                        "Se publicará la fecha de examen. ¿Continuar?",
+                                      titulo: 'Publicar examen',
+                                      mensaje: 'Se publicará la fecha de examen. ¿Continuar?',
                                     })
                                   )
                                     publicarExamenMutation.mutate(val, {
                                       onError: (e) =>
                                         toast.error(
-                                          (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo publicar.",
+                                          (
+                                            e as {
+                                              response?: { data?: { error?: { message?: string } } }
+                                            }
+                                          )?.response?.data?.error?.message ??
+                                            'No se pudo publicar.',
                                         ),
-                                    });
+                                    })
                                 }}
                               >
                                 {publicarExamenMutation.isPending
-                                  ? "Publicando…"
-                                  : "📢 Publicar examen"}
+                                  ? 'Publicando…'
+                                  : '📢 Publicar examen'}
                               </button>
                             ) : (
                               <button
@@ -3497,18 +3244,18 @@ export function ConcursoCphWizard() {
                                 }
                                 title={
                                   cphData.presentadosConfirmados
-                                    ? "Revertí primero los presentados"
+                                    ? 'Revertí primero los presentados'
                                     : undefined
                                 }
                                 onClick={async () => {
                                   if (
                                     await confirm({
-                                      titulo: "Despublicar examen",
+                                      titulo: 'Despublicar examen',
                                       mensaje:
-                                        "Se quitará la fecha de examen publicada. ¿Continuar?",
+                                        'Se quitará la fecha de examen publicada. ¿Continuar?',
                                     })
                                   )
-                                    despublicarExamenMutation.mutate();
+                                    despublicarExamenMutation.mutate()
                                 }}
                               >
                                 ↩ Despublicar examen
@@ -3521,7 +3268,7 @@ export function ConcursoCphWizard() {
                             </label>
                             <input
                               type="date"
-                              value={cphData?.fechaOrdenMerito?.slice(0, 10) ?? ""}
+                              value={cphData?.fechaOrdenMerito?.slice(0, 10) ?? ''}
                               readOnly
                               className="input h-10 w-full bg-gray-50 text-gray-500"
                               title="Se completa automáticamente al confirmar el orden de mérito"
@@ -3542,32 +3289,36 @@ export function ConcursoCphWizard() {
                                     Inscriptos: <strong>{inscriptos.length}</strong>
                                   </span>
                                   <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium">
-                                    Presentados: <strong>{inscriptos.filter((i) => i.presentoExamen).length}</strong>
+                                    Presentados:{' '}
+                                    <strong>
+                                      {inscriptos.filter((i) => i.presentoExamen).length}
+                                    </strong>
                                   </span>
                                   <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium">
-                                    En orden de mérito: <strong>{inscriptos.filter((i) => i.ordenMerito != null).length}</strong>
+                                    En orden de mérito:{' '}
+                                    <strong>
+                                      {inscriptos.filter((i) => i.ordenMerito != null).length}
+                                    </strong>
                                   </span>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">
                                   {cphData.inscripcionCerrada
-                                    ? `Inscripciones cerradas${cphData.fechaCierreInscripcion ? " el " + cphData.fechaCierreInscripcion.slice(0, 10).split("-").reverse().join("/") : ""}.`
-                                    : "Cargá inscriptos uno por uno o importá un Excel/CSV. La cantidad se calcula sola."}
+                                    ? `Inscripciones cerradas${cphData.fechaCierreInscripcion ? ' el ' + cphData.fechaCierreInscripcion.slice(0, 10).split('-').reverse().join('/') : ''}.`
+                                    : 'Cargá inscriptos uno por uno o importá un Excel/CSV. La cantidad se calcula sola.'}
                                 </p>
                               </div>
                               <div className="flex flex-col gap-2 shrink-0 w-56">
                                 <button
                                   className="btn-outline text-sm w-full whitespace-nowrap"
-                                  onClick={() =>
-                                    inscriptoFileRef.current?.click()
-                                  }
+                                  onClick={() => inscriptoFileRef.current?.click()}
                                   disabled={
                                     importarInscriptosMutation.isPending ||
                                     cphData.inscripcionCerrada
                                   }
                                 >
                                   {importarInscriptosMutation.isPending
-                                    ? "Importando…"
-                                    : "⬆ Importar Excel/CSV"}
+                                    ? 'Importando…'
+                                    : '⬆ Importar Excel/CSV'}
                                 </button>
                                 <input
                                   ref={inscriptoFileRef}
@@ -3575,21 +3326,18 @@ export function ConcursoCphWizard() {
                                   accept=".xlsx,.xls,.csv"
                                   className="hidden"
                                   onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
+                                    const file = e.target.files?.[0]
+                                    if (!file) return
                                     try {
-                                      const r =
-                                        await importarInscriptosMutation.mutateAsync(
-                                          file,
-                                        );
+                                      const r = await importarInscriptosMutation.mutateAsync(file)
                                       toast.success(
                                         `Importados ${r.creados} inscriptos. Ignorados: ${r.ignorados}. Total: ${r.total}.`,
-                                      );
+                                      )
                                     } catch {
-                                      toast.error("No se pudo importar el archivo.");
+                                      toast.error('No se pudo importar el archivo.')
                                     } finally {
                                       if (inscriptoFileRef.current)
-                                        inscriptoFileRef.current.value = "";
+                                        inscriptoFileRef.current.value = ''
                                     }
                                   }}
                                 />
@@ -3598,75 +3346,69 @@ export function ConcursoCphWizard() {
                                   disabled={cphData.inscripcionCerrada}
                                   onClick={() => {
                                     setInscriptoForm({
-                                      apellido: "",
-                                      nombre: "",
-                                      dni: "",
-                                      cuil: "",
-                                      email: "",
-                                    });
-                                    setModalInscripto(true);
+                                      apellido: '',
+                                      nombre: '',
+                                      dni: '',
+                                      cuil: '',
+                                      email: '',
+                                    })
+                                    setModalInscripto(true)
                                   }}
                                 >
                                   + Agregar inscripto
                                 </button>
-
                               </div>
                             </div>
                             {cerrarInscripcionMutation.isError && (
                               <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                                ⚠️ {(cerrarInscripcionMutation.error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudieron cerrar las inscripciones."}
+                                ⚠️{' '}
+                                {(
+                                  cerrarInscripcionMutation.error as {
+                                    response?: { data?: { error?: { message?: string } } }
+                                  }
+                                )?.response?.data?.error?.message ??
+                                  'No se pudieron cerrar las inscripciones.'}
                               </div>
                             )}
 
                             {(hayRepetidas || presentadosSinPos > 0) && (
                               <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                                 ⚠ Orden de mérito:
-                                {hayRepetidas && " hay posiciones repetidas."}
+                                {hayRepetidas && ' hay posiciones repetidas.'}
                                 {presentadosSinPos > 0 &&
                                   ` faltan asignar ${presentadosSinPos} posición(es) de presentados.`}
                               </div>
                             )}
                             {inscriptos.length === 0 ? (
-                              <p className="text-sm text-gray-400">
-                                Sin inscriptos cargados.
-                              </p>
+                              <p className="text-sm text-gray-400">Sin inscriptos cargados.</p>
                             ) : (
                               <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                   <thead>
                                     <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                                      <th className="py-2 pr-3">
-                                        Apellido y nombre
-                                      </th>
+                                      <th className="py-2 pr-3">Apellido y nombre</th>
                                       <th className="py-2 pr-3">DNI</th>
                                       <th className="py-2 pr-3">CUIL</th>
                                       <th className="py-2 pr-3">Email</th>
-                                      <th className="py-2 pr-3 text-center">
-                                        Presentó
-                                      </th>
-                                      <th className="py-2 pr-3 text-center">
-                                        Orden mérito
-                                      </th>
+                                      <th className="py-2 pr-3 text-center">Presentó</th>
+                                      <th className="py-2 pr-3 text-center">Orden mérito</th>
                                       <th className="py-2 pr-3"></th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {inscriptosOrdenados.map((ins) => (
-                                      <tr
-                                        key={ins.id}
-                                        className="border-b border-gray-50"
-                                      >
+                                      <tr key={ins.id} className="border-b border-gray-50">
                                         <td className="py-2 pr-3 font-medium text-gray-800">
                                           {ins.apellido}, {ins.nombre}
                                         </td>
                                         <td className="py-2 pr-3 text-gray-500">
-                                          {ins.dni ?? "—"}
+                                          {ins.dni ?? '—'}
                                         </td>
                                         <td className="py-2 pr-3 text-gray-500 font-mono">
-                                          {ins.cuil ?? "—"}
+                                          {ins.cuil ?? '—'}
                                         </td>
                                         <td className="py-2 pr-3 text-gray-500">
-                                          {ins.email ?? "—"}
+                                          {ins.email ?? '—'}
                                         </td>
                                         <td className="py-2 pr-3 text-center">
                                           <input
@@ -3681,8 +3423,7 @@ export function ConcursoCphWizard() {
                                               actualizarInscriptoMutation.mutate({
                                                 inscriptoId: ins.id,
                                                 body: {
-                                                  presentoExamen:
-                                                    e.target.checked,
+                                                  presentoExamen: e.target.checked,
                                                 },
                                               })
                                             }
@@ -3695,7 +3436,7 @@ export function ConcursoCphWizard() {
                                               type="number"
                                               min={1}
                                               className="input h-8 w-16 text-center"
-                                              defaultValue={ins.ordenMerito ?? ""}
+                                              defaultValue={ins.ordenMerito ?? ''}
                                               disabled={
                                                 actualizarInscriptoMutation.isPending ||
                                                 cphData.ordenMeritoConfirmado
@@ -3703,12 +3444,12 @@ export function ConcursoCphWizard() {
                                               onBlur={(e) => {
                                                 const val = e.target.value
                                                   ? Number(e.target.value)
-                                                  : null;
+                                                  : null
                                                 if (val !== (ins.ordenMerito ?? null))
                                                   actualizarInscriptoMutation.mutate({
                                                     inscriptoId: ins.id,
                                                     body: { ordenMerito: val },
-                                                  });
+                                                  })
                                               }}
                                               title="Posición en el orden de mérito"
                                             />
@@ -3722,15 +3463,13 @@ export function ConcursoCphWizard() {
                                             onClick={async () => {
                                               if (
                                                 await confirm({
-                                                  titulo: "Eliminar inscripto",
+                                                  titulo: 'Eliminar inscripto',
                                                   mensaje: `¿Eliminar a ${ins.apellido}, ${ins.nombre}?`,
                                                   peligro: true,
-                                                  confirmLabel: "Eliminar",
+                                                  confirmLabel: 'Eliminar',
                                                 })
                                               )
-                                                borrarInscriptoMutation.mutate(
-                                                  ins.id,
-                                                );
+                                                borrarInscriptoMutation.mutate(ins.id)
                                             }}
                                           >
                                             Eliminar
@@ -3757,8 +3496,8 @@ export function ConcursoCphWizard() {
                                 </p>
                                 <p className="text-xs text-indigo-600 mt-0.5">
                                   {cphData.presentadosConfirmados
-                                    ? "Confirmado — la marca de presentes quedó fija."
-                                    : "Marcá en la tabla quién se presentó y confirmá para congelar la lista."}
+                                    ? 'Confirmado — la marca de presentes quedó fija.'
+                                    : 'Marcá en la tabla quién se presentó y confirmá para congelar la lista.'}
                                 </p>
                               </div>
                               {cphData.presentadosConfirmados ? (
@@ -3771,12 +3510,12 @@ export function ConcursoCphWizard() {
                                   onClick={async () => {
                                     if (
                                       await confirm({
-                                        titulo: "Revertir presentados",
+                                        titulo: 'Revertir presentados',
                                         mensaje:
-                                          "Vas a poder volver a editar quién se presentó. ¿Continuar?",
+                                          'Vas a poder volver a editar quién se presentó. ¿Continuar?',
                                       })
                                     )
-                                      revertirPresentadosMutation.mutate();
+                                      revertirPresentadosMutation.mutate()
                                   }}
                                 >
                                   ↩ Revertir presentados
@@ -3788,17 +3527,24 @@ export function ConcursoCphWizard() {
                                   onClick={async () => {
                                     if (
                                       await confirm({
-                                        titulo: "Confirmar presentados",
+                                        titulo: 'Confirmar presentados',
                                         mensaje:
-                                          "Se congelará quién se presentó al examen (no se podrá editar luego). ¿Confirmar?",
+                                          'Se congelará quién se presentó al examen (no se podrá editar luego). ¿Confirmar?',
                                       })
                                     )
                                       confirmarPresentadosMutation.mutate(undefined, {
                                         onError: (e) =>
                                           toast.error(
-                                            (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo confirmar.",
+                                            (
+                                              e as {
+                                                response?: {
+                                                  data?: { error?: { message?: string } }
+                                                }
+                                              }
+                                            )?.response?.data?.error?.message ??
+                                              'No se pudo confirmar.',
                                           ),
-                                      });
+                                      })
                                   }}
                                 >
                                   ✓ Confirmar presentados
@@ -3816,8 +3562,8 @@ export function ConcursoCphWizard() {
                                 </p>
                                 <p className="text-xs text-indigo-600 mt-0.5">
                                   {cphData.ordenMeritoConfirmado
-                                    ? "Confirmado — el ranking quedó fijo y se generó el acta."
-                                    : "Asigná la posición a cada presentado y confirmá (la fecha se toma de hoy)."}
+                                    ? 'Confirmado — el ranking quedó fijo y se generó el acta.'
+                                    : 'Asigná la posición a cada presentado y confirmá (la fecha se toma de hoy).'}
                                 </p>
                               </div>
                               {cphData.ordenMeritoConfirmado ? (
@@ -3827,12 +3573,12 @@ export function ConcursoCphWizard() {
                                   onClick={async () => {
                                     if (
                                       await confirm({
-                                        titulo: "Revertir orden de mérito",
+                                        titulo: 'Revertir orden de mérito',
                                         mensaje:
-                                          "El ranking volverá a ser editable y se quitará la fecha de orden de mérito. ¿Continuar?",
+                                          'El ranking volverá a ser editable y se quitará la fecha de orden de mérito. ¿Continuar?',
                                       })
                                     )
-                                      revertirOrdenMeritoMutation.mutate();
+                                      revertirOrdenMeritoMutation.mutate()
                                   }}
                                 >
                                   ↩ Revertir orden de mérito
@@ -3846,23 +3592,30 @@ export function ConcursoCphWizard() {
                                   }
                                   title={
                                     !cphData.presentadosConfirmados
-                                      ? "Confirmá primero los presentados"
+                                      ? 'Confirmá primero los presentados'
                                       : undefined
                                   }
                                   onClick={async () => {
                                     if (
                                       await confirm({
-                                        titulo: "Confirmar orden de mérito",
+                                        titulo: 'Confirmar orden de mérito',
                                         mensaje:
-                                          "Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?",
+                                          'Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?',
                                       })
                                     )
                                       confirmarOrdenMeritoMutation.mutate(undefined, {
                                         onError: (e) =>
                                           toast.error(
-                                            (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo confirmar.",
+                                            (
+                                              e as {
+                                                response?: {
+                                                  data?: { error?: { message?: string } }
+                                                }
+                                              }
+                                            )?.response?.data?.error?.message ??
+                                              'No se pudo confirmar.',
                                           ),
-                                      });
+                                      })
                                   }}
                                 >
                                   ✓ Confirmar orden de mérito
@@ -3872,29 +3625,29 @@ export function ConcursoCphWizard() {
                           </div>
                         )}
                       </>
-                    );
+                    )
                   })()}
                 </div>
-              ) : etapa.id === "ifacs_insal" ? (
+              ) : etapa.id === 'ifacs_insal' ? (
                 (() => {
                   // Guardado habilitado solo si hay algo cargado Y difiere de lo
                   // persistido (si ya está guardado igual, se deshabilita).
                   const ifacsGuardado = {
-                    ifacs: cphData?.ifacs ?? "",
-                    fechaIfacs: cphData?.fechaIfacs?.slice(0, 10) ?? "",
-                  };
+                    ifacs: cphData?.ifacs ?? '',
+                    fechaIfacs: cphData?.fechaIfacs?.slice(0, 10) ?? '',
+                  }
                   const insalGuardado = {
-                    insal: cphData?.insal ?? "",
-                    fechaInsal: cphData?.fechaInsal?.slice(0, 10) ?? "",
-                  };
-                  const ifacsVacio = !ifacsForm.ifacs.trim() && !ifacsForm.fechaIfacs;
-                  const insalVacio = !insalForm.insal.trim() && !insalForm.fechaInsal;
+                    insal: cphData?.insal ?? '',
+                    fechaInsal: cphData?.fechaInsal?.slice(0, 10) ?? '',
+                  }
+                  const ifacsVacio = !ifacsForm.ifacs.trim() && !ifacsForm.fechaIfacs
+                  const insalVacio = !insalForm.insal.trim() && !insalForm.fechaInsal
                   const ifacsSinCambios =
                     ifacsForm.ifacs === ifacsGuardado.ifacs &&
-                    ifacsForm.fechaIfacs === ifacsGuardado.fechaIfacs;
+                    ifacsForm.fechaIfacs === ifacsGuardado.fechaIfacs
                   const insalSinCambios =
                     insalForm.insal === insalGuardado.insal &&
-                    insalForm.fechaInsal === insalGuardado.fechaInsal;
+                    insalForm.fechaInsal === insalGuardado.fechaInsal
                   return (
                     <div className="space-y-5">
                       {/* IFACS */}
@@ -3902,20 +3655,28 @@ export function ConcursoCphWizard() {
                         <p className="text-sm font-semibold text-gray-800 mb-3">IFACS</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Expediente IFACS</label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Expediente IFACS
+                            </label>
                             <input
                               type="text"
                               value={ifacsForm.ifacs}
-                              onChange={(e) => setIfacsForm((f) => ({ ...f, ifacs: e.target.value }))}
+                              onChange={(e) =>
+                                setIfacsForm((f) => ({ ...f, ifacs: e.target.value }))
+                              }
                               className="input h-10 w-full"
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Fecha IFACS <span className="text-danger">*</span></label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Fecha IFACS <span className="text-danger">*</span>
+                            </label>
                             <input
                               type="date"
                               value={ifacsForm.fechaIfacs}
-                              onChange={(e) => setIfacsForm((f) => ({ ...f, fechaIfacs: e.target.value }))}
+                              onChange={(e) =>
+                                setIfacsForm((f) => ({ ...f, fechaIfacs: e.target.value }))
+                              }
                               className="input h-10 w-full"
                             />
                           </div>
@@ -3925,15 +3686,26 @@ export function ConcursoCphWizard() {
                           disabled={patchMutation.isPending || ifacsVacio || ifacsSinCambios}
                           onClick={() =>
                             patchMutation.mutate(
-                              { ifacs: ifacsForm.ifacs || null, fechaIfacs: ifacsForm.fechaIfacs || null },
                               {
-                                onSuccess: () => toast.success("IFACS guardado."),
-                                onError: (e) => toast.error((e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo guardar IFACS."),
+                                ifacs: ifacsForm.ifacs || null,
+                                fechaIfacs: ifacsForm.fechaIfacs || null,
+                              },
+                              {
+                                onSuccess: () => toast.success('IFACS guardado.'),
+                                onError: (e) =>
+                                  toast.error(
+                                    (
+                                      e as {
+                                        response?: { data?: { error?: { message?: string } } }
+                                      }
+                                    )?.response?.data?.error?.message ??
+                                      'No se pudo guardar IFACS.',
+                                  ),
                               },
                             )
                           }
                         >
-                          {ifacsSinCambios && !ifacsVacio ? "✓ IFACS guardado" : "💾 Guardar IFACS"}
+                          {ifacsSinCambios && !ifacsVacio ? '✓ IFACS guardado' : '💾 Guardar IFACS'}
                         </button>
                       </div>
 
@@ -3942,20 +3714,28 @@ export function ConcursoCphWizard() {
                         <p className="text-sm font-semibold text-gray-800 mb-3">INSAL</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Expediente INSAL</label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Expediente INSAL
+                            </label>
                             <input
                               type="text"
                               value={insalForm.insal}
-                              onChange={(e) => setInsalForm((f) => ({ ...f, insal: e.target.value }))}
+                              onChange={(e) =>
+                                setInsalForm((f) => ({ ...f, insal: e.target.value }))
+                              }
                               className="input h-10 w-full"
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Fecha INSAL <span className="text-danger">*</span></label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Fecha INSAL <span className="text-danger">*</span>
+                            </label>
                             <input
                               type="date"
                               value={insalForm.fechaInsal}
-                              onChange={(e) => setInsalForm((f) => ({ ...f, fechaInsal: e.target.value }))}
+                              onChange={(e) =>
+                                setInsalForm((f) => ({ ...f, fechaInsal: e.target.value }))
+                              }
                               className="input h-10 w-full"
                             />
                           </div>
@@ -3965,19 +3745,30 @@ export function ConcursoCphWizard() {
                           disabled={patchMutation.isPending || insalVacio || insalSinCambios}
                           onClick={() =>
                             patchMutation.mutate(
-                              { insal: insalForm.insal || null, fechaInsal: insalForm.fechaInsal || null },
                               {
-                                onSuccess: () => toast.success("INSAL guardado."),
-                                onError: (e) => toast.error((e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? "No se pudo guardar INSAL."),
+                                insal: insalForm.insal || null,
+                                fechaInsal: insalForm.fechaInsal || null,
+                              },
+                              {
+                                onSuccess: () => toast.success('INSAL guardado.'),
+                                onError: (e) =>
+                                  toast.error(
+                                    (
+                                      e as {
+                                        response?: { data?: { error?: { message?: string } } }
+                                      }
+                                    )?.response?.data?.error?.message ??
+                                      'No se pudo guardar INSAL.',
+                                  ),
                               },
                             )
                           }
                         >
-                          {insalSinCambios && !insalVacio ? "✓ INSAL guardado" : "💾 Guardar INSAL"}
+                          {insalSinCambios && !insalVacio ? '✓ INSAL guardado' : '💾 Guardar INSAL'}
                         </button>
                       </div>
                     </div>
-                  );
+                  )
                 })()
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3985,28 +3776,28 @@ export function ConcursoCphWizard() {
                     // sorteoJurado: el CSV solo tiene bool — si el concurso ya superó
                     // ese paso pero no hay fecha, mostramos un hint
                     const sorteoSinFecha =
-                      campo.key === "sorteoJurado" &&
+                      campo.key === 'sorteoJurado' &&
                       !campo.valor &&
                       cphData &&
                       [
-                        "C-DISPO DE LLAMADO",
-                        "C2-INSCRIPCION EX",
-                        "D-EXAMEN PUBLICADO",
-                        "E-ORDEN DE MERITO",
-                        "F-IFACS",
-                        "G-INSAL",
-                        "H-TAD",
-                        "I-CARGA DOCU",
-                        "J-APTO MED",
-                        "K-ITE",
-                        "L-PYCTO DE RESO",
-                        "M-RESO A LA FIRMA",
-                        "N-DESIGNADO",
-                        "O-ALTA SIAL",
-                      ].includes(cphData.subEstado ?? "");
+                        'C-DISPO DE LLAMADO',
+                        'C2-INSCRIPCION EX',
+                        'D-EXAMEN PUBLICADO',
+                        'E-ORDEN DE MERITO',
+                        'F-IFACS',
+                        'G-INSAL',
+                        'H-TAD',
+                        'I-CARGA DOCU',
+                        'J-APTO MED',
+                        'K-ITE',
+                        'L-PYCTO DE RESO',
+                        'M-RESO A LA FIRMA',
+                        'N-DESIGNADO',
+                        'O-ALTA SIAL',
+                      ].includes(cphData.subEstado ?? '')
 
                     // personaDesignada: panel especial con datos de BD
-                    if (campo.key === "personaDesignada")
+                    if (campo.key === 'personaDesignada')
                       return (
                         <div key="personaDesignada" className="sm:col-span-2">
                           <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -4014,15 +3805,15 @@ export function ConcursoCphWizard() {
                           </label>
 
                           {/* Concurso no finalizado — mostrar botón para registrar designación */}
-                          {cphData && cphData.estado !== "finalizado" && (
+                          {cphData && cphData.estado !== 'finalizado' && (
                             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
                               <div>
                                 <p className="text-sm font-semibold text-blue-800">
                                   Registrar designación
                                 </p>
                                 <p className="text-xs text-blue-600 mt-0.5">
-                                  El cargo quedará ocupado inmediatamente sin
-                                  esperar el padrón siguiente.
+                                  El cargo quedará ocupado inmediatamente sin esperar el padrón
+                                  siguiente.
                                 </p>
                               </div>
                               <button
@@ -4036,33 +3827,29 @@ export function ConcursoCphWizard() {
 
                           {/* Persona ya designada (concurso finalizado o personaDesignadaId seteado) */}
                           {loadingPersona && (
-                            <p className="text-sm text-gray-400">
-                              Buscando persona...
-                            </p>
+                            <p className="text-sm text-gray-400">Buscando persona...</p>
                           )}
                           {!loadingPersona && errorPersona && (
                             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                              ⚠️{" "}
+                              ⚠️{' '}
                               {(
                                 errorPersona as {
-                                  response?: { data?: { message?: string } };
+                                  response?: { data?: { message?: string } }
                                 }
                               )?.response?.data?.message ??
-                                "No se encontró persona designada en el sistema"}
+                                'No se encontró persona designada en el sistema'}
                             </div>
                           )}
                           {!loadingPersona && personaDesignada && (
                             <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1.5">
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-green-600 text-sm">
-                                  ✓
-                                </span>
+                                <span className="text-green-600 text-sm">✓</span>
                                 <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">
-                                  {personaDesignada.fuente === "orden_merito"
-                                    ? "Desde orden de mérito"
-                                    : personaDesignada.fuente === "cargo_sial"
-                                      ? "Desde cargo SIAL"
-                                      : "Desde padrón"}
+                                  {personaDesignada.fuente === 'orden_merito'
+                                    ? 'Desde orden de mérito'
+                                    : personaDesignada.fuente === 'cargo_sial'
+                                      ? 'Desde cargo SIAL'
+                                      : 'Desde padrón'}
                                 </span>
                               </div>
                               {personaDesignada.persona &&
@@ -4070,40 +3857,35 @@ export function ConcursoCphWizard() {
                                   const espCph =
                                     (
                                       personaDesignada.persona as unknown as {
-                                        especialidadCph?: string | null;
+                                        especialidadCph?: string | null
                                       }
-                                    ).especialidadCph ?? null;
-                                  const espConcurso =
-                                    concurso?.especialidad ?? null;
+                                    ).especialidadCph ?? null
+                                  const espConcurso = concurso?.especialidad ?? null
                                   const norm = (s: string) =>
                                     s
-                                      .normalize("NFD")
-                                      .replace(/[\u0300-\u036f]/g, "")
+                                      .normalize('NFD')
+                                      .replace(/[\u0300-\u036f]/g, '')
                                       .toLowerCase()
-                                      .trim();
+                                      .trim()
                                   const coincide =
                                     espCph && espConcurso
                                       ? norm(espCph) === norm(espConcurso)
-                                      : null;
-                                  const esProvisional =
-                                    cphData?.cargoSial?.startsWith("MANUAL-");
+                                      : null
+                                  const esProvisional = cphData?.cargoSial?.startsWith('MANUAL-')
                                   return (
                                     <>
                                       <p className="text-sm font-bold text-gray-900">
-                                        {
-                                          personaDesignada.persona
-                                            .apellidoNombre
-                                        }
+                                        {personaDesignada.persona.apellidoNombre}
                                       </p>
                                       <p className="text-xs text-gray-500">
-                                        CUIL:{" "}
+                                        CUIL:{' '}
                                         <span className="font-mono text-gray-700">
                                           {personaDesignada.persona.cuil}
                                         </span>
                                       </p>
                                       {personaDesignada.persona.numeroDoc && (
                                         <p className="text-xs text-gray-500">
-                                          DNI:{" "}
+                                          DNI:{' '}
                                           <span className="text-gray-700">
                                             {personaDesignada.persona.numeroDoc}
                                           </span>
@@ -4114,24 +3896,19 @@ export function ConcursoCphWizard() {
                                         <div
                                           className={`rounded px-2.5 py-1.5 text-xs flex items-center gap-1.5 mt-1 ${
                                             coincide === true
-                                              ? "bg-green-100 border border-green-200 text-green-700"
-                                              : "bg-amber-50 border border-amber-200 text-amber-700"
+                                              ? 'bg-green-100 border border-green-200 text-green-700'
+                                              : 'bg-amber-50 border border-amber-200 text-amber-700'
                                           }`}
                                         >
+                                          <span>{coincide === true ? '✓' : '⚠️'}</span>
                                           <span>
-                                            {coincide === true ? "✓" : "⚠️"}
-                                          </span>
-                                          <span>
-                                            Especialidad CPH:{" "}
-                                            <strong>{espCph}</strong>
-                                            {coincide === false &&
-                                              espConcurso && (
-                                                <>
-                                                  {" "}
-                                                  — concurso de{" "}
-                                                  <strong>{espConcurso}</strong>
-                                                </>
-                                              )}
+                                            Especialidad CPH: <strong>{espCph}</strong>
+                                            {coincide === false && espConcurso && (
+                                              <>
+                                                {' '}
+                                                — concurso de <strong>{espConcurso}</strong>
+                                              </>
+                                            )}
                                           </span>
                                         </div>
                                       ) : (
@@ -4144,102 +3921,84 @@ export function ConcursoCphWizard() {
                                         <div className="rounded px-2.5 py-1.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 mt-1 flex items-center gap-1.5">
                                           <span>⏳</span>
                                           <span>
-                                            ID SIAL provisional — se actualizará
-                                            con el próximo padrón semanal
+                                            ID SIAL provisional — se actualizará con el próximo
+                                            padrón semanal
                                           </span>
                                         </div>
                                       )}
                                       {personaDesignada.persona.mailLaboral && (
                                         <p className="text-xs text-gray-500">
-                                          Mail:{" "}
+                                          Mail:{' '}
                                           <span className="text-gray-700">
-                                            {
-                                              personaDesignada.persona
-                                                .mailLaboral
-                                            }
+                                            {personaDesignada.persona.mailLaboral}
                                           </span>
                                         </p>
                                       )}
                                       {personaDesignada.persona.telefono && (
                                         <p className="text-xs text-gray-500">
-                                          Tel:{" "}
+                                          Tel:{' '}
                                           <span className="text-gray-700">
                                             {personaDesignada.persona.telefono}
                                           </span>
                                         </p>
                                       )}
                                     </>
-                                  );
+                                  )
                                 })()}
-                              {personaDesignada.fuente === "cargo_sial" &&
+                              {personaDesignada.fuente === 'cargo_sial' &&
                                 personaDesignada.cargo && (
                                   <div className="mt-2 pt-2 border-t border-green-200">
                                     <p className="text-xs text-gray-500">
-                                      Cargo nuevo:{" "}
+                                      Cargo nuevo:{' '}
                                       <span className="font-mono font-semibold text-gray-700">
                                         {personaDesignada.cargo.codigo ??
                                           personaDesignada.cargo.idSial}
                                       </span>
-                                      {personaDesignada.cargo
-                                        .situacionRevista && (
-                                        <>
-                                          {" "}
-                                          ·{" "}
-                                          {
-                                            personaDesignada.cargo
-                                              .situacionRevista
-                                          }
-                                        </>
+                                      {personaDesignada.cargo.situacionRevista && (
+                                        <> · {personaDesignada.cargo.situacionRevista}</>
                                       )}
                                     </p>
                                   </div>
                                 )}
-                              {personaDesignada.fuente === "orden_merito" &&
+                              {personaDesignada.fuente === 'orden_merito' &&
                                 personaDesignada.integrante && (
                                   <div className="mt-2 pt-2 border-t border-green-200">
                                     <p className="text-xs text-gray-500">
-                                      Posición en OM:{" "}
+                                      Posición en OM:{' '}
                                       <span className="font-semibold text-gray-700">
                                         #{personaDesignada.integrante.posicion}
                                       </span>
-                                      {" · "}
-                                      {
-                                        personaDesignada.integrante.ordenMerito
-                                          .especialidad
-                                      }
-                                      {" · "}
+                                      {' · '}
+                                      {personaDesignada.integrante.ordenMerito.especialidad}
+                                      {' · '}
                                       {personaDesignada.integrante.ordenMerito.fechaPublicacion
                                         .slice(0, 10)
-                                        .split("-")
+                                        .split('-')
                                         .reverse()
-                                        .join("/")}
+                                        .join('/')}
                                     </p>
                                   </div>
                                 )}
                             </div>
                           )}
                         </div>
-                      );
+                      )
 
                     return (
                       <div
                         key={campo.key}
-                        className={
-                          campo.tipo === "textarea" ? "sm:col-span-2" : ""
-                        }
+                        className={campo.tipo === 'textarea' ? 'sm:col-span-2' : ''}
                       >
                         <label className="block text-sm font-semibold text-gray-700 mb-1">
                           {campo.label}
-                          {campo.requerido && (
-                            <span className="text-danger ml-1">*</span>
-                          )}
+                          {campo.requerido && <span className="text-danger ml-1">*</span>}
                           {sorteoSinFecha && (
                             <span className="ml-2 text-xs font-normal text-amber-600">
                               ⚠ realizado, fecha pendiente
                             </span>
                           )}
                         </label>
-                        {campo.tipo === "checkbox" ? (
+                        {campo.tipo === 'checkbox' ? (
                           <div className="flex items-center gap-2 h-10">
                             <input
                               type="checkbox"
@@ -4248,13 +4007,13 @@ export function ConcursoCphWizard() {
                               className="checkbox"
                               disabled={
                                 campo.readonly ||
-                                etapa.estado === "pendiente" ||
-                                etapa.estado === "bloqueada"
+                                etapa.estado === 'pendiente' ||
+                                etapa.estado === 'bloqueada'
                               }
                             />
                             <span className="text-sm text-gray-500">Sí</span>
                           </div>
-                        ) : campo.tipo === "textarea" ? (
+                        ) : campo.tipo === 'textarea' ? (
                           <textarea
                             defaultValue={campo.valor as string}
                             data-key={campo.key}
@@ -4262,44 +4021,41 @@ export function ConcursoCphWizard() {
                             className="input w-full py-2"
                             disabled={
                               campo.readonly ||
-                              etapa.estado === "pendiente" ||
-                              etapa.estado === "bloqueada"
+                              etapa.estado === 'pendiente' ||
+                              etapa.estado === 'bloqueada'
                             }
                           />
                         ) : (
                           <input
-                            type={campo.tipo === "fecha" ? "date" : "text"}
+                            type={campo.tipo === 'fecha' ? 'date' : 'text'}
                             defaultValue={campo.valor as string}
                             data-key={campo.key}
-                            className={`input h-10 w-full ${campo.readonly ? "bg-gray-50 text-gray-500" : ""}`}
+                            className={`input h-10 w-full ${campo.readonly ? 'bg-gray-50 text-gray-500' : ''}`}
                             readOnly={campo.readonly}
                             disabled={
                               !campo.readonly &&
-                              (etapa.estado === "pendiente" ||
-                                etapa.estado === "bloqueada")
+                              (etapa.estado === 'pendiente' || etapa.estado === 'bloqueada')
                             }
                           />
                         )}
                       </div>
-                    );
+                    )
                   })}
                 </div>
               )}
 
               {/* Etapa 3: se puede declarar desierta la ronda — relanza el concurso
                   (vuelve a la Etapa 1 para reiniciar el proceso). */}
-              {etapa.id === "inscripcion" &&
+              {etapa.id === 'inscripcion' &&
                 !esNuevo &&
                 cphData &&
-                cphData.estado !== "finalizado" && (
+                cphData.estado !== 'finalizado' && (
                   <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-sm font-semibold text-red-800">
-                        Declarar ronda desierta
-                      </p>
+                      <p className="text-sm font-semibold text-red-800">Declarar ronda desierta</p>
                       <p className="text-xs text-red-600 mt-0.5">
-                        Registra la ronda como desierta, guarda el historial y
-                        relanza el concurso desde la Etapa 1.
+                        Registra la ronda como desierta, guarda el historial y relanza el concurso
+                        desde la Etapa 1.
                       </p>
                     </div>
                     <button
@@ -4316,9 +4072,7 @@ export function ConcursoCphWizard() {
                   Observaciones
                 </label>
                 <textarea
-                  defaultValue={
-                    etapa.id === "ifacs_insal" ? c.observaciones : ""
-                  }
+                  defaultValue={etapa.id === 'ifacs_insal' ? c.observaciones : ''}
                   rows={2}
                   className="input w-full py-2"
                   placeholder="Notas internas sobre esta etapa..."
@@ -4332,8 +4086,8 @@ export function ConcursoCphWizard() {
                   <button
                     className="btn-outline"
                     onClick={() => {
-                      const prev = etapasActuales[etapa.numero - 2];
-                      if (prev) setEtapaActiva(prev.id);
+                      const prev = etapasActuales[etapa.numero - 2]
+                      if (prev) setEtapaActiva(prev.id)
                     }}
                   >
                     ← Anterior
@@ -4341,59 +4095,48 @@ export function ConcursoCphWizard() {
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {etapaActiva === "autorizacion" &&
-                  faltantesEtapa2.length > 0 && (
-                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-md">
-                      <span className="font-semibold">
-                        Falta para avanzar a la etapa 3:
-                      </span>{" "}
-                      {faltantesEtapa2.join(" · ")}
-                    </div>
-                  )}
-                {etapaActiva === "inscripcion" &&
-                  faltantesEtapa3.length > 0 && (
-                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-md">
-                      <span className="font-semibold">
-                        Falta para avanzar a la etapa 4:
-                      </span>{" "}
-                      {faltantesEtapa3.join(" · ")}
-                    </div>
-                  )}
-                {guardado && faltantesEtapa2.length === 0 && faltantesEtapa3.length === 0 && (
-                  <span className="text-sm text-green-600 font-medium">
-                    ✓ Guardado
-                  </span>
+                {etapaActiva === 'autorizacion' && faltantesEtapa2.length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">Falta para avanzar a la etapa 3:</span>{' '}
+                    {faltantesEtapa2.join(' · ')}
+                  </div>
                 )}
-                {etapa.estado !== "pendiente" &&
-                  etapa.estado !== "bloqueada" &&
-                  etapa.estado !== "completada" && (
+                {etapaActiva === 'inscripcion' && faltantesEtapa3.length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">Falta para avanzar a la etapa 4:</span>{' '}
+                    {faltantesEtapa3.join(' · ')}
+                  </div>
+                )}
+                {guardado && faltantesEtapa2.length === 0 && faltantesEtapa3.length === 0 && (
+                  <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
+                )}
+                {etapa.estado !== 'pendiente' &&
+                  etapa.estado !== 'bloqueada' &&
+                  etapa.estado !== 'completada' && (
                     <>
-                      {etapaActiva === "baja" && !etapaBajaCompleta && (
+                      {etapaActiva === 'baja' && !etapaBajaCompleta && (
                         <span className="text-xs text-gray-400">
                           Completá expediente, sigla, escalafón, puesto
-                          {especialidadesDisponibles.length > 0
-                            ? " y especialidad"
-                            : ""}
+                          {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
                         </span>
                       )}
                       <button
                         className="btn-primary"
                         disabled={
-                          (pendienteAutorizacion && etapaActiva === "baja") ||
-                          !etapaBajaCompleta
+                          (pendienteAutorizacion && etapaActiva === 'baja') || !etapaBajaCompleta
                         }
                         title={
-                          pendienteAutorizacion && etapaActiva === "baja"
-                            ? "Hay una modificación pendiente de autorización por SGRASV"
+                          pendienteAutorizacion && etapaActiva === 'baja'
+                            ? 'Hay una modificación pendiente de autorización por SGRASV'
                             : !etapaBajaCompleta
-                              ? "Completá todos los campos requeridos"
+                              ? 'Completá todos los campos requeridos'
                               : undefined
                         }
                         onClick={handleGuardar}
                       >
                         {etapa.numero < etapasActuales.length
-                          ? "Guardar y continuar →"
-                          : "Guardar cambios"}
+                          ? 'Guardar y continuar →'
+                          : 'Guardar cambios'}
                       </button>
                     </>
                   )}
@@ -4408,150 +4151,125 @@ export function ConcursoCphWizard() {
             </h3>
             {(() => {
               if (esNuevo || !cphData)
-                return (
-                  <p className="text-sm text-gray-400">Sin historial aún.</p>
-                );
+                return <p className="text-sm text-gray-400">Sin historial aún.</p>
               // Fecha de referencia para hitos que ocurrieron pero no tienen
               // una fecha propia (bool/expediente sin fecha): se usa la última
               // actualización del concurso como aproximación, para que el hito
               // igual aparezca en el historial.
-              const ref = (cphData.updatedAt ??
-                cphData.createdAt ??
-                "") as string;
-              const bool = (b: boolean | null | undefined) => b === true;
+              const ref = (cphData.updatedAt ?? cphData.createdAt ?? '') as string
+              const bool = (b: boolean | null | undefined) => b === true
 
               const eventos: { fecha: string; texto: string }[] = [
                 {
                   fecha: cphData.fechaBaja,
-                  texto:
-                    "Baja registrada" +
-                    (cphData.eeBaja ? `: ${cphData.eeBaja}` : ""),
+                  texto: 'Baja registrada' + (cphData.eeBaja ? `: ${cphData.eeBaja}` : ''),
                 },
                 {
-                  fecha:
-                    cphData.fechaEeConcurso ??
-                    (cphData.eeConcurso ? ref : null),
+                  fecha: cphData.fechaEeConcurso ?? (cphData.eeConcurso ? ref : null),
                   texto:
-                    "Expediente de concurso" +
-                    (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : ""),
+                    'Expediente de concurso' +
+                    (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : ''),
                 },
                 {
                   fecha: cphData.fechaAutorizacion,
-                  texto: "Autorización registrada",
+                  texto: 'Autorización registrada',
                 },
                 // Sorteo de jurado: generado y (si aplica) confirmado.
                 {
                   fecha: juradoData?.fechaSorteo ?? cphData.sorteoJurado,
-                  texto: "Sorteo de jurado realizado",
+                  texto: 'Sorteo de jurado realizado',
                 },
                 {
                   fecha: juradoData?.confirmado
                     ? (juradoData.confirmadoAt ?? juradoData.fechaSorteo)
                     : null,
-                  texto: "Jurado confirmado",
+                  texto: 'Jurado confirmado',
                 },
                 {
-                  fecha: cphData.disposicion
-                    ? (cphData.fechaInscDesde ?? ref)
-                    : null,
+                  fecha: cphData.disposicion ? (cphData.fechaInscDesde ?? ref) : null,
                   texto:
-                    "Disposición de llamado" +
-                    (cphData.disposicion ? `: ${cphData.disposicion}` : ""),
+                    'Disposición de llamado' +
+                    (cphData.disposicion ? `: ${cphData.disposicion}` : ''),
                 },
                 {
                   fecha: cphData.fechaInscDesde,
-                  texto: "Apertura de inscripción",
+                  texto: 'Apertura de inscripción',
                 },
                 {
                   fecha: cphData.fechaInscHasta,
-                  texto: "Cierre de inscripción",
+                  texto: 'Cierre de inscripción',
                 },
                 {
-                  fecha:
-                    cphData.qInscriptos != null
-                      ? (cphData.fechaInscHasta ?? ref)
-                      : null,
-                  texto: `Inscriptos: ${cphData.qInscriptos ?? ""}`,
+                  fecha: cphData.qInscriptos != null ? (cphData.fechaInscHasta ?? ref) : null,
+                  texto: `Inscriptos: ${cphData.qInscriptos ?? ''}`,
                 },
-                { fecha: cphData.fechaExamen, texto: "Publicación de examen" },
+                { fecha: cphData.fechaExamen, texto: 'Publicación de examen' },
                 {
                   fecha: cphData.fechaOrdenMerito,
-                  texto: "Orden de mérito registrado",
+                  texto: 'Orden de mérito registrado',
                 },
                 {
                   fecha: cphData.fechaIfacs ?? (cphData.ifacs ? ref : null),
-                  texto:
-                    "IFACS registrado" +
-                    (cphData.ifacs ? `: ${cphData.ifacs}` : ""),
+                  texto: 'IFACS registrado' + (cphData.ifacs ? `: ${cphData.ifacs}` : ''),
                 },
                 {
                   fecha: cphData.fechaInsal ?? (cphData.insal ? ref : null),
-                  texto:
-                    "INSAL registrado" +
-                    (cphData.insal ? `: ${cphData.insal}` : ""),
+                  texto: 'INSAL registrado' + (cphData.insal ? `: ${cphData.insal}` : ''),
                 },
                 {
                   fecha: cphData.eeDesignacion ? ref : null,
                   texto:
-                    "TAD / EE de designación" +
-                    (cphData.eeDesignacion ? `: ${cphData.eeDesignacion}` : ""),
+                    'TAD / EE de designación' +
+                    (cphData.eeDesignacion ? `: ${cphData.eeDesignacion}` : ''),
                 },
                 {
                   fecha: bool(cphData.cargaDocumentacion) ? ref : null,
-                  texto: "Carga de documentación",
+                  texto: 'Carga de documentación',
                 },
-                { fecha: cphData.fechaAptoMedico, texto: "Apto médico" },
-                { fecha: cphData.fechaIte, texto: "ITE registrado" },
+                { fecha: cphData.fechaAptoMedico, texto: 'Apto médico' },
+                { fecha: cphData.fechaIte, texto: 'ITE registrado' },
                 {
                   fecha: bool(cphData.proyectoResolucion) ? ref : null,
-                  texto: "Proyecto de resolución",
+                  texto: 'Proyecto de resolución',
                 },
                 {
                   fecha: bool(cphData.resoALaFirma) ? ref : null,
-                  texto: "Resolución a la firma",
+                  texto: 'Resolución a la firma',
                 },
                 {
                   fecha: cphData.fechaResolucion,
                   texto:
-                    "Resolución de designación" +
-                    (cphData.resolucionDesignacion
-                      ? `: ${cphData.resolucionDesignacion}`
-                      : ""),
+                    'Resolución de designación' +
+                    (cphData.resolucionDesignacion ? `: ${cphData.resolucionDesignacion}` : ''),
                 },
                 {
                   fecha: cphData.cargoSial ? ref : null,
-                  texto:
-                    "Alta SIAL" +
-                    (cphData.cargoSial ? `: ${cphData.cargoSial}` : ""),
+                  texto: 'Alta SIAL' + (cphData.cargoSial ? `: ${cphData.cargoSial}` : ''),
                 },
                 {
                   fecha: cphData.fechaDispoDesierta,
                   texto:
-                    "Disposición de desierto" +
-                    (cphData.dispoDesierta ? `: ${cphData.dispoDesierta}` : ""),
+                    'Disposición de desierto' +
+                    (cphData.dispoDesierta ? `: ${cphData.dispoDesierta}` : ''),
                 },
               ]
                 .filter((e): e is { fecha: string; texto: string } => !!e.fecha)
-                .sort((a, b) => b.fecha.localeCompare(a.fecha));
+                .sort((a, b) => b.fecha.localeCompare(a.fecha))
 
               if (eventos.length === 0)
-                return (
-                  <p className="text-sm text-gray-400">
-                    Sin eventos registrados aún.
-                  </p>
-                );
+                return <p className="text-sm text-gray-400">Sin eventos registrados aún.</p>
               return (
                 <div className="space-y-2 text-sm text-gray-500">
                   {eventos.map((h) => (
                     <div key={h.fecha + h.texto} className="flex gap-3">
                       <span className="text-gray-300 whitespace-nowrap tabular-nums">
-                        {h.fecha.slice(0, 10).split("-").reverse().join("/")}
+                        {h.fecha.slice(0, 10).split('-').reverse().join('/')}
                       </span>
                       <span>{h.texto}</span>
                     </div>
                   ))}
                 </div>
-              );
+              )
             })()}
           </div>
         </div>
@@ -4577,53 +4295,51 @@ export function ConcursoCphWizard() {
             )}
             <div className="space-y-1.5">
               {SUB_ESTADOS.map((s, idx) => {
-                const isCurrent = idx === currentIdxDinamico;
-                const isPast = idx < currentIdxDinamico;
+                const isCurrent = idx === currentIdxDinamico
+                const isPast = idx < currentIdxDinamico
                 return (
                   <div key={s.key} className="flex items-center gap-2">
                     <div className="flex flex-col items-center self-stretch">
                       <span
                         className={[
-                          "w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5",
+                          'w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5',
                           isCurrent && pendienteAutorizacion
-                            ? "bg-amber-400 ring-2 ring-amber-200 animate-pulse"
+                            ? 'bg-amber-400 ring-2 ring-amber-200 animate-pulse'
                             : isCurrent
-                              ? "bg-amber-400 ring-2 ring-amber-200"
+                              ? 'bg-amber-400 ring-2 ring-amber-200'
                               : isPast
-                                ? "bg-green-400"
-                                : "bg-gray-200",
-                        ].join(" ")}
+                                ? 'bg-green-400'
+                                : 'bg-gray-200',
+                        ].join(' ')}
                       />
                       {idx < SUB_ESTADOS.length - 1 && (
                         <span
-                          className={`w-px flex-1 mt-0.5 ${isPast ? "bg-green-300" : "bg-gray-200"}`}
+                          className={`w-px flex-1 mt-0.5 ${isPast ? 'bg-green-300' : 'bg-gray-200'}`}
                         />
                       )}
                     </div>
                     <span
                       className={[
-                        "text-xs pb-1.5 leading-tight",
+                        'text-xs pb-1.5 leading-tight',
                         isCurrent
-                          ? "font-bold text-amber-700"
+                          ? 'font-bold text-amber-700'
                           : isPast
-                            ? "text-gray-500"
-                            : "text-gray-300",
-                      ].join(" ")}
+                            ? 'text-gray-500'
+                            : 'text-gray-300',
+                      ].join(' ')}
                     >
                       {s.label}
                       {isCurrent && pendienteAutorizacion && (
-                        <span className="ml-1 text-[10px] text-amber-500">
-                          ⏳
-                        </span>
+                        <span className="ml-1 text-[10px] text-amber-500">⏳</span>
                       )}
                     </span>
                   </div>
-                );
+                )
               })}
             </div>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

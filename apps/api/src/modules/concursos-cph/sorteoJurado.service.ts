@@ -55,7 +55,11 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 
 // Normaliza especialidades para comparar (sin acentos, minúsculas, trim).
 function norm(s: string | null | undefined): string {
-  return (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 }
 
 // codigoJefaturas no nulo/vacío/'0' ⇒ cargo de conducción (misma convención
@@ -118,10 +122,15 @@ async function obtenerCandidatos(params: {
   const especNorm = norm(params.especialidadConcurso)
 
   // Determina la regla de mayor prioridad que cumple un candidato (o null).
-  const clasificar = (esMismoHospital: boolean, conduccion: boolean, cumpleAntiguedad: boolean, cumpleEsp: boolean): ReglaJurado | null => {
-    if (esMismoHospital && conduccion && cumpleEsp) return 1  // hospital + conducción + especialidad
-    if (esMismoHospital && cumpleAntiguedad) return 2         // hospital + antigüedad (especialidad opcional)
-    if (conduccion) return 3                                  // sistema + conducción (especialidad opcional)
+  const clasificar = (
+    esMismoHospital: boolean,
+    conduccion: boolean,
+    cumpleAntiguedad: boolean,
+    cumpleEsp: boolean,
+  ): ReglaJurado | null => {
+    if (esMismoHospital && conduccion && cumpleEsp) return 1 // hospital + conducción + especialidad
+    if (esMismoHospital && cumpleAntiguedad) return 2 // hospital + antigüedad (especialidad opcional)
+    if (conduccion) return 3 // sistema + conducción (especialidad opcional)
     return null
   }
 
@@ -130,7 +139,10 @@ async function obtenerCandidatos(params: {
     where: {
       hasta: null,
       cargo: { escalafonId: params.escalafonId },
-      persona: { activo: true, ...(params.excluirPersonaIds.length ? { id: { notIn: params.excluirPersonaIds } } : {}) },
+      persona: {
+        activo: true,
+        ...(params.excluirPersonaIds.length ? { id: { notIn: params.excluirPersonaIds } } : {}),
+      },
     },
     select: {
       codigoJefaturas: true,
@@ -195,14 +207,19 @@ async function obtenerCandidatos(params: {
 
   // Solo los que cumplen alguna regla (la profesión ya está garantizada por el
   // filtro de escalafón).
-  return [...porPersona.values()].filter((c): c is Candidato & { regla: ReglaJurado } => c.regla != null)
+  return [...porPersona.values()].filter(
+    (c): c is Candidato & { regla: ReglaJurado } => c.regla != null,
+  )
 }
 
 // Arma el pool de sorteo aplicando la CASCADA de reglas: acumula candidatos de
 // la Regla 1; si no llega a `total`, agrega Regla 2; si sigue faltando, Regla 3.
 // En cuanto una regla completa `total`, corta (no baja a la siguiente). Devuelve
 // el pool acumulado y la última regla utilizada.
-function armarPoolCascada(candidatos: Candidato[], total: number): { pool: Candidato[]; reglaUsada: ReglaJurado; porRegla: Record<ReglaJurado, number> } {
+function armarPoolCascada(
+  candidatos: Candidato[],
+  total: number,
+): { pool: Candidato[]; reglaUsada: ReglaJurado; porRegla: Record<ReglaJurado, number> } {
   const porRegla: Record<ReglaJurado, number> = {
     1: candidatos.filter((c) => c.regla === 1).length,
     2: candidatos.filter((c) => c.regla === 2).length,
@@ -251,7 +268,9 @@ export async function generarSorteoJuradoService(
   const concurso = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: {
-      concurso: { include: { cargo: { include: { hospital: true, escalafon: true } }, persona: true } },
+      concurso: {
+        include: { cargo: { include: { hospital: true, escalafon: true } }, persona: true },
+      },
       hospital: true,
     },
   })
@@ -264,19 +283,24 @@ export async function generarSorteoJuradoService(
     select: { id: true },
   })
   if (confirmado) {
-    throw AppError.conflict('El sorteo de jurado ya fue confirmado. Cancelá la confirmación para volver a sortear.')
+    throw AppError.conflict(
+      'El sorteo de jurado ya fue confirmado. Cancelá la confirmación para volver a sortear.',
+    )
   }
 
   const cargo = concurso.concurso?.cargo
-  if (!cargo) throw AppError.conflict('El concurso no tiene un cargo asociado para determinar la profesión del jurado')
+  if (!cargo)
+    throw AppError.conflict(
+      'El concurso no tiene un cargo asociado para determinar la profesión del jurado',
+    )
 
-  const especialidadConcurso =
-    concurso.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
+  const especialidadConcurso = concurso.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
 
   // Excluir a la persona que salió de baja (origen del concurso) y a la ya
   // designada, si existieran — no deberían ser jurado de su propio concurso.
-  const excluir = [concurso.concurso?.persona?.id, concurso.personaDesignadaId]
-    .filter((x): x is string => !!x)
+  const excluir = [concurso.concurso?.persona?.id, concurso.personaDesignadaId].filter(
+    (x): x is string => !!x,
+  )
 
   const candidatos = await obtenerCandidatos({
     escalafonId: cargo.escalafonId,
@@ -312,7 +336,9 @@ export async function generarSorteoJuradoService(
   // Advertencias: cupos incompletos por candidatos insuficientes.
   const avisos: string[] = []
   if (pool.length < total) {
-    avisos.push(`Solo se encontraron ${pool.length} candidatos elegibles para ${total} jurados requeridos (${body.cantTitulares} titulares + ${body.cantSuplentes} suplentes).`)
+    avisos.push(
+      `Solo se encontraron ${pool.length} candidatos elegibles para ${total} jurados requeridos (${body.cantTitulares} titulares + ${body.cantSuplentes} suplentes).`,
+    )
   }
   if (titulares.length < body.cantTitulares) {
     avisos.push(`Titulares incompletos: ${titulares.length} de ${body.cantTitulares}.`)
@@ -321,7 +347,8 @@ export async function generarSorteoJuradoService(
     avisos.push(`Suplentes incompletos: ${suplentes.length} de ${body.cantSuplentes}.`)
   }
 
-  const observaciones = [body.observaciones?.trim(), avisos.join(' ')].filter(Boolean).join(' — ') || null
+  const observaciones =
+    [body.observaciones?.trim(), avisos.join(' ')].filter(Boolean).join(' — ') || null
 
   const criterios = {
     cantTitulares: body.cantTitulares,
@@ -433,13 +460,21 @@ async function recalcularConSorteo(
   })
   await tx.concursoCph.update({
     where: { id: concurso.id },
-    data: { sorteoJurado, estado: calc.estado, subEstado: calc.subEstado, subEstado3: calc.subEstado3 },
+    data: {
+      sorteoJurado,
+      estado: calc.estado,
+      subEstado: calc.subEstado,
+      subEstado3: calc.subEstado3,
+    },
   })
 }
 
 // Devuelve el último sorteo (acta vigente) de un concurso con sus miembros.
 export async function getJuradoVigenteService(concursoCphId: string) {
-  const concurso = await prisma.concursoCph.findUnique({ where: { id: concursoCphId }, select: { id: true } })
+  const concurso = await prisma.concursoCph.findUnique({
+    where: { id: concursoCphId },
+    select: { id: true },
+  })
   if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
 
   return prisma.sorteoJurado.findFirst({
@@ -516,7 +551,8 @@ export async function cancelarSorteoService(concursoCphId: string) {
     select: { id: true, confirmado: true },
   })
   if (!acta) throw AppError.notFound('No hay un sorteo de jurado para cancelar')
-  if (acta.confirmado) throw AppError.conflict('El sorteo de jurado ya fue confirmado y no puede cancelarse')
+  if (acta.confirmado)
+    throw AppError.conflict('El sorteo de jurado ya fue confirmado y no puede cancelarse')
 
   await prisma.$transaction(async (tx) => {
     await tx.sorteoJurado.delete({ where: { id: acta.id } })
@@ -558,7 +594,12 @@ export async function cancelarSorteoService(concursoCphId: string) {
         })
         await tx.concursoCph.update({
           where: { id: concursoCphId },
-          data: { sorteoJurado: null, estado: calc.estado, subEstado: calc.subEstado, subEstado3: calc.subEstado3 },
+          data: {
+            sorteoJurado: null,
+            estado: calc.estado,
+            subEstado: calc.subEstado,
+            subEstado3: calc.subEstado3,
+          },
         })
       }
     }

@@ -45,7 +45,7 @@ export async function createConcursoTx(
   tx: Tx,
   body: CreateConcursoBody,
   usuarioId: string,
-  bajaId?: string
+  bajaId?: string,
 ) {
   const concurso = await tx.concurso.create({
     data: {

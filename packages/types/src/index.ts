@@ -17,7 +17,7 @@ export const EstadoCargo = {
   NO_VIGENTE: 'no_vigente',
   VALIDACION_VACANTE: 'validacion_vacante',
 } as const
-export type EstadoCargo = typeof EstadoCargo[keyof typeof EstadoCargo]
+export type EstadoCargo = (typeof EstadoCargo)[keyof typeof EstadoCargo]
 
 export const EstadoSnapshot = {
   PROCESANDO: 'procesando',
@@ -26,21 +26,21 @@ export const EstadoSnapshot = {
   RECHAZADO: 'rechazado',
   ERROR: 'error',
 } as const
-export type EstadoSnapshot = typeof EstadoSnapshot[keyof typeof EstadoSnapshot]
+export type EstadoSnapshot = (typeof EstadoSnapshot)[keyof typeof EstadoSnapshot]
 
 export const TipoDiff = {
   NUEVO: 'nuevo',
   MODIFICADO: 'modificado',
   ELIMINADO: 'eliminado',
 } as const
-export type TipoDiff = typeof TipoDiff[keyof typeof TipoDiff]
+export type TipoDiff = (typeof TipoDiff)[keyof typeof TipoDiff]
 
 export const TipoConcurso = {
   CPH: 'cph',
   CEETPS: 'ceetps',
   SIN_CONCURSO: 'sin_concurso',
 } as const
-export type TipoConcurso = typeof TipoConcurso[keyof typeof TipoConcurso]
+export type TipoConcurso = (typeof TipoConcurso)[keyof typeof TipoConcurso]
 
 // Motivo por el que se abre el concurso — campo libre en el legacy,
 // acá tipificado para filtros y reportes.
@@ -51,7 +51,7 @@ export const MotivoConcurso = {
   JEFATURA: 'jefatura',
   OTRO: 'otro',
 } as const
-export type MotivoConcurso = typeof MotivoConcurso[keyof typeof MotivoConcurso]
+export type MotivoConcurso = (typeof MotivoConcurso)[keyof typeof MotivoConcurso]
 
 export const EstadoConcursoCph = {
   NO_INICIADO: 'no_iniciado',
@@ -59,7 +59,7 @@ export const EstadoConcursoCph = {
   FINALIZADO: 'finalizado',
   SUSPENDIDO: 'suspendido',
 } as const
-export type EstadoConcursoCph = typeof EstadoConcursoCph[keyof typeof EstadoConcursoCph]
+export type EstadoConcursoCph = (typeof EstadoConcursoCph)[keyof typeof EstadoConcursoCph]
 
 export const EstadoConcursoCeetps = {
   SIN_AUTORIZAR: 'sin_autorizar',
@@ -68,7 +68,7 @@ export const EstadoConcursoCeetps = {
   FINALIZADO: 'finalizado',
   DESIERTO: 'desierto',
 } as const
-export type EstadoConcursoCeetps = typeof EstadoConcursoCeetps[keyof typeof EstadoConcursoCeetps]
+export type EstadoConcursoCeetps = (typeof EstadoConcursoCeetps)[keyof typeof EstadoConcursoCeetps]
 
 // RBAC dinámico — reemplaza el enum fijo de roles. Los roles viven en la tabla
 // `roles` (editable por el admin desde /configuracion/permisos), no en código.
@@ -156,7 +156,7 @@ export interface Cargo {
   escalafonId: string
   codigoRegistroId: string | null
   literalPuesto: string | null
-  especialidad: string | null        // @deprecated — usar especialidadLegacy
+  especialidad: string | null // @deprecated — usar especialidadLegacy
   especialidadLegacy: string | null
   especialidadId: string | null
   agrupador: string | null
@@ -179,7 +179,7 @@ export interface Cargo {
   expediente: string | null
   fechaDesde: string | null
   // Persona que ocupa el cargo actualmente (solo en listado, null si vacante)
-  personaOcupante: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> & { idSialRol: string } | null
+  personaOcupante: (Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> & { idSialRol: string }) | null
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
@@ -263,15 +263,15 @@ export interface PadronDiff {
   valorNuevo: string | null
   // null = pendiente, true = aprobado, false = rechazado
   aprobado: boolean | null
-  codigoPreview?: string | null     // solo en tab nuevos pendientes: código que se generaría
-  codigoReal?: string | null         // solo en tab nuevos aprobados: código real asignado
-  codigoReutilizado?: boolean        // true si el cargo proviene de un concurso CPH vinculado
-  concursoCodigo?: string | null     // código del cargo del concurso (cuando codigoReutilizado=true)
-  apellidoNombre?: string | null  // modificados y eliminados: nombre de la persona
-  clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null  // solo eliminados
-  codigoCargo?: string | null  // solo eliminados: código del cargo en la BD
-  siglas?: string | null       // solo eliminados: sigla del hospital
-  escalafon?: string | null    // solo eliminados: nombre del escalafón
+  codigoPreview?: string | null // solo en tab nuevos pendientes: código que se generaría
+  codigoReal?: string | null // solo en tab nuevos aprobados: código real asignado
+  codigoReutilizado?: boolean // true si el cargo proviene de un concurso CPH vinculado
+  concursoCodigo?: string | null // código del cargo del concurso (cuando codigoReutilizado=true)
+  apellidoNombre?: string | null // modificados y eliminados: nombre de la persona
+  clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null // solo eliminados
+  codigoCargo?: string | null // solo eliminados: código del cargo en la BD
+  siglas?: string | null // solo eliminados: sigla del hospital
+  escalafon?: string | null // solo eliminados: nombre del escalafón
   createdAt: string
 }
 
@@ -410,12 +410,12 @@ export interface Usuario {
 
 // S10-1 — Notificaciones persistidas
 export const TipoNotificacion = {
-  CONCURSO_ESTANCADO:     'concurso_estancado',
-  BAJA_PENDIENTE:         'baja_pendiente',
+  CONCURSO_ESTANCADO: 'concurso_estancado',
+  BAJA_PENDIENTE: 'baja_pendiente',
   AUTORIZACION_PENDIENTE: 'autorizacion_pendiente',
-  AUTORIZACION_RESUELTA:  'autorizacion_resuelta',
+  AUTORIZACION_RESUELTA: 'autorizacion_resuelta',
 } as const
-export type TipoNotificacion = typeof TipoNotificacion[keyof typeof TipoNotificacion]
+export type TipoNotificacion = (typeof TipoNotificacion)[keyof typeof TipoNotificacion]
 
 export interface Notificacion {
   id: string
@@ -439,7 +439,10 @@ export interface NotificacionFilters {
 }
 
 // GET /notificaciones/:id/detalle — resuelve el origen para el modal ("qué pasó")
-interface HospitalRef { sigla: string; nombre: string }
+interface HospitalRef {
+  sigla: string
+  nombre: string
+}
 interface CargoCreadoDetalle {
   id: string
   codigo: string | null
@@ -450,7 +453,10 @@ interface CargoCreadoDetalle {
   hospital: HospitalRef
   escalafon: { nombre: string }
 }
-interface CargoRef { codigo: string | null; literalPuesto: string | null }
+interface CargoRef {
+  codigo: string | null
+  literalPuesto: string | null
+}
 
 export type NotificacionDetalle =
   | {
@@ -489,37 +495,42 @@ export type NotificacionDetalle =
     }
   | {
       tipo: 'concurso_ceetps'
-      concurso: { cargo: CargoRef; hospital: HospitalRef; estadoConcurso: string; subEstado: string | null }
+      concurso: {
+        cargo: CargoRef
+        hospital: HospitalRef
+        estadoConcurso: string
+        subEstado: string | null
+      }
     }
 
 // S13 — Autorizaciones
 export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
-  ALTA_CARGO:   'alta_cargo',
-  BAJA_CARGO:   'baja_cargo',
+  ALTA_CARGO: 'alta_cargo',
+  BAJA_CARGO: 'baja_cargo',
 } as const
-export type TipoAutorizacion = typeof TipoAutorizacion[keyof typeof TipoAutorizacion]
+export type TipoAutorizacion = (typeof TipoAutorizacion)[keyof typeof TipoAutorizacion]
 
 export const EstadoAutorizacion = {
   PENDIENTE: 'pendiente',
-  APROBADA:  'aprobada',
+  APROBADA: 'aprobada',
   RECHAZADA: 'rechazada',
 } as const
-export type EstadoAutorizacion = typeof EstadoAutorizacion[keyof typeof EstadoAutorizacion]
+export type EstadoAutorizacion = (typeof EstadoAutorizacion)[keyof typeof EstadoAutorizacion]
 
 export const SolicitudAltaEstado = {
   PENDIENTE: 'pendiente',
-  APROBADA:  'aprobada',
+  APROBADA: 'aprobada',
   RECHAZADA: 'rechazada',
 } as const
-export type SolicitudAltaEstado = typeof SolicitudAltaEstado[keyof typeof SolicitudAltaEstado]
+export type SolicitudAltaEstado = (typeof SolicitudAltaEstado)[keyof typeof SolicitudAltaEstado]
 
 export const EstadoBaja = {
   PENDIENTE: 'pendiente',
   CONFIRMADA: 'confirmada',
   ANULADA: 'anulada',
 } as const
-export type EstadoBaja = typeof EstadoBaja[keyof typeof EstadoBaja]
+export type EstadoBaja = (typeof EstadoBaja)[keyof typeof EstadoBaja]
 
 export interface Baja {
   id: string
@@ -726,9 +737,9 @@ export interface DiffSummary {
   eliminados: number
   nuevosPendientes: number
   nuevosRechazados: number
-  eliminadosConPersona: number    // cargo vigente con ocupación activa — baja real
-  eliminadosEnValidacion: number  // cargo en validacion_vacante — ya en proceso de baja
-  eliminadosSinPersona: number    // cargo no_vigente o vacante — ruido histórico
+  eliminadosConPersona: number // cargo vigente con ocupación activa — baja real
+  eliminadosEnValidacion: number // cargo en validacion_vacante — ya en proceso de baja
+  eliminadosSinPersona: number // cargo no_vigente o vacante — ruido histórico
 }
 
 export interface SnapshotDiffResponse {
@@ -766,8 +777,20 @@ export interface KpiConcursosCeetps {
 export interface KpiDotacion {
   totalVigentes: number
   vacantes: number
-  porCarrera: { escalafonId: string; codigo: string; nombre: string; vigentes: number; vacantes: number }[]
-  porEfector: { hospitalId: string; sigla: string; nombre: string; vigentes: number; vacantes: number }[]
+  porCarrera: {
+    escalafonId: string
+    codigo: string
+    nombre: string
+    vigentes: number
+    vacantes: number
+  }[]
+  porEfector: {
+    hospitalId: string
+    sigla: string
+    nombre: string
+    vigentes: number
+    vacantes: number
+  }[]
 }
 
 // S6-3 — GET /api/v1/kpis/concursos
@@ -781,11 +804,11 @@ export interface KpiConcursos {
 
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
-  escalafones: string[]  // nombres canónicos presentes en los datos
+  escalafones: string[] // nombres canónicos presentes en los datos
   puntos: {
     fecha: string
     total: number
-    porEscalafon: Record<string, number>  // escalafon.nombre -> personas acumuladas
+    porEscalafon: Record<string, number> // escalafon.nombre -> personas acumuladas
   }[]
 }
 
@@ -999,7 +1022,16 @@ export interface PersonaDetail extends Persona {
   antiguedadDesde: string | null
   ocupaciones: OcupacionConCargo[]
   padronHistorico: PadronHistoricoItem[]
-  concursosCphDesignado: (Pick<ConcursoCph, 'id' | 'estado' | 'subEstado' | 'resolucionDesignacion' | 'fechaResolucion' | 'cargoSial' | 'createdAt'> & {
+  concursosCphDesignado: (Pick<
+    ConcursoCph,
+    | 'id'
+    | 'estado'
+    | 'subEstado'
+    | 'resolucionDesignacion'
+    | 'fechaResolucion'
+    | 'cargoSial'
+    | 'createdAt'
+  > & {
     cargo: Pick<Cargo, 'id' | 'codigo' | 'literalPuesto'>
     hospital: Pick<Hospital, 'id' | 'sigla' | 'nombre'>
     concurso: { id: string; fechaVacante: string }

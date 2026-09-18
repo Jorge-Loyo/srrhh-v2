@@ -9,7 +9,8 @@ const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1'])
 const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000'
 function resolveBase(): { protocol: string; host: string } {
   const parsed = new URL(BASE_URL)
-  if (!ALLOWED_HOSTS.has(parsed.hostname)) throw new Error(`[SSRF] Host not in allowlist: ${parsed.hostname}`)
+  if (!ALLOWED_HOSTS.has(parsed.hostname))
+    throw new Error(`[SSRF] Host not in allowlist: ${parsed.hostname}`)
   return { protocol: parsed.protocol, host: parsed.host }
 }
 const RESOLVED = resolveBase()
@@ -49,19 +50,27 @@ beforeAll(async () => {
 
 describe('Sprint 18 — autenticación de endpoints nuevos', () => {
   it('GET /:id/jurado sin token → 401', async () => {
-    const { status } = await GET('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/jurado')
+    const { status } = await GET(
+      '/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/jurado',
+    )
     expect(status).toBe(401)
   })
   it('GET /:id/inscriptos sin token → 401', async () => {
-    const { status } = await GET('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/inscriptos')
+    const { status } = await GET(
+      '/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/inscriptos',
+    )
     expect(status).toBe(401)
   })
   it('POST /:id/generar-sorteo sin token → 401', async () => {
-    const { status } = await POST('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/generar-sorteo')
+    const { status } = await POST(
+      '/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/generar-sorteo',
+    )
     expect(status).toBe(401)
   })
   it('POST /:id/orden-merito/confirmar sin token → 401', async () => {
-    const { status } = await POST('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/orden-merito/confirmar')
+    const { status } = await POST(
+      '/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000/orden-merito/confirmar',
+    )
     expect(status).toBe(401)
   })
 })
@@ -117,7 +126,11 @@ describe('Sprint 18 — inscriptos CRUD + cantidad autocalculada', () => {
 
   it('alta sin apellido/nombre → 400 (validación Zod)', async () => {
     if (!concursoId) return
-    const { status } = await POST(`/api/v1/concursos-cph/${concursoId}/inscriptos`, { apellido: '' }, token)
+    const { status } = await POST(
+      `/api/v1/concursos-cph/${concursoId}/inscriptos`,
+      { apellido: '' },
+      token,
+    )
     expect(status).toBe(400)
   })
 })
@@ -126,7 +139,11 @@ describe('Sprint 18 — validaciones de confirmación (orden secuencial)', () =>
   it('confirmar orden de mérito sin presentados confirmados → 409', async () => {
     if (!concursoId) return
     // Sobre un concurso cualquiera sin el flujo previo, debe rechazar con conflicto.
-    const { status } = await POST(`/api/v1/concursos-cph/${concursoId}/orden-merito/confirmar`, {}, token)
+    const { status } = await POST(
+      `/api/v1/concursos-cph/${concursoId}/orden-merito/confirmar`,
+      {},
+      token,
+    )
     // 409 (conflicto de flujo) es el esperado; si el concurso ya estuviera en un
     // estado avanzado podría variar, por eso aceptamos 409 como validación clave.
     expect([409, 400]).toContain(status)
