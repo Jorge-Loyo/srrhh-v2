@@ -1,4 +1,5 @@
 # PLAN SCRUM — SRRHH v2
+
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
@@ -12,58 +13,59 @@
 
 ## ESTADO ACTUAL
 
-| Sprint | Estado | Tareas | Detalle |
-| ------ | ------ | ------ | ------- |
-| Sprint 0 — Infraestructura | ✅ Completado | S0-1 a S0-11 | `Sprints/SPRINT_00_infraestructura.md` |
-| Sprint 1 — Autenticación | ✅ Completado | S1-1 a S1-10 | `Sprints/SPRINT_01_autenticacion.md` |
-| Sprint 2 — Dotaneitor + Padrón | ✅ Completo — verificado end-to-end 2026-08-25 | S2-1 a S2-19 | `Sprints/SPRINT_02_dotaneitor_padron.md` |
-| Sprint 3 — Personas y Cargos | ✅ Completo — verificado con browser real 2026-08-25 | S3-1 a S3-11 | `Sprints/SPRINT_03_personas_cargos.md` |
-| Post-Sprint 3 — Mejoras UX padrón/personas | ✅ Completado — commit `f178819`, 2026-08-27 | — | `Sprints/SPRINT_03_personas_cargos.md` |
-| Post-Sprint 3B — Cargos: códigos, estados, UX | ✅ Completado — 2026-09 | — | `Sprints/SPRINT_03_personas_cargos.md` |
-| Post-Sprint 3C — Mejoras UX personas/cargos | ✅ Completado — 2026-08-28 | — | `Sprints/SPRINT_03_personas_cargos.md` |
-| Post-Sprint 3D — Maquetas Alta/Baja/Alta por Baja | ✅ Completado — 2026-09 | — | `Sprints/SPRINT_03_personas_cargos.md` |
-| Sprint 4 — Concursos CPH | ✅ Completo — verificado end-to-end 2026-08-26 | S4-1 a S4-11 | `Sprints/SPRINT_04_concursos_cph.md` |
-| Sprint 5 — Concursos CEETPS + Bajas | ✅ Completo — mergeado a main 2026-09 | S5-1 a S5-10 | `Sprints/SPRINT_05_ceetps_bajas.md` |
-| Sprint 6 — KPIs + Deploy | ✅ Completo — 2026-08-31, smoke test 21/21 OK | S6-0 a S6-8 | `Sprints/SPRINT_06_kpis_deploy.md` |
-| Sprint 7 — Cargos: trazabilidad del alta manual | ✅ Completo — RF-11 a RF-15, historial persistente, PDF | S7-1 a S7-10 | `Sprints/SPRINT_07_trazabilidad_alta.md` |
-| Sprint 8 — Estado `validacion_vacante` + Validación de Bajas | ✅ Completo — S8A y S8B, build limpio | S8A-1 a S8B-6 | `Sprints/SPRINT_08_validacion_vacante.md` |
-| Sprint 8-C — Triangulación histórica | ✅ Completo — 2026-09-03, regla baja SIAL implementada | S8C-1 a S8C-3 | `Sprints/SPRINT_08_validacion_vacante.md` |
-| Sprint 9 — Matriz de permisos + Landing/menú/guards | ✅ Completo — 2026-09-02 (S9-1 superado por RBAC dinámico) | S9-2 a S9-11 | `Sprints/SPRINT_09_permisos_landing.md` |
-| Post-Sprint 9 — Normalización escalafones + deploy + Neon | ✅ Completo — 2026-09-03 | — | `Sprints/SPRINT_09_permisos_landing.md` |
-| Sprint 10 — Notificaciones persistidas | ✅ Completo — 2026-09-04 | S10-1 a S10-5 | `Sprints/SPRINT_10_notificaciones.md` |
-| Sprint 11 — Flujo concursal CPH con autorizaciones | ✅ Completo — 2026-09-03 | S11-1 a S11-7 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
-| Sprint 12 — UX bajas + wizard CPH + permisos UI | ✅ Completo — 2026-09-03 | S12-1 a S12-6 | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
-| Post-Sprint 12 — Auditoría especialidad_legacy + pg_trgm | ✅ Completo — commit `af1c3f1` | — | `Sprints/POST_SPRINT_12_especialidad_legacy.md` |
-| Sprint 13 — Panel de autorizaciones + jerarquía de roles | ✅ Completo — backend 2026-09-11 (Jorge), frontend 2026-09-04 (Agustín) | S13-1 a S13-8, S13-A a S13-E | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md` |
-| Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros | ✅ Completo — 2026-09 | — | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md` |
-| Sprint 14 — Concurso desde Alta de Cargo | 📋 Planificado | S14-1 a S14-10 | `Sprints/SPRINT_14_concurso_desde_alta.md` |
-| Post-Sprint 14 — Migración legacy: tablas de referencia Dotaneitor | ⚠️ Código completo, sin commitear, `tsc` limpio, nada roto — traspasado a Jorge para destrabar el entorno Docker/Postgres local y verificar E2E | — | `Sprints/POST_SPRINT_14_migracion_legacy_tablas_referencia.md` |
-| Post-Sprint 14 — Migración legacy: Organigrama | ✅ Verificado E2E con login real (2026-09-08) + módulo "Árbol" (carga de estructura por Excel) agregado — sin commitear. Falta rebuild de Docker para probar "Árbol" por UI. Hallazgo pendiente: `Cargo.unificadorPuesto` vacío en el 100% de los cargos (por eso el organigrama sale todo "Vacante") | — | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md` |
-| Sprint 15 — Personas en cargos del organigrama + mejoras UX | ✅ Completado — commit `727d306` | — | `Sprints/SPRINT_03_personas_cargos.md` |
-| Sprint 16 — Flujo completo: Vacante → Concurso → Designación | ✅ Completado (S16-1 a S16-8) — S16-9 verificación e2e pendiente | S16-1 a S16-9 | `Sprints/SPRINT_16_flujo_vacante_designacion.md` |
-| Post-Sprint 16 — Corrección modelo Desierto CPH | ✅ Completado — commits `348a466`, `957acc7` | — | `Sprints/POST_SPRINT_16_desierto_cph.md` |
-| Post-Sprint 16 — Fixes varios + Módulo Cadena de Mando | ✅ Completado — 2026-09 | — | `Sprints/POST_SPRINT_16_fixes_cadena_mando.md` |
-| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón | ✅ Completado (backend Jorge ✅, frontend Agustín ✅) | S17-1 a S17-8 | `Sprints/SPRINT_17_bajas_sgrasv_padron.md` |
-| Post-Sprint 17 — Normalización especialidades + campo especialidad_cph | ✅ Completado — commit `a7f740a` | — | ver notas abajo |
-| Sprint 18 — Designación CPH: búsqueda mejorada + validación especialidad + ID SIAL Rol | 📋 Planificado | S18-1 a S18-8 | `Sprints/SPRINT_18_designacion_cph_especialidad.md` |
-| Post-Sprint — Triangulación POU vs Concursos + Mejoras de datos | ✅ Completado — 2026-09 | — | `Sprints/POST_SPRINT_POU_TRIANGULACION.md` |
-| Post-Sprint — Filtro conFaltantes + Tests + Modales flujo CPH | ✅ Completado — 2026-09 | — | ver notas abajo |
-| Sprint 18 — Retenciones: schema + generación automática de cargos R/TTR | 📋 Planificado | S18-1 a S18-10 | `Sprints/SPRINT_18_retenciones_cadena_cargos.md` |
-| Sprint 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción | 📋 Planificado | S19-1 a S19-13 | `Sprints/SPRINT_19_retenciones_vencimientos_comision.md` |
+| Sprint                                                                                                     | Estado                                                                                                                                                                                                                                                                                                | Tareas                       | Detalle                                                        |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------- |
+| Sprint 0 — Infraestructura                                                                                 | ✅ Completado                                                                                                                                                                                                                                                                                         | S0-1 a S0-11                 | `Sprints/SPRINT_00_infraestructura.md`                         |
+| Sprint 1 — Autenticación                                                                                   | ✅ Completado                                                                                                                                                                                                                                                                                         | S1-1 a S1-10                 | `Sprints/SPRINT_01_autenticacion.md`                           |
+| Sprint 2 — Dotaneitor + Padrón                                                                             | ✅ Completo — verificado end-to-end 2026-08-25                                                                                                                                                                                                                                                        | S2-1 a S2-19                 | `Sprints/SPRINT_02_dotaneitor_padron.md`                       |
+| Sprint 3 — Personas y Cargos                                                                               | ✅ Completo — verificado con browser real 2026-08-25                                                                                                                                                                                                                                                  | S3-1 a S3-11                 | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Post-Sprint 3 — Mejoras UX padrón/personas                                                                 | ✅ Completado — commit `f178819`, 2026-08-27                                                                                                                                                                                                                                                          | —                            | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Post-Sprint 3B — Cargos: códigos, estados, UX                                                              | ✅ Completado — 2026-09                                                                                                                                                                                                                                                                               | —                            | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Post-Sprint 3C — Mejoras UX personas/cargos                                                                | ✅ Completado — 2026-08-28                                                                                                                                                                                                                                                                            | —                            | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Post-Sprint 3D — Maquetas Alta/Baja/Alta por Baja                                                          | ✅ Completado — 2026-09                                                                                                                                                                                                                                                                               | —                            | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Sprint 4 — Concursos CPH                                                                                   | ✅ Completo — verificado end-to-end 2026-08-26                                                                                                                                                                                                                                                        | S4-1 a S4-11                 | `Sprints/SPRINT_04_concursos_cph.md`                           |
+| Sprint 5 — Concursos CEETPS + Bajas                                                                        | ✅ Completo — mergeado a main 2026-09                                                                                                                                                                                                                                                                 | S5-1 a S5-10                 | `Sprints/SPRINT_05_ceetps_bajas.md`                            |
+| Sprint 6 — KPIs + Deploy                                                                                   | ✅ Completo — 2026-08-31, smoke test 21/21 OK                                                                                                                                                                                                                                                         | S6-0 a S6-8                  | `Sprints/SPRINT_06_kpis_deploy.md`                             |
+| Sprint 7 — Cargos: trazabilidad del alta manual                                                            | ✅ Completo — RF-11 a RF-15, historial persistente, PDF                                                                                                                                                                                                                                               | S7-1 a S7-10                 | `Sprints/SPRINT_07_trazabilidad_alta.md`                       |
+| Sprint 8 — Estado `validacion_vacante` + Validación de Bajas                                               | ✅ Completo — S8A y S8B, build limpio                                                                                                                                                                                                                                                                 | S8A-1 a S8B-6                | `Sprints/SPRINT_08_validacion_vacante.md`                      |
+| Sprint 8-C — Triangulación histórica                                                                       | ✅ Completo — 2026-09-03, regla baja SIAL implementada                                                                                                                                                                                                                                                | S8C-1 a S8C-3                | `Sprints/SPRINT_08_validacion_vacante.md`                      |
+| Sprint 9 — Matriz de permisos + Landing/menú/guards                                                        | ✅ Completo — 2026-09-02 (S9-1 superado por RBAC dinámico)                                                                                                                                                                                                                                            | S9-2 a S9-11                 | `Sprints/SPRINT_09_permisos_landing.md`                        |
+| Post-Sprint 9 — Normalización escalafones + deploy + Neon                                                  | ✅ Completo — 2026-09-03                                                                                                                                                                                                                                                                              | —                            | `Sprints/SPRINT_09_permisos_landing.md`                        |
+| Sprint 10 — Notificaciones persistidas                                                                     | ✅ Completo — 2026-09-04                                                                                                                                                                                                                                                                              | S10-1 a S10-5                | `Sprints/SPRINT_10_notificaciones.md`                          |
+| Sprint 11 — Flujo concursal CPH con autorizaciones                                                         | ✅ Completo — 2026-09-03                                                                                                                                                                                                                                                                              | S11-1 a S11-7                | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md`              |
+| Sprint 12 — UX bajas + wizard CPH + permisos UI                                                            | ✅ Completo — 2026-09-03                                                                                                                                                                                                                                                                              | S12-1 a S12-6                | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md`              |
+| Post-Sprint 12 — Auditoría especialidad_legacy + pg_trgm                                                   | ✅ Completo — commit `af1c3f1`                                                                                                                                                                                                                                                                        | —                            | `Sprints/POST_SPRINT_12_especialidad_legacy.md`                |
+| Sprint 13 — Panel de autorizaciones + jerarquía de roles                                                   | ✅ Completo — backend 2026-09-11 (Jorge), frontend 2026-09-04 (Agustín)                                                                                                                                                                                                                               | S13-1 a S13-8, S13-A a S13-E | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md`              |
+| Post-Sprint 13 — Validación de Bajas: triangulación SIAL + filtros                                         | ✅ Completo — 2026-09                                                                                                                                                                                                                                                                                 | —                            | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md`              |
+| Sprint 14 — Concurso desde Alta de Cargo                                                                   | 📋 Planificado                                                                                                                                                                                                                                                                                        | S14-1 a S14-10               | `Sprints/SPRINT_14_concurso_desde_alta.md`                     |
+| Post-Sprint 14 — Migración legacy: tablas de referencia Dotaneitor                                         | ⚠️ Código completo, sin commitear, `tsc` limpio, nada roto — traspasado a Jorge para destrabar el entorno Docker/Postgres local y verificar E2E                                                                                                                                                       | —                            | `Sprints/POST_SPRINT_14_migracion_legacy_tablas_referencia.md` |
+| Post-Sprint 14 — Migración legacy: Organigrama                                                             | ✅ Verificado E2E con login real (2026-09-08) + módulo "Árbol" (carga de estructura por Excel) agregado — sin commitear. Falta rebuild de Docker para probar "Árbol" por UI. Hallazgo pendiente: `Cargo.unificadorPuesto` vacío en el 100% de los cargos (por eso el organigrama sale todo "Vacante") | —                            | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md`       |
+| Sprint 15 — Personas en cargos del organigrama + mejoras UX                                                | ✅ Completado — commit `727d306`                                                                                                                                                                                                                                                                      | —                            | `Sprints/SPRINT_03_personas_cargos.md`                         |
+| Sprint 16 — Flujo completo: Vacante → Concurso → Designación                                               | ✅ Completado (S16-1 a S16-8) — S16-9 verificación e2e pendiente                                                                                                                                                                                                                                      | S16-1 a S16-9                | `Sprints/SPRINT_16_flujo_vacante_designacion.md`               |
+| Post-Sprint 16 — Corrección modelo Desierto CPH                                                            | ✅ Completado — commits `348a466`, `957acc7`                                                                                                                                                                                                                                                          | —                            | `Sprints/POST_SPRINT_16_desierto_cph.md`                       |
+| Post-Sprint 16 — Fixes varios + Módulo Cadena de Mando                                                     | ✅ Completado — 2026-09                                                                                                                                                                                                                                                                               | —                            | `Sprints/POST_SPRINT_16_fixes_cadena_mando.md`                 |
+| Sprint 17 — Bajas SGRASV: flujo correcto + vinculación automática al padrón                                | ✅ Completado (backend Jorge ✅, frontend Agustín ✅)                                                                                                                                                                                                                                                 | S17-1 a S17-8                | `Sprints/SPRINT_17_bajas_sgrasv_padron.md`                     |
+| Post-Sprint 17 — Normalización especialidades + campo especialidad_cph                                     | ✅ Completado — commit `a7f740a`                                                                                                                                                                                                                                                                      | —                            | ver notas abajo                                                |
+| Sprint 18 — Designación CPH: búsqueda mejorada + validación especialidad + ID SIAL Rol                     | 📋 Planificado                                                                                                                                                                                                                                                                                        | S18-1 a S18-8                | `Sprints/SPRINT_18_designacion_cph_especialidad.md`            |
+| Post-Sprint 18 — Wizard CPH Etapa 2 (Sorteo Jurado) + Etapa 3 (Inscripción/Examen/OM) + Etapa 4 (guardado) | ✅ Completado — commits `3156727`, `47dc4f4`, `c7dfb82`                                                                                                                                                                                                                                               | —                            | `Sprints/POST_SPRINT_18_etapa2_3_jurado_inscriptos.md`         |
+| Post-Sprint — Triangulación POU vs Concursos + Mejoras de datos                                            | ✅ Completado — 2026-09                                                                                                                                                                                                                                                                               | —                            | `Sprints/POST_SPRINT_POU_TRIANGULACION.md`                     |
+| Post-Sprint — Filtro conFaltantes + Tests + Modales flujo CPH                                              | ✅ Completado — 2026-09                                                                                                                                                                                                                                                                               | —                            | ver notas abajo                                                |
+| Sprint 18 — Retenciones: schema + generación automática de cargos R/TTR                                    | 📋 Planificado                                                                                                                                                                                                                                                                                        | S18-1 a S18-10               | `Sprints/SPRINT_18_retenciones_cadena_cargos.md`               |
+| Sprint 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción                          | 📋 Planificado                                                                                                                                                                                                                                                                                        | S19-1 a S19-13               | `Sprints/SPRINT_19_retenciones_vencimientos_comision.md`       |
 
 ---
 
 ## 1. CONTEXTO DEL EQUIPO
 
-| Parámetro | Valor |
-| --------- | ----- |
-| Equipo | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend) |
-| Capacidad | 30h/semana por dev = 60h/semana totales |
-| Duración de sprint | 1–2 semanas según complejidad |
-| Ceremonia | Review + Retro semanal |
-| Herramienta | Notion |
-| Sin daily | Comunicación asíncrona |
-| Deadline MVP | Sin fecha fija — prioridad: calidad por etapa |
+| Parámetro          | Valor                                                |
+| ------------------ | ---------------------------------------------------- |
+| Equipo             | Jorge (Dev 1 — Backend) + Agustin (Dev 2 — Frontend) |
+| Capacidad          | 30h/semana por dev = 60h/semana totales              |
+| Duración de sprint | 1–2 semanas según complejidad                        |
+| Ceremonia          | Review + Retro semanal                               |
+| Herramienta        | Notion                                               |
+| Sin daily          | Comunicación asíncrona                               |
+| Deadline MVP       | Sin fecha fija — prioridad: calidad por etapa        |
 
 ### Definición de Done (DoD)
 
@@ -94,20 +96,20 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ### Stack definitivo
 
-| Capa | Tecnología |
-| ---- | ---------- |
-| Base de datos | PostgreSQL 16 (Docker) |
-| ORM | Prisma 5.x |
-| Backend | Node 20 + TypeScript + Fastify 4 |
-| Frontend | React 18 + Vite 5 + Tailwind CSS |
-| Design system | Tokens Obelisco GCBA sobre shadcn/ui |
-| Estado servidor | TanStack Query v5 |
-| Estado cliente | Zustand |
-| Formularios | React Hook Form + Zod |
-| Routing | React Router v7 |
-| Microservicio padrón | Python + FastAPI (Dotaneitor) |
-| Monorepo | pnpm workspaces + Turborepo |
-| Contenedores | Docker + docker-compose |
+| Capa                 | Tecnología                           |
+| -------------------- | ------------------------------------ |
+| Base de datos        | PostgreSQL 16 (Docker)               |
+| ORM                  | Prisma 5.x                           |
+| Backend              | Node 20 + TypeScript + Fastify 4     |
+| Frontend             | React 18 + Vite 5 + Tailwind CSS     |
+| Design system        | Tokens Obelisco GCBA sobre shadcn/ui |
+| Estado servidor      | TanStack Query v5                    |
+| Estado cliente       | Zustand                              |
+| Formularios          | React Hook Form + Zod                |
+| Routing              | React Router v7                      |
+| Microservicio padrón | Python + FastAPI (Dotaneitor)        |
+| Monorepo             | pnpm workspaces + Turborepo          |
+| Contenedores         | Docker + docker-compose              |
 
 ---
 
@@ -135,33 +137,33 @@ SRRHH-Legacy/ (monorepo pnpm + Turborepo)
 
 ### Actores del sistema
 
-| Actor | Rol | Ejemplos |
-| ----- | --- | -------- |
-| admin | Configuración, usuarios, carga masiva | Agus, Jorge |
-| editor | Lectura + escritura en todos los módulos | Lucas y equipo |
-| director y usuarios | Solo lectura de su nicho | Autoridades Superiores |
-| concursales_cph | Lectura total + escritura concursos CPH y bajas | Alexis, Rijana e equipo |
-| concursales_ceetps | Lectura total + escritura concursos CEETPS y bajas | Alexi, Laura e Equipo |
+| Actor               | Rol                                                | Ejemplos                |
+| ------------------- | -------------------------------------------------- | ----------------------- |
+| admin               | Configuración, usuarios, carga masiva              | Agus, Jorge             |
+| editor              | Lectura + escritura en todos los módulos           | Lucas y equipo          |
+| director y usuarios | Solo lectura de su nicho                           | Autoridades Superiores  |
+| concursales_cph     | Lectura total + escritura concursos CPH y bajas    | Alexis, Rijana e equipo |
+| concursales_ceetps  | Lectura total + escritura concursos CEETPS y bajas | Alexi, Laura e Equipo   |
 
 ---
 
 ## 4. BACKLOG — Fuera de sprints actuales
 
-| # | Tarea | Motivo de postergación |
-| - | ----- | ---------------------- |
-| B-1 | Portal Postulante | Sistema separado, fuera de alcance |
-| B-2 | Integración API TAD | No disponible en primera etapa |
-| B-3 | Firma digital real | No disponible en primera etapa |
-| B-4 | Integración Hacienda | No disponible en primera etapa |
-| B-5 | Redis cache para KPIs pesados | No necesario en arranque |
-| B-6 | Módulo de recorridas | No urgente para MVP |
-| B-7 | Notificaciones por email | Segunda fase |
-| B-8 | App mobile nativa | Segunda fase |
-| B-9 | Multi-tab refresh token coordination (`BroadcastChannel`) | Trade-off aceptado con localStorage |
-| B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me` | Mejora de seguridad XSS — no priorizado para MVP |
+| #    | Tarea                                                                        | Motivo de postergación                                                   |
+| ---- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| B-1  | Portal Postulante                                                            | Sistema separado, fuera de alcance                                       |
+| B-2  | Integración API TAD                                                          | No disponible en primera etapa                                           |
+| B-3  | Firma digital real                                                           | No disponible en primera etapa                                           |
+| B-4  | Integración Hacienda                                                         | No disponible en primera etapa                                           |
+| B-5  | Redis cache para KPIs pesados                                                | No necesario en arranque                                                 |
+| B-6  | Módulo de recorridas                                                         | No urgente para MVP                                                      |
+| B-7  | Notificaciones por email                                                     | Segunda fase                                                             |
+| B-8  | App mobile nativa                                                            | Segunda fase                                                             |
+| B-9  | Multi-tab refresh token coordination (`BroadcastChannel`)                    | Trade-off aceptado con localStorage                                      |
+| B-10 | Migrar refresh token a cookie httpOnly + endpoint `/me`                      | Mejora de seguridad XSS — no priorizado para MVP                         |
 | B-12 | Identidad del cargo en padrón SIAL por clave estructural en vez de `id_sial` | Planificado en `Concursos-CPH.md` como S8-1, no implementado en Sprint 8 |
-| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja | Flujo de bajas, no de altas |
-| B-14 | Vincular expediente de alta con expediente de baja (contrapartida) | Requiere modelado de actos administrativos como entidad propia |
+| B-13 | `fechaHasta` / supresión de cargo con acto administrativo de baja            | Flujo de bajas, no de altas                                              |
+| B-14 | Vincular expediente de alta con expediente de baja (contrapartida)           | Requiere modelado de actos administrativos como entidad propia           |
 
 ---
 
@@ -1650,46 +1652,46 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 
 **Decisiones de diseño tomadas antes de implementar:**
 
-| Pregunta | Decisión |
-| -------- | --------- |
-| Tipos de `TipoNotificacion` | `concurso_estancado`, `baja_pendiente`, `autorizacion_pendiente`, `autorizacion_resuelta` |
-| Destinatarios | Por rol (`rolSlug`) — cada tipo va al rol que corresponde según el flujo de autorización |
-| S10-5 alertas de estancamiento | On-demand: se materializan al listar notificaciones, sin cron job |
+| Pregunta                       | Decisión                                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| Tipos de `TipoNotificacion`    | `concurso_estancado`, `baja_pendiente`, `autorizacion_pendiente`, `autorizacion_resuelta` |
+| Destinatarios                  | Por rol (`rolSlug`) — cada tipo va al rol que corresponde según el flujo de autorización  |
+| S10-5 alertas de estancamiento | On-demand: se materializan al listar notificaciones, sin cron job                         |
 
 | #     | Tarea                                                                                                              | Dev     | Est. | Prioridad | Estado |
 | ----- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---- | --------- | ------ |
-| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones`                        | Jorge   | 3h   | 🟡 Medio  | ✅ |
-| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge   | 6h   | 🟡 Medio  | ✅ |
-| S10-3 | Frontend: badge con contador de no leídas en el header                                                             | Agustin | 4h   | 🟡 Medio  | ✅ |
-| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas)                          | Agustin | 6h   | 🟡 Medio  | ✅ |
-| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`)      | Jorge   | 6h   | 🟢 Bajo   | ✅ |
+| S10-1 | Prisma: `model Notificacion` + enum `TipoNotificacion`; migración `sprint10_notificaciones`                        | Jorge   | 3h   | 🟡 Medio  | ✅     |
+| S10-2 | Módulo `notificaciones/`: `GET /` (paginado, propias), `PATCH /:id/leer`, `PATCH /leer-todas`; helpers de creación | Jorge   | 6h   | 🟡 Medio  | ✅     |
+| S10-3 | Frontend: badge con contador de no leídas en el header                                                             | Agustin | 4h   | 🟡 Medio  | ✅     |
+| S10-4 | Bandeja `/notificaciones` (listado paginado, filtros por tipo/leídas, marcar como leídas)                          | Agustin | 6h   | 🟡 Medio  | ✅     |
+| S10-5 | Backend: materializar alertas de estancamiento de concursos (>30/60/90 días, anti-duplicados por `origenKey`)      | Jorge   | 6h   | 🟢 Bajo   | ✅     |
 
 **Archivos modificados:**
 
-| Archivo | Cambio |
-| ------- | ------ |
-| `prisma/schema.prisma` | Enum `TipoNotificacion` + `model Notificacion` con `origenKey` único para deduplicación |
-| `prisma/migrations/20260904000000_sprint10_notificaciones/migration.sql` | `CREATE TYPE` + `CREATE TABLE notificaciones` + índices |
-| `packages/types/src/index.ts` | `TipoNotificacion`, `Notificacion`, `NotificacionFilters` |
-| `apps/api/src/modules/notificaciones/notificaciones.service.ts` | `crearNotificacion`, `listNotificacionesService`, `countNoLeidasService`, `marcarLeidaService`, `marcarTodasLeidasService`, `materializarAlertasEstancamiento` |
-| `apps/api/src/modules/notificaciones/notificaciones.schema.ts` | Zod schema para query params |
-| `apps/api/src/modules/notificaciones/notificaciones.routes.ts` | 4 endpoints: `GET /`, `GET /no-leidas`, `PATCH /leer-todas`, `PATCH /:id/leer` |
-| `apps/api/src/app.ts` | Registro del módulo en `/api/v1/notificaciones` |
-| `apps/web/src/modules/notificaciones/hooks/useNotificaciones.ts` | `useNotificacionesNoLeidas`, `useNotificaciones`, `useMarcarLeida`, `useMarcarTodasLeidas` |
-| `apps/web/src/modules/notificaciones/pages/NotificacionesPage.tsx` | Bandeja con filtros, paginación, marcar leídas |
-| `apps/web/src/shared/components/layout/AppShell.tsx` | Badge 🔔 en el header con contador de no leídas, link a `/notificaciones` |
-| `apps/web/src/app/router.tsx` | Ruta `/notificaciones` |
+| Archivo                                                                  | Cambio                                                                                                                                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prisma/schema.prisma`                                                   | Enum `TipoNotificacion` + `model Notificacion` con `origenKey` único para deduplicación                                                                        |
+| `prisma/migrations/20260904000000_sprint10_notificaciones/migration.sql` | `CREATE TYPE` + `CREATE TABLE notificaciones` + índices                                                                                                        |
+| `packages/types/src/index.ts`                                            | `TipoNotificacion`, `Notificacion`, `NotificacionFilters`                                                                                                      |
+| `apps/api/src/modules/notificaciones/notificaciones.service.ts`          | `crearNotificacion`, `listNotificacionesService`, `countNoLeidasService`, `marcarLeidaService`, `marcarTodasLeidasService`, `materializarAlertasEstancamiento` |
+| `apps/api/src/modules/notificaciones/notificaciones.schema.ts`           | Zod schema para query params                                                                                                                                   |
+| `apps/api/src/modules/notificaciones/notificaciones.routes.ts`           | 4 endpoints: `GET /`, `GET /no-leidas`, `PATCH /leer-todas`, `PATCH /:id/leer`                                                                                 |
+| `apps/api/src/app.ts`                                                    | Registro del módulo en `/api/v1/notificaciones`                                                                                                                |
+| `apps/web/src/modules/notificaciones/hooks/useNotificaciones.ts`         | `useNotificacionesNoLeidas`, `useNotificaciones`, `useMarcarLeida`, `useMarcarTodasLeidas`                                                                     |
+| `apps/web/src/modules/notificaciones/pages/NotificacionesPage.tsx`       | Bandeja con filtros, paginación, marcar leídas                                                                                                                 |
+| `apps/web/src/shared/components/layout/AppShell.tsx`                     | Badge 🔔 en el header con contador de no leídas, link a `/notificaciones`                                                                                      |
+| `apps/web/src/app/router.tsx`                                            | Ruta `/notificaciones`                                                                                                                                         |
 
 **Regla de negocio — destinatarios por tipo:**
 
-| Tipo | Rol destinatario | Cuándo se crea |
-| ---- | ---------------- | -------------- |
-| `concurso_estancado` (CPH 30d/60d) | `concursales_cph` | On-demand al listar, si el concurso lleva >30/60 días sin movimiento |
-| `concurso_estancado` (CPH 90d) | `admin` | Ídem, umbral 90 días |
-| `concurso_estancado` (CEETPS) | `concursales_ceetps` | Ídem para concursos CEETPS |
-| `baja_pendiente` | A definir en Sprint 11 | Cuando se registre una baja sin concurso asociado |
-| `autorizacion_pendiente` | `director` | Sprint 11: al caratular concurso CPH |
-| `autorizacion_resuelta` | `concursales_cph` | Sprint 11: cuando el director aprueba/rechaza |
+| Tipo                               | Rol destinatario       | Cuándo se crea                                                       |
+| ---------------------------------- | ---------------------- | -------------------------------------------------------------------- |
+| `concurso_estancado` (CPH 30d/60d) | `concursales_cph`      | On-demand al listar, si el concurso lleva >30/60 días sin movimiento |
+| `concurso_estancado` (CPH 90d)     | `admin`                | Ídem, umbral 90 días                                                 |
+| `concurso_estancado` (CEETPS)      | `concursales_ceetps`   | Ídem para concursos CEETPS                                           |
+| `baja_pendiente`                   | A definir en Sprint 11 | Cuando se registre una baja sin concurso asociado                    |
+| `autorizacion_pendiente`           | `director`             | Sprint 11: al caratular concurso CPH                                 |
+| `autorizacion_resuelta`            | `concursales_cph`      | Sprint 11: cuando el director aprueba/rechaza                        |
 
 **Deduplicación:** campo `origenKey` con constraint `UNIQUE`. Formato: `{tipo}:{entidad}:{id}:{umbral}` (ej. `concurso_estancado:cph:{uuid}:30d`). Si ya existe una notificación con esa clave, `crearNotificacion()` la devuelve sin crear duplicado.
 
@@ -1736,20 +1738,24 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 #### Implementado en esta sesión
 
 **BD:**
+
 - `concursos_cph.pendiente_autorizacion BOOLEAN DEFAULT false` — migr. `20260906000000_cph_pendiente_autorizacion`
 - `bajas.carga_horaria INTEGER` — migr. `20260905000000_baja_carga_horaria`
 
 **API (`concursos-cph`):**
+
 - `patchConcursoCphService`: detecta cambios en `sigla`/`codigoRegistroId`, activa `pendienteAutorizacion = true` y crea notificación `autorizacion_pendiente` al rol `director`
 - `aprobarAutorizacionCphService` (nuevo): limpia el flag, crea notificación `autorizacion_resuelta` al rol `concursales_cph`
 - `POST /api/v1/concursos-cph/:id/autorizar` — permiso `concursos-cph.autorizar` (rol `sgrasv`)
 - Schema PATCH extendido con `sigla`, `codigoRegistroId`, `pendienteAutorizacion`
 
 **API (`bajas`):**
+
 - `cargaHoraria` persistido en `createBajaService` y `updateBajaService`
 - Schema Zod: `cargaHoraria: z.coerce.number().int().min(1).max(99).optional()`
 
 **Frontend (`ConcursoCphWizard`):**
+
 - `pendienteAutorizacion` se lee de la API (no estado local)
 - Botón unificado “Guardar y continuar →” — avanza automáticamente al guardar sin cambios sensibles
 - Botón deshabilitado mientras hay autorización pendiente
@@ -1760,17 +1766,18 @@ Trabajo de infraestructura y datos surgido de la puesta en producción en Render
 - Eliminado bloque informativo CPH/CEETPS del formulario de baja (`NuevaBajaPage`)
 
 **Frontend (`NuevaBajaPage`):**
+
 - `cargaHoraria` incluido en body de `crearBaja`, `guardarBorrador` y restaurado en modo edición
 
-| # | Tarea | Estado |
-|---|---|---|
-| S11-1 | BD: `pendiente_autorizacion` en `concursos_cph` | ✅ |
-| S11-2 | API: detectar cambios sensibles en PATCH, notificar director | ✅ |
-| S11-3 | API: `POST /:id/autorizar` para SGRASV | ✅ |
-| S11-4 | Frontend: wizard bloquea avance, muestra estado de autorización | ✅ |
-| S11-5 | Persistir `cargaHoraria` en bajas (BD + API + frontend) | ✅ |
-| S11-6 | Panel de autorizaciones pendientes para rol director | 📋 Pendiente |
-| S11-7 | Historial de autorizaciones por concurso | 📋 Pendiente |
+| #     | Tarea                                                           | Estado       |
+| ----- | --------------------------------------------------------------- | ------------ |
+| S11-1 | BD: `pendiente_autorizacion` en `concursos_cph`                 | ✅           |
+| S11-2 | API: detectar cambios sensibles en PATCH, notificar director    | ✅           |
+| S11-3 | API: `POST /:id/autorizar` para SGRASV                          | ✅           |
+| S11-4 | Frontend: wizard bloquea avance, muestra estado de autorización | ✅           |
+| S11-5 | Persistir `cargaHoraria` en bajas (BD + API + frontend)         | ✅           |
+| S11-6 | Panel de autorizaciones pendientes para rol director            | 📋 Pendiente |
+| S11-7 | Historial de autorizaciones por concurso                        | 📋 Pendiente |
 
 ---
 
@@ -1904,7 +1911,8 @@ Las notificaciones (S10) y las autorizaciones (S12) son conceptos distintos pero
 ---
 
 ## 6. FLUJO DE DEPLOY
->>>>>>> origin/main
+
+> > > > > > > origin/main
 
 ```
 Desarrollo local
@@ -1929,36 +1937,36 @@ Ver `Doc/DEPLOY_PRODUCCION.md` para el detalle completo.
 
 ## 6. REGISTRO DE DECISIONES
 
-| Fecha | Decisión | Motivo |
-| ----- | --------- | ------ |
-| 2026-09 | Sin deadline fijo — calidad por etapa | Prioridad en corrección, no en velocidad |
-| 2026-09 | Dotaneitor: analizar y optimizar, no reescribir | Ya funciona, Python es el lenguaje correcto |
-| 2026-09 | PostgreSQL sobre MySQL | Particionado, full-text search, window functions |
-| 2026-09 | shadcn/ui + Tailwind con tokens Obelisco | Stack moderno + identidad institucional GCBA |
-| 2026-09 | Zustand para estado de auth | TanStack Query para servidor, Zustand para cliente |
-| 2026-09 | Docker desde el día 1 | Entorno local = producción, deploy trivial |
-| 2026-09 | UUID como PK en todas las tablas | Sin autoincremental, distribuible |
-| 2026-09 | Soft delete en todas las tablas | Histórico inmutable, nunca DELETE en producción |
-| 2026-08-26 | Estimados de horas son referenciales, no compromisos | Cada sprint genera trabajo de verificación/corrección no planificado |
-| 2026-08-26 | DoD actualizado: "PR aprobado" → "avisar antes de tocar módulo compartido" | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa |
-| 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de KPIs | Sin `cuil` no se pueden contar personas únicas por período sin join |
-| 2026-09-02 | `escalafon_codigos_registro` como fuente de verdad para normalizar escalafones del padrón | Los escalafones se creaban on-the-fly con texto libre del Excel, generando duplicados |
-| 2026-09-02 | Migraciones sin UUIDs hardcodeados — usar `nombre`/`slug`/`id_sial`/`cuil` | Los UUIDs difieren entre local y Neon; cualquier migración con UUID hardcodeado falla en el otro entorno |
-| 2026-09-02 | `export enum` → `export const X = {...} as const` + `export type` en `packages/types` | Node 22 (Render) usa strip-only mode y no transpila `enum` TypeScript |
-| 2026-09-02 | Sincronización Neon por CSV + SQL portable, no por dump/restore | Los UUIDs difieren entre entornos; un dump restauraría UUIDs locales rompiendo las FKs de Neon |
-| 2026-09-03 | `EvolucionDotacionChart` rediseñado como dashboard ejecutivo con small multiples | Un solo gráfico de línea con 14 series era ilegible |
-| 2026-09-10 | Columna `especialidad` renombrada a `especialidad_legacy` en `cargos`; patrón de fallback `especialidadLegacy ?? especialidad` en todo el frontend | Migración `20260910000001_especialidades_fk`; `especialidad` en tipo `Cargo` marcado `@deprecated` |
-| 2026-09-10 | pg_trgm instalado; threshold `> 0.4` para búsqueda fuzzy de especialidades | Cubre variantes morfológicas (cardiologo → Cardiologia) |
+| Fecha      | Decisión                                                                                                                                           | Motivo                                                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 2026-09    | Sin deadline fijo — calidad por etapa                                                                                                              | Prioridad en corrección, no en velocidad                                                                 |
+| 2026-09    | Dotaneitor: analizar y optimizar, no reescribir                                                                                                    | Ya funciona, Python es el lenguaje correcto                                                              |
+| 2026-09    | PostgreSQL sobre MySQL                                                                                                                             | Particionado, full-text search, window functions                                                         |
+| 2026-09    | shadcn/ui + Tailwind con tokens Obelisco                                                                                                           | Stack moderno + identidad institucional GCBA                                                             |
+| 2026-09    | Zustand para estado de auth                                                                                                                        | TanStack Query para servidor, Zustand para cliente                                                       |
+| 2026-09    | Docker desde el día 1                                                                                                                              | Entorno local = producción, deploy trivial                                                               |
+| 2026-09    | UUID como PK en todas las tablas                                                                                                                   | Sin autoincremental, distribuible                                                                        |
+| 2026-09    | Soft delete en todas las tablas                                                                                                                    | Histórico inmutable, nunca DELETE en producción                                                          |
+| 2026-08-26 | Estimados de horas son referenciales, no compromisos                                                                                               | Cada sprint genera trabajo de verificación/corrección no planificado                                     |
+| 2026-08-26 | DoD actualizado: "PR aprobado" → "avisar antes de tocar módulo compartido"                                                                         | El equipo nunca usó PRs; la regla que sí se cumple es la coordinación previa                             |
+| 2026-08-26 | `PadronHistorico` necesita `cuil` desnormalizado + `@@index([cargoId])` + `unificadorPuesto` antes de KPIs                                         | Sin `cuil` no se pueden contar personas únicas por período sin join                                      |
+| 2026-09-02 | `escalafon_codigos_registro` como fuente de verdad para normalizar escalafones del padrón                                                          | Los escalafones se creaban on-the-fly con texto libre del Excel, generando duplicados                    |
+| 2026-09-02 | Migraciones sin UUIDs hardcodeados — usar `nombre`/`slug`/`id_sial`/`cuil`                                                                         | Los UUIDs difieren entre local y Neon; cualquier migración con UUID hardcodeado falla en el otro entorno |
+| 2026-09-02 | `export enum` → `export const X = {...} as const` + `export type` en `packages/types`                                                              | Node 22 (Render) usa strip-only mode y no transpila `enum` TypeScript                                    |
+| 2026-09-02 | Sincronización Neon por CSV + SQL portable, no por dump/restore                                                                                    | Los UUIDs difieren entre entornos; un dump restauraría UUIDs locales rompiendo las FKs de Neon           |
+| 2026-09-03 | `EvolucionDotacionChart` rediseñado como dashboard ejecutivo con small multiples                                                                   | Un solo gráfico de línea con 14 series era ilegible                                                      |
+| 2026-09-10 | Columna `especialidad` renombrada a `especialidad_legacy` en `cargos`; patrón de fallback `especialidadLegacy ?? especialidad` en todo el frontend | Migración `20260910000001_especialidades_fk`; `especialidad` en tipo `Cargo` marcado `@deprecated`       |
+| 2026-09-10 | pg_trgm instalado; threshold `> 0.4` para búsqueda fuzzy de especialidades                                                                         | Cubre variantes morfológicas (cardiologo → Cardiologia)                                                  |
 
 ---
 
 ## 7. MÉTRICAS OBJETIVO
 
-| Métrica | Objetivo |
-| ------- | -------- |
-| Tiempo de procesamiento padrón semanal | < 60 segundos para 48k registros |
-| Tiempo de carga del tablero | < 3 segundos |
-| Búsqueda de personas | < 500ms con full-text search |
-| Errores en producción post-deploy | 0 críticos |
-| Cobertura de flujo concursal CPH | 100% de sub-estados implementados |
-| Cobertura de flujo concursal CEETPS | 100% de estados implementados |
+| Métrica                                | Objetivo                          |
+| -------------------------------------- | --------------------------------- |
+| Tiempo de procesamiento padrón semanal | < 60 segundos para 48k registros  |
+| Tiempo de carga del tablero            | < 3 segundos                      |
+| Búsqueda de personas                   | < 500ms con full-text search      |
+| Errores en producción post-deploy      | 0 críticos                        |
+| Cobertura de flujo concursal CPH       | 100% de sub-estados implementados |
+| Cobertura de flujo concursal CEETPS    | 100% de estados implementados     |
