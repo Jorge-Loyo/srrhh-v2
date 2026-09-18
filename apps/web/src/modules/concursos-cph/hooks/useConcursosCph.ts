@@ -6,6 +6,7 @@ import type {
   DesignarConcursoRequest,
   GenerarSorteoJuradoRequest,
   ImportarInscriptosResult,
+  CandidatoOmReservado,
   InscriptoConcurso,
   InscriptoRequest,
   JuradoVigente,
@@ -150,6 +151,20 @@ export function useOmCompatibles(id: string | undefined) {
   })
 }
 
+// Candidato de OM reservado para el concurso (Etapa 4) — GET /:id/candidato-om.
+export function useCandidatoOm(id: string | undefined) {
+  return useQuery({
+    queryKey: ['concurso-cph-candidato-om', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CandidatoOmReservado | null }>(
+        `/api/v1/concursos-cph/${id}/candidato-om`,
+      )
+      return res.data.data
+    },
+    enabled: !!id,
+  })
+}
+
 // Reservar un integrante de OM compatible para el concurso (Etapa 4).
 export function useReservarIntegranteOm(id: string) {
   const queryClient = useQueryClient()
@@ -159,6 +174,7 @@ export function useReservarIntegranteOm(id: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-candidato-om', id] })
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
     },
@@ -174,6 +190,28 @@ export function useLiberarIntegranteOm(id: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-candidato-om', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
+
+// Rechazar al integrante reservado (no aceptó el cargo): lo anula y libera la
+// reserva. Devuelve disponiblesRestantes en la OM.
+export function useRechazarIntegranteOm(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ integranteId, motivo }: { integranteId: string; motivo?: string }) => {
+      const res = await apiClient.post<{ data: { ok: boolean; disponiblesRestantes: number } }>(
+        `/api/v1/concursos-cph/${id}/om/rechazar`,
+        { integranteId, motivo },
+      )
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-candidato-om', id] })
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
     },

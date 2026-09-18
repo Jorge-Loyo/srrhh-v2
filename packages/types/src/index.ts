@@ -1244,6 +1244,12 @@ export interface OrdenMeritoVigente {
   } | null
 }
 
+// Candidato de OM reservado para un concurso (Etapa 4) + disponibles restantes.
+export interface CandidatoOmReservado {
+  integrante: OrdenMeritoIntegrante & { ordenMerito: OrdenMeritoVigente | Record<string, unknown> }
+  disponiblesRestantes: number
+}
+
 // Etapa 3 — Inscriptos al concurso CPH.
 export interface InscriptoConcurso {
   id: string

@@ -53,6 +53,8 @@ import {
   listOmCompatiblesService,
   reservarIntegranteOmService,
   liberarIntegranteOmService,
+  rechazarIntegranteOmService,
+  getCandidatoOmReservadoService,
 } from './inscriptos.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -348,6 +350,12 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
+  // GET /:id/candidato-om — candidato de OM reservado para este concurso (o null).
+  app.get<{ Params: { id: string } }>('/:id/candidato-om', async (request, reply) => {
+    const data = await getCandidatoOmReservadoService(request.params.id)
+    return reply.send({ data })
+  })
+
   // POST /:id/om/reservar — reserva un integrante disponible de una OM
   // compatible para este concurso (marca designado, NO finaliza el concurso).
   app.post<{ Params: { id: string }; Body: { integranteId?: string } }>(
@@ -373,6 +381,19 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const integranteId = request.body?.integranteId
       if (!integranteId) throw new Error('integranteId requerido')
       const data = await liberarIntegranteOmService(integranteId)
+      return reply.send({ data })
+    },
+  )
+
+  // POST /:id/om/rechazar — el candidato reservado no aceptó el cargo: anula el
+  // integrante y libera la reserva. Devuelve disponiblesRestantes en la OM.
+  app.post<{ Params: { id: string }; Body: { integranteId?: string; motivo?: string } }>(
+    '/:id/om/rechazar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const integranteId = request.body?.integranteId
+      if (!integranteId) throw new Error('integranteId requerido')
+      const data = await rechazarIntegranteOmService(integranteId, request.body?.motivo)
       return reply.send({ data })
     },
   )

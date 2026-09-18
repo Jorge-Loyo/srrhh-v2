@@ -664,6 +664,62 @@ export async function liberarIntegranteOmService(integranteId: string) {
   })
 }
 
+// Candidato de OM actualmente reservado para un concurso (el integrante con
+// concursoCphDesignadoId = concurso y designado=true). Devuelve null si no hay,
+// y disponiblesRestantes en la misma OM (para reelegir o declarar desierto).
+export async function getCandidatoOmReservadoService(concursoDestinoId: string) {
+  const integrante = await prisma.ordenMeritoIntegrante.findFirst({
+    where: { concursoCphDesignadoId: concursoDestinoId, designado: true, anulado: false },
+    include: { ordenMerito: true },
+  })
+  if (!integrante) return null
+  const disponiblesRestantes = await prisma.ordenMeritoIntegrante.count({
+    where: { ordenMeritoId: integrante.ordenMeritoId, designado: false, anulado: false },
+  })
+  return { integrante, disponiblesRestantes }
+}
+
+// Rechaza al integrante reservado: NO aceptó el cargo. Lo marca anulado (ya no
+// vuelve a estar disponible), libera la reserva y limpia la persona designada
+// del concurso destino. Devuelve cuántos integrantes disponibles quedan en la
+// misma orden de mérito (para decidir si se puede reelegir o hay que declarar
+// desierto).
+export async function rechazarIntegranteOmService(integranteId: string, motivo?: string) {
+  const integrante = await prisma.ordenMeritoIntegrante.findUnique({
+    where: { id: integranteId },
+  })
+  if (!integrante) throw AppError.notFound('Integrante de orden de mérito no encontrado')
+  if (integrante.anulado) throw AppError.conflict('El integrante ya está anulado')
+
+  const destinoId = integrante.concursoCphDesignadoId
+
+  return prisma.$transaction(async (tx) => {
+    await tx.ordenMeritoIntegrante.update({
+      where: { id: integranteId },
+      data: {
+        anulado: true,
+        motivoAnulado: motivo?.trim() || 'No aceptó el cargo',
+        designado: false,
+        concursoCphDesignadoId: null,
+      },
+    })
+    if (destinoId && integrante.personaId) {
+      const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
+      if (c?.personaDesignadaId === integrante.personaId) {
+        await tx.concursoCph.update({
+          where: { id: destinoId },
+          data: { personaDesignadaId: null },
+        })
+      }
+    }
+    // Disponibles restantes en la misma OM (ni designados ni anulados).
+    const disponibles = await tx.ordenMeritoIntegrante.count({
+      where: { ordenMeritoId: integrante.ordenMeritoId, designado: false, anulado: false },
+    })
+    return { ok: true, disponiblesRestantes: disponibles }
+  })
+}
+
 // Órdenes de mérito COMPATIBLES con un concurso destino (mismo puesto +
 // especialidad + escalafón) que tengan integrantes disponibles. Usado en la
 // Etapa 4 para ofrecer reutilizar un integrante.
