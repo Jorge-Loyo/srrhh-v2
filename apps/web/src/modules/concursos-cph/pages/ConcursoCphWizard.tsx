@@ -532,6 +532,7 @@ export function ConcursoCphWizard() {
   const especialidadParaJurado =
     cphData?.especialidadSolicitada ?? cphData?.concurso?.cargo?.especialidadLegacy ?? null
   const juradosCompatibles = juradosVigentes.filter((j) => {
+    if (!j.vigente) return false // no se puede reutilizar un jurado vencido
     if (j.concursoCph?.id === id) return false
     const escOk =
       !j.criterios?.escalafonId ||

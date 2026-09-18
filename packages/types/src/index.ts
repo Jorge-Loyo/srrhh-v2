@@ -1179,6 +1179,8 @@ export interface SorteoJurado {
 // vencimiento (fechaSorteo + 6 meses) + datos del concurso de origen.
 export interface JuradoVigente extends SorteoJurado {
   fechaVencimiento: string
+  // true si el sorteo está dentro de los 6 meses de vigencia (reutilizable).
+  vigente: boolean
   concursoCph?: {
     id: string
     especialidadSolicitada: string | null

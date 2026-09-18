@@ -37,6 +37,7 @@ export function JuradosTab() {
   const { data: jurados = [], isLoading, isError } = useJuradosVigentes()
   const [busqueda, setBusqueda] = useState('')
   const [especialidad, setEspecialidad] = useState('')
+  const [vigencia, setVigencia] = useState<'vigentes' | 'vencidos' | ''>('vigentes')
   const [expandido, setExpandido] = useState<string | null>(null)
 
   // Opciones de especialidad para el filtro (únicas, ordenadas).
@@ -52,6 +53,8 @@ export function JuradosTab() {
   const filtrados = useMemo(() => {
     const q = norm(busqueda)
     return jurados.filter((j) => {
+      if (vigencia === 'vigentes' && !j.vigente) return false
+      if (vigencia === 'vencidos' && j.vigente) return false
       if (especialidad && especialidadDe(j) !== especialidad) return false
       if (!q) return true
       const cargo = j.concursoCph?.concurso?.cargo
@@ -67,7 +70,7 @@ export function JuradosTab() {
         .join(' ')
       return texto.includes(q)
     })
-  }, [jurados, busqueda, especialidad])
+  }, [jurados, busqueda, especialidad, vigencia])
 
   return (
     <div className="space-y-4">
@@ -97,6 +100,15 @@ export function JuradosTab() {
                 {e}
               </option>
             ))}
+          </select>
+          <select
+            value={vigencia}
+            onChange={(e) => setVigencia(e.target.value as 'vigentes' | 'vencidos' | '')}
+            className="h-10 rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
+          >
+            <option value="vigentes">Activos (vigentes)</option>
+            <option value="vencidos">Inactivos (vencidos)</option>
+            <option value="">Todos</option>
           </select>
         </div>
       </div>
@@ -149,12 +161,16 @@ export function JuradosTab() {
                         <td className="px-4 py-3">
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              dias <= 30
-                                ? 'bg-amber-100 text-amber-700'
-                                : 'bg-green-100 text-green-700'
+                              !j.vigente
+                                ? 'bg-red-100 text-red-600'
+                                : dias <= 30
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-green-100 text-green-700'
                             }`}
                           >
-                            {fechaCorta(j.fechaVencimiento)}
+                            {!j.vigente
+                              ? `Vencido ${fechaCorta(j.fechaVencimiento)}`
+                              : fechaCorta(j.fechaVencimiento)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center text-gray-600">{j.miembros.length}</td>
