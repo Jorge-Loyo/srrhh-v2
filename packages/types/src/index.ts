@@ -1194,6 +1194,52 @@ export interface JuradoVigente extends SorteoJurado {
   } | null
 }
 
+// Integrante de una orden de mérito (documento reutilizable).
+export interface OrdenMeritoIntegrante {
+  id: string
+  ordenMeritoId: string
+  personaId: string | null
+  cuil: string
+  apellidoNombre: string
+  especialidad: string | null
+  posicion: number
+  designado: boolean
+  concursoCphDesignadoId: string | null
+  anulado: boolean
+  motivoAnulado: string | null
+  createdAt: string
+}
+
+// Orden de mérito vigente (reutilizable) con sus integrantes y el concurso
+// de origen. `disponibles` = integrantes ni designados ni anulados.
+export interface OrdenMeritoVigente {
+  id: string
+  concursoCphId: string
+  especialidad: string
+  puesto: string | null
+  expediente: string | null
+  fechaPublicacion: string
+  fechaVencimiento: string
+  fechaProrroga: string | null
+  estado: 'vigente' | 'prorrogada' | 'vencida'
+  observaciones: string | null
+  disponibles: number
+  integrantes: OrdenMeritoIntegrante[]
+  concursoCph?: {
+    id: string
+    especialidadSolicitada: string | null
+    concurso?: {
+      cargo?: {
+        codigo: string | null
+        literalPuesto: string | null
+        especialidadLegacy: string | null
+        escalafonId: string
+        hospital?: { sigla: string | null; nombre: string | null } | null
+      } | null
+    } | null
+  } | null
+}
+
 // Etapa 3 — Inscriptos al concurso CPH.
 export interface InscriptoConcurso {
   id: string

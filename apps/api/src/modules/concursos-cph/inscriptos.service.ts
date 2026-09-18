@@ -507,3 +507,52 @@ export async function revertirOrdenMeritoService(concursoCphId: string) {
     })
   })
 }
+
+// ── Órdenes de mérito vigentes (reutilizables) ──────────────────────────────
+// Lista las OM cuyo estado es vigente/prorrogada y cuya vigencia no expiró
+// (fechaVencimiento >= hoy, o fechaProrroga >= hoy si tiene prórroga). Incluye
+// los integrantes (con su estado designado/anulado) y el concurso de origen.
+// Se agregan contadores de disponibles para la UI.
+export async function listOrdenesMeritoVigentesService() {
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+
+  const ordenes = await prisma.ordenMerito.findMany({
+    where: {
+      estado: { in: ['vigente', 'prorrogada'] },
+      OR: [{ fechaVencimiento: { gte: hoy } }, { fechaProrroga: { gte: hoy } }],
+    },
+    orderBy: [{ fechaPublicacion: 'desc' }],
+    include: {
+      integrantes: { orderBy: { posicion: 'asc' } },
+      concursoCph: {
+        select: {
+          id: true,
+          especialidadSolicitada: true,
+          concurso: {
+            select: {
+              cargo: {
+                select: {
+                  codigo: true,
+                  literalPuesto: true,
+                  especialidadLegacy: true,
+                  escalafonId: true,
+                  hospital: { select: { sigla: true, nombre: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  // Descartar las que ya no tienen ningún integrante disponible (todos
+  // designados o anulados) — dejan de ser reutilizables.
+  return ordenes
+    .map((o) => {
+      const disponibles = o.integrantes.filter((i) => !i.designado && !i.anulado).length
+      return { ...o, disponibles }
+    })
+    .filter((o) => o.disponibles > 0)
+}

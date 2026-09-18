@@ -49,6 +49,7 @@ import {
   revertirPresentadosService,
   confirmarOrdenMeritoService,
   revertirOrdenMeritoService,
+  listOrdenesMeritoVigentesService,
 } from './inscriptos.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
@@ -83,6 +84,13 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // Debe ir ANTES de /:id para no ser capturada por la ruta paramétrica.
   app.get('/jurados-vigentes', async (_request, reply) => {
     const data = await listJuradosVigentesService()
+    return reply.send({ data })
+  })
+
+  // GET /ordenes-merito-vigentes — órdenes de mérito vigentes con integrantes
+  // disponibles (no designados, no anulados). Antes de /:id.
+  app.get('/ordenes-merito-vigentes', async (_request, reply) => {
+    const data = await listOrdenesMeritoVigentesService()
     return reply.send({ data })
   })
 

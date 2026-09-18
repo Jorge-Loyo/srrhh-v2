@@ -9,6 +9,7 @@ import type {
   InscriptoConcurso,
   InscriptoRequest,
   JuradoVigente,
+  OrdenMeritoVigente,
   PaginatedResponse,
   PatchConcursoCphRequest,
   SorteoJurado,
@@ -132,6 +133,20 @@ export function useDesignarConcursoCph(id: string) {
       queryClient.setQueryData(['concurso-cph-wizard', id], data)
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
     },
+  })
+}
+
+// Órdenes de mérito vigentes (reutilizables) — GET /concursos-cph/ordenes-merito-vigentes.
+export function useOrdenesMeritoVigentes() {
+  return useQuery({
+    queryKey: ['concursos-cph', 'ordenes-merito-vigentes'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: OrdenMeritoVigente[] }>(
+        '/api/v1/concursos-cph/ordenes-merito-vigentes',
+      )
+      return res.data.data
+    },
+    staleTime: 60_000,
   })
 }
 
