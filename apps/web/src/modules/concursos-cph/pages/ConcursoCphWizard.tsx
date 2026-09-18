@@ -2763,6 +2763,23 @@ export function ConcursoCphWizard() {
                         </div>
                       )}
 
+                      {/* Aviso de jurados vigentes compatibles reutilizables —
+                          solo cuando no hay jurado confirmado todavía. */}
+                      {!juradoData?.confirmado && juradosCompatibles.length > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                          <p className="text-xs text-green-800">
+                            ♻️ Hay <strong>{juradosCompatibles.length}</strong> jurado(s) vigente(s)
+                            compatible(s) que podés reutilizar en vez de sortear uno nuevo.
+                          </p>
+                          <button
+                            className="btn-outline text-xs py-1 px-3 border-green-300"
+                            onClick={() => setModalGenerarSorteo(true)}
+                          >
+                            Ver jurados compatibles
+                          </button>
+                        </div>
+                      )}
+
                       {/* Resultado del sorteo */}
                       {juradoData ? (
                         <div className="space-y-3">
