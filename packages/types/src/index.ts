@@ -335,6 +335,7 @@ export interface ConcursoCph {
   fechaBaja: string | null
   eeConcurso: string | null
   fechaEeConcurso: string | null
+  ifAutorizacion: string | null
   fechaAutorizacion: string | null
   sorteoJurado: string | null
   tipoGestion: 'centralizado' | 'descentralizado' | null
@@ -703,6 +704,7 @@ export interface PatchConcursoCphRequest {
   fechaBaja?: string | null
   eeConcurso?: string | null
   fechaEeConcurso?: string | null
+  ifAutorizacion?: string | null
   fechaAutorizacion?: string | null
   sorteoJurado?: string | null
   tipoGestion?: 'centralizado' | 'descentralizado' | null

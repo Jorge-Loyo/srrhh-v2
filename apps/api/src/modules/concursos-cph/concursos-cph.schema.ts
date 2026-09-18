@@ -51,6 +51,8 @@ export const patchConcursoCphSchema = z
     fechaBaja: fecha.nullable(),
     eeConcurso: z.string().trim().max(150).nullable(),
     fechaEeConcurso: fecha.nullable(),
+    // IF de autorización (nro de documento previo a solicitar autorización SGRASV)
+    ifAutorizacion: z.string().trim().max(150).nullable(),
     // Autorización
     fechaAutorizacion: fecha.nullable(),
     sorteoJurado: fecha.nullable(),

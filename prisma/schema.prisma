@@ -529,6 +529,9 @@ model ConcursoCph {
   fechaBaja             DateTime?        @map("fecha_baja") @db.Date
   eeConcurso            String?          @map("ee_concurso") @db.VarChar(150)
   fechaEeConcurso       DateTime?        @map("fecha_ee_concurso") @db.Date
+  // IF de autorización: número de documento que se completa en la apertura
+  // antes de solicitar la autorización a SGRASV.
+  ifAutorizacion        String?          @map("if_autorizacion") @db.VarChar(150)
   fechaAutorizacion     DateTime?        @map("fecha_autorizacion") @db.Date
   sorteoJurado          DateTime?        @map("sorteo_jurado") @db.Date
   // Tipo de gestión del concurso: 'centralizado' (interviene SGOCDCPS y equipo

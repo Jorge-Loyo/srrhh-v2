@@ -469,6 +469,7 @@ export function ConcursoCphWizard() {
   const [siglaConcurso, setSiglaConcurso] = useState('')
   const [escalafonId, setEscalafonId] = useState('')
   const [eeConcursoInput, setEeConcursoInput] = useState('')
+  const [ifAutorizacionInput, setIfAutorizacionInput] = useState('')
   // Puestos del escalafón seleccionado (sin filtrar por tipo)
   const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
     escalafonId || undefined,
@@ -698,6 +699,7 @@ export function ConcursoCphWizard() {
     }
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
+    setIfAutorizacionInput(cphData.ifAutorizacion ?? '')
     // Normalizar puesto y especialidad contra la BD (los cargos legacy vienen en MAYÚSCULAS)
     // El SearchableSelect ya hace match case-insensitive al cargar, pero los originales
     // deben compararse en el mismo formato que los valores del wizard (BD normalizada).
@@ -2426,6 +2428,29 @@ export function ConcursoCphWizard() {
                               />
                             </div>
                           ))}
+                        {/* IF de autorización — nro de documento requerido para
+                            solicitar la autorización a SGRASV */}
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">
+                            IF de autorización
+                          </label>
+                          <input
+                            type="text"
+                            value={ifAutorizacionInput}
+                            onChange={(e) => setIfAutorizacionInput(e.target.value)}
+                            data-key="ifAutorizacion"
+                            placeholder="Nro. de documento IF para autorizar"
+                            className="input h-10 w-full"
+                            disabled={
+                              pendienteAutorizacion ||
+                              etapa.estado === 'pendiente' ||
+                              etapa.estado === 'bloqueada'
+                            }
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            Requerido para solicitar la autorización de SGRASV.
+                          </p>
+                        </div>
                         {/* Sigla */}
                         <div>
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
