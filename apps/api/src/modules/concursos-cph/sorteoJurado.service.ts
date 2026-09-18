@@ -607,3 +607,48 @@ export async function cancelarSorteoService(concursoCphId: string) {
 
   return { ok: true }
 }
+
+// ── Jurados vigentes (reutilizables) ────────────────────────────────────────
+// Lista las actas de sorteo CONFIRMADAS cuyo `fechaSorteo` está dentro de los
+// últimos 6 meses. Estos jurados pueden reutilizarse en otros concursos que
+// cumplan las mismas reglas (mismo escalafón/especialidad/hospital según la
+// cascada del sorteo). Incluye el concurso de origen y sus miembros.
+export async function listJuradosVigentesService() {
+  const hoy = new Date()
+  const desde = new Date(hoy)
+  desde.setMonth(desde.getMonth() - 6)
+
+  const actas = await prisma.sorteoJurado.findMany({
+    where: { confirmado: true, fechaSorteo: { gte: desde } },
+    orderBy: [{ fechaSorteo: 'desc' }],
+    include: {
+      miembros: { orderBy: [{ rol: 'asc' }, { orden: 'asc' }] },
+      concursoCph: {
+        select: {
+          id: true,
+          especialidadSolicitada: true,
+          concurso: {
+            select: {
+              cargo: {
+                select: {
+                  codigo: true,
+                  literalPuesto: true,
+                  especialidadLegacy: true,
+                  escalafonId: true,
+                  hospital: { select: { sigla: true, nombre: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  // Fecha de vencimiento = fechaSorteo + 6 meses (para mostrar en la UI).
+  return actas.map((a) => {
+    const venc = new Date(a.fechaSorteo)
+    venc.setMonth(venc.getMonth() + 6)
+    return { ...a, fechaVencimiento: venc }
+  })
+}

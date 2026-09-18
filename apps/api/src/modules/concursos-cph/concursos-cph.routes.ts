@@ -26,6 +26,7 @@ import {
   confirmarSorteoService,
   cancelarSorteoService,
   revertirConfirmacionSorteoService,
+  listJuradosVigentesService,
 } from './sorteoJurado.service.js'
 import {
   inscriptoSchema,
@@ -75,6 +76,13 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     const query = concursosCphQuerySchema.parse(request.query)
     const result = await listConcursosCphService(query)
     return reply.send(result)
+  })
+
+  // GET /jurados-vigentes — jurados confirmados vigentes (6 meses) reutilizables.
+  // Debe ir ANTES de /:id para no ser capturada por la ruta paramétrica.
+  app.get('/jurados-vigentes', async (_request, reply) => {
+    const data = await listJuradosVigentesService()
+    return reply.send({ data })
   })
 
   // GET /:id — S4-2: detalle completo

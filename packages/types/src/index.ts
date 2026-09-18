@@ -1175,6 +1175,25 @@ export interface SorteoJurado {
   miembros: MiembroJuradoSorteado[]
 }
 
+// Jurado confirmado vigente (reutilizable) — SorteoJurado + fecha de
+// vencimiento (fechaSorteo + 6 meses) + datos del concurso de origen.
+export interface JuradoVigente extends SorteoJurado {
+  fechaVencimiento: string
+  concursoCph?: {
+    id: string
+    especialidadSolicitada: string | null
+    concurso?: {
+      cargo?: {
+        codigo: string | null
+        literalPuesto: string | null
+        especialidadLegacy: string | null
+        escalafonId: string
+        hospital?: { sigla: string | null; nombre: string | null } | null
+      } | null
+    } | null
+  } | null
+}
+
 // Etapa 3 — Inscriptos al concurso CPH.
 export interface InscriptoConcurso {
   id: string

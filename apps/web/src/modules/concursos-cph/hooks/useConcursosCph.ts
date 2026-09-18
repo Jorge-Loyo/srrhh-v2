@@ -8,6 +8,7 @@ import type {
   ImportarInscriptosResult,
   InscriptoConcurso,
   InscriptoRequest,
+  JuradoVigente,
   PaginatedResponse,
   PatchConcursoCphRequest,
   SorteoJurado,
@@ -131,6 +132,20 @@ export function useDesignarConcursoCph(id: string) {
       queryClient.setQueryData(['concurso-cph-wizard', id], data)
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
     },
+  })
+}
+
+// Jurados confirmados vigentes (reutilizables) — GET /concursos-cph/jurados-vigentes.
+export function useJuradosVigentes() {
+  return useQuery({
+    queryKey: ['concursos-cph', 'jurados-vigentes'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: JuradoVigente[] }>(
+        '/api/v1/concursos-cph/jurados-vigentes',
+      )
+      return res.data.data
+    },
+    staleTime: 60_000,
   })
 }
 
