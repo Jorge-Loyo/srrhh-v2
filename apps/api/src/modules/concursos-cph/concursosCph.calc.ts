@@ -64,7 +64,11 @@ export interface ConcursoCphCalcResult {
 
 function calcEstadoBase(row: ConcursoCphCalcInput): EstadoConcursoCphCalc {
   if (row.resolucionDesignacion) return 'finalizado'
-  if (row.eeBaja && row.eeConcurso && row.fechaBaja && row.fechaEeConcurso) return 'activo'
+  // Un concurso pasa a "activo" en cuanto tiene cargado el Expediente de
+  // Concurso (eeConcurso). No se exige eeBaja/fechaBaja porque los concursos
+  // por cargo nuevo no tienen baja asociada — antes esa condición dejaba
+  // concursos ya avanzados (p.ej. en G-INSAL) marcados como "no_iniciado".
+  if (row.eeConcurso) return 'activo'
   return 'no_iniciado'
 }
 

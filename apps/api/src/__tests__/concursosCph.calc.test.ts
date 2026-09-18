@@ -42,6 +42,22 @@ describe('calcConcursoCph — estado', () => {
     expect(calcConcursoCph(ACTIVO).estado).toBe('activo')
   })
 
+  it('solo con eeConcurso (cargo nuevo, sin baja) → activo', () => {
+    expect(calcConcursoCph({ ...BASE, eeConcurso: 'EX-2026-00002' }).estado).toBe('activo')
+  })
+
+  it('concurso avanzado (G-INSAL) con eeConcurso pero sin eeBaja → activo', () => {
+    const r = calcConcursoCph({
+      ...BASE,
+      eeConcurso: 'EX-2024-44019831',
+      fechaBaja: d('2024-09-30'),
+      fechaIfacs: d('2026-09-30'),
+      fechaInsal: d('2026-10-02'),
+    })
+    expect(r.estado).toBe('activo')
+    expect(r.subEstado).toBe('G-INSAL')
+  })
+
   it('con resolucionDesignacion → finalizado', () => {
     const r = calcConcursoCph({ ...ACTIVO, resolucionDesignacion: 'RESOL/123/MSGC/2026', fechaResolucion: d('2026-09-01') })
     expect(r.estado).toBe('finalizado')
