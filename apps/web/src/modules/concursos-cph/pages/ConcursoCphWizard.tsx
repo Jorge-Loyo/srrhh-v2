@@ -28,6 +28,8 @@ import {
   useDesignarConcursoCph,
   useDeclararDesiertoCph,
   useGenerarSorteoJurado,
+  useReutilizarJurado,
+  useJuradosVigentes,
   useJuradoCph,
   useConfirmarSorteoJurado,
   useCancelarSorteoJurado,
@@ -514,6 +516,29 @@ export function ConcursoCphWizard() {
   const confirmarSorteoMutation = useConfirmarSorteoJurado(id!)
   const cancelarSorteoMutation = useCancelarSorteoJurado(id!)
   const revertirSorteoMutation = useRevertirConfirmacionSorteo(id!)
+  const reutilizarJuradoMutation = useReutilizarJurado(id!)
+
+  // Jurados vigentes compatibles con este concurso (mismo escalafón +
+  // especialidad), excluyendo el propio, para ofrecer reutilización.
+  const { data: juradosVigentes = [] } = useJuradosVigentes()
+  const normEsp = (s: string | null | undefined) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+  const escalafonParaJurado = cphData?.concurso?.cargo?.escalafonId
+  const especialidadParaJurado =
+    cphData?.especialidadSolicitada ?? cphData?.concurso?.cargo?.especialidadLegacy ?? null
+  const juradosCompatibles = juradosVigentes.filter((j) => {
+    if (j.concursoCph?.id === id) return false
+    const escOk =
+      !j.criterios?.escalafonId ||
+      !escalafonParaJurado ||
+      j.criterios.escalafonId === escalafonParaJurado
+    const espOk = normEsp(j.criterios?.especialidadConcurso) === normEsp(especialidadParaJurado)
+    return escOk && espOk
+  })
 
   // ── Etapa 3: inscriptos ──
   const { data: inscriptos = [] } = useInscriptosCph(id)
@@ -1059,6 +1084,49 @@ export function ConcursoCphWizard() {
                 </p>
               </div>
             </div>
+            {juradosCompatibles.length > 0 && (
+              <div className="px-6 py-4 border-b border-gray-100 bg-secondary/5">
+                <p className="text-sm font-semibold text-gray-700 mb-2">
+                  Jurados vigentes compatibles ({juradosCompatibles.length})
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Podés reutilizar un jurado ya confirmado en lugar de sortear uno nuevo.
+                </p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {juradosCompatibles.map((j) => (
+                    <div
+                      key={j.id}
+                      className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-3 py-2"
+                    >
+                      <div className="text-xs">
+                        <p className="font-medium text-gray-800">
+                          {j.concursoCph?.concurso?.cargo?.codigo ?? 'Concurso'} ·{' '}
+                          {j.miembros.length} miembros
+                        </p>
+                        <p className="text-gray-400">
+                          Sorteo {j.fechaSorteo.slice(0, 10).split('-').reverse().join('/')} · vence{' '}
+                          {j.fechaVencimiento.slice(0, 10).split('-').reverse().join('/')}
+                        </p>
+                      </div>
+                      <button
+                        className="btn-outline text-xs py-1 px-2"
+                        disabled={reutilizarJuradoMutation.isPending}
+                        onClick={async () => {
+                          try {
+                            await reutilizarJuradoMutation.mutateAsync(j.id)
+                            setModalGenerarSorteo(false)
+                          } catch {
+                            /* el error se muestra en el bloque de la etapa */
+                          }
+                        }}
+                      >
+                        Usar este jurado
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>

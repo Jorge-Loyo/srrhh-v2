@@ -184,6 +184,25 @@ export function useGenerarSorteoJurado(id: string) {
   })
 }
 
+// Etapa 2 — reutilizar un jurado vigente compatible (crea acta borrador).
+export function useReutilizarJurado(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (sorteoJuradoOrigenId: string) => {
+      const res = await apiClient.post<{ data: SorteoJurado }>(
+        `/api/v1/concursos-cph/${id}/jurado/reutilizar`,
+        { sorteoJuradoOrigenId },
+      )
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concurso-cph-jurado', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+    },
+  })
+}
+
 // Etapa 2 — confirmar el sorteo (queda de solo lectura).
 export function useConfirmarSorteoJurado(id: string) {
   const queryClient = useQueryClient()

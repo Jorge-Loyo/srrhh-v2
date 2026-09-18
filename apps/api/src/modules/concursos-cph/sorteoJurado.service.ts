@@ -652,3 +652,109 @@ export async function listJuradosVigentesService() {
     return { ...a, fechaVencimiento: venc }
   })
 }
+
+// ── Reutilizar un jurado vigente en otro concurso ───────────────────────────
+// Copia los miembros de un acta de jurado confirmada y vigente (origen) a una
+// nueva acta BORRADOR para el concurso destino. Valida compatibilidad: mismo
+// escalafón y misma especialidad que el concurso destino (las 3 reglas del
+// sorteo ya se cumplieron al generar el acta origen). Queda como borrador para
+// que el usuario la confirme igual que un sorteo nuevo.
+export async function asignarJuradoExistenteService(
+  concursoCphId: string,
+  sorteoJuradoOrigenId: string,
+  usuarioId: string | null,
+) {
+  const destino = await prisma.concursoCph.findUnique({
+    where: { id: concursoCphId },
+    include: {
+      concurso: { include: { cargo: { include: { escalafon: true } } } },
+      hospital: true,
+    },
+  })
+  if (!destino) throw AppError.notFound('Concurso CPH no encontrado')
+  if (destino.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
+
+  const yaConfirmado = await prisma.sorteoJurado.findFirst({
+    where: { concursoCphId, confirmado: true },
+    select: { id: true },
+  })
+  if (yaConfirmado) {
+    throw AppError.conflict(
+      'El sorteo de jurado ya fue confirmado. Cancelá la confirmación para reutilizar otro jurado.',
+    )
+  }
+
+  const origen = await prisma.sorteoJurado.findUnique({
+    where: { id: sorteoJuradoOrigenId },
+    include: { miembros: { orderBy: [{ rol: 'asc' }, { orden: 'asc' }] } },
+  })
+  if (!origen) throw AppError.notFound('Jurado de origen no encontrado')
+  if (!origen.confirmado) throw AppError.conflict('Solo se pueden reutilizar jurados confirmados')
+
+  // Vigencia: fechaSorteo dentro de los últimos 6 meses.
+  const limite = new Date()
+  limite.setMonth(limite.getMonth() - 6)
+  if (origen.fechaSorteo < limite)
+    throw AppError.conflict('El jurado de origen ya no está vigente (más de 6 meses)')
+
+  // Compatibilidad: mismo escalafón y misma especialidad que el concurso destino.
+  const cargo = destino.concurso?.cargo
+  if (!cargo) throw AppError.conflict('El concurso destino no tiene cargo asociado')
+  const criteriosOrigen = origen.criterios as {
+    escalafonId?: string
+    especialidadConcurso?: string | null
+  }
+  const especialidadDestino = destino.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
+
+  if (criteriosOrigen.escalafonId && criteriosOrigen.escalafonId !== cargo.escalafonId) {
+    throw AppError.conflict('El jurado de origen no es compatible: escalafón distinto')
+  }
+  if (norm(criteriosOrigen.especialidadConcurso) !== norm(especialidadDestino)) {
+    throw AppError.conflict('El jurado de origen no es compatible: especialidad distinta')
+  }
+
+  const fechaSorteo = new Date()
+  const criterios = {
+    ...(origen.criterios as object),
+    reutilizadoDe: sorteoJuradoOrigenId,
+    reutilizadoDeConcursoId: origen.concursoCphId,
+  }
+
+  const acta = await prisma.$transaction(async (tx) => {
+    // Descartar borradores previos no confirmados del destino.
+    await tx.sorteoJurado.deleteMany({ where: { concursoCphId, confirmado: false } })
+
+    return tx.sorteoJurado.create({
+      data: {
+        concursoCphId,
+        fechaSorteo,
+        semilla: origen.semilla,
+        criterios,
+        ambito: origen.ambito,
+        observaciones: `Jurado reutilizado del concurso ${origen.concursoCphId}`,
+        generadoPorId: usuarioId,
+        miembros: {
+          create: origen.miembros.map((m) => ({
+            personaId: m.personaId,
+            rol: m.rol,
+            orden: m.orden,
+            apellidoNombre: m.apellidoNombre,
+            cuil: m.cuil,
+            hospitalId: m.hospitalId,
+            hospitalNombre: m.hospitalNombre,
+            puesto: m.puesto,
+            especialidad: m.especialidad,
+            ambito: m.ambito,
+            reglaAplicada: m.reglaAplicada,
+            cumpleEspecialidad: m.cumpleEspecialidad,
+            esConduccion: m.esConduccion,
+            antiguedadAnios: m.antiguedadAnios,
+          })),
+        },
+      },
+      include: { miembros: { orderBy: [{ rol: 'asc' }, { orden: 'asc' }] } },
+    })
+  })
+
+  return acta
+}

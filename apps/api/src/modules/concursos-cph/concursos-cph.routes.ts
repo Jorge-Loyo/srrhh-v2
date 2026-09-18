@@ -27,6 +27,7 @@ import {
   cancelarSorteoService,
   revertirConfirmacionSorteoService,
   listJuradosVigentesService,
+  asignarJuradoExistenteService,
 } from './sorteoJurado.service.js'
 import {
   inscriptoSchema,
@@ -158,6 +159,23 @@ export async function concursosCphRoutes(app: FastifyInstance) {
       const data = await generarSorteoJuradoService(
         request.params.id,
         body,
+        (request as any).user?.id ?? null,
+      )
+      return reply.send({ data })
+    },
+  )
+
+  // POST /:id/jurado/reutilizar — copia un jurado vigente compatible como
+  // acta borrador del concurso (alternativa a sortear uno nuevo).
+  app.post<{ Params: { id: string }; Body: { sorteoJuradoOrigenId?: string } }>(
+    '/:id/jurado/reutilizar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const origenId = request.body?.sorteoJuradoOrigenId
+      if (!origenId) throw new Error('sorteoJuradoOrigenId requerido')
+      const data = await asignarJuradoExistenteService(
+        request.params.id,
+        origenId,
         (request as any).user?.id ?? null,
       )
       return reply.send({ data })
