@@ -400,7 +400,10 @@ export async function revertirPresentadosService(concursoCphId: string) {
 // y sin faltantes. Al confirmar: setea fechaOrdenMerito=hoy, marca el flag y
 // recalcula el sub-estado (avanza a E — Orden de mérito).
 export async function confirmarOrdenMeritoService(concursoCphId: string) {
-  const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
+  const c = await prisma.concursoCph.findUnique({
+    where: { id: concursoCphId },
+    include: { concurso: { include: { cargo: true } } },
+  })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.presentadosConfirmados)
     throw AppError.conflict('Confirmá primero los presentados al examen.')
@@ -408,7 +411,7 @@ export async function confirmarOrdenMeritoService(concursoCphId: string) {
 
   const presentados = await prisma.inscriptoConcurso.findMany({
     where: { concursoCphId, presentoExamen: true },
-    select: { id: true, ordenMerito: true },
+    orderBy: { ordenMerito: 'asc' },
   })
   if (presentados.length === 0) {
     throw AppError.conflict('No hay inscriptos presentados para armar el orden de mérito.')
@@ -422,17 +425,53 @@ export async function confirmarOrdenMeritoService(concursoCphId: string) {
     throw AppError.conflict('Hay posiciones repetidas en el orden de mérito.')
   }
 
+  // Vigencia del orden de mérito reutilizable: 6 meses desde la publicación (hoy).
+  const fechaPublicacion = new Date()
+  const fechaVencimiento = new Date(fechaPublicacion)
+  fechaVencimiento.setMonth(fechaVencimiento.getMonth() + 6)
+
+  const especialidadOm =
+    c.especialidadSolicitada ?? c.concurso?.cargo?.especialidadLegacy ?? 'SIN ESPECIALIDAD'
+  const puestoOm = c.puestoSolicitado ?? c.concurso?.cargo?.literalPuesto ?? null
+
   const merged = { ...c, ordenMeritoConfirmado: true, fechaOrdenMerito: new Date() } as ConcursoCph
   const calc = recalcCph(merged)
-  return prisma.concursoCph.update({
-    where: { id: concursoCphId },
-    data: {
-      ordenMeritoConfirmado: true,
-      fechaOrdenMerito: new Date(),
-      estado: calc.estado,
-      subEstado: calc.subEstado,
-      subEstado3: calc.subEstado3,
-    },
+
+  return prisma.$transaction(async (tx) => {
+    const actualizado = await tx.concursoCph.update({
+      where: { id: concursoCphId },
+      data: {
+        ordenMeritoConfirmado: true,
+        fechaOrdenMerito: fechaPublicacion,
+        estado: calc.estado,
+        subEstado: calc.subEstado,
+        subEstado3: calc.subEstado3,
+      },
+    })
+
+    // Poblar el documento de orden de mérito reutilizable. Se reemplaza
+    // cualquier OM previa de este concurso (idempotente ante reconfirmaciones).
+    await tx.ordenMerito.deleteMany({ where: { concursoCphId } })
+    await tx.ordenMerito.create({
+      data: {
+        concursoCphId,
+        especialidad: especialidadOm,
+        puesto: puestoOm,
+        fechaPublicacion,
+        fechaVencimiento,
+        estado: 'vigente',
+        integrantes: {
+          create: presentados.map((p) => ({
+            cuil: (p.cuil ?? '').replace(/\D/g, '') || '00000000000',
+            apellidoNombre: `${p.apellido}, ${p.nombre}`,
+            especialidad: p.especialidad,
+            posicion: p.ordenMerito as number,
+          })),
+        },
+      },
+    })
+
+    return actualizado
   })
 }
 
@@ -441,16 +480,30 @@ export async function revertirOrdenMeritoService(concursoCphId: string) {
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.ordenMeritoConfirmado) throw AppError.conflict('El orden de mérito no está confirmado.')
 
+  // No permitir revertir si algún integrante ya fue tomado (designado) por
+  // otro concurso — eso rompería la trazabilidad de la reutilización.
+  const usados = await prisma.ordenMeritoIntegrante.count({
+    where: { ordenMerito: { concursoCphId }, designado: true },
+  })
+  if (usados > 0) {
+    throw AppError.conflict(
+      'No se puede revertir: ya hay integrantes de este orden de mérito designados en otros concursos.',
+    )
+  }
+
   const merged = { ...c, ordenMeritoConfirmado: false, fechaOrdenMerito: null } as ConcursoCph
   const calc = recalcCph(merged)
-  return prisma.concursoCph.update({
-    where: { id: concursoCphId },
-    data: {
-      ordenMeritoConfirmado: false,
-      fechaOrdenMerito: null,
-      estado: calc.estado,
-      subEstado: calc.subEstado,
-      subEstado3: calc.subEstado3,
-    },
+  return prisma.$transaction(async (tx) => {
+    await tx.ordenMerito.deleteMany({ where: { concursoCphId } })
+    return tx.concursoCph.update({
+      where: { id: concursoCphId },
+      data: {
+        ordenMeritoConfirmado: false,
+        fechaOrdenMerito: null,
+        estado: calc.estado,
+        subEstado: calc.subEstado,
+        subEstado3: calc.subEstado3,
+      },
+    })
   })
 }

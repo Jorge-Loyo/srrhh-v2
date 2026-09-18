@@ -1198,6 +1198,10 @@ model OrdenMeritoIntegrante {
   designado       Boolean   @default(false)
   // concursoCphDesignadoId: qué concurso lo designó (para reutilización)
   concursoCphDesignadoId String? @map("concurso_cph_designado_id") @db.Uuid
+  // anulado: integrante que ya no está disponible (renunció, no se presentó,
+  // etc.) sin haber sido designado. No cuenta como disponible para reutilizar.
+  anulado         Boolean   @default(false)
+  motivoAnulado   String?   @map("motivo_anulado") @db.VarChar(300)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   ordenMerito          OrdenMerito  @relation(fields: [ordenMeritoId], references: [id], onDelete: Cascade)
