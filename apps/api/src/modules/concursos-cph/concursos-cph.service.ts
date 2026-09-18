@@ -98,6 +98,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     search,
     conFaltantes,
     especialidad,
+    origen,
   } = query
   const offset = (page - 1) * limit
 
@@ -203,6 +204,9 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(idIn !== undefined && { id: { in: idIn } }),
+    // Origen: 'nuevo_cargo' = concurso sin baja asociada; 'alta_por_baja' = con baja.
+    ...(origen === 'nuevo_cargo' && { concurso: { is: { bajaId: null } } }),
+    ...(origen === 'alta_por_baja' && { concurso: { is: { bajaId: { not: null } } } }),
   }
 
   const [total, data] = await Promise.all([

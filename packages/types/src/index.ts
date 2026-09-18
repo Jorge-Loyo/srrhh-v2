@@ -916,6 +916,7 @@ export interface ConcursoCphFilters {
   search?: string
   conFaltantes?: boolean
   especialidad?: string
+  origen?: 'nuevo_cargo' | 'alta_por_baja'
 }
 
 export interface ConcursoCeetpsFilters {

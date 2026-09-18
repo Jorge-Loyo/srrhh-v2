@@ -108,6 +108,7 @@ export function ConcursosCphPage() {
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
+  const [origen, setOrigen] = useState<'' | 'nuevo_cargo' | 'alta_por_baja'>('')
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
@@ -158,6 +159,7 @@ export function ConcursosCphPage() {
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(subEstado3 && { subEstado3 }),
+    ...(origen && { origen }),
     ...(conFaltantes && { conFaltantes: true }),
   }
 
@@ -376,6 +378,17 @@ export function ConcursosCphPage() {
               </option>
             ))}
           </select>
+          <select
+            value={origen}
+            onChange={(e) =>
+              resetPage(setOrigen)(e.target.value as '' | 'nuevo_cargo' | 'alta_por_baja')
+            }
+            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Todo origen</option>
+            <option value="alta_por_baja">Alta por baja</option>
+            <option value="nuevo_cargo">Cargo nuevo</option>
+          </select>
         </div>
       </div>
 
@@ -443,8 +456,14 @@ export function ConcursosCphPage() {
                               aria-label={semaforoLabel(c)}
                             />
                           </td>
-                          <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                            {c.eeBaja ?? '—'}
+                          <td className="px-4 py-3 text-xs">
+                            {c.concurso?.baja ? (
+                              <span className="font-mono text-gray-500">{c.eeBaja ?? '—'}</span>
+                            ) : (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 font-medium bg-blue-100 text-blue-700">
+                                Nuevo cargo
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-gray-600">
                             {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
