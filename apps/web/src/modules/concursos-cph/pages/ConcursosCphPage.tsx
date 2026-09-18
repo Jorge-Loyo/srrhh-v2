@@ -16,7 +16,6 @@ import {
   SUB_ESTADO_OPTIONS,
   SUB_ESTADO_3_OPTIONS,
   diasSinMovimiento,
-  diasBadgeClass,
 } from '../lib/labels'
 
 const LIMIT = 50
@@ -132,6 +131,7 @@ export function ConcursosCphPage() {
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
   const [origen, setOrigen] = useState<'' | 'baja' | 'ampliacion' | 'cobertura'>('')
+  const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
@@ -448,18 +448,17 @@ export function ConcursosCphPage() {
                       )}
                       <th className="px-3 py-3 font-semibold w-8" title="Estado" />
                       <th className="px-4 py-3 font-semibold">Respaldatoria</th>
-                      <th className="px-4 py-3 font-semibold">Cargo</th>
+                      <th className="px-4 py-3 font-semibold">Puesto</th>
+                      <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
-                      <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {data.data.map((c) => {
-                      const dias = diasSinMovimiento(c.updatedAt)
                       return (
                         <tr key={c.id} className="hover:bg-gray-50">
                           {modoSeleccion && (
@@ -497,8 +496,14 @@ export function ConcursosCphPage() {
                               )
                             })()}
                           </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
+                          <td className="px-4 py-3 text-gray-600 text-xs">
+                            {c.puestoSolicitado ?? c.concurso?.cargo?.literalPuesto ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 text-xs">
+                            {c.especialidadSolicitada ??
+                              c.concurso?.cargo?.especialidadLegacy ??
+                              c.concurso?.cargo?.especialidad ??
+                              '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                           <td className="px-4 py-3">
@@ -512,15 +517,20 @@ export function ConcursosCphPage() {
                               variant="compacto"
                             />
                           </td>
-                          <td className="px-4 py-3">
-                            <span className={diasBadgeClass(dias)}>
-                              {dias === 0 ? 'Hoy' : `${dias} días`}
-                            </span>
-                          </td>
                           <td className="px-4 py-3 text-right">
-                            <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">
-                              Ver
-                            </Link>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setDetalle(c)}
+                                title="Ver más información"
+                                aria-label="Ver más información"
+                                className="btn-outline px-2 text-secondary"
+                              >
+                                ⓘ
+                              </button>
+                              <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">
+                                Ver
+                              </Link>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -557,7 +567,86 @@ export function ConcursosCphPage() {
         )}
       </div>
       {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
+      {detalle && <DetalleConcursoModal concurso={detalle} onClose={() => setDetalle(null)} />}
       {ToastUI}
+    </div>
+  )
+}
+
+// Modal de detalle: muestra la información del concurso que no entra en la
+// tabla (escalafón, cargo, hospital completo, persona, expedientes, etc.).
+function DetalleConcursoModal({
+  concurso: c,
+  onClose,
+}: {
+  concurso: ConcursoCph
+  onClose: () => void
+}) {
+  const r = respaldatoria(c)
+  const dias = diasSinMovimiento(c.updatedAt)
+  const filas: { label: string; valor: string }[] = [
+    { label: 'Escalafón', valor: 'CPH' },
+    {
+      label: 'Cargo (código)',
+      valor: c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—',
+    },
+    { label: 'Puesto', valor: c.puestoSolicitado ?? c.concurso?.cargo?.literalPuesto ?? '—' },
+    {
+      label: 'Especialidad',
+      valor:
+        c.especialidadSolicitada ??
+        c.concurso?.cargo?.especialidadLegacy ??
+        c.concurso?.cargo?.especialidad ??
+        '—',
+    },
+    { label: 'Hospital', valor: c.hospital?.nombre ?? c.hospital?.sigla ?? '—' },
+    { label: 'Persona (baja)', valor: c.concurso?.persona?.apellidoNombre ?? 'Vacante' },
+    { label: 'Respaldatoria', valor: `${r.tipo}${r.expediente ? ` — ${r.expediente}` : ''}` },
+    { label: 'Expediente de concurso', valor: c.eeConcurso ?? '—' },
+    { label: 'Disposición', valor: c.disposicion ?? '—' },
+    { label: 'Tipo de gestión', valor: c.tipoGestion ?? '—' },
+    { label: 'Sub-estado', valor: c.subEstado ?? '—' },
+    { label: 'Etapa (sub-estado 3)', valor: c.subEstado3 ?? '—' },
+    { label: 'Últ. movimiento', valor: dias === 0 ? 'Hoy' : `hace ${dias} días` },
+  ]
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-lg bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+          <h3 className="font-primary text-base font-bold text-gray-900">Detalle del concurso</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          <dl className="divide-y divide-gray-100 text-sm">
+            {filas.map((f) => (
+              <div key={f.label} className="flex gap-4 py-2">
+                <dt className="w-44 shrink-0 text-gray-500">{f.label}</dt>
+                <dd className="text-gray-800">{f.valor}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
+          <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-primary text-sm">
+            Abrir concurso
+          </Link>
+          <button onClick={onClose} className="btn-outline text-sm">
+            Cerrar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
