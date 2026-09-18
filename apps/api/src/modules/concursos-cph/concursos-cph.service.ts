@@ -295,7 +295,19 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     !requiereAutorizacionDoble &&
     !existing.pendienteAutorizacion &&
     (eeConcursoModificado || camposProtegidos.some((k) => body[k] !== undefined))
-  const requiereAutorizacion = requiereAutorizacionDoble || tieneCambioProtegido
+  // Solicitud de autorización de apertura (solo SGRASV): se carga el expediente
+  // de concurso por primera vez y hay IF de autorización cargado (en el body o
+  // ya existente). Este es el gatillo del paso Etapa 1 → autorización.
+  const ifAutorizacionResuelto =
+    body.ifAutorizacion !== undefined ? body.ifAutorizacion : existing.ifAutorizacion
+  const solicitaAutorizacionApertura =
+    !requiereAutorizacionDoble &&
+    !tieneCambioProtegido &&
+    !existing.pendienteAutorizacion &&
+    eeConcursoCargadoPorPrimeraVez &&
+    !!ifAutorizacionResuelto
+  const requiereAutorizacion =
+    requiereAutorizacionDoble || tieneCambioProtegido || solicitaAutorizacionApertura
 
   const patch: Prisma.ConcursoCphUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCphBody, unknown][]) {
@@ -319,7 +331,7 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
         ? { connect: { id: body.codigoRegistroId } }
         : { disconnect: true }
     }
-  } else if (tieneCambioProtegido) {
+  } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     patch.pendienteAutorizacion = true
   }
 
@@ -347,8 +359,9 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
       solicitadoPorId: undefined,
       resolverPorRolSlug: 'director',
     })
-  } else if (tieneCambioProtegido) {
-    // Cambio de especialidad/puesto/eeConcurso modificado: solo sgrasv
+  } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
+    // Cambio de especialidad/puesto/eeConcurso modificado, o solicitud de
+    // autorización de apertura (eeConcurso + IF cargados): solo sgrasv.
     await crearAutorizacion(prisma, {
       tipo: 'concurso_cph',
       referenciaId: id,
@@ -477,6 +490,49 @@ export async function aprobarAutorizacionCphService(
         include,
       })
 
+      // Salto de etapas por reutilización de orden de mérito: si al aprobar hay
+      // un candidato de OM reservado para este concurso (integrante designado,
+      // no anulado), se arrastran los datos de las etapas 2 y 3 del concurso de
+      // origen de esa OM, de modo que el concurso salta directo a IFACS/INSAL.
+      let resultado = updated
+      if (aprobado) {
+        const integranteReservado = await tx.ordenMeritoIntegrante.findFirst({
+          where: { concursoCphDesignadoId: id, designado: true, anulado: false },
+          include: { ordenMerito: true },
+        })
+        if (integranteReservado) {
+          const origen = await tx.concursoCph.findUnique({
+            where: { id: integranteReservado.ordenMerito.concursoCphId },
+          })
+          if (origen) {
+            const arrastre = {
+              fechaAutorizacion: origen.fechaAutorizacion,
+              sorteoJurado: origen.sorteoJurado,
+              disposicion: origen.disposicion,
+              fechaInscDesde: origen.fechaInscDesde,
+              fechaInscHasta: origen.fechaInscHasta,
+              inscripcionCerrada: origen.inscripcionCerrada,
+              fechaExamen: origen.fechaExamen,
+              fechaOrdenMerito: origen.fechaOrdenMerito,
+              presentadosConfirmados: origen.presentadosConfirmados,
+              ordenMeritoConfirmado: origen.ordenMeritoConfirmado,
+            }
+            const merged = toCalcInput({ ...updated, ...arrastre } as ConcursoCph)
+            const calc = calcConcursoCph(merged)
+            resultado = await tx.concursoCph.update({
+              where: { id },
+              data: {
+                ...arrastre,
+                estado: calc.estado,
+                subEstado: calc.subEstado,
+                subEstado3: calc.subEstado3,
+              },
+              include,
+            })
+          }
+        }
+      }
+
       await crearNotificacion({
         tipo: 'autorizacion_resuelta',
         rolSlug: 'concursales_cph',
@@ -487,7 +543,7 @@ export async function aprobarAutorizacionCphService(
         origenKey: `autorizacion_resuelta:cph:${id}:${Date.now()}`,
       })
 
-      return updated
+      return resultado
     })
   }
 
