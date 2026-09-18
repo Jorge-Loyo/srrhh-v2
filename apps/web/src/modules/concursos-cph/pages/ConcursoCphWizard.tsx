@@ -2576,6 +2576,16 @@ export function ConcursoCphWizard() {
                           )}
                       </div>
                     )}
+
+                    {/* Reutilizar orden de mérito compatible — solo con el
+                        Expediente de Concurso cargado y sin autorización en curso.
+                        Permite reservar un candidato antes de solicitar la
+                        autorización de SGRASV (define si el concurso salta etapas). */}
+                    {id && eeConcursoInput.trim() && !pendienteAutorizacion && (
+                      <div className="mt-5">
+                        <PanelReutilizarOm concursoId={id} />
+                      </div>
+                    )}
                   </div>
                 </>
               ) : etapa.id === 'autorizacion' ? (
