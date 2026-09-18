@@ -26,9 +26,11 @@ export const concursosCphQuerySchema = z.object({
   // Filtro dedicado por especialidad (busca en especialidad_solicitada del
   // concurso y en la especialidad del cargo).
   especialidad: z.string().trim().min(1).optional(),
-  // Origen del concurso: 'nuevo_cargo' (sin baja asociada) o 'alta_por_baja'
-  // (tiene baja). Se resuelve por concurso.bajaId null / not-null.
-  origen: z.enum(['nuevo_cargo', 'alta_por_baja']).optional(),
+  // Origen del concurso (documentación respaldatoria):
+  //  - 'baja': tiene baja asociada (concurso.bajaId not null) → expediente de baja
+  //  - 'ampliacion': sin baja pero el cargo tiene expediente de alta → cargo.expediente
+  //  - 'cobertura': sin baja y sin expediente de cargo → sin documentación
+  origen: z.enum(['baja', 'ampliacion', 'cobertura']).optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>

@@ -204,9 +204,17 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(idIn !== undefined && { id: { in: idIn } }),
-    // Origen: 'nuevo_cargo' = concurso sin baja asociada; 'alta_por_baja' = con baja.
-    ...(origen === 'nuevo_cargo' && { concurso: { is: { bajaId: null } } }),
-    ...(origen === 'alta_por_baja' && { concurso: { is: { bajaId: { not: null } } } }),
+    // Origen / documentación respaldatoria:
+    //  - baja: tiene baja asociada
+    //  - ampliacion: sin baja, pero el cargo tiene expediente de alta
+    //  - cobertura: sin baja y sin expediente de cargo (sin documentación)
+    ...(origen === 'baja' && { concurso: { is: { bajaId: { not: null } } } }),
+    ...(origen === 'ampliacion' && {
+      concurso: { is: { bajaId: null, cargo: { is: { expediente: { not: null } } } } },
+    }),
+    ...(origen === 'cobertura' && {
+      concurso: { is: { bajaId: null, cargo: { is: { expediente: null } } } },
+    }),
   }
 
   const [total, data] = await Promise.all([

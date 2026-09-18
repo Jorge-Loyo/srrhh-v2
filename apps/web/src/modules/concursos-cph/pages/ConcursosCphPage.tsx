@@ -38,6 +38,29 @@ function semaforoLabel(c: ConcursoCph): string {
   return 'No iniciado'
 }
 
+// Clasifica la documentación respaldatoria del concurso en uno de 3 tipos:
+//  - Baja: el concurso viene de una baja (tiene baja asociada) → expediente de baja
+//  - Ampliación: cargo nuevo con expediente de alta cargado (cargo.expediente)
+//  - Cobertura: cargo sin baja ni expediente de alta (cobertura de dotación, sin doc)
+function respaldatoria(c: ConcursoCph): {
+  tipo: 'Baja' | 'Ampliación' | 'Cobertura'
+  expediente: string | null
+  badgeClass: string
+} {
+  if (c.concurso?.baja) {
+    return {
+      tipo: 'Baja',
+      expediente: c.eeBaja ?? null,
+      badgeClass: 'bg-orange-100 text-orange-700',
+    }
+  }
+  const expCargo = c.concurso?.cargo?.expediente
+  if (expCargo) {
+    return { tipo: 'Ampliación', expediente: expCargo, badgeClass: 'bg-blue-100 text-blue-700' }
+  }
+  return { tipo: 'Cobertura', expediente: null, badgeClass: 'bg-purple-100 text-purple-700' }
+}
+
 // Las 5 etapas del concurso CPH (mismas que el wizard).
 const ETAPAS = [
   'Baja / Apertura',
@@ -108,7 +131,7 @@ export function ConcursosCphPage() {
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
-  const [origen, setOrigen] = useState<'' | 'nuevo_cargo' | 'alta_por_baja'>('')
+  const [origen, setOrigen] = useState<'' | 'baja' | 'ampliacion' | 'cobertura'>('')
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
@@ -381,13 +404,14 @@ export function ConcursosCphPage() {
           <select
             value={origen}
             onChange={(e) =>
-              resetPage(setOrigen)(e.target.value as '' | 'nuevo_cargo' | 'alta_por_baja')
+              resetPage(setOrigen)(e.target.value as '' | 'baja' | 'ampliacion' | 'cobertura')
             }
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
-            <option value="">Todo origen</option>
-            <option value="alta_por_baja">Alta por baja</option>
-            <option value="nuevo_cargo">Cargo nuevo</option>
+            <option value="">Toda respaldatoria</option>
+            <option value="baja">Baja</option>
+            <option value="ampliacion">Ampliación</option>
+            <option value="cobertura">Cobertura de dotación</option>
           </select>
         </div>
       </div>
@@ -423,7 +447,7 @@ export function ConcursosCphPage() {
                         </th>
                       )}
                       <th className="px-3 py-3 font-semibold w-8" title="Estado" />
-                      <th className="px-4 py-3 font-semibold">Expediente de baja</th>
+                      <th className="px-4 py-3 font-semibold">Respaldatoria</th>
                       <th className="px-4 py-3 font-semibold">Cargo</th>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
@@ -457,13 +481,21 @@ export function ConcursosCphPage() {
                             />
                           </td>
                           <td className="px-4 py-3 text-xs">
-                            {c.concurso?.baja ? (
-                              <span className="font-mono text-gray-500">{c.eeBaja ?? '—'}</span>
-                            ) : (
-                              <span className="inline-flex items-center rounded px-2 py-0.5 font-medium bg-blue-100 text-blue-700">
-                                Nuevo cargo
-                              </span>
-                            )}
+                            {(() => {
+                              const r = respaldatoria(c)
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-gray-500">
+                                    {r.expediente ?? (r.tipo === 'Cobertura' ? 'Sin doc.' : '—')}
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center rounded px-2 py-0.5 font-medium ${r.badgeClass}`}
+                                  >
+                                    {r.tipo}
+                                  </span>
+                                </div>
+                              )
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-gray-600">
                             {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
