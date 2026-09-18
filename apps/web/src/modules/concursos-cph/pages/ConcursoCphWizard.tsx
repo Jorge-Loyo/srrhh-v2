@@ -4,7 +4,7 @@
 // Jurado, Inscripción/Examen/OM, IFACS/INSAL, Designación y Declarar desierto.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import {
@@ -61,20 +61,15 @@ import { HistorialCambios } from '../components/HistorialCambios'
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
-  const [searchParams] = useSearchParams()
-  const esNuevo = id === 'nuevo'
 
-  // El wizard solo funciona con un ID real — 'nuevo' ya no se usa
-  if (esNuevo) return <Navigate to="/concursos/cph" replace />
-
-  // Leer concurso real cuando tiene ID
+  // Leer concurso real por su ID
   const { data: cphData, isLoading } = useQuery({
     queryKey: ['concurso-cph-wizard', id],
     queryFn: async () => {
       const res = await apiClient.get<{ data: ConcursoCph }>(`/api/v1/concursos-cph/${id}`)
       return res.data.data
     },
-    enabled: !esNuevo,
+    enabled: !!id,
   })
 
   const { user } = useAuth()
@@ -98,7 +93,7 @@ export function ConcursoCphWizard() {
       })
       return res.data.data.find((a) => a.referenciaId === id) ?? null
     },
-    enabled: !esNuevo && !!id,
+    enabled: !!id,
   })
   const puedeResolverAutorizacion =
     !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
@@ -117,43 +112,8 @@ export function ConcursoCphWizard() {
     (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
   )
 
-  // Query params solo se usan en modo nuevo (vienen de NuevaBajaPage)
-  const datosBaja = esNuevo
-    ? {
-        codigoCargo: searchParams.get('codigoCargo') ?? '',
-        cargoId: searchParams.get('cargoId') ?? '',
-        eeBaja: searchParams.get('eeBaja') ?? '',
-        fechaBaja: searchParams.get('fechaBaja') ?? '',
-        hospital: searchParams.get('hospital') ?? '',
-        hospitalNombre: searchParams.get('hospitalNombre') ?? 'Nuevo concurso',
-        puesto: searchParams.get('puesto') ?? '',
-        especialidad: searchParams.get('especialidad') ?? '',
-        escalafon: searchParams.get('escalafon') ?? '',
-        persona: searchParams.get('persona') ?? '',
-        cuil: searchParams.get('cuil') ?? '',
-        motivo: searchParams.get('motivo') ?? '',
-        cargaHoraria: searchParams.get('cargaHoraria') ?? '',
-      }
-    : null
-
-  // Construir objeto concurso desde la API o desde query params
+  // Construir objeto concurso desde la API
   const concurso = useMemo(() => {
-    if (esNuevo)
-      return {
-        hospital: datosBaja?.hospital ?? '',
-        hospitalNombre: datosBaja?.hospitalNombre ?? 'Nuevo concurso',
-        cargo: datosBaja?.codigoCargo || 'Sin asignar',
-        puesto: datosBaja?.puesto ?? '—',
-        especialidad: datosBaja?.especialidad ?? '—',
-        escalafon: datosBaja?.escalafon ?? 'CPH',
-        personaBaja: datosBaja?.persona ?? '—',
-        fechaBaja: datosBaja?.fechaBaja ?? '',
-        eeBaja: datosBaja?.eeBaja ?? '',
-        subEstado: 'VACANTE',
-        subEstado3: '',
-        suspendido: false,
-        observaciones: datosBaja?.motivo ? `Motivo de baja: ${datosBaja.motivo}` : '',
-      }
     if (!cphData) return null
     const c = cphData.concurso
     const baja = (
@@ -197,11 +157,10 @@ export function ConcursoCphWizard() {
       suspendido: cphData.suspendido,
       observaciones: cphData.observaciones ?? '',
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esNuevo, cphData])
+  }, [cphData])
 
   // Acta del jurado (se usa para calcular la completitud de la etapa 2).
-  const { data: juradoData } = useJuradoCph(esNuevo ? undefined : id)
+  const { data: juradoData } = useJuradoCph(id)
 
   // Construir etapas: en modo nuevo todas vacías, con ID real leer valores del backend
   const etapasIniciales: Etapa[] = useMemo(() => {
@@ -275,35 +234,32 @@ export function ConcursoCphWizard() {
         numero: 1,
         titulo: 'Baja / Apertura',
         descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
-        estado:
-          esNuevo || !cphData
-            ? 'activa'
-            : cphData.eeConcurso && !cphData.pendienteAutorizacion
-              ? 'completada'
-              : 'activa',
+        estado: !cphData
+          ? 'activa'
+          : cphData.eeConcurso && !cphData.pendienteAutorizacion
+            ? 'completada'
+            : 'activa',
         fechaCompletada: cphData?.fechaEeConcurso ?? undefined,
         campos: [
           {
             key: 'eeBaja',
             label: 'Expediente de baja',
             tipo: 'texto',
-            valor: esNuevo ? (datosBaja?.eeBaja ?? '') : eeBajaResuelto || v('eeBaja'),
+            valor: eeBajaResuelto || v('eeBaja'),
             readonly: true,
           },
           {
             key: 'fechaBaja',
             label: 'Fecha de baja',
             tipo: 'fecha',
-            valor: esNuevo ? (datosBaja?.fechaBaja ?? '') : fechaBajaResuelto || v('fechaBaja'),
+            valor: fechaBajaResuelto || v('fechaBaja'),
             readonly: true,
           },
           {
             key: 'puesto',
             label: 'Puesto',
             tipo: 'texto',
-            valor: esNuevo
-              ? (datosBaja?.puesto ?? '')
-              : (cphData?.concurso?.cargo?.literalPuesto ?? ''),
+            valor: cphData?.concurso?.cargo?.literalPuesto ?? '',
             readonly: true,
           },
           {
@@ -328,7 +284,7 @@ export function ConcursoCphWizard() {
         descripcion: 'Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.',
         estado: estadoEtapa(
           etapa2Completa,
-          (!!cphData?.eeConcurso && !cphData?.pendienteAutorizacion) || esNuevo,
+          !!cphData?.eeConcurso && !cphData?.pendienteAutorizacion,
         ),
         fechaCompletada: cphData?.fechaAutorizacion ?? undefined,
         campos: [
@@ -502,7 +458,7 @@ export function ConcursoCphWizard() {
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esNuevo, cphData, juradoData?.confirmado])
+  }, [cphData, juradoData?.confirmado])
 
   const [puestoConcurso, setPuestoConcurso] = useState('')
   const [especialidadConcurso, setEspecialidadConcurso] = useState('')
@@ -559,7 +515,7 @@ export function ConcursoCphWizard() {
   const revertirSorteoMutation = useRevertirConfirmacionSorteo(id!)
 
   // ── Etapa 3: inscriptos ──
-  const { data: inscriptos = [] } = useInscriptosCph(esNuevo ? undefined : id)
+  const { data: inscriptos = [] } = useInscriptosCph(id)
   const crearInscriptoMutation = useCrearInscriptoCph(id!)
   const actualizarInscriptoMutation = useActualizarInscriptoCph(id!)
   const borrarInscriptoMutation = useBorrarInscriptoCph(id!)
@@ -815,7 +771,7 @@ export function ConcursoCphWizard() {
       }>(`/api/v1/concursos-cph/${id}/persona-designada`)
       return res.data.data
     },
-    enabled: !esNuevo && !!id && etapaActiva === 'designacion',
+    enabled: !!id && etapaActiva === 'designacion',
     retry: false,
   })
   const [guardado, setGuardado] = useState(false)
@@ -853,14 +809,12 @@ export function ConcursoCphWizard() {
     return idx + 1 // amarillo = primer pendiente
   })()
 
-  if (!esNuevo && isLoading)
-    return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
-  if (!esNuevo && !concurso)
-    return <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
+  if (isLoading) return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
+  if (!concurso) return <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
   const c = concurso!
 
   function handleGuardar() {
-    if (etapaActiva === 'baja' && !esNuevo) {
+    if (etapaActiva === 'baja') {
       const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
       const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
       // Sigla y escalafón: autorización doble (director → sgrasv)
@@ -1864,60 +1818,37 @@ export function ConcursoCphWizard() {
           <Link to="/cargos/alta-por-baja" className="text-secondary hover:underline">
             ← Alta por Baja
           </Link>
-          {!esNuevo && (
-            <>
-              <span className="text-gray-300">/</span>
-              <Link to="/concursos/cph" className="text-secondary hover:underline">
-                Concursos CPH
-              </Link>
-            </>
-          )}
           <span className="text-gray-300">/</span>
-          <span className="text-gray-400">{esNuevo ? 'Nuevo concurso' : c.cargo}</span>
+          <Link to="/concursos/cph" className="text-secondary hover:underline">
+            Concursos CPH
+          </Link>
+          <span className="text-gray-300">/</span>
+          <span className="text-gray-400">{c.cargo}</span>
         </div>
 
         {/* Datos principales */}
         <div className="px-6 py-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-primary text-lg font-bold text-gray-900 leading-tight">
-              {esNuevo ? (
-                datosBaja?.codigoCargo ? (
-                  <>
-                    <span className="font-mono">{datosBaja.codigoCargo}</span> —{' '}
-                    {datosBaja.puesto || 'Nuevo Concurso'}
-                  </>
-                ) : (
-                  'Nuevo Concurso CPH'
-                )
-              ) : (
-                `${c.cargo} — ${c.puesto}`
-              )}
+              {c.cargo} — {c.puesto}
             </h1>
-            {esNuevo ? (
-              <p className="text-sm text-gray-400 mt-0.5">
-                Completá los datos de la baja para iniciar el seguimiento
-              </p>
-            ) : (
-              <>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Baja:{' '}
-                  {c.personaBaja !== '—' && (
-                    <>
-                      <span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}
-                    </>
-                  )}
-                  {c.eeBaja && <>{c.eeBaja} </>}
-                  {c.fechaBaja && c.fechaBaja}
-                </p>
-              </>
-            )}
+            <p className="text-sm text-gray-500 mt-0.5">
+              {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Baja:{' '}
+              {c.personaBaja !== '—' && (
+                <>
+                  <span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}
+                </>
+              )}
+              {c.eeBaja && <>{c.eeBaja} </>}
+              {c.fechaBaja && c.fechaBaja}
+            </p>
           </div>
 
-          {/* Badges + acción — solo en modo edición */}
-          {!esNuevo && cphData && (
+          {/* Badges + acción */}
+          {cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
               <span className="badge-info text-xs">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
@@ -1939,8 +1870,7 @@ export function ConcursoCphWizard() {
         )}
 
         {/* Banner campos faltantes */}
-        {!esNuevo &&
-          cphData &&
+        {cphData &&
           (() => {
             const sub = cphData.subEstado ?? ''
             const SUB_IDX: Record<string, number> = {
@@ -2040,7 +1970,7 @@ export function ConcursoCphWizard() {
           </div>
 
           {/* Documentación — debajo del card de etapas */}
-          {!esNuevo && cphData && (
+          {cphData && (
             <div className="bg-white rounded-lg shadow-sm p-3 mt-3 space-y-1.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">
                 Documentación
@@ -2192,7 +2122,7 @@ export function ConcursoCphWizard() {
               {etapa.id === 'desierto' ? (
                 <div className="space-y-4">
                   {/* Botón declarar desierto — solo si el concurso no está finalizado */}
-                  {!esNuevo && cphData && cphData.estado !== 'finalizado' && (
+                  {cphData && cphData.estado !== 'finalizado' && (
                     <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4">
                       <div>
                         <p className="text-sm font-semibold text-red-800">
@@ -2211,8 +2141,7 @@ export function ConcursoCphWizard() {
                     </div>
                   )}
                   {/* Historial de rondas desiertas */}
-                  {!esNuevo &&
-                  cphData &&
+                  {cphData &&
                   (
                     cphData as unknown as {
                       desiertoHistorial?: {
@@ -2276,9 +2205,7 @@ export function ConcursoCphWizard() {
                       </div>
                     </div>
                   ) : (
-                    !esNuevo && (
-                      <p className="text-sm text-gray-400">Sin rondas desiertas registradas.</p>
-                    )
+                    <p className="text-sm text-gray-400">Sin rondas desiertas registradas.</p>
                   )}
                 </div>
               ) : etapa.id === 'baja' ? (
@@ -2307,79 +2234,78 @@ export function ConcursoCphWizard() {
                             />
                           </div>
                         ))}
-                      {/* Campos extra de la baja — solo cuando hay datos de API (no modo nuevo) */}
-                      {!esNuevo &&
-                        (() => {
-                          const b = (
-                            cphData?.concurso as unknown as {
-                              baja?: {
-                                motivo?: string | null
-                                docRespaldatoria?: string | null
-                                tipificadorOrigen?: string | null
-                                partidaPresupuestaria?: string | null
-                                cargaHoraria?: number | null
-                                fechaPaseParalelo?: string | Date | null
-                                observaciones?: string | null
-                              }
+                      {/* Campos extra de la baja */}
+                      {(() => {
+                        const b = (
+                          cphData?.concurso as unknown as {
+                            baja?: {
+                              motivo?: string | null
+                              docRespaldatoria?: string | null
+                              tipificadorOrigen?: string | null
+                              partidaPresupuestaria?: string | null
+                              cargaHoraria?: number | null
+                              fechaPaseParalelo?: string | Date | null
+                              observaciones?: string | null
                             }
-                          )?.baja
-                          if (!b) return null
-                          const toDate = (v: string | Date | null | undefined) =>
-                            v
-                              ? typeof v === 'string'
-                                ? v.slice(0, 10)
-                                : v.toISOString().slice(0, 10)
-                              : ''
-                          const extras: {
-                            label: string
-                            value: string
-                            fecha?: boolean
-                            wide?: boolean
-                          }[] = [
-                            {
-                              label: 'Origen',
-                              value: b.tipificadorOrigen ?? '',
-                            },
-                            { label: 'Motivo', value: b.motivo ?? '' },
-                            {
-                              label: 'Doc. respaldatoria',
-                              value: b.docRespaldatoria ?? '',
-                            },
-                            {
-                              label: 'Partida presup.',
-                              value: b.partidaPresupuestaria ?? '',
-                            },
-                            {
-                              label: 'Carga horaria',
-                              value: b.cargaHoraria != null ? `${b.cargaHoraria} hs` : '',
-                            },
-                            {
-                              label: 'Fecha pase paralelo',
-                              value: toDate(b.fechaPaseParalelo),
-                              fecha: true,
-                            },
-                            {
-                              label: 'Observaciones',
-                              value: b.observaciones ?? '',
-                              wide: true,
-                            },
-                          ]
-                          return extras
-                            .filter((e) => e.value)
-                            .map((e) => (
-                              <div key={e.label} className={e.wide ? 'sm:col-span-2' : ''}>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                                  {e.label}
-                                </label>
-                                <input
-                                  type={e.fecha ? 'date' : 'text'}
-                                  defaultValue={e.value}
-                                  className="input h-10 w-full bg-gray-50 text-gray-500"
-                                  readOnly
-                                />
-                              </div>
-                            ))
-                        })()}
+                          }
+                        )?.baja
+                        if (!b) return null
+                        const toDate = (v: string | Date | null | undefined) =>
+                          v
+                            ? typeof v === 'string'
+                              ? v.slice(0, 10)
+                              : v.toISOString().slice(0, 10)
+                            : ''
+                        const extras: {
+                          label: string
+                          value: string
+                          fecha?: boolean
+                          wide?: boolean
+                        }[] = [
+                          {
+                            label: 'Origen',
+                            value: b.tipificadorOrigen ?? '',
+                          },
+                          { label: 'Motivo', value: b.motivo ?? '' },
+                          {
+                            label: 'Doc. respaldatoria',
+                            value: b.docRespaldatoria ?? '',
+                          },
+                          {
+                            label: 'Partida presup.',
+                            value: b.partidaPresupuestaria ?? '',
+                          },
+                          {
+                            label: 'Carga horaria',
+                            value: b.cargaHoraria != null ? `${b.cargaHoraria} hs` : '',
+                          },
+                          {
+                            label: 'Fecha pase paralelo',
+                            value: toDate(b.fechaPaseParalelo),
+                            fecha: true,
+                          },
+                          {
+                            label: 'Observaciones',
+                            value: b.observaciones ?? '',
+                            wide: true,
+                          },
+                        ]
+                        return extras
+                          .filter((e) => e.value)
+                          .map((e) => (
+                            <div key={e.label} className={e.wide ? 'sm:col-span-2' : ''}>
+                              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                {e.label}
+                              </label>
+                              <input
+                                type={e.fecha ? 'date' : 'text'}
+                                defaultValue={e.value}
+                                className="input h-10 w-full bg-gray-50 text-gray-500"
+                                readOnly
+                              />
+                            </div>
+                          ))
+                      })()}
                     </div>
                   </div>
 
@@ -2608,7 +2534,7 @@ export function ConcursoCphWizard() {
               ) : etapa.id === 'autorizacion' ? (
                 <div className="space-y-5">
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
-                  {!esNuevo && cphData && (
+                  {cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
                       <div className="flex items-start justify-between gap-4">
                         <div>
@@ -3023,7 +2949,7 @@ export function ConcursoCphWizard() {
                           {campoInput('fechaInscDesde')}
                           {campoInput('fechaInscHasta')}
                         </div>
-                        {!esNuevo && cphData && (
+                        {cphData && (
                           <div>
                             {!cphData.inscripcionCerrada ? (
                               <button
@@ -3203,7 +3129,7 @@ export function ConcursoCphWizard() {
                         </div>
 
                         {/* Tabla de inscriptos — al fondo: la usan todas las fases de la etapa */}
-                        {!esNuevo && cphData && (
+                        {cphData && (
                           <div className="rounded-lg border border-gray-200 bg-white px-4 py-4">
                             <div className="flex items-start justify-between gap-4 mb-3">
                               <div className="min-w-0">
@@ -3412,7 +3338,7 @@ export function ConcursoCphWizard() {
 
                         {/* Acciones de confirmación: presentados y orden de mérito
                             (debajo de la tabla, arriba de Declarar desierto) */}
-                        {!esNuevo && cphData && (
+                        {cphData && (
                           <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
                             {/* Presentados */}
                             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -3972,26 +3898,23 @@ export function ConcursoCphWizard() {
 
               {/* Etapa 3: se puede declarar desierta la ronda — relanza el concurso
                   (vuelve a la Etapa 1 para reiniciar el proceso). */}
-              {etapa.id === 'inscripcion' &&
-                !esNuevo &&
-                cphData &&
-                cphData.estado !== 'finalizado' && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-red-800">Declarar ronda desierta</p>
-                      <p className="text-xs text-red-600 mt-0.5">
-                        Registra la ronda como desierta, guarda el historial y relanza el concurso
-                        desde la Etapa 1.
-                      </p>
-                    </div>
-                    <button
-                      className="btn-danger text-sm shrink-0"
-                      onClick={() => setModalDesierto(true)}
-                    >
-                      Declarar desierto
-                    </button>
+              {etapa.id === 'inscripcion' && cphData && cphData.estado !== 'finalizado' && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-red-800">Declarar ronda desierta</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Registra la ronda como desierta, guarda el historial y relanza el concurso
+                      desde la Etapa 1.
+                    </p>
                   </div>
-                )}
+                  <button
+                    className="btn-danger text-sm shrink-0"
+                    onClick={() => setModalDesierto(true)}
+                  >
+                    Declarar desierto
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -4071,7 +3994,7 @@ export function ConcursoCphWizard() {
           </div>
 
           {/* Historial */}
-          <HistorialCambios esNuevo={esNuevo} cphData={cphData} juradoData={juradoData} />
+          <HistorialCambios cphData={cphData} juradoData={juradoData} />
         </div>
 
         {/* Columna derecha — panel de estado sticky */}

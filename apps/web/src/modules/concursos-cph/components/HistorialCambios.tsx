@@ -5,18 +5,16 @@
 import type { ConcursoCph, SorteoJurado } from '@srrhh/types'
 
 interface HistorialCambiosProps {
-  esNuevo: boolean
   cphData: ConcursoCph | null | undefined
   juradoData: SorteoJurado | null | undefined
 }
 
-export function HistorialCambios({ esNuevo, cphData, juradoData }: HistorialCambiosProps) {
+export function HistorialCambios({ cphData, juradoData }: HistorialCambiosProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">
       <h3 className="font-primary text-sm font-bold text-gray-700 mb-3">Historial de cambios</h3>
       {(() => {
-        if (esNuevo || !cphData)
-          return <p className="text-sm text-gray-400">Sin historial aún.</p>
+        if (!cphData) return <p className="text-sm text-gray-400">Sin historial aún.</p>
         // Fecha de referencia para hitos que ocurrieron pero no tienen
         // una fecha propia (bool/expediente sin fecha): se usa la última
         // actualización del concurso como aproximación, para que el hito
@@ -31,8 +29,7 @@ export function HistorialCambios({ esNuevo, cphData, juradoData }: HistorialCamb
           },
           {
             fecha: cphData.fechaEeConcurso ?? (cphData.eeConcurso ? ref : null),
-            texto:
-              'Expediente de concurso' + (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : ''),
+            texto: 'Expediente de concurso' + (cphData.eeConcurso ? `: ${cphData.eeConcurso}` : ''),
           },
           {
             fecha: cphData.fechaAutorizacion,
