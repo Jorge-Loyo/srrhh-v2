@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema } from './concursos-cph.schema.js'
+import { concursosCphQuerySchema, patchConcursoCphSchema, suspenderConcursoCphSchema, designarCphSchema, declararDesiertoSchema, generarSorteoJuradoSchema } from './concursos-cph.schema.js'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
@@ -13,6 +13,9 @@ import {
   declararDesiertoService,
   importarConcursosCsvService,
 } from './concursos-cph.service.js'
+import { generarSorteoJuradoService, getJuradoVigenteService, confirmarSorteoService, cancelarSorteoService, revertirConfirmacionSorteoService } from './sorteoJurado.service.js'
+import { inscriptoSchema, inscriptoPatchSchema, publicarInscripcionSchema, publicarExamenSchema } from './inscriptos.schema.js'
+import { listInscriptosService, createInscriptoService, updateInscriptoService, deleteInscriptoService, importarInscriptosService, cerrarInscripcionService, reabrirInscripcionService, publicarExamenService, despublicarExamenService, confirmarPresentadosService, revertirPresentadosService, confirmarOrdenMeritoService, revertirOrdenMeritoService } from './inscriptos.service.js'
 
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
 // admin/editor/concursales_cph, editable en caliente). Lectura: cualquier autenticado.
@@ -91,6 +94,189 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = declararDesiertoSchema.parse(request.body)
       const data = await declararDesiertoService(request.params.id, body, (request as any).user.id)
+      return reply.send({ data })
+    }
+  )
+
+  // GET /:id/jurado — Etapa 2: acta del último sorteo de jurado (o null)
+  app.get<{ Params: { id: string } }>('/:id/jurado', async (request, reply) => {
+    const data = await getJuradoVigenteService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // POST /:id/generar-sorteo — Etapa 2: sortea el jurado según criterios,
+  // guarda el acta + miembros y setea la fecha de sorteo en el concurso.
+  app.post<{ Params: { id: string } }>(
+    '/:id/generar-sorteo',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = generarSorteoJuradoSchema.parse(request.body)
+      const data = await generarSorteoJuradoService(request.params.id, body, (request as any).user?.id ?? null)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/jurado/confirmar — fija el acta (queda de solo lectura)
+  app.post<{ Params: { id: string } }>(
+    '/:id/jurado/confirmar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await confirmarSorteoService(request.params.id, (request as any).user?.id ?? null)
+      return reply.send({ data })
+    }
+  )
+
+  // ── Etapa 3: inscriptos al concurso ──────────────────────────────────────
+  // GET /:id/inscriptos — lista de inscriptos
+  app.get<{ Params: { id: string } }>('/:id/inscriptos', async (request, reply) => {
+    const data = await listInscriptosService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // POST /:id/inscriptos — alta manual de un inscripto
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscriptos',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = inscriptoSchema.parse(request.body)
+      const data = await createInscriptoService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // PATCH /:id/inscriptos/:inscriptoId — editar un inscripto
+  app.patch<{ Params: { id: string; inscriptoId: string } }>(
+    '/:id/inscriptos/:inscriptoId',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = inscriptoPatchSchema.parse(request.body)
+      const data = await updateInscriptoService(request.params.id, request.params.inscriptoId, body)
+      return reply.send({ data })
+    }
+  )
+
+  // DELETE /:id/inscriptos/:inscriptoId — baja de un inscripto
+  app.delete<{ Params: { id: string; inscriptoId: string } }>(
+    '/:id/inscriptos/:inscriptoId',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await deleteInscriptoService(request.params.id, request.params.inscriptoId)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/inscriptos/importar — importar inscriptos desde Excel/CSV
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscriptos/importar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const file = await request.file()
+      if (!file) throw new Error('Archivo requerido')
+      const buffer = await file.toBuffer()
+      const data = await importarInscriptosService(request.params.id, buffer)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/inscripciones/cerrar — publica las fechas de inscripción y cierra
+  // el período (avanza a D). Acepta las fechas en el body para guardarlas.
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscripciones/cerrar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = publicarInscripcionSchema.parse(request.body ?? {})
+      const data = await cerrarInscripcionService(request.params.id, body)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/examen/publicar — guarda y publica la fecha de examen
+  app.post<{ Params: { id: string } }>(
+    '/:id/examen/publicar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = publicarExamenSchema.parse(request.body ?? {})
+      const data = await publicarExamenService(request.params.id, body.fechaExamen ?? undefined)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/examen/despublicar — revierte la publicación del examen
+  app.post<{ Params: { id: string } }>(
+    '/:id/examen/despublicar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await despublicarExamenService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/inscripciones/reabrir — reabre el período de inscripción
+  app.post<{ Params: { id: string } }>(
+    '/:id/inscripciones/reabrir',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await reabrirInscripcionService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/presentados/confirmar — congela quién se presentó al examen
+  app.post<{ Params: { id: string } }>(
+    '/:id/presentados/confirmar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await confirmarPresentadosService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/presentados/revertir
+  app.post<{ Params: { id: string } }>(
+    '/:id/presentados/revertir',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await revertirPresentadosService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/orden-merito/confirmar — fija la OM (fecha=hoy, avanza a E)
+  app.post<{ Params: { id: string } }>(
+    '/:id/orden-merito/confirmar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await confirmarOrdenMeritoService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/orden-merito/revertir
+  app.post<{ Params: { id: string } }>(
+    '/:id/orden-merito/revertir',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await revertirOrdenMeritoService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/jurado/revertir — revierte la confirmación (vuelve a borrador)
+  app.post<{ Params: { id: string } }>(
+    '/:id/jurado/revertir',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await revertirConfirmacionSorteoService(request.params.id)
+      return reply.send({ data })
+    }
+  )
+
+  // DELETE /:id/jurado — cancela (descarta) el sorteo vigente NO confirmado
+  app.delete<{ Params: { id: string } }>(
+    '/:id/jurado',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const data = await cancelarSorteoService(request.params.id)
       return reply.send({ data })
     }
   )

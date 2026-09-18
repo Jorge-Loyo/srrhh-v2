@@ -26,7 +26,10 @@ export interface ConcursoCphCalcInput {
   sorteoJurado: Date | null
   disposicion: string | null
   // Inscripción / examen / orden de mérito
+  fechaInscDesde: Date | null
   fechaInscHasta: Date | null
+  inscripcionCerrada: boolean | null
+  ordenMeritoConfirmado: boolean | null
   fechaExamen: Date | null
   fechaOrdenMerito: Date | null
   // IFACS / INSAL
@@ -77,8 +80,15 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.eeDesignacion) return 'H-TAD'
   if (row.fechaInsal) return 'G-INSAL'
   if (row.fechaIfacs) return 'F-IFACS'
-  if (row.fechaOrdenMerito) return 'E-ORDEN DE MERITO'
+  if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'E-ORDEN DE MERITO'
   if (row.fechaExamen) return 'D-EXAMEN PUBLICADO'
+  // Inscripción cerrada (pero examen aún no publicado) → esperando publicar
+  // el examen (D). El cierre del período de inscripción es lo que hace avanzar
+  // desde "C — Inscripción de exámenes".
+  if (row.inscripcionCerrada) return 'D-EXAMEN PUBLICADO'
+  // Período de inscripción a exámenes definido (ambas fechas) pero aún abierto
+  // → sub-estado intermedio entre C-Dispo y D-Publicación (inscripción en curso).
+  if (row.fechaInscDesde && row.fechaInscHasta) return 'C2-INSCRIPCION EX'
   if (row.disposicion) return 'C-DISPO DE LLAMADO'
   if (row.sorteoJurado) return 'B-SORTEO JUR'
   if (row.fechaAutorizacion) return 'A-AUTZN'

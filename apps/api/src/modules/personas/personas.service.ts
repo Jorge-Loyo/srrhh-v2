@@ -113,6 +113,34 @@ export async function getPersonaByIdService(id: string) {
   return persona
 }
 
+export async function getPersonaSialRolesService(id: string) {
+  const persona = await prisma.persona.findUnique({ where: { id }, select: { id: true } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  return prisma.$queryRaw<{
+    idSialRol: string
+    cargoId: string
+    codigoCargo: string | null
+    literalPuesto: string | null
+    hospitalSigla: string
+    desde: Date | null
+  }[]>`
+    SELECT
+      o.id_sial_rol AS "idSialRol",
+      o.cargo_id    AS "cargoId",
+      c.codigo      AS "codigoCargo",
+      c.literal_puesto AS "literalPuesto",
+      h.sigla       AS "hospitalSigla",
+      o.desde
+    FROM ocupaciones o
+    JOIN cargos c    ON c.id = o.cargo_id
+    JOIN hospitales h ON h.id = c.hospital_id
+    WHERE o.persona_id = ${id}::uuid
+      AND o.hasta IS NULL
+    ORDER BY o.desde DESC NULLS LAST
+  `
+}
+
 export async function getPersonaBajasSialService(id: string) {
   const persona = await prisma.persona.findUnique({ where: { id }, select: { cuil: true } })
   if (!persona) throw AppError.notFound('Persona no encontrada')

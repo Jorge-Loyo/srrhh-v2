@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { personasQuerySchema } from './personas.schema.js'
-import { listPersonasService, getPersonaByIdService, getPersonaBajasSialService } from './personas.service.js'
+import { listPersonasService, getPersonaByIdService, getPersonaBajasSialService, getPersonaSialRolesService } from './personas.service.js'
 
 export async function personasRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -15,6 +15,11 @@ export async function personasRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const persona = await getPersonaByIdService(request.params.id)
     return reply.send({ data: persona })
+  })
+
+  app.get<{ Params: { id: string } }>('/:id/sial-roles', async (request, reply) => {
+    const data = await getPersonaSialRolesService(request.params.id)
+    return reply.send({ data })
   })
 
   app.get<{ Params: { id: string } }>('/:id/bajas-sial', async (request, reply) => {
