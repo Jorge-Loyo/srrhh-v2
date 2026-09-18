@@ -9,6 +9,8 @@ import { useConcursosCph } from '../hooks/useConcursosCph'
 import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '../hooks/useEtiquetas'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import { EtiquetasControl } from '../components/EtiquetasControl'
+import { JuradosTab } from '../components/JuradosTab'
+import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
 import { apiClient } from '@/shared/lib/api-client'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -123,7 +125,45 @@ function EtapaStepper({ subEstado }: { subEstado: string | null }) {
   )
 }
 
+type TabId = 'concursos' | 'jurados' | 'ordenes'
+
+// Contenedor con pestañas: Concursos (listado) | Jurados | Órdenes de mérito.
 export function ConcursosCphPage() {
+  const [tab, setTab] = useState<TabId>('concursos')
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'concursos', label: 'Concursos' },
+    { id: 'jurados', label: 'Jurados' },
+    { id: 'ordenes', label: 'Órdenes de mérito' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-1 border-b border-gray-200">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
+              tab === t.id
+                ? 'border-secondary text-secondary'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'concursos' && <ConcursosListaTab />}
+      {tab === 'jurados' && <JuradosTab />}
+      {tab === 'ordenes' && <OrdenesMeritoTab />}
+    </div>
+  )
+}
+
+// Tab "Concursos": el listado principal (filtros + tabla + etiquetado masivo).
+function ConcursosListaTab() {
   const [search, setSearch] = useState('')
   const [especialidad, setEspecialidad] = useState('')
   const [hospitalId, setHospitalId] = useState('')
