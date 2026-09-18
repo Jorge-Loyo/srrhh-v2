@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EstadoConcursoCph } from '@srrhh/types'
-import type { ConcursoCphFilters } from '@srrhh/types'
+import type { ConcursoCph, ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
@@ -11,9 +11,6 @@ import { EtiquetasControl } from '../components/EtiquetasControl'
 import { apiClient } from '@/shared/lib/api-client'
 import {
   ESTADO_LABEL,
-  ESTADO_BADGE,
-  estadoBadge,
-  estadoLabel,
   SUB_ESTADO_OPTIONS,
   SUB_ESTADO_3_OPTIONS,
   diasSinMovimiento,
@@ -21,6 +18,23 @@ import {
 } from '../lib/labels'
 
 const LIMIT = 50
+
+// Semáforo de estado del concurso (primera columna de la tabla). El campo
+// booleano `suspendido` puede estar activo aunque el estado calculado no sea
+// 'suspendido', así que tiene prioridad para el color rojo.
+function semaforoClass(c: ConcursoCph): string {
+  if (c.suspendido || c.estado === 'suspendido') return 'bg-red-500'
+  if (c.estado === 'activo') return 'bg-green-500'
+  if (c.estado === 'finalizado') return 'bg-orange-500'
+  return 'bg-gray-300' // no_iniciado
+}
+
+function semaforoLabel(c: ConcursoCph): string {
+  if (c.suspendido || c.estado === 'suspendido') return 'Suspendido'
+  if (c.estado === 'activo') return 'Activo'
+  if (c.estado === 'finalizado') return 'Finalizado'
+  return 'No iniciado'
+}
 
 export function ConcursosCphPage() {
   const [search, setSearch] = useState('')
@@ -208,13 +222,13 @@ export function ConcursosCphPage() {
                 <table className={`w-full text-sm ${isFetching ? 'opacity-60' : ''}`}>
                   <thead className="bg-navy text-white text-left">
                     <tr>
+                      <th className="px-3 py-3 font-semibold w-8" title="Estado" />
                       <th className="px-4 py-3 font-semibold">Hospital</th>
                       <th className="px-4 py-3 font-semibold">Cargo</th>
                       <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Persona</th>
                       <th className="px-4 py-3 font-semibold">Expediente</th>
                       <th className="px-4 py-3 font-semibold">Disposición</th>
-                      <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
@@ -227,6 +241,13 @@ export function ConcursosCphPage() {
                       const dias = diasSinMovimiento(c.updatedAt)
                       return (
                         <tr key={c.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-3">
+                            <span
+                              className={`inline-block h-2.5 w-2.5 rounded-full ${semaforoClass(c)}`}
+                              title={semaforoLabel(c)}
+                              aria-label={semaforoLabel(c)}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                           <td className="px-4 py-3 text-gray-600">
                             {c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—'}
@@ -242,11 +263,6 @@ export function ConcursosCphPage() {
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {c.disposicion ?? '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={estadoBadge(c.estado, c.subEstado)}>
-                              {estadoLabel(c.estado, c.subEstado)}
-                            </span>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
                           <td className="px-4 py-3">

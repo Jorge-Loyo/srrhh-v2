@@ -1851,6 +1851,7 @@ export function ConcursoCphWizard() {
           {/* Badges + acción */}
           {cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
+              {id && <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />}
               <span className="badge-info text-xs">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
@@ -1859,7 +1860,6 @@ export function ConcursoCphWizard() {
               <button onClick={() => setModalBaja(true)} className="btn-outline text-xs py-1 px-3">
                 📋 Ver baja
               </button>
-              {id && <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />}
             </div>
           )}
         </div>
