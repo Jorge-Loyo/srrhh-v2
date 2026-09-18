@@ -351,9 +351,9 @@ export function ConcursosCphPage() {
                       <th className="px-4 py-3 font-semibold">Cargo</th>
                       <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Persona</th>
-                      <th className="px-4 py-3 font-semibold">Expediente</th>
-                      <th className="px-4 py-3 font-semibold">Disposición</th>
+                      <th className="px-4 py-3 font-semibold">Expediente de baja</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
@@ -394,12 +394,10 @@ export function ConcursosCphPage() {
                             {c.concurso?.persona?.apellidoNombre ?? 'Vacante'}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                            {c.eeConcurso ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-500">
-                            {c.disposicion ?? '—'}
+                            {c.eeBaja ?? '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{c.subEstado3 ?? '—'}</td>
                           <td className="px-4 py-3">
                             {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
                               <span className="badge-info text-xs">Nuevo cargo</span>
