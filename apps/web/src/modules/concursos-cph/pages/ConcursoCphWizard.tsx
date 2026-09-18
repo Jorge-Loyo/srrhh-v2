@@ -58,6 +58,7 @@ import {
 } from '../lib/wizard.constants'
 import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
+import { EtiquetasControl } from '../components/EtiquetasControl'
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
@@ -1858,6 +1859,7 @@ export function ConcursoCphWizard() {
               <button onClick={() => setModalBaja(true)} className="btn-outline text-xs py-1 px-3">
                 📋 Ver baja
               </button>
+              {id && <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />}
             </div>
           )}
         </div>

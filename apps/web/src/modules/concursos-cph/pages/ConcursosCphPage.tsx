@@ -7,6 +7,7 @@ import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
+import { EtiquetasControl } from '../components/EtiquetasControl'
 import { apiClient } from '@/shared/lib/api-client'
 import {
   ESTADO_LABEL,
@@ -32,7 +33,12 @@ export function ConcursosCphPage() {
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
   const [importando, setImportando] = useState(false)
-  const [importResult, setImportResult] = useState<{ total: number; actualizados: number; creados: number; noEncontrados: number } | null>(null)
+  const [importResult, setImportResult] = useState<{
+    total: number
+    actualizados: number
+    creados: number
+    noEncontrados: number
+  } | null>(null)
   const searchDebounced = useDebounce(search, 300)
 
   async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
@@ -45,8 +51,12 @@ export function ConcursosCphPage() {
       form.append('file', file)
       const res = await apiClient.post('/api/v1/concursos-cph/importar-csv', form)
       setImportResult(res.data.data)
-    } catch { alert('Error al importar el archivo') }
-    finally { setImportando(false); e.target.value = '' }
+    } catch {
+      alert('Error al importar el archivo')
+    } finally {
+      setImportando(false)
+      e.target.value = ''
+    }
   }
 
   const filters: ConcursoCphFilters = {
@@ -77,15 +87,26 @@ export function ConcursosCphPage() {
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
           <div className="flex items-center gap-2">
-            <label className={`btn-outline text-sm cursor-pointer ${importando ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label
+              className={`btn-outline text-sm cursor-pointer ${importando ? 'opacity-50 pointer-events-none' : ''}`}
+            >
               {importando ? 'Importando...' : '↑ Importar CSV'}
-              <input type="file" accept=".csv" className="hidden" onChange={handleImportarCsv} disabled={importando} />
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleImportarCsv}
+                disabled={importando}
+              />
             </label>
             <button className="btn-outline" onClick={() => setShowFlujo(true)}>
               📋 Flujo del concurso
             </button>
             <button
-              onClick={() => { setConFaltantes((v) => !v); setPage(1) }}
+              onClick={() => {
+                setConFaltantes((v) => !v)
+                setPage(1)
+              }}
               className={`btn-outline text-sm ${conFaltantes ? 'bg-orange-100 border-orange-400 text-orange-800 font-semibold' : ''}`}
             >
               ⚠️ Con documentación faltante
@@ -94,7 +115,9 @@ export function ConcursosCphPage() {
         </div>
         {importResult && (
           <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
-            Importación completada — {importResult.actualizados} actualizados, {importResult.creados} creados, {importResult.noEncontrados} no encontrados de {importResult.total} filas.
+            Importación completada — {importResult.actualizados} actualizados,{' '}
+            {importResult.creados} creados, {importResult.noEncontrados} no encontrados de{' '}
+            {importResult.total} filas.
           </div>
         )}
 
@@ -168,7 +191,9 @@ export function ConcursosCphPage() {
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         {isLoading && <p className="p-6 text-sm text-gray-400">Cargando concursos...</p>}
-        {isError && <p className="p-6 text-sm text-danger">No se pudo cargar el listado de concursos CPH.</p>}
+        {isError && (
+          <p className="p-6 text-sm text-danger">No se pudo cargar el listado de concursos CPH.</p>
+        )}
 
         {!isLoading && !isError && data && (
           <>
@@ -192,6 +217,7 @@ export function ConcursosCphPage() {
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
+                      <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold">Últ. movimiento</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
@@ -218,7 +244,9 @@ export function ConcursosCphPage() {
                             {c.disposicion ?? '—'}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={estadoBadge(c.estado, c.subEstado)}>{estadoLabel(c.estado, c.subEstado)}</span>
+                            <span className={estadoBadge(c.estado, c.subEstado)}>
+                              {estadoLabel(c.estado, c.subEstado)}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
                           <td className="px-4 py-3">
@@ -226,11 +254,22 @@ export function ConcursosCphPage() {
                               <span className="badge-info text-xs">Nuevo cargo</span>
                             )}
                             {c.concurso?.motivoConcurso === 'alta_por_baja' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                                Alta por baja
+                              </span>
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Hoy' : `${dias} días`}</span>
+                            <EtiquetasControl
+                              concursoCphId={c.id}
+                              asignadas={c.etiquetas ?? []}
+                              variant="compacto"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={diasBadgeClass(dias)}>
+                              {dias === 0 ? 'Hoy' : `${dias} días`}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">
@@ -251,7 +290,11 @@ export function ConcursosCphPage() {
                   Página {data.meta.page} de {data.meta.pages} — {data.meta.total} en total
                 </span>
                 <div className="flex gap-2">
-                  <button className="btn-outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  <button
+                    className="btn-outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
                     Anterior
                   </button>
                   <button

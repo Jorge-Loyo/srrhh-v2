@@ -294,6 +294,28 @@ export interface Concurso {
   baja?: Baja | null
 }
 
+// Etiqueta reutilizable que se asigna a concursos (y otras entidades) para
+// agruparlos. Relación N:M — un concurso puede tener varias etiquetas.
+export interface Etiqueta {
+  id: string
+  nombre: string
+  color: string | null
+  activo: boolean
+  createdAt: string
+}
+
+// Body para asignar/desasignar una etiqueta a una entidad.
+export interface AsignarEtiquetaRequest {
+  entidad: 'cargo' | 'concurso_cph' | 'baja' | 'solicitud_alta'
+  entidadId: string
+}
+
+// Body para crear una etiqueta nueva.
+export interface CrearEtiquetaRequest {
+  nombre: string
+  color?: string
+}
+
 // S4-4: estado/subEstado/subEstado3 son calculados por el backend
 // (calcConcursoCph, apps/api/.../concursos-cph/concursosCph.calc.ts) en cada
 // create/PATCH — no forman parte de PatchConcursoCphRequest más abajo.
@@ -357,6 +379,8 @@ export interface ConcursoCph {
   concurso?: Concurso
   hospital?: Hospital
   personaDesignada?: Persona
+  // Etiquetas asignadas (aplanadas desde la tabla join por el backend)
+  etiquetas?: Etiqueta[]
 }
 
 export interface ConcursoCeetps {

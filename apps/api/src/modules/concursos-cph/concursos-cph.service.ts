@@ -30,7 +30,23 @@ const include = {
   codigoRegistroSolicitado: true,
   // PS16D: historial de rondas desiertas
   desiertoHistorial: { orderBy: { nroRonda: 'asc' as const } },
+  // Etiquetas asignadas (relación N:M vía tabla join)
+  etiquetas: { include: { etiqueta: true } },
 } satisfies Prisma.ConcursoCphInclude
+
+// Aplana la relación join `etiquetas: [{ etiqueta }]` a `etiquetas: Etiqueta[]`
+// para que el frontend consuma un array plano. Devuelve el mismo objeto con
+// el campo `etiquetas` reemplazado por las etiquetas activas ordenadas.
+function flattenEtiquetas<
+  T extends { etiquetas?: { etiqueta: { activo: boolean; nombre: string } }[] },
+>(row: T): T {
+  if (!row?.etiquetas) return row
+  const planas = row.etiquetas
+    .map((e) => e.etiqueta)
+    .filter((e) => e.activo)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  return { ...row, etiquetas: planas } as unknown as T
+}
 
 // Extrae los campos que usa calcConcursoCph() de una fila completa —
 // reutilizado por patch/suspender (ambos parten de la fila existente y
@@ -173,14 +189,17 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     }),
   ])
 
-  return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
+  return {
+    data: data.map(flattenEtiquetas),
+    meta: { total, page, limit, pages: Math.ceil(total / limit) },
+  }
 }
 
 // ─── S4-2: detalle completo ──────────────────────────────────────────────────
 export async function getConcursoCphByIdService(id: string) {
   const concursoCph = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!concursoCph) throw AppError.notFound('Concurso CPH no encontrado')
-  return concursoCph
+  return flattenEtiquetas(concursoCph)
 }
 
 // Campos de tipo fecha del PATCH — explícito en vez de heurística por nombre
@@ -314,7 +333,7 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     })
   }
 
-  return updated
+  return flattenEtiquetas(updated)
 }
 
 // ─── Aprobar autorización (flujo dos pasos: director → sgrasv) ──────────────
