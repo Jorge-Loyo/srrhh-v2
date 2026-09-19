@@ -1,6 +1,8 @@
-// Pestaña "Órdenes de mérito" de la página de concursos CPH. Lista las órdenes
+// Pestaña "Órdenes de mérito" de la página de concursos CPH. Tabla de órdenes
 // de mérito vigentes (6 meses o hasta designar/anular a todos sus integrantes)
-// con los integrantes que siguen disponibles.
+// con búsqueda y filtro por especialidad, para gestionar muchas. Cada fila se
+// expande para ver los integrantes y su estado (disponible/designado/anulado).
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { OrdenMeritoVigente, OrdenMeritoIntegrante } from '@srrhh/types'
 import { useOrdenesMeritoVigentes } from '../hooks/useConcursosCph'
@@ -11,8 +13,15 @@ function fechaCorta(iso: string | null | undefined): string {
 }
 
 function diasRestantes(vencimientoIso: string): number {
-  const venc = new Date(vencimientoIso).getTime()
-  return Math.ceil((venc - Date.now()) / (24 * 60 * 60 * 1000))
+  return Math.ceil((new Date(vencimientoIso).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+}
+
+function norm(s: string | null | undefined): string {
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 }
 
 function IntegranteRow({ i }: { i: OrdenMeritoIntegrante }) {
@@ -38,57 +47,40 @@ function IntegranteRow({ i }: { i: OrdenMeritoIntegrante }) {
   )
 }
 
-function OrdenCard({ o }: { o: OrdenMeritoVigente }) {
-  const cargo = o.concursoCph?.concurso?.cargo
-  const dias = diasRestantes(o.fechaProrroga ?? o.fechaVencimiento)
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-primary text-sm font-bold text-gray-900">
-            {cargo?.codigo ?? o.puesto ?? 'Concurso'}
-          </p>
-          <p className="text-xs text-gray-500">
-            {o.especialidad}
-            {cargo?.hospital?.sigla && ` · ${cargo.hospital.sigla}`}
-          </p>
-        </div>
-        <div className="text-right text-xs">
-          <span
-            className={`inline-block rounded-full px-2 py-0.5 font-medium ${
-              dias <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
-            }`}
-          >
-            Vence {fechaCorta(o.fechaProrroga ?? o.fechaVencimiento)}
-          </span>
-          <p className="mt-1 text-gray-400">
-            {o.disponibles} disponible(s) de {o.integrantes.length}
-          </p>
-        </div>
-      </div>
-
-      <ul className="mt-3 divide-y divide-gray-50">
-        {o.integrantes.map((i) => (
-          <IntegranteRow key={i.id} i={i} />
-        ))}
-      </ul>
-
-      {o.concursoCph?.id && (
-        <div className="mt-3 border-t border-gray-100 pt-2 text-right">
-          <Link
-            to={`/concursos/cph/${o.concursoCph.id}/wizard`}
-            className="text-xs text-secondary hover:underline"
-          >
-            Ver concurso de origen →
-          </Link>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function OrdenesMeritoTab() {
   const { data: ordenes = [], isLoading, isError } = useOrdenesMeritoVigentes()
+  const [busqueda, setBusqueda] = useState('')
+  const [especialidad, setEspecialidad] = useState('')
+  const [expandido, setExpandido] = useState<string | null>(null)
+
+  const especialidades = useMemo(() => {
+    const set = new Set<string>()
+    ordenes.forEach((o) => {
+      if (o.especialidad) set.add(o.especialidad)
+    })
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [ordenes])
+
+  const filtrados = useMemo(() => {
+    const q = norm(busqueda)
+    return ordenes.filter((o) => {
+      if (especialidad && o.especialidad !== especialidad) return false
+      if (!q) return true
+      const cargo = o.concursoCph?.concurso?.cargo
+      const texto = [
+        cargo?.codigo,
+        cargo?.literalPuesto,
+        o.especialidad,
+        o.puesto,
+        cargo?.hospital?.sigla,
+        cargo?.hospital?.nombre,
+        ...o.integrantes.map((i) => i.apellidoNombre),
+      ]
+        .map(norm)
+        .join(' ')
+      return texto.includes(q)
+    })
+  }, [ordenes, busqueda, especialidad])
 
   return (
     <div className="space-y-4">
@@ -98,25 +90,135 @@ export function OrdenesMeritoTab() {
           Órdenes de mérito confirmadas y vigentes, con los integrantes disponibles para reutilizar
           en concursos del mismo puesto, especialidad y escalafón.
         </p>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <input
+            type="text"
+            placeholder="Buscar por cargo, especialidad, hospital o integrante…"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            className="h-10 flex-1 min-w-[240px] rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
+          />
+          <select
+            value={especialidad}
+            onChange={(e) => setEspecialidad(e.target.value)}
+            className="h-10 rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Todas las especialidades</option>
+            {especialidades.map((e) => (
+              <option key={e} value={e}>
+                {e}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {isLoading && <p className="p-6 text-sm text-gray-400">Cargando órdenes de mérito…</p>}
-      {isError && (
-        <p className="p-6 text-sm text-danger">
-          No se pudo cargar el listado de órdenes de mérito.
-        </p>
-      )}
-      {!isLoading && !isError && ordenes.length === 0 && (
-        <p className="rounded-lg bg-white p-6 text-center text-sm text-gray-400 shadow-sm">
-          No hay órdenes de mérito vigentes con integrantes disponibles.
-        </p>
-      )}
+      <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+        {isLoading && <p className="p-6 text-sm text-gray-400">Cargando órdenes de mérito…</p>}
+        {isError && (
+          <p className="p-6 text-sm text-danger">
+            No se pudo cargar el listado de órdenes de mérito.
+          </p>
+        )}
+        {!isLoading && !isError && filtrados.length === 0 && (
+          <p className="p-6 text-center text-sm text-gray-400">
+            {ordenes.length === 0
+              ? 'No hay órdenes de mérito vigentes con integrantes disponibles.'
+              : 'Sin resultados para la búsqueda.'}
+          </p>
+        )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {ordenes.map((o) => (
-          <OrdenCard key={o.id} o={o} />
-        ))}
+        {filtrados.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-navy text-left text-white">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Cargo</th>
+                  <th className="px-4 py-3 font-semibold">Especialidad</th>
+                  <th className="px-4 py-3 font-semibold">Hospital</th>
+                  <th className="px-4 py-3 font-semibold">Publicada</th>
+                  <th className="px-4 py-3 font-semibold">Vence</th>
+                  <th className="px-4 py-3 font-semibold text-center">Disponibles</th>
+                  <th className="px-4 py-3 font-semibold" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtrados.map((o) => {
+                  const cargo = o.concursoCph?.concurso?.cargo
+                  const dias = diasRestantes(o.fechaProrroga ?? o.fechaVencimiento)
+                  const abierto = expandido === o.id
+                  return (
+                    <Fragment key={o.id}>
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-700">
+                          {cargo?.codigo ?? o.puesto ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{o.especialidad}</td>
+                        <td className="px-4 py-3 text-gray-600">{cargo?.hospital?.sigla ?? '—'}</td>
+                        <td className="px-4 py-3 text-gray-500">
+                          {fechaCorta(o.fechaPublicacion)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              dias <= 30
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            {fechaCorta(o.fechaProrroga ?? o.fechaVencimiento)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                            {o.disponibles} / {o.integrantes.length}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => setExpandido(abierto ? null : o.id)}
+                            className="text-xs text-secondary hover:underline"
+                          >
+                            {abierto ? 'Ocultar' : 'Ver integrantes'}
+                          </button>
+                        </td>
+                      </tr>
+                      {abierto && (
+                        <tr className="bg-gray-50/60">
+                          <td colSpan={7} className="px-4 py-3">
+                            <ul className="divide-y divide-gray-100">
+                              {o.integrantes.map((i) => (
+                                <IntegranteRow key={i.id} i={i} />
+                              ))}
+                            </ul>
+                            {o.concursoCph?.id && (
+                              <div className="mt-2 text-right">
+                                <Link
+                                  to={`/concursos/cph/${o.concursoCph.id}/wizard`}
+                                  className="text-xs text-secondary hover:underline"
+                                >
+                                  Ver concurso de origen →
+                                </Link>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {filtrados.length > 0 && (
+        <p className="text-xs text-gray-400">
+          {filtrados.length} de {ordenes.length} orden(es) de mérito vigente(s)
+        </p>
+      )}
     </div>
   )
 }
