@@ -2356,19 +2356,17 @@ export function ConcursoCphWizard() {
                             </div>
                           ))}
                         {/* IF de autorización (solo lectura una vez completada la etapa) */}
-                        {cphData?.ifAutorizacion && (
-                          <div className="sm:col-span-2">
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">
-                              IF de autorización
-                            </label>
-                            <input
-                              type="text"
-                              value={cphData.ifAutorizacion}
-                              className="input h-10 w-full bg-gray-50 text-gray-500"
-                              readOnly
-                            />
-                          </div>
-                        )}
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">
+                            IF de autorización
+                          </label>
+                          <input
+                            type="text"
+                            value={cphData?.ifAutorizacion ?? '—'}
+                            className="input h-10 w-full bg-gray-50 text-gray-500"
+                            readOnly
+                          />
+                        </div>
                         <div>
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
                             Sigla
