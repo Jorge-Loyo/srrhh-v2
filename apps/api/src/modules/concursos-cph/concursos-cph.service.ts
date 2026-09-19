@@ -196,10 +196,17 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     idIn = idFilters.reduce((acc, cur) => acc.filter((id) => cur.includes(id)))
   }
 
+  // Filtro por estado alineado con el semáforo del frontend: el flag
+  // `suspendido` manda. 'suspendido' trae todo lo rojo (suspendido=true, sin
+  // importar el estado calculado); el resto de estados exige suspendido=false
+  // para no mezclar (p.ej. un Q-DESIERTO con estado='activo' pero suspendido).
+  const estadoWhere: Prisma.ConcursoCphWhereInput =
+    estado === 'suspendido' ? { suspendido: true } : estado ? { estado, suspendido: false } : {}
+
   const where: Prisma.ConcursoCphWhereInput = {
     ...(hospitalId && { hospitalId }),
     ...(cargoId && { cargoId }),
-    ...(estado && { estado }),
+    ...estadoWhere,
     ...(subEstado && { subEstado }),
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),

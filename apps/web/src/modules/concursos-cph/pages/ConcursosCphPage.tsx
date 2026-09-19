@@ -454,6 +454,97 @@ function ConcursosListaTab() {
             <option value="cobertura">Cobertura de dotación</option>
           </select>
         </div>
+
+        {/* Burbujas de filtros aplicados */}
+        {(() => {
+          const origenLabel: Record<string, string> = {
+            baja: 'Baja',
+            ampliacion: 'Ampliación',
+            cobertura: 'Cobertura de dotación',
+          }
+          const chips: { label: string; onClear: () => void }[] = []
+          if (searchDebounced)
+            chips.push({ label: `Búsqueda: "${searchDebounced}"`, onClear: () => setSearch('') })
+          if (especialidadDebounced)
+            chips.push({
+              label: `Especialidad: "${especialidadDebounced}"`,
+              onClear: () => setEspecialidad(''),
+            })
+          if (hospitalId) {
+            const h = hospitales?.find((x) => x.id === hospitalId)
+            chips.push({
+              label: `Hospital: ${h ? hospitalLabel(h) : hospitalId}`,
+              onClear: () => resetPage(setHospitalId)(''),
+            })
+          }
+          if (estado)
+            chips.push({
+              label: `Estado: ${ESTADO_LABEL[estado]}`,
+              onClear: () => resetPage(setEstado)('' as '' | EstadoConcursoCph),
+            })
+          if (subEstado)
+            chips.push({
+              label: `Sub-estado: ${subEstado}`,
+              onClear: () => resetPage(setSubEstado)(''),
+            })
+          if (subEstado3)
+            chips.push({
+              label: `Etapa: ${subEstado3}`,
+              onClear: () => resetPage(setSubEstado3)(''),
+            })
+          if (origen)
+            chips.push({
+              label: `Respaldatoria: ${origenLabel[origen]}`,
+              onClear: () => resetPage(setOrigen)('' as '' | 'baja' | 'ampliacion' | 'cobertura'),
+            })
+          if (conFaltantes)
+            chips.push({
+              label: 'Con documentación faltante',
+              onClear: () => {
+                setConFaltantes(false)
+                setPage(1)
+              },
+            })
+          if (chips.length === 0) return null
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-400">Filtros:</span>
+              {chips.map((c) => (
+                <span
+                  key={c.label}
+                  className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2.5 py-0.5 text-xs text-secondary"
+                >
+                  {c.label}
+                  <button
+                    type="button"
+                    onClick={c.onClear}
+                    className="leading-none opacity-70 hover:opacity-100"
+                    aria-label={`Quitar filtro ${c.label}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('')
+                  setEspecialidad('')
+                  setHospitalId('')
+                  setEstado('')
+                  setSubEstado('')
+                  setSubEstado3('')
+                  setOrigen('')
+                  setConFaltantes(false)
+                  setPage(1)
+                }}
+                className="text-xs text-gray-500 underline hover:text-gray-700"
+              >
+                Limpiar todo
+              </button>
+            </div>
+          )
+        })()}
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
