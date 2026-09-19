@@ -767,6 +767,12 @@ export function ConcursoCphWizard() {
     etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja',
   )
 
+  // Al cambiar de etapa, subir el scroll al tope (la etapa nueva empieza arriba,
+  // no a mitad de página donde quedó el scroll de la etapa anterior).
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [etapaActiva])
+
   // Persona designada — se carga al entrar a la etapa de designación
   const {
     data: personaDesignada,
