@@ -8,16 +8,16 @@
 
 ## Stack
 
-| Tecnología | Versión | Rol |
-|---|---|---|
-| Node.js | 20 LTS | Runtime |
-| TypeScript | 5.x | Lenguaje |
-| Fastify | 4.x | Framework HTTP |
-| Prisma | 5.x | ORM + migraciones |
-| PostgreSQL | 16 | Base de datos |
-| Zod | 3.x | Validación de schemas |
-| JWT + bcrypt | — | Autenticación |
-| Docker | — | Contenedor |
+| Tecnología   | Versión | Rol                   |
+| ------------ | ------- | --------------------- |
+| Node.js      | 20 LTS  | Runtime               |
+| TypeScript   | 5.x     | Lenguaje              |
+| Fastify      | 4.x     | Framework HTTP        |
+| Prisma       | 5.x     | ORM + migraciones     |
+| PostgreSQL   | 16      | Base de datos         |
+| Zod          | 3.x     | Validación de schemas |
+| JWT + bcrypt | —       | Autenticación         |
+| Docker       | —       | Contenedor            |
 
 ---
 
@@ -108,12 +108,48 @@ POST   /api/v1/padron/snapshots/:id/rechazar
 # Concursos (módulo padre)
 POST   /api/v1/concursos
 
-# Concursos CPH
+# Concursos CPH  (contrato completo: Doc/Contrato_Concursos_CPH.md)
 GET    /api/v1/concursos-cph
+GET    /api/v1/concursos-cph/jurados-vigentes         ← jurados confirmados (flag vigente, 6 meses)
+GET    /api/v1/concursos-cph/ordenes-merito-vigentes  ← OM vigentes con integrantes disponibles
 GET    /api/v1/concursos-cph/:id
-PATCH  /api/v1/concursos-cph/:id
+PATCH  /api/v1/concursos-cph/:id                       ← incluye ifAutorizacion; gatilla autorización SGRASV
 POST   /api/v1/concursos-cph/:id/suspender
-POST   /api/v1/concursos-cph/:id/autorizar   ← aprobar/rechazar modificación pendiente (rol sgrasv)
+POST   /api/v1/concursos-cph/:id/autorizar            ← aprobar/rechazar modificación pendiente (rol sgrasv); salta a Etapa 4 si hay candidato de OM reservado
+POST   /api/v1/concursos-cph/:id/declarar-desierto    ← acción (relanza desde Etapa 1), no es etapa
+POST   /api/v1/concursos-cph/:id/designar             ← designación formal (crea ocupación, finaliza)
+# Etapa 2 — jurado
+POST   /api/v1/concursos-cph/:id/generar-sorteo       ← prioriza Regla 1→2→3 y especialidad
+POST   /api/v1/concursos-cph/:id/jurado/reutilizar    ← reutiliza jurado vigente compatible (borrador)
+POST   /api/v1/concursos-cph/:id/jurado/confirmar
+POST   /api/v1/concursos-cph/:id/jurado/revertir
+DELETE /api/v1/concursos-cph/:id/jurado
+GET    /api/v1/concursos-cph/:id/jurado
+# Etapa 3 — inscriptos / examen / orden de mérito
+GET    /api/v1/concursos-cph/:id/inscriptos
+POST   /api/v1/concursos-cph/:id/inscriptos
+PATCH  /api/v1/concursos-cph/:id/inscriptos/:inscriptoId
+DELETE /api/v1/concursos-cph/:id/inscriptos/:inscriptoId
+POST   /api/v1/concursos-cph/:id/inscriptos/importar
+POST   /api/v1/concursos-cph/:id/inscripciones/cerrar | reabrir
+POST   /api/v1/concursos-cph/:id/examen/publicar | despublicar
+POST   /api/v1/concursos-cph/:id/presentados/confirmar | revertir
+POST   /api/v1/concursos-cph/:id/orden-merito/confirmar | revertir  ← al confirmar puebla OrdenMerito reutilizable
+# Etapa 4 — reutilización de OM
+GET    /api/v1/concursos-cph/:id/om-compatibles       ← OM compatibles (mismo puesto+especialidad+escalafón)
+GET    /api/v1/concursos-cph/:id/candidato-om         ← candidato de OM reservado (o null) + disponiblesRestantes
+POST   /api/v1/concursos-cph/:id/om/reservar          ← reserva integrante (designado, NO finaliza)
+POST   /api/v1/concursos-cph/:id/om/liberar           ← libera la reserva
+POST   /api/v1/concursos-cph/:id/om/rechazar          ← no aceptó: anula + libera; devuelve disponiblesRestantes
+POST   /api/v1/concursos-cph/importar-csv
+
+# Etiquetas (genérico, entidad concurso_cph)  — permiso { modulo:'etiquetas', accion:'crear' }
+GET    /api/v1/etiquetas
+POST   /api/v1/etiquetas
+PATCH  /api/v1/etiquetas/:id
+DELETE /api/v1/etiquetas/:id                          ← soft-delete (activo=false)
+POST   /api/v1/etiquetas/:id/asignar                  ← body { entidad, entidadId }
+DELETE /api/v1/etiquetas/:id/desasignar               ← body { entidad, entidadId }
 
 # Concursos CEETPS
 GET    /api/v1/concursos-ceetps
@@ -208,15 +244,15 @@ El sistema de permisos fue migrado de `roles.middleware.ts` (roles hardcodeados)
 
 ### Roles base
 
-| Rol | Acceso |
-|---|---|
-| `admin` | Todo |
-| `editor` | Lectura + escritura en todos los módulos |
-| `viewer` | Solo lectura |
-| `director` | Solo lectura + autorizar concursos CPH |
-| `sgrasv` | Resolver autorizaciones de cambio de sigla/CR en concursos CPH. Permiso: `concursos-cph.autorizar` |
-| `concursales_cph` | Lectura total + escritura en concursos CPH y bajas |
-| `concursales_ceetps` | Lectura total + escritura en concursos CEETPS y bajas |
+| Rol                  | Acceso                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------- |
+| `admin`              | Todo                                                                                               |
+| `editor`             | Lectura + escritura en todos los módulos                                                           |
+| `viewer`             | Solo lectura                                                                                       |
+| `director`           | Solo lectura + autorizar concursos CPH                                                             |
+| `sgrasv`             | Resolver autorizaciones de cambio de sigla/CR en concursos CPH. Permiso: `concursos-cph.autorizar` |
+| `concursales_cph`    | Lectura total + escritura en concursos CPH y bajas                                                 |
+| `concursales_ceetps` | Lectura total + escritura en concursos CEETPS y bajas                                              |
 
 ---
 
@@ -225,6 +261,7 @@ El sistema de permisos fue migrado de `roles.middleware.ts` (roles hardcodeados)
 La columna `especialidad` fue renombrada a `especialidad_legacy` en la migración `20260910000001_especialidades_fk`. Se agregó `especialidad_id` FK → `especialidades`.
 
 **Reglas:**
+
 - `createCargoService` escribe en `especialidadLegacy` (no en `especialidad`, que ya no existe en BD).
 - `listCargosService` usa query raw con `LEFT JOIN especialidades e ON e.id = c.especialidad_id` y búsqueda por `similarity(e.nombre, $query) > 0.4` (extensión `pg_trgm`, migración `20260910000002_pg_trgm`).
 - El tipo `Cargo` en `packages/types` tiene `especialidadLegacy: string | null`, `especialidadId: string | null` y `especialidad: string | null // @deprecated`.
@@ -234,6 +271,7 @@ La columna `especialidad` fue renombrada a `especialidad_legacy` en la migració
 ## Módulo Bajas — flujo completo
 
 `createBajaService` ejecuta una sola transacción que:
+
 1. Crea la `Baja` con todos sus campos (ee_baja, partida_presupuestaria, doc_respaldatoria, fecha_pase_paralelo)
 2. Si `estado = resolucion_a_la_firma` → borrador, no toca el cargo ni crea concurso
 3. Si `estado != resolucion_a_la_firma` → marca el `Cargo` como `no_vigente`
@@ -261,13 +299,13 @@ La página `/bajas/validacion` cruza tres fuentes para detectar inconsistencias 
 
 ### Campos de la tabla `bajas`
 
-| Campo | Descripción |
-|---|---|
-| `ee_baja` | Expediente electrónico de la baja |
-| `partida_presupuestaria` | Partida presupuestaria del cargo |
-| `doc_respaldatoria` | Documento respaldatorio |
-| `fecha_pase_paralelo` | Fecha de pase paralelo / GT |
-| `estado` | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
+| Campo                    | Descripción                                                         |
+| ------------------------ | ------------------------------------------------------------------- |
+| `ee_baja`                | Expediente electrónico de la baja                                   |
+| `partida_presupuestaria` | Partida presupuestaria del cargo                                    |
+| `doc_respaldatoria`      | Documento respaldatorio                                             |
+| `fecha_pase_paralelo`    | Fecha de pase paralelo / GT                                         |
+| `estado`                 | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
 
 ---
 
@@ -279,25 +317,25 @@ La página `/bajas/validacion` cruza tres fuentes para detectar inconsistencias 
 
 Orden cronológico del proceso real:
 
-| Sub-estado | Descripción |
-|---|---|
-| `VACANTE` | Concurso creado, sin expediente todavía |
-| `A-CARATULADO` | EE Concurso caratulado |
-| `A-AUTZN` | En trámite de autorización |
-| `B-SORTEO JUR` | Sorteo de jurado realizado |
-| `C-DISPO DE LLAMADO` | Disposición de llamado emitida y publicada |
-| `D-EXAMEN PUBLICADO` | Inscripción abierta, fecha de examen publicada |
-| `E-ORDEN DE MERITO` | Orden de mérito confeccionado |
-| `F-IFACS` | Adjudicado tramitando IFACS (aptitud médica) |
-| `G-INSAL` | Tramitando INSAL (informe situación laboral) |
-| `H-TAD` | EE Designación iniciado en TAD |
-| `I-CARGA DOCU` | Documentación del adjudicado cargada |
-| `J-APTO MED` | Apto médico confirmado |
-| `K-ITE` | Informe Técnico Económico (verificación presupuestaria) |
-| `L-PYCTO DE RESO` | Proyecto de resolución en revisión legal |
-| `M-RESO A LA FIRMA` | Resolución aguardando firma ministerial |
-| `N-DESIGNADO` | Resolución firmada — persona designada |
-| `O-ALTA SIAL` | Alta procesada en SIAL — cargo ocupado |
+| Sub-estado           | Descripción                                             |
+| -------------------- | ------------------------------------------------------- |
+| `VACANTE`            | Concurso creado, sin expediente todavía                 |
+| `A-CARATULADO`       | EE Concurso caratulado                                  |
+| `A-AUTZN`            | En trámite de autorización                              |
+| `B-SORTEO JUR`       | Sorteo de jurado realizado                              |
+| `C-DISPO DE LLAMADO` | Disposición de llamado emitida y publicada              |
+| `D-EXAMEN PUBLICADO` | Inscripción abierta, fecha de examen publicada          |
+| `E-ORDEN DE MERITO`  | Orden de mérito confeccionado                           |
+| `F-IFACS`            | Adjudicado tramitando IFACS (aptitud médica)            |
+| `G-INSAL`            | Tramitando INSAL (informe situación laboral)            |
+| `H-TAD`              | EE Designación iniciado en TAD                          |
+| `I-CARGA DOCU`       | Documentación del adjudicado cargada                    |
+| `J-APTO MED`         | Apto médico confirmado                                  |
+| `K-ITE`              | Informe Técnico Económico (verificación presupuestaria) |
+| `L-PYCTO DE RESO`    | Proyecto de resolución en revisión legal                |
+| `M-RESO A LA FIRMA`  | Resolución aguardando firma ministerial                 |
+| `N-DESIGNADO`        | Resolución firmada — persona designada                  |
+| `O-ALTA SIAL`        | Alta procesada en SIAL — cargo ocupado                  |
 
 ### Filtro `conFaltantes` en `listConcursosCphService`
 
@@ -308,10 +346,12 @@ Filtro booleano que devuelve solo concursos con campos vacíos según su sub-est
 Cuando el PATCH incluye cambios en `siglaSolicitada` o `codigoRegistroSolicitadoId`, el service activa `pendienteAutorizacion = true` y crea una notificación `autorizacion_pendiente`.
 
 **Flujo según tipo de cambio:**
+
 - Con cambio de sigla/CR → Director debe aprobar primero, luego SGRASV resuelve
 - Sin cambio de sigla/CR → SGRASV puede resolver directamente
 
 Guard en `aprobarAutorizacionCphService`:
+
 ```
 const requiereDirector = !!(existing.siglaSolicitada || existing.codigoRegistroSolicitadoId)
 if (requiereDirector && !existing.aprobadoDirector) → 403
@@ -323,12 +363,12 @@ if (requiereDirector && !existing.aprobadoDirector) → 403
 
 ### Campos en `concursos_cph` relacionados con autorizaciones
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `pendiente_autorizacion` | BOOLEAN default false | Hay una modificación pendiente de aprobación |
-| `sigla_solicitada` | VARCHAR nullable | Nueva sigla solicitada (dispara flujo Director → SGRASV) |
-| `codigo_registro_solicitado_id` | UUID FK nullable | Nuevo código de registro solicitado (ídem) |
-| `aprobado_director` | BOOLEAN default false | El Director ya aprobó el cambio de sigla/CR |
+| Campo                           | Tipo                  | Descripción                                              |
+| ------------------------------- | --------------------- | -------------------------------------------------------- |
+| `pendiente_autorizacion`        | BOOLEAN default false | Hay una modificación pendiente de aprobación             |
+| `sigla_solicitada`              | VARCHAR nullable      | Nueva sigla solicitada (dispara flujo Director → SGRASV) |
+| `codigo_registro_solicitado_id` | UUID FK nullable      | Nuevo código de registro solicitado (ídem)               |
+| `aprobado_director`             | BOOLEAN default false | El Director ya aprobó el cambio de sigla/CR              |
 
 ---
 
