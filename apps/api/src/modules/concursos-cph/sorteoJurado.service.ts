@@ -53,12 +53,18 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
   return a
 }
 
-// Normaliza especialidades para comparar (sin acentos, minúsculas, trim).
+// Normaliza especialidades para comparar (sin acentos, minúsculas, trim). Se
+// descarta lo que está entre paréntesis: los cargos legacy guardan la
+// especialidad como "Clinica Medica (Medicina Interna)" mientras el padrón de
+// personas usa la forma base "Clínica Médica"; comparamos por la base para que
+// hagan match. No se modifican los datos, solo la comparación.
 function norm(s: string | null | undefined): string {
   return (s ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\([^)]*\)/g, '') // quita "(...)" (subespecialidad/aclaración)
     .toLowerCase()
+    .replace(/\s+/g, ' ')
     .trim()
 }
 
