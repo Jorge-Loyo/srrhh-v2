@@ -477,6 +477,8 @@ export function ConcursoCphWizard() {
   const [modalAutorizacion, setModalAutorizacion] = useState(false)
   const [obsAutorizacion, setObsAutorizacion] = useState('')
   const [modalBaja, setModalBaja] = useState(false)
+  const [menuAcciones, setMenuAcciones] = useState(false)
+  const menuAccionesRef = useRef<HTMLDivElement>(null)
   const [modalDesignar, setModalDesignar] = useState(false)
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
@@ -768,6 +770,18 @@ export function ConcursoCphWizard() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [etapaActiva])
+
+  // Cerrar el menú "Acciones" al hacer click afuera.
+  useEffect(() => {
+    if (!menuAcciones) return
+    const onClick = (e: MouseEvent) => {
+      if (menuAccionesRef.current && !menuAccionesRef.current.contains(e.target as Node)) {
+        setMenuAcciones(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [menuAcciones])
 
   // Persona designada — se carga al entrar a la etapa de designación
   const {
@@ -1872,63 +1886,95 @@ export function ConcursoCphWizard() {
             </p>
           </div>
 
-          {/* Badges + acción */}
+          {/* Badges de estado + menú de acciones */}
           {cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
-              {id && <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />}
               <span className="badge-info text-xs">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
               <span className="badge-default text-xs">{c.subEstado3}</span>
               {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
-              <button onClick={() => setModalBaja(true)} className="btn-outline text-xs py-1 px-3">
-                📋 Ver baja
-              </button>
-              {/* Suspender / Activar (toggle según el estado actual) */}
-              <button
-                className="btn-outline text-xs py-1 px-3"
-                disabled={suspenderMutation.isPending}
-                onClick={async () => {
-                  const activar = !!cphData.suspendido
-                  const ok = await confirm({
-                    titulo: activar ? 'Activar concurso' : 'Suspender concurso',
-                    mensaje: activar
-                      ? 'El concurso volverá a estar activo. ¿Continuar?'
-                      : 'El concurso quedará suspendido y saldrá de los listados operativos. ¿Continuar?',
-                    peligro: !activar,
-                  })
-                  if (!ok) return
-                  suspenderMutation.mutate(
-                    { suspendido: !activar },
-                    {
-                      onSuccess: () => {
-                        queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
-                        toast.success(activar ? 'Concurso activado.' : 'Concurso suspendido.')
-                      },
-                      onError: (e) =>
-                        toast.error(
-                          (e as { response?: { data?: { error?: { message?: string } } } })
-                            ?.response?.data?.error?.message ?? 'No se pudo cambiar el estado.',
-                        ),
-                    },
-                  )
-                }}
-              >
-                {suspenderMutation.isPending
-                  ? '…'
-                  : cphData.suspendido
-                    ? '▶ Activar'
-                    : '⏸ Suspender'}
-              </button>
-              {/* Declarar desierto (acción, no etapa: relanza desde Etapa 1) */}
-              {cphData.estado !== 'finalizado' && (
+
+              {/* Menú "Acciones" */}
+              <div className="relative" ref={menuAccionesRef}>
                 <button
-                  onClick={() => setModalDesierto(true)}
-                  className="btn-outline text-xs py-1 px-3 text-danger border-red-200 hover:bg-red-50"
+                  onClick={() => setMenuAcciones((v) => !v)}
+                  className="btn-outline text-xs py-1 px-3"
                 >
-                  🚫 Declarar desierto
+                  ⚙ Acciones ▾
                 </button>
-              )}
+                {menuAcciones && (
+                  <div className="absolute right-0 z-50 mt-1 w-60 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                    {/* Etiquetas */}
+                    {id && (
+                      <div className="border-b border-gray-100 px-1 pb-2">
+                        <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                          Etiquetas
+                        </p>
+                        <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />
+                      </div>
+                    )}
+                    {/* Ver baja */}
+                    <button
+                      onClick={() => {
+                        setModalBaja(true)
+                        setMenuAcciones(false)
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      📋 Ver baja
+                    </button>
+                    {/* Suspender / Activar */}
+                    <button
+                      disabled={suspenderMutation.isPending}
+                      onClick={async () => {
+                        setMenuAcciones(false)
+                        const activar = !!cphData.suspendido
+                        const ok = await confirm({
+                          titulo: activar ? 'Activar concurso' : 'Suspender concurso',
+                          mensaje: activar
+                            ? 'El concurso volverá a estar activo. ¿Continuar?'
+                            : 'El concurso quedará suspendido y saldrá de los listados operativos. ¿Continuar?',
+                          peligro: !activar,
+                        })
+                        if (!ok) return
+                        suspenderMutation.mutate(
+                          { suspendido: !activar },
+                          {
+                            onSuccess: () => {
+                              queryClient.invalidateQueries({
+                                queryKey: ['concurso-cph-wizard', id],
+                              })
+                              toast.success(activar ? 'Concurso activado.' : 'Concurso suspendido.')
+                            },
+                            onError: (e) =>
+                              toast.error(
+                                (e as { response?: { data?: { error?: { message?: string } } } })
+                                  ?.response?.data?.error?.message ??
+                                  'No se pudo cambiar el estado.',
+                              ),
+                          },
+                        )
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {cphData.suspendido ? '▶ Activar' : '⏸ Suspender'}
+                    </button>
+                    {/* Declarar desierto */}
+                    {cphData.estado !== 'finalizado' && (
+                      <button
+                        onClick={() => {
+                          setModalDesierto(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-red-50"
+                      >
+                        🚫 Declarar desierto
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
