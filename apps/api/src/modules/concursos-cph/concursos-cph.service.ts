@@ -222,7 +222,8 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     prisma.concursoCph.findMany({
       where,
       include,
-      orderBy: { updatedAt: 'desc' },
+      // Orden: por fecha de creación, más recientes primero.
+      orderBy: { createdAt: 'desc' },
       skip: offset,
       take: limit,
     }),
