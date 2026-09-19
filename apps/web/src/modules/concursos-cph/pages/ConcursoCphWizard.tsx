@@ -29,6 +29,7 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import {
   useDesignarConcursoCph,
   useDeclararDesiertoCph,
+  useSuspenderConcursoCph,
   useGenerarSorteoJurado,
   useReutilizarJurado,
   useJuradosVigentes,
@@ -577,6 +578,7 @@ export function ConcursoCphWizard() {
 
   const designarMutation = useDesignarConcursoCph(id!)
   const declararDesiertoMutation = useDeclararDesiertoCph(id!)
+  const suspenderMutation = useSuspenderConcursoCph(id!)
 
   // Búsqueda de personas para el selector de designación
   const { data: personasDesignarData } = useQuery({
@@ -1882,6 +1884,51 @@ export function ConcursoCphWizard() {
               <button onClick={() => setModalBaja(true)} className="btn-outline text-xs py-1 px-3">
                 📋 Ver baja
               </button>
+              {/* Suspender / Activar (toggle según el estado actual) */}
+              <button
+                className="btn-outline text-xs py-1 px-3"
+                disabled={suspenderMutation.isPending}
+                onClick={async () => {
+                  const activar = !!cphData.suspendido
+                  const ok = await confirm({
+                    titulo: activar ? 'Activar concurso' : 'Suspender concurso',
+                    mensaje: activar
+                      ? 'El concurso volverá a estar activo. ¿Continuar?'
+                      : 'El concurso quedará suspendido y saldrá de los listados operativos. ¿Continuar?',
+                    peligro: !activar,
+                  })
+                  if (!ok) return
+                  suspenderMutation.mutate(
+                    { suspendido: !activar },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+                        toast.success(activar ? 'Concurso activado.' : 'Concurso suspendido.')
+                      },
+                      onError: (e) =>
+                        toast.error(
+                          (e as { response?: { data?: { error?: { message?: string } } } })
+                            ?.response?.data?.error?.message ?? 'No se pudo cambiar el estado.',
+                        ),
+                    },
+                  )
+                }}
+              >
+                {suspenderMutation.isPending
+                  ? '…'
+                  : cphData.suspendido
+                    ? '▶ Activar'
+                    : '⏸ Suspender'}
+              </button>
+              {/* Declarar desierto (acción, no etapa: relanza desde Etapa 1) */}
+              {cphData.estado !== 'finalizado' && (
+                <button
+                  onClick={() => setModalDesierto(true)}
+                  className="btn-outline text-xs py-1 px-3 text-danger border-red-200 hover:bg-red-50"
+                >
+                  🚫 Declarar desierto
+                </button>
+              )}
             </div>
           )}
         </div>
