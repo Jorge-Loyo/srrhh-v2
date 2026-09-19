@@ -10,7 +10,8 @@ const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000'
 
 function resolveBase(): { protocol: string; host: string } {
   const parsed = new URL(BASE_URL)
-  if (!ALLOWED_HOSTS.has(parsed.hostname)) throw new Error(`[SSRF] Host not in allowlist: ${parsed.hostname}`)
+  if (!ALLOWED_HOSTS.has(parsed.hostname))
+    throw new Error(`[SSRF] Host not in allowlist: ${parsed.hostname}`)
   return { protocol: parsed.protocol, host: parsed.host }
 }
 
@@ -27,9 +28,10 @@ async function GET(path: string, token?: string) {
   const json = await res.json().catch(() => ({}))
   // Algunos endpoints devuelven { data, meta } directamente (bajas, concursos-cph)
   // otros devuelven { data: { data, meta } } (padron). Normalizamos acá.
-  const body = json.data !== undefined && !Array.isArray(json.data) && json.data?.data !== undefined
-    ? json
-    : { data: json }
+  const body =
+    json.data !== undefined && !Array.isArray(json.data) && json.data?.data !== undefined
+      ? json
+      : { data: json }
   return { status: res.status, ok: res.ok, body: json, raw: json }
 }
 
@@ -121,10 +123,13 @@ describe('GET /api/v1/concursos-cph', () => {
     }
   })
 
-  it('filtro estado=suspendido devuelve solo suspendidos', async () => {
+  it('filtro estado=suspendido devuelve solo suspendidos (flag suspendido=true)', async () => {
+    // El filtro por estado se alinea con el semáforo: 'suspendido' trae todo lo
+    // que tiene suspendido=true, sin importar el estado calculado (p.ej. un
+    // Q-DESIERTO con estado='activo' pero suspendido).
     const { body } = await GET('/api/v1/concursos-cph?estado=suspendido&limit=20', token)
-    for (const c of body.data as { estado: string }[]) {
-      expect(c.estado).toBe('suspendido')
+    for (const c of body.data as { suspendido: boolean }[]) {
+      expect(c.suspendido).toBe(true)
     }
   })
 
@@ -162,7 +167,10 @@ describe('GET /api/v1/concursos-cph', () => {
   })
 
   it('filtro conFaltantes=true + estado=activo combina correctamente', async () => {
-    const { ok, body } = await GET('/api/v1/concursos-cph?conFaltantes=true&estado=activo&limit=20', token)
+    const { ok, body } = await GET(
+      '/api/v1/concursos-cph?conFaltantes=true&estado=activo&limit=20',
+      token,
+    )
     expect(ok).toBe(true)
     for (const c of body.data as { estado: string }[]) {
       expect(c.estado).toBe('activo')
@@ -188,7 +196,10 @@ describe('GET /api/v1/concursos-cph', () => {
 
 describe('GET /api/v1/concursos-cph/:id', () => {
   it('id inexistente → 404', async () => {
-    const { status } = await GET('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000', token)
+    const { status } = await GET(
+      '/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000',
+      token,
+    )
     expect(status).toBe(404)
   })
 
@@ -206,7 +217,7 @@ describe('GET /api/v1/concursos-cph/:id', () => {
     expect(c).toHaveProperty('hospital')
     // cargo está anidado en concurso.cargo
     expect(c).toHaveProperty('concurso')
-    expect((c.concurso as Record<string, unknown>)).toHaveProperty('cargo')
+    expect(c.concurso as Record<string, unknown>).toHaveProperty('cargo')
   })
 })
 
@@ -223,11 +234,14 @@ describe('PATCH /api/v1/concursos-cph/:id — validaciones', () => {
   })
 
   it('sin token → 401', async () => {
-    const res = await fetch(buildUrl('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000'), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const res = await fetch(
+      buildUrl('/api/v1/concursos-cph/00000000-0000-0000-0000-000000000000'),
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(res.status).toBe(401)
   })
 })

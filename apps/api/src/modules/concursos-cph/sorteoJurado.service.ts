@@ -229,14 +229,20 @@ function armarPoolCascada(
   let reglaUsada: ReglaJurado = 1
   for (const regla of [1, 2, 3] as ReglaJurado[]) {
     reglaUsada = regla
+    // Se agrega el nivel COMPLETO (no se corta a mitad de regla) para que la
+    // priorización por especialidad dentro de cada regla — que hace
+    // sortearJurado — tenga todos los candidatos del nivel disponibles.
     pool.push(...candidatos.filter((c) => c.regla === regla))
     if (pool.length >= total) break
   }
   return { pool, reglaUsada, porRegla }
 }
 
-// Sortea `total` miembros del pool (orden aleatorio sembrado) y los reparte:
-// los primeros `cantTitulares` como titulares, los siguientes como suplentes.
+// Sortea `total` miembros del pool RESPETANDO LA PRIORIDAD por regla: primero
+// se llena con candidatos de Regla 1, luego Regla 2, luego Regla 3; solo se baja
+// de regla para completar los cupos faltantes. Dentro de cada regla se prioriza
+// a los que cumplen la especialidad del concurso, y entre iguales el orden es
+// aleatorio (sembrado, auditable). Los primeros `cantTitulares` son titulares.
 function sortearJurado(
   pool: Candidato[],
   cantTitulares: number,
@@ -244,7 +250,22 @@ function sortearJurado(
   rng: () => number,
 ): MiembroElegido[] {
   const total = cantTitulares + cantSuplentes
-  const sorteados = shuffle(pool, rng).slice(0, total)
+  // Orden de selección: por regla (1→2→3); dentro de la regla, especialidad
+  // primero; entre los que empatan, aleatorio sembrado.
+  const priorizado: Candidato[] = []
+  for (const regla of [1, 2, 3] as ReglaJurado[]) {
+    const delNivel = pool.filter((c) => c.regla === regla)
+    const conEsp = shuffle(
+      delNivel.filter((c) => c.cumpleEspecialidad),
+      rng,
+    )
+    const sinEsp = shuffle(
+      delNivel.filter((c) => !c.cumpleEspecialidad),
+      rng,
+    )
+    priorizado.push(...conEsp, ...sinEsp)
+  }
+  const sorteados = priorizado.slice(0, total)
   return sorteados.map((c, i) => {
     const esTitular = i < cantTitulares
     const rol: 'titular' | 'suplente' = esTitular ? 'titular' : 'suplente'
