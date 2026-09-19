@@ -3030,6 +3030,28 @@ export function ConcursoCphWizard() {
                         </div>
                       )
                     }
+                    // La inscripción se considera ya cerrada/publicada si el flag
+                    // lo indica, o si ya hay examen publicado, o si el sub-estado
+                    // avanzó más allá de la etapa de inscripción (D en adelante).
+                    // Cubre datos históricos que nunca setearon inscripcionCerrada.
+                    const SUBS_POST_INSCRIPCION = [
+                      'D-EXAMEN PUBLICADO',
+                      'E-ORDEN DE MERITO',
+                      'F-IFACS',
+                      'G-INSAL',
+                      'H-TAD',
+                      'I-CARGA DOCU',
+                      'J-APTO MED',
+                      'K-ITE',
+                      'L-PYCTO DE RESO',
+                      'M-RESO A LA FIRMA',
+                      'N-DESIGNADO',
+                      'O-ALTA SIAL',
+                    ]
+                    const inscripcionYaCerrada =
+                      !!cphData?.inscripcionCerrada ||
+                      !!cphData?.fechaExamen ||
+                      SUBS_POST_INSCRIPCION.includes(cphData?.subEstado ?? '')
                     return (
                       <>
                         {/* Fechas de inscripción + publicar */}
@@ -3039,7 +3061,7 @@ export function ConcursoCphWizard() {
                         </div>
                         {cphData && (
                           <div>
-                            {!cphData.inscripcionCerrada ? (
+                            {!inscripcionYaCerrada ? (
                               <button
                                 className="btn-primary text-sm whitespace-nowrap"
                                 disabled={cerrarInscripcionMutation.isPending}
