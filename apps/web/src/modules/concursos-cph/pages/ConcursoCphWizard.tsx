@@ -1,7 +1,9 @@
 // Wizard de seguimiento CPH — funciona en dos modos:
 // Wizard de seguimiento de un concurso CPH — carga el concurso real por su UUID
-// (id de la ruta) y guía las 6 etapas del proceso: Baja/Apertura, Autorización/
-// Jurado, Inscripción/Examen/OM, IFACS/INSAL, Designación y Declarar desierto.
+// (id de la ruta) y guía las 5 etapas del proceso: Baja/Apertura, Autorización/
+// Jurado, Inscripción/Examen/OM, IFACS/INSAL y Designación.
+// "Declarar desierto" NO es una etapa: es una acción disponible en la Etapa 3
+// que relanza el concurso desde la Etapa 1.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -451,14 +453,6 @@ export function ConcursoCphWizard() {
             valor: '',
           },
         ],
-      },
-      {
-        id: 'desierto',
-        numero: 6,
-        titulo: 'Declarar desierto',
-        descripcion: 'Registrar una ronda desierta y relanzar el concurso.',
-        estado: cphData?.dispoDesierta ? 'completada' : 'bloqueada',
-        campos: [],
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
