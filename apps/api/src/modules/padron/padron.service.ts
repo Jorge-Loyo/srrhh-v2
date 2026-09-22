@@ -6,6 +6,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
 import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
+import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import type { DiffQuery } from './padron.schema.js'
 
 // Prefijos que se aprueban automáticamente al subir el padrón:
@@ -1582,6 +1583,156 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   return { resumen, detalle: resultado }
 }
 
+// ─── Preview de validaciones: qué concursos quedarían validados ─────────────
+// Al subir un padrón, muestra los diffs "nuevo" pendientes cuyo cargo triangula
+// con un concurso CPH que tiene persona del orden de mérito reservada/designada,
+// cruzando CUIL (persona del concurso vs persona del diff), escalafón (carrera)
+// y especialidad. Es la base del flujo semi-automático: el operador ve la
+// sugerencia y valida al aprobar+vincular el diff. No muta nada.
+const normalizarEsp = (s: string | null | undefined): string =>
+  (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+
+const soloDigitos = (s: string | null | undefined): string => (s ?? '').replace(/\D/g, '')
+
+export async function getValidacionesPreviewService(snapshotId: string) {
+  await getSnapshotOrThrow(snapshotId)
+
+  // Solo diffs nuevos pendientes (aprobado=null) — los ya aprobados/rechazados
+  // no aplican al preview de "lo que pasará al aprobar".
+  const diffs = await prisma.padronDiff.findMany({
+    where: { snapshotId, tipo: 'nuevo', aprobado: null },
+    select: { id: true, idSialRol: true, valorNuevo: true },
+  })
+
+  const parsed = diffs.map((d) => {
+    const datos = JSON.parse(d.valorNuevo ?? '{}')
+    return {
+      diffId: d.id,
+      idSialRol: d.idSialRol,
+      idSial: datos.id_sial as string | undefined,
+      cuil: cuilDe(datos), // 11 dígitos
+      ayn: datos.ayn as string | undefined,
+      siglas: datos.siglas as string | undefined,
+      escalafon: datos.escalafon as string | undefined,
+      especialidad: datos.especialidad as string | undefined,
+      codigoDeRegistro: datos.codigo_de_registro as string | undefined,
+    }
+  })
+
+  const cuils = [...new Set(parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v)))]
+  const codRegs = [
+    ...new Set(parsed.map((p) => p.codigoDeRegistro).filter((v): v is string => Boolean(v))),
+  ]
+  const escNames = [
+    ...new Set(parsed.map((p) => p.escalafon).filter((v): v is string => Boolean(v))),
+  ]
+
+  if (cuils.length === 0) return { resumen: { total: 0, validables: 0 }, detalle: [] }
+
+  const [codRegsLookup, escalafonesLookup] = await Promise.all([
+    prisma.codigoRegistro.findMany({
+      where: { codigo: { in: codRegs } },
+      select: { codigo: true, escalafonId: true },
+    }),
+    prisma.escalafon.findMany({
+      where: { nombre: { in: escNames }, activo: true },
+      select: { id: true, nombre: true },
+    }),
+  ])
+  const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+
+  // Concursos abiertos con persona del orden de mérito (reservada o designada).
+  // Traemos el CUIL de ambas fuentes + escalafón + especialidad para cruzar.
+  const concursos = await prisma.concursoCph.findMany({
+    where: {
+      estado: { not: 'finalizado' },
+      suspendido: false,
+      OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
+    },
+    select: {
+      id: true,
+      validado: true,
+      especialidadSolicitada: true,
+      concurso: {
+        select: {
+          cargo: {
+            select: { id: true, codigo: true, idSial: true, escalafonId: true },
+          },
+        },
+      },
+      personaDesignada: { select: { cuil: true, apellidoNombre: true } },
+      inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
+    },
+  })
+
+  // Índice de concursos por CUIL (normalizado a dígitos) de su persona.
+  type ConcursoRow = (typeof concursos)[number]
+  const concursoPorCuil = new Map<string, ConcursoRow>()
+  for (const cc of concursos) {
+    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
+    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
+    if (cuilDesig) concursoPorCuil.set(cuilDesig, cc)
+    // El reservado solo si no hay ya uno por designado (designado tiene prioridad).
+    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
+  }
+
+  const detalle = parsed
+    .map((p) => {
+      if (!p.cuil) return null
+      const cc = concursoPorCuil.get(p.cuil)
+      if (!cc) return null
+
+      const escalafonDiff =
+        (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro)) ??
+        (p.escalafon && escNombreMap.get(p.escalafon)) ??
+        null
+      const carreraCoincide =
+        !!escalafonDiff && escalafonDiff === (cc.concurso?.cargo?.escalafonId ?? null)
+      const especialidadCoincide =
+        !!p.especialidad &&
+        !!cc.especialidadSolicitada &&
+        normalizarEsp(p.especialidad) === normalizarEsp(cc.especialidadSolicitada)
+
+      const nombre =
+        cc.personaDesignada?.apellidoNombre ??
+        (cc.inscriptoReservado
+          ? `${cc.inscriptoReservado.apellido}, ${cc.inscriptoReservado.nombre}`
+          : '')
+
+      return {
+        diffId: p.diffId,
+        idSialRol: p.idSialRol,
+        idSial: p.idSial ?? null,
+        cuil: p.cuil,
+        concursoCphId: cc.id,
+        concursoCodigo: cc.concurso?.cargo?.codigo ?? null,
+        personaNombre: nombre,
+        especialidadDiff: p.especialidad ?? null,
+        especialidadConcurso: cc.especialidadSolicitada ?? null,
+        carreraCoincide,
+        especialidadCoincide,
+        // "Validable": el cruce por CUIL ya matcheó; para el flujo semi-automático
+        // se sugiere validar cuando además coincide carrera Y especialidad.
+        validable: carreraCoincide && especialidadCoincide,
+        yaValidado: cc.validado,
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  return {
+    resumen: {
+      total: detalle.length,
+      validables: detalle.filter((d) => d.validable && !d.yaValidado).length,
+    },
+    detalle,
+  }
+}
+
 // ─── Aprobar todos los diffs nuevos pendientes en bloque ───────────────────
 
 export async function aprobarTodosDiffsPendientesService(snapshotId: string, usuarioId: string) {
@@ -1797,17 +1948,61 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     if (vincularConcursoId && persona) {
       const concursoActual = await tx.concursoCph.findUnique({
         where: { id: vincularConcursoId },
-        select: { resolucionDesignacion: true },
+        select: {
+          resolucionDesignacion: true,
+          especialidadSolicitada: true,
+          validado: true,
+          concurso: { select: { cargo: { select: { escalafonId: true, codigo: true } } } },
+        },
       })
       const estaCompleto = !!concursoActual?.resolucionDesignacion
+
+      // Validación (flag INDEPENDIENTE del sub-estado): el cargo del padrón
+      // triangula con el concurso si coincide la carrera (escalafón) y la
+      // especialidad. `escalafon` ya está resuelto arriba (del diff).
+      const carreraCoincide =
+        !!concursoActual?.concurso?.cargo?.escalafonId &&
+        escalafon.id === concursoActual.concurso.cargo.escalafonId
+      const especialidadCoincide =
+        !!datos.especialidad &&
+        !!concursoActual?.especialidadSolicitada &&
+        datos.especialidad
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim() ===
+          concursoActual.especialidadSolicitada
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim()
+      const debeValidar = carreraCoincide && especialidadCoincide && !concursoActual?.validado
+      const nombrePersona = datos.ayn || 'La persona'
+
       await tx.concursoCph.update({
         where: { id: vincularConcursoId },
         data: {
           personaDesignadaId: persona.id,
           cargoSial: datos.id_sial ?? null,
           ...(estaCompleto ? { estado: 'finalizado' } : {}),
+          ...(debeValidar
+            ? { validado: true, validadoAt: new Date(), validadoIdSialRol: diff.idSialRol }
+            : {}),
         },
       })
+
+      if (debeValidar) {
+        const cargoCodigo = concursoActual?.concurso?.cargo?.codigo ?? nombrePersona
+        await crearNotificacion({
+          tipo: 'autorizacion_resuelta',
+          rolSlug: 'concursales_cph',
+          titulo: `Concurso validado — ${cargoCodigo}`,
+          mensaje: `${nombrePersona} apareció en el padrón con el rol ${diff.idSialRol}, que coincide con la carrera y especialidad del concurso. La asignación quedó validada.`,
+          origenTipo: 'concurso_cph',
+          origenId: vincularConcursoId,
+          origenKey: `cph_validado:${vincularConcursoId}`,
+        })
+      }
     }
 
     // Marcar diff como aprobado

@@ -118,6 +118,8 @@ POST   /api/v1/concursos-cph/:id/suspender
 POST   /api/v1/concursos-cph/:id/autorizar            ← aprobar/rechazar modificación pendiente (rol sgrasv); salta a Etapa 4 si hay candidato de OM reservado
 POST   /api/v1/concursos-cph/:id/declarar-desierto    ← acción (relanza desde Etapa 1), no es etapa
 POST   /api/v1/concursos-cph/:id/designar             ← designación formal (crea ocupación, finaliza)
+GET    /api/v1/concursos-cph/:id/persona-designada    ← persona designada (3 fuentes) — Etapa 5 legacy
+GET    /api/v1/concursos-cph/:id/designacion-estado   ← Etapa 5: datos completos + cargo actual + validación (CUIL+carrera+especialidad); setea validado
 # Etapa 2 — jurado
 POST   /api/v1/concursos-cph/:id/generar-sorteo       ← prioriza Regla 1→2→3 y especialidad
 POST   /api/v1/concursos-cph/:id/jurado/reutilizar    ← reutiliza jurado vigente compatible (borrador)
@@ -135,13 +137,17 @@ POST   /api/v1/concursos-cph/:id/inscripciones/cerrar | reabrir
 POST   /api/v1/concursos-cph/:id/examen/publicar | despublicar
 POST   /api/v1/concursos-cph/:id/presentados/confirmar | revertir
 POST   /api/v1/concursos-cph/:id/orden-merito/confirmar | revertir  ← al confirmar puebla OrdenMerito reutilizable
-# Etapa 4 — reutilización de OM
+# Etapa 1 — reutilización de OM (panel PanelReutilizarOm; ya NO en Etapa 4)
 GET    /api/v1/concursos-cph/:id/om-compatibles       ← OM compatibles (mismo puesto+especialidad+escalafón)
 GET    /api/v1/concursos-cph/:id/candidato-om         ← candidato de OM reservado (o null) + disponiblesRestantes
 POST   /api/v1/concursos-cph/:id/om/reservar          ← reserva integrante (designado, NO finaliza)
 POST   /api/v1/concursos-cph/:id/om/liberar           ← libera la reserva
 POST   /api/v1/concursos-cph/:id/om/rechazar          ← no aceptó: anula + libera; devuelve disponiblesRestantes
 POST   /api/v1/concursos-cph/importar-csv
+
+# Validación contra padrón (módulo padrón) — ver Doc/Contrato_Concursos_CPH.md §6qua
+GET    /api/v1/padron/snapshots/:id/validaciones-preview  ← concursos que pasarán a validados (CUIL+carrera+especialidad)
+POST   /api/v1/padron/snapshots/:id/diffs/:diffId/aprobar ← aprobar+vincular; setea ConcursoCph.validado si triangula
 
 # Etiquetas (genérico, entidad concurso_cph)  — permiso { modulo:'etiquetas', accion:'crear' }
 GET    /api/v1/etiquetas

@@ -16,6 +16,7 @@ import {
   patchConcursoCphService,
   suspenderConcursoCphService,
   getPersonaDesignadaService,
+  getDesignacionEstadoService,
   designarConcursoCphService,
   declararDesiertoService,
   importarConcursosCsvService,
@@ -131,6 +132,14 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // o por OrdenMeritoIntegrante.designado=true para este concurso
   app.get<{ Params: { id: string } }>('/:id/persona-designada', async (request, reply) => {
     const data = await getPersonaDesignadaService(request.params.id)
+    return reply.send({ data })
+  })
+
+  // GET /:id/designacion-estado — Etapa 5: resuelve al ganador por CUIL contra
+  // el padrón, trae datos completos + cargo actual/último + validación
+  // carrera+especialidad. Marca validado y notifica si corresponde.
+  app.get<{ Params: { id: string } }>('/:id/designacion-estado', async (request, reply) => {
+    const data = await getDesignacionEstadoService(request.params.id)
     return reply.send({ data })
   })
 

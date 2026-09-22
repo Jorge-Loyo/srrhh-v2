@@ -31,6 +31,26 @@ export const concursosCphQuerySchema = z.object({
   //  - 'ampliacion': sin baja pero el cargo tiene expediente de alta → cargo.expediente
   //  - 'cobertura': sin baja y sin expediente de cargo → sin documentación
   origen: z.enum(['baja', 'ampliacion', 'cobertura']).optional(),
+  // Filtro por etiquetas — CSV de ids, un concurso matchea si tiene AL MENOS
+  // UNA de las etiquetas pedidas (OR, no AND).
+  etiquetaIds: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((v) => v.split(',').filter(Boolean))
+    .optional(),
+  // Etapa 5: concursos con persona elegida del orden de mérito
+  // (inscriptoReservadoId o personaDesignadaId). Tri-estado igual que
+  // `suspendido` (no z.coerce.boolean para que 'false' no coercione a true).
+  personaOm: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  // Etapa 5: concursos validados contra el padrón (flag validado).
+  validado: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>
@@ -80,6 +100,13 @@ export const patchConcursoCphSchema = z
     // Campos nuevos — datos del CSV histórico
     ifacs: z.string().trim().max(200).nullable(),
     insal: z.string().trim().max(200).nullable(),
+    // Respuesta al INSAL (Etapa 4 — propuesta, no designación oficial).
+    insalAceptado: z.boolean().nullable(),
+    insalRechazados: z.array(z.string().uuid()),
+    // Etapa 4 — inscripto (del orden de mérito) reservado para el INSAL.
+    // FK a InscriptoConcurso, no al padrón. La resolución contra el padrón
+    // se hace recién en Etapa 5 (personaDesignadaId).
+    inscriptoReservadoId: z.string().uuid().nullable(),
     cambioEspecialidad: z.boolean().nullable(),
     motivoCambioEspecialidad: z.string().trim().max(2000).nullable(),
     qInscriptos: z.number().int().min(0).nullable(),
@@ -142,14 +169,29 @@ export type DeclararDesiertoBody = z.infer<typeof declararDesiertoSchema>
 // Se baja de regla solo si no se llegó al total de jurados. Por eso ya no hay
 // flags de "exigir especialidad" ni "ampliar a sistema": están implícitos en
 // las reglas.
-export const generarSorteoJuradoSchema = z.object({
-  // La fecha del sorteo NO se elige: es la del día en que se genera (hoy),
-  // asignada por el backend. No forma parte del contrato.
-  cantTitulares: z.number().int().min(1).max(10).default(3),
-  cantSuplentes: z.number().int().min(1).max(10).default(3),
-  antiguedadMinimaAnios: z.number().int().min(0).max(60).default(15),
-  semilla: z.string().trim().min(1).max(64).optional(),
-  observaciones: z.string().trim().max(2000).optional(),
-})
+export const generarSorteoJuradoSchema = z
+  .object({
+    // La fecha del sorteo NO se elige: es la del día en que se genera (hoy),
+    // asignada por el backend. No forma parte del contrato.
+    cantTitulares: z.number().int().min(1).max(10).default(3),
+    cantSuplentes: z.number().int().min(1).max(10).default(3),
+    antiguedadMinimaAnios: z.number().int().min(0).max(60).default(15),
+    // Hasta 2 especialidades extra que también cuentan como "cumple
+    // especialidad" (además de la propia del concurso) para ampliar el pool de
+    // jurados elegibles por especialidad.
+    especialidadesAdicionales: z.array(z.string().trim().min(1).max(200)).max(2).optional(),
+    // Expediente que respalda las especialidades adicionales — obligatorio si
+    // se cargó alguna (validado abajo con refine).
+    expedienteEspecialidades: z.string().trim().min(1).max(200).optional(),
+    semilla: z.string().trim().min(1).max(64).optional(),
+    observaciones: z.string().trim().max(2000).optional(),
+  })
+  .refine(
+    (b) => !b.especialidadesAdicionales?.length || !!b.expedienteEspecialidades,
+    {
+      message: 'El expediente que respalda las especialidades adicionales es obligatorio',
+      path: ['expedienteEspecialidades'],
+    },
+  )
 
 export type GenerarSorteoJuradoBody = z.infer<typeof generarSorteoJuradoSchema>

@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
-import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff, useDiagnosticoNuevos, useCamposModificados } from '../hooks/usePadron'
+import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff, useDiagnosticoNuevos, useCamposModificados, useValidacionesPreview } from '../hooks/usePadron'
 import { apiClient } from '@/shared/lib/api-client'
 
 interface ResultadoAprobarTodos {
@@ -104,6 +104,8 @@ export function PadronDiffPage() {
   const rechazar = useRechazarSnapshot()
   const diagnostico = useDiagnosticoNuevos(snapshotId, tab === TipoDiff.NUEVO)
   const camposModificados = useCamposModificados(snapshotId, tab === TipoDiff.MODIFICADO)
+  // Preview de concursos que quedarían validados al aprobar este padrón.
+  const validaciones = useValidacionesPreview(snapshotId, !!baseData && baseData.snapshot.estado === 'pendiente')
 
   // Cuando cargan los campos, seleccionar el primero (el de más cambios)
   useEffect(() => {
@@ -296,6 +298,78 @@ export function PadronDiffPage() {
             <p className="text-sm text-danger mt-2">No se pudo completar la operación. Volvé a intentar en unos segundos.</p>
           )}
         </div>
+
+        {/* Concursos que pasarán a validados (triangulación con el padrón) */}
+        {snapshot.estado === 'pendiente' &&
+          validaciones.data &&
+          validaciones.data.detalle.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-green-600">✅</span>
+                <h2 className="font-primary text-sm font-bold text-gray-900">
+                  Concursos que pasarán a validados
+                </h2>
+                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold">
+                  {validaciones.data.resumen.validables}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Estos concursos triangulan con un cargo nuevo del padrón (por CUIL, carrera y
+                especialidad). Se marcan como validados al aprobar y vincular el cargo en la
+                pestaña «Nuevos».
+              </p>
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
+                {validaciones.data.detalle.map((v) => (
+                  <div
+                    key={v.diffId}
+                    className="px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+                  >
+                    <span className="font-mono text-xs text-gray-500">{v.idSialRol}</span>
+                    <span className="font-medium text-gray-800">{v.personaNombre}</span>
+                    <span className="text-xs text-gray-400">CUIL {v.cuil}</span>
+                    {v.concursoCodigo && (
+                      <span className="text-xs text-gray-500">
+                        Concurso <span className="font-mono">{v.concursoCodigo}</span>
+                      </span>
+                    )}
+                    <span className="ml-auto flex items-center gap-1.5">
+                      {v.yaValidado ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-200">
+                          Ya validado
+                        </span>
+                      ) : v.validable ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-200">
+                          Se validará
+                        </span>
+                      ) : (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                          Revisar
+                        </span>
+                      )}
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                          v.carreraCoincide
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-gray-100 text-gray-500 border-gray-200'
+                        }`}
+                      >
+                        Carrera {v.carreraCoincide ? '✓' : '✗'}
+                      </span>
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                          v.especialidadCoincide
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-gray-100 text-gray-500 border-gray-200'
+                        }`}
+                      >
+                        Especialidad {v.especialidadCoincide ? '✓' : '✗'}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         {/* Tabs principales */}
         <div className="border-b border-gray-200 flex gap-1">

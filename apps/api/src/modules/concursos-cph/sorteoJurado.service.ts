@@ -4,12 +4,34 @@
 // Implementa la formación de jurado según el diagrama del reglamento CPH:
 //
 //   El candidato a jurado debe tener la MISMA PROFESIÓN (escalafón) que el
-//   cargo a concursar y CARGO ACTIVO. La idoneidad se acredita por tener
-//   CARGO DE CONDUCCIÓN (Jefe de Sección o superior) o ANTIGÜEDAD >= 15 años.
-//   Se busca primero en la MISMA UNIDAD ORGANIZATIVA (hospital) y, si no
-//   alcanza, se AMPLÍA al sistema de salud completo (ampliación automática).
-//   Regla dura: al menos 1 titular y 1 suplente deben tener la MISMA
-//   ESPECIALIDAD que el cargo a concursar; para el resto es opcional.
+//   cargo a concursar y CARGO ACTIVO. Director y Subdirector quedan excluidos
+//   de cualquier jurado, sin excepción, en los dos modos de abajo.
+//
+//   Las reglas de elegibilidad dependen del TIPO DE GESTIÓN del concurso
+//   (`ConcursoCph.tipoGestion`, elegido por el usuario en Etapa 2 antes de
+//   poder sortear — ver puestos.routes.ts/ConcursoCphWizard.tsx):
+//
+//   Concurso DESCENTRALIZADO (default si no está definido): reglas en
+//   cascada según la MODALIDAD del cargo (POF = planta, POU = guardia),
+//   determinada por `unificadorPuesto` del cargo (mismo criterio que
+//   codigoCargo.ts):
+//
+//   Cargo POF (planta):
+//     Regla 1: mismo hospital + cargo de conducción + misma especialidad
+//     Regla 2: mismo hospital + antigüedad >= 15 años (especialidad opcional)
+//     Regla 3: cualquier hospital (sistema) + conducción + misma especialidad
+//
+//   Cargo POU (guardia):
+//     Regla 1: mismo hospital + Jefe de guardia (POU) + misma especialidad
+//     Regla 2: mismo hospital + Jefe de planta (POF) + misma especialidad
+//     Regla 3: mismo hospital + antigüedad >= 15 años + misma especialidad
+//     Regla 4: cualquier hospital (sistema) + antigüedad >= 15 años + misma
+//              especialidad
+//
+//   Concurso CENTRALIZADO: una única regla, sin cascada y sin prioridad de
+//   hospital — el pool es directamente todo el sistema de salud:
+//     Regla 1: cargo de conducción (Jefe de Sección o superior) + misma
+//              especialidad, en cualquier hospital de toda la base.
 //
 // El sorteo es aleatorio con semilla (reproducible/auditable). Se persiste un
 // acta (SorteoJurado) + los miembros (MiembroJuradoSorteado) con el detalle de
@@ -81,14 +103,27 @@ function aniosDesde(fecha: Date | null, hoy: Date): number | null {
   return Math.floor(ms / (365.25 * 24 * 60 * 60 * 1000))
 }
 
-// Reglas de elegibilidad en orden de prioridad (cascada). Todas exigen la
-// MISMA PROFESIÓN (escalafón) y CARGO ACTIVO — eso ya lo garantiza la query.
-//   Regla 1: mismo hospital + cargo de conducción + misma especialidad
-//   Regla 2: mismo hospital + antigüedad >= 15 años (especialidad opcional)
-//   Regla 3: cualquier hospital (sistema) + conducción (especialidad opcional)
-// Se acumula por regla hasta juntar al menos N candidatos (total de jurados);
-// si una regla ya alcanza N, no se baja a la siguiente.
-type ReglaJurado = 1 | 2 | 3
+// Modalidad del cargo (guardia = POU, planta = POF), determinada por
+// `unificadorPuesto` — mismo criterio que apps/api/src/shared/codigoCargo.ts
+// (no hay todavía un catálogo con FK que lo resuelva de forma más robusta).
+type ModalidadCargo = 'pou' | 'pof'
+
+function modalidadDeCargo(unificadorPuesto: string | null): ModalidadCargo {
+  const u = norm(unificadorPuesto)
+  return u.includes('pou') || u.includes('guardia') ? 'pou' : 'pof'
+}
+
+// Reglas de elegibilidad en orden de prioridad (cascada), distintas según la
+// modalidad del cargo a concursar (ver comentario de cabecera). Todas exigen
+// la MISMA PROFESIÓN (escalafón) y CARGO ACTIVO — eso ya lo garantiza la
+// query. Se acumula por regla hasta juntar al menos N candidatos (total de
+// jurados); si una regla ya alcanza N, no se baja a la siguiente.
+type ReglaJurado = 1 | 2 | 3 | 4
+const REGLAS_POF: ReglaJurado[] = [1, 2, 3]
+const REGLAS_POU: ReglaJurado[] = [1, 2, 3, 4]
+// Concurso centralizado: una sola regla, sin cascada — ver comentario de
+// cabecera del archivo.
+const REGLAS_CENTRALIZADO: ReglaJurado[] = [1]
 
 // Candidato normalizado a jurado (una persona con su ocupación activa relevante).
 interface Candidato {
@@ -120,23 +155,47 @@ interface MiembroElegido extends Candidato {
 async function obtenerCandidatos(params: {
   escalafonId: string
   hospitalIdConcurso: string
-  especialidadConcurso: string | null
+  // null cuando el concurso es centralizado — ahí no aplica la distinción
+  // POF/POU, hay una sola regla (ver clasificar()).
+  modalidadConcurso: ModalidadCargo | null
+  // Especialidad del concurso + hasta 2 adicionales que también cuentan como
+  // "cumple especialidad" — amplía el pool de jurados elegibles.
+  especialidadesConcurso: (string | null)[]
   antiguedadMinimaAnios: number
   excluirPersonaIds: string[]
 }): Promise<Candidato[]> {
   const hoy = new Date()
-  const especNorm = norm(params.especialidadConcurso)
+  const especNormSet = new Set(
+    params.especialidadesConcurso.map((e) => norm(e)).filter((e) => e !== ''),
+  )
 
   // Determina la regla de mayor prioridad que cumple un candidato (o null).
+  // La especialidad es obligatoria en TODAS las reglas salvo Regla 2 de un
+  // cargo POF (mismo hospital + antigüedad, especialidad opcional ahí).
   const clasificar = (
     esMismoHospital: boolean,
     conduccion: boolean,
+    esGuardiaCandidato: boolean,
     cumpleAntiguedad: boolean,
     cumpleEsp: boolean,
   ): ReglaJurado | null => {
-    if (esMismoHospital && conduccion && cumpleEsp) return 1 // hospital + conducción + especialidad
-    if (esMismoHospital && cumpleAntiguedad) return 2 // hospital + antigüedad (especialidad opcional)
-    if (conduccion) return 3 // sistema + conducción (especialidad opcional)
+    // Concurso centralizado: regla única, sin prioridad de hospital — el
+    // pool es directamente todo el sistema de salud.
+    if (params.modalidadConcurso === null) {
+      if (conduccion && cumpleEsp) return 1 // conducción + especialidad, cualquier hospital
+      return null
+    }
+    if (params.modalidadConcurso === 'pof') {
+      if (esMismoHospital && conduccion && cumpleEsp) return 1 // hospital + conducción + especialidad
+      if (esMismoHospital && cumpleAntiguedad) return 2 // hospital + antigüedad (especialidad opcional)
+      if (conduccion && cumpleEsp) return 3 // sistema + conducción + especialidad
+      return null
+    }
+    // Cargo POU (guardia)
+    if (esMismoHospital && conduccion && esGuardiaCandidato && cumpleEsp) return 1 // jefe de guardia (POU), mismo hospital
+    if (esMismoHospital && conduccion && !esGuardiaCandidato && cumpleEsp) return 2 // jefe de planta (POF), mismo hospital
+    if (esMismoHospital && cumpleAntiguedad && cumpleEsp) return 3 // antigüedad, mismo hospital
+    if (cumpleAntiguedad && cumpleEsp) return 4 // antigüedad, cualquier hospital (sistema)
     return null
   }
 
@@ -166,6 +225,7 @@ async function obtenerCandidatos(params: {
         select: {
           hospitalId: true,
           literalPuesto: true,
+          unificadorPuesto: true,
           hospital: { select: { nombre: true, sigla: true } },
         },
       },
@@ -177,13 +237,19 @@ async function obtenerCandidatos(params: {
   const porPersona = new Map<string, Candidato>()
 
   for (const o of ocupaciones) {
+    // Director y Subdirector no pueden integrar ningún jurado — se descarta
+    // esta ocupación como fuente de candidato aunque la persona sí sea
+    // elegible por otro cargo activo que tenga (caso poco común pero posible).
+    if (norm(o.cargo.literalPuesto).includes('director')) continue
+
     const p = o.persona
     const especialidadPersona = p.especialidadCph ?? p.especialidadPrincipal
     const conduccion = esConduccion(o.codigoJefaturas)
+    const esGuardiaCandidato = modalidadDeCargo(o.cargo.unificadorPuesto) === 'pou'
     const antiguedad = aniosDesde(p.antiguedadDesde, hoy)
     const cumpleAntiguedad = antiguedad != null && antiguedad >= params.antiguedadMinimaAnios
     const esMismoHospital = o.cargo.hospitalId === params.hospitalIdConcurso
-    const cumpleEspecialidad = !!especNorm && norm(especialidadPersona) === especNorm
+    const cumpleEspecialidad = especNormSet.size > 0 && especNormSet.has(norm(especialidadPersona))
 
     const cand: Candidato = {
       personaId: p.id,
@@ -197,7 +263,13 @@ async function obtenerCandidatos(params: {
       cumpleEspecialidad,
       esConduccion: conduccion,
       antiguedadAnios: antiguedad,
-      regla: clasificar(esMismoHospital, conduccion, cumpleAntiguedad, cumpleEspecialidad),
+      regla: clasificar(
+        esMismoHospital,
+        conduccion,
+        esGuardiaCandidato,
+        cumpleAntiguedad,
+        cumpleEspecialidad,
+      ),
     }
 
     const previo = porPersona.get(p.id)
@@ -218,22 +290,22 @@ async function obtenerCandidatos(params: {
   )
 }
 
-// Arma el pool de sorteo aplicando la CASCADA de reglas: acumula candidatos de
-// la Regla 1; si no llega a `total`, agrega Regla 2; si sigue faltando, Regla 3.
-// En cuanto una regla completa `total`, corta (no baja a la siguiente). Devuelve
+// Arma el pool de sorteo aplicando la CASCADA de reglas (el orden depende de
+// la modalidad del cargo — ver REGLAS_POF/REGLAS_POU): acumula candidatos de
+// la primera regla; si no llega a `total`, agrega la siguiente, y así. En
+// cuanto una regla completa `total`, corta (no baja a la siguiente). Devuelve
 // el pool acumulado y la última regla utilizada.
 function armarPoolCascada(
   candidatos: Candidato[],
   total: number,
+  reglasOrden: ReglaJurado[],
 ): { pool: Candidato[]; reglaUsada: ReglaJurado; porRegla: Record<ReglaJurado, number> } {
-  const porRegla: Record<ReglaJurado, number> = {
-    1: candidatos.filter((c) => c.regla === 1).length,
-    2: candidatos.filter((c) => c.regla === 2).length,
-    3: candidatos.filter((c) => c.regla === 3).length,
-  }
+  const porRegla = Object.fromEntries(
+    reglasOrden.map((r) => [r, candidatos.filter((c) => c.regla === r).length]),
+  ) as Record<ReglaJurado, number>
   const pool: Candidato[] = []
-  let reglaUsada: ReglaJurado = 1
-  for (const regla of [1, 2, 3] as ReglaJurado[]) {
+  let reglaUsada: ReglaJurado = reglasOrden[0]!
+  for (const regla of reglasOrden) {
     reglaUsada = regla
     // Se agrega el nivel COMPLETO (no se corta a mitad de regla) para que la
     // priorización por especialidad dentro de cada regla — que hace
@@ -245,21 +317,23 @@ function armarPoolCascada(
 }
 
 // Sortea `total` miembros del pool RESPETANDO LA PRIORIDAD por regla: primero
-// se llena con candidatos de Regla 1, luego Regla 2, luego Regla 3; solo se baja
-// de regla para completar los cupos faltantes. Dentro de cada regla se prioriza
-// a los que cumplen la especialidad del concurso, y entre iguales el orden es
-// aleatorio (sembrado, auditable). Los primeros `cantTitulares` son titulares.
+// se llena con candidatos de la primera regla de `reglasOrden`, luego la
+// siguiente, etc.; solo se baja de regla para completar los cupos faltantes.
+// Dentro de cada regla se prioriza a los que cumplen la especialidad del
+// concurso, y entre iguales el orden es aleatorio (sembrado, auditable). Los
+// primeros `cantTitulares` son titulares.
 function sortearJurado(
   pool: Candidato[],
   cantTitulares: number,
   cantSuplentes: number,
   rng: () => number,
+  reglasOrden: ReglaJurado[],
 ): MiembroElegido[] {
   const total = cantTitulares + cantSuplentes
-  // Orden de selección: por regla (1→2→3); dentro de la regla, especialidad
-  // primero; entre los que empatan, aleatorio sembrado.
+  // Orden de selección: por regla (según `reglasOrden`); dentro de la regla,
+  // especialidad primero; entre los que empatan, aleatorio sembrado.
   const priorizado: Candidato[] = []
-  for (const regla of [1, 2, 3] as ReglaJurado[]) {
+  for (const regla of reglasOrden) {
     const delNivel = pool.filter((c) => c.regla === regla)
     const conEsp = shuffle(
       delNivel.filter((c) => c.cumpleEspecialidad),
@@ -281,7 +355,7 @@ function sortearJurado(
       rol,
       orden,
       ambito: c.esMismoHospital ? 'hospital' : 'sistema',
-      reglaAplicada: (c.regla ?? 3) as ReglaJurado,
+      reglaAplicada: (c.regla ?? reglasOrden[reglasOrden.length - 1]!) as ReglaJurado,
     }
   })
 }
@@ -320,8 +394,29 @@ export async function generarSorteoJuradoService(
     throw AppError.conflict(
       'El concurso no tiene un cargo asociado para determinar la profesión del jurado',
     )
+  // El frontend ya bloquea "Generar sorteo" sin Tipo de gestión definido
+  // (ver ConcursoCphWizard.tsx) — se valida también acá porque de esto
+  // depende qué reglas de elegibilidad se aplican.
+  if (!concurso.tipoGestion) {
+    throw AppError.conflict(
+      'El concurso no tiene definido el Tipo de gestión — es requerido antes de sortear el jurado.',
+    )
+  }
+  const esCentralizado = concurso.tipoGestion === 'centralizado'
 
   const especialidadConcurso = concurso.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
+  const especialidadesAdicionales = body.especialidadesAdicionales ?? []
+  const especialidadesConcurso = [especialidadConcurso, ...especialidadesAdicionales]
+  // Centralizado: regla única, sin distinción POF/POU. Descentralizado:
+  // cascada según la modalidad del cargo (comportamiento ya existente).
+  const modalidadConcurso: ModalidadCargo | null = esCentralizado
+    ? null
+    : modalidadDeCargo(cargo.unificadorPuesto)
+  const reglasOrden = esCentralizado
+    ? REGLAS_CENTRALIZADO
+    : modalidadConcurso === 'pou'
+      ? REGLAS_POU
+      : REGLAS_POF
 
   // Excluir a la persona que salió de baja (origen del concurso) y a la ya
   // designada, si existieran — no deberían ser jurado de su propio concurso.
@@ -332,7 +427,8 @@ export async function generarSorteoJuradoService(
   const candidatos = await obtenerCandidatos({
     escalafonId: cargo.escalafonId,
     hospitalIdConcurso: concurso.hospitalId,
-    especialidadConcurso,
+    modalidadConcurso,
+    especialidadesConcurso,
     antiguedadMinimaAnios: body.antiguedadMinimaAnios,
     excluirPersonaIds: excluir,
   })
@@ -345,13 +441,20 @@ export async function generarSorteoJuradoService(
     )
   }
 
-  // Cascada de reglas: acumular por regla hasta juntar al menos `total`.
-  const { pool, reglaUsada, porRegla } = armarPoolCascada(candidatos, total)
+  // Cascada de reglas (el orden depende de si el cargo es POF o POU):
+  // acumular por regla hasta juntar al menos `total`.
+  const { pool, reglaUsada, porRegla } = armarPoolCascada(candidatos, total, reglasOrden)
 
   const semilla = body.semilla ?? Math.random().toString(36).slice(2, 14)
   const rng = mulberry32(hashSemilla(semilla))
 
-  const miembros = sortearJurado(pool, body.cantTitulares, body.cantSuplentes, rng)
+  const miembros = sortearJurado(
+    pool,
+    body.cantTitulares,
+    body.cantSuplentes,
+    rng,
+    reglasOrden,
+  )
   const titulares = miembros.filter((m) => m.rol === 'titular')
   const suplentes = miembros.filter((m) => m.rol === 'suplente')
 
@@ -386,6 +489,10 @@ export async function generarSorteoJuradoService(
     hospitalId: concurso.hospitalId,
     hospitalNombre: concurso.hospital?.nombre ?? concurso.hospital?.sigla ?? null,
     especialidadConcurso,
+    especialidadesAdicionales,
+    expedienteEspecialidades: body.expedienteEspecialidades ?? null,
+    tipoGestion: concurso.tipoGestion,
+    modalidadConcurso,
     totalCandidatos: pool.length,
     candidatosMismoHospital: pool.filter((c) => c.esMismoHospital).length,
     // Trazabilidad de la cascada de reglas usada.

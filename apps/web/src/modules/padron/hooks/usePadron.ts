@@ -6,6 +6,7 @@ import type {
   SnapshotEstadoResponse,
   TipoDiff,
   UploadPadronResponse,
+  ValidacionesPreview,
 } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
@@ -163,6 +164,22 @@ export function useDiagnosticoNuevos(snapshotId: string | undefined, enabled = t
     queryFn: async () => {
       const res = await apiClient.get<{ data: DiagnosticoNuevosResponse }>(
         `/api/v1/padron/snapshots/${snapshotId}/diagnostico-nuevos`
+      )
+      return res.data.data
+    },
+    enabled: !!snapshotId && enabled,
+    staleTime: 30_000,
+  })
+}
+
+// Preview de validaciones: concursos CPH que quedarían validados al
+// aprobar+vincular los diffs "nuevo" (match por CUIL + carrera + especialidad).
+export function useValidacionesPreview(snapshotId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['snapshot-validaciones-preview', snapshotId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: ValidacionesPreview }>(
+        `/api/v1/padron/snapshots/${snapshotId}/validaciones-preview`,
       )
       return res.data.data
     },

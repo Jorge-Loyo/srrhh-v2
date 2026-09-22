@@ -40,7 +40,6 @@ import {
   useInscriptosCph,
   useCrearInscriptoCph,
   useActualizarInscriptoCph,
-  useBorrarInscriptoCph,
   useImportarInscriptosCph,
   useCerrarInscripcionCph,
   useReabrirInscripcionCph,
@@ -50,6 +49,7 @@ import {
   useRevertirPresentadosCph,
   useConfirmarOrdenMeritoCph,
   useRevertirOrdenMeritoCph,
+  useDesignacionEstado,
 } from '../hooks/useConcursosCph'
 import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
@@ -65,6 +65,28 @@ import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '../components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
+
+// Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
+// alta = posición 1. No puede haber dos personas en la misma posición — un
+// empate de nota se desempata por apellido/nombre alfabético, así que las
+// posiciones siempre quedan consecutivas y únicas (1, 2, 3...). Solo entran
+// los presentados con nota cargada; el resto queda sin posición (null).
+function calcularOrdenMerito(
+  inscriptos: { id: string; apellido: string; nombre: string; presentoExamen: boolean; nota: number | null }[],
+): Map<string, number | null> {
+  const ranking = new Map<string, number | null>()
+  const conNota = inscriptos
+    .filter((i) => i.presentoExamen && i.nota != null)
+    .sort((a, b) => {
+      if (b.nota !== a.nota) return (b.nota as number) - (a.nota as number)
+      return a.apellido.localeCompare(b.apellido) || a.nombre.localeCompare(b.nombre)
+    })
+  conNota.forEach((i, idx) => ranking.set(i.id, idx + 1))
+  inscriptos.forEach((i) => {
+    if (!ranking.has(i.id)) ranking.set(i.id, null)
+  })
+  return ranking
+}
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
@@ -447,12 +469,6 @@ export function ConcursoCphWizard() {
             tipo: 'texto',
             valor: v('cargoSial'),
           },
-          {
-            key: 'personaDesignada',
-            label: 'Persona designada',
-            tipo: 'texto',
-            valor: '',
-          },
         ],
       },
     ]
@@ -480,17 +496,38 @@ export function ConcursoCphWizard() {
   const [menuAcciones, setMenuAcciones] = useState(false)
   const menuAccionesRef = useRef<HTMLDivElement>(null)
   const [modalDesignar, setModalDesignar] = useState(false)
+  // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
+  // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
+  // oficial real, crea la ocupación — comportamiento existente sin cambios.
+  const [modalDesignarModo, setModalDesignarModo] = useState<'proponer' | 'designar'>('designar')
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
   const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<string | null>(null)
   const [designarFechaDesde, setDesignarFechaDesde] = useState('')
   const [designarIdSialRol, setDesignarIdSialRol] = useState('')
   const [designarSearch, setDesignarSearch] = useState('')
+  // Inscripto (de este concurso) que corresponde a la persona propuesta —
+  // se necesita para poder marcarlo en insalRechazados si no acepta.
+  const [designarInscriptoId, setDesignarInscriptoId] = useState('')
+  // Candidato del orden de mérito que se está resolviendo contra el padrón
+  // (búsqueda por CUIL para obtener el personaId real) al elegirlo en el
+  // modal de designación.
+  const [resolviendoOMId, setResolviendoOMId] = useState<string | null>(null)
 
   const [modalDesierto, setModalDesierto] = useState(false)
   const [desiertoDisp, setDesiertoDisp] = useState('')
   const [desiertoFecha, setDesiertoFecha] = useState('')
   const [desiertoObs, setDesiertoObs] = useState('')
+
+  // Acción "Cambio de especialidad" (menú Acciones): requiere expediente que
+  // respalde el cambio, pide la nueva especialidad, y manda el concurso de
+  // nuevo a autorización (mismo mecanismo que ya dispara el PATCH cuando se
+  // edita especialidadSolicitada: pendienteAutorizacion=true → la Etapa 1
+  // vuelve a mostrarse "activa" en vez de "completada").
+  const [modalCambioEspecialidad, setModalCambioEspecialidad] = useState(false)
+  const [cambioEspExpediente, setCambioEspExpediente] = useState('')
+  const [cambioEspNueva, setCambioEspNueva] = useState('')
+  const [cambioEspObs, setCambioEspObs] = useState('')
 
   // Diálogos propios (reemplazan window.confirm / window.alert)
   const { confirm, ConfirmUI } = useConfirm()
@@ -500,7 +537,14 @@ export function ConcursoCphWizard() {
   const hoyISO = new Date().toISOString().slice(0, 10)
   const [modalGenerarSorteo, setModalGenerarSorteo] = useState(false)
   const [sorteoCriterios, setSorteoCriterios] = useState<
-    Required<Omit<GenerarSorteoJuradoRequest, 'semilla' | 'observaciones'>> & {
+    Required<
+      Omit<
+        GenerarSorteoJuradoRequest,
+        'semilla' | 'observaciones' | 'especialidadesAdicionales' | 'expedienteEspecialidades'
+      >
+    > & {
+      especialidadesAdicionales: string[]
+      expedienteEspecialidades: string
       semilla: string
       observaciones: string
     }
@@ -508,6 +552,8 @@ export function ConcursoCphWizard() {
     cantTitulares: 3,
     cantSuplentes: 3,
     antiguedadMinimaAnios: 15,
+    especialidadesAdicionales: [],
+    expedienteEspecialidades: '',
     semilla: '',
     observaciones: '',
   })
@@ -529,22 +575,48 @@ export function ConcursoCphWizard() {
   const escalafonParaJurado = cphData?.concurso?.cargo?.escalafonId
   const especialidadParaJurado =
     cphData?.especialidadSolicitada ?? cphData?.concurso?.cargo?.especialidadLegacy ?? null
-  const juradosCompatibles = juradosVigentes.filter((j) => {
-    if (!j.vigente) return false // no se puede reutilizar un jurado vencido
-    if (j.concursoCph?.id === id) return false
-    const escOk =
-      !j.criterios?.escalafonId ||
-      !escalafonParaJurado ||
-      j.criterios.escalafonId === escalafonParaJurado
-    const espOk = normEsp(j.criterios?.especialidadConcurso) === normEsp(especialidadParaJurado)
-    return escOk && espOk
-  })
+  // Modalidad del cargo a concursar (guardia = POU, planta = POF) — mismo
+  // criterio que el backend (sorteoJurado.service.ts::modalidadDeCargo),
+  // determina qué set de reglas de jurado se muestra/aplica.
+  const modalidadCargoJurado: 'pou' | 'pof' = (() => {
+    const u = normEsp(cphData?.concurso?.cargo?.unificadorPuesto)
+    return u.includes('pou') || u.includes('guardia') ? 'pou' : 'pof'
+  })()
+  // Concurso centralizado: regla única (conducción + especialidad, cualquier
+  // hospital), sin distinción POF/POU — ver comentario de cabecera de
+  // sorteoJurado.service.ts.
+  const esCentralizado = cphData?.tipoGestion === 'centralizado'
+  // Sin Tipo de gestión definido no se puede evaluar si un jurado vigente es
+  // compatible: un concurso descentralizado exige mismo hospital (prioridad
+  // de Regla 1/2), uno centralizado no. Sin ese dato, no se sugiere nada —
+  // evita ofrecer jurados de otro hospital como "compatibles" quedando el
+  // usuario sin saber si de verdad cumplen.
+  const juradosCompatibles = !cphData?.tipoGestion
+    ? []
+    : juradosVigentes.filter((j) => {
+        if (!j.vigente) return false // no se puede reutilizar un jurado vencido
+        if (j.concursoCph?.id === id) return false
+        const escOk =
+          !j.criterios?.escalafonId ||
+          !escalafonParaJurado ||
+          j.criterios.escalafonId === escalafonParaJurado
+        const espOk = normEsp(j.criterios?.especialidadConcurso) === normEsp(especialidadParaJurado)
+        // Centralizado no prioriza hospital (regla única, toda la base).
+        // Descentralizado sí — reutilizar un jurado de otro hospital viola
+        // la Regla 1/2 (mismo hospital), así que solo es compatible si
+        // coincide el hospital del concurso original.
+        const hospOk =
+          esCentralizado ||
+          !cphData?.hospitalId ||
+          !j.criterios?.hospitalId ||
+          j.criterios.hospitalId === cphData.hospitalId
+        return escOk && espOk && hospOk
+      })
 
   // ── Etapa 3: inscriptos ──
   const { data: inscriptos = [] } = useInscriptosCph(id)
   const crearInscriptoMutation = useCrearInscriptoCph(id!)
   const actualizarInscriptoMutation = useActualizarInscriptoCph(id!)
-  const borrarInscriptoMutation = useBorrarInscriptoCph(id!)
   const importarInscriptosMutation = useImportarInscriptosCph(id!)
   const cerrarInscripcionMutation = useCerrarInscripcionCph(id!)
   const reabrirInscripcionMutation = useReabrirInscripcionCph(id!)
@@ -561,6 +633,31 @@ export function ConcursoCphWizard() {
     setInsalForm({
       insal: cphData?.insal ?? '',
       fechaInsal: cphData?.fechaInsal?.slice(0, 10) ?? '',
+    })
+  }, [cphData])
+  // ── Etapa 5: Designación (campos controlados, un botón "Registrar" por paso) ──
+  const [desigForm, setDesigForm] = useState({
+    eeDesignacion: '',
+    cargaDocumentacion: false,
+    fechaAptoMedico: '',
+    fechaIte: '',
+    proyectoResolucion: false,
+    resoALaFirma: false,
+    resolucionDesignacion: '',
+    fechaResolucion: '',
+    cargoSial: '',
+  })
+  useEffect(() => {
+    setDesigForm({
+      eeDesignacion: cphData?.eeDesignacion ?? '',
+      cargaDocumentacion: cphData?.cargaDocumentacion ?? false,
+      fechaAptoMedico: cphData?.fechaAptoMedico?.slice(0, 10) ?? '',
+      fechaIte: cphData?.fechaIte?.slice(0, 10) ?? '',
+      proyectoResolucion: cphData?.proyectoResolucion ?? false,
+      resoALaFirma: cphData?.resoALaFirma ?? false,
+      resolucionDesignacion: cphData?.resolucionDesignacion ?? '',
+      fechaResolucion: cphData?.fechaResolucion?.slice(0, 10) ?? '',
+      cargoSial: cphData?.cargoSial ?? '',
     })
   }, [cphData])
 
@@ -582,13 +679,45 @@ export function ConcursoCphWizard() {
   const declararDesiertoMutation = useDeclararDesiertoCph(id!)
   const suspenderMutation = useSuspenderConcursoCph(id!)
 
-  // Búsqueda de personas para el selector de designación
-  const { data: personasDesignarData } = useQuery({
-    queryKey: ['personas-designar-search', designarSearch],
-    queryFn: async () => {
-      if (designarSearch.length < 2) return []
-      // Si parece ID SIAL (solo dígitos, 6-12 chars) buscar por idSial, si no por search
-      const esIdSial = /^\d{6,12}$/.test(designarSearch.trim())
+
+  // Candidatos elegibles del orden de mérito de ESTE concurso: presentados
+  // con posición asignada, ordenados 1º, 2º, 3º... — la fuente principal
+  // para elegir a quién designar (en vez de buscar a mano entre todo el
+  // padrón).
+  const insalRechazados = cphData?.insalRechazados ?? []
+  const elegiblesOM = [...inscriptos]
+    .filter((i) => i.presentoExamen && i.ordenMerito != null && !insalRechazados.includes(i.id))
+    .sort((a, b) => (a.ordenMerito as number) - (b.ordenMerito as number))
+
+  // Inscripto reservado para el INSAL en Etapa 4 (fuente local, NO padrón).
+  // Se resuelve contra la lista de inscriptos de este concurso por su id.
+  const inscriptoReservado =
+    inscriptos.find((i) => i.id === cphData?.inscriptoReservadoId) ?? null
+
+  // Resuelve un candidato del orden de mérito contra el padrón real (por
+  // CUIL) y lo deja seleccionado en el modal de designación, igual que si
+  // se hubiera encontrado por búsqueda manual.
+  async function seleccionarCandidatoOM(cand: (typeof elegiblesOM)[number]) {
+    // Etapa 4 (modo 'proponer'): solo reservar al inscripto del orden de
+    // mérito para el INSAL — NO se resuelve contra el padrón (esa resolución
+    // es en Etapa 5, al designar oficialmente). Un inscripto puede no existir
+    // todavía en el padrón (ganador externo), y eso no debe bloquear la
+    // propuesta. Guardamos su inscriptoId y su nombre para mostrar.
+    if (modalDesignarModo === 'proponer') {
+      setDesignarInscriptoId(cand.id)
+      setDesignarSearch(`${cand.apellido}, ${cand.nombre}`)
+      // No hay personaId del padrón en esta etapa; limpiamos lo que no aplica.
+      setDesignarPersonaId('')
+      setDesignarPersonaNombre(`${cand.apellido}, ${cand.nombre}`)
+      setDesignarPersonaEspCph(cand.especialidad ?? null)
+      return
+    }
+    if (!cand.cuil) {
+      toast.error('Este candidato no tiene CUIL cargado — no se puede resolver contra el padrón.')
+      return
+    }
+    setResolviendoOMId(cand.id)
+    try {
       const res = await apiClient.get<{
         data: {
           id: string
@@ -597,15 +726,28 @@ export function ConcursoCphWizard() {
           numeroDoc?: string | null
           especialidadCph?: string | null
         }[]
-      }>('/api/v1/personas', {
-        params: esIdSial
-          ? { idSial: designarSearch.trim(), limit: 20 }
-          : { search: designarSearch, limit: 20 },
-      })
-      return res.data.data
-    },
-    enabled: designarSearch.length >= 2,
-  })
+      }>('/api/v1/personas', { params: { search: cand.cuil, limit: 5 } })
+      const cuilNorm = cand.cuil.replace(/\D/g, '')
+      const match =
+        res.data.data.find((p) => p.cuil.replace(/\D/g, '') === cuilNorm) ?? res.data.data[0]
+      if (!match) {
+        toast.error(
+          `No se encontró en el padrón a ${cand.apellido}, ${cand.nombre} (CUIL ${cand.cuil}).`,
+        )
+        return
+      }
+      setDesignarPersonaId(match.id)
+      setDesignarPersonaNombre(match.apellidoNombre)
+      setDesignarPersonaEspCph(match.especialidadCph ?? null)
+      setDesignarSearch(match.apellidoNombre)
+      setDesignarIdSialRol('')
+      setDesignarInscriptoId(cand.id)
+    } catch {
+      toast.error('No se pudo buscar este candidato en el padrón.')
+    } finally {
+      setResolviendoOMId(null)
+    }
+  }
 
   // Roles SIAL activos de la persona seleccionada
   const { data: sialRolesData } = useQuery({
@@ -624,6 +766,7 @@ export function ConcursoCphWizard() {
     enabled: !!designarPersonaId,
   })
   const formRef = useRef<HTMLDivElement>(null)
+  const tipoGestionRef = useRef<HTMLSelectElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = {
     sigla: '',
@@ -636,6 +779,10 @@ export function ConcursoCphWizard() {
     escalafonId || undefined,
     puestoConcurso || undefined,
   )
+  // Universo más amplio (todos los puestos del escalafón, no solo el del
+  // concurso) — un puesto puntual suele tener 1 sola especialidad cargada,
+  // insuficiente para ofrecer especialidades adicionales al sortear jurado.
+  const { data: especialidadesEscalafon = [] } = useEspecialidadesPuesto(escalafonId || undefined)
 
   // Cuando llegan los puestos disponibles, normalizar puestoConcurso contra la BD
   // (los cargos legacy tienen MEDICO DE PLANTA, la BD tiene Medico de Planta)
@@ -678,22 +825,30 @@ export function ConcursoCphWizard() {
     type CargoCph = {
       hospital?: { sigla?: string }
       codigoRegistro?: { id?: string; literal?: string }
+      escalafonId?: string
       literalPuesto?: string
       especialidad?: string
       especialidadLegacy?: string
     }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // Resolver escalafonId desde el codigoRegistro del cargo
-    const crId = cargo?.codigoRegistro?.id ?? ''
-    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-    let resolvedEscalafonId = ''
-    if (crId && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.id === crId)
-      resolvedEscalafonId = cr?.escalafonId ?? ''
-    } else if (crLiteral && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.literal === crLiteral)
-      resolvedEscalafonId = cr?.escalafonId ?? ''
+    // El cargo ya trae escalafonId propio (FK real) — se usa directo. Antes
+    // esto se re-derivaba SOLO a través de cargo.codigoRegistro, que puede
+    // ser null (cargos sin codigoRegistroId vinculado, ej. altas más viejas o
+    // datos legacy) y dejaba escalafonId vacío en silencio, rompiendo los
+    // combos de puesto/especialidad de todo el wizard. Se deja el fallback
+    // por codigoRegistro por compatibilidad, pero ya no es la vía principal.
+    let resolvedEscalafonId = cargo?.escalafonId ?? ''
+    if (!resolvedEscalafonId) {
+      const crId = cargo?.codigoRegistro?.id ?? ''
+      const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+      if (crId && codigosRegistro.length > 0) {
+        const cr = codigosRegistro.find((c) => c.id === crId)
+        resolvedEscalafonId = cr?.escalafonId ?? ''
+      } else if (crLiteral && codigosRegistro.length > 0) {
+        const cr = codigosRegistro.find((c) => c.literal === crLiteral)
+        resolvedEscalafonId = cr?.escalafonId ?? ''
+      }
     }
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
@@ -731,7 +886,11 @@ export function ConcursoCphWizard() {
   const patchMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiClient.patch(`/api/v1/concursos-cph/${id}`, body).then((r) => r.data.data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      // Por si el patch tocó personaDesignadaId (proponer candidato al INSAL).
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
+    },
   })
 
   // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
@@ -783,46 +942,12 @@ export function ConcursoCphWizard() {
     return () => document.removeEventListener('mousedown', onClick)
   }, [menuAcciones])
 
-  // Persona designada — se carga al entrar a la etapa de designación
-  const {
-    data: personaDesignada,
-    isLoading: loadingPersona,
-    error: errorPersona,
-  } = useQuery({
-    queryKey: ['concurso-cph-persona-designada', id],
-    queryFn: async () => {
-      const res = await apiClient.get<{
-        data: {
-          fuente: 'persona' | 'cargo_sial' | 'orden_merito'
-          persona: {
-            id: string
-            cuil: string
-            apellidoNombre: string
-            numeroDoc?: string | null
-            especialidadPrincipal?: string | null
-            telefono?: string | null
-            mailLaboral?: string | null
-          } | null
-          cargo: {
-            codigo: string | null
-            idSial: string
-            situacionRevista: string | null
-          } | null
-          integrante: {
-            posicion: number
-            especialidad?: string | null
-            ordenMerito: { especialidad: string; fechaPublicacion: string }
-          } | null
-        }
-      }>(`/api/v1/concursos-cph/${id}/persona-designada`)
-      return res.data.data
-    },
-    enabled: !!id && etapaActiva === 'designacion',
-    retry: false,
-  })
+  // Etapa 5 — estado de designación / validación contra el padrón.
+  const { data: designacionEstado } = useDesignacionEstado(id, etapaActiva === 'designacion')
   const [guardado, setGuardado] = useState(false)
   const [faltantesEtapa2, setFaltantesEtapa2] = useState<string[]>([])
   const [faltantesEtapa3, setFaltantesEtapa3] = useState<string[]>([])
+  const [faltantesEtapa4, setFaltantesEtapa4] = useState<string[]>([])
   // Las etapas se derivan siempre de cphData (el wizard hace early return si no
   // hay concurso), por eso se usa directamente el useMemo.
   const etapasActuales = etapasIniciales
@@ -964,6 +1089,23 @@ export function ConcursoCphWizard() {
       setFaltantesEtapa3([])
     }
 
+    // Etapa 4: para avanzar a la 5, IFACS/INSAL cargados y el cargo tiene
+    // que haber sido ACEPTADO por la persona propuesta (si no aceptó, hay
+    // que elegir a otra desde el orden de mérito antes de poder continuar).
+    if (etapaActiva === 'ifacs_insal') {
+      const faltan: string[] = []
+      if (!cphData?.fechaIfacs) faltan.push('Fecha IFACS')
+      if (!cphData?.fechaInsal) faltan.push('Fecha INSAL')
+      if (cphData?.insalAceptado !== true) faltan.push('Confirmar que aceptó el cargo (INSAL)')
+      if (faltan.length > 0) {
+        setFaltantesEtapa4(faltan)
+        setGuardado(true)
+        setTimeout(() => setGuardado(false), 2500)
+        return
+      }
+      setFaltantesEtapa4([])
+    }
+
     const siguiente = etapasActuales[etapa.numero]
     if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
     setGuardado(true)
@@ -1091,9 +1233,9 @@ export function ConcursoCphWizard() {
 
       {/* ── MODAL CRITERIOS DEL SORTEO ──────────────────────────────────────── */}
       {modalGenerarSorteo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-auto overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 shrink-0">
               <span className="text-indigo-500 text-xl">⚙</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
@@ -1104,119 +1246,344 @@ export function ConcursoCphWizard() {
                 </p>
               </div>
             </div>
-            {juradosCompatibles.length > 0 && (
-              <div className="px-6 py-4 border-b border-gray-100 bg-secondary/5">
-                <p className="text-sm font-semibold text-gray-700 mb-2">
-                  Jurados vigentes compatibles ({juradosCompatibles.length})
-                </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  Podés reutilizar un jurado ya confirmado en lugar de sortear uno nuevo.
-                </p>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {juradosCompatibles.map((j) => (
-                    <div
-                      key={j.id}
-                      className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-3 py-2"
-                    >
-                      <div className="text-xs">
-                        <p className="font-medium text-gray-800">
-                          {j.concursoCph?.concurso?.cargo?.codigo ?? 'Concurso'} ·{' '}
-                          {j.miembros.length} miembros
-                        </p>
-                        <p className="text-gray-400">
-                          Sorteo {j.fechaSorteo.slice(0, 10).split('-').reverse().join('/')} · vence{' '}
-                          {j.fechaVencimiento.slice(0, 10).split('-').reverse().join('/')}
-                        </p>
-                      </div>
-                      <button
-                        className="btn-outline text-xs py-1 px-2"
-                        disabled={reutilizarJuradoMutation.isPending}
-                        onClick={async () => {
-                          try {
-                            await reutilizarJuradoMutation.mutateAsync(j.id)
-                            setModalGenerarSorteo(false)
-                          } catch {
-                            /* el error se muestra en el bloque de la etapa */
-                          }
-                        }}
-                      >
-                        Usar este jurado
-                      </button>
+
+            <div className="overflow-y-auto grid grid-cols-1 md:grid-cols-2">
+              {/* ── Columna izquierda: qué se va a sortear + reglas (info) ── */}
+              <div className="px-6 py-5 bg-gray-50 md:border-r border-gray-100 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">Se va a sortear</p>
+                  <div className="bg-white rounded-lg border border-gray-200 p-3 space-y-1.5 text-xs">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Cargo</span>
+                      <span className="font-medium text-gray-800">
+                        {cphData?.concurso?.cargo?.codigo ?? '-'}
+                      </span>
                     </div>
-                  ))}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Hospital</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {cphData?.concurso?.cargo?.hospital
+                          ? `${cphData.concurso.cargo.hospital.sigla} — ${cphData.concurso.cargo.hospital.nombre}`
+                          : '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Puesto</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {cphData?.concurso?.cargo?.literalPuesto ?? '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Especialidad</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {especialidadParaJurado ?? '-'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="text-xs font-semibold text-gray-500">
+                      Reglas de elegibilidad {esCentralizado ? '' : '(en orden de prioridad)'}
+                    </p>
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        esCentralizado
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-indigo-100 text-indigo-700'
+                      }`}
+                    >
+                      {esCentralizado
+                        ? 'Concurso centralizado'
+                        : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
+                    </span>
+                  </div>
+                  {(() => {
+                    const especNombre =
+                      [especialidadParaJurado, ...sorteoCriterios.especialidadesAdicionales]
+                        .filter(Boolean)
+                        .join(', ') || 'sin especialidad definida'
+
+                    if (esCentralizado) {
+                      return (
+                        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                          <li>
+                            <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
+                            superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
+                            <strong>cualquier hospital de toda la base</strong> (no prioriza el
+                            hospital del cargo a concursar).
+                          </li>
+                        </ul>
+                      )
+                    }
+                    return modalidadCargoJurado === 'pof' ? (
+                      <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                        <li>
+                          <strong>Regla 1</strong> — mismo hospital del cargo a concursar + cargo
+                          de conducción (Jefe de Sección o superior) + especialidad (
+                          <strong>{especNombre}</strong>).
+                        </li>
+                        <li>
+                          <strong>Regla 2</strong> — mismo hospital + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> (la
+                          especialidad no es obligatoria acá).
+                        </li>
+                        <li>
+                          <strong>Regla 3</strong> — se amplía a todo el sistema de salud
+                          (cualquier hospital) + cargo de conducción + misma especialidad.
+                        </li>
+                      </ul>
+                    ) : (
+                      <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                        <li>
+                          <strong>Regla 1</strong> — mismo hospital + Jefe de guardia (POU) +
+                          especialidad (<strong>{especNombre}</strong>).
+                        </li>
+                        <li>
+                          <strong>Regla 2</strong> — mismo hospital + Jefe de planta (POF) + misma
+                          especialidad.
+                        </li>
+                        <li>
+                          <strong>Regla 3</strong> — mismo hospital + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> + misma
+                          especialidad.
+                        </li>
+                        <li>
+                          <strong>Regla 4</strong> — se amplía a todo el sistema de salud
+                          (cualquier hospital) + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> + misma
+                          especialidad.
+                        </li>
+                      </ul>
+                    )
+                  })()}
+                  <p className="text-xs text-gray-500 mt-2">
+                    En todos los casos se exige la misma profesión (escalafón) que el cargo a
+                    concursar y ocupación activa. Director y Subdirector quedan excluidos de
+                    cualquier jurado.{' '}
+                    {esCentralizado ? (
+                      <>
+                        Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el
+                        pool de candidatos es directamente toda la base de datos.
+                      </>
+                    ) : (
+                      <>
+                        Se busca primero por la Regla 1 (especialidad obligatoria salvo Regla 2 de
+                        un cargo de planta); si no alcanzan candidatos para completar{' '}
+                        <strong>
+                          {sorteoCriterios.cantTitulares} titular
+                          {sorteoCriterios.cantTitulares === 1 ? '' : 'es'} y{' '}
+                          {sorteoCriterios.cantSuplentes} suplente
+                          {sorteoCriterios.cantSuplentes === 1 ? '' : 's'}
+                        </strong>
+                        , se baja a la siguiente regla.
+                      </>
+                    )}{' '}
+                    El sorteo es aleatorio con semilla (auditable) y queda como borrador editable
+                    hasta que se confirme.
+                  </p>
+                </div>
+
+                {juradosCompatibles.length > 0 && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                    <p className="text-sm font-semibold text-gray-700 mb-2">
+                      Jurados vigentes compatibles ({juradosCompatibles.length})
+                    </p>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Podés reutilizar un jurado ya confirmado en lugar de sortear uno nuevo.
+                    </p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {juradosCompatibles.map((j) => (
+                        <div
+                          key={j.id}
+                          className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-3 py-2"
+                        >
+                          <div className="text-xs">
+                            <p className="font-medium text-gray-800">
+                              {j.concursoCph?.concurso?.cargo?.codigo ?? 'Concurso'} ·{' '}
+                              {j.miembros.length} miembros
+                            </p>
+                            <p className="text-gray-400">
+                              Sorteo {j.fechaSorteo.slice(0, 10).split('-').reverse().join('/')} ·
+                              vence {j.fechaVencimiento.slice(0, 10).split('-').reverse().join('/')}
+                            </p>
+                          </div>
+                          <button
+                            className="btn-outline text-xs py-1 px-2 shrink-0"
+                            disabled={reutilizarJuradoMutation.isPending}
+                            onClick={async () => {
+                              try {
+                                await reutilizarJuradoMutation.mutateAsync(j.id)
+                                setModalGenerarSorteo(false)
+                              } catch {
+                                /* el error se muestra en el bloque de la etapa */
+                              }
+                            }}
+                          >
+                            Usar este jurado
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-            <div className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* ── Columna derecha: criterios editables ── */}
+              <div className="px-6 py-5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Titulares
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sorteoCriterios.cantTitulares}
+                      onChange={(e) =>
+                        setSorteoCriterios((s) => ({
+                          ...s,
+                          cantTitulares: Number(e.target.value),
+                        }))
+                      }
+                      className="input h-10 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Suplentes
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sorteoCriterios.cantSuplentes}
+                      onChange={(e) =>
+                        setSorteoCriterios((s) => ({
+                          ...s,
+                          cantSuplentes: Number(e.target.value),
+                        }))
+                      }
+                      className="input h-10 w-full"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    Titulares
+                    Especialidades adicionales (opcional, hasta 2)
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={sorteoCriterios.cantTitulares}
+                  <p className="text-xs text-gray-500 mb-2">
+                    Además de{' '}
+                    <strong>{especialidadParaJurado ?? 'la especialidad del concurso'}</strong>,
+                    también van a contar como "cumple especialidad" para ampliar el pool de
+                    jurados elegibles.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[0, 1].map((i) => {
+                      const slots = [
+                        sorteoCriterios.especialidadesAdicionales[0] ?? '',
+                        sorteoCriterios.especialidadesAdicionales[1] ?? '',
+                      ]
+                      return (
+                        <SearchableSelect
+                          key={i}
+                          value={slots[i] ?? ''}
+                          onChange={(v) =>
+                            setSorteoCriterios((s) => {
+                              const next = [...slots]
+                              next[i] = v
+                              return {
+                                ...s,
+                                especialidadesAdicionales: next.filter(Boolean),
+                              }
+                            })
+                          }
+                          options={especialidadesEscalafon.filter(
+                            (e) => e !== especialidadParaJurado && !slots.includes(e),
+                          )}
+                          placeholder={`Especialidad extra ${i + 1}...`}
+                        />
+                      )
+                    })}
+                  </div>
+                  {sorteoCriterios.especialidadesAdicionales.length > 0 && (
+                    <div className="mt-3">
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Expediente que respalda las especialidades adicionales
+                        <span className="text-danger ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={sorteoCriterios.expedienteEspecialidades}
+                        onChange={(e) =>
+                          setSorteoCriterios((s) => ({
+                            ...s,
+                            expedienteEspecialidades: e.target.value,
+                          }))
+                        }
+                        className={`input h-10 w-full ${
+                          !sorteoCriterios.expedienteEspecialidades.trim()
+                            ? 'border-amber-300 focus:border-amber-500'
+                            : ''
+                        }`}
+                        placeholder="Ej: EX-2026-12345678-GCABA-..."
+                      />
+                      {!sorteoCriterios.expedienteEspecialidades.trim() && (
+                        <p className="text-[11px] text-amber-600 mt-1">
+                          Obligatorio: indicá el expediente que autoriza ampliar el jurado a estas
+                          especialidades adicionales.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Observaciones (opcional)
+                  </label>
+                  <textarea
+                    value={sorteoCriterios.observaciones}
                     onChange={(e) =>
                       setSorteoCriterios((s) => ({
                         ...s,
-                        cantTitulares: Number(e.target.value),
+                        observaciones: e.target.value,
                       }))
                     }
-                    className="input h-10 w-full"
+                    rows={3}
+                    className="input w-full py-2"
+                    placeholder="Notas para el acta del sorteo..."
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    Suplentes
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={sorteoCriterios.cantSuplentes}
-                    onChange={(e) =>
-                      setSorteoCriterios((s) => ({
-                        ...s,
-                        cantSuplentes: Number(e.target.value),
-                      }))
-                    }
-                    className="input h-10 w-full"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Observaciones (opcional)
-                </label>
-                <textarea
-                  value={sorteoCriterios.observaciones}
-                  onChange={(e) =>
-                    setSorteoCriterios((s) => ({
-                      ...s,
-                      observaciones: e.target.value,
-                    }))
-                  }
-                  rows={2}
-                  className="input w-full py-2"
-                  placeholder="Notas para el acta del sorteo..."
-                />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
               <button className="btn-outline" onClick={() => setModalGenerarSorteo(false)}>
                 Cerrar
               </button>
               <button
                 className="btn-primary"
-                disabled={generarSorteoMutation.isPending}
+                disabled={
+                  generarSorteoMutation.isPending ||
+                  (sorteoCriterios.especialidadesAdicionales.length > 0 &&
+                    !sorteoCriterios.expedienteEspecialidades.trim())
+                }
                 onClick={async () => {
                   try {
                     await generarSorteoMutation.mutateAsync({
                       cantTitulares: sorteoCriterios.cantTitulares,
                       cantSuplentes: sorteoCriterios.cantSuplentes,
                       antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
+                      especialidadesAdicionales:
+                        sorteoCriterios.especialidadesAdicionales.length > 0
+                          ? sorteoCriterios.especialidadesAdicionales
+                          : undefined,
+                      expedienteEspecialidades:
+                        sorteoCriterios.especialidadesAdicionales.length > 0
+                          ? sorteoCriterios.expedienteEspecialidades.trim()
+                          : undefined,
                       semilla: sorteoCriterios.semilla || undefined,
                       observaciones: sorteoCriterios.observaciones || undefined,
                     })
@@ -1226,7 +1593,7 @@ export function ConcursoCphWizard() {
                   }
                 }}
               >
-                {generarSorteoMutation.isPending ? 'Sorteando…' : '🎲 Sortear con estos criterios'}
+                {generarSorteoMutation.isPending ? 'Sorteando…' : '✅ Aceptar y sortear'}
               </button>
             </div>
           </div>
@@ -1236,142 +1603,149 @@ export function ConcursoCphWizard() {
       {/* ── MODAL DESIGNAR ──────────────────────────────────────────────────── */}
       {modalDesignar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
               <span className="text-green-500 text-xl">👤</span>
               <div>
-                <h3 className="font-primary font-bold text-gray-900">Registrar designación</h3>
+                <h3 className="font-primary font-bold text-gray-900">
+                  {modalDesignarModo === 'proponer' ? 'Proponer candidato' : 'Registrar designación'}
+                </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  El cargo quedará ocupado inmediatamente, sin esperar el padrón.
+                  {modalDesignarModo === 'proponer'
+                    ? 'Elegí a quién notificar por INSAL. Esto no ocupa el cargo — la designación oficial es en la Etapa 5.'
+                    : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
                 </p>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
-              {/* Búsqueda de persona */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Persona designada <span className="text-danger">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={designarSearch}
-                  onChange={(e) => {
-                    setDesignarSearch(e.target.value)
-                    setDesignarPersonaId('')
-                    setDesignarPersonaNombre('')
-                    setDesignarPersonaEspCph(null)
-                    setDesignarIdSialRol('')
-                  }}
-                  className="input h-10 w-full"
-                  placeholder="Nombre, CUIL, DNI o ID SIAL..."
-                  autoFocus
-                />
-                {/* Resultados de búsqueda */}
-                {personasDesignarData &&
-                  personasDesignarData.length > 0 &&
-                  !designarPersonaId &&
-                  (() => {
-                    const espConcurso = concurso?.especialidad ?? null
-                    const norm = (s: string) =>
-                      s
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .toLowerCase()
-                        .trim()
-                    return (
-                      <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm max-h-52 overflow-y-auto">
-                        {personasDesignarData.map((p) => {
-                          const espCph =
-                            (
-                              p as unknown as {
-                                especialidadCph?: string | null
-                              }
-                            ).especialidadCph ?? null
-                          const coincide =
-                            espCph && espConcurso ? norm(espCph) === norm(espConcurso) : null
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                              onClick={() => {
-                                setDesignarPersonaId(p.id)
-                                setDesignarPersonaNombre(p.apellidoNombre)
-                                setDesignarPersonaEspCph(espCph)
-                                setDesignarSearch(p.apellidoNombre)
-                                setDesignarIdSialRol('')
-                              }}
-                            >
-                              <span className="font-medium text-gray-800 block">
-                                {p.apellidoNombre}
-                              </span>
-                              <span className="text-xs text-gray-400 font-mono">{p.cuil}</span>
-                              {espCph && (
-                                <span
-                                  className={`ml-2 text-xs font-medium ${
-                                    coincide === true
-                                      ? 'text-green-600'
-                                      : coincide === false
-                                        ? 'text-amber-600'
-                                        : 'text-gray-400'
-                                  }`}
-                                >
-                                  {coincide === true ? '✓' : coincide === false ? '⚠️' : ''}{' '}
-                                  {espCph}
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )
-                  })()}
-                {/* Persona seleccionada */}
-                {designarPersonaId &&
-                  (() => {
-                    const espConcurso = concurso?.especialidad ?? null
-                    const norm = (s: string) =>
-                      s
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .toLowerCase()
-                        .trim()
-                    const coincide =
-                      designarPersonaEspCph && espConcurso
-                        ? norm(designarPersonaEspCph) === norm(espConcurso)
-                        : null
-                    return (
-                      <div className="mt-1.5 space-y-1">
-                        <p className="text-xs text-green-600">✓ Persona seleccionada</p>
-                        {designarPersonaEspCph ? (
-                          <div
-                            className={`rounded px-2.5 py-1.5 text-xs flex items-center gap-1.5 ${
-                              coincide === true
-                                ? 'bg-green-50 border border-green-200 text-green-700'
-                                : 'bg-amber-50 border border-amber-200 text-amber-700'
-                            }`}
-                          >
-                            <span>{coincide === true ? '✓' : '⚠️'}</span>
-                            <span>
-                              Especialidad CPH: <strong>{designarPersonaEspCph}</strong>
-                              {coincide === false && espConcurso && (
-                                <>
-                                  {' '}
-                                  — el concurso es de <strong>{espConcurso}</strong>
-                                </>
-                              )}
+              {/* Elegibles del orden de mérito de este concurso */}
+              {elegiblesOM.length === 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  ⚠ Todavía no hay orden de mérito calculado para este concurso — no hay
+                  candidatos para proponer. Andá a la Etapa 3 (Inscripción/Examen/OM), cargá las
+                  notas de los presentados y apretá «📊 Cargar notas / calcular orden».
+                </div>
+              )}
+              {elegiblesOM.length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Orden de mérito — elegí a quién proponer <span className="text-danger">*</span>
+                  </label>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                    {elegiblesOM.map((cand) => {
+                      const elegido =
+                        modalDesignarModo === 'proponer'
+                          ? designarInscriptoId === cand.id
+                          : Boolean(
+                              designarPersonaId &&
+                                designarSearch === cand.apellido + ', ' + cand.nombre,
+                            )
+                      return (
+                        <button
+                          key={cand.id}
+                          type="button"
+                          disabled={resolviendoOMId === cand.id}
+                          onClick={() => seleccionarCandidatoOM(cand)}
+                          className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3 ${
+                            elegido ? 'bg-green-50' : ''
+                          }`}
+                        >
+                          <span className="shrink-0 w-7 h-7 rounded-full bg-secondary/10 text-secondary text-xs font-bold flex items-center justify-center">
+                            {cand.ordenMerito}
+                          </span>
+                          <span className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                            <span className="col-span-2 font-medium text-gray-800 truncate">
+                              {cand.apellido}, {cand.nombre}
                             </span>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-gray-400">Sin especialidad CPH registrada</p>
-                        )}
-                      </div>
-                    )
-                  })()}
-              </div>
+                            <span className="text-xs text-gray-400 font-mono">
+                              CUIL {cand.cuil ?? '—'}
+                            </span>
+                            <span className="text-xs text-gray-400">DNI {cand.dni ?? '—'}</span>
+                            {cand.especialidad && (
+                              <span className="col-span-2 text-xs text-gray-500 truncate">
+                                🩺 {cand.especialidad}
+                              </span>
+                            )}
+                            {cand.email && (
+                              <span className="col-span-2 text-xs text-gray-400 truncate">
+                                {cand.email}
+                              </span>
+                            )}
+                          </span>
+                          {resolviendoOMId === cand.id && (
+                            <span className="text-xs text-gray-400 shrink-0">Buscando...</span>
+                          )}
+                          {elegido && <span className="text-green-600 shrink-0">✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Si el 1º no acepta el cargo, elegí al siguiente.
+                  </p>
+                </div>
+              )}
 
-              {/* Selector de ID SIAL Rol */}
-              {designarPersonaId && (
+              {/* Confirmación de la persona elegida (especialidad CPH vs la del concurso) */}
+              {/* Modo proponer (Etapa 4): confirmación simple del inscripto
+                  reservado, sin datos del padrón (no se resuelve acá). */}
+              {modalDesignarModo === 'proponer' && designarInscriptoId && (
+                <div className="space-y-1">
+                  <p className="text-xs text-green-600">
+                    ✓ Candidato reservado: <strong>{designarPersonaNombre}</strong>
+                  </p>
+                  {designarPersonaEspCph ? (
+                    <p className="text-xs text-gray-500">🩺 {designarPersonaEspCph}</p>
+                  ) : null}
+                </div>
+              )}
+
+              {designarPersonaId &&
+                (() => {
+                  const espConcurso = concurso?.especialidad ?? null
+                  const norm = (s: string) =>
+                    s
+                      .normalize('NFD')
+                      .replace(/[\u0300-\u036f]/g, '')
+                      .toLowerCase()
+                      .trim()
+                  const coincide =
+                    designarPersonaEspCph && espConcurso
+                      ? norm(designarPersonaEspCph) === norm(espConcurso)
+                      : null
+                  return (
+                    <div className="space-y-1">
+                      <p className="text-xs text-green-600">
+                        ✓ Persona seleccionada: <strong>{designarPersonaNombre}</strong>
+                      </p>
+                      {designarPersonaEspCph ? (
+                        <div
+                          className={`rounded px-2.5 py-1.5 text-xs flex items-center gap-1.5 ${
+                            coincide === true
+                              ? 'bg-green-50 border border-green-200 text-green-700'
+                              : 'bg-amber-50 border border-amber-200 text-amber-700'
+                          }`}
+                        >
+                          <span>{coincide === true ? '✓' : '⚠️'}</span>
+                          <span>
+                            Especialidad CPH: <strong>{designarPersonaEspCph}</strong>
+                            {coincide === false && espConcurso && (
+                              <>
+                                {' '}
+                                — el concurso es de <strong>{espConcurso}</strong>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">Sin especialidad CPH registrada</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+              {/* Selector de ID SIAL Rol — solo aplica a la designación oficial */}
+              {designarPersonaId && modalDesignarModo === 'designar' && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     ID SIAL Rol
@@ -1436,18 +1810,20 @@ export function ConcursoCphWizard() {
                 </div>
               )}
 
-              {/* Fecha desde */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Fecha de inicio <span className="text-danger">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={designarFechaDesde}
-                  onChange={(e) => setDesignarFechaDesde(e.target.value)}
-                  className="input h-10 w-full"
-                />
-              </div>
+              {/* Fecha desde — solo aplica a la designación oficial (Etapa 5) */}
+              {modalDesignarModo === 'designar' && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Fecha de inicio <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={designarFechaDesde}
+                    onChange={(e) => setDesignarFechaDesde(e.target.value)}
+                    className="input h-10 w-full"
+                  />
+                </div>
+              )}
 
               {designarMutation.isError && (
                 <p className="text-sm text-danger">
@@ -1470,36 +1846,69 @@ export function ConcursoCphWizard() {
                   setDesignarSearch('')
                   setDesignarFechaDesde('')
                   setDesignarIdSialRol('')
+                  setDesignarInscriptoId('')
                 }}
               >
                 Cancelar
               </button>
-              <button
-                className="btn-primary"
-                disabled={!designarPersonaId || !designarFechaDesde || designarMutation.isPending}
-                onClick={() => {
-                  designarMutation.mutate(
-                    {
-                      personaId: designarPersonaId,
-                      fechaDesde: designarFechaDesde,
-                      idSialRol: designarIdSialRol || undefined,
-                    },
-                    {
-                      onSuccess: () => {
-                        setModalDesignar(false)
-                        setDesignarPersonaId('')
-                        setDesignarPersonaNombre('')
-                        setDesignarPersonaEspCph(null)
-                        setDesignarSearch('')
-                        setDesignarFechaDesde('')
-                        setDesignarIdSialRol('')
+              {modalDesignarModo === 'proponer' ? (
+                <button
+                  className="btn-primary"
+                  disabled={!designarInscriptoId || patchMutation.isPending}
+                  onClick={() =>
+                    // Etapa 4: reservar al inscripto del orden de mérito para el
+                    // INSAL. NO se ocupa el cargo ni se resuelve contra el padrón
+                    // (eso es Etapa 5). Solo se guarda el inscriptoReservadoId.
+                    patchMutation.mutate(
+                      { inscriptoReservadoId: designarInscriptoId, insalAceptado: null },
+                      {
+                        onSuccess: () => {
+                          toast.success('Candidato reservado — esperá su respuesta al INSAL.')
+                          setModalDesignar(false)
+                          // designarInscriptoId se mantiene: hace falta para poder marcar
+                          // en insalRechazados si esta persona no acepta el cargo.
+                          setDesignarPersonaId('')
+                          setDesignarPersonaNombre('')
+                          setDesignarPersonaEspCph(null)
+                          setDesignarSearch('')
+                          setDesignarIdSialRol('')
+                        },
+                        onError: () => toast.error('No se pudo reservar al candidato.'),
                       },
-                    },
-                  )
-                }}
-              >
-                {designarMutation.isPending ? 'Guardando...' : 'Confirmar designación'}
-              </button>
+                    )
+                  }
+                >
+                  {patchMutation.isPending ? 'Guardando...' : 'Proponer candidato'}
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  disabled={!designarPersonaId || !designarFechaDesde || designarMutation.isPending}
+                  onClick={() => {
+                    designarMutation.mutate(
+                      {
+                        personaId: designarPersonaId,
+                        fechaDesde: designarFechaDesde,
+                        idSialRol: designarIdSialRol || undefined,
+                      },
+                      {
+                        onSuccess: () => {
+                          setModalDesignar(false)
+                          setDesignarPersonaId('')
+                          setDesignarPersonaNombre('')
+                          setDesignarPersonaEspCph(null)
+                          setDesignarSearch('')
+                          setDesignarFechaDesde('')
+                          setDesignarIdSialRol('')
+                          setDesignarInscriptoId('')
+                        },
+                      },
+                    )
+                  }}
+                >
+                  {designarMutation.isPending ? 'Guardando...' : 'Confirmar designación'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1586,6 +1995,118 @@ export function ConcursoCphWizard() {
                 }}
               >
                 {declararDesiertoMutation.isPending ? 'Guardando...' : 'Confirmar desierto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CAMBIO DE ESPECIALIDAD ─────────────────────────────────────────── */}
+      {modalCambioEspecialidad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="font-primary font-bold text-gray-900">Cambio de especialidad</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                El concurso vuelve a autorización (Etapa 1) con la nueva especialidad. Cualquier
+                sorteo de jurado o avance posterior quedará basado en una especialidad distinta a
+                la nueva y debe revisarse.
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Expediente que respalda el cambio <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={cambioEspExpediente}
+                  onChange={(e) => setCambioEspExpediente(e.target.value)}
+                  placeholder="Ej: EX-2026-12345678-GCABA-..."
+                  className="input w-full"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Nueva especialidad <span className="text-danger">*</span>
+                </label>
+                {especialidadesDisponibles.length > 0 ? (
+                  <SearchableSelect
+                    value={cambioEspNueva}
+                    onChange={setCambioEspNueva}
+                    options={especialidadesDisponibles}
+                    placeholder="Buscar especialidad..."
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={cambioEspNueva}
+                    onChange={(e) => setCambioEspNueva(e.target.value)}
+                    placeholder="Nombre de la especialidad"
+                    className="input w-full"
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Observaciones (opcional)
+                </label>
+                <textarea
+                  value={cambioEspObs}
+                  onChange={(e) => setCambioEspObs(e.target.value)}
+                  rows={2}
+                  className="input w-full py-2"
+                  placeholder="Motivo del cambio de especialidad..."
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                className="btn-outline"
+                onClick={() => {
+                  setModalCambioEspecialidad(false)
+                  setCambioEspExpediente('')
+                  setCambioEspNueva('')
+                  setCambioEspObs('')
+                }}
+                disabled={patchMutation.isPending}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-primary"
+                disabled={
+                  !cambioEspExpediente.trim() || !cambioEspNueva.trim() || patchMutation.isPending
+                }
+                onClick={async () => {
+                  try {
+                    await patchMutation.mutateAsync({
+                      especialidadSolicitada: cambioEspNueva.trim(),
+                      cambioEspecialidad: true,
+                      motivoCambioEspecialidad: [
+                        `Expediente ${cambioEspExpediente.trim()}`,
+                        cambioEspObs.trim() || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' — '),
+                    })
+                    toast.success(
+                      'Especialidad cambiada. El concurso vuelve a autorización (Etapa 1).',
+                    )
+                    setModalCambioEspecialidad(false)
+                    setCambioEspExpediente('')
+                    setCambioEspNueva('')
+                    setCambioEspObs('')
+                    // El concurso vuelve a Etapa 1 (pendienteAutorizacion=true la
+                    // marca "activa" de nuevo — ver etapasIniciales).
+                    setEtapaActiva('baja')
+                  } catch {
+                    toast.error('No se pudo registrar el cambio de especialidad.')
+                  }
+                }}
+              >
+                {patchMutation.isPending ? 'Guardando...' : 'Confirmar cambio'}
               </button>
             </div>
           </div>
@@ -1960,6 +2481,18 @@ export function ConcursoCphWizard() {
                     >
                       {cphData.suspendido ? '▶ Activar' : '⏸ Suspender'}
                     </button>
+                    {/* Cambio de especialidad */}
+                    {cphData.estado !== 'finalizado' && (
+                      <button
+                        onClick={() => {
+                          setModalCambioEspecialidad(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        🔁 Cambio de especialidad
+                      </button>
+                    )}
                     {/* Declarar desierto */}
                     {cphData.estado !== 'finalizado' && (
                       <button
@@ -2695,6 +3228,59 @@ export function ConcursoCphWizard() {
                 </>
               ) : etapa.id === 'autorizacion' ? (
                 <div className="space-y-5">
+                  {/* Tipo de gestión — va primero: hay que definirlo (y guardarlo)
+                      antes de poder generar el sorteo de jurado. */}
+                  <div
+                    className={`rounded-lg border px-4 py-4 ${
+                      cphData?.tipoGestion
+                        ? 'border-gray-200 bg-white'
+                        : 'border-amber-300 bg-amber-50'
+                    }`}
+                  >
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Tipo de gestión
+                      <span className="text-danger ml-1">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        ref={tipoGestionRef}
+                        data-key="tipoGestion"
+                        defaultValue={cphData?.tipoGestion ?? ''}
+                        className="input h-10 w-full sm:w-72"
+                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                      >
+                        <option value="">Sin definir</option>
+                        <option value="centralizado">Centralizado</option>
+                        <option value="descentralizado">Descentralizado</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn-outline text-sm shrink-0"
+                        disabled={patchMutation.isPending}
+                        onClick={() => {
+                          const valor = tipoGestionRef.current?.value || null
+                          if (!valor) return
+                          patchMutation.mutate(
+                            { tipoGestion: valor },
+                            { onSuccess: () => toast.success('Tipo de gestión guardado.') },
+                          )
+                        }}
+                      >
+                        {patchMutation.isPending ? 'Guardando…' : 'Guardar'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Centralizado: interviene SGOCDCPS y su equipo en la etapa 3. Descentralizado:
+                      interviene un tercero.
+                    </p>
+                    {!cphData?.tipoGestion && (
+                      <p className="text-xs text-amber-700 mt-2 font-medium">
+                        ⚠ Elegí el tipo de gestión y tocá "Guardar" (acá arriba) antes de poder
+                        generar el sorteo de jurado.
+                      </p>
+                    )}
+                  </div>
+
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
                   {cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
@@ -2711,20 +3297,13 @@ export function ConcursoCphWizard() {
                           {(() => {
                             const bloqueada =
                               etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'
+                            // No se puede generar/re-sortear sin Tipo de gestión guardado.
+                            const sinTipoGestion = !cphData?.tipoGestion
                             const busy =
                               generarSorteoMutation.isPending ||
                               confirmarSorteoMutation.isPending ||
                               cancelarSorteoMutation.isPending ||
                               revertirSorteoMutation.isPending
-                            const doSortear = () =>
-                              generarSorteoMutation.mutate({
-                                cantTitulares: sorteoCriterios.cantTitulares,
-                                cantSuplentes: sorteoCriterios.cantSuplentes,
-                                antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
-                                semilla: sorteoCriterios.semilla || undefined,
-                                observaciones: sorteoCriterios.observaciones || undefined,
-                              })
-
                             // Confirmado → solo lectura + revertir
                             if (juradoData?.confirmado) {
                               return (
@@ -2761,18 +3340,10 @@ export function ConcursoCphWizard() {
                                   <button
                                     className="btn-outline text-sm"
                                     onClick={() => setModalGenerarSorteo(true)}
-                                    disabled={busy || bloqueada}
+                                    disabled={busy || bloqueada || sinTipoGestion}
+                                    title={sinTipoGestion ? 'Completá el Tipo de gestión primero' : undefined}
                                   >
-                                    ⚙ Criterios
-                                  </button>
-                                  <button
-                                    className="btn-outline text-sm"
-                                    onClick={doSortear}
-                                    disabled={busy || bloqueada}
-                                  >
-                                    {generarSorteoMutation.isPending
-                                      ? 'Sorteando…'
-                                      : '🔄 Re-sortear'}
+                                    🔄 Re-sortear
                                   </button>
                                   <button
                                     className="btn-outline text-sm text-danger border-red-200 hover:bg-red-50"
@@ -2815,26 +3386,16 @@ export function ConcursoCphWizard() {
                               )
                             }
 
-                            // Sin sorteo aún → Criterios / Generar
+                            // Sin sorteo aún → abre el modal de criterios/resumen
                             return (
-                              <>
-                                <button
-                                  className="btn-outline text-sm"
-                                  onClick={() => setModalGenerarSorteo(true)}
-                                  disabled={busy || bloqueada}
-                                >
-                                  ⚙ Criterios del sorteo
-                                </button>
-                                <button
-                                  className="btn-primary text-sm"
-                                  onClick={doSortear}
-                                  disabled={busy || bloqueada}
-                                >
-                                  {generarSorteoMutation.isPending
-                                    ? 'Sorteando…'
-                                    : '🎲 Generar sorteo'}
-                                </button>
-                              </>
+                              <button
+                                className="btn-primary text-sm"
+                                onClick={() => setModalGenerarSorteo(true)}
+                                disabled={busy || bloqueada || sinTipoGestion}
+                                title={sinTipoGestion ? 'Completá el Tipo de gestión primero' : undefined}
+                              >
+                                🎲 Generar sorteo
+                              </button>
                             )
                           })()}
                         </div>
@@ -2864,6 +3425,12 @@ export function ConcursoCphWizard() {
                           <button
                             className="btn-outline text-xs py-1 px-3 border-green-300"
                             onClick={() => setModalGenerarSorteo(true)}
+                            disabled={!cphData?.tipoGestion}
+                            title={
+                              !cphData?.tipoGestion
+                                ? 'Completá el Tipo de gestión primero'
+                                : undefined
+                            }
                           >
                             Ver jurados compatibles
                           </button>
@@ -3034,27 +3601,6 @@ export function ConcursoCphWizard() {
                           />
                         </div>
                       ))}
-
-                    {/* Tipo de gestión del concurso (centralizado / descentralizado) */}
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Tipo de gestión
-                      </label>
-                      <select
-                        data-key="tipoGestion"
-                        defaultValue={cphData?.tipoGestion ?? ''}
-                        className="input h-10 w-full"
-                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                      >
-                        <option value="">Sin definir</option>
-                        <option value="centralizado">Centralizado</option>
-                        <option value="descentralizado">Descentralizado</option>
-                      </select>
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        Centralizado: interviene SGOCDCPS y su equipo en la etapa 3.
-                        Descentralizado: interviene un tercero.
-                      </p>
-                    </div>
                   </div>
                 </div>
               ) : etapa.id === 'inscripcion' ? (
@@ -3444,8 +3990,8 @@ export function ConcursoCphWizard() {
                                       <th className="py-2 pr-3">CUIL</th>
                                       <th className="py-2 pr-3">Email</th>
                                       <th className="py-2 pr-3 text-center">Presentó</th>
+                                      <th className="py-2 pr-3 text-center">Nota</th>
                                       <th className="py-2 pr-3 text-center">Orden mérito</th>
-                                      <th className="py-2 pr-3"></th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -3475,58 +4021,59 @@ export function ConcursoCphWizard() {
                                             onChange={(e) =>
                                               actualizarInscriptoMutation.mutate({
                                                 inscriptoId: ins.id,
-                                                body: {
-                                                  presentoExamen: e.target.checked,
-                                                },
+                                                body: { presentoExamen: e.target.checked },
                                               })
                                             }
-                                            title="Marcar si se presentó al examen"
+                                            title="Marcar si se presentó al examen. El orden de mérito se recalcula con el botón «Cargar notas / calcular orden», no automáticamente."
                                           />
                                         </td>
                                         <td className="py-2 pr-3 text-center">
                                           {ins.presentoExamen ? (
                                             <input
                                               type="number"
-                                              min={1}
+                                              min={0}
+                                              max={10}
+                                              step={0.01}
                                               className="input h-8 w-16 text-center"
-                                              defaultValue={ins.ordenMerito ?? ''}
+                                              defaultValue={ins.nota ?? ''}
                                               disabled={
                                                 actualizarInscriptoMutation.isPending ||
                                                 cphData.ordenMeritoConfirmado
                                               }
                                               onBlur={(e) => {
-                                                const val = e.target.value
-                                                  ? Number(e.target.value)
-                                                  : null
-                                                if (val !== (ins.ordenMerito ?? null))
-                                                  actualizarInscriptoMutation.mutate({
-                                                    inscriptoId: ins.id,
-                                                    body: { ordenMerito: val },
-                                                  })
+                                                const raw = e.target.value
+                                                let val = raw === '' ? null : Number(raw)
+                                                if (val != null) val = Math.min(10, Math.max(0, val))
+                                                if (val === (ins.nota ?? null)) return
+                                                // Solo guarda la nota. El orden de mérito NO se
+                                                // recalcula en vivo — se arma recién al apretar
+                                                // «Cargar notas / calcular orden» más abajo.
+                                                actualizarInscriptoMutation.mutate({
+                                                  inscriptoId: ins.id,
+                                                  body: { nota: val },
+                                                })
                                               }}
-                                              title="Posición en el orden de mérito"
+                                              title="Nota del examen (0-10). El orden de mérito se calcula con el botón «Cargar notas / calcular orden»."
                                             />
                                           ) : (
                                             <span className="text-gray-300">—</span>
                                           )}
                                         </td>
-                                        <td className="py-2 pr-3 text-right">
-                                          <button
-                                            className="text-xs text-danger hover:underline"
-                                            onClick={async () => {
-                                              if (
-                                                await confirm({
-                                                  titulo: 'Eliminar inscripto',
-                                                  mensaje: `¿Eliminar a ${ins.apellido}, ${ins.nombre}?`,
-                                                  peligro: true,
-                                                  confirmLabel: 'Eliminar',
-                                                })
-                                              )
-                                                borrarInscriptoMutation.mutate(ins.id)
-                                            }}
-                                          >
-                                            Eliminar
-                                          </button>
+                                        <td className="py-2 pr-3 text-center">
+                                          {ins.presentoExamen ? (
+                                            <span
+                                              className={`font-semibold ${
+                                                ins.ordenMerito != null
+                                                  ? 'text-gray-800'
+                                                  : 'text-gray-300'
+                                              }`}
+                                              title="Calculado automáticamente a partir de la nota"
+                                            >
+                                              {ins.ordenMerito ?? '—'}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-300">—</span>
+                                          )}
                                         </td>
                                       </tr>
                                     ))}
@@ -3637,42 +4184,70 @@ export function ConcursoCphWizard() {
                                   ↩ Revertir orden de mérito
                                 </button>
                               ) : (
-                                <button
-                                  className="btn-primary text-sm"
-                                  disabled={
-                                    confirmarOrdenMeritoMutation.isPending ||
-                                    !cphData.presentadosConfirmados
-                                  }
-                                  title={
-                                    !cphData.presentadosConfirmados
-                                      ? 'Confirmá primero los presentados'
-                                      : undefined
-                                  }
-                                  onClick={async () => {
-                                    if (
-                                      await confirm({
-                                        titulo: 'Confirmar orden de mérito',
-                                        mensaje:
-                                          'Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?',
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className="btn-outline text-sm"
+                                    disabled={actualizarInscriptoMutation.isPending}
+                                    title="Recalcula la posición de todos a partir de las notas cargadas (por si alguna nota se cargó sin pasar por acá, ej. importada)"
+                                    onClick={() => {
+                                      const ranking = calcularOrdenMerito(inscriptos)
+                                      let cambios = 0
+                                      inscriptos.forEach((i) => {
+                                        const nuevoOrden = ranking.get(i.id) ?? null
+                                        if (nuevoOrden !== (i.ordenMerito ?? null)) {
+                                          cambios++
+                                          actualizarInscriptoMutation.mutate({
+                                            inscriptoId: i.id,
+                                            body: { ordenMerito: nuevoOrden },
+                                          })
+                                        }
                                       })
-                                    )
-                                      confirmarOrdenMeritoMutation.mutate(undefined, {
-                                        onError: (e) =>
-                                          toast.error(
-                                            (
-                                              e as {
-                                                response?: {
-                                                  data?: { error?: { message?: string } }
+                                      toast.success(
+                                        cambios > 0
+                                          ? `Orden de mérito recalculado — ${cambios} posición(es) actualizada(s).`
+                                          : 'El orden de mérito ya está al día con las notas cargadas.',
+                                      )
+                                    }}
+                                  >
+                                    📊 Cargar notas / calcular orden
+                                  </button>
+                                  <button
+                                    className="btn-primary text-sm"
+                                    disabled={
+                                      confirmarOrdenMeritoMutation.isPending ||
+                                      !cphData.presentadosConfirmados
+                                    }
+                                    title={
+                                      !cphData.presentadosConfirmados
+                                        ? 'Confirmá primero los presentados'
+                                        : undefined
+                                    }
+                                    onClick={async () => {
+                                      if (
+                                        await confirm({
+                                          titulo: 'Confirmar orden de mérito',
+                                          mensaje:
+                                            'Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?',
+                                        })
+                                      )
+                                        confirmarOrdenMeritoMutation.mutate(undefined, {
+                                          onError: (e) =>
+                                            toast.error(
+                                              (
+                                                e as {
+                                                  response?: {
+                                                    data?: { error?: { message?: string } }
+                                                  }
                                                 }
-                                              }
-                                            )?.response?.data?.error?.message ??
-                                              'No se pudo confirmar.',
-                                          ),
-                                      })
-                                  }}
-                                >
-                                  ✓ Confirmar orden de mérito
-                                </button>
+                                              )?.response?.data?.error?.message ??
+                                                'No se pudo confirmar.',
+                                            ),
+                                        })
+                                    }}
+                                  >
+                                    ✓ Confirmar orden de mérito
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -3762,9 +4337,86 @@ export function ConcursoCphWizard() {
                         </button>
                       </div>
 
+                      {/* Proponer candidato para el INSAL — NO es la designación
+                          oficial (esa es en Etapa 5). Solo elige a quién notificar. */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Persona propuesta para el INSAL
+                        </label>
+                        {cphData && cphData.estado !== 'finalizado' && !inscriptoReservado && (
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-semibold text-blue-800">
+                                Proponer candidato
+                              </p>
+                              <p className="text-xs text-blue-600 mt-0.5">
+                                Elegí a quién notificar por INSAL. La designación oficial del
+                                cargo se hace en la Etapa 5, no acá.
+                              </p>
+                            </div>
+                            <button
+                              className="btn-primary text-sm shrink-0"
+                              onClick={() => {
+                                setModalDesignarModo('proponer')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              👤 Elegir candidato
+                            </button>
+                          </div>
+                        )}
+                        {inscriptoReservado && (
+                          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 text-sm">✓</span>
+                              <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">
+                                Reservado del orden de mérito
+                              </span>
+                            </div>
+                            <p className="text-sm font-bold text-gray-900">
+                              {inscriptoReservado.apellido}, {inscriptoReservado.nombre}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              CUIL:{' '}
+                              <span className="font-mono text-gray-700">
+                                {inscriptoReservado.cuil ?? '—'}
+                              </span>
+                            </p>
+                            {inscriptoReservado.especialidad && (
+                              <p className="text-xs text-gray-500">
+                                🩺 {inscriptoReservado.especialidad}
+                              </p>
+                            )}
+                            <div className="pt-1">
+                              <button
+                                className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
+                                disabled={patchMutation.isPending}
+                                onClick={() =>
+                                  patchMutation.mutate(
+                                    { inscriptoReservadoId: null, insalAceptado: null },
+                                    {
+                                      onSuccess: () =>
+                                        toast.success('Reserva quitada — elegí otro candidato.'),
+                                    },
+                                  )
+                                }
+                              >
+                                Cambiar candidato
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {/* INSAL */}
                       <div className="rounded-lg border border-gray-200 bg-white px-4 py-4">
                         <p className="text-sm font-semibold text-gray-800 mb-3">INSAL</p>
+                        {!inscriptoReservado && (
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 mb-3">
+                            ⚠ Reservá al candidato (arriba) antes de cargar el expediente
+                            INSAL — es la notificación al ganador del concurso.
+                          </p>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -3776,6 +4428,7 @@ export function ConcursoCphWizard() {
                               onChange={(e) =>
                                 setInsalForm((f) => ({ ...f, insal: e.target.value }))
                               }
+                              disabled={!inscriptoReservado}
                               className="input h-10 w-full"
                             />
                           </div>
@@ -3789,13 +4442,24 @@ export function ConcursoCphWizard() {
                               onChange={(e) =>
                                 setInsalForm((f) => ({ ...f, fechaInsal: e.target.value }))
                               }
+                              disabled={!inscriptoReservado}
                               className="input h-10 w-full"
                             />
                           </div>
                         </div>
                         <button
                           className="btn-primary text-sm mt-3 whitespace-nowrap"
-                          disabled={patchMutation.isPending || insalVacio || insalSinCambios}
+                          disabled={
+                            patchMutation.isPending ||
+                            insalVacio ||
+                            insalSinCambios ||
+                            !inscriptoReservado
+                          }
+                          title={
+                            !inscriptoReservado
+                              ? 'Reservá primero al candidato'
+                              : undefined
+                          }
                           onClick={() =>
                             patchMutation.mutate(
                               {
@@ -3821,8 +4485,594 @@ export function ConcursoCphWizard() {
                         </button>
                       </div>
 
-                      {/* Reutilizar integrante de una orden de mérito compatible */}
-                      {id && <PanelReutilizarOm concursoId={id} />}
+                      {/* ¿Aceptó el cargo? — solo tiene sentido una vez que hay alguien
+                          propuesto y el expediente INSAL está cargado. Si acepta, no hay
+                          más que hacer acá (ya puede avanzar a Etapa 5 a designarlo
+                          oficialmente). Si no acepta, se lo excluye del orden de mérito
+                          para este concurso y hay que elegir a otro candidato. */}
+                      {inscriptoReservado && cphData?.insal && (
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-4">
+                          <p className="text-sm font-semibold text-gray-800 mb-1">
+                            ¿{inscriptoReservado.apellido}, {inscriptoReservado.nombre} aceptó el
+                            cargo?
+                          </p>
+                          {cphData?.insalAceptado === true ? (
+                            <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 flex items-center justify-between gap-3">
+                              <p className="text-sm text-green-700">
+                                ✓ Aceptó el cargo — ya podés continuar a la Etapa 5 para
+                                registrar la designación oficial.
+                              </p>
+                              <button
+                                className="btn-outline text-xs shrink-0"
+                                disabled={patchMutation.isPending}
+                                onClick={() => patchMutation.mutate({ insalAceptado: null })}
+                              >
+                                Deshacer
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                className="btn-primary text-sm"
+                                disabled={patchMutation.isPending}
+                                onClick={() =>
+                                  patchMutation.mutate(
+                                    { insalAceptado: true },
+                                    { onSuccess: () => toast.success('Cargo aceptado.') },
+                                  )
+                                }
+                              >
+                                ✅ Cargo aceptado
+                              </button>
+                              <button
+                                className="btn-outline text-sm text-danger border-red-200 hover:bg-red-50"
+                                disabled={patchMutation.isPending}
+                                onClick={async () => {
+                                  if (
+                                    !(await confirm({
+                                      titulo: 'No aceptó el cargo',
+                                      mensaje: `${inscriptoReservado.apellido}, ${inscriptoReservado.nombre} queda excluido/a del orden de mérito de este concurso y vas a tener que elegir a otro candidato. ¿Continuar?`,
+                                      peligro: true,
+                                      confirmLabel: 'No aceptó',
+                                    }))
+                                  )
+                                    return
+                                  // El inscripto rechazado ES el reservado: se limpia la
+                                  // reserva y se lo agrega a insalRechazados para no volver
+                                  // a ofrecerlo en el orden de mérito.
+                                  patchMutation.mutate(
+                                    {
+                                      insalAceptado: null,
+                                      inscriptoReservadoId: null,
+                                      insalRechazados: [
+                                        ...insalRechazados,
+                                        inscriptoReservado.id,
+                                      ],
+                                    },
+                                    {
+                                      onSuccess: () => {
+                                        setDesignarInscriptoId('')
+                                        toast.success(
+                                          'Registrado — elegí a otro candidato del orden de mérito.',
+                                        )
+                                      },
+                                    },
+                                  )
+                                }}
+                              >
+                                ❌ No aceptó
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                    </div>
+                  )
+                })()
+              ) : etapa.id === 'designacion' ? (
+                (() => {
+                  const bloqueada =
+                    etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'
+                  // Registra un solo campo en el backend (PATCH). El sub-estado
+                  // se recalcula solo, así que la etapa avanza paso a paso.
+                  const registrarPaso = (
+                    campos: Record<string, unknown>,
+                    okMsg: string,
+                  ) =>
+                    patchMutation.mutate(campos, {
+                      onSuccess: () => toast.success(okMsg),
+                      onError: (e) =>
+                        toast.error(
+                          (e as { response?: { data?: { error?: { message?: string } } } })
+                            ?.response?.data?.error?.message ?? 'No se pudo registrar el paso.',
+                        ),
+                    })
+                  const v = designacionEstado
+                  const val = v?.validacion
+                  const cfg =
+                    val?.estado === 'validado'
+                      ? { cls: 'bg-green-50 border-green-200 text-green-800', icon: '✅', t: 'Asignación validada' }
+                      : val?.estado === 'rol_no_coincide'
+                        ? { cls: 'bg-amber-50 border-amber-200 text-amber-800', icon: '⚠️', t: 'Rol del padrón no coincide' }
+                        : val?.estado === 'esperando_padron'
+                          ? { cls: 'bg-blue-50 border-blue-200 text-blue-800', icon: '⏳', t: 'A la espera del padrón' }
+                          : { cls: 'bg-blue-50 border-blue-200 text-blue-800', icon: '⏳', t: 'Persona no encontrada en el padrón' }
+                  const ocup = v?.ocupacionVigente ?? v?.ultimaOcupacion ?? null
+                  return (
+                    <div className="space-y-5">
+                      {/* ── ARRIBA: detalle informativo de la persona ── */}
+                      {v && (
+                        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                          <div className={`px-4 py-3 border-b ${cfg.cls}`}>
+                            <div className="flex items-center gap-2">
+                              <span>{cfg.icon}</span>
+                              <span className="text-sm font-semibold">{cfg.t}</span>
+                            </div>
+                            {val?.mensaje && <p className="text-xs mt-1">{val.mensaje}</p>}
+                            {val?.idSialRolValidado && (
+                              <p className="text-xs mt-1">
+                                ID SIAL Rol validado:{' '}
+                                <span className="font-mono font-semibold">
+                                  {val.idSialRolValidado}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                          {v.persona ? (
+                            <div className="px-4 py-3 space-y-2">
+                              <p className="text-sm font-bold text-gray-900">
+                                {v.persona.apellidoNombre}
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                                <p>
+                                  CUIL:{' '}
+                                  <span className="font-mono text-gray-800">{v.persona.cuil}</span>
+                                </p>
+                                {v.persona.numeroDoc && (
+                                  <p>
+                                    {v.persona.tipoDoc ?? 'DNI'}:{' '}
+                                    <span className="text-gray-800">{v.persona.numeroDoc}</span>
+                                  </p>
+                                )}
+                                {v.persona.especialidadCph && (
+                                  <p>
+                                    Especialidad CPH:{' '}
+                                    <span className="text-gray-800">
+                                      {v.persona.especialidadCph}
+                                    </span>
+                                  </p>
+                                )}
+                                {v.persona.especialidadPrincipal && (
+                                  <p>
+                                    Especialidad principal:{' '}
+                                    <span className="text-gray-800">
+                                      {v.persona.especialidadPrincipal}
+                                    </span>
+                                  </p>
+                                )}
+                                {v.persona.mailLaboral && (
+                                  <p>
+                                    Mail laboral:{' '}
+                                    <span className="text-gray-800">{v.persona.mailLaboral}</span>
+                                  </p>
+                                )}
+                                {v.persona.telefono && (
+                                  <p>
+                                    Tel:{' '}
+                                    <span className="text-gray-800">{v.persona.telefono}</span>
+                                  </p>
+                                )}
+                                {(v.persona.domicilio ||
+                                  v.persona.localidad ||
+                                  v.persona.provincia) && (
+                                  <p className="sm:col-span-2">
+                                    Domicilio:{' '}
+                                    <span className="text-gray-800">
+                                      {[
+                                        v.persona.domicilio,
+                                        v.persona.localidad,
+                                        v.persona.provincia,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(', ')}
+                                    </span>
+                                  </p>
+                                )}
+                                <p>
+                                  Estado:{' '}
+                                  <span className="text-gray-800">
+                                    {v.persona.activo ? 'Activo' : 'Inactivo'}
+                                  </span>
+                                </p>
+                              </div>
+                              {ocup && (
+                                <div className="pt-2 border-t border-gray-100 space-y-1">
+                                  <p className="text-xs font-semibold text-gray-700">
+                                    {v.ocupacionVigente ? 'Cargo actual' : 'Último cargo'}
+                                    {!v.ocupacionVigente && ocup.hasta && (
+                                      <span className="font-normal text-gray-400">
+                                        {' '}
+                                        (hasta {ocup.hasta.slice(0, 10)})
+                                      </span>
+                                    )}
+                                  </p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                                    <p>
+                                      ID SIAL Rol:{' '}
+                                      <span className="font-mono text-gray-800">
+                                        {ocup.idSialRol}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Cargo:{' '}
+                                      <span className="text-gray-800">
+                                        {ocup.cargoCodigo ?? ocup.cargoIdSial}
+                                      </span>
+                                    </p>
+                                    {ocup.literalPuesto && (
+                                      <p>
+                                        Puesto:{' '}
+                                        <span className="text-gray-800">{ocup.literalPuesto}</span>
+                                      </p>
+                                    )}
+                                    {ocup.escalafonNombre && (
+                                      <p>
+                                        Carrera:{' '}
+                                        <span className="text-gray-800">
+                                          {ocup.escalafonNombre}
+                                        </span>
+                                      </p>
+                                    )}
+                                    {ocup.especialidadLegacy && (
+                                      <p>
+                                        Especialidad:{' '}
+                                        <span className="text-gray-800">
+                                          {ocup.especialidadLegacy}
+                                        </span>
+                                      </p>
+                                    )}
+                                    {ocup.hospitalSigla && (
+                                      <p>
+                                        Hospital:{' '}
+                                        <span className="text-gray-800">{ocup.hospitalSigla}</span>
+                                      </p>
+                                    )}
+                                    <p>
+                                      Estado del cargo:{' '}
+                                      <span className="text-gray-800">{ocup.cargoEstado}</span>
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5 pt-1">
+                                    {(ocup.situacionRevista ?? '')
+                                      .toLowerCase()
+                                      .includes('reten') && (
+                                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                        🔶 Retención de cargo
+                                      </span>
+                                    )}
+                                    <span
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                        ocup.carreraCoincide
+                                          ? 'bg-green-100 text-green-800 border-green-200'
+                                          : 'bg-gray-100 text-gray-600 border-gray-200'
+                                      }`}
+                                    >
+                                      Carrera {ocup.carreraCoincide ? '✓' : '✗'}
+                                    </span>
+                                    <span
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                        ocup.especialidadCoincide
+                                          ? 'bg-green-100 text-green-800 border-green-200'
+                                          : 'bg-gray-100 text-gray-600 border-gray-200'
+                                      }`}
+                                    >
+                                      Especialidad {ocup.especialidadCoincide ? '✓' : '✗'}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : v.inscripto ? (
+                            <div className="px-4 py-3 space-y-2">
+                              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                                Datos del orden de mérito
+                              </p>
+                              <p className="text-sm font-bold text-gray-900">
+                                {v.inscripto.apellido}, {v.inscripto.nombre}
+                              </p>
+                              <p className="text-xs text-gray-600">
+                                CUIL:{' '}
+                                <span className="font-mono text-gray-800">
+                                  {v.inscripto.cuil ?? '—'}
+                                </span>
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                Todavía no figura en el padrón — a la espera del archivo semanal.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="px-4 py-3 text-xs text-gray-500">
+                              {v.cuil ? (
+                                <>
+                                  CUIL del ganador:{' '}
+                                  <span className="font-mono text-gray-700">{v.cuil}</span> —
+                                  todavía no figura en el padrón.
+                                </>
+                              ) : (
+                                'Todavía no hay un candidato reservado ni designado para este concurso.'
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── ABAJO: pasos de designación, cada uno con su botón ── */}
+                      <div className="space-y-3">
+                        <p className="text-sm font-semibold text-gray-800">
+                          Pasos de la designación
+                        </p>
+
+                        {/* EE de designación (TAD) */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              EE de designación (TAD)
+                            </label>
+                            <input
+                              type="text"
+                              value={desigForm.eeDesignacion}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, eeDesignacion: e.target.value }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { eeDesignacion: desigForm.eeDesignacion || null },
+                                'EE de designación registrado.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Carga de documentación */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
+                          <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              className="checkbox"
+                              checked={desigForm.cargaDocumentacion}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({
+                                  ...f,
+                                  cargaDocumentacion: e.target.checked,
+                                }))
+                              }
+                            />
+                            Carga de documentación
+                          </label>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { cargaDocumentacion: desigForm.cargaDocumentacion },
+                                'Carga de documentación registrada.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Fecha apto médico */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Fecha apto médico
+                            </label>
+                            <input
+                              type="date"
+                              value={desigForm.fechaAptoMedico}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, fechaAptoMedico: e.target.value }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { fechaAptoMedico: desigForm.fechaAptoMedico || null },
+                                'Fecha de apto médico registrada.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Fecha ITE */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Fecha ITE
+                            </label>
+                            <input
+                              type="date"
+                              value={desigForm.fechaIte}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, fechaIte: e.target.value }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { fechaIte: desigForm.fechaIte || null },
+                                'Fecha ITE registrada.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Proyecto de resolución */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
+                          <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              className="checkbox"
+                              checked={desigForm.proyectoResolucion}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({
+                                  ...f,
+                                  proyectoResolucion: e.target.checked,
+                                }))
+                              }
+                            />
+                            Proyecto de resolución
+                          </label>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { proyectoResolucion: desigForm.proyectoResolucion },
+                                'Proyecto de resolución registrado.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Reso a la firma */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
+                          <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              className="checkbox"
+                              checked={desigForm.resoALaFirma}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, resoALaFirma: e.target.checked }))
+                              }
+                            />
+                            Reso a la firma
+                          </label>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { resoALaFirma: desigForm.resoALaFirma },
+                                'Reso a la firma registrada.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Resolución de designación + fecha */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[180px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Resolución de designación
+                            </label>
+                            <input
+                              type="text"
+                              value={desigForm.resolucionDesignacion}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({
+                                  ...f,
+                                  resolucionDesignacion: e.target.value,
+                                }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <div className="min-w-[160px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Fecha de resolución
+                            </label>
+                            <input
+                              type="date"
+                              value={desigForm.fechaResolucion}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, fechaResolucion: e.target.value }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                {
+                                  resolucionDesignacion: desigForm.resolucionDesignacion || null,
+                                  fechaResolucion: desigForm.fechaResolucion || null,
+                                },
+                                'Resolución de designación registrada.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+
+                        {/* Cargo SIAL (alta) */}
+                        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Cargo SIAL (alta)
+                            </label>
+                            <input
+                              type="text"
+                              value={desigForm.cargoSial}
+                              disabled={bloqueada}
+                              onChange={(e) =>
+                                setDesigForm((f) => ({ ...f, cargoSial: e.target.value }))
+                              }
+                              className="input h-10 w-full"
+                            />
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            disabled={bloqueada || patchMutation.isPending}
+                            onClick={() =>
+                              registrarPaso(
+                                { cargoSial: desigForm.cargoSial || null },
+                                'Cargo SIAL registrado.',
+                              )
+                            }
+                          >
+                            Registrar
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )
                 })()
@@ -3851,194 +5101,6 @@ export function ConcursoCphWizard() {
                         'N-DESIGNADO',
                         'O-ALTA SIAL',
                       ].includes(cphData.subEstado ?? '')
-
-                    // personaDesignada: panel especial con datos de BD
-                    if (campo.key === 'personaDesignada')
-                      return (
-                        <div key="personaDesignada" className="sm:col-span-2">
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            Persona designada
-                          </label>
-
-                          {/* Concurso no finalizado — mostrar botón para registrar designación */}
-                          {cphData && cphData.estado !== 'finalizado' && (
-                            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
-                              <div>
-                                <p className="text-sm font-semibold text-blue-800">
-                                  Registrar designación
-                                </p>
-                                <p className="text-xs text-blue-600 mt-0.5">
-                                  El cargo quedará ocupado inmediatamente sin esperar el padrón
-                                  siguiente.
-                                </p>
-                              </div>
-                              <button
-                                className="btn-primary text-sm shrink-0"
-                                onClick={() => setModalDesignar(true)}
-                              >
-                                👤 Designar
-                              </button>
-                            </div>
-                          )}
-
-                          {/* Persona ya designada (concurso finalizado o personaDesignadaId seteado) */}
-                          {loadingPersona && (
-                            <p className="text-sm text-gray-400">Buscando persona...</p>
-                          )}
-                          {!loadingPersona && errorPersona && (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                              ⚠️{' '}
-                              {(
-                                errorPersona as {
-                                  response?: { data?: { message?: string } }
-                                }
-                              )?.response?.data?.message ??
-                                'No se encontró persona designada en el sistema'}
-                            </div>
-                          )}
-                          {!loadingPersona && personaDesignada && (
-                            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1.5">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-green-600 text-sm">✓</span>
-                                <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">
-                                  {personaDesignada.fuente === 'orden_merito'
-                                    ? 'Desde orden de mérito'
-                                    : personaDesignada.fuente === 'cargo_sial'
-                                      ? 'Desde cargo SIAL'
-                                      : 'Desde padrón'}
-                                </span>
-                              </div>
-                              {personaDesignada.persona &&
-                                (() => {
-                                  const espCph =
-                                    (
-                                      personaDesignada.persona as unknown as {
-                                        especialidadCph?: string | null
-                                      }
-                                    ).especialidadCph ?? null
-                                  const espConcurso = concurso?.especialidad ?? null
-                                  const norm = (s: string) =>
-                                    s
-                                      .normalize('NFD')
-                                      .replace(/[\u0300-\u036f]/g, '')
-                                      .toLowerCase()
-                                      .trim()
-                                  const coincide =
-                                    espCph && espConcurso
-                                      ? norm(espCph) === norm(espConcurso)
-                                      : null
-                                  const esProvisional = cphData?.cargoSial?.startsWith('MANUAL-')
-                                  return (
-                                    <>
-                                      <p className="text-sm font-bold text-gray-900">
-                                        {personaDesignada.persona.apellidoNombre}
-                                      </p>
-                                      <p className="text-xs text-gray-500">
-                                        CUIL:{' '}
-                                        <span className="font-mono text-gray-700">
-                                          {personaDesignada.persona.cuil}
-                                        </span>
-                                      </p>
-                                      {personaDesignada.persona.numeroDoc && (
-                                        <p className="text-xs text-gray-500">
-                                          DNI:{' '}
-                                          <span className="text-gray-700">
-                                            {personaDesignada.persona.numeroDoc}
-                                          </span>
-                                        </p>
-                                      )}
-                                      {/* Badge de especialidad */}
-                                      {espCph ? (
-                                        <div
-                                          className={`rounded px-2.5 py-1.5 text-xs flex items-center gap-1.5 mt-1 ${
-                                            coincide === true
-                                              ? 'bg-green-100 border border-green-200 text-green-700'
-                                              : 'bg-amber-50 border border-amber-200 text-amber-700'
-                                          }`}
-                                        >
-                                          <span>{coincide === true ? '✓' : '⚠️'}</span>
-                                          <span>
-                                            Especialidad CPH: <strong>{espCph}</strong>
-                                            {coincide === false && espConcurso && (
-                                              <>
-                                                {' '}
-                                                — concurso de <strong>{espConcurso}</strong>
-                                              </>
-                                            )}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <p className="text-xs text-gray-400 mt-1">
-                                          Sin especialidad CPH registrada
-                                        </p>
-                                      )}
-                                      {/* Aviso ID SIAL provisional */}
-                                      {esProvisional && (
-                                        <div className="rounded px-2.5 py-1.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 mt-1 flex items-center gap-1.5">
-                                          <span>⏳</span>
-                                          <span>
-                                            ID SIAL provisional — se actualizará con el próximo
-                                            padrón semanal
-                                          </span>
-                                        </div>
-                                      )}
-                                      {personaDesignada.persona.mailLaboral && (
-                                        <p className="text-xs text-gray-500">
-                                          Mail:{' '}
-                                          <span className="text-gray-700">
-                                            {personaDesignada.persona.mailLaboral}
-                                          </span>
-                                        </p>
-                                      )}
-                                      {personaDesignada.persona.telefono && (
-                                        <p className="text-xs text-gray-500">
-                                          Tel:{' '}
-                                          <span className="text-gray-700">
-                                            {personaDesignada.persona.telefono}
-                                          </span>
-                                        </p>
-                                      )}
-                                    </>
-                                  )
-                                })()}
-                              {personaDesignada.fuente === 'cargo_sial' &&
-                                personaDesignada.cargo && (
-                                  <div className="mt-2 pt-2 border-t border-green-200">
-                                    <p className="text-xs text-gray-500">
-                                      Cargo nuevo:{' '}
-                                      <span className="font-mono font-semibold text-gray-700">
-                                        {personaDesignada.cargo.codigo ??
-                                          personaDesignada.cargo.idSial}
-                                      </span>
-                                      {personaDesignada.cargo.situacionRevista && (
-                                        <> · {personaDesignada.cargo.situacionRevista}</>
-                                      )}
-                                    </p>
-                                  </div>
-                                )}
-                              {personaDesignada.fuente === 'orden_merito' &&
-                                personaDesignada.integrante && (
-                                  <div className="mt-2 pt-2 border-t border-green-200">
-                                    <p className="text-xs text-gray-500">
-                                      Posición en OM:{' '}
-                                      <span className="font-semibold text-gray-700">
-                                        #{personaDesignada.integrante.posicion}
-                                      </span>
-                                      {' · '}
-                                      {personaDesignada.integrante.ordenMerito.especialidad}
-                                      {' · '}
-                                      {personaDesignada.integrante.ordenMerito.fechaPublicacion
-                                        .slice(0, 10)
-                                        .split('-')
-                                        .reverse()
-                                        .join('/')}
-                                    </p>
-                                  </div>
-                                )}
-                            </div>
-                          )}
-                        </div>
-                      )
 
                     return (
                       <div
@@ -4160,9 +5222,18 @@ export function ConcursoCphWizard() {
                     {faltantesEtapa3.join(' · ')}
                   </div>
                 )}
-                {guardado && faltantesEtapa2.length === 0 && faltantesEtapa3.length === 0 && (
-                  <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
+                {etapaActiva === 'ifacs_insal' && faltantesEtapa4.length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">Falta para avanzar a la etapa 5:</span>{' '}
+                    {faltantesEtapa4.join(' · ')}
+                  </div>
                 )}
+                {guardado &&
+                  faltantesEtapa2.length === 0 &&
+                  faltantesEtapa3.length === 0 &&
+                  faltantesEtapa4.length === 0 && (
+                    <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
+                  )}
                 {etapa.estado !== 'pendiente' &&
                   etapa.estado !== 'bloqueada' &&
                   etapa.estado !== 'completada' && (

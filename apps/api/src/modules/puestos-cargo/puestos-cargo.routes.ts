@@ -48,14 +48,28 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
   })
 
   // GET /puestos-cargo/especialidades?escalafonId=&nombre=
-  // Devuelve las especialidades para un puesto específico
+  // Con `nombre`: especialidades de ESE puesto puntual.
+  // Sin `nombre` (solo `escalafonId`): unión de especialidades de TODOS los
+  // puestos de ese escalafón — usado para ampliar la búsqueda de jurado a
+  // otras especialidades además de la propia del puesto a concursar (un
+  // puesto puntual suele tener 1 sola especialidad cargada, insuficiente para
+  // ofrecer alternativas).
   app.get('/especialidades', async (request, reply) => {
     const { escalafonId, nombre } = request.query as {
       escalafonId?: string
       nombre?: string
     }
 
-    if (!nombre) return reply.send({ data: [] })
+    if (!nombre) {
+      if (!escalafonId) return reply.send({ data: [] })
+      const rows = await prisma.especialidadPuesto.findMany({
+        where: { activo: true, puesto: { activo: true, escalafonId } },
+        select: { nombre: true },
+        distinct: ['nombre'],
+        orderBy: { nombre: 'asc' },
+      })
+      return reply.send({ data: rows.map((r) => r.nombre) })
+    }
 
     const puesto = await prisma.puestoCargo.findFirst({
       where: {

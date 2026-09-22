@@ -20,6 +20,7 @@ import {
   marcarTransferenciaService,
   aprobarTodosDiffsPendientesService,
   diagnosticarDiffsNuevosService,
+  getValidacionesPreviewService,
   getCamposModificadosService,
   buscarConcursosParaDiffService,
 } from './padron.service.js'
@@ -171,6 +172,16 @@ export async function padronRoutes(app: FastifyInstance) {
     const result = await diagnosticarDiffsNuevosService(request.params.id)
     return reply.send({ data: result })
   })
+
+  // GET /snapshots/:id/validaciones-preview — concursos CPH que quedarían
+  // validados al aprobar+vincular estos diffs (match por CUIL + carrera + especialidad).
+  app.get<{ Params: { id: string } }>(
+    '/snapshots/:id/validaciones-preview',
+    async (request, reply) => {
+      const result = await getValidacionesPreviewService(request.params.id)
+      return reply.send({ data: result })
+    },
+  )
 
   // GET /snapshots/:id/campos-modificados — conteos por campo para sub-tabs
   app.get<{ Params: { id: string } }>('/snapshots/:id/campos-modificados', async (request, reply) => {

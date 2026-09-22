@@ -483,6 +483,8 @@ function pdfSeccion(
       cellPadding: { top: 3.5, bottom: 3.5, left: 5, right: 5 },
       lineColor: BLACK,
       lineWidth: 0.25,
+      overflow: 'linebreak',
+      valign: 'top',
     },
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -595,9 +597,44 @@ interface SorteoJuradoActa {
     escalafonNombre?: string | null
     especialidadConcurso?: string | null
     hospitalNombre?: string | null
+    antiguedadMinimaAnios?: number
+    especialidadesAdicionales?: string[]
+    expedienteEspecialidades?: string | null
+    tipoGestion?: 'centralizado' | 'descentralizado' | null
+    modalidadConcurso?: 'pou' | 'pof' | null
     reglaUsada?: number
   } | null
   miembros: MiembroJuradoActa[]
+}
+
+// Texto de fundamento de cada regla de elegibilidad — documentación
+// respaldatoria que explica por qué cada miembro del jurado es válido, según
+// la regla que le tocó (ver comentario de cabecera de sorteoJurado.service.ts,
+// misma fuente de verdad). Necesario para que el acta se sostenga como
+// prueba documental al momento de aprobarse el jurado.
+function textoReglas(
+  tipoGestion: 'centralizado' | 'descentralizado' | null | undefined,
+  modalidad: 'pou' | 'pof' | null | undefined,
+  antiguedadMin: number,
+): string[] {
+  if (tipoGestion === 'centralizado') {
+    return [
+      'Regla única: cargo de conducción (Jefe de Sección o superior) + misma especialidad, en cualquier hospital de toda la base (sin prioridad de hospital ni cascada).',
+    ]
+  }
+  if (modalidad === 'pou') {
+    return [
+      'Regla 1: mismo hospital del cargo a concursar + Jefe de guardia (POU) + misma especialidad.',
+      'Regla 2: mismo hospital + Jefe de planta (POF) + misma especialidad.',
+      `Regla 3: mismo hospital + antigüedad mínima de ${antiguedadMin} años + misma especialidad.`,
+      `Regla 4: se amplía a todo el sistema de salud (cualquier hospital) + antigüedad mínima de ${antiguedadMin} años + misma especialidad.`,
+    ]
+  }
+  return [
+    'Regla 1: mismo hospital del cargo a concursar + cargo de conducción (Jefe de Sección o superior) + misma especialidad.',
+    `Regla 2: mismo hospital + antigüedad mínima de ${antiguedadMin} años (la especialidad no es obligatoria en esta regla).`,
+    'Regla 3: se amplía a todo el sistema de salud (cualquier hospital) + cargo de conducción + misma especialidad.',
+  ]
 }
 
 export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
@@ -647,21 +684,24 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
       .filter((m) => m.rol === rol)
       .sort((a, b) => a.orden - b.orden)
       .map((m) => {
+        // "✓" no existe en la fuente helvetica estándar de jsPDF — sale como
+        // un glifo roto ("'"). Se reemplaza por texto plano.
         const marcas = [
           m.reglaAplicada != null ? `Regla ${m.reglaAplicada}` : null,
-          m.cumpleEspecialidad ? 'especialidad ✓' : null,
-          m.esConduccion ? 'conducción' : null,
-          m.antiguedadAnios != null ? `${m.antiguedadAnios} años` : null,
-          m.ambito === 'hospital' ? 'mismo hospital' : 'sistema',
-        ]
-          .filter(Boolean)
-          .join(' · ')
-        const detalle = [m.cuil, m.especialidad, m.puesto, m.hospitalNombre, marcas]
-          .filter(Boolean)
-          .join(' — ')
+          m.cumpleEspecialidad ? 'cumple especialidad' : 'no cumple especialidad',
+          m.esConduccion ? 'cargo de conducción' : null,
+          m.antiguedadAnios != null ? `${m.antiguedadAnios} años de antigüedad` : null,
+          m.ambito === 'hospital' ? 'mismo hospital' : 'sistema de salud',
+        ].filter(Boolean)
+        // Una línea por dato (en vez de todo unido en una sola línea larga
+        // con " — "/" · "): esas líneas densas no tenían puntos de corte
+        // suficientes para el ancho de columna y se salían del recuadro.
+        const lineas = [m.cuil, m.especialidad, m.puesto, m.hospitalNombre, ...marcas].filter(
+          Boolean,
+        )
         return [
           `${rol === 'titular' ? 'Titular' : 'Suplente'} ${m.orden}`,
-          `${m.apellidoNombre}\n${detalle}`,
+          `${m.apellidoNombre}\n${lineas.join('\n')}`,
         ]
       })
 
@@ -681,6 +721,59 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
   if (jurado.observaciones) {
     y += 2
     y = pdfParrafo(doc, y, `Observaciones: ${jurado.observaciones}`, { fontSize: 9 })
+  }
+
+  // Detalle de fundamento — documentación respaldatoria de por qué cada
+  // miembro es elegible según la regla que le tocó. Necesario para que el
+  // acta sostenga la validez del jurado al momento de aprobarse.
+  {
+    const ph = doc.internal.pageSize.getHeight()
+    if (ph - y < 70) {
+      doc.addPage()
+      y = 20
+    }
+    y += 4
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...INK)
+    doc.text('DETALLE DE REGLAS APLICADAS', 16, y)
+    y += 5
+
+    const tipoGestion = jurado.criterios?.tipoGestion
+    const esCentralizado = tipoGestion === 'centralizado'
+    const modalidad = jurado.criterios?.modalidadConcurso
+    const antiguedadMin = jurado.criterios?.antiguedadMinimaAnios ?? 15
+    const reglas = textoReglas(tipoGestion, modalidad, antiguedadMin)
+    const intro = esCentralizado
+      ? `Tipo de gestión: centralizado. Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: se aplicó una única regla en toda la base de datos (exige además la misma profesión/escalafón que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
+      : `Tipo de gestión: descentralizado. Cargo a concursar: ${modalidad === 'pou' ? 'guardia (POU)' : 'planta (POF)'}. Cada titular y suplente fue seleccionado aplicando, en cascada y en este orden, las siguientes reglas de elegibilidad (todas exigen además la misma profesión/escalafón que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
+    y = pdfParrafo(
+      doc,
+      y,
+      `${intro}\n\n${reglas.map((r) => `• ${r}`).join('\n')}`,
+      { fontSize: 8.5 },
+    )
+
+    if (
+      jurado.criterios?.especialidadesAdicionales?.length ||
+      jurado.criterios?.expedienteEspecialidades
+    ) {
+      y += 1
+      const especs = jurado.criterios?.especialidadesAdicionales ?? []
+      y = pdfParrafo(
+        doc,
+        y,
+        `Especialidades adicionales admitidas como "cumple especialidad" además de ${jurado.criterios?.especialidadConcurso ?? 'la propia del concurso'}: ${especs.length ? especs.join(', ') : '—'}. Expediente que respalda la ampliación: ${jurado.criterios?.expedienteEspecialidades ?? '—'}.`,
+        { fontSize: 8.5 },
+      )
+    }
+
+    y = pdfParrafo(
+      doc,
+      y,
+      `Regla efectivamente utilizada para completar el jurado: Regla ${jurado.criterios?.reglaUsada ?? '—'}. Junto a cada integrante (más arriba) se detalla la regla puntual que le corresponde, si cumple la especialidad, si tiene cargo de conducción, su antigüedad y el ámbito (mismo hospital o sistema de salud).`,
+      { fontSize: 8.5 },
+    )
   }
 
   doc.save(nombreArchivo('jurado', 'acta', v(data.eeConcurso ?? data.id), 'pdf'))
