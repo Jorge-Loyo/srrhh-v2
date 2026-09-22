@@ -182,6 +182,14 @@ export interface Cargo {
   personaOcupante: (Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> & { idSialRol: string }) | null
   createdAt: string
   updatedAt: string
+  // S18-1: retención y cadena
+  tipoOrigen: TipoOrigen
+  cargoRetenidoId: string | null
+  cargoBaseId: string | null
+  periodoDesde: string | null
+  periodoHasta: string | null
+  periodoRenovado: boolean
+  fechaRenovacion: string | null
   // Relaciones expandidas (opcionales)
   hospital?: Hospital
   escalafon?: Escalafon
@@ -1201,6 +1209,8 @@ export interface CargoDetail extends Cargo {
     escalafon: Escalafon
     personaDesignada: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'> | null
   })[]
+  // S18-1: cargos remplazantes directos (R/TTR) generados sobre este cargo
+  remplazantes?: Pick<Cargo, 'id' | 'codigo' | 'literalPuesto' | 'tipoOrigen' | 'estado'>[]
 }
 
 // PS16D — POST /api/v1/concursos-cph/:id/declarar-desierto
@@ -1451,4 +1461,71 @@ export interface DesignarConcursoRequest {
   fechaResolucion?: string | null
   cargoSial?: string | null
   observaciones?: string | null
+}
+
+// ---- SPRINT 18 — Retención de cargos ----
+
+export const TipoOrigen = {
+  R: 'R',     // remplazante de ejecución
+  TTR: 'TTR', // remplazante de conducción (Titular Transitorio por Reemplazo)
+} as const
+export type TipoOrigen = typeof TipoOrigen[keyof typeof TipoOrigen] | null
+
+// Nodo de una cadena de retención — distinto de `NodoCadena` (useCadenaMando.ts,
+// feature no relacionada de "cadena de mando"/jerarquía org).
+export interface NodoCadenaRetencion {
+  id: string
+  codigo: string | null
+  literalPuesto: string | null
+  tipoOrigen: TipoOrigen
+  estado: EstadoCargo
+  estaOcupado: boolean
+  ocupanteNombre?: string
+  ocupanteCuil?: string
+  periodoDesde?: string | null
+  periodoHasta?: string | null
+  cargoRetenidoId?: string | null
+}
+
+// Devuelto por GET /api/v1/retenciones/cadena/:cargoId
+export interface CadenaRetencion {
+  cargoBaseId: string
+  nodos: NodoCadenaRetencion[] // ordenados base → más reciente
+}
+
+// POST /api/v1/retenciones
+export interface RegistrarRetencionRequest {
+  cargoId: string
+  srDocRespaldo: string
+  srComentario?: string
+  periodoDesde?: string
+  periodoHasta?: string
+}
+
+// POST /api/v1/retenciones/titular-cesa
+export interface TitularCesaRequest {
+  cargoId: string
+  ocupanteRId: string
+  docRespaldo: string
+}
+
+// Cargo dentro de un candidato de GET /api/v1/retenciones/validacion — forma
+// distinta a NodoCadenaRetencion (no viene de una cadena, viene de las
+// ocupaciones activas simultáneas de una persona)
+export interface CargoValidacionRetencion {
+  id: string
+  codigo: string | null
+  literalPuesto: string | null
+  tipoOrigen: TipoOrigen
+  estado: EstadoCargo
+  hospital: { sigla: string; nombre: string }
+  escalafon: { nombre: string }
+  situacionRevista: string | null
+}
+
+// GET /api/v1/retenciones/validacion — personas con 2+ cargos activos
+// simultáneos sin que ninguno esté formalizado como retención ni comisión
+export interface CandidatoRetencion {
+  persona: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'>
+  cargos: CargoValidacionRetencion[]
 }

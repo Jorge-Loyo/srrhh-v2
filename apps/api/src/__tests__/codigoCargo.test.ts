@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { prefijoDeCargo } from '../shared/codigoCargo.js'
+import {
+  prefijoDeCargo,
+  esConduccionPorPrefijo,
+  esConduccionPorLiteral,
+  prefijoRemplazante,
+} from '../shared/codigoCargo.js'
 
 // ─── prefijoDeCargo ───────────────────────────────────────────────────────────
 // Función pura: no toca BD, no tiene side effects. Se testea exhaustivamente
@@ -210,5 +215,71 @@ describe('prefijoDeCargo', () => {
     it('strings vacíos → CARGO', () => {
       expect(prefijoDeCargo({ escalafon: '', unificadorPuesto: '', agrupador: '' })).toBe('CARGO')
     })
+  })
+})
+
+// ─── S18-3: esConduccionPorPrefijo / esConduccionPorLiteral / prefijoRemplazante ──
+// Funciones puras: no tocan BD. Se testean exhaustivamente porque determinan si
+// una retención genera un cargo R (ejecución) o TTR (conducción, con período).
+
+describe('esConduccionPorPrefijo', () => {
+  it('cada prefijo de conducción con secuencial → true', () => {
+    const prefijos = [
+      'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
+      'EG-J', 'EG-D', 'EG-G', 'RG-CG',
+      'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
+    ]
+    for (const prefijo of prefijos) {
+      expect(esConduccionPorPrefijo(`${prefijo}-000001`)).toBe(true)
+    }
+  })
+
+  it('prefijos de ejecución → false', () => {
+    for (const codigo of ['CPH-POF-000001', 'CPH-POU-000001', 'ENF-000001', 'TEC-POF-000001', 'TEC-POU-000001', 'EG-000001']) {
+      expect(esConduccionPorPrefijo(codigo)).toBe(false)
+    }
+  })
+
+  it('código de remplazante (R/TTR) hereda la condición del prefijo base', () => {
+    expect(esConduccionPorPrefijo('CPH-J-POF-TTR-000001')).toBe(true)
+    expect(esConduccionPorPrefijo('CPH-POF-R-000001')).toBe(false)
+  })
+
+  it('null/undefined/vacío → false', () => {
+    expect(esConduccionPorPrefijo(null)).toBe(false)
+    expect(esConduccionPorPrefijo(undefined)).toBe(false)
+    expect(esConduccionPorPrefijo('')).toBe(false)
+  })
+
+  it('prefijo desconocido → false', () => {
+    expect(esConduccionPorPrefijo('XYZ-000001')).toBe(false)
+  })
+})
+
+describe('esConduccionPorLiteral', () => {
+  it('literales con "Jefe", "Director", "Sub Director", "Gerente" → true', () => {
+    expect(esConduccionPorLiteral('Jefe de Departamento')).toBe(true)
+    expect(esConduccionPorLiteral('Director del Hospital')).toBe(true)
+    expect(esConduccionPorLiteral('Sub Director Médico')).toBe(true)
+    expect(esConduccionPorLiteral('Gerente Operativo')).toBe(true)
+  })
+
+  it('literal sin esas palabras → false', () => {
+    expect(esConduccionPorLiteral('Médico de Planta')).toBe(false)
+  })
+
+  it('null/undefined → false', () => {
+    expect(esConduccionPorLiteral(null)).toBe(false)
+    expect(esConduccionPorLiteral(undefined)).toBe(false)
+  })
+})
+
+describe('prefijoRemplazante', () => {
+  it('ejecución → sufijo -R', () => {
+    expect(prefijoRemplazante('CPH-POF', 'R')).toBe('CPH-POF-R')
+  })
+
+  it('conducción → sufijo -TTR', () => {
+    expect(prefijoRemplazante('CPH-J-POF', 'TTR')).toBe('CPH-J-POF-TTR')
   })
 })

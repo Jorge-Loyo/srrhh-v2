@@ -314,6 +314,24 @@ model Cargo {
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
 
+  // S18-1: retención y cadena
+  tipoOrigen      String?   @map("tipo_origen") @db.VarChar(5)
+  // 'R'   = remplazante de ejecución
+  // 'TTR' = remplazante de conducción (Titular Transitorio por Reemplazo)
+  // null  = cargo normal (no es remplazante)
+
+  cargoRetenidoId String?   @map("cargo_retenido_id") @db.Uuid
+  // FK al cargo que este cargo está remplazando (null si no es remplazante)
+
+  cargoBaseId     String?   @map("cargo_base_id") @db.Uuid
+  // FK al cargo base de la cadena (desnormalizado). null si este cargo ES el base
+
+  // Período de conducción (solo TTR y cargos base de conducción)
+  periodoDesde    DateTime? @map("periodo_desde") @db.Date
+  periodoHasta    DateTime? @map("periodo_hasta") @db.Date
+  periodoRenovado Boolean   @default(false) @map("periodo_renovado")
+  fechaRenovacion DateTime? @map("fecha_renovacion") @db.Date
+
   // Relaciones
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
@@ -327,9 +345,17 @@ model Cargo {
   bajas           Baja[]
   etiquetas       EtiquetaCargo[]
 
+  // S18-1: cadena de retención
+  cargoRetenido Cargo?  @relation("CargoRemplazante", fields: [cargoRetenidoId], references: [id])
+  remplazantes  Cargo[] @relation("CargoRemplazante")
+  cargoBase     Cargo?  @relation("CadenaCargo", fields: [cargoBaseId], references: [id])
+  cadena        Cargo[] @relation("CadenaCargo")
+
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
+  @@index([cargoBaseId])
+  @@index([cargoRetenidoId])
   @@map("cargos")
 }
 

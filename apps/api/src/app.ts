@@ -38,6 +38,7 @@ import { dotacionRoutes } from './modules/dotacion/dotacion.routes.js'
 import { tokensRoutes } from './modules/tokens/tokens.routes.js'
 import { auditoriaRoutes } from './modules/auditoria/auditoria.routes.js'
 import { cadenaMandoRoutes } from './modules/cadena-mando/cadena-mando.routes.js'
+import { retencionesRoutes } from './modules/retenciones/retenciones.routes.js'
 
 const app = Fastify({
   logger: {
@@ -113,6 +114,7 @@ await app.register(dotacionRoutes,         { prefix: '/api/v1/dotacion' })
 await app.register(tokensRoutes,           { prefix: '/api/v1/tokens' })
 await app.register(auditoriaRoutes,        { prefix: '/api/v1/auditoria' })
 await app.register(cadenaMandoRoutes,      { prefix: '/api/v1/cadena-mando' })
+await app.register(retencionesRoutes,      { prefix: '/api/v1/retenciones' })
 
 // Start
 try {

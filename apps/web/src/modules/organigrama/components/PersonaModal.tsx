@@ -2,6 +2,8 @@ import { UserCircleIcon, XMarkIcon, BriefcaseIcon, IdentificationIcon, EnvelopeI
 import { useNavigate } from 'react-router-dom'
 import { tipoColor, stripRedundantPrefix } from '../lib/organigramaHelpers'
 import type { PersonaSeleccionada } from './OrganigramaTreeNode'
+import { useCadenaRetencion } from '../../retenciones/hooks/useCadenaRetencion'
+import { CadenaRetencionTree } from '../../retenciones/components/CadenaRetencionTree'
 
 function formatFecha(iso: string | null): string {
   if (!iso) return '—'
@@ -48,6 +50,7 @@ function Row({ label, value }: { label: string; value: string | null }) {
 
 export default function PersonaModal({ open, onClose, data }: Props) {
   const navigate = useNavigate()
+  const { data: cadena } = useCadenaRetencion(data?.persona.cargoId ?? undefined, open)
   if (!open || !data) return null
   const { persona, nodeName, nodeTitle } = data
 
@@ -152,6 +155,16 @@ export default function PersonaModal({ open, onClose, data }: Props) {
               {idSialCorto && <Row label="ID SIAL Rol" value={idSialCorto} />}
             </div>
           </div>
+
+          {/* ── S18-7: cadena de retención (solo si el cargo forma parte de una) ── */}
+          {cadena && cadena.nodos.length > 1 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-secondary mb-2">Cadena de retención</p>
+              <div className="bg-gray-50 rounded-xl px-4 py-3">
+                <CadenaRetencionTree nodos={cadena.nodos} />
+              </div>
+            </div>
+          )}
 
           {/* ── Botones ── */}
           <div className="grid grid-cols-2 gap-3 pt-1">
