@@ -556,8 +556,10 @@ flowchart TD
 ## 13. Pendiente
 
 - **Normalización de especialidades en datos** (ver `DATA_CLEANING_ESPECIALIDADES.md`).
-- **Sprint 18 — retenciones/cadena R-TTR**: la retención hoy se muestra como
-  informativa (`situacionRevista`), sin generar cargos R/TTR automáticos.
+- **Sprint 18 — retenciones/cadena R-TTR**: ✅ implementado (módulo `retenciones/`,
+  cadena de cargos R/TTR, backfill; integrado en `deploy`). En el panel de Etapa 5
+  la retención se sigue mostrando de forma informativa (`situacionRevista`); la
+  administración de la cadena vive en su propio módulo (`/retenciones/validacion`).
 - **Destinatarios de la notificación de validado**: hoy `concursales_cph`; a
   ajustar cuando se defina quién debe verla.
 - **Validación al aprobar el snapshot completo**: hoy la validación se dispara al

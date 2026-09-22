@@ -1,10 +1,16 @@
 # SPRINT 18 — Retenciones: schema + generación automática de cargos R/TTR
 
-**Estado:** 📋 Planificado
+**Estado:** ✅ Completo (integrado en `deploy` — commit `d1c4376`)
 **Fecha estimada de inicio:** 2026-09 (después de merge Sprint 17)
 **Autores:** Jorge (backend) + Agustín (frontend)
-**Rama:** `jorge` / `agustin` según tarea
+**Rama:** `agustin` → integrado en `deploy`
 **Prerequisito:** Sprint 17 mergeado a `main`
+
+> **Implementado (2026-09-22):** módulo `retenciones/` (service + routes + schema),
+> helpers R/TTR en `codigoCargo.ts`, migraciones `s18_retenciones` +
+> `indice_periodo_hasta`, backfill de cadenas, frontend `CadenaRetencionTree` /
+> `ValidacionRetencionesPage` / `CadenaRetencionPanel`, tests unitarios
+> (`retenciones.unit.test.ts`, 16 casos). Ver commit `d1c4376`.
 
 ---
 
@@ -68,6 +74,7 @@ estos campos quedan `null` — no tienen período fijo.
 ### Módulo nuevo `retenciones/`
 
 No se infla `ocupaciones.service.ts`. El módulo `retenciones/` es dueño de:
+
 - Registrar retención (cambia `situacionRevista`, genera R/TTR)
 - Consultar cadena de un cargo
 - Ejecutar paso de titular cesa → ocupante R hereda
@@ -76,18 +83,18 @@ No se infla `ocupaciones.service.ts`. El módulo `retenciones/` es dueño de:
 
 ## Tareas
 
-| # | Tarea | Dev | Est. | Prioridad |
-|---|-------|-----|------|-----------|
-| S18-1 | Schema + migración | Jorge | 1.5h | 🔴 |
-| S18-2 | Backfill: script de mapeo de cadenas existentes | Jorge | 2h | 🔴 |
-| S18-3 | `codigoCargo.ts`: helpers para R/TTR + detección conducción | Jorge | 0.5h | 🔴 |
-| S18-4 | `retenciones.service.ts` (nuevo): `registrarRetencionService` | Jorge | 3h | 🔴 |
-| S18-5 | `retenciones.routes.ts` (nuevo): 3 endpoints | Jorge | 1h | 🔴 |
-| S18-6 | `packages/types`: tipos nuevos | Jorge | 0.5h | 🔴 |
-| S18-7 | Frontend: `CadenaRetencionTree` + integración en PersonaModal y detalle cargo | Agustín | 3h | 🔴 |
-| S18-8 | Frontend: alerta cascada al dar de baja conducción | Agustín | 2h | 🔴 |
-| S18-9 | `titularCesaService`: ocupante R hereda cargo titular | Jorge | 2h | 🔴 |
-| S18-10 | Verificación e2e | Jorge + Agustín | 2h | 🔴 |
+| #      | Tarea                                                                         | Dev             | Est. | Prioridad |
+| ------ | ----------------------------------------------------------------------------- | --------------- | ---- | --------- |
+| S18-1  | Schema + migración                                                            | Jorge           | 1.5h | 🔴        |
+| S18-2  | Backfill: script de mapeo de cadenas existentes                               | Jorge           | 2h   | 🔴        |
+| S18-3  | `codigoCargo.ts`: helpers para R/TTR + detección conducción                   | Jorge           | 0.5h | 🔴        |
+| S18-4  | `retenciones.service.ts` (nuevo): `registrarRetencionService`                 | Jorge           | 3h   | 🔴        |
+| S18-5  | `retenciones.routes.ts` (nuevo): 3 endpoints                                  | Jorge           | 1h   | 🔴        |
+| S18-6  | `packages/types`: tipos nuevos                                                | Jorge           | 0.5h | 🔴        |
+| S18-7  | Frontend: `CadenaRetencionTree` + integración en PersonaModal y detalle cargo | Agustín         | 3h   | 🔴        |
+| S18-8  | Frontend: alerta cascada al dar de baja conducción                            | Agustín         | 2h   | 🔴        |
+| S18-9  | `titularCesaService`: ocupante R hereda cargo titular                         | Jorge           | 2h   | 🔴        |
+| S18-10 | Verificación e2e                                                              | Jorge + Agustín | 2h   | 🔴        |
 
 **Total estimado**: ~17.5h
 
@@ -141,6 +148,7 @@ model Cargo {
 ```
 
 Índices adicionales en la migración SQL:
+
 ```sql
 CREATE INDEX idx_cargos_cargo_base_id      ON cargos (cargo_base_id);
 CREATE INDEX idx_cargos_cargo_retenido_id  ON cargos (cargo_retenido_id);
@@ -158,6 +166,7 @@ CREATE INDEX idx_cargos_periodo_hasta      ON cargos (periodo_hasta)
 Script `scripts/backfill_cadenas_retencion.mjs`.
 
 **Lógica**:
+
 1. Buscar todas las ocupaciones con `situacionRevista = 'Retencion de Cargo'` que tengan
    `hasta IS NULL` (activas).
 2. Para cada una: el `cargoId` es el cargo retenido. Buscar en `cargos` el cargo remplazante
@@ -178,9 +187,18 @@ Script `scripts/backfill_cadenas_retencion.mjs`.
 
 ```typescript
 const PREFIJOS_CONDUCCION = new Set([
-  'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
-  'EG-J', 'EG-D', 'EG-G', 'RG-CG',
-  'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
+  'CPH-J-POF',
+  'CPH-J-POU',
+  'CPH-D',
+  'CPH-SD',
+  'EG-J',
+  'EG-D',
+  'EG-G',
+  'RG-CG',
+  'AS-MIN',
+  'AS-SS',
+  'AS-DG',
+  'AS-DGA',
 ])
 
 export function esConduccionPorPrefijo(codigo: string | null | undefined): boolean {
@@ -197,21 +215,23 @@ export function esConduccionPorPrefijo(codigo: string | null | undefined): boole
 ```
 
 Fallback por `literalPuesto` cuando `codigo` es null:
+
 ```typescript
 export function esConduccionPorLiteral(literalPuesto: string | null | undefined): boolean {
   const lit = normStr(literalPuesto)
-  return lit.includes('JEFE') || lit.includes('DIRECTOR') ||
-         lit.includes('SUB DIRECTOR') || lit.includes('GERENTE')
+  return (
+    lit.includes('JEFE') ||
+    lit.includes('DIRECTOR') ||
+    lit.includes('SUB DIRECTOR') ||
+    lit.includes('GERENTE')
+  )
 }
 ```
 
 ### Función `prefijoRemplazante`
 
 ```typescript
-export function prefijoRemplazante(
-  prefijoCargo: string,
-  tipo: 'R' | 'TTR',
-): string {
+export function prefijoRemplazante(prefijoCargo: string, tipo: 'R' | 'TTR'): string {
   return `${prefijoCargo}-${tipo}`
 }
 // CPH-POF     → CPH-POF-R
@@ -230,8 +250,8 @@ export function prefijoRemplazante(
 ```typescript
 // Input
 type RegistrarRetencionInput = {
-  cargoId: string        // cargo que se retiene
-  srDocRespaldo: string  // documento obligatorio
+  cargoId: string // cargo que se retiene
+  srDocRespaldo: string // documento obligatorio
   srComentario?: string
   // Solo para conducción (TTR):
   periodoDesde?: Date
@@ -279,12 +299,12 @@ Ver S18-9.
 
 ## S18-5 — `retenciones.routes.ts`
 
-| Método | Path | Descripción | Permiso |
-|--------|------|-------------|---------|
-| `POST` | `/retenciones` | Registrar retención + generar R/TTR | `sgrasv` |
-| `GET` | `/retenciones/cadena/:cargoId` | Cadena completa desde el base | `editor` |
-| `GET` | `/retenciones/cargo/:cargoId` | Detalle: cargo + su remplazante si existe | `editor` |
-| `POST` | `/retenciones/titular-cesa` | Ocupante R hereda cargo titular | `sgrasv` |
+| Método | Path                           | Descripción                               | Permiso  |
+| ------ | ------------------------------ | ----------------------------------------- | -------- |
+| `POST` | `/retenciones`                 | Registrar retención + generar R/TTR       | `sgrasv` |
+| `GET`  | `/retenciones/cadena/:cargoId` | Cadena completa desde el base             | `editor` |
+| `GET`  | `/retenciones/cargo/:cargoId`  | Detalle: cargo + su remplazante si existe | `editor` |
+| `POST` | `/retenciones/titular-cesa`    | Ocupante R hereda cargo titular           | `sgrasv` |
 
 ---
 
@@ -309,11 +329,12 @@ export type NodoCadena = {
 
 export type CadenaRetencion = {
   cargoBaseId: string
-  nodos: NodoCadena[]  // ordenados base → más reciente
+  nodos: NodoCadena[] // ordenados base → más reciente
 }
 ```
 
 Campos nuevos en tipo `Cargo`:
+
 ```typescript
 tipoOrigen?: TipoOrigen
 cargoRetenidoId?: string | null
@@ -341,6 +362,7 @@ Cada nodo muestra: código, literal puesto, estado (badge), ocupante si existe, 
 restantes del período si aplica.
 
 **Integración**:
+
 - `PersonaModal`: nueva tab "Cadena" que aparece solo si la persona tiene alguna
   ocupación con `situacionRevista = 'Retencion de Cargo'`.
 - Página de detalle de cargo (`/cargos/:id`): sección "Cadena de retención" si el cargo
@@ -379,6 +401,7 @@ conducción normal) cesa definitivamente:
 **Input**: `{ cargoId: string, ocupanteRId: string, docRespaldo: string }`
 
 **Pasos**:
+
 1. Buscar el cargo R asociado: `cargos WHERE cargoRetenidoId = cargoId AND tipoOrigen = 'R'`.
 2. Validar que el cargo R tiene ocupante activo (`ocupanteRId`).
 3. En transacción:
@@ -396,34 +419,34 @@ conducción normal) cesa definitivamente:
 
 Escenarios a verificar manualmente:
 
-| # | Escenario | Resultado esperado |
-|---|-----------|-------------------|
-| 1 | Ejecución → conducción: SGRASV registra retención en CPH-POF | Se genera CPH-POF-R-XXXXXX, cadena tiene 2 nodos |
-| 2 | Conducción → conducción: SGRASV registra retención en CPH-J-POF | Se genera CPH-J-POF-TTR-XXXXXX con período, cadena tiene 3 nodos |
-| 3 | Ejecución → ejecución: intento de retener CPH-POF cuando persona ya tiene otro CPH-POF | Error: "no puede retener dos cargos de ejecución" |
-| 4 | Cadena de 3 niveles: árbol visual muestra los 3 nodos correctamente | ✓ |
-| 5 | Titular cesa: ocupante del R hereda el cargo titular, R pasa a no_vigente | ✓ |
-| 6 | Alerta cascada: baja de cargo de conducción con cadena activa muestra modal | ✓ |
-| 7 | Backfill: cargos existentes con `situacionRevista = 'Retencion de Cargo'` tienen `cargoBaseId` asignado | ✓ |
+| #   | Escenario                                                                                               | Resultado esperado                                               |
+| --- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 1   | Ejecución → conducción: SGRASV registra retención en CPH-POF                                            | Se genera CPH-POF-R-XXXXXX, cadena tiene 2 nodos                 |
+| 2   | Conducción → conducción: SGRASV registra retención en CPH-J-POF                                         | Se genera CPH-J-POF-TTR-XXXXXX con período, cadena tiene 3 nodos |
+| 3   | Ejecución → ejecución: intento de retener CPH-POF cuando persona ya tiene otro CPH-POF                  | Error: "no puede retener dos cargos de ejecución"                |
+| 4   | Cadena de 3 niveles: árbol visual muestra los 3 nodos correctamente                                     | ✓                                                                |
+| 5   | Titular cesa: ocupante del R hereda el cargo titular, R pasa a no_vigente                               | ✓                                                                |
+| 6   | Alerta cascada: baja de cargo de conducción con cadena activa muestra modal                             | ✓                                                                |
+| 7   | Backfill: cargos existentes con `situacionRevista = 'Retencion de Cargo'` tienen `cargoBaseId` asignado | ✓                                                                |
 
 ---
 
 ## Archivos a crear / modificar
 
-| Archivo | Cambio |
-|---------|--------|
-| `prisma/schema.prisma` | 6 campos + relaciones auto-ref en `Cargo` |
-| `prisma/migrations/20260924000000_s18_retenciones/` | Migración nueva (manual) |
-| `apps/api/src/shared/codigoCargo.ts` | `esConduccionPorPrefijo`, `esConduccionPorLiteral`, `prefijoRemplazante` |
-| `apps/api/src/modules/retenciones/retenciones.service.ts` | Nuevo — 3 services |
-| `apps/api/src/modules/retenciones/retenciones.routes.ts` | Nuevo — 4 endpoints |
-| `apps/api/src/modules/retenciones/retenciones.schema.ts` | Nuevo — schemas Zod |
-| `packages/types/src/index.ts` | `TipoOrigen`, `NodoCadena`, `CadenaRetencion`, campos en `Cargo` |
-| `apps/web/src/modules/retenciones/components/CadenaRetencionTree.tsx` | Nuevo |
-| `apps/web/src/modules/retenciones/hooks/useRetenciones.ts` | Nuevo — hooks TanStack Query |
-| `apps/web/src/modules/personas/components/PersonaModal.tsx` | Tab "Cadena" condicional |
-| `apps/web/src/modules/bajas/components/ConfirmarBajaModal.tsx` | Alerta cascada |
-| `scripts/backfill_cadenas_retencion.mjs` | Nuevo — script de backfill |
+| Archivo                                                               | Cambio                                                                   |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `prisma/schema.prisma`                                                | 6 campos + relaciones auto-ref en `Cargo`                                |
+| `prisma/migrations/20260924000000_s18_retenciones/`                   | Migración nueva (manual)                                                 |
+| `apps/api/src/shared/codigoCargo.ts`                                  | `esConduccionPorPrefijo`, `esConduccionPorLiteral`, `prefijoRemplazante` |
+| `apps/api/src/modules/retenciones/retenciones.service.ts`             | Nuevo — 3 services                                                       |
+| `apps/api/src/modules/retenciones/retenciones.routes.ts`              | Nuevo — 4 endpoints                                                      |
+| `apps/api/src/modules/retenciones/retenciones.schema.ts`              | Nuevo — schemas Zod                                                      |
+| `packages/types/src/index.ts`                                         | `TipoOrigen`, `NodoCadena`, `CadenaRetencion`, campos en `Cargo`         |
+| `apps/web/src/modules/retenciones/components/CadenaRetencionTree.tsx` | Nuevo                                                                    |
+| `apps/web/src/modules/retenciones/hooks/useRetenciones.ts`            | Nuevo — hooks TanStack Query                                             |
+| `apps/web/src/modules/personas/components/PersonaModal.tsx`           | Tab "Cadena" condicional                                                 |
+| `apps/web/src/modules/bajas/components/ConfirmarBajaModal.tsx`        | Alerta cascada                                                           |
+| `scripts/backfill_cadenas_retencion.mjs`                              | Nuevo — script de backfill                                               |
 
 ---
 

@@ -1,9 +1,14 @@
 # SPRINT 18 — Designación CPH: búsqueda mejorada + validación de especialidad + ID SIAL Rol
 
-**Estado:** 📋 Planificado
+**Estado:** ✅ Completo (integrado en `deploy`)
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea
 **Depende de:** Sprint 17 ✅, migración `20260928000000_persona_especialidad_cph` ✅
+
+> **Implementado:** endpoint `sial-roles`, búsqueda por CUIL/DNI/ID SIAL,
+> `especialidadCph` en resultados, badge de validación de especialidad, selector
+> de ID SIAL Rol y aviso de ID SIAL provisional (`MANUAL-`). Ampliado en el
+> Sprint 19 (Etapa 5: `designacion-estado` + validación contra el padrón).
 
 ---
 
@@ -33,6 +38,7 @@ Mejorar el flujo de designación en el wizard CPH en tres dimensiones:
 El modal "Registrar designación" en `ConcursoCphWizard` busca personas solo por
 `apellidoNombre` o `cuil` (campo libre contra `GET /api/v1/personas?search=`).
 No permite buscar por:
+
 - DNI (número de documento)
 - ID SIAL (el identificador del cargo en SIAL, sin el sufijo de rol)
 - ID SIAL Rol completo
@@ -44,6 +50,7 @@ Es posible designar a alguien de Radiología en un concurso de Anestesiología s
 ninguna advertencia (caso real: Kunz, Maria Belen Guadalupe).
 
 La causa raíz fue corregida en la sesión anterior:
+
 - `personas.especialidad_cph` ahora existe y está populado desde `ref_especialidades_cuil`
 - `personas.especialidad_principal` fue normalizada con tildes y formato canónico
 
@@ -53,6 +60,7 @@ Pero el wizard todavía no usa estos datos para validar.
 
 El campo "ID SIAL Rol" en el modal es un input de texto libre. El usuario tiene que
 saber de memoria el valor correcto. No hay forma de:
+
 - Ver qué `idSialRol` tiene esa persona en el padrón actual
 - Elegir entre múltiples roles si la persona tiene más de uno
 - Saber si la persona todavía no aparece en el padrón (y que el sistema lo manejará)
@@ -89,6 +97,7 @@ Confirmar → crea Ocupacion, avanza concurso a N-DESIGNADO
 ### Alerta de especialidad en la etapa 5 (persona ya designada)
 
 Cuando el concurso ya tiene persona designada y el usuario está en la etapa 5:
+
 - Si `persona.especialidad_cph` ≠ `concurso.especialidadSolicitada` (comparación
   case-insensitive, ignorando tildes) → mostrar badge naranja de advertencia
 - Si coinciden → mostrar badge verde de confirmación
@@ -98,16 +107,16 @@ Cuando el concurso ya tiene persona designada y el usuario está en la etapa 5:
 
 ## Tareas
 
-| # | Tarea | Dev | Est. | Prioridad | Estado |
-|---|-------|-----|------|-----------|--------|
-| S18-1 | Backend: `GET /api/v1/personas/:id/sial-roles` — devuelve los `idSialRol` activos de una persona (ocupaciones con `hasta IS NULL`), con datos del cargo (código, puesto, hospital). | Jorge | 2h | 🔴 | 📋 |
-| S18-2 | Backend: extender `GET /api/v1/personas` para buscar por `idSial` (sin rol) — nuevo query param `idSial` que busca en `ocupaciones.idSialRol LIKE '{idSial}%'`. | Jorge | 1h | 🔴 | 📋 |
-| S18-3 | Backend: `GET /api/v1/personas` incluye `especialidadCph` en la respuesta del listado (ya existe en la query raw de `personas.service.ts` — solo falta exponerlo). | Jorge | 0.5h | 🔴 | ✅ (hecho en sesión anterior) |
-| S18-4 | Frontend: modal "Designar" — reemplazar input de búsqueda libre por búsqueda que acepta nombre / CUIL / DNI / ID SIAL. Mostrar `especialidadCph` en cada resultado. Badge de alerta si no coincide con `especialidadSolicitada` del concurso. | Agustín | 4h | 🔴 | 📋 |
-| S18-5 | Frontend: modal "Designar" — después de seleccionar persona, cargar sus `idSialRol` disponibles desde S18-1. Mostrar como lista seleccionable. Opción "Sin ID SIAL (pendiente de padrón)" siempre disponible. | Agustín | 3h | 🔴 | 📋 |
-| S18-6 | Frontend: etapa 5 del wizard — panel "Persona designada" muestra badge de validación de especialidad (verde / naranja / gris) comparando `persona.especialidadCph` vs `concurso.especialidadSolicitada`. | Agustín | 2h | 🔴 | 📋 |
-| S18-7 | Frontend: etapa 5 del wizard — si la persona fue designada con ID SIAL sintético (`MANUAL-*`), mostrar aviso "Pendiente de padrón — se actualizará automáticamente cuando llegue el archivo semanal". | Agustín | 1h | 🟡 | 📋 |
-| S18-8 | Verificación end-to-end: buscar por DNI → seleccionar → ver especialidad → alerta si no coincide → elegir idSialRol → confirmar designación → wizard avanza a N-DESIGNADO. | Jorge + Agustín | 2h | 🔴 | 📋 |
+| #     | Tarea                                                                                                                                                                                                                                         | Dev             | Est. | Prioridad | Estado                        |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | --------- | ----------------------------- |
+| S18-1 | Backend: `GET /api/v1/personas/:id/sial-roles` — devuelve los `idSialRol` activos de una persona (ocupaciones con `hasta IS NULL`), con datos del cargo (código, puesto, hospital).                                                           | Jorge           | 2h   | 🔴        | 📋                            |
+| S18-2 | Backend: extender `GET /api/v1/personas` para buscar por `idSial` (sin rol) — nuevo query param `idSial` que busca en `ocupaciones.idSialRol LIKE '{idSial}%'`.                                                                               | Jorge           | 1h   | 🔴        | 📋                            |
+| S18-3 | Backend: `GET /api/v1/personas` incluye `especialidadCph` en la respuesta del listado (ya existe en la query raw de `personas.service.ts` — solo falta exponerlo).                                                                            | Jorge           | 0.5h | 🔴        | ✅ (hecho en sesión anterior) |
+| S18-4 | Frontend: modal "Designar" — reemplazar input de búsqueda libre por búsqueda que acepta nombre / CUIL / DNI / ID SIAL. Mostrar `especialidadCph` en cada resultado. Badge de alerta si no coincide con `especialidadSolicitada` del concurso. | Agustín         | 4h   | 🔴        | 📋                            |
+| S18-5 | Frontend: modal "Designar" — después de seleccionar persona, cargar sus `idSialRol` disponibles desde S18-1. Mostrar como lista seleccionable. Opción "Sin ID SIAL (pendiente de padrón)" siempre disponible.                                 | Agustín         | 3h   | 🔴        | 📋                            |
+| S18-6 | Frontend: etapa 5 del wizard — panel "Persona designada" muestra badge de validación de especialidad (verde / naranja / gris) comparando `persona.especialidadCph` vs `concurso.especialidadSolicitada`.                                      | Agustín         | 2h   | 🔴        | 📋                            |
+| S18-7 | Frontend: etapa 5 del wizard — si la persona fue designada con ID SIAL sintético (`MANUAL-*`), mostrar aviso "Pendiente de padrón — se actualizará automáticamente cuando llegue el archivo semanal".                                         | Agustín         | 1h   | 🟡        | 📋                            |
+| S18-8 | Verificación end-to-end: buscar por DNI → seleccionar → ver especialidad → alerta si no coincide → elegir idSialRol → confirmar designación → wizard avanza a N-DESIGNADO.                                                                    | Jorge + Agustín | 2h   | 🔴        | 📋                            |
 
 **Total estimado:** ~15.5h
 
@@ -134,14 +143,14 @@ Agustín puede arrancar S18-4 en paralelo con Jorge haciendo S18-1 y S18-2.
 
 ```typescript
 // Respuesta
-[
+;[
   {
-    idSialRol: "001234567-2-20123456789",
-    cargoId: "uuid",
-    codigoCargo: "CPH-POF-001234",
-    literalPuesto: "Médico de Planta",
-    hospitalSigla: "HGARM",
-    desde: "2023-01-15",
+    idSialRol: '001234567-2-20123456789',
+    cargoId: 'uuid',
+    codigoCargo: 'CPH-POF-001234',
+    literalPuesto: 'Médico de Planta',
+    hospitalSigla: 'HGARM',
+    desde: '2023-01-15',
   },
   // ... más roles si tiene
 ]
@@ -150,6 +159,7 @@ Agustín puede arrancar S18-4 en paralelo con Jorge haciendo S18-1 y S18-2.
 ### S18-2 — Búsqueda por ID SIAL en `GET /personas`
 
 Nuevo query param `idSial` (string). Busca en:
+
 ```sql
 EXISTS (
   SELECT 1 FROM ocupaciones o2
@@ -173,12 +183,14 @@ de personas) — revisar si solo falta exponerlo o si hay que extenderlo.
 ### S18-4 — Modal "Designar" mejorado
 
 **Búsqueda:**
+
 - El input acepta cualquier texto
 - El placeholder dice: "Buscar por nombre, CUIL, DNI o ID SIAL..."
 - La query a `GET /api/v1/personas` usa el param `search` (ya maneja nombre/CUIL/DNI)
   y agrega `idSial` si el texto parece un ID SIAL (solo dígitos, 6-12 chars)
 
 **Resultados:**
+
 ```
 ┌─────────────────────────────────────────────────────┐
 │ Kunz, Maria Belen Guadalupe                         │
@@ -196,11 +208,16 @@ de personas) — revisar si solo falta exponerlo o si hay que extenderlo.
 ```
 
 **Lógica de comparación de especialidad:**
+
 ```typescript
 function especialidadCoincide(espCph: string | null, espConcurso: string | null): boolean {
   if (!espCph || !espConcurso) return false
   const norm = (s: string) =>
-    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
   return norm(espCph) === norm(espConcurso)
 }
 ```
@@ -240,6 +257,7 @@ Especialidad: Radiología (Radiodiagnóstico)
 ```
 
 Colores:
+
 - Verde: `especialidadCph` coincide con `especialidadSolicitada`
 - Naranja: no coincide (advertencia, no bloquea)
 - Gris: `especialidadCph` es null
