@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EstadoConcursoCph } from '@srrhh/types'
 import type { ConcursoCph, ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '../hooks/useEtiquetas'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
@@ -171,11 +173,15 @@ function ConcursosListaTab() {
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
   const [origen, setOrigen] = useState<'' | 'baja' | 'ampliacion' | 'cobertura'>('')
+  const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
   const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
   const [conFaltantes, setConFaltantes] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [menuAcciones, setMenuAcciones] = useState(false)
+  const menuAccionesRef = useRef<HTMLDivElement>(null)
+  const [drawerAvanzado, setDrawerAvanzado] = useState(false)
   const [importResult, setImportResult] = useState<{
     total: number
     actualizados: number
@@ -194,6 +200,17 @@ function ConcursosListaTab() {
   const asignarEtiqueta = useAsignarEtiqueta()
   const crearEtiqueta = useCrearEtiqueta()
   const { toast, ToastUI } = useToast()
+
+  useEffect(() => {
+    if (!menuAcciones) return
+    function handleClickOutside(e: MouseEvent) {
+      if (menuAccionesRef.current && !menuAccionesRef.current.contains(e.target as Node)) {
+        setMenuAcciones(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuAcciones])
 
   async function handleImportarCsv(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -224,6 +241,12 @@ function ConcursosListaTab() {
     ...(subEstado3 && { subEstado3 }),
     ...(origen && { origen }),
     ...(conFaltantes && { conFaltantes: true }),
+    ...(etiquetasFiltro.length && {
+      etiquetaIds: etiquetasFiltro
+        .map((nombre) => catalogoEtiquetas.find((e) => e.nombre === nombre)?.id)
+        .filter((x): x is string => !!x)
+        .join(','),
+    }),
   }
 
   const { data, isLoading, isFetching, isError } = useConcursosCph(filters)
@@ -304,39 +327,71 @@ function ConcursosListaTab() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Concursos CPH</h1>
-          <div className="flex items-center gap-2">
-            <label
-              title={importando ? 'Importando...' : 'Importar CSV'}
-              aria-label="Importar CSV"
-              className={`btn-outline text-base cursor-pointer px-3 ${importando ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              {importando ? '…' : '↑'}
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={handleImportarCsv}
-                disabled={importando}
-              />
-            </label>
-            <button className="btn-outline" onClick={() => setShowFlujo(true)}>
-              📋 Flujo del concurso
-            </button>
+          <div className="relative" ref={menuAccionesRef}>
             <button
-              onClick={() => {
-                setConFaltantes((v) => !v)
-                setPage(1)
-              }}
-              className={`btn-outline text-sm ${conFaltantes ? 'bg-orange-100 border-orange-400 text-orange-800 font-semibold' : ''}`}
+              onClick={() => setMenuAcciones((v) => !v)}
+              className={`btn-outline text-sm ${
+                conFaltantes || modoSeleccion
+                  ? 'bg-secondary/10 border-secondary text-secondary font-semibold'
+                  : ''
+              }`}
             >
-              ⚠️ Con documentación faltante
+              ⚙ Acciones ▾
             </button>
-            <button
-              onClick={() => (modoSeleccion ? salirModoSeleccion() : setModoSeleccion(true))}
-              className={`btn-outline text-sm ${modoSeleccion ? 'bg-secondary/10 border-secondary text-secondary font-semibold' : ''}`}
-            >
-              🏷️ {modoSeleccion ? 'Cancelar selección' : 'Etiquetar varios'}
-            </button>
+            {menuAcciones && (
+              <div className="absolute right-0 z-50 mt-1 w-64 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                <label
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 cursor-pointer ${
+                    importando ? 'opacity-50 pointer-events-none' : ''
+                  }`}
+                >
+                  {importando ? '…' : '↑'} {importando ? 'Importando...' : 'Importar CSV'}
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleImportarCsv(e)
+                      setMenuAcciones(false)
+                    }}
+                    disabled={importando}
+                  />
+                </label>
+                <button
+                  onClick={() => {
+                    setShowFlujo(true)
+                    setMenuAcciones(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  📋 Flujo del concurso
+                </button>
+                <button
+                  onClick={() => {
+                    setConFaltantes((v) => !v)
+                    setPage(1)
+                    setMenuAcciones(false)
+                  }}
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                    conFaltantes ? 'text-orange-700 font-semibold' : 'text-gray-700'
+                  }`}
+                >
+                  ⚠️ {conFaltantes ? 'Quitar filtro: con documentación faltante' : 'Con documentación faltante'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (modoSeleccion) salirModoSeleccion()
+                    else setModoSeleccion(true)
+                    setMenuAcciones(false)
+                  }}
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                    modoSeleccion ? 'text-secondary font-semibold' : 'text-gray-700'
+                  }`}
+                >
+                  🏷️ {modoSeleccion ? 'Cancelar selección' : 'Etiquetar varios'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {importResult && (
@@ -393,66 +448,56 @@ function ConcursosListaTab() {
             onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
-          <select
+          <SearchableSelect
             value={hospitalId}
-            onChange={(e) => resetPage(setHospitalId)(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            onChange={resetPage(setHospitalId)}
+            options={hospitales?.map((h) => hospitalLabel(h)) ?? []}
+            placeholder="Todas las siglas"
+            className="min-w-[220px]"
+            valueToDisplay={(id) => {
+              const h = hospitales?.find((x) => x.id === id)
+              return h ? hospitalLabel(h) : ''
+            }}
+            displayToValue={(label) => hospitales?.find((h) => hospitalLabel(h) === label)?.id ?? ''}
+          />
+        </div>
+
+        {/* Filtro rápido por estado (4 botones) + filtros avanzados */}
+        <div className="flex flex-wrap items-center gap-2">
+          {Object.values(EstadoConcursoCph).map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => resetPage(setEstado)(estado === e ? '' : e)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                estado === e
+                  ? 'bg-secondary text-white border-secondary'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-secondary hover:text-secondary'
+              }`}
+            >
+              {ESTADO_LABEL[e]}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setDrawerAvanzado(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-secondary hover:text-secondary transition-colors ml-auto"
           >
-            <option value="">Todos los hospitales</option>
-            {hospitales?.map((h) => (
-              <option key={h.id} value={h.id}>
-                {hospitalLabel(h)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={estado}
-            onChange={(e) => resetPage(setEstado)(e.target.value as '' | EstadoConcursoCph)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todos los estados</option>
-            {Object.values(EstadoConcursoCph).map((e) => (
-              <option key={e} value={e}>
-                {ESTADO_LABEL[e]}
-              </option>
-            ))}
-          </select>
-          <select
-            value={subEstado}
-            onChange={(e) => resetPage(setSubEstado)(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todos los sub-estados</option>
-            {SUB_ESTADO_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select
-            value={subEstado3}
-            onChange={(e) => resetPage(setSubEstado3)(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todas las etapas</option>
-            {SUB_ESTADO_3_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select
-            value={origen}
-            onChange={(e) =>
-              resetPage(setOrigen)(e.target.value as '' | 'baja' | 'ampliacion' | 'cobertura')
-            }
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Toda respaldatoria</option>
-            <option value="baja">Baja</option>
-            <option value="ampliacion">Ampliación</option>
-            <option value="cobertura">Cobertura de dotación</option>
-          </select>
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L13 10.414V17a1 1 0 01-.553.894l-4 2A1 1 0 017 19v-8.586L3.293 6.707A1 1 0 013 6V3z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Filtros avanzados
+            {(subEstado || subEstado3 || origen || etiquetasFiltro.length > 0) && (
+              <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {[subEstado, subEstado3, origen].filter(Boolean).length +
+                  (etiquetasFiltro.length > 0 ? 1 : 0)}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Burbujas de filtros aplicados */}
@@ -473,7 +518,7 @@ function ConcursosListaTab() {
           if (hospitalId) {
             const h = hospitales?.find((x) => x.id === hospitalId)
             chips.push({
-              label: `Hospital: ${h ? hospitalLabel(h) : hospitalId}`,
+              label: `Sigla: ${h ? hospitalLabel(h) : hospitalId}`,
               onClear: () => resetPage(setHospitalId)(''),
             })
           }
@@ -504,6 +549,11 @@ function ConcursosListaTab() {
                 setConFaltantes(false)
                 setPage(1)
               },
+            })
+          if (etiquetasFiltro.length > 0)
+            chips.push({
+              label: `Etiquetas: ${etiquetasFiltro.join(', ')}`,
+              onClear: () => resetPage(setEtiquetasFiltro)([]),
             })
           if (chips.length === 0) return null
           return (
@@ -536,6 +586,7 @@ function ConcursosListaTab() {
                   setSubEstado3('')
                   setOrigen('')
                   setConFaltantes(false)
+                  setEtiquetasFiltro([])
                   setPage(1)
                 }}
                 className="text-xs text-gray-500 underline hover:text-gray-700"
@@ -699,6 +750,114 @@ function ConcursosListaTab() {
       </div>
       {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
       {detalle && <DetalleConcursoModal concurso={detalle} onClose={() => setDetalle(null)} />}
+
+      {/* Drawer de filtros avanzados — mismo patrón visual que /dotacion */}
+      {drawerAvanzado && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setDrawerAvanzado(false)} />
+          <div className="relative bg-white w-full max-w-sm h-full shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h2 className="font-primary text-base font-bold text-gray-900">
+                Filtros avanzados
+              </h2>
+              <button
+                onClick={() => setDrawerAvanzado(false)}
+                className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Etiquetas
+                </p>
+                <MultiSelectDropdown
+                  label="Etiquetas"
+                  value={etiquetasFiltro}
+                  options={catalogoEtiquetas.map((et) => et.nombre)}
+                  onChange={(v) => resetPage(setEtiquetasFiltro)(v)}
+                  className="w-full"
+                />
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Sub-estado
+                </p>
+                <select
+                  value={subEstado}
+                  onChange={(e) => resetPage(setSubEstado)(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Todos los sub-estados</option>
+                  {SUB_ESTADO_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Etapa
+                </p>
+                <select
+                  value={subEstado3}
+                  onChange={(e) => resetPage(setSubEstado3)(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Todas las etapas</option>
+                  {SUB_ESTADO_3_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Documentación respaldatoria
+                </p>
+                <select
+                  value={origen}
+                  onChange={(e) =>
+                    resetPage(setOrigen)(e.target.value as '' | 'baja' | 'ampliacion' | 'cobertura')
+                  }
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Toda respaldatoria</option>
+                  <option value="baja">Baja</option>
+                  <option value="ampliacion">Ampliación</option>
+                  <option value="cobertura">Cobertura de dotación</option>
+                </select>
+              </section>
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
+              {(subEstado || subEstado3 || origen || etiquetasFiltro.length > 0) && (
+                <button
+                  onClick={() => {
+                    resetPage(setSubEstado)('')
+                    resetPage(setSubEstado3)('')
+                    resetPage(setOrigen)('')
+                    resetPage(setEtiquetasFiltro)([])
+                  }}
+                  className="flex-1 btn-outline text-danger border-danger hover:bg-danger/5"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+              <button onClick={() => setDrawerAvanzado(false)} className="flex-1 btn-primary">
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {ToastUI}
     </div>
   )
