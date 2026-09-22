@@ -2,6 +2,29 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import type { DotacionQuery, DotacionKpisQuery } from './dotacion.schema.js'
 
+// Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia (mismo
+// puesto + repartición) SIN código de jefatura para colgarle más dotación
+// (límite del sistema). Es el MISMO cargo real → se descarta el espejo (sin
+// jefatura) cuando existe la ocupación hermana CON jefatura para la misma
+// persona+repa+puesto. `o`/`c` son los alias de la ocupación/cargo de la query.
+const EXCLUIR_ESPEJO_JEFATURA = Prisma.sql`
+  AND NOT (
+    (o.codigo_jefaturas IS NULL OR TRIM(o.codigo_jefaturas) IN ('', '0'))
+    AND EXISTS (
+      SELECT 1
+      FROM ocupaciones oej
+      JOIN cargos cej ON cej.id = oej.cargo_id
+      WHERE oej.persona_id = o.persona_id
+        AND oej.hasta IS NULL
+        AND cej.estado = 'vigente'
+        AND coalesce(cej.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+        AND coalesce(cej.literal_puesto, '') = coalesce(c.literal_puesto, '')
+        AND oej.codigo_jefaturas IS NOT NULL
+        AND TRIM(oej.codigo_jefaturas) NOT IN ('', '0')
+    )
+  )
+`
+
 // "Vigente" replicado del criterio ya usado en todo el proyecto (ver
 // personas.service.ts, kpis.service.ts, padron.service.ts): la ocupación no
 // tiene fecha de fin y el cargo que ocupa está vigente.
@@ -12,6 +35,7 @@ const BASE_FROM = Prisma.sql`
   JOIN hospitales h  ON h.id = c.hospital_id
   JOIN escalafones e ON e.id = c.escalafon_id
   WHERE o.hasta IS NULL AND c.estado = 'vigente'
+  ${EXCLUIR_ESPEJO_JEFATURA}
 `
 
 // Expresión SQL de cada columna ordenable — whitelist validada ya en el
@@ -191,6 +215,26 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
       JOIN cargos c   ON c.id = o.cargo_id
       JOIN personas p ON p.id = o.persona_id
       WHERE o.hasta IS NULL AND c.estado = 'vigente' ${hospitalFilter}
+        -- Dedup del cargo espejo de jefatura: al jefe se le crea un cargo
+        -- copia (mismo puesto+repartición) SIN código de jefatura para poder
+        -- colgarle más dotación (límite del sistema). Es el MISMO cargo real,
+        -- así que se descarta el espejo (sin jefatura) cuando existe la
+        -- ocupación hermana CON jefatura para la misma persona+repa+puesto.
+        AND NOT (
+          (o.codigo_jefaturas IS NULL OR TRIM(o.codigo_jefaturas) IN ('', '0'))
+          AND EXISTS (
+            SELECT 1
+            FROM ocupaciones o2
+            JOIN cargos c2 ON c2.id = o2.cargo_id
+            WHERE o2.persona_id = o.persona_id
+              AND o2.hasta IS NULL
+              AND c2.estado = 'vigente'
+              AND coalesce(c2.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+              AND coalesce(c2.literal_puesto, '') = coalesce(c.literal_puesto, '')
+              AND o2.codigo_jefaturas IS NOT NULL
+              AND TRIM(o2.codigo_jefaturas) NOT IN ('', '0')
+          )
+        )
     )
   `
 

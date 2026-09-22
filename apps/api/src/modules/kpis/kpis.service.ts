@@ -150,6 +150,24 @@ export async function getKpisDotacionService(query: KpisDotacionQuery) {
         ) AS ocupado
       FROM cargos c
       WHERE c.estado = 'vigente' ${hospitalFilter}
+        -- Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia
+        -- (mismo puesto+repartición, mismo ocupante) SIN código de jefatura para
+        -- colgarle más dotación. Es el MISMO cargo → se excluye el espejo (cuya
+        -- ocupación vigente no tiene jefatura) cuando existe el cargo hermano
+        -- cuya ocupación vigente SÍ tiene jefatura, para el mismo ocupante.
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ocupaciones oesp
+          JOIN ocupaciones ojef ON ojef.persona_id = oesp.persona_id AND ojef.hasta IS NULL
+          JOIN cargos cjef ON cjef.id = ojef.cargo_id AND cjef.estado = 'vigente' AND cjef.id <> c.id
+          WHERE oesp.cargo_id = c.id
+            AND oesp.hasta IS NULL
+            AND (oesp.codigo_jefaturas IS NULL OR TRIM(oesp.codigo_jefaturas) IN ('', '0'))
+            AND coalesce(cjef.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+            AND coalesce(cjef.literal_puesto, '') = coalesce(c.literal_puesto, '')
+            AND ojef.codigo_jefaturas IS NOT NULL
+            AND TRIM(ojef.codigo_jefaturas) NOT IN ('', '0')
+        )
     )
   `
 
