@@ -94,6 +94,7 @@ export async function updateInscriptoService(
       ...(body.matricula !== undefined ? { matricula: body.matricula } : {}),
       ...(body.especialidad !== undefined ? { especialidad: body.especialidad } : {}),
       ...(body.presentoExamen !== undefined ? { presentoExamen: body.presentoExamen } : {}),
+      ...(body.nota !== undefined ? { nota: body.nota } : {}),
       ...(body.ordenMerito !== undefined ? { ordenMerito: body.ordenMerito } : {}),
       ...(body.observaciones !== undefined ? { observaciones: body.observaciones } : {}),
     },
@@ -125,7 +126,7 @@ const norm = (s: string) =>
 
 // Solo campos de texto del inscripto (excluye presentoExamen, que es boolean y
 // no viene en la importación — los inscriptos importados aún no se presentaron).
-type CampoTextoInscripto = Exclude<keyof InscriptoBody, 'presentoExamen' | 'ordenMerito'>
+type CampoTextoInscripto = Exclude<keyof InscriptoBody, 'presentoExamen' | 'ordenMerito' | 'nota'>
 
 // Mapa de sinónimos de encabezado → campo del modelo.
 const HEADERS: Record<string, CampoTextoInscripto> = {

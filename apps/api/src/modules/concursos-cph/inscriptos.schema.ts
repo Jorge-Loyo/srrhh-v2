@@ -19,6 +19,9 @@ export const inscriptoSchema = z.object({
   matricula: z.string().trim().max(80).nullable().optional(),
   especialidad: z.string().trim().max(200).nullable().optional(),
   presentoExamen: z.boolean().optional(),
+  // Nota del examen (0-10). Es la fuente del orden de mérito: se recalcula
+  // en el frontend cada vez que cambia y se persiste junto a `ordenMerito`.
+  nota: z.number().min(0).max(10).nullable().optional(),
   ordenMerito: z.number().int().min(1).max(9999).nullable().optional(),
   observaciones: z.string().trim().max(2000).nullable().optional(),
 })

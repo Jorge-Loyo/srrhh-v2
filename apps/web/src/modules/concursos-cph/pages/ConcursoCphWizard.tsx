@@ -40,7 +40,6 @@ import {
   useInscriptosCph,
   useCrearInscriptoCph,
   useActualizarInscriptoCph,
-  useBorrarInscriptoCph,
   useImportarInscriptosCph,
   useCerrarInscripcionCph,
   useReabrirInscripcionCph,
@@ -65,6 +64,28 @@ import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '../components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
+
+// Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
+// alta = posición 1. No puede haber dos personas en la misma posición — un
+// empate de nota se desempata por apellido/nombre alfabético, así que las
+// posiciones siempre quedan consecutivas y únicas (1, 2, 3...). Solo entran
+// los presentados con nota cargada; el resto queda sin posición (null).
+function calcularOrdenMerito(
+  inscriptos: { id: string; apellido: string; nombre: string; presentoExamen: boolean; nota: number | null }[],
+): Map<string, number | null> {
+  const ranking = new Map<string, number | null>()
+  const conNota = inscriptos
+    .filter((i) => i.presentoExamen && i.nota != null)
+    .sort((a, b) => {
+      if (b.nota !== a.nota) return (b.nota as number) - (a.nota as number)
+      return a.apellido.localeCompare(b.apellido) || a.nombre.localeCompare(b.nombre)
+    })
+  conNota.forEach((i, idx) => ranking.set(i.id, idx + 1))
+  inscriptos.forEach((i) => {
+    if (!ranking.has(i.id)) ranking.set(i.id, null)
+  })
+  return ranking
+}
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
@@ -492,6 +513,16 @@ export function ConcursoCphWizard() {
   const [desiertoFecha, setDesiertoFecha] = useState('')
   const [desiertoObs, setDesiertoObs] = useState('')
 
+  // Acción "Cambio de especialidad" (menú Acciones): requiere expediente que
+  // respalde el cambio, pide la nueva especialidad, y manda el concurso de
+  // nuevo a autorización (mismo mecanismo que ya dispara el PATCH cuando se
+  // edita especialidadSolicitada: pendienteAutorizacion=true → la Etapa 1
+  // vuelve a mostrarse "activa" en vez de "completada").
+  const [modalCambioEspecialidad, setModalCambioEspecialidad] = useState(false)
+  const [cambioEspExpediente, setCambioEspExpediente] = useState('')
+  const [cambioEspNueva, setCambioEspNueva] = useState('')
+  const [cambioEspObs, setCambioEspObs] = useState('')
+
   // Diálogos propios (reemplazan window.confirm / window.alert)
   const { confirm, ConfirmUI } = useConfirm()
   const { toast, ToastUI } = useToast()
@@ -500,7 +531,14 @@ export function ConcursoCphWizard() {
   const hoyISO = new Date().toISOString().slice(0, 10)
   const [modalGenerarSorteo, setModalGenerarSorteo] = useState(false)
   const [sorteoCriterios, setSorteoCriterios] = useState<
-    Required<Omit<GenerarSorteoJuradoRequest, 'semilla' | 'observaciones'>> & {
+    Required<
+      Omit<
+        GenerarSorteoJuradoRequest,
+        'semilla' | 'observaciones' | 'especialidadesAdicionales' | 'expedienteEspecialidades'
+      >
+    > & {
+      especialidadesAdicionales: string[]
+      expedienteEspecialidades: string
       semilla: string
       observaciones: string
     }
@@ -508,6 +546,8 @@ export function ConcursoCphWizard() {
     cantTitulares: 3,
     cantSuplentes: 3,
     antiguedadMinimaAnios: 15,
+    especialidadesAdicionales: [],
+    expedienteEspecialidades: '',
     semilla: '',
     observaciones: '',
   })
@@ -529,22 +569,48 @@ export function ConcursoCphWizard() {
   const escalafonParaJurado = cphData?.concurso?.cargo?.escalafonId
   const especialidadParaJurado =
     cphData?.especialidadSolicitada ?? cphData?.concurso?.cargo?.especialidadLegacy ?? null
-  const juradosCompatibles = juradosVigentes.filter((j) => {
-    if (!j.vigente) return false // no se puede reutilizar un jurado vencido
-    if (j.concursoCph?.id === id) return false
-    const escOk =
-      !j.criterios?.escalafonId ||
-      !escalafonParaJurado ||
-      j.criterios.escalafonId === escalafonParaJurado
-    const espOk = normEsp(j.criterios?.especialidadConcurso) === normEsp(especialidadParaJurado)
-    return escOk && espOk
-  })
+  // Modalidad del cargo a concursar (guardia = POU, planta = POF) — mismo
+  // criterio que el backend (sorteoJurado.service.ts::modalidadDeCargo),
+  // determina qué set de reglas de jurado se muestra/aplica.
+  const modalidadCargoJurado: 'pou' | 'pof' = (() => {
+    const u = normEsp(cphData?.concurso?.cargo?.unificadorPuesto)
+    return u.includes('pou') || u.includes('guardia') ? 'pou' : 'pof'
+  })()
+  // Concurso centralizado: regla única (conducción + especialidad, cualquier
+  // hospital), sin distinción POF/POU — ver comentario de cabecera de
+  // sorteoJurado.service.ts.
+  const esCentralizado = cphData?.tipoGestion === 'centralizado'
+  // Sin Tipo de gestión definido no se puede evaluar si un jurado vigente es
+  // compatible: un concurso descentralizado exige mismo hospital (prioridad
+  // de Regla 1/2), uno centralizado no. Sin ese dato, no se sugiere nada —
+  // evita ofrecer jurados de otro hospital como "compatibles" quedando el
+  // usuario sin saber si de verdad cumplen.
+  const juradosCompatibles = !cphData?.tipoGestion
+    ? []
+    : juradosVigentes.filter((j) => {
+        if (!j.vigente) return false // no se puede reutilizar un jurado vencido
+        if (j.concursoCph?.id === id) return false
+        const escOk =
+          !j.criterios?.escalafonId ||
+          !escalafonParaJurado ||
+          j.criterios.escalafonId === escalafonParaJurado
+        const espOk = normEsp(j.criterios?.especialidadConcurso) === normEsp(especialidadParaJurado)
+        // Centralizado no prioriza hospital (regla única, toda la base).
+        // Descentralizado sí — reutilizar un jurado de otro hospital viola
+        // la Regla 1/2 (mismo hospital), así que solo es compatible si
+        // coincide el hospital del concurso original.
+        const hospOk =
+          esCentralizado ||
+          !cphData?.hospitalId ||
+          !j.criterios?.hospitalId ||
+          j.criterios.hospitalId === cphData.hospitalId
+        return escOk && espOk && hospOk
+      })
 
   // ── Etapa 3: inscriptos ──
   const { data: inscriptos = [] } = useInscriptosCph(id)
   const crearInscriptoMutation = useCrearInscriptoCph(id!)
   const actualizarInscriptoMutation = useActualizarInscriptoCph(id!)
-  const borrarInscriptoMutation = useBorrarInscriptoCph(id!)
   const importarInscriptosMutation = useImportarInscriptosCph(id!)
   const cerrarInscripcionMutation = useCerrarInscripcionCph(id!)
   const reabrirInscripcionMutation = useReabrirInscripcionCph(id!)
@@ -624,6 +690,7 @@ export function ConcursoCphWizard() {
     enabled: !!designarPersonaId,
   })
   const formRef = useRef<HTMLDivElement>(null)
+  const tipoGestionRef = useRef<HTMLSelectElement>(null)
   // Valores originales para detectar cambios en etapa baja
   const originalesRef = {
     sigla: '',
@@ -636,6 +703,10 @@ export function ConcursoCphWizard() {
     escalafonId || undefined,
     puestoConcurso || undefined,
   )
+  // Universo más amplio (todos los puestos del escalafón, no solo el del
+  // concurso) — un puesto puntual suele tener 1 sola especialidad cargada,
+  // insuficiente para ofrecer especialidades adicionales al sortear jurado.
+  const { data: especialidadesEscalafon = [] } = useEspecialidadesPuesto(escalafonId || undefined)
 
   // Cuando llegan los puestos disponibles, normalizar puestoConcurso contra la BD
   // (los cargos legacy tienen MEDICO DE PLANTA, la BD tiene Medico de Planta)
@@ -678,22 +749,30 @@ export function ConcursoCphWizard() {
     type CargoCph = {
       hospital?: { sigla?: string }
       codigoRegistro?: { id?: string; literal?: string }
+      escalafonId?: string
       literalPuesto?: string
       especialidad?: string
       especialidadLegacy?: string
     }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // Resolver escalafonId desde el codigoRegistro del cargo
-    const crId = cargo?.codigoRegistro?.id ?? ''
-    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-    let resolvedEscalafonId = ''
-    if (crId && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.id === crId)
-      resolvedEscalafonId = cr?.escalafonId ?? ''
-    } else if (crLiteral && codigosRegistro.length > 0) {
-      const cr = codigosRegistro.find((c) => c.literal === crLiteral)
-      resolvedEscalafonId = cr?.escalafonId ?? ''
+    // El cargo ya trae escalafonId propio (FK real) — se usa directo. Antes
+    // esto se re-derivaba SOLO a través de cargo.codigoRegistro, que puede
+    // ser null (cargos sin codigoRegistroId vinculado, ej. altas más viejas o
+    // datos legacy) y dejaba escalafonId vacío en silencio, rompiendo los
+    // combos de puesto/especialidad de todo el wizard. Se deja el fallback
+    // por codigoRegistro por compatibilidad, pero ya no es la vía principal.
+    let resolvedEscalafonId = cargo?.escalafonId ?? ''
+    if (!resolvedEscalafonId) {
+      const crId = cargo?.codigoRegistro?.id ?? ''
+      const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+      if (crId && codigosRegistro.length > 0) {
+        const cr = codigosRegistro.find((c) => c.id === crId)
+        resolvedEscalafonId = cr?.escalafonId ?? ''
+      } else if (crLiteral && codigosRegistro.length > 0) {
+        const cr = codigosRegistro.find((c) => c.literal === crLiteral)
+        resolvedEscalafonId = cr?.escalafonId ?? ''
+      }
     }
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
@@ -1091,9 +1170,9 @@ export function ConcursoCphWizard() {
 
       {/* ── MODAL CRITERIOS DEL SORTEO ──────────────────────────────────────── */}
       {modalGenerarSorteo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-auto overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 shrink-0">
               <span className="text-indigo-500 text-xl">⚙</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
@@ -1104,119 +1183,344 @@ export function ConcursoCphWizard() {
                 </p>
               </div>
             </div>
-            {juradosCompatibles.length > 0 && (
-              <div className="px-6 py-4 border-b border-gray-100 bg-secondary/5">
-                <p className="text-sm font-semibold text-gray-700 mb-2">
-                  Jurados vigentes compatibles ({juradosCompatibles.length})
-                </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  Podés reutilizar un jurado ya confirmado en lugar de sortear uno nuevo.
-                </p>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {juradosCompatibles.map((j) => (
-                    <div
-                      key={j.id}
-                      className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-3 py-2"
-                    >
-                      <div className="text-xs">
-                        <p className="font-medium text-gray-800">
-                          {j.concursoCph?.concurso?.cargo?.codigo ?? 'Concurso'} ·{' '}
-                          {j.miembros.length} miembros
-                        </p>
-                        <p className="text-gray-400">
-                          Sorteo {j.fechaSorteo.slice(0, 10).split('-').reverse().join('/')} · vence{' '}
-                          {j.fechaVencimiento.slice(0, 10).split('-').reverse().join('/')}
-                        </p>
-                      </div>
-                      <button
-                        className="btn-outline text-xs py-1 px-2"
-                        disabled={reutilizarJuradoMutation.isPending}
-                        onClick={async () => {
-                          try {
-                            await reutilizarJuradoMutation.mutateAsync(j.id)
-                            setModalGenerarSorteo(false)
-                          } catch {
-                            /* el error se muestra en el bloque de la etapa */
-                          }
-                        }}
-                      >
-                        Usar este jurado
-                      </button>
+
+            <div className="overflow-y-auto grid grid-cols-1 md:grid-cols-2">
+              {/* ── Columna izquierda: qué se va a sortear + reglas (info) ── */}
+              <div className="px-6 py-5 bg-gray-50 md:border-r border-gray-100 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">Se va a sortear</p>
+                  <div className="bg-white rounded-lg border border-gray-200 p-3 space-y-1.5 text-xs">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Cargo</span>
+                      <span className="font-medium text-gray-800">
+                        {cphData?.concurso?.cargo?.codigo ?? '-'}
+                      </span>
                     </div>
-                  ))}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Hospital</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {cphData?.concurso?.cargo?.hospital
+                          ? `${cphData.concurso.cargo.hospital.sigla} — ${cphData.concurso.cargo.hospital.nombre}`
+                          : '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Puesto</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {cphData?.concurso?.cargo?.literalPuesto ?? '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Especialidad</span>
+                      <span className="font-medium text-gray-800 text-right">
+                        {especialidadParaJurado ?? '-'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="text-xs font-semibold text-gray-500">
+                      Reglas de elegibilidad {esCentralizado ? '' : '(en orden de prioridad)'}
+                    </p>
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        esCentralizado
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-indigo-100 text-indigo-700'
+                      }`}
+                    >
+                      {esCentralizado
+                        ? 'Concurso centralizado'
+                        : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
+                    </span>
+                  </div>
+                  {(() => {
+                    const especNombre =
+                      [especialidadParaJurado, ...sorteoCriterios.especialidadesAdicionales]
+                        .filter(Boolean)
+                        .join(', ') || 'sin especialidad definida'
+
+                    if (esCentralizado) {
+                      return (
+                        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                          <li>
+                            <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
+                            superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
+                            <strong>cualquier hospital de toda la base</strong> (no prioriza el
+                            hospital del cargo a concursar).
+                          </li>
+                        </ul>
+                      )
+                    }
+                    return modalidadCargoJurado === 'pof' ? (
+                      <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                        <li>
+                          <strong>Regla 1</strong> — mismo hospital del cargo a concursar + cargo
+                          de conducción (Jefe de Sección o superior) + especialidad (
+                          <strong>{especNombre}</strong>).
+                        </li>
+                        <li>
+                          <strong>Regla 2</strong> — mismo hospital + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> (la
+                          especialidad no es obligatoria acá).
+                        </li>
+                        <li>
+                          <strong>Regla 3</strong> — se amplía a todo el sistema de salud
+                          (cualquier hospital) + cargo de conducción + misma especialidad.
+                        </li>
+                      </ul>
+                    ) : (
+                      <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                        <li>
+                          <strong>Regla 1</strong> — mismo hospital + Jefe de guardia (POU) +
+                          especialidad (<strong>{especNombre}</strong>).
+                        </li>
+                        <li>
+                          <strong>Regla 2</strong> — mismo hospital + Jefe de planta (POF) + misma
+                          especialidad.
+                        </li>
+                        <li>
+                          <strong>Regla 3</strong> — mismo hospital + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> + misma
+                          especialidad.
+                        </li>
+                        <li>
+                          <strong>Regla 4</strong> — se amplía a todo el sistema de salud
+                          (cualquier hospital) + antigüedad mínima de{' '}
+                          <strong>{sorteoCriterios.antiguedadMinimaAnios} años</strong> + misma
+                          especialidad.
+                        </li>
+                      </ul>
+                    )
+                  })()}
+                  <p className="text-xs text-gray-500 mt-2">
+                    En todos los casos se exige la misma profesión (escalafón) que el cargo a
+                    concursar y ocupación activa. Director y Subdirector quedan excluidos de
+                    cualquier jurado.{' '}
+                    {esCentralizado ? (
+                      <>
+                        Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el
+                        pool de candidatos es directamente toda la base de datos.
+                      </>
+                    ) : (
+                      <>
+                        Se busca primero por la Regla 1 (especialidad obligatoria salvo Regla 2 de
+                        un cargo de planta); si no alcanzan candidatos para completar{' '}
+                        <strong>
+                          {sorteoCriterios.cantTitulares} titular
+                          {sorteoCriterios.cantTitulares === 1 ? '' : 'es'} y{' '}
+                          {sorteoCriterios.cantSuplentes} suplente
+                          {sorteoCriterios.cantSuplentes === 1 ? '' : 's'}
+                        </strong>
+                        , se baja a la siguiente regla.
+                      </>
+                    )}{' '}
+                    El sorteo es aleatorio con semilla (auditable) y queda como borrador editable
+                    hasta que se confirme.
+                  </p>
+                </div>
+
+                {juradosCompatibles.length > 0 && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                    <p className="text-sm font-semibold text-gray-700 mb-2">
+                      Jurados vigentes compatibles ({juradosCompatibles.length})
+                    </p>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Podés reutilizar un jurado ya confirmado en lugar de sortear uno nuevo.
+                    </p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {juradosCompatibles.map((j) => (
+                        <div
+                          key={j.id}
+                          className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-3 py-2"
+                        >
+                          <div className="text-xs">
+                            <p className="font-medium text-gray-800">
+                              {j.concursoCph?.concurso?.cargo?.codigo ?? 'Concurso'} ·{' '}
+                              {j.miembros.length} miembros
+                            </p>
+                            <p className="text-gray-400">
+                              Sorteo {j.fechaSorteo.slice(0, 10).split('-').reverse().join('/')} ·
+                              vence {j.fechaVencimiento.slice(0, 10).split('-').reverse().join('/')}
+                            </p>
+                          </div>
+                          <button
+                            className="btn-outline text-xs py-1 px-2 shrink-0"
+                            disabled={reutilizarJuradoMutation.isPending}
+                            onClick={async () => {
+                              try {
+                                await reutilizarJuradoMutation.mutateAsync(j.id)
+                                setModalGenerarSorteo(false)
+                              } catch {
+                                /* el error se muestra en el bloque de la etapa */
+                              }
+                            }}
+                          >
+                            Usar este jurado
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-            <div className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* ── Columna derecha: criterios editables ── */}
+              <div className="px-6 py-5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Titulares
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sorteoCriterios.cantTitulares}
+                      onChange={(e) =>
+                        setSorteoCriterios((s) => ({
+                          ...s,
+                          cantTitulares: Number(e.target.value),
+                        }))
+                      }
+                      className="input h-10 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Suplentes
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sorteoCriterios.cantSuplentes}
+                      onChange={(e) =>
+                        setSorteoCriterios((s) => ({
+                          ...s,
+                          cantSuplentes: Number(e.target.value),
+                        }))
+                      }
+                      className="input h-10 w-full"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    Titulares
+                    Especialidades adicionales (opcional, hasta 2)
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={sorteoCriterios.cantTitulares}
+                  <p className="text-xs text-gray-500 mb-2">
+                    Además de{' '}
+                    <strong>{especialidadParaJurado ?? 'la especialidad del concurso'}</strong>,
+                    también van a contar como "cumple especialidad" para ampliar el pool de
+                    jurados elegibles.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[0, 1].map((i) => {
+                      const slots = [
+                        sorteoCriterios.especialidadesAdicionales[0] ?? '',
+                        sorteoCriterios.especialidadesAdicionales[1] ?? '',
+                      ]
+                      return (
+                        <SearchableSelect
+                          key={i}
+                          value={slots[i] ?? ''}
+                          onChange={(v) =>
+                            setSorteoCriterios((s) => {
+                              const next = [...slots]
+                              next[i] = v
+                              return {
+                                ...s,
+                                especialidadesAdicionales: next.filter(Boolean),
+                              }
+                            })
+                          }
+                          options={especialidadesEscalafon.filter(
+                            (e) => e !== especialidadParaJurado && !slots.includes(e),
+                          )}
+                          placeholder={`Especialidad extra ${i + 1}...`}
+                        />
+                      )
+                    })}
+                  </div>
+                  {sorteoCriterios.especialidadesAdicionales.length > 0 && (
+                    <div className="mt-3">
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Expediente que respalda las especialidades adicionales
+                        <span className="text-danger ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={sorteoCriterios.expedienteEspecialidades}
+                        onChange={(e) =>
+                          setSorteoCriterios((s) => ({
+                            ...s,
+                            expedienteEspecialidades: e.target.value,
+                          }))
+                        }
+                        className={`input h-10 w-full ${
+                          !sorteoCriterios.expedienteEspecialidades.trim()
+                            ? 'border-amber-300 focus:border-amber-500'
+                            : ''
+                        }`}
+                        placeholder="Ej: EX-2026-12345678-GCABA-..."
+                      />
+                      {!sorteoCriterios.expedienteEspecialidades.trim() && (
+                        <p className="text-[11px] text-amber-600 mt-1">
+                          Obligatorio: indicá el expediente que autoriza ampliar el jurado a estas
+                          especialidades adicionales.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Observaciones (opcional)
+                  </label>
+                  <textarea
+                    value={sorteoCriterios.observaciones}
                     onChange={(e) =>
                       setSorteoCriterios((s) => ({
                         ...s,
-                        cantTitulares: Number(e.target.value),
+                        observaciones: e.target.value,
                       }))
                     }
-                    className="input h-10 w-full"
+                    rows={3}
+                    className="input w-full py-2"
+                    placeholder="Notas para el acta del sorteo..."
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    Suplentes
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={sorteoCriterios.cantSuplentes}
-                    onChange={(e) =>
-                      setSorteoCriterios((s) => ({
-                        ...s,
-                        cantSuplentes: Number(e.target.value),
-                      }))
-                    }
-                    className="input h-10 w-full"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Observaciones (opcional)
-                </label>
-                <textarea
-                  value={sorteoCriterios.observaciones}
-                  onChange={(e) =>
-                    setSorteoCriterios((s) => ({
-                      ...s,
-                      observaciones: e.target.value,
-                    }))
-                  }
-                  rows={2}
-                  className="input w-full py-2"
-                  placeholder="Notas para el acta del sorteo..."
-                />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
               <button className="btn-outline" onClick={() => setModalGenerarSorteo(false)}>
                 Cerrar
               </button>
               <button
                 className="btn-primary"
-                disabled={generarSorteoMutation.isPending}
+                disabled={
+                  generarSorteoMutation.isPending ||
+                  (sorteoCriterios.especialidadesAdicionales.length > 0 &&
+                    !sorteoCriterios.expedienteEspecialidades.trim())
+                }
                 onClick={async () => {
                   try {
                     await generarSorteoMutation.mutateAsync({
                       cantTitulares: sorteoCriterios.cantTitulares,
                       cantSuplentes: sorteoCriterios.cantSuplentes,
                       antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
+                      especialidadesAdicionales:
+                        sorteoCriterios.especialidadesAdicionales.length > 0
+                          ? sorteoCriterios.especialidadesAdicionales
+                          : undefined,
+                      expedienteEspecialidades:
+                        sorteoCriterios.especialidadesAdicionales.length > 0
+                          ? sorteoCriterios.expedienteEspecialidades.trim()
+                          : undefined,
                       semilla: sorteoCriterios.semilla || undefined,
                       observaciones: sorteoCriterios.observaciones || undefined,
                     })
@@ -1226,7 +1530,7 @@ export function ConcursoCphWizard() {
                   }
                 }}
               >
-                {generarSorteoMutation.isPending ? 'Sorteando…' : '🎲 Sortear con estos criterios'}
+                {generarSorteoMutation.isPending ? 'Sorteando…' : '✅ Aceptar y sortear'}
               </button>
             </div>
           </div>
@@ -1586,6 +1890,118 @@ export function ConcursoCphWizard() {
                 }}
               >
                 {declararDesiertoMutation.isPending ? 'Guardando...' : 'Confirmar desierto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CAMBIO DE ESPECIALIDAD ─────────────────────────────────────────── */}
+      {modalCambioEspecialidad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="font-primary font-bold text-gray-900">Cambio de especialidad</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                El concurso vuelve a autorización (Etapa 1) con la nueva especialidad. Cualquier
+                sorteo de jurado o avance posterior quedará basado en una especialidad distinta a
+                la nueva y debe revisarse.
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Expediente que respalda el cambio <span className="text-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={cambioEspExpediente}
+                  onChange={(e) => setCambioEspExpediente(e.target.value)}
+                  placeholder="Ej: EX-2026-12345678-GCABA-..."
+                  className="input w-full"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Nueva especialidad <span className="text-danger">*</span>
+                </label>
+                {especialidadesDisponibles.length > 0 ? (
+                  <SearchableSelect
+                    value={cambioEspNueva}
+                    onChange={setCambioEspNueva}
+                    options={especialidadesDisponibles}
+                    placeholder="Buscar especialidad..."
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={cambioEspNueva}
+                    onChange={(e) => setCambioEspNueva(e.target.value)}
+                    placeholder="Nombre de la especialidad"
+                    className="input w-full"
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Observaciones (opcional)
+                </label>
+                <textarea
+                  value={cambioEspObs}
+                  onChange={(e) => setCambioEspObs(e.target.value)}
+                  rows={2}
+                  className="input w-full py-2"
+                  placeholder="Motivo del cambio de especialidad..."
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                className="btn-outline"
+                onClick={() => {
+                  setModalCambioEspecialidad(false)
+                  setCambioEspExpediente('')
+                  setCambioEspNueva('')
+                  setCambioEspObs('')
+                }}
+                disabled={patchMutation.isPending}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-primary"
+                disabled={
+                  !cambioEspExpediente.trim() || !cambioEspNueva.trim() || patchMutation.isPending
+                }
+                onClick={async () => {
+                  try {
+                    await patchMutation.mutateAsync({
+                      especialidadSolicitada: cambioEspNueva.trim(),
+                      cambioEspecialidad: true,
+                      motivoCambioEspecialidad: [
+                        `Expediente ${cambioEspExpediente.trim()}`,
+                        cambioEspObs.trim() || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' — '),
+                    })
+                    toast.success(
+                      'Especialidad cambiada. El concurso vuelve a autorización (Etapa 1).',
+                    )
+                    setModalCambioEspecialidad(false)
+                    setCambioEspExpediente('')
+                    setCambioEspNueva('')
+                    setCambioEspObs('')
+                    // El concurso vuelve a Etapa 1 (pendienteAutorizacion=true la
+                    // marca "activa" de nuevo — ver etapasIniciales).
+                    setEtapaActiva('baja')
+                  } catch {
+                    toast.error('No se pudo registrar el cambio de especialidad.')
+                  }
+                }}
+              >
+                {patchMutation.isPending ? 'Guardando...' : 'Confirmar cambio'}
               </button>
             </div>
           </div>
@@ -1960,6 +2376,18 @@ export function ConcursoCphWizard() {
                     >
                       {cphData.suspendido ? '▶ Activar' : '⏸ Suspender'}
                     </button>
+                    {/* Cambio de especialidad */}
+                    {cphData.estado !== 'finalizado' && (
+                      <button
+                        onClick={() => {
+                          setModalCambioEspecialidad(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        🔁 Cambio de especialidad
+                      </button>
+                    )}
                     {/* Declarar desierto */}
                     {cphData.estado !== 'finalizado' && (
                       <button
@@ -2695,6 +3123,59 @@ export function ConcursoCphWizard() {
                 </>
               ) : etapa.id === 'autorizacion' ? (
                 <div className="space-y-5">
+                  {/* Tipo de gestión — va primero: hay que definirlo (y guardarlo)
+                      antes de poder generar el sorteo de jurado. */}
+                  <div
+                    className={`rounded-lg border px-4 py-4 ${
+                      cphData?.tipoGestion
+                        ? 'border-gray-200 bg-white'
+                        : 'border-amber-300 bg-amber-50'
+                    }`}
+                  >
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Tipo de gestión
+                      <span className="text-danger ml-1">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        ref={tipoGestionRef}
+                        data-key="tipoGestion"
+                        defaultValue={cphData?.tipoGestion ?? ''}
+                        className="input h-10 w-full sm:w-72"
+                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
+                      >
+                        <option value="">Sin definir</option>
+                        <option value="centralizado">Centralizado</option>
+                        <option value="descentralizado">Descentralizado</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn-outline text-sm shrink-0"
+                        disabled={patchMutation.isPending}
+                        onClick={() => {
+                          const valor = tipoGestionRef.current?.value || null
+                          if (!valor) return
+                          patchMutation.mutate(
+                            { tipoGestion: valor },
+                            { onSuccess: () => toast.success('Tipo de gestión guardado.') },
+                          )
+                        }}
+                      >
+                        {patchMutation.isPending ? 'Guardando…' : 'Guardar'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Centralizado: interviene SGOCDCPS y su equipo en la etapa 3. Descentralizado:
+                      interviene un tercero.
+                    </p>
+                    {!cphData?.tipoGestion && (
+                      <p className="text-xs text-amber-700 mt-2 font-medium">
+                        ⚠ Elegí el tipo de gestión y tocá "Guardar" (acá arriba) antes de poder
+                        generar el sorteo de jurado.
+                      </p>
+                    )}
+                  </div>
+
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
                   {cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
@@ -2711,20 +3192,13 @@ export function ConcursoCphWizard() {
                           {(() => {
                             const bloqueada =
                               etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'
+                            // No se puede generar/re-sortear sin Tipo de gestión guardado.
+                            const sinTipoGestion = !cphData?.tipoGestion
                             const busy =
                               generarSorteoMutation.isPending ||
                               confirmarSorteoMutation.isPending ||
                               cancelarSorteoMutation.isPending ||
                               revertirSorteoMutation.isPending
-                            const doSortear = () =>
-                              generarSorteoMutation.mutate({
-                                cantTitulares: sorteoCriterios.cantTitulares,
-                                cantSuplentes: sorteoCriterios.cantSuplentes,
-                                antiguedadMinimaAnios: sorteoCriterios.antiguedadMinimaAnios,
-                                semilla: sorteoCriterios.semilla || undefined,
-                                observaciones: sorteoCriterios.observaciones || undefined,
-                              })
-
                             // Confirmado → solo lectura + revertir
                             if (juradoData?.confirmado) {
                               return (
@@ -2761,18 +3235,10 @@ export function ConcursoCphWizard() {
                                   <button
                                     className="btn-outline text-sm"
                                     onClick={() => setModalGenerarSorteo(true)}
-                                    disabled={busy || bloqueada}
+                                    disabled={busy || bloqueada || sinTipoGestion}
+                                    title={sinTipoGestion ? 'Completá el Tipo de gestión primero' : undefined}
                                   >
-                                    ⚙ Criterios
-                                  </button>
-                                  <button
-                                    className="btn-outline text-sm"
-                                    onClick={doSortear}
-                                    disabled={busy || bloqueada}
-                                  >
-                                    {generarSorteoMutation.isPending
-                                      ? 'Sorteando…'
-                                      : '🔄 Re-sortear'}
+                                    🔄 Re-sortear
                                   </button>
                                   <button
                                     className="btn-outline text-sm text-danger border-red-200 hover:bg-red-50"
@@ -2815,26 +3281,16 @@ export function ConcursoCphWizard() {
                               )
                             }
 
-                            // Sin sorteo aún → Criterios / Generar
+                            // Sin sorteo aún → abre el modal de criterios/resumen
                             return (
-                              <>
-                                <button
-                                  className="btn-outline text-sm"
-                                  onClick={() => setModalGenerarSorteo(true)}
-                                  disabled={busy || bloqueada}
-                                >
-                                  ⚙ Criterios del sorteo
-                                </button>
-                                <button
-                                  className="btn-primary text-sm"
-                                  onClick={doSortear}
-                                  disabled={busy || bloqueada}
-                                >
-                                  {generarSorteoMutation.isPending
-                                    ? 'Sorteando…'
-                                    : '🎲 Generar sorteo'}
-                                </button>
-                              </>
+                              <button
+                                className="btn-primary text-sm"
+                                onClick={() => setModalGenerarSorteo(true)}
+                                disabled={busy || bloqueada || sinTipoGestion}
+                                title={sinTipoGestion ? 'Completá el Tipo de gestión primero' : undefined}
+                              >
+                                🎲 Generar sorteo
+                              </button>
                             )
                           })()}
                         </div>
@@ -2864,6 +3320,12 @@ export function ConcursoCphWizard() {
                           <button
                             className="btn-outline text-xs py-1 px-3 border-green-300"
                             onClick={() => setModalGenerarSorteo(true)}
+                            disabled={!cphData?.tipoGestion}
+                            title={
+                              !cphData?.tipoGestion
+                                ? 'Completá el Tipo de gestión primero'
+                                : undefined
+                            }
                           >
                             Ver jurados compatibles
                           </button>
@@ -3034,27 +3496,6 @@ export function ConcursoCphWizard() {
                           />
                         </div>
                       ))}
-
-                    {/* Tipo de gestión del concurso (centralizado / descentralizado) */}
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Tipo de gestión
-                      </label>
-                      <select
-                        data-key="tipoGestion"
-                        defaultValue={cphData?.tipoGestion ?? ''}
-                        className="input h-10 w-full"
-                        disabled={etapa.estado === 'pendiente' || etapa.estado === 'bloqueada'}
-                      >
-                        <option value="">Sin definir</option>
-                        <option value="centralizado">Centralizado</option>
-                        <option value="descentralizado">Descentralizado</option>
-                      </select>
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        Centralizado: interviene SGOCDCPS y su equipo en la etapa 3.
-                        Descentralizado: interviene un tercero.
-                      </p>
-                    </div>
                   </div>
                 </div>
               ) : etapa.id === 'inscripcion' ? (
@@ -3444,8 +3885,8 @@ export function ConcursoCphWizard() {
                                       <th className="py-2 pr-3">CUIL</th>
                                       <th className="py-2 pr-3">Email</th>
                                       <th className="py-2 pr-3 text-center">Presentó</th>
+                                      <th className="py-2 pr-3 text-center">Nota</th>
                                       <th className="py-2 pr-3 text-center">Orden mérito</th>
-                                      <th className="py-2 pr-3"></th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -3475,58 +3916,59 @@ export function ConcursoCphWizard() {
                                             onChange={(e) =>
                                               actualizarInscriptoMutation.mutate({
                                                 inscriptoId: ins.id,
-                                                body: {
-                                                  presentoExamen: e.target.checked,
-                                                },
+                                                body: { presentoExamen: e.target.checked },
                                               })
                                             }
-                                            title="Marcar si se presentó al examen"
+                                            title="Marcar si se presentó al examen. El orden de mérito se recalcula con el botón «Cargar notas / calcular orden», no automáticamente."
                                           />
                                         </td>
                                         <td className="py-2 pr-3 text-center">
                                           {ins.presentoExamen ? (
                                             <input
                                               type="number"
-                                              min={1}
+                                              min={0}
+                                              max={10}
+                                              step={0.01}
                                               className="input h-8 w-16 text-center"
-                                              defaultValue={ins.ordenMerito ?? ''}
+                                              defaultValue={ins.nota ?? ''}
                                               disabled={
                                                 actualizarInscriptoMutation.isPending ||
                                                 cphData.ordenMeritoConfirmado
                                               }
                                               onBlur={(e) => {
-                                                const val = e.target.value
-                                                  ? Number(e.target.value)
-                                                  : null
-                                                if (val !== (ins.ordenMerito ?? null))
-                                                  actualizarInscriptoMutation.mutate({
-                                                    inscriptoId: ins.id,
-                                                    body: { ordenMerito: val },
-                                                  })
+                                                const raw = e.target.value
+                                                let val = raw === '' ? null : Number(raw)
+                                                if (val != null) val = Math.min(10, Math.max(0, val))
+                                                if (val === (ins.nota ?? null)) return
+                                                // Solo guarda la nota. El orden de mérito NO se
+                                                // recalcula en vivo — se arma recién al apretar
+                                                // «Cargar notas / calcular orden» más abajo.
+                                                actualizarInscriptoMutation.mutate({
+                                                  inscriptoId: ins.id,
+                                                  body: { nota: val },
+                                                })
                                               }}
-                                              title="Posición en el orden de mérito"
+                                              title="Nota del examen (0-10). El orden de mérito se calcula con el botón «Cargar notas / calcular orden»."
                                             />
                                           ) : (
                                             <span className="text-gray-300">—</span>
                                           )}
                                         </td>
-                                        <td className="py-2 pr-3 text-right">
-                                          <button
-                                            className="text-xs text-danger hover:underline"
-                                            onClick={async () => {
-                                              if (
-                                                await confirm({
-                                                  titulo: 'Eliminar inscripto',
-                                                  mensaje: `¿Eliminar a ${ins.apellido}, ${ins.nombre}?`,
-                                                  peligro: true,
-                                                  confirmLabel: 'Eliminar',
-                                                })
-                                              )
-                                                borrarInscriptoMutation.mutate(ins.id)
-                                            }}
-                                          >
-                                            Eliminar
-                                          </button>
+                                        <td className="py-2 pr-3 text-center">
+                                          {ins.presentoExamen ? (
+                                            <span
+                                              className={`font-semibold ${
+                                                ins.ordenMerito != null
+                                                  ? 'text-gray-800'
+                                                  : 'text-gray-300'
+                                              }`}
+                                              title="Calculado automáticamente a partir de la nota"
+                                            >
+                                              {ins.ordenMerito ?? '—'}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-300">—</span>
+                                          )}
                                         </td>
                                       </tr>
                                     ))}
@@ -3637,42 +4079,70 @@ export function ConcursoCphWizard() {
                                   ↩ Revertir orden de mérito
                                 </button>
                               ) : (
-                                <button
-                                  className="btn-primary text-sm"
-                                  disabled={
-                                    confirmarOrdenMeritoMutation.isPending ||
-                                    !cphData.presentadosConfirmados
-                                  }
-                                  title={
-                                    !cphData.presentadosConfirmados
-                                      ? 'Confirmá primero los presentados'
-                                      : undefined
-                                  }
-                                  onClick={async () => {
-                                    if (
-                                      await confirm({
-                                        titulo: 'Confirmar orden de mérito',
-                                        mensaje:
-                                          'Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?',
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className="btn-outline text-sm"
+                                    disabled={actualizarInscriptoMutation.isPending}
+                                    title="Recalcula la posición de todos a partir de las notas cargadas (por si alguna nota se cargó sin pasar por acá, ej. importada)"
+                                    onClick={() => {
+                                      const ranking = calcularOrdenMerito(inscriptos)
+                                      let cambios = 0
+                                      inscriptos.forEach((i) => {
+                                        const nuevoOrden = ranking.get(i.id) ?? null
+                                        if (nuevoOrden !== (i.ordenMerito ?? null)) {
+                                          cambios++
+                                          actualizarInscriptoMutation.mutate({
+                                            inscriptoId: i.id,
+                                            body: { ordenMerito: nuevoOrden },
+                                          })
+                                        }
                                       })
-                                    )
-                                      confirmarOrdenMeritoMutation.mutate(undefined, {
-                                        onError: (e) =>
-                                          toast.error(
-                                            (
-                                              e as {
-                                                response?: {
-                                                  data?: { error?: { message?: string } }
+                                      toast.success(
+                                        cambios > 0
+                                          ? `Orden de mérito recalculado — ${cambios} posición(es) actualizada(s).`
+                                          : 'El orden de mérito ya está al día con las notas cargadas.',
+                                      )
+                                    }}
+                                  >
+                                    📊 Cargar notas / calcular orden
+                                  </button>
+                                  <button
+                                    className="btn-primary text-sm"
+                                    disabled={
+                                      confirmarOrdenMeritoMutation.isPending ||
+                                      !cphData.presentadosConfirmados
+                                    }
+                                    title={
+                                      !cphData.presentadosConfirmados
+                                        ? 'Confirmá primero los presentados'
+                                        : undefined
+                                    }
+                                    onClick={async () => {
+                                      if (
+                                        await confirm({
+                                          titulo: 'Confirmar orden de mérito',
+                                          mensaje:
+                                            'Se fijará el ranking, la fecha de orden de mérito será hoy y se habilitará el acta. ¿Confirmar?',
+                                        })
+                                      )
+                                        confirmarOrdenMeritoMutation.mutate(undefined, {
+                                          onError: (e) =>
+                                            toast.error(
+                                              (
+                                                e as {
+                                                  response?: {
+                                                    data?: { error?: { message?: string } }
+                                                  }
                                                 }
-                                              }
-                                            )?.response?.data?.error?.message ??
-                                              'No se pudo confirmar.',
-                                          ),
-                                      })
-                                  }}
-                                >
-                                  ✓ Confirmar orden de mérito
-                                </button>
+                                              )?.response?.data?.error?.message ??
+                                                'No se pudo confirmar.',
+                                            ),
+                                        })
+                                    }}
+                                  >
+                                    ✓ Confirmar orden de mérito
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>

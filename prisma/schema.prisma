@@ -750,8 +750,16 @@ model InscriptoConcurso {
   // Etapa 3 — Examen: si el inscripto se presentó al examen. La cantidad de
   // presentados se cuenta sobre este flag (base del orden de mérito).
   presentoExamen Boolean  @default(false) @map("presento_examen")
+  // Nota del examen (0-10). Fuente del orden de mérito: se recalcula solo
+  // cada vez que cambia una nota (nota más alta = posición 1; empates se
+  // desempatan por apellido/nombre alfabético, ver inscriptos.service.ts).
+  // Float (no Decimal) a propósito: Decimal de Prisma serializa a JSON como
+  // string, no como number, y complica el frontend sin necesidad real de
+  // precisión exacta para una nota de examen.
+  nota           Float?   @map("nota")
   // Posición en el orden de mérito (1 = primero). Solo aplica a los que se
-  // presentaron al examen. Null = sin posición asignada.
+  // presentaron al examen. Null = sin posición asignada. Calculada a partir
+  // de `nota`, no editable a mano.
   ordenMerito    Int?     @map("orden_merito")
 
   observaciones  String?  @db.Text
