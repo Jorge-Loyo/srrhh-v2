@@ -40,7 +40,7 @@ import { BajasPage } from '../modules/bajas/pages/BajasPage'
 import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
 import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
 import { ValidacionYVinculacionPage } from '../modules/bajas/pages/ValidacionYVinculacionPage'
-import { ValidacionRetencionesPage } from '../modules/retenciones/pages/ValidacionRetencionesPage'
+import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
 
@@ -100,7 +100,7 @@ export const router = createBrowserRouter([
             path: 'bajas/vinculacion',
             element: <Navigate to="/bajas/validacion" replace />,
           },
-          { path: 'retenciones/validacion', element: <ValidacionRetencionesPage /> },
+          { path: 'retenciones/validacion', element: <RetencionesPage /> },
           { path: 'notificaciones', element: <NotificacionesPage /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,

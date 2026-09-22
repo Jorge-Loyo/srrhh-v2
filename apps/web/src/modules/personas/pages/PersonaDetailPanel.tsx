@@ -166,14 +166,59 @@ export function PersonaDetailPanel() {
               const esRetencion = o.situacionRevista?.toLowerCase().includes('retencion')
               const esHistorico = !!o.hasta
               const esBaja = !!bajaMatch
-              const borderColor = esBaja ? 'cargo-historico' : esHistorico ? 'cargo-historico' : esRetencion ? 'cargo-retenido' : 'cargo-activo'
+              // Suplente de guardia: la repartición del cargo termina en "Sup.
+              // Guardia" / "Sup. de Guardia". No es dotación activa real — se
+              // distingue en azul, no verde. Solo aplica a cargos vigentes.
+              const esSuplenteGuardia =
+                !esBaja &&
+                !esHistorico &&
+                /sup.*guardia/.test(
+                  (o.cargo.descripcionRepa ?? '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase(),
+                )
+              const borderColor = esBaja
+                ? 'cargo-historico'
+                : esHistorico
+                  ? 'cargo-historico'
+                  : esRetencion
+                    ? 'cargo-retenido'
+                    : esSuplenteGuardia
+                      ? 'cargo-suplente'
+                      : 'cargo-activo'
               return (
                 <div key={o.id} className={`px-6 py-4 ${borderColor}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div />
                     <div className="flex items-center gap-2">
-                      <span className={esBaja ? 'badge-default' : esHistorico ? 'badge-default' : esRetencion ? 'badge-amber' : 'badge-success'}>
-                        {esBaja ? 'Baja' : esHistorico ? 'Historica' : esRetencion ? 'Retencion' : 'Vigente'}
+                      {esSuplenteGuardia && (
+                        <span className="badge-info" title="Suplente de guardia — no es dotación activa">
+                          Suplente de guardia
+                        </span>
+                      )}
+                      <span
+                        className={
+                          esBaja
+                            ? 'badge-default'
+                            : esHistorico
+                              ? 'badge-default'
+                              : esRetencion
+                                ? 'badge-amber'
+                                : esSuplenteGuardia
+                                  ? 'badge-info'
+                                  : 'badge-success'
+                        }
+                      >
+                        {esBaja
+                          ? 'Baja'
+                          : esHistorico
+                            ? 'Historica'
+                            : esRetencion
+                              ? 'Retencion'
+                              : esSuplenteGuardia
+                                ? 'Suplente'
+                                : 'Vigente'}
                       </span>
                       <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
                         Ver cargo

@@ -8,6 +8,7 @@ import {
   getCargoConRemplazanteService,
   titularCesaService,
   listValidacionRetencionesService,
+  listRetenidosService,
 } from './retenciones.service.js'
 
 const WRITE_PERMISO = { modulo: 'retenciones', accion: 'crear' }
@@ -30,6 +31,12 @@ export async function retencionesRoutes(app: FastifyInstance) {
   // GET /validacion — personas con 2+ cargos activos sin retención/comisión formalizada
   app.get('/validacion', { preHandler: requirePermiso(READ_PERMISO) }, async (_request, reply) => {
     const data = await listValidacionRetencionesService()
+    return reply.send({ data })
+  })
+
+  // GET /retenidos — cargos ya retenidos (situacionRevista = 'Retencion de Cargo')
+  app.get('/retenidos', { preHandler: requirePermiso(READ_PERMISO) }, async (_request, reply) => {
+    const data = await listRetenidosService()
     return reply.send({ data })
   })
 

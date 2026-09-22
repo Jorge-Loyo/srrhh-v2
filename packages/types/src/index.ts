@@ -1529,3 +1529,35 @@ export interface CandidatoRetencion {
   persona: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'>
   cargos: CargoValidacionRetencion[]
 }
+
+// GET /api/v1/retenciones/retenidos — cargos ya retenidos
+// (situacionRevista = 'Retencion de Cargo'), con su remplazante R/TTR si existe.
+// Agrupado por PERSONA: una persona puede retener más de un cargo.
+export interface CargoRetenidoItem {
+  persona: Pick<Persona, 'id' | 'apellidoNombre' | 'cuil'>
+  // Cargos que esta persona retiene (situacionRevista = 'Retencion de Cargo').
+  retenidos: {
+    ocupacionId: string
+    id: string
+    codigo: string | null
+    literalPuesto: string | null
+    tipoOrigen: TipoOrigen
+    hospitalSigla: string
+    escalafon: string
+    srDocRespaldo: string | null
+  }[]
+  // Cargo(s) que la persona ejerce actualmente (ocupaciones activas no
+  // retenidas), con su vencimiento (venceEl) si lo tienen (solo TTR vencen).
+  cargosActuales: {
+    id: string
+    codigo: string | null
+    literalPuesto: string | null
+    tipoOrigen: TipoOrigen
+    situacionRevista: string | null
+    hospitalSigla: string
+    escalafon: string
+    // true si es jefatura/conducción — su vencimiento es inicio + 4 años.
+    esConduccion: boolean
+    venceEl: string | null
+  }[]
+}

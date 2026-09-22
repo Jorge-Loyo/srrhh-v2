@@ -181,14 +181,56 @@ async function getCadenaRetencionTx(tx: TxClient, cargoBaseId: string) {
 
 // ─── Validación de retenciones: personas con 2+ cargos activos simultáneos
 // sin que ninguno esté ya formalizado como retención ni comisión ─────────────
+// Escalafones que NO entran en la lógica de retención: DOCENCIAS y RESIDENCIAS.
+// Una persona puede tener su cargo asistencial + docencias y/o una residencia
+// en paralelo sin que sea una retención. Se excluyen del conteo de "cargos
+// simultáneos" y de lo que se muestra.
+const esEscalafonNoRetenible = (nombre: string | null | undefined): boolean => {
+  const n = (nombre ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  return n.includes('docente') || n.includes('residente')
+}
+
+// Suplente de guardia: NO es un cargo activo retenible. Se identifica por la
+// repartición del cargo (descripcion_repa) que termina en "SUP. GUARDIA" /
+// "SUP. DE GUARDIA" (con variantes de mayúsculas/guiones/acentos).
+const esSuplenteDeGuardia = (descripcionRepa: string | null | undefined): boolean => {
+  const d = (descripcionRepa ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  // Mismo criterio que el LIKE '%sup%guardia%' de la query de conteo.
+  return /sup.*guardia/.test(d)
+}
+
+// Una ocupación NO cuenta para retención si su cargo es de escalafón no
+// retenible (docente/residente) o es un suplente de guardia.
+const ocupacionNoRetenible = (cargo: {
+  escalafon: { nombre: string }
+  descripcionRepa?: string | null
+}): boolean =>
+  esEscalafonNoRetenible(cargo.escalafon.nombre) || esSuplenteDeGuardia(cargo.descripcionRepa)
+
 export async function listValidacionRetencionesService() {
+  // Cuenta solo ocupaciones retenibles (join a escalafones): docencias y
+  // residencias NO cuentan — una persona con 1 cargo asistencial + docencias
+  // y/o una residencia NO es un caso de 2+ cargos retenibles.
   const rows = await prisma.$queryRaw<{ persona_id: string }[]>`
-    SELECT persona_id
-    FROM ocupaciones
-    WHERE hasta IS NULL
-    GROUP BY persona_id
+    SELECT o.persona_id
+    FROM ocupaciones o
+    JOIN cargos c      ON c.id = o.cargo_id
+    JOIN escalafones e ON e.id = c.escalafon_id
+    WHERE o.hasta IS NULL
+      AND unaccent(lower(e.nombre)) NOT LIKE '%docente%'
+      AND unaccent(lower(e.nombre)) NOT LIKE '%residente%'
+      -- Excluir suplentes de guardia (no son cargo activo retenible).
+      -- LIKE en vez de regex: el template tag de Prisma no escapa bien los \s/\. del regex.
+      AND unaccent(lower(coalesce(c.descripcion_repa, ''))) NOT LIKE '%sup%guardia%'
+    GROUP BY o.persona_id
     HAVING count(*) > 1
-       AND count(*) FILTER (WHERE situacion_revista IN ('Retencion de Cargo', 'Comision')) = 0
+       AND count(*) FILTER (WHERE o.situacion_revista IN ('Retencion de Cargo', 'Comision')) = 0
   `
   const personaIds = rows.map((r) => r.persona_id)
   if (personaIds.length === 0) return []
@@ -203,7 +245,10 @@ export async function listValidacionRetencionesService() {
         where: { hasta: null },
         include: {
           cargo: {
-            include: { hospital: { select: { sigla: true, nombre: true } }, escalafon: { select: { nombre: true } } },
+            include: {
+              hospital: { select: { sigla: true, nombre: true } },
+              escalafon: { select: { nombre: true } },
+            },
           },
         },
       },
@@ -213,17 +258,180 @@ export async function listValidacionRetencionesService() {
 
   return personas.map((p) => ({
     persona: { id: p.id, apellidoNombre: p.apellidoNombre, cuil: p.cuil },
-    cargos: p.ocupaciones.map((o) => ({
-      id: o.cargo.id,
-      codigo: o.cargo.codigo,
-      literalPuesto: o.cargo.literalPuesto,
-      tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
-      estado: o.cargo.estado,
-      hospital: o.cargo.hospital,
-      escalafon: o.cargo.escalafon,
-      situacionRevista: o.situacionRevista,
-    })),
+    // Se ocultan docencias, residencias y suplentes de guardia — no retenibles.
+    cargos: p.ocupaciones
+      .filter((o) => !ocupacionNoRetenible(o.cargo))
+      .map((o) => ({
+        id: o.cargo.id,
+        codigo: o.cargo.codigo,
+        literalPuesto: o.cargo.literalPuesto,
+        tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
+        estado: o.cargo.estado,
+        hospital: o.cargo.hospital,
+        escalafon: o.cargo.escalafon,
+        situacionRevista: o.situacionRevista,
+      })),
   }))
+}
+
+// Fecha de vencimiento (fin) de un cargo, según la regla de negocio:
+//  - Cargos de JEFATURA/CONDUCCIÓN (CPH y demás): vencen a los 4 AÑOS de la
+//    fecha de inicio (renovable, pero esa es la fecha final). El CARGO_HASTA
+//    del SIAL para estos suele venir con el centinela 01/01/4000, que no sirve.
+//  - Cargos que NO son jefatura: se usa el CARGO_HASTA genuino del padrón
+//    (cargoHastaFecha) — salvo que sea el centinela año >= 3000 → no vence.
+// El SIAL usa 01/01/4000 (año >= 3000) como "permanente / sin fin".
+const ISO = (d: Date): string => d.toISOString().slice(0, 10)
+const esCentinela = (d: Date | null | undefined): boolean => !!d && d.getUTCFullYear() >= 3000
+const normLit = (s: string | null | undefined): string =>
+  (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+
+// Puestos que NO vencen aunque sean de conducción: Director, Director General,
+// Sub-Director, Vicedirector (cargos de dirección permanentes). Los cargos de
+// PLANTA tampoco vencen, pero eso ya se cubre porque no son conducción.
+function esCargoSinVencimiento(literalPuesto: string | null | undefined): boolean {
+  const lit = normLit(literalPuesto)
+  return (
+    lit.includes('DIRECTOR') || // DIRECTOR (01), DIRECTOR GENERAL, SUB-DIRECTOR
+    lit.includes('VICEDIRECTOR') ||
+    lit.includes('DE PLANTA') || // "... DE PLANTA" (por si se marcara conducción)
+    lit.includes('PLANTA')
+  )
+}
+
+function fechaVencimiento(args: {
+  esConduccion: boolean
+  literalPuesto: string | null
+  cargoDesdeFecha: Date | null
+  cargoHastaFecha: Date | null
+  periodoHasta: Date | null
+}): string | null {
+  const { esConduccion, literalPuesto, cargoDesdeFecha, cargoHastaFecha, periodoHasta } = args
+
+  // Excepción de negocio: Director/Subdirector/Vicedirector y cargos de planta
+  // no vencen, aunque la detección los tome como conducción.
+  if (esCargoSinVencimiento(literalPuesto)) return null
+
+  // Jefatura/conducción: prioridad al período ya cargado (TTR renovado); si no,
+  // inicio + 4 años. Si no hay fecha de inicio, no se puede calcular.
+  if (esConduccion) {
+    if (periodoHasta && !esCentinela(periodoHasta)) return ISO(periodoHasta)
+    if (cargoDesdeFecha) {
+      const fin = new Date(cargoDesdeFecha)
+      fin.setUTCFullYear(fin.getUTCFullYear() + 4)
+      return ISO(fin)
+    }
+    return null
+  }
+
+  // No jefatura: CARGO_HASTA genuino (descartando el centinela).
+  if (cargoHastaFecha && !esCentinela(cargoHastaFecha)) return ISO(cargoHastaFecha)
+  if (periodoHasta && !esCentinela(periodoHasta)) return ISO(periodoHasta)
+  return null
+}
+
+// ─── Listado de cargos RETENIDOS (situacionRevista = 'Retencion de Cargo') ──
+// Una fila por ocupación activa en retención — el cargo que la persona retiene,
+// con su remplazante (R/TTR) vigente si ya se generó.
+export async function listRetenidosService() {
+  // Traigo las personas que tienen AL MENOS una ocupación activa en retención,
+  // con TODAS sus ocupaciones activas — así puedo separar los cargos retenidos
+  // (pueden ser más de uno) del/los cargo(s) actual(es) que ejerce.
+  const rows = await prisma.$queryRaw<{ persona_id: string }[]>`
+    SELECT DISTINCT persona_id
+    FROM ocupaciones
+    WHERE hasta IS NULL AND situacion_revista = 'Retencion de Cargo'
+  `
+  const personaIds = rows.map((r) => r.persona_id)
+  if (personaIds.length === 0) return []
+
+  const personas = await prisma.persona.findMany({
+    where: { id: { in: personaIds } },
+    select: {
+      id: true,
+      apellidoNombre: true,
+      cuil: true,
+      ocupaciones: {
+        where: { hasta: null },
+        select: {
+          id: true,
+          situacionRevista: true,
+          srDocRespaldo: true,
+          // CARGO_HASTA del padrón/SIAL — fecha de vencimiento del cargo en la
+          // ocupación (fuente principal del "vence" del cargo actual).
+          cargoHastaFecha: true,
+          cargoDesdeFecha: true,
+          cargo: {
+            select: {
+              id: true,
+              codigo: true,
+              literalPuesto: true,
+              tipoOrigen: true,
+              periodoDesde: true,
+              periodoHasta: true,
+              hospital: { select: { sigla: true, nombre: true } },
+              escalafon: { select: { nombre: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { apellidoNombre: 'asc' },
+  })
+
+  return personas.map((p) => {
+    const retenidos = p.ocupaciones
+      .filter((o) => o.situacionRevista === 'Retencion de Cargo')
+      .map((o) => ({
+        ocupacionId: o.id,
+        id: o.cargo.id,
+        codigo: o.cargo.codigo,
+        literalPuesto: o.cargo.literalPuesto,
+        tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
+        hospitalSigla: o.cargo.hospital.sigla,
+        escalafon: o.cargo.escalafon.nombre,
+        srDocRespaldo: o.srDocRespaldo,
+      }))
+    // Cargo(s) actual(es): ocupaciones activas que NO están en retención.
+    const cargosActuales = p.ocupaciones
+      .filter((o) => o.situacionRevista !== 'Retencion de Cargo')
+      .map((o) => {
+        // Para la regla de vencimiento (jefatura → inicio + 4 años) se detecta
+        // conducción por prefijo del código O por el literal del puesto — un
+        // cargo legacy puede tener código de ejecución (CPH-POF) pero literal
+        // "Jefe de Sección". (No se usa esCargoDeConduccion, que prioriza el
+        // prefijo a propósito para decidir R vs TTR al registrar la retención.)
+        const esConduccion =
+          esConduccionPorPrefijo(o.cargo.codigo) || esConduccionPorLiteral(o.cargo.literalPuesto)
+        return {
+          id: o.cargo.id,
+          codigo: o.cargo.codigo,
+          literalPuesto: o.cargo.literalPuesto,
+          tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
+          situacionRevista: o.situacionRevista,
+          hospitalSigla: o.cargo.hospital.sigla,
+          escalafon: o.cargo.escalafon.nombre,
+          esConduccion,
+          // Vencimiento: jefatura → inicio + 4 años; Director/Subdirector y
+          // planta no vencen; si no, CARGO_HASTA genuino.
+          venceEl: fechaVencimiento({
+            esConduccion,
+            literalPuesto: o.cargo.literalPuesto,
+            cargoDesdeFecha: o.cargoDesdeFecha,
+            cargoHastaFecha: o.cargoHastaFecha,
+            periodoHasta: o.cargo.periodoHasta,
+          }),
+        }
+      })
+    return {
+      persona: { id: p.id, apellidoNombre: p.apellidoNombre, cuil: p.cuil },
+      retenidos,
+      cargosActuales,
+    }
+  })
 }
 
 // ─── S18-5: cargo + su remplazante directo, si existe ───────────────────────

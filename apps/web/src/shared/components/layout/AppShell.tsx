@@ -210,13 +210,14 @@ export function AppShell() {
           {/* "Vinculación de Bajas" (S17-6) ahora es una pestaña dentro de
               /bajas/validacion — ya no tiene entrada propia en el menú. */}
 
-          {/* Validación de Retenciones (Sprint 18) */}
-          {can(user, 'retenciones', 'crear') && (
+          {/* Retenciones (Sprint 18) — pestañas Validación / Retenciones.
+              Visible con permiso de lectura (ver): admin/sgrasv/editor. */}
+          {can(user, 'retenciones', 'ver') && (
             <NavLink to="/retenciones/validacion"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Validación de Retenciones' : undefined}>
+              title={collapsed ? 'Retenciones' : undefined}>
               <span className="text-base shrink-0">🔁</span>
-              {!collapsed && <span className="truncate">Validación de Retenciones</span>}
+              {!collapsed && <span className="truncate">Retenciones</span>}
             </NavLink>
           )}
 
