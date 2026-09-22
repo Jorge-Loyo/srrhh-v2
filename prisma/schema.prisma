@@ -574,6 +574,27 @@ model ConcursoCph {
   // Campos nuevos — datos del CSV histórico y flujo completo
   ifacs                 String?          @db.VarChar(200)  // expediente IF del IFACS
   insal                 String?          @db.VarChar(200)  // expediente IF del INSAL
+  // Respuesta de la persona propuesta al INSAL (Etapa 4 — no es la
+  // designación oficial, esa es en Etapa 5). null = sin respuesta todavía,
+  // true = aceptó el cargo. Si no acepta, no se persiste "false": se limpia
+  // personaDesignadaId, vuelve a null, y el inscripto queda en
+  // insalRechazados para no volver a proponerlo.
+  insalAceptado         Boolean?         @map("insal_aceptado")
+  // Ids de InscriptoConcurso que fueron propuestos para el INSAL y
+  // rechazaron el cargo — se excluyen de la lista de elegibles del orden de
+  // mérito para no volver a ofrecerlos.
+  insalRechazados        String[]         @map("insal_rechazados")
+  // Etapa 4 — candidato del orden de mérito reservado para el INSAL, apuntando
+  // al InscriptoConcurso (NO al padrón de personas). La designación oficial
+  // que sí resuelve contra el padrón es en Etapa 5 (personaDesignadaId).
+  // Nullable: se limpia cuando el candidato no acepta el cargo.
+  inscriptoReservadoId  String?          @map("inscripto_reservado_id") @db.Uuid
+  // Etapa 5 — validación contra el padrón: true cuando el padrón trae a la
+  // persona con un id SIAL rol cuyo cargo coincide en carrera (escalafón) y
+  // especialidad con el concurso. validadoIdSialRol guarda ese rol.
+  validado              Boolean          @default(false)
+  validadoAt            DateTime?        @map("validado_at") @db.Timestamptz
+  validadoIdSialRol     String?          @map("validado_id_sial_rol") @db.VarChar(50)
   cambioEspecialidad          Boolean  @default(false) @map("cambio_especialidad")
   motivoCambioEspecialidad     String?  @map("motivo_cambio_especialidad") @db.Text
   qInscriptos           Int?             @map("q_inscriptos")
@@ -591,13 +612,14 @@ model ConcursoCph {
   cargo            Cargo     @relation(fields: [cargoId], references: [id])
   hospital         Hospital  @relation(fields: [hospitalId], references: [id])
   personaDesignada Persona?  @relation("PersonaDesignadaCph", fields: [personaDesignadaId], references: [id])
+  inscriptoReservado InscriptoConcurso? @relation("InscriptoReservadoCph", fields: [inscriptoReservadoId], references: [id], onDelete: SetNull)
   etiquetas        EtiquetaConcursoCph[]
   ordenesMerito    OrdenMerito[]
   postulantes      PostulanteConcurso[]
   integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
   desiertoHistorial     ConcursoCphDesierto[]
   sorteosJurado         SorteoJurado[]
-  inscriptos            InscriptoConcurso[]
+  inscriptos            InscriptoConcurso[] @relation("InscriptosDeConcurso")
 
   @@index([hospitalId])
   @@index([estado])
@@ -766,7 +788,9 @@ model InscriptoConcurso {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  concursoCph    ConcursoCph @relation(fields: [concursoCphId], references: [id], onDelete: Cascade)
+  concursoCph    ConcursoCph @relation("InscriptosDeConcurso", fields: [concursoCphId], references: [id], onDelete: Cascade)
+  // Concursos en los que este inscripto quedó reservado para el INSAL (Etapa 4).
+  reservadoEnCph ConcursoCph[] @relation("InscriptoReservadoCph")
 
   @@index([concursoCphId])
   @@map("inscriptos_concurso")

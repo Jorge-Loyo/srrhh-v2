@@ -366,6 +366,21 @@ export interface ConcursoCph {
   suspendido: boolean
   ifacs: string | null
   insal: string | null
+  // Respuesta al INSAL (Etapa 4 — propuesta, no designación oficial; esa es
+  // en Etapa 5). null = sin respuesta, true = aceptó el cargo.
+  insalAceptado: boolean | null
+  // Ids de InscriptoConcurso que fueron propuestos y rechazaron el cargo.
+  insalRechazados: string[]
+  // Etapa 4 — inscripto del orden de mérito reservado para el INSAL (FK a
+  // InscriptoConcurso, no al padrón). La designación oficial contra el padrón
+  // es en Etapa 5 (personaDesignadaId).
+  inscriptoReservadoId: string | null
+  // Etapa 5 — validación contra el padrón semanal: true cuando la persona
+  // aparece con un id SIAL rol cuyo cargo coincide en carrera y especialidad
+  // con el concurso.
+  validado: boolean
+  validadoAt: string | null
+  validadoIdSialRol: string | null
   cambioEspecialidad: boolean
   motivoCambioEspecialidad: string | null
   qInscriptos: number | null
@@ -921,6 +936,104 @@ export interface ConcursoCphFilters {
   origen?: 'baja' | 'ampliacion' | 'cobertura'
   // CSV de ids de etiqueta — un concurso matchea si tiene al menos una.
   etiquetaIds?: string
+  // Etapa 5: concursos con persona elegida del orden de mérito
+  // (inscriptoReservadoId o personaDesignadaId).
+  personaOm?: boolean
+  // Etapa 5: concursos validados contra el padrón (flag validado).
+  validado?: boolean
+}
+
+// ─── Etapa 5 CPH: estado de designación / validación contra el padrón ────────
+export type EstadoValidacionDesignacion =
+  | 'sin_persona' // el CUIL no está en el padrón todavía
+  | 'esperando_padron' // está en el padrón pero sin rol que coincida
+  | 'rol_no_coincide' // tiene rol(es) nuevos pero ninguno coincide en carrera+especialidad
+  | 'validado' // tiene un id SIAL rol que coincide en carrera y especialidad
+
+// Datos completos de la persona designada/reservada (todo lo que tengamos).
+export interface PersonaDesignadaDetalle {
+  id: string
+  cuil: string
+  apellidoNombre: string
+  numeroDoc: string | null
+  tipoDoc: string | null
+  fechaNacimiento: string | null
+  sexo: string | null
+  especialidadPrincipal: string | null
+  especialidadCph: string | null
+  telefono: string | null
+  mailLaboral: string | null
+  mailPersonal: string | null
+  domicilio: string | null
+  localidad: string | null
+  provincia: string | null
+  antiguedadDesde: string | null
+  activo: boolean
+}
+
+// Resumen de una ocupación (cargo + rol) para mostrar cargo actual / último.
+export interface OcupacionResumen {
+  idSialRol: string
+  cargoCodigo: string | null
+  cargoIdSial: string
+  literalPuesto: string | null
+  escalafonId: string
+  escalafonNombre: string | null
+  especialidadLegacy: string | null
+  situacionRevista: string | null // incluye 'Retencion de Cargo'
+  estadoPersona: string | null
+  cargoEstado: string // vigente | no_vigente | validacion_vacante
+  hospitalSigla: string | null
+  desde: string | null
+  hasta: string | null // null = vigente
+  carreraCoincide: boolean
+  especialidadCoincide: boolean
+}
+
+export interface DesignacionEstado {
+  fuente: 'persona_designada' | 'inscripto_reservado' | null
+  cuil: string | null
+  existeEnPadron: boolean
+  // Datos del inscripto reservado del orden de mérito (Etapa 4). Están
+  // disponibles aunque la persona todavía no figure en el padrón.
+  inscripto: { apellido: string; nombre: string; cuil: string | null } | null
+  persona: PersonaDesignadaDetalle | null
+  ocupacionVigente: OcupacionResumen | null
+  ultimaOcupacion: OcupacionResumen | null // última cerrada si no hay vigente
+  concurso: {
+    escalafonId: string | null
+    escalafonNombre: string | null
+    especialidadSolicitada: string | null
+  }
+  validacion: {
+    estado: EstadoValidacionDesignacion
+    idSialRolValidado: string | null
+    mensaje: string
+  }
+}
+
+// ─── Preview de validaciones al subir un padrón ──────────────────────────────
+// Concursos CPH que quedarían validados al aprobar+vincular los diffs "nuevo".
+export interface ValidacionPreviewItem {
+  diffId: string
+  idSialRol: string
+  idSial: string | null
+  cuil: string
+  concursoCphId: string
+  concursoCodigo: string | null
+  personaNombre: string
+  especialidadDiff: string | null
+  especialidadConcurso: string | null
+  carreraCoincide: boolean
+  especialidadCoincide: boolean
+  // Sugerido para validar: coincide carrera Y especialidad.
+  validable: boolean
+  yaValidado: boolean
+}
+
+export interface ValidacionesPreview {
+  resumen: { total: number; validables: number }
+  detalle: ValidacionPreviewItem[]
 }
 
 export interface ConcursoCeetpsFilters {

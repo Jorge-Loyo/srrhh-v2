@@ -39,6 +39,18 @@ export const concursosCphQuerySchema = z.object({
     .min(1)
     .transform((v) => v.split(',').filter(Boolean))
     .optional(),
+  // Etapa 5: concursos con persona elegida del orden de mérito
+  // (inscriptoReservadoId o personaDesignadaId). Tri-estado igual que
+  // `suspendido` (no z.coerce.boolean para que 'false' no coercione a true).
+  personaOm: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  // Etapa 5: concursos validados contra el padrón (flag validado).
+  validado: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>
@@ -88,6 +100,13 @@ export const patchConcursoCphSchema = z
     // Campos nuevos — datos del CSV histórico
     ifacs: z.string().trim().max(200).nullable(),
     insal: z.string().trim().max(200).nullable(),
+    // Respuesta al INSAL (Etapa 4 — propuesta, no designación oficial).
+    insalAceptado: z.boolean().nullable(),
+    insalRechazados: z.array(z.string().uuid()),
+    // Etapa 4 — inscripto (del orden de mérito) reservado para el INSAL.
+    // FK a InscriptoConcurso, no al padrón. La resolución contra el padrón
+    // se hace recién en Etapa 5 (personaDesignadaId).
+    inscriptoReservadoId: z.string().uuid().nullable(),
     cambioEspecialidad: z.boolean().nullable(),
     motivoCambioEspecialidad: z.string().trim().max(2000).nullable(),
     qInscriptos: z.number().int().min(0).nullable(),

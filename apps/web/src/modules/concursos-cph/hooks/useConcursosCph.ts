@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ConcursoCph,
   ConcursoCphFilters,
+  DesignacionEstado,
   DeclararDesiertoRequest,
   DesignarConcursoRequest,
   GenerarSorteoJuradoRequest,
@@ -30,6 +31,24 @@ export function useConcursosCph(filters: ConcursoCphFilters) {
       return res.data
     },
     placeholderData: (prev) => prev,
+  })
+}
+
+// Etapa 5: estado de designación / validación contra el padrón. Resuelve al
+// ganador por CUIL, trae sus datos completos + cargo actual/último + el estado
+// de validación (carrera + especialidad). Solo se consulta en la etapa de
+// designación (enabled controlado por el caller).
+export function useDesignacionEstado(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['concurso-cph-designacion-estado', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: DesignacionEstado }>(
+        `/api/v1/concursos-cph/${id}/designacion-estado`,
+      )
+      return res.data.data
+    },
+    enabled: !!id && enabled,
+    retry: false,
   })
 }
 
@@ -133,6 +152,10 @@ export function useDesignarConcursoCph(id: string) {
     onSuccess: (data) => {
       queryClient.setQueryData(['concurso-cph-wizard', id], data)
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+      // El panel de "persona designada" (usado en Etapa 4 para habilitar el
+      // INSAL y en Etapa 5) vive en una query aparte — sin esto quedaba
+      // desactualizado hasta salir y volver a entrar a la etapa.
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
     },
   })
 }

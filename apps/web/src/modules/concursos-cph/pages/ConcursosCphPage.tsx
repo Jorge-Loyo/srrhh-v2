@@ -173,6 +173,9 @@ function ConcursosListaTab() {
   const [subEstado, setSubEstado] = useState('')
   const [subEstado3, setSubEstado3] = useState('')
   const [origen, setOrigen] = useState<'' | 'baja' | 'ampliacion' | 'cobertura'>('')
+  // Etapa 5: '' = todos, 'true' = con persona / validados, 'false' = sin.
+  const [personaOm, setPersonaOm] = useState<'' | 'true' | 'false'>('')
+  const [validado, setValidado] = useState<'' | 'true' | 'false'>('')
   const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
   const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
@@ -241,6 +244,8 @@ function ConcursosListaTab() {
     ...(subEstado3 && { subEstado3 }),
     ...(origen && { origen }),
     ...(conFaltantes && { conFaltantes: true }),
+    ...(personaOm && { personaOm: personaOm === 'true' }),
+    ...(validado && { validado: validado === 'true' }),
     ...(etiquetasFiltro.length && {
       etiquetaIds: etiquetasFiltro
         .map((nombre) => catalogoEtiquetas.find((e) => e.nombre === nombre)?.id)
@@ -491,9 +496,14 @@ function ConcursosListaTab() {
               />
             </svg>
             Filtros avanzados
-            {(subEstado || subEstado3 || origen || etiquetasFiltro.length > 0) && (
+            {(subEstado ||
+              subEstado3 ||
+              origen ||
+              personaOm ||
+              validado ||
+              etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {[subEstado, subEstado3, origen].filter(Boolean).length +
+                {[subEstado, subEstado3, origen, personaOm, validado].filter(Boolean).length +
                   (etiquetasFiltro.length > 0 ? 1 : 0)}
               </span>
             )}
@@ -550,6 +560,19 @@ function ConcursosListaTab() {
                 setPage(1)
               },
             })
+          if (personaOm)
+            chips.push({
+              label:
+                personaOm === 'true'
+                  ? 'Con persona del orden de mérito'
+                  : 'Sin persona del orden de mérito',
+              onClear: () => resetPage(setPersonaOm)(''),
+            })
+          if (validado)
+            chips.push({
+              label: validado === 'true' ? 'Validados' : 'Sin validar',
+              onClear: () => resetPage(setValidado)(''),
+            })
           if (etiquetasFiltro.length > 0)
             chips.push({
               label: `Etiquetas: ${etiquetasFiltro.join(', ')}`,
@@ -586,6 +609,8 @@ function ConcursosListaTab() {
                   setSubEstado3('')
                   setOrigen('')
                   setConFaltantes(false)
+                  setPersonaOm('')
+                  setValidado('')
                   setEtiquetasFiltro([])
                   setPage(1)
                 }}
@@ -834,15 +859,56 @@ function ConcursosListaTab() {
                   <option value="cobertura">Cobertura de dotación</option>
                 </select>
               </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Persona del orden de mérito
+                </p>
+                <select
+                  value={personaOm}
+                  onChange={(e) =>
+                    resetPage(setPersonaOm)(e.target.value as '' | 'true' | 'false')
+                  }
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Todos</option>
+                  <option value="true">Con persona elegida</option>
+                  <option value="false">Sin persona elegida</option>
+                </select>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Validado contra el padrón
+                </p>
+                <select
+                  value={validado}
+                  onChange={(e) =>
+                    resetPage(setValidado)(e.target.value as '' | 'true' | 'false')
+                  }
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Todos</option>
+                  <option value="true">Validados</option>
+                  <option value="false">Sin validar</option>
+                </select>
+              </section>
             </div>
 
             <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
-              {(subEstado || subEstado3 || origen || etiquetasFiltro.length > 0) && (
+              {(subEstado ||
+                subEstado3 ||
+                origen ||
+                personaOm ||
+                validado ||
+                etiquetasFiltro.length > 0) && (
                 <button
                   onClick={() => {
                     resetPage(setSubEstado)('')
                     resetPage(setSubEstado3)('')
                     resetPage(setOrigen)('')
+                    resetPage(setPersonaOm)('')
+                    resetPage(setValidado)('')
                     resetPage(setEtiquetasFiltro)([])
                   }}
                   className="flex-1 btn-outline text-danger border-danger hover:bg-danger/5"

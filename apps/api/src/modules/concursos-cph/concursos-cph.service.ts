@@ -100,6 +100,8 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     especialidad,
     origen,
     etiquetaIds,
+    personaOm,
+    validado,
   } = query
   const offset = (page - 1) * limit
 
@@ -224,6 +226,17 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
       concurso: { is: { bajaId: null, cargo: { is: { expediente: null } } } },
     }),
     ...(etiquetaIds?.length && { etiquetas: { some: { etiquetaId: { in: etiquetaIds } } } }),
+    // Etapa 5 — "tiene persona del orden de mérito": reserva de Etapa 4
+    // (inscriptoReservadoId) o designación oficial (personaDesignadaId).
+    ...(personaOm === true && {
+      OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
+    }),
+    ...(personaOm === false && {
+      inscriptoReservadoId: null,
+      personaDesignadaId: null,
+    }),
+    // Etapa 5 — validado contra el padrón.
+    ...(validado !== undefined && { validado }),
   }
 
   const [total, data] = await Promise.all([
@@ -1067,4 +1080,280 @@ export async function declararDesiertoService(
       include,
     })
   })
+}
+
+// ─── Etapa 5: estado de designación / validación contra el padrón ───────────
+// Resuelve al ganador (personaDesignadaId o inscriptoReservadoId) por CUIL
+// contra el padrón (tabla personas), trae sus datos completos + ocupación
+// vigente / última cerrada, y calcula si ya tiene un id SIAL rol cuyo cargo
+// coincide en carrera (escalafón) y especialidad con el concurso. Si coincide,
+// marca el concurso como validado (idempotente) y notifica una sola vez.
+const normEsp = (s: string | null | undefined): string =>
+  (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+
+export async function getDesignacionEstadoService(id: string) {
+  const concurso = await prisma.concursoCph.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      personaDesignadaId: true,
+      inscriptoReservadoId: true,
+      especialidadSolicitada: true,
+      cargoSial: true,
+      validado: true,
+      // Escalafón del concurso: preferimos el solicitado; fallback al del cargo.
+      codigoRegistroSolicitado: { select: { escalafon: { select: { id: true, nombre: true } } } },
+      concurso: {
+        select: { cargo: { select: { escalafon: { select: { id: true, nombre: true } } } } },
+      },
+      inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
+    },
+  })
+  if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
+
+  const escalafonConcurso =
+    concurso.codigoRegistroSolicitado?.escalafon ?? concurso.concurso?.cargo?.escalafon ?? null
+  const espConcurso = concurso.especialidadSolicitada
+  const concursoInfo = {
+    escalafonId: escalafonConcurso?.id ?? null,
+    escalafonNombre: escalafonConcurso?.nombre ?? null,
+    especialidadSolicitada: espConcurso ?? null,
+  }
+
+  // 1) Resolver CUIL y fuente. personaDesignadaId (Etapa 5) tiene prioridad;
+  //    si no, el inscripto reservado (Etapa 4).
+  const selPersona = {
+    id: true,
+    cuil: true,
+    apellidoNombre: true,
+    numeroDoc: true,
+    tipoDoc: true,
+    fechaNacimiento: true,
+    sexo: true,
+    especialidadPrincipal: true,
+    especialidadCph: true,
+    telefono: true,
+    mailLaboral: true,
+    mailPersonal: true,
+    domicilio: true,
+    localidad: true,
+    provincia: true,
+    antiguedadDesde: true,
+    activo: true,
+  } as const
+
+  type PersonaRow = Prisma.PersonaGetPayload<{ select: typeof selPersona }>
+  let fuente: 'persona_designada' | 'inscripto_reservado' | null = null
+  let cuil: string | null = null
+  let personaRow: PersonaRow | null = null
+
+  if (concurso.personaDesignadaId) {
+    fuente = 'persona_designada'
+    personaRow = await prisma.persona.findUnique({
+      where: { id: concurso.personaDesignadaId },
+      select: selPersona,
+    })
+    cuil = personaRow?.cuil ?? null
+  } else if (concurso.inscriptoReservado?.cuil) {
+    fuente = 'inscripto_reservado'
+    // El CUIL del inscripto puede venir con guiones; normalizamos a dígitos
+    // (personas.cuil son 11 dígitos sin guiones).
+    cuil = concurso.inscriptoReservado.cuil.replace(/\D/g, '')
+    personaRow = await prisma.persona.findFirst({ where: { cuil }, select: selPersona })
+  }
+
+  const persona = personaRow
+    ? {
+        id: personaRow.id,
+        cuil: personaRow.cuil,
+        apellidoNombre: personaRow.apellidoNombre,
+        numeroDoc: personaRow.numeroDoc,
+        tipoDoc: personaRow.tipoDoc,
+        fechaNacimiento: personaRow.fechaNacimiento?.toISOString() ?? null,
+        sexo: personaRow.sexo,
+        especialidadPrincipal: personaRow.especialidadPrincipal,
+        especialidadCph: personaRow.especialidadCph,
+        telefono: personaRow.telefono,
+        mailLaboral: personaRow.mailLaboral,
+        mailPersonal: personaRow.mailPersonal,
+        domicilio: personaRow.domicilio,
+        localidad: personaRow.localidad,
+        provincia: personaRow.provincia,
+        antiguedadDesde: personaRow.antiguedadDesde?.toISOString() ?? null,
+        activo: personaRow.activo,
+      }
+    : null
+
+  const existeEnPadron = !!persona
+
+  // 2) Traer ocupaciones de la persona (todas), para determinar vigente/última
+  //    y para la validación de carrera+especialidad.
+  type OcupRow = {
+    idSialRol: string
+    situacionRevista: string | null
+    estadoPersona: string | null
+    desde: Date | null
+    hasta: Date | null
+    cargoCodigo: string | null
+    cargoIdSial: string
+    literalPuesto: string | null
+    escalafonId: string
+    escalafonNombre: string | null
+    especialidadLegacy: string | null
+    cargoEstado: string
+    hospitalSigla: string | null
+  }
+
+  let ocupaciones: OcupRow[] = []
+  if (persona) {
+    ocupaciones = await prisma.$queryRaw<OcupRow[]>`
+      SELECT
+        o.id_sial_rol       AS "idSialRol",
+        o.situacion_revista AS "situacionRevista",
+        o.estado_persona    AS "estadoPersona",
+        o.desde,
+        o.hasta,
+        c.codigo            AS "cargoCodigo",
+        c.id_sial           AS "cargoIdSial",
+        c.literal_puesto    AS "literalPuesto",
+        c.escalafon_id      AS "escalafonId",
+        e.nombre            AS "escalafonNombre",
+        c.especialidad_legacy AS "especialidadLegacy",
+        c.estado::text      AS "cargoEstado",
+        h.sigla             AS "hospitalSigla"
+      FROM ocupaciones o
+      JOIN cargos c      ON c.id = o.cargo_id
+      LEFT JOIN escalafones e ON e.id = c.escalafon_id
+      LEFT JOIN hospitales h  ON h.id = c.hospital_id
+      WHERE o.persona_id = ${persona.id}::uuid
+      ORDER BY (o.hasta IS NULL) DESC, o.desde DESC NULLS LAST, o.hasta DESC NULLS LAST
+    `
+  }
+
+  const especialidadCoincideOcup = (o: OcupRow): boolean => {
+    if (!espConcurso) return false
+    const eNorm = normEsp(espConcurso)
+    return (
+      (!!o.especialidadLegacy && normEsp(o.especialidadLegacy) === eNorm) ||
+      (!!persona?.especialidadCph && normEsp(persona.especialidadCph) === eNorm)
+    )
+  }
+  const carreraCoincideOcup = (o: OcupRow): boolean =>
+    !!concursoInfo.escalafonId && o.escalafonId === concursoInfo.escalafonId
+
+  const toResumen = (o: OcupRow) => ({
+    idSialRol: o.idSialRol,
+    cargoCodigo: o.cargoCodigo,
+    cargoIdSial: o.cargoIdSial,
+    literalPuesto: o.literalPuesto,
+    escalafonId: o.escalafonId,
+    escalafonNombre: o.escalafonNombre,
+    especialidadLegacy: o.especialidadLegacy,
+    situacionRevista: o.situacionRevista,
+    estadoPersona: o.estadoPersona,
+    cargoEstado: o.cargoEstado,
+    hospitalSigla: o.hospitalSigla,
+    desde: o.desde?.toISOString() ?? null,
+    hasta: o.hasta?.toISOString() ?? null,
+    carreraCoincide: carreraCoincideOcup(o),
+    especialidadCoincide: especialidadCoincideOcup(o),
+  })
+
+  const vigentes = ocupaciones.filter((o) => o.hasta === null)
+  const cerradas = ocupaciones.filter((o) => o.hasta !== null)
+  const ocupacionVigente = vigentes[0] ? toResumen(vigentes[0]) : null
+  const ultimaOcupacion = !ocupacionVigente && cerradas[0] ? toResumen(cerradas[0]) : null
+
+  // 3) Validación / triangulación. El "Cargo SIAL (alta)" que cargó el usuario
+  //    (concurso.cargoSial) es el valor esperado del padrón: no es obligatorio
+  //    y puede tener errores, pero si el padrón trae un rol cuyo cargo tiene ese
+  //    id SIAL, es la coincidencia exacta (triangulación).
+  const cargoSialEsperado = (concurso.cargoSial ?? '').trim()
+  const cargoSialCoincideOcup = (o: OcupRow): boolean =>
+    !!cargoSialEsperado &&
+    (o.cargoIdSial.trim() === cargoSialEsperado ||
+      // el id SIAL del rol suele ser "<idSialCargo>-<cuil>-<rol>"
+      o.idSialRol.trim().startsWith(`${cargoSialEsperado}-`))
+
+  // Se valida cuando hay un rol vigente que coincide en carrera Y especialidad.
+  // Si el usuario cargó el Cargo SIAL esperado, se prioriza el rol cuyo cargo
+  // coincide con ese id (triangulación exacta).
+  const candidatos = vigentes.filter((o) => carreraCoincideOcup(o) && especialidadCoincideOcup(o))
+  const rolValidado =
+    candidatos.find((o) => cargoSialCoincideOcup(o)) ?? candidatos[0] ?? undefined
+
+  let estado: import('@srrhh/types').EstadoValidacionDesignacion
+  let mensaje: string
+  if (!persona) {
+    estado = 'sin_persona'
+    mensaje = 'La persona todavía no aparece en el padrón. A la espera del archivo semanal.'
+  } else if (rolValidado) {
+    estado = 'validado'
+    const matcheaCargo = cargoSialCoincideOcup(rolValidado)
+    mensaje = matcheaCargo
+      ? `Triangulado con el padrón — el rol ${rolValidado.idSialRol} coincide con el Cargo SIAL esperado, la carrera y la especialidad del concurso.`
+      : cargoSialEsperado
+        ? `Asignación validada por carrera y especialidad (rol ${rolValidado.idSialRol}). Ojo: el padrón trajo un id SIAL distinto al Cargo SIAL cargado (${cargoSialEsperado}).`
+        : `Asignación validada — el rol ${rolValidado.idSialRol} coincide con la carrera y la especialidad del concurso.`
+  } else if (vigentes.length > 0) {
+    estado = 'rol_no_coincide'
+    mensaje =
+      'La persona tiene rol(es) en el padrón pero ninguno coincide con la carrera y la especialidad del concurso.'
+  } else {
+    estado = 'esperando_padron'
+    mensaje = 'La persona está en el padrón pero sin un rol que coincida con el concurso todavía.'
+  }
+
+  // 4) Persistir validado + notificar (idempotente): solo si recién ahora
+  //    quedó validado. `validado` es un flag INDEPENDIENTE del sub-estado del
+  //    flujo (un concurso puede estar validado con pasos de Etapa 5 pendientes),
+  //    así que NO se recalcula ni se toca subEstado acá.
+  if (estado === 'validado' && !concurso.validado) {
+    await prisma.concursoCph.update({
+      where: { id },
+      data: {
+        validado: true,
+        validadoAt: new Date(),
+        validadoIdSialRol: rolValidado!.idSialRol,
+      },
+    })
+    const cargoCodigo = ocupacionVigente?.cargoCodigo ?? persona.apellidoNombre
+    await crearNotificacion({
+      tipo: 'autorizacion_resuelta',
+      rolSlug: 'concursales_cph',
+      titulo: `Concurso validado — ${cargoCodigo}`,
+      mensaje: `${persona.apellidoNombre} aparece en el padrón con el rol ${rolValidado!.idSialRol}, que coincide con la carrera y especialidad del concurso. La asignación quedó validada.`,
+      origenTipo: 'concurso_cph',
+      origenId: id,
+      origenKey: `cph_validado:${id}`,
+    })
+  }
+
+  const inscripto = concurso.inscriptoReservado
+    ? {
+        apellido: concurso.inscriptoReservado.apellido,
+        nombre: concurso.inscriptoReservado.nombre,
+        cuil: concurso.inscriptoReservado.cuil,
+      }
+    : null
+
+  return {
+    fuente,
+    cuil,
+    existeEnPadron,
+    inscripto,
+    persona,
+    ocupacionVigente,
+    ultimaOcupacion,
+    concurso: concursoInfo,
+    validacion: {
+      estado,
+      idSialRolValidado: rolValidado?.idSialRol ?? null,
+      mensaje,
+    },
+  }
 }

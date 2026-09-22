@@ -53,6 +53,20 @@ C2-INSCRIPCION EX → D-EXAMEN PUBLICADO → E-ORDEN DE MERITO → F-IFACS → G
 H-TAD → I-CARGA DOCU → J-APTO MED → K-ITE → L-PYCTO DE RESO → M-RESO A LA FIRMA →
 N-DESIGNADO → O-ALTA SIAL; Q-DESIERTO es indicador aparte.
 
+### 1.4 `validado` — flag INDEPENDIENTE (no es sub-estado)
+
+`ConcursoCph.validado` (Boolean, + `validadoAt`, `validadoIdSialRol`) es una
+**dimensión ortogonal** al sub-estado del flujo. Indica que el cargo ya apareció
+en el padrón semanal triangulado con este concurso (misma persona por CUIL,
+misma carrera/escalafón, misma especialidad).
+
+**Regla clave**: un concurso puede estar `validado` **aunque le falten pasos de
+la Etapa 5** (documentación, apto médico, ITE, resolución). Ejemplo real: el
+padrón ya trae el cargo nuevo, pero el operador todavía no cargó la
+documentación pendiente → el concurso está **validado (verde)** y a la vez su
+sub-estado sigue en, p.ej., `I-CARGA DOCU`. Por eso `validado` **NO** entra en
+`calcSubEstado` ni desplaza el avance por letra.
+
 ---
 
 ## 2. Etapas del wizard (5 etapas, NO 6)
@@ -66,8 +80,11 @@ acción que relanza el concurso desde la Etapa 1.
    disposición de llamado.
 3. **Inscripción / Examen / OM** — inscriptos, cierre de inscripción, examen,
    presentados y orden de mérito.
-4. **IFACS / INSAL** — IFACS e INSAL. Incluye el panel de reutilización de OM.
-5. **Designación**.
+4. **IFACS / INSAL** — IFACS, reserva del candidato del orden de mérito
+   (por inscripto, sin tocar el padrón) e INSAL (ver §6bis).
+5. **Designación** — pasos TAD/documentación/apto médico/ITE/resolución/Cargo
+   SIAL con botón "Registrar" por paso, más el panel de estado de la persona
+   contra el padrón (ver §6ter).
 
 Mapeo sub-estado → etapa (columna "Etapa" / stepper de la lista):
 
@@ -180,7 +197,7 @@ confirmar.
 
 ---
 
-## 6. Reutilización de OM y reelección (Etapas 1 y 4)
+## 6. Reutilización de OM y reelección (Etapa 1)
 
 - **Compatibilidad de OM**: mismo **puesto + especialidad + escalafón** que el
   concurso destino.
@@ -194,12 +211,133 @@ confirmar.
   → declarar desierto.
 - **Liberar** (`POST /:id/om/liberar`): revierte la reserva sin anular.
 - `GET /:id/om-compatibles` y `GET /:id/candidato-om` alimentan el panel
-  `PanelReutilizarOm` (visible en Etapa 1 con eeConcurso cargado, y en Etapa 4).
+  `PanelReutilizarOm`, visible **solo en la Etapa 1** con `eeConcurso` cargado y
+  sin autorización en curso. (Se quitó de la Etapa 4: ahí la elección del
+  ganador se hace con la reserva por inscripto, ver §6bis.)
 
-> **Designación de OM ≠ terminación del concurso.** Reservar/designar de la OM
-> solo marca al candidato. El concurso se termina cuando el CUIL del designado
-> aparece en el padrón semanal con id_sial/rol (vinculación) — **pendiente de
-> implementar (Fase 6b)**.
+> **Reservar/designar de la OM ≠ terminación del concurso.** Solo marca al
+> candidato. La validación real ocurre cuando el CUIL aparece en el padrón
+> semanal triangulado con el concurso (ver §6ter y §6qua).
+
+---
+
+## 6bis. Etapa 4 — Reserva del ganador (INSAL) sin tocar el padrón
+
+En la Etapa 4 se elige a quién notificar por INSAL **sin resolver contra el
+padrón** (un ganador de concurso puede no existir todavía como agente en SIAL).
+
+- Campo `ConcursoCph.inscriptoReservadoId` (FK a `InscriptoConcurso`,
+  `onDelete: SetNull`). Apunta al **inscripto del orden de mérito**, NO al padrón
+  de personas. La designación oficial contra el padrón es la Etapa 5.
+- **Elegir candidato** (modal, modo `proponer`): lista los elegibles del orden
+  de mérito de ESTE concurso (`presentoExamen`, con `ordenMerito`, excluyendo los
+  de `insalRechazados`). Al elegir, se hace `PATCH { inscriptoReservadoId, insalAceptado: null }`.
+  **No** llama a `/api/v1/personas` (por eso ya no aparece el error "No se
+  encontró en el padrón").
+- **INSAL**: los campos de INSAL se habilitan una vez que hay inscripto reservado.
+- **¿Aceptó el cargo?**:
+  - "✅ Cargo aceptado" → `PATCH { insalAceptado: true }`. Habilita avanzar a la Etapa 5.
+  - "❌ No aceptó" → `PATCH { insalAceptado: null, inscriptoReservadoId: null,
+insalRechazados: [...prev, inscriptoId] }`. El inscripto queda excluido de la
+    lista de elegibles y se elige a otro.
+- Campos: `insalAceptado` (Boolean?, null = sin respuesta), `insalRechazados`
+  (String[] de ids de `InscriptoConcurso`).
+- **Bloqueo de avance a Etapa 5**: exige `fechaIfacs`, `fechaInsal` e
+  `insalAceptado === true`.
+
+---
+
+## 6ter. Etapa 5 — Designación paso a paso + estado contra el padrón
+
+**Vista reorganizada**: arriba el panel informativo de la persona; abajo los
+pasos, cada uno con su propio botón "Registrar" (PATCH individual). No hay un
+"Guardar todo" ni el viejo botón "👤 Designar" (se quitó).
+
+- **Pasos** (cada uno persiste solo su campo vía `PATCH`; el sub-estado se
+  recalcula automáticamente en el backend, así avanza paso a paso): EE de
+  designación (TAD) → Carga de documentación → Fecha apto médico → Fecha ITE →
+  Proyecto de resolución → Reso a la firma → Resolución de designación + fecha →
+  **Cargo SIAL (alta)**.
+- **Cargo SIAL (alta)** es el **valor esperado del padrón**. No es obligatorio
+  (el operador puede equivocarse), pero se usa para triangular: si el padrón trae
+  un rol cuyo cargo tiene ese `idSial`, es la coincidencia exacta.
+
+### Panel de estado — `GET /:id/designacion-estado`
+
+`getDesignacionEstadoService` resuelve al ganador y devuelve un objeto
+`DesignacionEstado` (solo lectura, salvo el seteo idempotente de `validado`):
+
+1. Resuelve el CUIL: `personaDesignadaId` (prioridad) o `inscriptoReservado.cuil`
+   (normalizado a dígitos, porque `personas.cuil` son 11 dígitos sin guiones).
+2. Busca la persona en el padrón (`personas` por CUIL) y devuelve **todos** sus
+   datos si existe (`persona`), o los datos del inscripto reservado si aún no
+   figura (`inscripto: { apellido, nombre, cuil }`).
+3. Trae la **ocupación vigente** (`hasta IS NULL`) o, si no hay, la **última
+   cerrada** (el último id SIAL rol que tuvo), con cargo, escalafón,
+   especialidad, `situacionRevista` (incluye "Retención de cargo", informativa),
+   `estadoPersona`, estado del cargo, hospital.
+4. Calcula el **estado de validación**:
+   - `sin_persona` — el CUIL no está en el padrón todavía.
+   - `esperando_padron` — está en el padrón pero sin rol que coincida.
+   - `rol_no_coincide` — tiene rol(es) pero ninguno coincide en carrera +
+     especialidad.
+   - `validado` — hay un rol vigente que coincide en **carrera Y especialidad**
+     (y, si se cargó `cargoSial`, se prioriza el rol con ese `idSial`).
+5. Si `estado === 'validado'` y aún no lo estaba, **setea el flag** `validado`,
+   `validadoAt`, `validadoIdSialRol` (idempotente) y notifica una vez. NO toca
+   el sub-estado.
+
+---
+
+## 6qua. Validación contra el padrón semanal (triangulación semi-automática)
+
+El cierre del ciclo: cuando el padrón semanal trae el cargo nuevo del ganador,
+el concurso se marca `validado`. El flujo es **semi-automático (opción a)**: el
+sistema sugiere, el operador confirma con un click al aprobar el cargo.
+
+### Preview al subir el padrón — `GET /padron/snapshots/:id/validaciones-preview`
+
+`getValidacionesPreviewService` (módulo padrón) recorre los diffs "nuevo"
+**pendientes** y matchea contra concursos abiertos que tienen persona del orden
+de mérito (`inscriptoReservadoId` o `personaDesignadaId`):
+
+- **Match por CUIL**: `cuilDe(diff)` (11 dígitos, de `cuil_y_rol`) vs el CUIL de
+  la persona designada / inscripto reservado del concurso (normalizado a dígitos).
+- **carreraCoincide**: escalafón del diff (por `codigo_de_registro` →
+  `CodigoRegistro.escalafonId`, fallback nombre de escalafón) == `cargo.escalafonId`
+  del concurso.
+- **especialidadCoincide**: `datos.especialidad` vs `especialidadSolicitada`
+  (normalizado NFD, sin acentos, minúsculas).
+- `validable = carreraCoincide && especialidadCoincide && !yaValidado`.
+
+En `PadronDiffPage`, arriba del detalle de diferencias, aparece la sección
+**"Concursos que pasarán a validados"** (`useValidacionesPreview`, solo si el
+snapshot está `pendiente`) con la lista: id SIAL rol, persona, CUIL, código de
+concurso, badges (Se validará / Ya validado / Revisar) y chips Carrera/Especialidad.
+
+### Al aprobar + vincular — `POST /padron/snapshots/:id/diffs/:diffId/aprobar`
+
+`aprobarDiffNuevoService(..., vincularConcursoId)` (vinculación manual existente,
+un click desde "Aprobar + vincular" en la pestaña "Nuevos"):
+
+- Reusa el cargo del concurso, le actualiza el `idSial` al del padrón, crea la
+  ocupación y setea `personaDesignadaId` + `cargoSial`.
+- **Además**, si carrera + especialidad coinciden y no estaba validado, setea
+  `validado=true`, `validadoAt`, `validadoIdSialRol = diff.idSialRol` y dispara
+  la notificación (tipo `autorizacion_resuelta`, rol `concursales_cph`,
+  `origenKey cph_validado:<id>` para no duplicar).
+
+> La vinculación es manual a propósito: el CUIL puede coincidir pero el cargo /
+> especialidad no ser el correcto, y `validado` es un estado importante. El
+> preview sugiere; el operador confirma.
+
+### Filtros de la lista
+
+En `/concursos/cph` (filtros avanzados) hay dos filtros nuevos, combinables:
+
+- **Persona del orden de mérito** (todos / con persona / sin persona):
+  "con persona" = `inscriptoReservadoId != null OR personaDesignadaId != null`.
+- **Validado** (todos / validados / sin validar): usa el flag `validado`.
 
 ---
 
@@ -240,7 +378,8 @@ fuera del menú.
   - **Cobertura de dotación**: sin baja ni expediente → "Sin doc.".
 - **Filtros**: búsqueda (expediente/persona/observaciones), especialidad,
   hospital, estado, sub-estado, etapa, respaldatoria/origen, "con documentación
-  faltante". Se muestran **burbujas de filtros aplicados** con "×" y "Limpiar
+  faltante", **persona del orden de mérito** (con/sin) y **validado** (validados/
+  sin validar). Se muestran **burbujas de filtros aplicados** con "×" y "Limpiar
   todo". El filtro de especialidad y la búsqueda intersectan por IDs con los
   demás filtros de ese tipo.
 - Botón "Publicar fechas de inscripción" se oculta si la inscripción ya está
@@ -263,6 +402,8 @@ Bajo `/api/v1/concursos-cph`:
 | POST   | `/:id/suspender`                                      | Suspender / reactivar                          |
 | POST   | `/:id/declarar-desierto`                              | Declarar desierto (relanza)                    |
 | POST   | `/:id/designar`                                       | Designación formal (ocupación, finaliza)       |
+| GET    | `/:id/persona-designada`                              | Persona designada (3 fuentes) — Etapa 5 legacy |
+| GET    | `/:id/designacion-estado`                             | Estado + datos completos + validación (§6ter)  |
 | POST   | `/:id/generar-sorteo`                                 | Sortear jurado                                 |
 | POST   | `/:id/jurado/reutilizar`                              | Reutilizar jurado vigente compatible           |
 | POST   | `/:id/jurado/confirmar` \| `/revertir`                | Confirmar / revertir jurado                    |
@@ -272,24 +413,153 @@ Bajo `/api/v1/concursos-cph`:
 | POST   | `/:id/om/reservar` \| `/liberar` \| `/rechazar`       | Gestión del candidato de OM                    |
 | ...    | (inscriptos, presentados, orden-merito, importar-csv) | Etapa 3                                        |
 
+En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
+
+| Método | Ruta                                   | Descripción                                      |
+| ------ | -------------------------------------- | ------------------------------------------------ |
+| GET    | `/snapshots/:id/validaciones-preview`  | Concursos que pasarán a validados (§6qua)        |
+| GET    | `/snapshots/:id/diagnostico-nuevos`    | Match estructural cargo nuevo ↔ concurso abierto |
+| POST   | `/snapshots/:id/diffs/:diffId/aprobar` | Aprobar + vincular (setea `validado`) (§6qua)    |
+
 ---
 
-## 11. Migraciones aplicadas en esta línea de trabajo
+## 11. Modelo de datos — campos clave de `ConcursoCph`
+
+- Etapa 4: `inscriptoReservadoId` (FK `InscriptoConcurso`), `insalAceptado`
+  (Boolean?), `insalRechazados` (String[]).
+- Etapa 5 / validación: `cargoSial` (valor esperado del padrón), `validado`
+  (Boolean, flag independiente), `validadoAt` (Timestamptz?), `validadoIdSialRol`
+  (VarChar 50?).
+- Tipos compartidos (`packages/types`): `DesignacionEstado`, `OcupacionResumen`,
+  `PersonaDesignadaDetalle`, `EstadoValidacionDesignacion`, `ValidacionesPreview`,
+  `ValidacionPreviewItem`; y en `ConcursoCphFilters`: `personaOm`, `validado`.
+
+## 11bis. Migraciones aplicadas en esta línea de trabajo
 
 - `20260929090000_om_integrante_anulado` — `OrdenMeritoIntegrante.anulado` +
   `motivoAnulado`.
 - `20260929100000_cph_if_autorizacion` — `ConcursoCph.ifAutorizacion`.
+- `20260929130000_cph_inscripto_reservado` — `ConcursoCph.inscriptoReservadoId`
+  (FK a `inscriptos_concurso`, `ON DELETE SET NULL`).
+- `20260929140000_cph_validado` — `ConcursoCph.validado` + `validadoAt` +
+  `validadoIdSialRol`.
 
-> Nota Docker: al cambiar el schema Prisma hay que regenerar el client DENTRO
-> del contenedor (`docker exec srrhh_api ... prisma generate` + restart), porque
-> `node_modules` no está montado por el override (solo el código fuente).
+> Nota entorno: la BD de dev corre en Docker (Postgres en `localhost:5433`). El
+> shadow DB de `prisma migrate dev` está roto por una migración vieja
+> (`TipoAutorizacion`), así que las migraciones nuevas se aplican con
+> `prisma migrate deploy` + `prisma generate`. Reiniciar la API tras regenerar
+> el client.
 
 ---
 
-## 12. Pendiente
+## 12. Ciclo de punta a punta (resumen)
 
-- **Fase 6b — terminación por vinculación con padrón**: cuando el CUIL del
-  candidato reservado de OM aparece en el padrón semanal con un id_sial/rol de
-  fecha cercana, sugerir la vinculación (no obligatoria) y permitir aceptarla
-  para concluir el concurso. Falta definir "fecha cercana" y el disparador.
+1. **Etapa 1 — Baja/Apertura**: cargar Expediente de Concurso + IF → solicitud
+   de autorización a SGRASV. (Opcional: reservar un candidato de una OM
+   compatible; si SGRASV autoriza, el concurso salta a Etapa 4.)
+2. **Etapa 2 — Autorización/Jurado**: sorteo (o reutilización) de jurado +
+   disposición de llamado.
+3. **Etapa 3 — Inscripción/Examen/OM**: inscriptos → cierre → examen →
+   presentados → orden de mérito (documento reutilizable).
+4. **Etapa 4 — IFACS/INSAL**: IFACS → reservar el ganador del orden de mérito
+   (`inscriptoReservadoId`, sin padrón) → INSAL → aceptó/no aceptó.
+5. **Etapa 5 — Designación**: pasos TAD/documentación/apto médico/ITE/resolución
+   - **Cargo SIAL (alta)** (valor esperado del padrón), cada uno con "Registrar".
+     El panel muestra los datos de la persona y el estado contra el padrón.
+6. **Validación (padrón semanal)**: al subir el padrón, el preview lista los
+   concursos que triangulan (CUIL + carrera + especialidad). Al aprobar+vincular
+   el cargo nuevo, el concurso queda **`validado` (verde)** — flag independiente
+   del sub-estado, así que puede validarse aún con pasos de Etapa 5 pendientes.
+
+### Diagrama de flujo
+
+```mermaid
+flowchart TD
+    Start([Baja o cargo nuevo]) --> E1
+
+    subgraph E1["Etapa 1 — Baja / Apertura"]
+        A1[Cargar Expediente de Concurso + IF autorizacion] --> A2{Reservar candidato<br/>de OM compatible?}
+        A2 -->|Si| A3[Reserva OM<br/>PanelReutilizarOm]
+        A2 -->|No| A4[Sin reserva]
+        A3 --> A5[Solicita autorizacion SGRASV]
+        A4 --> A5
+    end
+
+    A5 --> AUTZ{SGRASV autoriza?}
+    AUTZ -->|No| STOP1[No avanza]
+    AUTZ -->|Si + habia reserva OM| E4
+    AUTZ -->|Si sin reserva| E2
+
+    subgraph E2["Etapa 2 — Autorizacion / Jurado"]
+        B1[Sorteo de jurado<br/>Regla 1 -> 2 -> 3] --> B2[Confirmar jurado]
+        B2 --> B3[Disposicion de llamado]
+    end
+
+    B3 --> E3
+
+    subgraph E3["Etapa 3 — Inscripcion / Examen / OM"]
+        C1[Inscriptos] --> C2[Cerrar inscripcion]
+        C2 --> C3[Publicar examen]
+        C3 --> C4[Confirmar presentados]
+        C4 --> C5[Confirmar Orden de Merito<br/>documento reutilizable]
+    end
+
+    C5 --> E4
+
+    subgraph E4["Etapa 4 — IFACS / INSAL"]
+        D1[Fecha IFACS] --> D2[Reservar ganador del OM<br/>inscriptoReservadoId<br/>SIN tocar el padron]
+        D2 --> D3[Cargar INSAL]
+        D3 --> D4{Acepto el cargo?}
+        D4 -->|No acepto| D5[insalRechazados += inscripto<br/>elegir otro]
+        D5 --> D2
+        D4 -->|Acepto| D6[insalAceptado = true]
+    end
+
+    D6 --> E5
+
+    subgraph E5["Etapa 5 — Designacion (pasos con Registrar)"]
+        F1[EE designacion TAD] --> F2[Carga documentacion]
+        F2 --> F3[Fecha apto medico]
+        F3 --> F4[Fecha ITE]
+        F4 --> F5[Proyecto de resolucion]
+        F5 --> F6[Reso a la firma]
+        F6 --> F7[Resolucion de designacion]
+        F7 --> F8[Cargo SIAL alta<br/>= valor esperado del padron]
+    end
+
+    F8 --> PAD
+
+    subgraph PAD["Validacion contra el padron semanal"]
+        G1[Subir padron] --> G2[Preview: concursos que<br/>pasaran a validados<br/>match CUIL + carrera + especialidad]
+        G2 --> G3{Operador aprueba<br/>+ vincula el cargo?}
+        G3 -->|Si + triangula| G4[validado = true VERDE<br/>+ notificacion concursales_cph]
+        G3 -->|No coincide| G5[Revisar manualmente]
+    end
+
+    G4 --> DONE([Asignacion validada])
+
+    Panel["Panel Etapa 5 arriba:<br/>datos de la persona +<br/>cargo actual / ultimo id SIAL rol +<br/>estado: sin_persona / esperando_padron /<br/>rol_no_coincide / validado"]
+    E5 -.consulta.-> Panel
+    Panel -.GET designacion-estado.-> PAD
+
+    Nota["validado es un FLAG INDEPENDIENTE:<br/>un concurso puede estar validado<br/>aunque falten pasos de la Etapa 5"]
+    G4 -.-> Nota
+
+    classDef verde fill:#dcfce7,stroke:#16a34a,color:#166534
+    classDef ambar fill:#fef3c7,stroke:#d97706,color:#92400e
+    classDef nota fill:#eff6ff,stroke:#3b82f6,color:#1e40af
+    class G4,DONE verde
+    class D5,G5 ambar
+    class Panel,Nota nota
+```
+
+## 13. Pendiente
+
 - **Normalización de especialidades en datos** (ver `DATA_CLEANING_ESPECIALIDADES.md`).
+- **Sprint 18 — retenciones/cadena R-TTR**: la retención hoy se muestra como
+  informativa (`situacionRevista`), sin generar cargos R/TTR automáticos.
+- **Destinatarios de la notificación de validado**: hoy `concursales_cph`; a
+  ajustar cuando se defina quién debe verla.
+- **Validación al aprobar el snapshot completo**: hoy la validación se dispara al
+  aprobar+vincular cada diff (opción a). Si se quisiera validar sin abrir el
+  concurso, habría que engancharlo también en `aprobarSnapshotService`.
