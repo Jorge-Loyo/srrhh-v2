@@ -1,5 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
+import { CadenaRetencionPanel } from '@/modules/retenciones/components/CadenaRetencionPanel'
 import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 
@@ -185,6 +186,11 @@ export function CargoDetailPanel() {
 
       {/* Cadena de mando */}
       {cargo.codigoRepa && <CadenaMandoPanel codigoRepa={cargo.codigoRepa} />}
+
+      {/* S18-7: cadena de retención (solo si es base o tiene remplazantes) */}
+      {(cargo.cargoBaseId || (cargo.remplazantes?.length ?? 0) > 0) && (
+        <CadenaRetencionPanel cargoId={cargo.id} />
+      )}
 
       {/* Proceso concursal activo */}
       {(concursoCphActivo || concursoCeetpsActivo) && (() => {

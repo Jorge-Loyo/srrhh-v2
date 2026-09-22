@@ -155,6 +155,13 @@ export async function getCargoByIdService(id: string) {
         include: { persona: true },
         orderBy: { hasta: 'desc' }, // vigente (null) primero, luego más reciente
       },
+      // S18-1: cargos remplazantes (R/TTR) vigentes generados sobre este
+      // cargo — filtrado por estado para que un R viejo (después de un
+      // titular-cesa) no deje el panel de cadena mostrándose para siempre
+      remplazantes: {
+        where: { estado: 'vigente' },
+        select: { id: true, codigo: true, literalPuesto: true, tipoOrigen: true, estado: true },
+      },
     },
   })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')

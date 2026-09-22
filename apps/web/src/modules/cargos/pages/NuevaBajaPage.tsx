@@ -10,6 +10,8 @@ import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS,
 } from '../lib/bajasHelpers'
+import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
+import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
 
 type Paso = 1 | 2 | 3
 
@@ -203,6 +205,10 @@ export function NuevaBajaPage() {
   const [cargo, setCargo] = useState<CargoDetail | null>(null)
   const [cargandoCargo, setCargandoCargo] = useState(false)
   const [modalAbierto, setModalAbierto] = useState(false)
+
+  // S18-8: alerta de cascada — si el cargo forma parte de una cadena de
+  // retención activa, avisar antes de confirmar la baja
+  const { data: cadenaRetencion } = useCadenaRetencion(cargo?.id, paso === 3)
 
   // ── campos derivados del cargo (readonly) ──
   const [cuil, setCuil] = useState('')
@@ -831,6 +837,22 @@ export function NuevaBajaPage() {
                     : 'Se registrará la baja sin generar concurso. El cargo pasará a no vigente.'}
                 </p>
               </div>
+
+              {/* S18-8: alerta de cascada — cadena de retención activa sobre este cargo */}
+              {cadenaRetencion && cadenaRetencion.nodos.length > 1 && (
+                <div className="rounded-lg p-4 bg-amber-50 border border-amber-200">
+                  <p className="font-semibold text-sm text-amber-800 flex items-center gap-2">
+                    <span className="text-xl">⚠️</span>
+                    Este cargo tiene una cadena de retención activa
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1 mb-3">
+                    Al confirmar la baja, los siguientes cargos quedan afectados. La cascada se
+                    ejecuta paso a paso, con documentación en cada nivel — esta baja solo
+                    registra el nivel actual.
+                  </p>
+                  <CadenaRetencionTree nodos={cadenaRetencion.nodos} />
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
               <button className="btn-outline" disabled={guardando} onClick={() => setPaso(sinConcurso ? 1 : 2)}>

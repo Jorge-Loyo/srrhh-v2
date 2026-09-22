@@ -142,3 +142,38 @@ export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise
   )
   return rows[0]?.max_seq ?? 0
 }
+
+// ─── S18-3: detección ejecución vs conducción + prefijo de remplazante ──────
+
+const PREFIJOS_CONDUCCION = new Set([
+  'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
+  'EG-J', 'EG-D', 'EG-G', 'RG-CG',
+  'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
+])
+
+// Prueba el prefijo del código de más largo a más corto (ej. "CPH-J-POF-000015"
+// prueba "CPH-J-POF", "CPH-J", "CPH") porque el secuencial final varía en
+// cantidad de segmentos según el prefijo base.
+export function esConduccionPorPrefijo(codigo: string | null | undefined): boolean {
+  if (!codigo) return false
+  const partes = codigo.split('-')
+  for (let i = partes.length - 1; i >= 1; i--) {
+    const candidato = partes.slice(0, i).join('-')
+    if (PREFIJOS_CONDUCCION.has(candidato)) return true
+  }
+  return false
+}
+
+// Fallback para cargos legacy sin código: infiere conducción por el literal
+// del puesto.
+export function esConduccionPorLiteral(literalPuesto: string | null | undefined): boolean {
+  const lit = normStr(literalPuesto)
+  return lit.includes('JEFE') || lit.includes('DIRECTOR') ||
+         lit.includes('SUB DIRECTOR') || lit.includes('GERENTE')
+}
+
+// CPH-POF     → CPH-POF-R
+// CPH-J-POF   → CPH-J-POF-TTR
+export function prefijoRemplazante(prefijoCargo: string, tipo: 'R' | 'TTR'): string {
+  return `${prefijoCargo}-${tipo}`
+}
