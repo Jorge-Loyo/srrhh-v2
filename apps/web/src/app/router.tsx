@@ -39,8 +39,7 @@ import { KpisPage } from '../modules/kpis/pages/KpisPage'
 import { BajasPage } from '../modules/bajas/pages/BajasPage'
 import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
 import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
-import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
-import { BajaVinculacionPage } from '../modules/bajas/pages/BajaVinculacionPage'
+import { ValidacionYVinculacionPage } from '../modules/bajas/pages/ValidacionYVinculacionPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
 
@@ -93,8 +92,13 @@ export const router = createBrowserRouter([
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
           { path: 'bajas', element: <BajasPage /> },
-          { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
-          { path: 'bajas/vinculacion', element: <BajaVinculacionPage /> },
+          { path: 'bajas/validacion', element: <ValidacionYVinculacionPage /> },
+          {
+            // Compat: la antigua entrada de menú "Vinculación de Bajas" ahora es
+            // una pestaña dentro de /bajas/validacion.
+            path: 'bajas/vinculacion',
+            element: <Navigate to="/bajas/validacion" replace />,
+          },
           { path: 'notificaciones', element: <NotificacionesPage /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
