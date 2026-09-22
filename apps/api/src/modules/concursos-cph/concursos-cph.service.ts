@@ -99,6 +99,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     conFaltantes,
     especialidad,
     origen,
+    etiquetaIds,
   } = query
   const offset = (page - 1) * limit
 
@@ -222,6 +223,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(origen === 'cobertura' && {
       concurso: { is: { bajaId: null, cargo: { is: { expediente: null } } } },
     }),
+    ...(etiquetaIds?.length && { etiquetas: { some: { etiquetaId: { in: etiquetaIds } } } }),
   }
 
   const [total, data] = await Promise.all([

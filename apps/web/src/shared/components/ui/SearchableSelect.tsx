@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface SearchableSelectProps {
   value: string
@@ -33,6 +34,15 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
   const [query, setQuery] = useState(() => toDisplay(value))
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // El panel de opciones se renderiza en un portal a document.body (posición
+  // "fixed", coordenadas calculadas del input) en vez de como hijo absoluto
+  // del contenedor. Si se lo dejaba como `absolute` dentro de un contenedor
+  // con `overflow-y-auto` (ej. el modal de Criterios del sorteo, con muchas
+  // especialidades para elegir), el panel quedaba recortado/invisible por el
+  // overflow del ancestro aunque tuviera opciones — se abría "vacío" a la
+  // vista aunque `filtered` tuviera resultados.
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null)
 
   useEffect(() => {
     setQuery(toDisplay(value))
@@ -41,7 +51,10 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const dentroInput = containerRef.current?.contains(target)
+      const dentroPanel = panelRef.current?.contains(target)
+      if (!dentroInput && !dentroPanel) {
         setOpen(false)
         setQuery(toDisplay(value))
       }
@@ -50,6 +63,27 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
     return () => document.removeEventListener('mousedown', handleClickOutside)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
+
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const actualizarCoords = () => {
+      const el = inputRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      setCoords({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+    actualizarCoords()
+    // `scroll` no burbujea, pero sí se puede capturar en fase de captura sobre
+    // cualquier ancestro con scroll (window con `capture: true`).
+    window.addEventListener('scroll', actualizarCoords, true)
+    window.addEventListener('resize', actualizarCoords)
+    return () => {
+      window.removeEventListener('scroll', actualizarCoords, true)
+      window.removeEventListener('resize', actualizarCoords)
+    }
+  }, [open])
 
   const q = normalize(query.trim())
   const filtered = q ? options.filter((o) => normalize(o).includes(q)) : options
@@ -70,6 +104,7 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
   return (
     <div ref={containerRef} className={`relative ${className ?? ''}`}>
       <input
+        ref={inputRef}
         type="text"
         value={query}
         placeholder={placeholder}
@@ -100,32 +135,38 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
       >
         <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" />
       </svg>
-      {open && !disabled && (
-        <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded shadow-lg">
-          {value && (
-            <button
-              type="button"
-              onClick={clear}
-              className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 border-b border-gray-100"
-            >
-              {placeholder}
-            </button>
-          )}
-          {filtered.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">Sin resultados</p>}
-          {filtered.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => selectOption(opt)}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                toValue(opt) === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
-              }`}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
+      {open && !disabled && coords &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width }}
+            className="z-[9999] max-h-64 overflow-y-auto bg-white border border-gray-200 rounded shadow-lg"
+          >
+            {value && (
+              <button
+                type="button"
+                onClick={clear}
+                className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 border-b border-gray-100"
+              >
+                {placeholder}
+              </button>
+            )}
+            {filtered.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">Sin resultados</p>}
+            {filtered.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => selectOption(opt)}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
+                  toValue(opt) === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

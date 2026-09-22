@@ -919,6 +919,8 @@ export interface ConcursoCphFilters {
   conFaltantes?: boolean
   especialidad?: string
   origen?: 'baja' | 'ampliacion' | 'cobertura'
+  // CSV de ids de etiqueta — un concurso matchea si tiene al menos una.
+  etiquetaIds?: string
 }
 
 export interface ConcursoCeetpsFilters {
@@ -1117,6 +1119,13 @@ export interface GenerarSorteoJuradoRequest {
   cantTitulares?: number
   cantSuplentes?: number
   antiguedadMinimaAnios?: number
+  // Hasta 2 especialidades extra que también cuentan como "cumple
+  // especialidad" al priorizar candidatos, además de la especialidad propia
+  // del concurso — amplía el pool de jurados elegibles por especialidad.
+  especialidadesAdicionales?: string[]
+  // Expediente que respalda las especialidades adicionales — obligatorio si
+  // especialidadesAdicionales tiene al menos una.
+  expedienteEspecialidades?: string
   semilla?: string
   observaciones?: string
 }
@@ -1154,11 +1163,27 @@ export interface CriteriosSorteoJurado {
   hospitalId: string
   hospitalNombre: string | null
   especialidadConcurso: string | null
+  // Especialidades extra que también cuentan como "cumple especialidad" +
+  // expediente que las respalda (obligatorio si hay al menos una).
+  especialidadesAdicionales?: string[]
+  expedienteEspecialidades?: string | null
+  // Tipo de gestión del concurso al momento de sortear (centralizado =
+  // regla única en toda la base; descentralizado = cascada por modalidad).
+  // Ausente en actas generadas antes de esta distinción: tratar como
+  // 'descentralizado'.
+  tipoGestion?: 'centralizado' | 'descentralizado' | null
+  // Modalidad del cargo a concursar (guardia = POU, planta = POF) — define
+  // qué set de reglas se aplicó en un concurso descentralizado (ver
+  // sorteoJurado.service.ts). `null` si el concurso es centralizado (no
+  // aplica distinción POF/POU ahí). Ausente en actas generadas antes de
+  // esta distinción: tratar como 'pof'.
+  modalidadConcurso?: 'pou' | 'pof' | null
   totalCandidatos: number
   candidatosMismoHospital: number
-  // Cascada de reglas: hasta qué regla se bajó (1|2|3) y cuántos candidatos por regla.
+  // Cascada de reglas: hasta qué regla se bajó (1|2|3 en POF, 1|2|3|4 en POU)
+  // y cuántos candidatos por regla.
   reglaUsada?: number
-  candidatosPorRegla?: { 1: number; 2: number; 3: number }
+  candidatosPorRegla?: Record<number, number>
 }
 
 export interface SorteoJurado {
@@ -1267,6 +1292,9 @@ export interface InscriptoConcurso {
   matricula: string | null
   especialidad: string | null
   presentoExamen: boolean
+  // Nota del examen (0-10) — fuente del orden de mérito, calculado y
+  // persistido desde el frontend cada vez que cambia (ver ConcursoCphWizard).
+  nota: number | null
   ordenMerito: number | null
   observaciones: string | null
   createdAt: string
@@ -1288,6 +1316,7 @@ export interface InscriptoRequest {
   matricula?: string | null
   especialidad?: string | null
   presentoExamen?: boolean
+  nota?: number | null
   ordenMerito?: number | null
   observaciones?: string | null
 }
