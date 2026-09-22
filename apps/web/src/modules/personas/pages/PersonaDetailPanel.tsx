@@ -59,10 +59,21 @@ export function PersonaDetailPanel() {
   const edad = calcEdad(p.fechaNacimiento)
   const fechaNac = formatFecha(p.fechaNacimiento)
   const ocupacionesVisibles = filtrarDuplicados(p.ocupaciones).sort((a, b) => {
+    // Orden visual: verde (activo) → azul (suplente de guardia) → amber
+    // (retención) → rojo (baja/histórico). El verde siempre arriba.
+    const esSupGuardia = (o: OcupacionConCargo) =>
+      !o.hasta &&
+      /sup.*guardia/.test(
+        (o.cargo.descripcionRepa ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase(),
+      )
     const orden = (o: OcupacionConCargo) => {
-      if (o.hasta) return 2
-      if (o.situacionRevista?.toLowerCase().includes('retencion')) return 1
-      return 0
+      if (o.hasta) return 3 // baja / histórico (rojo)
+      if (o.situacionRevista?.toLowerCase().includes('retencion')) return 2 // amber
+      if (esSupGuardia(o)) return 1 // suplente de guardia (azul)
+      return 0 // activo (verde)
     }
     return orden(a) - orden(b)
   })
@@ -192,11 +203,6 @@ export function PersonaDetailPanel() {
                   <div className="flex items-center justify-between mb-3">
                     <div />
                     <div className="flex items-center gap-2">
-                      {esSuplenteGuardia && (
-                        <span className="badge-info" title="Suplente de guardia — no es dotación activa">
-                          Suplente de guardia
-                        </span>
-                      )}
                       <span
                         className={
                           esBaja
@@ -209,6 +215,9 @@ export function PersonaDetailPanel() {
                                   ? 'badge-info'
                                   : 'badge-success'
                         }
+                        title={
+                          esSuplenteGuardia ? 'Suplente de guardia — no es dotación activa' : undefined
+                        }
                       >
                         {esBaja
                           ? 'Baja'
@@ -217,7 +226,7 @@ export function PersonaDetailPanel() {
                             : esRetencion
                               ? 'Retencion'
                               : esSuplenteGuardia
-                                ? 'Suplente'
+                                ? 'Suplente de guardia'
                                 : 'Vigente'}
                       </span>
                       <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
