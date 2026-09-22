@@ -22,6 +22,12 @@ export const personasQuerySchema = z.object({
   puesto: z.string().trim().min(1).optional(),
   especialidad: z.string().trim().min(1).optional(),
   idSial: z.string().trim().min(1).optional(),
+  // Solo jefes: personas con una ocupación vigente de jefatura. Mismo patrón
+  // enum→boolean que `activo` (z.coerce.boolean no sirve para 'false').
+  soloJefes: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
 })
 
 export type PersonasQuery = z.infer<typeof personasQuerySchema>

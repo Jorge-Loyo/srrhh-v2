@@ -902,6 +902,8 @@ export interface PersonaFilters {
   puesto?: string
   especialidad?: string
   idSial?: string
+  // Solo personas con una ocupación vigente de jefatura (codigoJefaturas).
+  soloJefes?: boolean
   page?: number
   limit?: number
 }
@@ -915,6 +917,8 @@ export interface CargoFilters {
   especialidad?: string
   estado?: EstadoCargo
   ocupado?: boolean
+  // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
+  soloJefes?: boolean
   page?: number
   limit?: number
 }

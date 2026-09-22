@@ -40,6 +40,7 @@ export function CargosPage() {
   const especialidad  = searchParams.get('especialidad') ?? ''
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
+  const soloJefes     = searchParams.get('soloJefes') === 'true'
   const page          = Number(searchParams.get('page') ?? '1')
 
   function setParam(key: string, value: string) {
@@ -74,6 +75,7 @@ export function CargosPage() {
     ...(especialidad && { especialidad }),
     ...(estado      && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
+    ...(soloJefes && { soloJefes: true }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
@@ -260,6 +262,18 @@ export function CargosPage() {
             <option value="true">Solo ocupados</option>
             <option value="false">Solo vacantes</option>
           </select>
+          <button
+            type="button"
+            onClick={() => setParam('soloJefes', soloJefes ? '' : 'true')}
+            className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+              soloJefes
+                ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Mostrar solo cargos de jefatura"
+          >
+            👔 Solo jefes
+          </button>
         </div>
 
         {/* Chips de filtros activos */}
@@ -279,6 +293,7 @@ export function CargosPage() {
           if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
+          if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
           if (chips.length === 0) return null
           return (
             <div className="flex flex-wrap gap-2">

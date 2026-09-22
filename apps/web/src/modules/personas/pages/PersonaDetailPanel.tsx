@@ -189,6 +189,11 @@ export function PersonaDetailPanel() {
                     .replace(/[\u0300-\u036f]/g, '')
                     .toLowerCase(),
                 )
+              // Jefatura: codigoJefaturas no vacío y distinto de '0'.
+              const esJefatura =
+                !!o.codigoJefaturas &&
+                o.codigoJefaturas.trim() !== '' &&
+                o.codigoJefaturas.trim() !== '0'
               const borderColor = esBaja
                 ? 'cargo-historico'
                 : esHistorico
@@ -203,6 +208,14 @@ export function PersonaDetailPanel() {
                   <div className="flex items-center justify-between mb-3">
                     <div />
                     <div className="flex items-center gap-2">
+                      {esJefatura && (
+                        <span
+                          className="badge-primary"
+                          title={`Cargo de jefatura${o.jefeEscalafon ? ` — ${o.jefeEscalafon}` : ''}`}
+                        >
+                          Jefatura
+                        </span>
+                      )}
                       <span
                         className={
                           esBaja

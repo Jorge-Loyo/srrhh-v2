@@ -21,8 +21,18 @@ interface PersonaRow {
 }
 
 export async function listPersonasService(query: PersonasQuery) {
-  const { page, limit, search, activo, hospitalId, escalafonId, puesto, especialidad, idSial } =
-    query
+  const {
+    page,
+    limit,
+    search,
+    activo,
+    hospitalId,
+    escalafonId,
+    puesto,
+    especialidad,
+    idSial,
+    soloJefes,
+  } = query
   const offset = (page - 1) * limit
 
   const conditions: Prisma.Sql[] = []
@@ -59,6 +69,16 @@ export async function listPersonasService(query: PersonasQuery) {
       JOIN cargos c2 ON c2.id = o2.cargo_id
       WHERE o2.persona_id = p.id
         AND (TRIM(c2.id_sial) = TRIM(${idSial}) OR TRIM(c2.id_sial) LIKE ${idSial + '-%'})
+    )`)
+  // Solo jefes: tiene una ocupación VIGENTE de jefatura (codigo_jefaturas no
+  // vacío y distinto de '0').
+  if (soloJefes)
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM ocupaciones oj
+      WHERE oj.persona_id = p.id
+        AND oj.hasta IS NULL
+        AND oj.codigo_jefaturas IS NOT NULL
+        AND TRIM(oj.codigo_jefaturas) NOT IN ('', '0')
     )`)
 
   const where = conditions.length

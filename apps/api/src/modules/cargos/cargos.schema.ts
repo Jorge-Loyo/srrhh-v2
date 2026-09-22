@@ -15,6 +15,11 @@ export const cargosQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  // Solo jefes: cargos cuya ocupación vigente es de jefatura.
+  soloJefes: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   personaSearch: z.string().trim().min(1).optional(),
 })
 

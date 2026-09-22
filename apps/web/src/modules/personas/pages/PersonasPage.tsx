@@ -22,6 +22,7 @@ export function PersonasPage() {
   const puesto       = searchParams.get('puesto') ?? ''
   const especialidad = searchParams.get('especialidad') ?? ''
   const idSial       = searchParams.get('idSial') ?? ''
+  const soloJefes    = searchParams.get('soloJefes') === 'true'
   const page         = Number(searchParams.get('page') ?? '1')
 
   function setParam(key: string, value: string) {
@@ -55,6 +56,7 @@ export function PersonasPage() {
     ...(puesto && { puesto }),
     ...(especialidad && { especialidad }),
     ...(idSial && { idSial }),
+    ...(soloJefes && { soloJefes: true }),
   }
 
   const { data, isLoading, isFetching, isError } = usePersonas(filters)
@@ -218,6 +220,18 @@ export function PersonasPage() {
               ))}
             </select>
           )}
+          <button
+            type="button"
+            onClick={() => setParam('soloJefes', soloJefes ? '' : 'true')}
+            className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+              soloJefes
+                ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Mostrar solo personas con cargo de jefatura"
+          >
+            👔 Solo jefes
+          </button>
         </div>
 
         {/* Burbujas de filtros activos */}
@@ -236,6 +250,7 @@ export function PersonasPage() {
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
           if (puesto) chips.push({ label: puesto, key: 'puesto' })
           if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
+          if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
           if (chips.length === 0) return null
           return (
             <div className="flex flex-wrap gap-2">
