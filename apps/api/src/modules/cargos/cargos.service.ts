@@ -15,17 +15,24 @@ interface PuestoCargoRow {
 // trae las especialidades reales (`especialidad_legacy`, no la vieja columna
 // `especialidad` que ya no existe — ver migración especialidades_fk) que
 // aparecen en cargos con ese puesto, acotado por escalafón y/u hospital.
+// `literal_puesto` es texto libre (ver comentario en puestos.routes.ts) y
+// puede repetirse con distinto casing/espacios ("Enfermero" / "ENFERMERO"),
+// así que se agrupa por LOWER(TRIM(...)) y se muestra un label Title Case.
+// El filtro `puesto` de listCargosService (abajo) normaliza igual para
+// seguir matcheando cualquiera de esas variantes. `especialidad_legacy`
+// tiene el mismo problema de texto libre, así que se dedupea/normaliza
+// igual dentro del array_agg.
 export async function listPuestosCargosService(escalafonId?: string, hospitalId?: string) {
   return prisma.$queryRaw<PuestoCargoRow[]>(Prisma.sql`
     SELECT
-      literal_puesto AS puesto,
-      array_remove(array_agg(DISTINCT NULLIF(especialidad_legacy, '')), NULL) AS especialidades
+      MIN(INITCAP(TRIM(literal_puesto))) AS puesto,
+      array_remove(array_agg(DISTINCT NULLIF(INITCAP(TRIM(especialidad_legacy)), '')), NULL) AS especialidades
     FROM cargos
     WHERE literal_puesto IS NOT NULL
     ${escalafonId ? Prisma.sql`AND escalafon_id = ${escalafonId}::uuid` : Prisma.empty}
     ${hospitalId ? Prisma.sql`AND hospital_id = ${hospitalId}::uuid` : Prisma.empty}
-    GROUP BY literal_puesto
-    ORDER BY literal_puesto ASC
+    GROUP BY LOWER(TRIM(literal_puesto))
+    ORDER BY puesto ASC
   `)
 }
 
@@ -92,8 +99,13 @@ export async function listCargosService(query: CargosQuery) {
   const where: Prisma.CargoWhereInput = {
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
-    ...(puesto      && { literalPuesto: puesto }),
-    ...(especialidad && { especialidadLegacy: especialidad }),
+    // literalPuesto es texto libre y puede repetirse con distinto casing
+    // (ver comentario de listPuestosCargosService más arriba); el dropdown
+    // de CargosPage manda una versión Title Case normalizada, así que acá
+    // se compara sin distinguir mayúsculas/minúsculas para seguir
+    // matcheando el valor crudo real guardado en cargos.
+    ...(puesto      && { literalPuesto: { equals: puesto, mode: 'insensitive' as const } }),
+    ...(especialidad && { especialidadLegacy: { equals: especialidad, mode: 'insensitive' as const } }),
     ...(estado      && { estado }),
     // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
     // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS
