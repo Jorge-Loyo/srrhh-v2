@@ -214,23 +214,15 @@ const ocupacionNoRetenible = (cargo: {
   esEscalafonNoRetenible(cargo.escalafon.nombre) || esSuplenteDeGuardia(cargo.descripcionRepa)
 
 export async function listValidacionRetencionesService() {
-  // Cuenta solo ocupaciones retenibles (join a escalafones): docencias y
-  // residencias NO cuentan — una persona con 1 cargo asistencial + docencias
-  // y/o una residencia NO es un caso de 2+ cargos retenibles.
+  // Precandidatos: personas con 2+ ocupaciones activas (de cualquier tipo).
+  // El filtrado real (excluir no-retenibles + deduplicar) se hace en JS para
+  // que el conteo y lo que se muestra usen EXACTAMENTE el mismo criterio.
   const rows = await prisma.$queryRaw<{ persona_id: string }[]>`
-    SELECT o.persona_id
-    FROM ocupaciones o
-    JOIN cargos c      ON c.id = o.cargo_id
-    JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE o.hasta IS NULL
-      AND unaccent(lower(e.nombre)) NOT LIKE '%docente%'
-      AND unaccent(lower(e.nombre)) NOT LIKE '%residente%'
-      -- Excluir suplentes de guardia (no son cargo activo retenible).
-      -- LIKE en vez de regex: el template tag de Prisma no escapa bien los \s/\. del regex.
-      AND unaccent(lower(coalesce(c.descripcion_repa, ''))) NOT LIKE '%sup%guardia%'
-    GROUP BY o.persona_id
+    SELECT persona_id
+    FROM ocupaciones
+    WHERE hasta IS NULL
+    GROUP BY persona_id
     HAVING count(*) > 1
-       AND count(*) FILTER (WHERE o.situacion_revista IN ('Retencion de Cargo', 'Comision')) = 0
   `
   const personaIds = rows.map((r) => r.persona_id)
   if (personaIds.length === 0) return []
@@ -256,22 +248,58 @@ export async function listValidacionRetencionesService() {
     orderBy: { apellidoNombre: 'asc' },
   })
 
-  return personas.map((p) => ({
-    persona: { id: p.id, apellidoNombre: p.apellidoNombre, cuil: p.cuil },
-    // Se ocultan docencias, residencias y suplentes de guardia — no retenibles.
-    cargos: p.ocupaciones
-      .filter((o) => !ocupacionNoRetenible(o.cargo))
-      .map((o) => ({
-        id: o.cargo.id,
-        codigo: o.cargo.codigo,
-        literalPuesto: o.cargo.literalPuesto,
-        tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
-        estado: o.cargo.estado,
-        hospital: o.cargo.hospital,
-        escalafon: o.cargo.escalafon,
-        situacionRevista: o.situacionRevista,
-      })),
-  }))
+  const resultado = personas
+    .map((p) => {
+      // 1) Excluir ocupaciones no retenibles (docente/residente/suplente guardia).
+      const retenibles = p.ocupaciones.filter((o) => !ocupacionNoRetenible(o.cargo))
+
+      // 2) Deduplicar: en la misma repartición + mismo puesto, un registro CON
+      //    jefatura y otro SIN jefatura son el MISMO cargo (dos ids SIAL, uno
+      //    lleva el código de jefatura). Se descarta el sin-jefatura. Mismo
+      //    criterio que filtrarDuplicados del detalle de persona.
+      const porGrupo = new Map<string, typeof retenibles>()
+      for (const o of retenibles) {
+        const key = `${o.cargo.codigoRepa ?? ''}|${o.cargo.literalPuesto ?? ''}`
+        const arr = porGrupo.get(key) ?? []
+        arr.push(o)
+        porGrupo.set(key, arr)
+      }
+      const ocultar = new Set<string>()
+      for (const grupo of porGrupo.values()) {
+        if (grupo.length < 2) continue
+        const conJefatura = grupo.some((o) => o.codigoJefaturas)
+        const sinJefatura = grupo.filter((o) => !o.codigoJefaturas)
+        if (conJefatura && sinJefatura.length > 0) {
+          for (const o of sinJefatura) ocultar.add(o.id)
+        }
+      }
+      const cargosUnicos = retenibles.filter((o) => !ocultar.has(o.id))
+
+      // 3) Es caso de retención solo si quedan 2+ cargos retenibles únicos y
+      //    ninguno ya está formalizado como retención/comisión.
+      const yaFormalizado = cargosUnicos.some(
+        (o) =>
+          o.situacionRevista === 'Retencion de Cargo' || o.situacionRevista === 'Comision',
+      )
+      if (cargosUnicos.length < 2 || yaFormalizado) return null
+
+      return {
+        persona: { id: p.id, apellidoNombre: p.apellidoNombre, cuil: p.cuil },
+        cargos: cargosUnicos.map((o) => ({
+          id: o.cargo.id,
+          codigo: o.cargo.codigo,
+          literalPuesto: o.cargo.literalPuesto,
+          tipoOrigen: o.cargo.tipoOrigen as 'R' | 'TTR' | null,
+          estado: o.cargo.estado,
+          hospital: o.cargo.hospital,
+          escalafon: o.cargo.escalafon,
+          situacionRevista: o.situacionRevista,
+        })),
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  return resultado
 }
 
 // Fecha de vencimiento (fin) de un cargo, según la regla de negocio:
