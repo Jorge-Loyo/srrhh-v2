@@ -8,6 +8,8 @@ import {
   kpisAlertasQuerySchema,
   kpisDotacionHistoricaQuerySchema,
   kpisBajasQuerySchema,
+  dotacionEvolucionQuerySchema,
+  dotacionEvolucionOpcionesQuerySchema,
 } from './kpis.schema.js'
 import {
   getKpisConcursosCphService,
@@ -17,6 +19,9 @@ import {
   getKpisAlertasService,
   getKpisDotacionHistoricaService,
   getKpisBajasService,
+  getDotacionEvolucionOpcionesService,
+  getDotacionEvolucionService,
+  exportDotacionEvolucionService,
 } from './kpis.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
@@ -69,5 +74,28 @@ export async function kpisRoutes(app: FastifyInstance) {
     const query = kpisBajasQuerySchema.parse(request.query)
     const data = await getKpisBajasService(query)
     return reply.send({ data })
+  })
+
+  // GET /dotacion-evolucion/opciones — opciones facetadas (según filtros ya elegidos)
+  app.get('/dotacion-evolucion/opciones', async (request, reply) => {
+    const query = dotacionEvolucionOpcionesQuerySchema.parse(request.query)
+    const data = await getDotacionEvolucionOpcionesService(query)
+    return reply.send({ data })
+  })
+
+  // GET /dotacion-evolucion — serie mensual de stock (una línea agregada, filtros múltiples)
+  app.get('/dotacion-evolucion', async (request, reply) => {
+    const query = dotacionEvolucionQuerySchema.parse(request.query)
+    const data = await getDotacionEvolucionService(query)
+    return reply.send({ data })
+  })
+
+  // GET /dotacion-evolucion/export — Excel con el detalle que respalda el gráfico
+  app.get('/dotacion-evolucion/export', async (request, reply) => {
+    const query = dotacionEvolucionQuerySchema.parse(request.query)
+    const { buffer, mesFoto } = await exportDotacionEvolucionService(query)
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    reply.header('Content-Disposition', `attachment; filename="dotacion_${mesFoto}.xlsx"`)
+    return reply.send(buffer)
   })
 }

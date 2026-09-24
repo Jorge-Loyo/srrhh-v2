@@ -861,6 +861,49 @@ export interface KpiDotacionHistorica {
   }[]
 }
 
+export type FiltroJefatura = 'todos' | 'solo' | 'sin'
+
+// Filtros multivaluados del gráfico de evolución (OR dentro de cada dimensión,
+// AND entre dimensiones). Puesto y especialidad son claves canónicas en
+// MAYÚSCULAS; el front las muestra con capitalización legible.
+export interface FiltrosDotacionEvolucion {
+  siglas?: string[]
+  carreras?: string[]
+  puestos?: string[]
+  especialidades?: string[]
+  jefatura?: FiltroJefatura
+  mesDesde?: string
+  mesHasta?: string
+}
+
+// GET /api/v1/kpis/dotacion-evolucion/opciones
+// Opciones FACETADAS: para cada dimensión, los valores válidos dado el resto de
+// los filtros ya elegidos. Listas planas normalizadas.
+export interface KpiDotacionEvolucionOpciones {
+  siglas: string[]
+  carreras: string[]
+  puestos: string[]
+  especialidades: string[]
+  meses: string[] // 'YYYY-MM' disponibles, para el rango temporal
+}
+
+// GET /api/v1/kpis/dotacion-evolucion
+// Serie mensual de stock (foto reconstruida a fin de mes). Una sola línea =
+// suma de todo lo seleccionado.
+export interface KpiDotacionEvolucion {
+  siglas: string[]
+  carreras: string[]
+  puestos: string[]
+  especialidades: string[]
+  jefatura: FiltroJefatura
+  mesDesde: string | null
+  mesHasta: string | null
+  puntos: {
+    mes: string // 'YYYY-MM'
+    cantidad: number
+  }[]
+}
+
 // S6-6 — GET /api/v1/kpis/alertas
 export interface KpiAlertas {
   concursosVencidos: {

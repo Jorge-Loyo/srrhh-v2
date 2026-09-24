@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { useKpiDotacion, useKpiConcursos, useKpiAlertas, useKpiDotacionHistorica, useKpiBajas } from '../hooks/useKpis'
 import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
+import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
 
 function KpiCard({ label, value, loading }: { label: string; value: string | number; loading: boolean }) {
   return (
@@ -113,6 +114,15 @@ export function KpisPage() {
         ) : (
           <EvolucionDotacionChart data={historica} />
         )}
+      </div>
+
+      {/* ── Evolución por Carrera → Puesto → Especialidad ────────────── */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución por carrera y especialidad</h2>
+        <p className="text-xs text-gray-400 mb-4">
+          Personas activas (situación de revista) por mes — último padrón de cada mes
+        </p>
+        <EvolucionEspecialidadChart />
       </div>
 
       {/* ── Dotación por carrera / por efector ───────────────────────── */}
