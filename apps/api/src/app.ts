@@ -40,6 +40,7 @@ import { auditoriaRoutes } from './modules/auditoria/auditoria.routes.js'
 import { cadenaMandoRoutes } from './modules/cadena-mando/cadena-mando.routes.js'
 import { retencionesRoutes } from './modules/retenciones/retenciones.routes.js'
 import { comisionesRoutes } from './modules/comisiones/comisiones.routes.js'
+import { jornadasSorteoRoutes } from './modules/jornadas-sorteo/jornadas-sorteo.routes.js'
 
 const app = Fastify({
   logger: {
@@ -117,6 +118,7 @@ await app.register(auditoriaRoutes,        { prefix: '/api/v1/auditoria' })
 await app.register(cadenaMandoRoutes,      { prefix: '/api/v1/cadena-mando' })
 await app.register(retencionesRoutes,      { prefix: '/api/v1/retenciones' })
 await app.register(comisionesRoutes,       { prefix: '/api/v1/comisiones' })
+await app.register(jornadasSorteoRoutes,   { prefix: '/api/v1/jornadas-sorteo' })
 
 // Start
 try {

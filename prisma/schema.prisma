@@ -648,6 +648,7 @@ model ConcursoCph {
   desiertoHistorial     ConcursoCphDesierto[]
   sorteosJurado         SorteoJurado[]
   inscriptos            InscriptoConcurso[] @relation("InscriptosDeConcurso")
+  jornadasSorteo        JornadaSorteoConcurso[]
 
   @@index([hospitalId])
   @@index([estado])
@@ -658,6 +659,40 @@ model ConcursoCph {
   // Garantiza que no haya dos concursos CPH abiertos para el mismo cargo
   // incluso ante requests concurrentes (race condition en createConcursoService).
   @@map("concursos_cph")
+}
+
+// Jornada de sorteos: un día en que se sortean los jurados de varios concursos
+// CPH juntos. v1: se agenda la fecha y se asocian los concursos (que deben estar
+// en sub-estado 'B-SORTEO JUR'). La gestión de la actividad del día se pule después.
+model JornadaSorteo {
+  id        String   @id @default(uuid()) @db.Uuid
+  fecha     DateTime @db.Date
+  titulo    String?  @db.VarChar(200)
+  // planificada | en_curso | finalizada — v1 usa solo 'planificada'.
+  estado    String   @default("planificada") @db.VarChar(20)
+  observaciones String? @db.Text
+  createdById   String?  @map("created_by_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdBy Usuario? @relation("JornadasSorteoCreadas", fields: [createdById], references: [id])
+  concursos JornadaSorteoConcurso[]
+
+  @@index([fecha])
+  @@map("jornadas_sorteo")
+}
+
+// Concursos CPH agendados en una jornada de sorteo (M2M jornada ↔ concurso_cph).
+model JornadaSorteoConcurso {
+  jornadaId     String @map("jornada_id") @db.Uuid
+  concursoCphId String @map("concurso_cph_id") @db.Uuid
+
+  jornada     JornadaSorteo @relation(fields: [jornadaId], references: [id], onDelete: Cascade)
+  concursoCph ConcursoCph   @relation(fields: [concursoCphId], references: [id], onDelete: Cascade)
+
+  @@id([jornadaId, concursoCphId])
+  @@index([concursoCphId])
+  @@map("jornada_sorteo_concursos")
 }
 
 // Historial de rondas desiertas de un concurso CPH (PS16D).
@@ -752,6 +787,8 @@ model MiembroJuradoSorteado {
   hospitalId     String? @map("hospital_id") @db.Uuid
   hospitalNombre String? @map("hospital_nombre") @db.VarChar(200)
   puesto         String? @db.VarChar(200)
+  // Repartición del cargo (descripcion_repa) — "jefe de qué" (unidad/servicio).
+  reparticion    String? @db.VarChar(200)
   especialidad   String? @db.VarChar(200)
   // 'hospital' (misma unidad organizativa que el concurso) | 'sistema'
   ambito         String  @db.VarChar(20)
@@ -1051,6 +1088,7 @@ model Usuario {
   auditLogs             AuditLog[]
   bajasRegistradas          Baja[]
   cargosCreados             Cargo[]          @relation("CargosCreados")
+  jornadasSorteoCreadas     JornadaSorteo[]  @relation("JornadasSorteoCreadas")
   autorizacionesSolicitadas Autorizacion[]   @relation("AutorizacionSolicitadaPor")
   autorizacionesResueltas   Autorizacion[]   @relation("AutorizacionResueltaPor")
   solicitudesAlta           SolicitudAlta[]  @relation("SolicitudAltaSolicitadaPor")

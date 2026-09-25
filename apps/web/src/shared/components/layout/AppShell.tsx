@@ -13,6 +13,13 @@ const CARGOS_SUBITEMS = [
   { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'crear' } },
 ]
 
+const IMPORTACION_SUBITEMS = [
+  { to: '/padron',            permiso: { modulo: 'padron', accion: 'ver' } },
+  { to: '/bajas-consolidadas', permiso: { modulo: 'bajas-sial', accion: 'aprobar' } },
+  { to: '/organigrama/arbol', permiso: { modulo: 'configuracion', accion: 'gestionar_organigrama' } },
+  { to: '/pou/carga',         permiso: { modulo: 'configuracion', accion: 'gestionar_pou' } },
+]
+
 const CONFIGURACION_SUBITEMS = [
   { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
   { to: '/configuracion/tokens',    label: 'Tokens',      permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
@@ -32,12 +39,6 @@ export function AppShell() {
   const location = useLocation()
 
   const [collapsed, setCollapsed]     = useState(false)
-  const [cargosAbierto, setCargosAbierto] = useState(
-    location.pathname.startsWith('/cargos')
-  )
-  const [configuracionAbierto, setConfiguracionAbierto] = useState(
-    location.pathname.startsWith('/configuracion')
-  )
 
   if (!user) return null
 
@@ -46,6 +47,7 @@ export function AppShell() {
   // Cada ítem/grupo se filtra por lo que el usuario puede hacer de verdad
   // (user.permisos, calculado server-side en el login) — no por rolSlug a mano.
   const cargosSubitems = CARGOS_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
+  const importacionSubitems = IMPORTACION_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
   const configuracionSubitems = CONFIGURACION_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
 
   return (
@@ -153,62 +155,29 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Grupo Cargos */}
+          {/* Cargos — página con pestañas internas (Ver / Alta / Baja / Alta por baja) */}
           {cargosSubitems.length > 0 && (
-            <>
-              <button type="button"
-                onClick={() => !collapsed && setCargosAbierto((v) => !v)}
-                title={collapsed ? 'Cargos' : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                  location.pathname.startsWith('/cargos') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
-                }`}>
-                <span className="text-base shrink-0">🗂️</span>
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left truncate">Cargos</span>
-                    <span className="text-xs">{cargosAbierto ? '▲' : '▼'}</span>
-                  </>
-                )}
-              </button>
-              {cargosAbierto && !collapsed && (
-                <div className="bg-gray-100 border-l-2 border-primary ml-4">
-                  {cargosSubitems.map((item) => (
-                    <NavLink key={item.to} to={item.to} end
-                      className={({ isActive }) =>
-                        `block px-4 py-2 text-sm transition-colors ${
-                          isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                        }`}>
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </>
+            <NavLink to="/cargos" end
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                location.pathname.startsWith('/cargos') || isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              title={collapsed ? 'Cargos' : undefined}>
+              <span className="text-base shrink-0">🗂️</span>
+              {!collapsed && <span className="truncate">Cargos</span>}
+            </NavLink>
           )}
 
-          {/* Bajas */}
+          {/* Bajas — página con pestañas internas (Bajas / Validación / Vinculaciones) */}
           {can(user, 'bajas', 'crear') && (
-            <NavLink to="/bajas"
-              end
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+            <NavLink to="/bajas" end
+              className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                location.pathname.startsWith('/bajas') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`}
               title={collapsed ? 'Bajas' : undefined}>
               <span className="text-base shrink-0">🗑️</span>
               {!collapsed && <span className="truncate">Bajas</span>}
             </NavLink>
           )}
-
-          {/* Validación de Bajas */}
-          {can(user, 'bajas', 'crear') && (
-            <NavLink to="/bajas/validacion"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Validación de Bajas' : undefined}>
-              <span className="text-base shrink-0">⚠️</span>
-              {!collapsed && <span className="truncate">Validación de Bajas</span>}
-            </NavLink>
-          )}
-
-          {/* "Vinculación de Bajas" (S17-6) ahora es una pestaña dentro de
-              /bajas/validacion — ya no tiene entrada propia en el menú. */}
 
           {/* Retenciones (Sprint 18) — pestañas Validación / Retenciones.
               Visible con permiso de lectura (ver): admin/sgrasv/editor. */}
@@ -241,76 +210,33 @@ export function AppShell() {
 
           {/* Divisor — sección admin */}
           <div className="border-t border-gray-200 mt-2 pt-2" />
-          {can(user, 'padron', 'ver') && (
-            <NavLink to="/padron"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Padrón Semanal' : undefined}>
-              <span className="text-base shrink-0">📋</span>
-              {!collapsed && <span className="truncate">Padrón Semanal</span>}
-            </NavLink>
-          )}
 
-          {/* Bajas Consolidadas */}
-          {can(user, 'bajas-sial', 'aprobar') && (
-            <NavLink to="/bajas-consolidadas"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Bajas Consolidadas' : undefined}>
-              <span className="text-base shrink-0">📄</span>
-              {!collapsed && <span className="truncate">Bajas Consolidadas</span>}
-            </NavLink>
-          )}
-
-          {/* Árbol — subir Excel de estructura (solo admin con permiso gestionar_organigrama) */}
-          {can(user, 'configuracion', 'gestionar_organigrama') && (
-            <NavLink to="/organigrama/arbol"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Árbol Organigrama' : undefined}>
-              <span className="text-base shrink-0">🌳</span>
-              {!collapsed && <span className="truncate">Árbol Organigrama</span>}
-            </NavLink>
-          )}
-
-          {/* Carga POU — módulo admin para reemplazar la dotación POU */}
-          {can(user, 'configuracion', 'gestionar_pou') && (
-            <NavLink to="/pou/carga"
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Carga POU' : undefined}>
+          {/* Importación — página con pestañas (Padrón / Bajas Consolidadas /
+              Árbol Organigrama / Carga POU). El link va a la primera pestaña
+              que el usuario puede ver. */}
+          {importacionSubitems.length > 0 && (
+            <NavLink to={importacionSubitems[0].to}
+              className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                ['/padron', '/bajas-consolidadas', '/organigrama/arbol', '/pou/carga'].some((p) => location.pathname.startsWith(p))
+                  ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              title={collapsed ? 'Importación' : undefined}>
               <span className="text-base shrink-0">📥</span>
-              {!collapsed && <span className="truncate">Carga POU</span>}
+              {!collapsed && <span className="truncate">Importación</span>}
             </NavLink>
           )}
 
-          {/* Configuración — visible si tiene alguno de los dos permisos */}
+          {/* Configuración — página con pestañas internas. El link va a la primera
+              sección que el usuario puede ver (no todos tienen gestionar_usuarios). */}
           {configuracionSubitems.length > 0 && (
-            <>
-              <button type="button"
-                onClick={() => !collapsed && setConfiguracionAbierto((v) => !v)}
-                title={collapsed ? 'Configuración' : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                  location.pathname.startsWith('/configuracion') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
-                }`}>
-                <span className="text-base shrink-0">⚙️</span>
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left truncate">Configuración</span>
-                    <span className="text-xs">{configuracionAbierto ? '▲' : '▼'}</span>
-                  </>
-                )}
-              </button>
-              {configuracionAbierto && !collapsed && (
-                <div className="bg-gray-100 border-l-2 border-primary ml-4">
-                  {configuracionSubitems.map((item) => (
-                    <NavLink key={item.to} to={item.to} end
-                      className={({ isActive }) =>
-                        `block px-4 py-2 text-sm transition-colors ${
-                          isActive ? 'font-bold text-secondary' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-                        }`}>
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </>
+            <NavLink to={configuracionSubitems[0].to}
+              className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                location.pathname.startsWith('/configuracion') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              title={collapsed ? 'Configuración' : undefined}>
+              <span className="text-base shrink-0">⚙️</span>
+              {!collapsed && <span className="truncate">Configuración</span>}
+            </NavLink>
           )}
 
         </nav>

@@ -172,6 +172,7 @@ export function ConcursoCphWizard() {
       hospitalNombre: c?.hospital?.nombre ?? '',
       cargo: c?.cargo?.codigo ?? '',
       puesto: c?.cargo?.literalPuesto ?? '—',
+      reparticion: c?.cargo?.descripcionRepa ?? null,
       especialidad:
         cphData.especialidadSolicitada ??
         (c?.cargo as any)?.especialidadLegacy ??
@@ -586,6 +587,18 @@ export function ConcursoCphWizard() {
   // hospital), sin distinción POF/POU — ver comentario de cabecera de
   // sorteoJurado.service.ts.
   const esCentralizado = cphData?.tipoGestion === 'centralizado'
+  // Si el CARGO A CONCURSAR es de conducción (jefatura/dirección), el jurado se
+  // busca con la regla única de sistema (jefes de cualquier hospital), igual que
+  // el centralizado — mismo criterio que el backend (sorteoJurado.service.ts).
+  const esCargoConduccionJurado = (() => {
+    const codigo = cphData?.concurso?.cargo?.codigo ?? ''
+    const lit = normEsp(cphData?.puestoSolicitado ?? cphData?.concurso?.cargo?.literalPuesto)
+    const codCond = /^(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG)/.test(codigo)
+    const litCond = /(jefe|director|sub director|gerente)/.test(lit)
+    return codCond || litCond
+  })()
+  // Regla única de sistema: centralizado O cargo de conducción a concursar.
+  const usaReglaUnicaSistema = esCentralizado || esCargoConduccionJurado
   // Sin Tipo de gestión definido no se puede evaluar si un jurado vigente es
   // compatible: un concurso descentralizado exige mismo hospital (prioridad
   // de Regla 1/2), uno centralizado no. Sin ese dato, no se sugiere nada —
@@ -1273,6 +1286,14 @@ export function ConcursoCphWizard() {
                         {cphData?.concurso?.cargo?.literalPuesto ?? '-'}
                       </span>
                     </div>
+                    {cphData?.concurso?.cargo?.descripcionRepa && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-500">Repartición</span>
+                        <span className="font-medium text-gray-800 text-right">
+                          {cphData.concurso.cargo.descripcionRepa}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between gap-2">
                       <span className="text-gray-500">Especialidad</span>
                       <span className="font-medium text-gray-800 text-right">
@@ -1285,18 +1306,20 @@ export function ConcursoCphWizard() {
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
                     <p className="text-xs font-semibold text-gray-500">
-                      Reglas de elegibilidad {esCentralizado ? '' : '(en orden de prioridad)'}
+                      Reglas de elegibilidad {usaReglaUnicaSistema ? '' : '(en orden de prioridad)'}
                     </p>
                     <span
                       className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                        esCentralizado
+                        usaReglaUnicaSistema
                           ? 'bg-amber-100 text-amber-700'
                           : 'bg-indigo-100 text-indigo-700'
                       }`}
                     >
-                      {esCentralizado
-                        ? 'Concurso centralizado'
-                        : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
+                      {esCargoConduccionJurado
+                        ? 'Cargo de conducción'
+                        : esCentralizado
+                          ? 'Concurso centralizado'
+                          : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
                     </span>
                   </div>
                   {(() => {
@@ -1305,16 +1328,24 @@ export function ConcursoCphWizard() {
                         .filter(Boolean)
                         .join(', ') || 'sin especialidad definida'
 
-                    if (esCentralizado) {
+                    if (usaReglaUnicaSistema) {
                       return (
-                        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
-                          <li>
-                            <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
-                            superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
-                            <strong>cualquier hospital de toda la base</strong> (no prioriza el
-                            hospital del cargo a concursar).
-                          </li>
-                        </ul>
+                        <>
+                          {esCargoConduccionJurado && !esCentralizado && (
+                            <p className="text-xs text-indigo-700 bg-indigo-50 rounded px-2 py-1 mb-1.5">
+                              El cargo a concursar es de <strong>conducción</strong>: el jurado se
+                              busca en todo el sistema de salud (no solo en este hospital).
+                            </p>
+                          )}
+                          <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                            <li>
+                              <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
+                              superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
+                              <strong>cualquier hospital de toda la base</strong> (no prioriza el
+                              hospital del cargo a concursar).
+                            </li>
+                          </ul>
+                        </>
                       )
                     }
                     return modalidadCargoJurado === 'pof' ? (
@@ -1362,10 +1393,11 @@ export function ConcursoCphWizard() {
                     En todos los casos se exige la misma profesión (escalafón) que el cargo a
                     concursar y ocupación activa. Director y Subdirector quedan excluidos de
                     cualquier jurado.{' '}
-                    {esCentralizado ? (
+                    {usaReglaUnicaSistema ? (
                       <>
-                        Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el
-                        pool de candidatos es directamente toda la base de datos.
+                        {esCargoConduccionJurado && !esCentralizado
+                          ? 'Al ser un cargo de conducción, no hay cascada de reglas ni prioridad de hospital: el pool de candidatos son los cargos de conducción de la misma profesión y especialidad de todo el sistema de salud.'
+                          : 'Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el pool de candidatos es directamente toda la base de datos.'}
                       </>
                     ) : (
                       <>
@@ -1481,10 +1513,11 @@ export function ConcursoCphWizard() {
                     jurados elegibles.
                   </p>
                   <div className="grid grid-cols-1 gap-2">
-                    {[0, 1].map((i) => {
+                    {[0, 1, 2].map((i) => {
                       const slots = [
                         sorteoCriterios.especialidadesAdicionales[0] ?? '',
                         sorteoCriterios.especialidadesAdicionales[1] ?? '',
+                        sorteoCriterios.especialidadesAdicionales[2] ?? '',
                       ]
                       return (
                         <SearchableSelect
@@ -1538,6 +1571,14 @@ export function ConcursoCphWizard() {
                       )}
                     </div>
                   )}
+                  {esCargoConduccionJurado &&
+                    !especialidadParaJurado &&
+                    sorteoCriterios.especialidadesAdicionales.length === 0 && (
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 mt-2">
+                        Este cargo de conducción no tiene especialidad asociada. Cargá al menos una
+                        especialidad adicional (hasta 3) para poder buscar el jurado.
+                      </p>
+                    )}
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -1568,7 +1609,11 @@ export function ConcursoCphWizard() {
                 disabled={
                   generarSorteoMutation.isPending ||
                   (sorteoCriterios.especialidadesAdicionales.length > 0 &&
-                    !sorteoCriterios.expedienteEspecialidades.trim())
+                    !sorteoCriterios.expedienteEspecialidades.trim()) ||
+                  // Conducción sin especialidad propia: obliga al menos una adicional.
+                  (esCargoConduccionJurado &&
+                    !especialidadParaJurado &&
+                    sorteoCriterios.especialidadesAdicionales.length === 0)
                 }
                 onClick={async () => {
                   try {
@@ -2372,57 +2417,95 @@ export function ConcursoCphWizard() {
 
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
-      <div className="sticky top-0 z-20 bg-white shadow-md rounded-lg mb-6">
+      <div className="sticky top-0 z-20 mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs px-6 pt-3 pb-1 border-b border-gray-100">
-          <Link to="/cargos/alta-por-baja" className="text-secondary hover:underline">
+        <nav className="flex items-center gap-1.5 rounded-t-xl border-b border-gray-100 bg-gray-50/60 px-6 py-2 text-xs text-gray-500">
+          <Link
+            to="/cargos/alta-por-baja"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
+          >
             ← Alta por Baja
           </Link>
           <span className="text-gray-300">/</span>
-          <Link to="/concursos/cph" className="text-secondary hover:underline">
+          <Link
+            to="/concursos/cph"
+            className="rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
+          >
             Concursos CPH
           </Link>
           <span className="text-gray-300">/</span>
-          <span className="text-gray-400">{c.cargo}</span>
-        </div>
+          <span className="truncate font-medium text-gray-700">{c.cargo}</span>
+        </nav>
 
         {/* Datos principales */}
-        <div className="px-6 py-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="font-primary text-lg font-bold text-gray-900 leading-tight">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-primary text-xl font-bold leading-tight text-gray-900">
               {c.cargo} — {c.puesto}
             </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Baja:{' '}
-              {c.personaBaja !== '—' && (
-                <>
-                  <span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}
-                </>
+            {c.reparticion && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-secondary">
+                <span aria-hidden>🏛️</span>
+                {c.reparticion}
+              </p>
+            )}
+
+            {/* Metadatos como chips */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {c.hospitalNombre && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  🏥 {c.hospitalNombre}
+                </span>
               )}
-              {c.eeBaja && <>{c.eeBaja} </>}
-              {c.fechaBaja && c.fechaBaja}
-            </p>
+              {c.especialidad && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  🩺 {c.especialidad}
+                </span>
+              )}
+              {c.escalafon && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  📋 {c.escalafon}
+                </span>
+              )}
+            </div>
+
+            {/* Datos de la baja que originó el concurso */}
+            {(c.personaBaja !== '—' || c.eeBaja || c.fechaBaja) && (
+              <div className="mt-3 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-1.5 text-xs">
+                <span className="font-semibold uppercase tracking-wide text-gray-400">Baja</span>
+                {c.personaBaja !== '—' && (
+                  <span className="font-medium text-gray-700">{c.personaBaja}</span>
+                )}
+                {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
+                {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
+              </div>
+            )}
           </div>
 
           {/* Badges de estado + menú de acciones */}
           {cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
-              <span className="badge-info text-xs">
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
-              <span className="badge-default text-xs">{c.subEstado3}</span>
-              {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
+              {c.subEstado3 && (
+                <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
+                  {c.subEstado3}
+                </span>
+              )}
+              {c.suspendido && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger">
+                  ⏸ Suspendido
+                </span>
+              )}
 
               {/* Menú "Acciones" */}
               <div className="relative" ref={menuAccionesRef}>
                 <button
                   onClick={() => setMenuAcciones((v) => !v)}
-                  className="btn-outline text-xs py-1 px-3"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
                 >
-                  ⚙ Acciones ▾
+                  ⚙ Acciones <span className="text-gray-400">▾</span>
                 </button>
                 {menuAcciones && (
                   <div className="absolute right-0 z-50 mt-1 w-60 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
@@ -2514,8 +2597,11 @@ export function ConcursoCphWizard() {
 
         {/* Observaciones en el header */}
         {c.observaciones && (
-          <div className="mx-6 mb-3 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 text-xs text-amber-800">
-            📝 {c.observaciones}
+          <div className="mx-6 mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            <span className="mt-px shrink-0" aria-hidden>
+              📝
+            </span>
+            <span className="min-w-0">{c.observaciones}</span>
           </div>
         )}
 
@@ -3549,6 +3635,7 @@ export function ConcursoCphWizard() {
                                         )}
                                         {m.hospitalNombre && <span>🏥 {m.hospitalNombre}</span>}
                                         {m.puesto && <span>💼 {m.puesto}</span>}
+                                        {m.reparticion && <span>🏛️ {m.reparticion}</span>}
                                         {m.especialidad && (
                                           <span
                                             className={m.cumpleEspecialidad ? 'text-green-600' : ''}

@@ -13,6 +13,7 @@ import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import { EtiquetasControl } from '../components/EtiquetasControl'
 import { JuradosTab } from '../components/JuradosTab'
 import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
+import { JornadasSorteoTab } from '../components/JornadasSorteoTab'
 import { apiClient } from '@/shared/lib/api-client'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -127,7 +128,7 @@ function EtapaStepper({ subEstado }: { subEstado: string | null }) {
   )
 }
 
-type TabId = 'concursos' | 'jurados' | 'ordenes'
+type TabId = 'concursos' | 'jurados' | 'ordenes' | 'jornadas'
 
 // Contenedor con pestañas: Concursos (listado) | Jurados | Órdenes de mérito.
 export function ConcursosCphPage() {
@@ -137,6 +138,7 @@ export function ConcursosCphPage() {
     { id: 'concursos', label: 'Concursos' },
     { id: 'jurados', label: 'Jurados' },
     { id: 'ordenes', label: 'Órdenes de mérito' },
+    { id: 'jornadas', label: 'Jornada de sorteos' },
   ]
 
   return (
@@ -160,6 +162,7 @@ export function ConcursosCphPage() {
       {tab === 'concursos' && <ConcursosListaTab />}
       {tab === 'jurados' && <JuradosTab />}
       {tab === 'ordenes' && <OrdenesMeritoTab />}
+      {tab === 'jornadas' && <JornadasSorteoTab />}
     </div>
   )
 }
@@ -176,6 +179,8 @@ function ConcursosListaTab() {
   // Etapa 5: '' = todos, 'true' = con persona / validados, 'false' = sin.
   const [personaOm, setPersonaOm] = useState<'' | 'true' | 'false'>('')
   const [validado, setValidado] = useState<'' | 'true' | 'false'>('')
+  const [puesto, setPuesto] = useState('')
+  const [conduccion, setConduccion] = useState<'' | 'true' | 'false'>('')
   const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
   const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
@@ -193,6 +198,7 @@ function ConcursosListaTab() {
   } | null>(null)
   const searchDebounced = useDebounce(search, 300)
   const especialidadDebounced = useDebounce(especialidad, 300)
+  const puestoDebounced = useDebounce(puesto, 300)
 
   // ── Etiquetado masivo ──
   const [modoSeleccion, setModoSeleccion] = useState(false)
@@ -238,6 +244,8 @@ function ConcursosListaTab() {
     limit: LIMIT,
     ...(searchDebounced && { search: searchDebounced }),
     ...(especialidadDebounced && { especialidad: especialidadDebounced }),
+    ...(puestoDebounced && { puesto: puestoDebounced }),
+    ...(conduccion && { conduccion: conduccion === 'true' }),
     ...(hospitalId && { hospitalId }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
@@ -501,9 +509,11 @@ function ConcursosListaTab() {
               origen ||
               personaOm ||
               validado ||
+              puesto ||
+              conduccion ||
               etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {[subEstado, subEstado3, origen, personaOm, validado].filter(Boolean).length +
+                {[subEstado, subEstado3, origen, personaOm, validado, puesto, conduccion].filter(Boolean).length +
                   (etiquetasFiltro.length > 0 ? 1 : 0)}
               </span>
             )}
@@ -524,6 +534,16 @@ function ConcursosListaTab() {
             chips.push({
               label: `Especialidad: "${especialidadDebounced}"`,
               onClear: () => setEspecialidad(''),
+            })
+          if (puestoDebounced)
+            chips.push({
+              label: `Puesto: "${puestoDebounced}"`,
+              onClear: () => setPuesto(''),
+            })
+          if (conduccion)
+            chips.push({
+              label: conduccion === 'true' ? 'Cargo de conducción' : 'Cargo de ejecución',
+              onClear: () => resetPage(setConduccion)(''),
             })
           if (hospitalId) {
             const h = hospitales?.find((x) => x.id === hospitalId)
@@ -611,6 +631,8 @@ function ConcursosListaTab() {
                   setConFaltantes(false)
                   setPersonaOm('')
                   setValidado('')
+                  setPuesto('')
+                  setConduccion('')
                   setEtiquetasFiltro([])
                   setPage(1)
                 }}
@@ -658,6 +680,7 @@ function ConcursosListaTab() {
                       <th className="px-4 py-3 font-semibold">Puesto</th>
                       <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
+                      <th className="px-4 py-3 font-semibold">Repartición</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
@@ -713,6 +736,9 @@ function ConcursosListaTab() {
                               '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600 text-xs">
+                            {c.concurso?.cargo?.descripcionRepa ?? c.concurso?.cargo?.codigoRepa ?? '—'}
+                          </td>
                           <td className="px-4 py-3">
                             <EtapaStepper subEstado={c.subEstado} />
                           </td>
@@ -893,6 +919,36 @@ function ConcursosListaTab() {
                   <option value="false">Sin validar</option>
                 </select>
               </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Puesto
+                </p>
+                <input
+                  type="text"
+                  placeholder="Buscar puesto…"
+                  value={puesto}
+                  onChange={(e) => resetPage(setPuesto)(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                />
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Tipo de cargo
+                </p>
+                <select
+                  value={conduccion}
+                  onChange={(e) =>
+                    resetPage(setConduccion)(e.target.value as '' | 'true' | 'false')
+                  }
+                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                >
+                  <option value="">Todos</option>
+                  <option value="true">Conducción (jefaturas/dirección)</option>
+                  <option value="false">Ejecución</option>
+                </select>
+              </section>
             </div>
 
             <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
@@ -901,6 +957,8 @@ function ConcursosListaTab() {
                 origen ||
                 personaOm ||
                 validado ||
+                puesto ||
+                conduccion ||
                 etiquetasFiltro.length > 0) && (
                 <button
                   onClick={() => {
@@ -909,6 +967,8 @@ function ConcursosListaTab() {
                     resetPage(setOrigen)('')
                     resetPage(setPersonaOm)('')
                     resetPage(setValidado)('')
+                    resetPage(setPuesto)('')
+                    resetPage(setConduccion)('')
                     resetPage(setEtiquetasFiltro)([])
                   }}
                   className="flex-1 btn-outline text-danger border-danger hover:bg-danger/5"

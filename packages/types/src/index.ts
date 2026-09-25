@@ -988,6 +988,9 @@ export interface ConcursoCphFilters {
   search?: string
   conFaltantes?: boolean
   especialidad?: string
+  puesto?: string
+  // true = cargo de conducción (jefaturas/dirección), false = ejecución
+  conduccion?: boolean
   origen?: 'baja' | 'ampliacion' | 'cobertura'
   // CSV de ids de etiqueta — un concurso matchea si tiene al menos una.
   etiquetaIds?: string
@@ -1314,6 +1317,7 @@ export interface MiembroJuradoSorteado {
   hospitalId: string | null
   hospitalNombre: string | null
   puesto: string | null
+  reparticion: string | null
   especialidad: string | null
   ambito: 'hospital' | 'sistema'
   reglaAplicada: number | null
@@ -1640,4 +1644,53 @@ export interface ComisionInput {
   comision: string      // motivo / descripción
   repaComision: string  // repartición / hospital de destino
   crComentario?: string
+}
+
+
+// ─── Jornada de sorteos CPH ─────────────────────────────────────────────────
+
+// Concurso candidato/agendado para una jornada (en sub-estado B-SORTEO JUR).
+export interface CandidatoSorteo {
+  id: string
+  subEstado: string | null
+  cargoCodigo: string | null
+  literalPuesto: string | null
+  especialidadSolicitada: string | null
+  eeConcurso: string | null // número de expediente del concurso
+  hospitalSigla: string | null
+  hospitalNombre: string | null
+  etiquetas: { id: string; nombre: string }[]
+  // Avance del sorteo de jurado de este concurso dentro de la jornada.
+  avanceSorteo: 'pendiente' | 'sorteado' | 'confirmado'
+  // Categoría del cargo (derivada en backend) para agrupar/filtrar la jornada.
+  tipoCargo: 'conduccion' | 'ejecucion'
+  modalidad: 'pou' | 'pof' // guardia (POU) vs planta (POF)
+  esMedico: boolean // escalafón médico/CPH vs no médico
+}
+
+// GET /api/v1/jornadas-sorteo — fila del listado
+export interface JornadaSorteoResumen {
+  id: string
+  fecha: string // 'YYYY-MM-DD'
+  titulo: string | null
+  estado: string
+  cantidadConcursos: number
+}
+
+// GET /api/v1/jornadas-sorteo/:id — detalle
+export interface JornadaSorteoDetalle {
+  id: string
+  fecha: string
+  titulo: string | null
+  estado: string
+  observaciones: string | null
+  concursos: CandidatoSorteo[]
+}
+
+// POST /api/v1/jornadas-sorteo
+export interface CrearJornadaRequest {
+  fecha: string // 'YYYY-MM-DD'
+  titulo?: string
+  observaciones?: string
+  concursoCphIds: string[]
 }
