@@ -1,12 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { crearJornadaSchema, candidatosJornadaQuerySchema } from './jornadas-sorteo.schema.js'
+import {
+  crearJornadaSchema,
+  candidatosJornadaQuerySchema,
+  cambiarEstadoJornadaSchema,
+} from './jornadas-sorteo.schema.js'
 import {
   listCandidatosService,
   crearJornadaService,
   listJornadasService,
   getJornadaService,
+  cambiarEstadoJornadaService,
 } from './jornadas-sorteo.service.js'
 
 const READ = { modulo: 'concursos-cph', accion: 'ver' }
@@ -45,4 +50,15 @@ export async function jornadasSorteoRoutes(app: FastifyInstance) {
     const data = await crearJornadaService(body, user?.id)
     return reply.send({ data })
   })
+
+  // PATCH /:id/estado — cerrar (finalizada) o reabrir (planificada) la jornada
+  app.patch<{ Params: { id: string } }>(
+    '/:id/estado',
+    { preHandler: requirePermiso(WRITE) },
+    async (request, reply) => {
+      const { estado } = cambiarEstadoJornadaSchema.parse(request.body)
+      const data = await cambiarEstadoJornadaService(request.params.id, estado)
+      return reply.send({ data })
+    }
+  )
 }

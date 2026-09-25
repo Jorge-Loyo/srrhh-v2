@@ -1662,6 +1662,10 @@ export interface CandidatoSorteo {
   etiquetas: { id: string; nombre: string }[]
   // Avance del sorteo de jurado de este concurso dentro de la jornada.
   avanceSorteo: 'pendiente' | 'sorteado' | 'confirmado'
+  // Categoría del cargo (derivada en backend) para agrupar/filtrar la jornada.
+  tipoCargo: 'conduccion' | 'ejecucion'
+  modalidad: 'pou' | 'pof' // guardia (POU) vs planta (POF)
+  esMedico: boolean // escalafón médico/CPH vs no médico
 }
 
 // GET /api/v1/jornadas-sorteo — fila del listado

@@ -57,3 +57,21 @@ export function useCrearJornadaSorteo() {
     },
   })
 }
+
+// PATCH /api/v1/jornadas-sorteo/:id/estado — cerrar / reabrir jornada.
+export function useCambiarEstadoJornada() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, estado }: { id: string; estado: 'planificada' | 'finalizada' }) => {
+      const res = await apiClient.patch<{ data: JornadaSorteoDetalle }>(
+        `/api/v1/jornadas-sorteo/${id}/estado`,
+        { estado }
+      )
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['jornadas-sorteo'] })
+      queryClient.invalidateQueries({ queryKey: ['jornadas-sorteo', data.id] })
+    },
+  })
+}

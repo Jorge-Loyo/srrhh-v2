@@ -19,3 +19,20 @@ export const candidatosJornadaQuerySchema = z.object({
 })
 
 export type CandidatosJornadaQuery = z.infer<typeof candidatosJornadaQuerySchema>
+
+// Estados posibles de una jornada de sorteo.
+//   planificada → jornada abierta, se pueden seguir sorteando sus concursos.
+//   finalizada  → jornada cerrada; ya no se sortea más ahí. Los concursos que
+//                 no se llegaron a sortear NO cambian de etapa (siguen en
+//                 B-SORTEO JUR) y por eso siguen siendo elegibles para otra
+//                 jornada — la elegibilidad depende solo del sub-estado del
+//                 concurso, no del estado de la jornada.
+export const ESTADOS_JORNADA = ['planificada', 'finalizada'] as const
+export type EstadoJornada = (typeof ESTADOS_JORNADA)[number]
+
+// Cambiar el estado de una jornada (cerrar / reabrir).
+export const cambiarEstadoJornadaSchema = z.object({
+  estado: z.enum(ESTADOS_JORNADA),
+})
+
+export type CambiarEstadoJornadaBody = z.infer<typeof cambiarEstadoJornadaSchema>
