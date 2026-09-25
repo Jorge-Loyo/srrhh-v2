@@ -1,10 +1,13 @@
 # SPRINT 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción
 
-**Estado:** 🟡 En curso (2026-09-30) — **Backend ✅ (Jorge)** verificado en local (6/6 e2e), sin commitear · **Frontend ⬜ pendiente (Agustín)**.
-**Fecha de inicio:** 2026-09-30
+**Estado:** 🟡 En curso — **Backend ✅ (Jorge)** verificado en local (6/6 e2e), **commiteado y pusheado** a las 3 ramas de GCBA (`jorge`/`main`/`deploy`) en `3da0ec0` (vencimientos, renovación, comisión) y `fb58f66` (endpoint `/vencimientos` + documento de respaldo en renovación) · **Frontend ⬜ pendiente (Agustín)** — S19-9/10/11 + e2e frontend.
+**Fecha de inicio:** 2026-09-30 (backend cerrado y subido 2026-09-30)
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea
 **Prerequisito:** Sprint 18 retenciones ✅
+
+> 📌 **Migraciones a aplicar al hacer pull** (`prisma migrate deploy`): `20260930000000_s19_vencimiento_notif`
+> y `20260930010000_s19_doc_renovacion` (creadas en local, no aplicadas en Neon por decisión de desarrollo en local).
 
 > ⚠️ **Ajuste de alcance:** el cálculo de vencimiento (`fechaVencimiento`, `venceEl`) YA existía en
 > `retenciones.service.ts` (`listRetenidosService`) antes de este sprint. No se reimplementó: la
@@ -22,14 +25,18 @@
 | S19-6/7 módulo `comisiones/` + `POST /comisiones` + `DELETE /comisiones/:ocupacionId`            | ✅                                      |
 | S19-8 `situacionRevista` en `aprobarSnapshotService`                                             | ✅ verificado sin cambios (ya lo hacía) |
 | S19-12 tipos `VencimientoCargo`, `RenovarPeriodoRequest`, `ComisionInput`, `UrgenciaVencimiento` | ✅                                      |
-| S19-9 vista `/retenciones/vencimientos`                                                          | ⬜ Agustín                              |
-| S19-10 modal renovar período                                                                     | ⬜ Agustín                              |
-| S19-11 modal comisión manual                                                                     | ⬜ Agustín                              |
-| S19-13 verificación e2e frontend + backend                                                       | ⬜ pendiente                            |
+| S19-9 vista `/retenciones/vencimientos`                                                          | ⬜ Agustín (frontend)                   |
+| S19-10 modal renovar período                                                                     | ⬜ Agustín (frontend)                   |
+| S19-11 modal comisión manual                                                                     | ⬜ Agustín (frontend)                   |
+| S19-13 verificación e2e frontend                                                                 | ⬜ Agustín (backend e2e ✅ 6/6)         |
 
-> Backend probado con 6/6 tests e2e en local: notificaciones 90d/30d, dedup, renovación +
-> invalidación de notificaciones previas, registrar comisión, rechazo de doble comisión, fin de
-> comisión. Migración aplicada solo en local (no en Neon, por decisión: desarrollo en local).
+> **Backend (Jorge): 100% completo, commiteado y en las 3 ramas de GCBA.** Probado con 6/6 tests e2e
+> en local: notificaciones 90d/30d, dedup, renovación + invalidación de notificaciones previas,
+> registrar comisión, rechazo de doble comisión, fin de comisión. Migraciones aplicadas solo en local
+> (no en Neon, por decisión: desarrollo en local). Commits: `3da0ec0`, `fb58f66`.
+>
+> **Lo único pendiente del sprint es el frontend de Agustín** (S19-9/10/11) más su verificación e2e
+> (S19-13). No hay tareas de backend abiertas.
 
 ---
 
