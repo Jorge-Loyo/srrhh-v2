@@ -136,6 +136,7 @@ export const router = createBrowserRouter([
             ],
           },
           { path: 'retenciones/validacion', element: <RetencionesPage /> },
+          { path: 'retenciones/vencimientos', element: <RetencionesPage /> },
           { path: 'notificaciones', element: <NotificacionesPage /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
