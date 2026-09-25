@@ -1641,3 +1641,48 @@ export interface ComisionInput {
   repaComision: string  // repartición / hospital de destino
   crComentario?: string
 }
+
+
+// ─── Jornada de sorteos CPH ─────────────────────────────────────────────────
+
+// Concurso candidato/agendado para una jornada (en sub-estado B-SORTEO JUR).
+export interface CandidatoSorteo {
+  id: string
+  subEstado: string | null
+  cargoCodigo: string | null
+  literalPuesto: string | null
+  especialidadSolicitada: string | null
+  eeConcurso: string | null // número de expediente del concurso
+  hospitalSigla: string | null
+  hospitalNombre: string | null
+  etiquetas: { id: string; nombre: string }[]
+  // Avance del sorteo de jurado de este concurso dentro de la jornada.
+  avanceSorteo: 'pendiente' | 'sorteado' | 'confirmado'
+}
+
+// GET /api/v1/jornadas-sorteo — fila del listado
+export interface JornadaSorteoResumen {
+  id: string
+  fecha: string // 'YYYY-MM-DD'
+  titulo: string | null
+  estado: string
+  cantidadConcursos: number
+}
+
+// GET /api/v1/jornadas-sorteo/:id — detalle
+export interface JornadaSorteoDetalle {
+  id: string
+  fecha: string
+  titulo: string | null
+  estado: string
+  observaciones: string | null
+  concursos: CandidatoSorteo[]
+}
+
+// POST /api/v1/jornadas-sorteo
+export interface CrearJornadaRequest {
+  fecha: string // 'YYYY-MM-DD'
+  titulo?: string
+  observaciones?: string
+  concursoCphIds: string[]
+}

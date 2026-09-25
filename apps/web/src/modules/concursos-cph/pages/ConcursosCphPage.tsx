@@ -13,6 +13,7 @@ import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
 import { EtiquetasControl } from '../components/EtiquetasControl'
 import { JuradosTab } from '../components/JuradosTab'
 import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
+import { JornadasSorteoTab } from '../components/JornadasSorteoTab'
 import { apiClient } from '@/shared/lib/api-client'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -127,7 +128,7 @@ function EtapaStepper({ subEstado }: { subEstado: string | null }) {
   )
 }
 
-type TabId = 'concursos' | 'jurados' | 'ordenes'
+type TabId = 'concursos' | 'jurados' | 'ordenes' | 'jornadas'
 
 // Contenedor con pestañas: Concursos (listado) | Jurados | Órdenes de mérito.
 export function ConcursosCphPage() {
@@ -137,6 +138,7 @@ export function ConcursosCphPage() {
     { id: 'concursos', label: 'Concursos' },
     { id: 'jurados', label: 'Jurados' },
     { id: 'ordenes', label: 'Órdenes de mérito' },
+    { id: 'jornadas', label: 'Jornada de sorteos' },
   ]
 
   return (
@@ -160,6 +162,7 @@ export function ConcursosCphPage() {
       {tab === 'concursos' && <ConcursosListaTab />}
       {tab === 'jurados' && <JuradosTab />}
       {tab === 'ordenes' && <OrdenesMeritoTab />}
+      {tab === 'jornadas' && <JornadasSorteoTab />}
     </div>
   )
 }
@@ -658,6 +661,7 @@ function ConcursosListaTab() {
                       <th className="px-4 py-3 font-semibold">Puesto</th>
                       <th className="px-4 py-3 font-semibold">Especialidad</th>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
+                      <th className="px-4 py-3 font-semibold">Repartición</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
@@ -713,6 +717,9 @@ function ConcursosListaTab() {
                               '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600 text-xs">
+                            {c.concurso?.cargo?.descripcionRepa ?? c.concurso?.cargo?.codigoRepa ?? '—'}
+                          </td>
                           <td className="px-4 py-3">
                             <EtapaStepper subEstado={c.subEstado} />
                           </td>
