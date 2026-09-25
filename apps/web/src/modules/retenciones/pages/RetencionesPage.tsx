@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { VencimientosPage } from './VencimientosPage'
 import { ValidacionRetencionesPage } from './ValidacionRetencionesPage'
 import { RetencionesListaPage } from './RetencionesListaPage'
 
@@ -6,14 +8,19 @@ import { RetencionesListaPage } from './RetencionesListaPage'
 //  - Validación: personas con 2+ cargos activos sin retención/comisión formalizada
 //    (donde se registra una retención).
 //  - Retenciones: cargos ya retenidos (situacionRevista = 'Retencion de Cargo').
-type Tab = 'validacion' | 'retenidos'
+//  - Vencimientos: cargos de conducción con período por vencer (S19).
+type Tab = 'validacion' | 'retenidos' | 'vencimientos'
 
 export function RetencionesPage() {
-  const [tab, setTab] = useState<Tab>('validacion')
+  const location = useLocation()
+  const [tab, setTab] = useState<Tab>(
+    location.pathname.endsWith('/vencimientos') ? 'vencimientos' : 'validacion',
+  )
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'validacion', label: 'Validación' },
     { key: 'retenidos', label: 'Retenciones' },
+    { key: 'vencimientos', label: 'Vencimientos' },
   ]
 
   return (
@@ -34,7 +41,9 @@ export function RetencionesPage() {
         ))}
       </div>
 
-      {tab === 'validacion' ? <ValidacionRetencionesPage /> : <RetencionesListaPage />}
+      {tab === 'validacion' && <ValidacionRetencionesPage />}
+      {tab === 'retenidos' && <RetencionesListaPage />}
+      {tab === 'vencimientos' && <VencimientosPage />}
     </div>
   )
 }

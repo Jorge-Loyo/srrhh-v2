@@ -3,6 +3,10 @@ import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { Link, useParams, useLocation } from 'react-router-dom'
 import type { OcupacionConCargo, PersonaDetail } from '@srrhh/types'
 import { usePersona, usePersonaBajasSial } from '../hooks/usePersonas'
+import { useAuth } from '../../auth/hooks/useAuth'
+import { can } from '../../../shared/lib/can'
+import { ComisionModal } from '../../comisiones/components/ComisionModal'
+import { useFinComision } from '../../comisiones/hooks/useComisiones'
 
 function formatFecha(iso: string | null | undefined): string | null {
   if (!iso) return null
@@ -50,6 +54,11 @@ export function PersonaDetailPanel() {
   const volverHref = fromParams ? `/personas?${fromParams}` : '/personas'
   const { data: persona, isLoading, isError } = usePersona(id)
   const { data: bajasSial = [] } = usePersonaBajasSial(id)
+  const { user } = useAuth()
+  const puedeComision = can(user, 'retenciones', 'crear')
+  const finComision = useFinComision()
+  const [comisionando, setComisionando] = useState<{ ocupacionId: string; cargo: string } | null>(null)
+  const [comisionError, setComisionError] = useState('')
 
   if (isLoading) return <p className="text-sm text-gray-400 p-6">Cargando persona...</p>
   if (isError || !persona) return <p className="text-sm text-danger p-6">No se pudo cargar la persona.</p>
@@ -175,6 +184,7 @@ export function PersonaDetailPanel() {
               const idSialBase = o.idSialRol?.split('-').slice(0, 2).join('-')
               const bajaMatch = idSialBase ? bajasPorIdSial.get(idSialBase) : undefined
               const esRetencion = o.situacionRevista?.toLowerCase().includes('retencion')
+              const esComision = o.situacionRevista === 'Comision'
               const esHistorico = !!o.hasta
               const esBaja = !!bajaMatch
               // Suplente de guardia: la repartición del cargo termina en "Sup.
@@ -238,10 +248,38 @@ export function PersonaDetailPanel() {
                             ? 'Historica'
                             : esRetencion
                               ? 'Retencion'
-                              : esSuplenteGuardia
+                              : esComision
+                                ? 'Comision'
+                                : esSuplenteGuardia
                                 ? 'Suplente de guardia'
                                 : 'Vigente'}
                       </span>
+                      {puedeComision && !esHistorico && !esBaja && !esRetencion && !esComision && (
+                        <button
+                          className="btn-outline text-xs"
+                          onClick={() => setComisionando({ ocupacionId: o.id, cargo: o.cargo.codigo ?? '—' })}
+                        >
+                          Registrar comisión
+                        </button>
+                      )}
+                      {puedeComision && esComision && !esHistorico && (
+                        <button
+                          className="btn-outline text-xs"
+                          disabled={finComision.isPending}
+                          onClick={() => {
+                            if (!window.confirm('¿Finalizar la comisión? La ocupación vuelve a Activo.')) return
+                            setComisionError('')
+                            finComision.mutate(o.id, {
+                              onError: (e: any) =>
+                                setComisionError(
+                                  e?.response?.data?.error?.message ?? e?.message ?? 'No se pudo finalizar la comisión.',
+                                ),
+                            })
+                          }}
+                        >
+                          Finalizar comisión
+                        </button>
+                      )}
                       <Link to={`/cargos/${o.cargo.id}`} className="btn-outline text-xs">
                         Ver cargo
                       </Link>
@@ -267,6 +305,12 @@ export function PersonaDetailPanel() {
                       {!esBaja && <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />}
                     </dl>
                   </div>
+                  {esComision && (
+                    <div className="mt-3 pt-3 border-t border-blue-100 grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                      <Dato label="Motivo de comisión" value={o.comision} />
+                      <Dato label="Destino" value={o.repaComision} />
+                    </div>
+                  )}
                   {esBaja && (
                     <div className="mt-3 pt-3 border-t border-red-100 grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
                       <Dato label="Fecha de baja" value={formatFecha(bajaMatch.cargo_hasta)} />
@@ -280,6 +324,18 @@ export function PersonaDetailPanel() {
           </div>
         )}
       </div>
+
+      {comisionError && (
+        <p className="text-xs text-danger bg-red-50 border border-red-200 rounded-lg px-3 py-2">{comisionError}</p>
+      )}
+      {comisionando && (
+        <ComisionModal
+          ocupacionId={comisionando.ocupacionId}
+          persona={p.apellidoNombre}
+          cargo={comisionando.cargo}
+          onClose={() => setComisionando(null)}
+        />
+      )}
 
       {/* Cadena de mando */}
       <CadenaMandoPanel personaId={p.id} />

@@ -106,6 +106,7 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
             children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
           },
+          { path: 'retenciones/vencimientos', element: <RetencionesPage /> },
           { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           {

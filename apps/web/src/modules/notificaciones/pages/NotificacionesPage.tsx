@@ -18,6 +18,7 @@ const TIPO_LABELS: Record<string, string> = {
   autorizacion_pendiente: 'Autorización pendiente',
   autorizacion_resuelta:  'Autorización resuelta',
   concurso_iniciado:      'Concurso iniciado',
+  vencimiento_conduccion: 'Vencimiento de conducción',
 }
 
 const TIPO_BADGE: Record<string, string> = {
@@ -26,6 +27,7 @@ const TIPO_BADGE: Record<string, string> = {
   autorizacion_pendiente: 'badge-info',
   autorizacion_resuelta:  'badge-success',
   concurso_iniciado:      'badge-info',
+  vencimiento_conduccion: 'badge-warning',
 }
 
 function formatFecha(iso: string) {
