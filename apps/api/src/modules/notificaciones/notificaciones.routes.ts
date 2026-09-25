@@ -7,6 +7,7 @@ import {
   marcarLeidaService,
   marcarTodasLeidasService,
   materializarAlertasEstancamiento,
+  materializarAlertasVencimiento,
   obtenerDetalleService,
 } from './notificaciones.service.js'
 
@@ -19,6 +20,7 @@ export async function notificacionesRoutes(app: FastifyInstance) {
     const user = request.user as { rolSlug: string }
     const query = notificacionesQuerySchema.parse(request.query)
     await materializarAlertasEstancamiento()
+    await materializarAlertasVencimiento()
     const result = await listNotificacionesService(user.rolSlug, query)
     return reply.send(result)
   })

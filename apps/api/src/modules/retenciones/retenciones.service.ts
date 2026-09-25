@@ -9,7 +9,7 @@ import {
   prefijoRemplazante,
   siguienteCodigoCargo,
 } from '../../shared/codigoCargo.js'
-import type { RegistrarRetencionBody, TitularCesaBody } from './retenciones.schema.js'
+import type { RegistrarRetencionBody, TitularCesaBody, RenovarPeriodoBody } from './retenciones.schema.js'
 
 const include = {
   hospital: true,
@@ -536,5 +536,51 @@ export async function titularCesaService(body: TitularCesaBody) {
     const cargoActualizado = await tx.cargo.findUnique({ where: { id: cargo.id }, include })
 
     return { cargo: cargoActualizado, cargoR: cargoRActualizado }
+  })
+}
+
+// ─── S19-4: renovar el período de un cargo de conducción (TTR) ──────────────
+// Extiende periodoHasta, marca periodoRenovado y fechaRenovacion, e invalida
+// (marca como leídas) las notificaciones de vencimiento previas del cargo — el
+// período se extendió, dejan de ser relevantes; si vuelve a acercarse el nuevo
+// vencimiento, materializarAlertasVencimiento crea notificaciones nuevas.
+export async function renovarPeriodoService(cargoId: string, body: RenovarPeriodoBody) {
+  const cargo = await prisma.cargo.findUnique({ where: { id: cargoId } })
+  if (!cargo) throw AppError.notFound('Cargo no encontrado')
+  if (cargo.tipoOrigen !== 'TTR') {
+    throw AppError.badRequest('Solo se puede renovar el período de un cargo de conducción (TTR)')
+  }
+  if (cargo.estado !== 'vigente') {
+    throw AppError.conflict('Solo se puede renovar un cargo vigente')
+  }
+
+  const nuevaFecha = new Date(body.periodoHasta)
+  if (cargo.periodoHasta && nuevaFecha <= cargo.periodoHasta) {
+    throw AppError.badRequest('La nueva fecha de vencimiento debe ser posterior al período actual')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const actualizado = await tx.cargo.update({
+      where: { id: cargoId },
+      data: {
+        periodoHasta: nuevaFecha,
+        periodoRenovado: true,
+        fechaRenovacion: new Date(),
+      },
+      include,
+    })
+
+    // Invalida las notificaciones de vencimiento previas de este cargo.
+    await tx.notificacion.updateMany({
+      where: {
+        tipo: 'vencimiento_conduccion',
+        origenTipo: 'cargo',
+        origenId: cargoId,
+        leida: false,
+      },
+      data: { leida: true, leidaAt: new Date() },
+    })
+
+    return actualizado
   })
 }

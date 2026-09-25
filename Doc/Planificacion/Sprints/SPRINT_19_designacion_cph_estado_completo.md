@@ -1,7 +1,7 @@
 # SPRINT 19 — Etapa 5 CPH: estado completo de la persona designada + validación contra padrón
 
-**Estado:** 📋 Planificado — ejecutar hoy
-**Fecha:** 2026-09-22
+**Estado:** ✅ Completado — integrado en deploy (commit `8dfec64`). Verificado en código: `getDesignacionEstadoService` + ruta `designacion-estado`, tipos `DesignacionEstado`/`OcupacionResumen`, flag `validado`/`validadoAt`/`validadoIdSialRol` en `ConcursoCph`, hook `useDesignacionEstado`, panel Etapa 5 y filtros "con persona"/"validado" en el listado.
+**Fecha:** 2026-09-22 (cerrado 2026-09-30)
 **Depende de:** Etapa 4 (reserva por `inscriptoReservadoId`) ✅ · Sprint 18 designación/especialidad (parcial) ✅
 **NO depende de:** Sprint 18 retenciones/cadena R-TTR (ver §0)
 

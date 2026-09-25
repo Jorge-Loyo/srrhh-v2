@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { registrarRetencionSchema, titularCesaSchema } from './retenciones.schema.js'
+import { registrarRetencionSchema, titularCesaSchema, renovarPeriodoSchema } from './retenciones.schema.js'
 import {
   registrarRetencionService,
   getCadenaRetencionService,
@@ -9,6 +9,7 @@ import {
   titularCesaService,
   listValidacionRetencionesService,
   listRetenidosService,
+  renovarPeriodoService,
 } from './retenciones.service.js'
 
 const WRITE_PERMISO = { modulo: 'retenciones', accion: 'crear' }
@@ -67,6 +68,17 @@ export async function retencionesRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = titularCesaSchema.parse(request.body)
       const data = await titularCesaService(body)
+      return reply.send({ data })
+    }
+  )
+
+  // PATCH /:cargoId/renovar — S19-5: renovar el período de un cargo TTR
+  app.patch<{ Params: { cargoId: string } }>(
+    '/:cargoId/renovar',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = renovarPeriodoSchema.parse(request.body)
+      const data = await renovarPeriodoService(request.params.cargoId, body)
       return reply.send({ data })
     }
   )

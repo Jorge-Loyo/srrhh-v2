@@ -1,10 +1,35 @@
 # SPRINT 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción
 
-**Estado:** 📋 Planificado
-**Fecha estimada de inicio:** 2026-09 (después de merge Sprint 18)
+**Estado:** 🟡 En curso (2026-09-30) — **Backend ✅ (Jorge)** verificado en local (6/6 e2e), sin commitear · **Frontend ⬜ pendiente (Agustín)**.
+**Fecha de inicio:** 2026-09-30
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea
-**Prerequisito:** Sprint 18 mergeado a `main`
+**Prerequisito:** Sprint 18 retenciones ✅
+
+> ⚠️ **Ajuste de alcance:** el cálculo de vencimiento (`fechaVencimiento`, `venceEl`) YA existía en
+> `retenciones.service.ts` (`listRetenidosService`) antes de este sprint. No se reimplementó: la
+> vista de vencimientos (S19-9) consume el `venceEl` ya expuesto por `GET /retenciones/retenidos`.
+> Ver `Doc/Planificacion/SPRINT_19_REVISION_Y_PLAN.md` para el detalle de la revisión.
+
+## Avance por tarea (2026-09-30)
+
+| Tarea                                                                                            | Estado                                  |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| S19-1 enum `vencimiento_conduccion` + migración `20260930000000_s19_vencimiento_notif`           | ✅ aplicada en local                    |
+| S19-2 `materializarAlertasVencimiento()`                                                         | ✅                                      |
+| S19-3 integración en `GET /notificaciones`                                                       | ✅                                      |
+| S19-4/5 `renovarPeriodoService` + `PATCH /retenciones/:cargoId/renovar`                          | ✅                                      |
+| S19-6/7 módulo `comisiones/` + `POST /comisiones` + `DELETE /comisiones/:ocupacionId`            | ✅                                      |
+| S19-8 `situacionRevista` en `aprobarSnapshotService`                                             | ✅ verificado sin cambios (ya lo hacía) |
+| S19-12 tipos `VencimientoCargo`, `RenovarPeriodoRequest`, `ComisionInput`, `UrgenciaVencimiento` | ✅                                      |
+| S19-9 vista `/retenciones/vencimientos`                                                          | ⬜ Agustín                              |
+| S19-10 modal renovar período                                                                     | ⬜ Agustín                              |
+| S19-11 modal comisión manual                                                                     | ⬜ Agustín                              |
+| S19-13 verificación e2e frontend + backend                                                       | ⬜ pendiente                            |
+
+> Backend probado con 6/6 tests e2e en local: notificaciones 90d/30d, dedup, renovación +
+> invalidación de notificaciones previas, registrar comisión, rechazo de doble comisión, fin de
+> comisión. Migración aplicada solo en local (no en Neon, por decisión: desarrollo en local).
 
 ---
 
@@ -26,6 +51,7 @@ Implementar los flujos 🟡 del `Contrato_Retenciones.md` que quedaron fuera del
 ## Contexto: qué entrega Sprint 18 que este sprint extiende
 
 Sprint 18 deja:
+
 - Campos `periodoDesde`/`periodoHasta`/`periodoRenovado`/`fechaRenovacion` en `cargos`.
 - Cargos TTR generados con período asignado al registrar la retención.
 - Módulo `retenciones/` con `registrarRetencionService`, `getCadenaRetencionService`,
@@ -53,6 +79,7 @@ notificaciones. Se agrega `materializarAlertasVencimiento()` con el mismo patró
 ### Renovación — campo `periodoHasta` actualizado + `periodoRenovado = true`
 
 No se crea una entidad nueva. La renovación es una actualización del cargo:
+
 - `periodoHasta` = nueva fecha de vencimiento.
 - `periodoRenovado = true`.
 - `fechaRenovacion` = hoy.
@@ -77,21 +104,21 @@ y documentar. Si no: agregar el campo al update.
 
 ## Tareas
 
-| # | Tarea | Dev | Est. | Prioridad |
-|---|-------|-----|------|-----------|
-| S19-1 | Enum `TipoNotificacion`: agregar `vencimiento_conduccion`. Schema + migración. | Jorge | 0.5h | 🔴 |
-| S19-2 | `materializarAlertasVencimiento()` en `notificaciones.service.ts`: busca cargos TTR con `periodoHasta` en ≤90 días, crea notificaciones con deduplicación. | Jorge | 1.5h | 🔴 |
-| S19-3 | Integrar `materializarAlertasVencimiento()` en el endpoint `GET /notificaciones` (igual que `materializarAlertasEstancamiento`). | Jorge | 0.5h | 🔴 |
-| S19-4 | `renovarPeriodoService` en `retenciones.service.ts`: actualiza `periodoHasta`, `periodoRenovado`, `fechaRenovacion`. Invalida notificaciones de vencimiento previas del cargo. | Jorge | 1h | 🔴 |
-| S19-5 | Endpoint `PATCH /retenciones/:cargoId/renovar` — body: `{ periodoHasta: Date }`. | Jorge | 0.5h | 🔴 |
-| S19-6 | `registrarComisionService` en módulo nuevo `comisiones/`: crea/actualiza ocupación con `situacionRevista = 'Comision'`. Valida que el cargo esté ocupado y que no haya comisión activa ya. | Jorge | 1.5h | 🟡 |
-| S19-7 | Endpoint `POST /comisiones` + `DELETE /comisiones/:ocupacionId` (fin manual de comisión). | Jorge | 0.5h | 🟡 |
-| S19-8 | Verificar `aprobarSnapshotService`: confirmar que `modificado` con cambio de `situacionRevista` de `'Comision'` → `'Activo'` actualiza la ocupación correctamente. Ajustar si no lo hace. | Jorge | 1h | 🟡 |
-| S19-9 | Frontend: vista "Vencimientos de conducción" (`/retenciones/vencimientos`) — tabla con filtros, días restantes, badge de urgencia, acciones Renovar / Ver cadena. | Agustín | 4h | 🔴 |
-| S19-10 | Frontend: formulario de renovación de período (modal inline en la vista de vencimientos). | Agustín | 1.5h | 🔴 |
-| S19-11 | Frontend: formulario de comisión manual (modal en PersonaModal o en detalle de cargo). | Agustín | 2h | 🟡 |
-| S19-12 | `packages/types`: `VencimientoCargo`, `ComisionInput`, tipo `vencimiento_conduccion` en `TipoNotificacion`. | Jorge | 0.5h | 🔴 |
-| S19-13 | Verificación e2e | Jorge + Agustín | 2h | 🔴 |
+| #      | Tarea                                                                                                                                                                                      | Dev             | Est. | Prioridad |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | ---- | --------- |
+| S19-1  | Enum `TipoNotificacion`: agregar `vencimiento_conduccion`. Schema + migración.                                                                                                             | Jorge           | 0.5h | 🔴        |
+| S19-2  | `materializarAlertasVencimiento()` en `notificaciones.service.ts`: busca cargos TTR con `periodoHasta` en ≤90 días, crea notificaciones con deduplicación.                                 | Jorge           | 1.5h | 🔴        |
+| S19-3  | Integrar `materializarAlertasVencimiento()` en el endpoint `GET /notificaciones` (igual que `materializarAlertasEstancamiento`).                                                           | Jorge           | 0.5h | 🔴        |
+| S19-4  | `renovarPeriodoService` en `retenciones.service.ts`: actualiza `periodoHasta`, `periodoRenovado`, `fechaRenovacion`. Invalida notificaciones de vencimiento previas del cargo.             | Jorge           | 1h   | 🔴        |
+| S19-5  | Endpoint `PATCH /retenciones/:cargoId/renovar` — body: `{ periodoHasta: Date }`.                                                                                                           | Jorge           | 0.5h | 🔴        |
+| S19-6  | `registrarComisionService` en módulo nuevo `comisiones/`: crea/actualiza ocupación con `situacionRevista = 'Comision'`. Valida que el cargo esté ocupado y que no haya comisión activa ya. | Jorge           | 1.5h | 🟡        |
+| S19-7  | Endpoint `POST /comisiones` + `DELETE /comisiones/:ocupacionId` (fin manual de comisión).                                                                                                  | Jorge           | 0.5h | 🟡        |
+| S19-8  | Verificar `aprobarSnapshotService`: confirmar que `modificado` con cambio de `situacionRevista` de `'Comision'` → `'Activo'` actualiza la ocupación correctamente. Ajustar si no lo hace.  | Jorge           | 1h   | 🟡        |
+| S19-9  | Frontend: vista "Vencimientos de conducción" (`/retenciones/vencimientos`) — tabla con filtros, días restantes, badge de urgencia, acciones Renovar / Ver cadena.                          | Agustín         | 4h   | 🔴        |
+| S19-10 | Frontend: formulario de renovación de período (modal inline en la vista de vencimientos).                                                                                                  | Agustín         | 1.5h | 🔴        |
+| S19-11 | Frontend: formulario de comisión manual (modal en PersonaModal o en detalle de cargo).                                                                                                     | Agustín         | 2h   | 🟡        |
+| S19-12 | `packages/types`: `VencimientoCargo`, `ComisionInput`, tipo `vencimiento_conduccion` en `TipoNotificacion`.                                                                                | Jorge           | 0.5h | 🔴        |
+| S19-13 | Verificación e2e                                                                                                                                                                           | Jorge + Agustín | 2h   | 🔴        |
 
 **Total estimado**: ~17h
 
@@ -137,7 +164,7 @@ enum TipoNotificacion {
 const UMBRALES_VENCIMIENTO = [
   { dias: 90, sufijo: '90d', urgencia: 'aviso' },
   { dias: 30, sufijo: '30d', urgencia: 'recordatorio' },
-  { dias: 0,  sufijo: '0d',  urgencia: 'critico' },
+  { dias: 0, sufijo: '0d', urgencia: 'critico' },
 ]
 
 export async function materializarAlertasVencimiento() {
@@ -152,17 +179,18 @@ export async function materializarAlertasVencimiento() {
       periodoHasta: { lte: en90dias, gte: ahora },
     },
     select: {
-      id: true, codigo: true, periodoHasta: true, literalPuesto: true,
+      id: true,
+      codigo: true,
+      periodoHasta: true,
+      literalPuesto: true,
       hospital: { select: { sigla: true } },
     },
   })
 
   for (const cargo of cargos) {
-    const diasRestantes = Math.floor(
-      (cargo.periodoHasta!.getTime() - ahora.getTime()) / 86_400_000
-    )
+    const diasRestantes = Math.floor((cargo.periodoHasta!.getTime() - ahora.getTime()) / 86_400_000)
     const codigo = cargo.codigo ?? cargo.id.slice(0, 8)
-    const sigla  = cargo.hospital.sigla
+    const sigla = cargo.hospital.sigla
 
     for (const { dias, sufijo, urgencia } of UMBRALES_VENCIMIENTO) {
       if (diasRestantes > dias) continue
@@ -193,6 +221,7 @@ type RenovarPeriodoInput = {
 ```
 
 **Pasos**:
+
 1. Cargar el cargo. Validar que `tipoOrigen = 'TTR'` y `estado = 'vigente'`.
 2. Validar que `periodoHasta` > `cargo.periodoHasta` actual (no se puede acortar).
 3. Actualizar: `periodoHasta`, `periodoRenovado = true`, `fechaRenovacion = hoy`.
@@ -208,14 +237,15 @@ Módulo nuevo `apps/api/src/modules/comisiones/`.
 
 ```typescript
 type ComisionInput = {
-  ocupacionId: string   // ocupación activa de la persona en el cargo de origen
-  comision: string      // descripción del motivo
-  repaComision: string  // hospital/repartición de destino
+  ocupacionId: string // ocupación activa de la persona en el cargo de origen
+  comision: string // descripción del motivo
+  repaComision: string // hospital/repartición de destino
   crComentario?: string
 }
 ```
 
 **Pasos**:
+
 1. Cargar la ocupación. Validar que `hasta IS NULL` (activa) y `situacionRevista = 'Activo'`.
 2. Validar que no haya otra comisión activa para la misma persona (otra ocupación con
    `situacionRevista = 'Comision'` y `hasta IS NULL`).
@@ -224,6 +254,7 @@ type ComisionInput = {
 4. El cargo de origen NO se toca — sigue ocupado.
 
 **Fin manual** (`DELETE /comisiones/:ocupacionId`):
+
 - Actualizar `situacionRevista = 'Activo'`, limpiar `comision`/`repaComision`/`crComentario`.
 - Solo disponible si Meta4 no lo actualizó primero (para evitar conflicto).
 
@@ -235,6 +266,7 @@ En `aprobarSnapshotService`, el paso de `modificado` actualiza campos de la ocup
 Verificar que `situacionRevista` está en la lista de campos que se actualizan.
 
 Si el diff detecta `situacionRevista: 'Comision' → 'Activo'`:
+
 - La ocupación se actualiza normalmente.
 - Los campos `comision`/`repaComision`/`crComentario` se limpian (o se dejan como historial
   — a definir con el equipo).
@@ -250,20 +282,21 @@ Nueva página `/retenciones/vencimientos` accesible para `sgrasv`.
 
 **Columnas de la tabla**:
 
-| Columna | Descripción |
-|---------|-------------|
-| Cargo | Código + literal puesto |
-| Hospital | Sigla |
-| Ocupante | Nombre + CUIL |
-| Período hasta | Fecha de vencimiento |
-| Días restantes | Número + badge de color |
-| Estado | `vigente` / `⚠️ por vencer (≤90d)` / `🔴 por vencer (≤30d)` / `💀 vencido` |
-| Cadena | Link a la cadena completa |
-| Acciones | Renovar / Iniciar cascada |
+| Columna        | Descripción                                                                |
+| -------------- | -------------------------------------------------------------------------- |
+| Cargo          | Código + literal puesto                                                    |
+| Hospital       | Sigla                                                                      |
+| Ocupante       | Nombre + CUIL                                                              |
+| Período hasta  | Fecha de vencimiento                                                       |
+| Días restantes | Número + badge de color                                                    |
+| Estado         | `vigente` / `⚠️ por vencer (≤90d)` / `🔴 por vencer (≤30d)` / `💀 vencido` |
+| Cadena         | Link a la cadena completa                                                  |
+| Acciones       | Renovar / Iniciar cascada                                                  |
 
 **Filtros**: hospital, estado de urgencia (todos / ≤90d / ≤30d / vencidos).
 
 **Badge de días restantes**:
+
 - > 90 días: gris
 - ≤ 90 días: amarillo
 - ≤ 30 días: naranja
@@ -299,38 +332,38 @@ export type ComisionInput = {
 
 ## Archivos a crear / modificar
 
-| Archivo | Cambio |
-|---------|--------|
-| `prisma/schema.prisma` | `vencimiento_conduccion` en `TipoNotificacion` |
-| `prisma/migrations/20260925000000_s19_vencimiento_notif/` | Migración (manual) |
-| `apps/api/src/modules/notificaciones/notificaciones.service.ts` | `materializarAlertasVencimiento()` + integración en `listNotificacionesService` |
-| `apps/api/src/modules/notificaciones/notificaciones.schema.ts` | `vencimiento_conduccion` en el enum del schema Zod |
-| `apps/api/src/modules/retenciones/retenciones.service.ts` | `renovarPeriodoService` |
-| `apps/api/src/modules/retenciones/retenciones.routes.ts` | `PATCH /:cargoId/renovar` |
-| `apps/api/src/modules/comisiones/comisiones.service.ts` | Nuevo — `registrarComisionService`, `finComisionService` |
-| `apps/api/src/modules/comisiones/comisiones.routes.ts` | Nuevo — `POST /comisiones`, `DELETE /comisiones/:ocupacionId` |
-| `apps/api/src/modules/comisiones/comisiones.schema.ts` | Nuevo — schemas Zod |
-| `apps/api/src/modules/padron/padron.service.ts` | Verificar/ajustar `aprobarSnapshotService` para `situacionRevista` en `modificado` |
-| `packages/types/src/index.ts` | `VencimientoCargo`, `ComisionInput`, `vencimiento_conduccion` |
-| `apps/web/src/modules/retenciones/pages/VencimientosPage.tsx` | Nuevo |
-| `apps/web/src/modules/retenciones/hooks/useVencimientos.ts` | Nuevo |
-| `apps/web/src/modules/comisiones/components/ComisionModal.tsx` | Nuevo |
-| `apps/web/src/modules/retenciones/components/RenovarPeriodoModal.tsx` | Nuevo |
+| Archivo                                                               | Cambio                                                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `prisma/schema.prisma`                                                | `vencimiento_conduccion` en `TipoNotificacion`                                     |
+| `prisma/migrations/20260925000000_s19_vencimiento_notif/`             | Migración (manual)                                                                 |
+| `apps/api/src/modules/notificaciones/notificaciones.service.ts`       | `materializarAlertasVencimiento()` + integración en `listNotificacionesService`    |
+| `apps/api/src/modules/notificaciones/notificaciones.schema.ts`        | `vencimiento_conduccion` en el enum del schema Zod                                 |
+| `apps/api/src/modules/retenciones/retenciones.service.ts`             | `renovarPeriodoService`                                                            |
+| `apps/api/src/modules/retenciones/retenciones.routes.ts`              | `PATCH /:cargoId/renovar`                                                          |
+| `apps/api/src/modules/comisiones/comisiones.service.ts`               | Nuevo — `registrarComisionService`, `finComisionService`                           |
+| `apps/api/src/modules/comisiones/comisiones.routes.ts`                | Nuevo — `POST /comisiones`, `DELETE /comisiones/:ocupacionId`                      |
+| `apps/api/src/modules/comisiones/comisiones.schema.ts`                | Nuevo — schemas Zod                                                                |
+| `apps/api/src/modules/padron/padron.service.ts`                       | Verificar/ajustar `aprobarSnapshotService` para `situacionRevista` en `modificado` |
+| `packages/types/src/index.ts`                                         | `VencimientoCargo`, `ComisionInput`, `vencimiento_conduccion`                      |
+| `apps/web/src/modules/retenciones/pages/VencimientosPage.tsx`         | Nuevo                                                                              |
+| `apps/web/src/modules/retenciones/hooks/useVencimientos.ts`           | Nuevo                                                                              |
+| `apps/web/src/modules/comisiones/components/ComisionModal.tsx`        | Nuevo                                                                              |
+| `apps/web/src/modules/retenciones/components/RenovarPeriodoModal.tsx` | Nuevo                                                                              |
 
 ---
 
 ## S19-13 — Verificación e2e
 
-| # | Escenario | Resultado esperado |
-|---|-----------|-------------------|
-| 1 | Cargo TTR con `periodoHasta` en 25 días → listar notificaciones | Notificaciones `vencimiento_conduccion` creadas para 30d y 0d |
-| 2 | Cargo TTR con `periodoHasta` en 85 días → listar notificaciones | Notificación `vencimiento_conduccion` creada para 90d |
-| 3 | Renovar período de un TTR → nueva fecha | `periodoHasta` actualizado, `periodoRenovado = true`, notificaciones previas marcadas leídas |
-| 4 | Registrar comisión manual → ocupación actualizada | `situacionRevista = 'Comision'`, cargo sigue ocupado, sin remplazante generado |
-| 5 | Fin de comisión manual → ocupación actualizada | `situacionRevista = 'Activo'`, campos comisión limpios |
-| 6 | Padrón con `modificado` `situacionRevista: Comision → Activo` → aprobar snapshot | Ocupación actualizada automáticamente |
-| 7 | Vista vencimientos muestra badges correctos por urgencia | ✓ |
-| 8 | Sin regresiones en notificaciones de estancamiento existentes | ✓ |
+| #   | Escenario                                                                        | Resultado esperado                                                                           |
+| --- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | Cargo TTR con `periodoHasta` en 25 días → listar notificaciones                  | Notificaciones `vencimiento_conduccion` creadas para 30d y 0d                                |
+| 2   | Cargo TTR con `periodoHasta` en 85 días → listar notificaciones                  | Notificación `vencimiento_conduccion` creada para 90d                                        |
+| 3   | Renovar período de un TTR → nueva fecha                                          | `periodoHasta` actualizado, `periodoRenovado = true`, notificaciones previas marcadas leídas |
+| 4   | Registrar comisión manual → ocupación actualizada                                | `situacionRevista = 'Comision'`, cargo sigue ocupado, sin remplazante generado               |
+| 5   | Fin de comisión manual → ocupación actualizada                                   | `situacionRevista = 'Activo'`, campos comisión limpios                                       |
+| 6   | Padrón con `modificado` `situacionRevista: Comision → Activo` → aprobar snapshot | Ocupación actualizada automáticamente                                                        |
+| 7   | Vista vencimientos muestra badges correctos por urgencia                         | ✓                                                                                            |
+| 8   | Sin regresiones en notificaciones de estancamiento existentes                    | ✓                                                                                            |
 
 ---
 

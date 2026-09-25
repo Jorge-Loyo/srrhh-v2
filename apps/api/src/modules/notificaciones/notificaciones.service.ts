@@ -5,7 +5,7 @@ import type { NotificacionesQuery } from './notificaciones.schema.js'
 
 // ─── Helper: crear una notificación (con deduplicación por origenKey) ────────
 export async function crearNotificacion(data: {
-  tipo: 'concurso_estancado' | 'baja_pendiente' | 'autorizacion_pendiente' | 'autorizacion_resuelta' | 'concurso_iniciado'
+  tipo: 'concurso_estancado' | 'baja_pendiente' | 'autorizacion_pendiente' | 'autorizacion_resuelta' | 'concurso_iniciado' | 'vencimiento_conduccion'
   rolSlug: string
   titulo: string
   mensaje: string
@@ -257,6 +257,69 @@ export async function materializarAlertasEstancamiento() {
         origenTipo: 'concurso_ceetps',
         origenId: c.id,
         origenKey: `concurso_estancado:ceetps:${c.id}:${sufijo}`,
+      })
+    }
+  }
+}
+
+// ─── S19-2: materializar alertas de vencimiento de conducción (on-demand) ───
+// Mismo patrón que estancamiento: se llama al listar notificaciones y crea
+// notificaciones para los cargos de conducción (TTR) cuyo período vence en
+// ≤90/30/0 días. Deduplicación por origenKey `vencimiento_ttr:{cargoId}:{sufijo}`.
+// Destinatario: rol `sgrasv` (gestión de conducción). Cada umbral cruzado genera
+// su propia notificación; al renovar el período, renovarPeriodoService marca las
+// previas como leídas (ver retenciones.service.ts).
+const UMBRALES_VENCIMIENTO = [
+  { dias: 90, sufijo: '90d' },
+  { dias: 30, sufijo: '30d' },
+  { dias: 0, sufijo: '0d' },
+]
+
+export async function materializarAlertasVencimiento() {
+  const ahora = new Date()
+  const en90dias = new Date(ahora.getTime() + 90 * 86_400_000)
+
+  // Cargos de conducción vigentes cuyo período vence dentro de los próximos
+  // 90 días (o ya vencido: periodoHasta < ahora también entra por gte al
+  // truncar en 0d). Se usa periodoHasta como fecha de fin del período de
+  // conducción — es el dato que renovarPeriodoService actualiza.
+  const cargos = await prisma.cargo.findMany({
+    where: {
+      estado: 'vigente',
+      tipoOrigen: 'TTR',
+      periodoHasta: { not: null, lte: en90dias },
+    },
+    select: {
+      id: true,
+      codigo: true,
+      periodoHasta: true,
+      literalPuesto: true,
+      hospital: { select: { sigla: true } },
+    },
+  })
+
+  for (const cargo of cargos) {
+    if (!cargo.periodoHasta) continue
+    const diasRestantes = Math.floor((cargo.periodoHasta.getTime() - ahora.getTime()) / 86_400_000)
+    const codigo = cargo.codigo ?? cargo.id.slice(0, 8)
+    const sigla = cargo.hospital.sigla
+
+    for (const { dias, sufijo } of UMBRALES_VENCIMIENTO) {
+      if (diasRestantes > dias) continue
+      const cuando =
+        diasRestantes < 0
+          ? `venció hace ${Math.abs(diasRestantes)} días`
+          : diasRestantes === 0
+            ? 'vence hoy'
+            : `vence en ${diasRestantes} días`
+      await crearNotificacion({
+        tipo: 'vencimiento_conduccion',
+        rolSlug: 'sgrasv',
+        titulo: `Vencimiento de período de conducción (${diasRestantes <= 0 ? 'HOY/VENCIDO' : diasRestantes + ' días'})`,
+        mensaje: `El cargo ${codigo}${cargo.literalPuesto ? ` — ${cargo.literalPuesto}` : ''} — ${sigla} ${cuando}. Acción requerida: renovar el período o iniciar la cascada.`,
+        origenTipo: 'cargo',
+        origenId: cargo.id,
+        origenKey: `vencimiento_ttr:${cargo.id}:${sufijo}`,
       })
     }
   }

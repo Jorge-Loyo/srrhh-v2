@@ -1608,3 +1608,35 @@ export interface CargoRetenidoItem {
     venceEl: string | null
   }[]
 }
+
+// ─── Sprint 19 — Vencimientos, renovación y comisión ────────────────────────
+
+export type UrgenciaVencimiento = 'ok' | 'aviso' | 'recordatorio' | 'critico' | 'vencido'
+
+// Fila de la vista de vencimientos de conducción (frontend arma la urgencia a
+// partir de diasRestantes; el backend puede enviarla ya calculada).
+export interface VencimientoCargo {
+  id: string
+  codigo: string | null
+  literalPuesto: string | null
+  hospitalSigla: string
+  ocupanteNombre?: string
+  ocupanteCuil?: string
+  periodoHasta: string
+  diasRestantes: number
+  urgencia: UrgenciaVencimiento
+  periodoRenovado: boolean
+}
+
+// PATCH /api/v1/retenciones/:cargoId/renovar
+export interface RenovarPeriodoRequest {
+  periodoHasta: string // 'YYYY-MM-DD'
+}
+
+// POST /api/v1/comisiones — registrar una comisión sobre una ocupación activa
+export interface ComisionInput {
+  ocupacionId: string
+  comision: string      // motivo / descripción
+  repaComision: string  // repartición / hospital de destino
+  crComentario?: string
+}
