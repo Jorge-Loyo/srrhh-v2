@@ -9,6 +9,7 @@ import {
   titularCesaService,
   listValidacionRetencionesService,
   listRetenidosService,
+  listVencimientosService,
   renovarPeriodoService,
 } from './retenciones.service.js'
 
@@ -38,6 +39,12 @@ export async function retencionesRoutes(app: FastifyInstance) {
   // GET /retenidos — cargos ya retenidos (situacionRevista = 'Retencion de Cargo')
   app.get('/retenidos', { preHandler: requirePermiso(READ_PERMISO) }, async (_request, reply) => {
     const data = await listRetenidosService()
+    return reply.send({ data })
+  })
+
+  // GET /vencimientos — S19-9: cargos TTR con período por vencer (para SGRASV)
+  app.get('/vencimientos', { preHandler: requirePermiso(READ_PERMISO) }, async (_request, reply) => {
+    const data = await listVencimientosService()
     return reply.send({ data })
   })
 

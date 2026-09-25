@@ -331,6 +331,8 @@ model Cargo {
   periodoHasta    DateTime? @map("periodo_hasta") @db.Date
   periodoRenovado Boolean   @default(false) @map("periodo_renovado")
   fechaRenovacion DateTime? @map("fecha_renovacion") @db.Date
+  // S19-4: acto administrativo que respalda la última renovación de período.
+  docRenovacion   String?   @map("doc_renovacion") @db.Text
 
   // Relaciones
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])

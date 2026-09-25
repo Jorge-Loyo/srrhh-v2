@@ -566,6 +566,7 @@ export async function renovarPeriodoService(cargoId: string, body: RenovarPeriod
         periodoHasta: nuevaFecha,
         periodoRenovado: true,
         fechaRenovacion: new Date(),
+        docRenovacion: body.docRespaldo,
       },
       include,
     })
@@ -582,5 +583,57 @@ export async function renovarPeriodoService(cargoId: string, body: RenovarPeriod
     })
 
     return actualizado
+  })
+}
+
+// ─── S19-9: listado de vencimientos de conducción (para la vista SGRASV) ────
+// Cargos TTR vigentes con período asignado, con su ocupante, días restantes y
+// nivel de urgencia. Devuelve TODOS (no solo los ≤90 días) para que el front
+// pueda filtrar por urgencia; el orden es por fecha de vencimiento ascendente
+// (lo más urgente primero). La urgencia usa los mismos umbrales que las
+// notificaciones automáticas (materializarAlertasVencimiento).
+function urgenciaDeDias(dias: number): 'ok' | 'aviso' | 'recordatorio' | 'critico' | 'vencido' {
+  if (dias < 0) return 'vencido'
+  if (dias <= 0) return 'critico'
+  if (dias <= 30) return 'recordatorio'
+  if (dias <= 90) return 'aviso'
+  return 'ok'
+}
+
+export async function listVencimientosService() {
+  const cargos = await prisma.cargo.findMany({
+    where: { estado: 'vigente', tipoOrigen: 'TTR', periodoHasta: { not: null } },
+    select: {
+      id: true,
+      codigo: true,
+      literalPuesto: true,
+      periodoHasta: true,
+      periodoRenovado: true,
+      hospital: { select: { sigla: true } },
+      ocupaciones: {
+        where: { hasta: null },
+        select: { persona: { select: { apellidoNombre: true, cuil: true } } },
+        take: 1,
+      },
+    },
+    orderBy: { periodoHasta: 'asc' },
+  })
+
+  const hoy = new Date()
+  return cargos.map((c) => {
+    const diasRestantes = Math.floor((c.periodoHasta!.getTime() - hoy.getTime()) / 86_400_000)
+    const ocup = c.ocupaciones[0]
+    return {
+      id: c.id,
+      codigo: c.codigo,
+      literalPuesto: c.literalPuesto,
+      hospitalSigla: c.hospital.sigla,
+      ocupanteNombre: ocup?.persona.apellidoNombre,
+      ocupanteCuil: ocup?.persona.cuil,
+      periodoHasta: c.periodoHasta!.toISOString().slice(0, 10),
+      diasRestantes,
+      urgencia: urgenciaDeDias(diasRestantes),
+      periodoRenovado: c.periodoRenovado,
+    }
   })
 }

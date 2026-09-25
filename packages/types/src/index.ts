@@ -1631,6 +1631,7 @@ export interface VencimientoCargo {
 // PATCH /api/v1/retenciones/:cargoId/renovar
 export interface RenovarPeriodoRequest {
   periodoHasta: string // 'YYYY-MM-DD'
+  docRespaldo: string  // acto administrativo que respalda la renovación
 }
 
 // POST /api/v1/comisiones — registrar una comisión sobre una ocupación activa

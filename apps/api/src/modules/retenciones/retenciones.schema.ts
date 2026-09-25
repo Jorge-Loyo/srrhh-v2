@@ -29,6 +29,7 @@ export type TitularCesaBody = z.infer<typeof titularCesaSchema>
 // S19-4/5: renovar el período de un cargo de conducción (TTR)
 export const renovarPeriodoSchema = z.object({
   periodoHasta: fecha,
+  docRespaldo: z.string().trim().min(1, 'Documento de respaldo obligatorio'),
 })
 
 export type RenovarPeriodoBody = z.infer<typeof renovarPeriodoSchema>
