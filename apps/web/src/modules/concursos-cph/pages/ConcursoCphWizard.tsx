@@ -2417,60 +2417,95 @@ export function ConcursoCphWizard() {
 
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
-      <div className="sticky top-0 z-20 bg-white shadow-md rounded-lg mb-6">
+      <div className="sticky top-0 z-20 mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs px-6 pt-3 pb-1 border-b border-gray-100">
-          <Link to="/cargos/alta-por-baja" className="text-secondary hover:underline">
+        <nav className="flex items-center gap-1.5 rounded-t-xl border-b border-gray-100 bg-gray-50/60 px-6 py-2 text-xs text-gray-500">
+          <Link
+            to="/cargos/alta-por-baja"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
+          >
             ← Alta por Baja
           </Link>
           <span className="text-gray-300">/</span>
-          <Link to="/concursos/cph" className="text-secondary hover:underline">
+          <Link
+            to="/concursos/cph"
+            className="rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
+          >
             Concursos CPH
           </Link>
           <span className="text-gray-300">/</span>
-          <span className="text-gray-400">{c.cargo}</span>
-        </div>
+          <span className="truncate font-medium text-gray-700">{c.cargo}</span>
+        </nav>
 
         {/* Datos principales */}
-        <div className="px-6 py-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="font-primary text-lg font-bold text-gray-900 leading-tight">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-primary text-xl font-bold leading-tight text-gray-900">
               {c.cargo} — {c.puesto}
-              {c.reparticion && (
-                <span className="font-normal text-gray-500"> · {c.reparticion}</span>
-              )}
             </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Baja:{' '}
-              {c.personaBaja !== '—' && (
-                <>
-                  <span className="text-gray-600 font-medium">{c.personaBaja}</span>{' '}
-                </>
+            {c.reparticion && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-secondary">
+                <span aria-hidden>🏛️</span>
+                {c.reparticion}
+              </p>
+            )}
+
+            {/* Metadatos como chips */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {c.hospitalNombre && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  🏥 {c.hospitalNombre}
+                </span>
               )}
-              {c.eeBaja && <>{c.eeBaja} </>}
-              {c.fechaBaja && c.fechaBaja}
-            </p>
+              {c.especialidad && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  🩺 {c.especialidad}
+                </span>
+              )}
+              {c.escalafon && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                  📋 {c.escalafon}
+                </span>
+              )}
+            </div>
+
+            {/* Datos de la baja que originó el concurso */}
+            {(c.personaBaja !== '—' || c.eeBaja || c.fechaBaja) && (
+              <div className="mt-3 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-1.5 text-xs">
+                <span className="font-semibold uppercase tracking-wide text-gray-400">Baja</span>
+                {c.personaBaja !== '—' && (
+                  <span className="font-medium text-gray-700">{c.personaBaja}</span>
+                )}
+                {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
+                {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
+              </div>
+            )}
           </div>
 
           {/* Badges de estado + menú de acciones */}
           {cphData && (
             <div className="flex flex-wrap items-center gap-2 self-start">
-              <span className="badge-info text-xs">
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                 {SUB_ESTADOS.find((s) => s.key === c.subEstado)?.label ?? c.subEstado}
               </span>
-              <span className="badge-default text-xs">{c.subEstado3}</span>
-              {c.suspendido && <span className="badge-danger text-xs">Suspendido</span>}
+              {c.subEstado3 && (
+                <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
+                  {c.subEstado3}
+                </span>
+              )}
+              {c.suspendido && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger">
+                  ⏸ Suspendido
+                </span>
+              )}
 
               {/* Menú "Acciones" */}
               <div className="relative" ref={menuAccionesRef}>
                 <button
                   onClick={() => setMenuAcciones((v) => !v)}
-                  className="btn-outline text-xs py-1 px-3"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
                 >
-                  ⚙ Acciones ▾
+                  ⚙ Acciones <span className="text-gray-400">▾</span>
                 </button>
                 {menuAcciones && (
                   <div className="absolute right-0 z-50 mt-1 w-60 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
@@ -2562,8 +2597,11 @@ export function ConcursoCphWizard() {
 
         {/* Observaciones en el header */}
         {c.observaciones && (
-          <div className="mx-6 mb-3 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 text-xs text-amber-800">
-            📝 {c.observaciones}
+          <div className="mx-6 mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            <span className="mt-px shrink-0" aria-hidden>
+              📝
+            </span>
+            <span className="min-w-0">{c.observaciones}</span>
           </div>
         )}
 
