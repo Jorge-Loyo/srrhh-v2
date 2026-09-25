@@ -9,6 +9,8 @@ import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
 import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
 import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
 import { ConfiguracionReferenciasPage } from '../modules/configuracion/pages/ConfiguracionReferenciasPage'
+import { ConfiguracionLayout } from '../modules/configuracion/components/ConfiguracionLayout'
+import { ImportacionLayout } from '../modules/importacion/components/ImportacionLayout'
 import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
 import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
 import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
@@ -27,6 +29,7 @@ import { AuditoriaPage } from '../modules/auditoria/pages/AuditoriaPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
 import { CargosPage } from '../modules/cargos/pages/CargosPage'
 import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
+import { CargosLayout } from '../modules/cargos/components/CargosLayout'
 import { AltaCargosPage } from '../modules/cargos/pages/AltaCargosPage'
 import { AltaPorBajaPage } from '../modules/cargos/pages/AltaPorBajaPage'
 import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
@@ -39,7 +42,9 @@ import { KpisPage } from '../modules/kpis/pages/KpisPage'
 import { BajasPage } from '../modules/bajas/pages/BajasPage'
 import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
 import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
-import { ValidacionYVinculacionPage } from '../modules/bajas/pages/ValidacionYVinculacionPage'
+import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
+import { BajaVinculacionPage } from '../modules/bajas/pages/BajaVinculacionPage'
+import { BajasLayout } from '../modules/bajas/components/BajasLayout'
 import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
@@ -60,7 +65,27 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <RequireInicio /> },
-          { path: 'padron', element: <PadronPage /> },
+          // Importación — página con pestañas (Padrón / Bajas Consolidadas /
+          // Árbol Organigrama / Carga POU). Cada pestaña conserva su ruta y su
+          // guard de permiso propio. Las vistas de detalle (diffs) van fuera.
+          {
+            element: <ImportacionLayout />,
+            children: [
+              { path: 'padron', element: <PadronPage /> },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'bajas-sial', accion: 'aprobar' }} />,
+                children: [{ path: 'bajas-consolidadas', element: <BajasConsolidasPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
+                children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_pou' }} />,
+                children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
+              },
+            ],
+          },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
@@ -75,13 +100,21 @@ export const router = createBrowserRouter([
           { path: 'pou/comparativa', element: <PouComparativaPage /> },
           { path: 'pou/triangulacion', element: <PouTriangulacionPage /> },
           { path: 'pou/:sigla', element: <PouDetallePage /> },
-          { path: 'cargos', element: <CargosPage /> },
+          // Cargos con pestañas sincronizadas con la URL (CargosLayout + Outlet).
+          // Las 4 acciones principales cuelgan del layout; el detalle y los
+          // formularios de baja quedan fuera (no llevan la barra de pestañas).
+          {
+            element: <CargosLayout />,
+            children: [
+              { path: 'cargos', element: <CargosPage /> },
+              { path: 'cargos/alta', element: <AltaCargosPage /> },
+              { path: 'cargos/baja', element: <BajaCargosPage /> },
+              { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
+            ],
+          },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
-          { path: 'cargos/alta', element: <AltaCargosPage /> },
-          { path: 'cargos/baja', element: <BajaCargosPage /> },
           { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
           { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
-          { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
           // S13-A/S13-C: unificado en /autorizaciones — esta ruta pegaba directo a
           // POST /concursos-cph/:id/autorizar, que nunca tocaba la tabla `autorizaciones`
@@ -92,13 +125,15 @@ export const router = createBrowserRouter([
           { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
-          { path: 'bajas', element: <BajasPage /> },
-          { path: 'bajas/validacion', element: <ValidacionYVinculacionPage /> },
+          // Bajas con pestañas sincronizadas con la URL (BajasLayout + Outlet):
+          // Bajas / Validación / Vinculaciones. Cada una conserva su ruta.
           {
-            // Compat: la antigua entrada de menú "Vinculación de Bajas" ahora es
-            // una pestaña dentro de /bajas/validacion.
-            path: 'bajas/vinculacion',
-            element: <Navigate to="/bajas/validacion" replace />,
+            element: <BajasLayout />,
+            children: [
+              { path: 'bajas', element: <BajasPage /> },
+              { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
+              { path: 'bajas/vinculacion', element: <BajaVinculacionPage /> },
+            ],
           },
           { path: 'retenciones/validacion', element: <RetencionesPage /> },
           { path: 'notificaciones', element: <NotificacionesPage /> },
@@ -106,38 +141,37 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
             children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
           },
-          { path: 'bajas-consolidadas', element: <BajasConsolidasPage /> },
+          // Detalle de bajas consolidadas (fuera del layout de Importación).
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
-          {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
-            children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
-          },
-          {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_pou' }} />,
-            children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
-          },
           { path: 'kpis', element: <KpisPage /> },
           // Ruta vieja (pre-RBAC dinámico) — redirect por si alguien la tiene
           // guardada en favoritos; el destino real ya vive bajo /configuracion.
           { path: 'admin/usuarios', element: <Navigate to="/configuracion/usuarios" replace /> },
+          // Configuración con pestañas sincronizadas con la URL (ConfiguracionLayout
+          // + Outlet). Cada sección conserva su ruta y su guard de permiso propio.
           {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
+            element: <ConfiguracionLayout />,
             children: [
-              { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
-              { path: 'configuracion/tokens', element: <TokensPage /> },
-              { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
+                children: [
+                  { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
+                  { path: 'configuracion/tokens', element: <TokensPage /> },
+                  { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
+                ],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
+                children: [
+                  { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
+                  { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
+                ],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'ver_auditoria' }} />,
+                children: [{ path: 'configuracion/auditoria', element: <AuditoriaPage /> }],
+              },
             ],
-          },
-          {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
-            children: [
-              { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
-              { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
-            ],
-          },
-          {
-            element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'ver_auditoria' }} />,
-            children: [{ path: 'configuracion/auditoria', element: <AuditoriaPage /> }],
           },
         ],
       },
