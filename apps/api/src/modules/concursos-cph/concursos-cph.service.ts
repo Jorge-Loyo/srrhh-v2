@@ -98,6 +98,8 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     search,
     conFaltantes,
     especialidad,
+    puesto,
+    conduccion,
     origen,
     etiquetaIds,
     personaOm,
@@ -187,13 +189,49 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     especialidadIds = rows.map((r) => r.id)
   }
 
+  // Filtro dedicado por puesto: busca en el puesto solicitado del concurso y
+  // en el literal del puesto del cargo.
+  let puestoIds: string[] | undefined
+  if (puesto) {
+    const like = `%${puesto}%`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT cc.id
+      FROM concursos_cph cc
+      JOIN concursos c ON c.id = cc.concurso_id
+      LEFT JOIN cargos ca ON ca.id = c.cargo_id
+      WHERE unaccent(coalesce(cc.puesto_solicitado,'')) ILIKE unaccent(${like})
+         OR unaccent(coalesce(ca.literal_puesto,''))    ILIKE unaccent(${like})
+    `)
+    puestoIds = rows.map((r) => r.id)
+  }
+
+  // Filtro por tipo de cargo (conducción vs ejecución). Conducción = código
+  // del cargo con prefijo de conducción (CPH-J-, CPH-D, CPH-SD, EG-J, etc.) o
+  // literal del puesto con JEFE/DIRECTOR/SUB DIRECTOR/GERENTE. Mismo criterio
+  // que esConduccionPorPrefijo/esConduccionPorLiteral (shared/codigoCargo.ts).
+  let conduccionIds: string[] | undefined
+  if (conduccion !== undefined) {
+    const esCond = Prisma.sql`(
+      coalesce(ca.codigo,'') ~ '^(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG)'
+      OR unaccent(upper(coalesce(cc.puesto_solicitado, ca.literal_puesto, ''))) ~ '(JEFE|DIRECTOR|SUB DIRECTOR|GERENTE)'
+    )`
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT cc.id
+      FROM concursos_cph cc
+      JOIN concursos c ON c.id = cc.concurso_id
+      LEFT JOIN cargos ca ON ca.id = c.cargo_id
+      WHERE ${conduccion ? esCond : Prisma.sql`NOT ${esCond}`}
+    `)
+    conduccionIds = rows.map((r) => r.id)
+  }
+
   // Varios filtros resuelven a un conjunto de ids (subEstado3, search,
   // conFaltantes, especialidad). Como todos aplican sobre `id`, hay que
   // INTERSECTARLOS — antes cada uno escribía `id: { in }` por separado y el
   // último ganaba, ignorando a los demás.
-  const idFilters = [subEstado3Ids, searchIds, conFaltantesIds, especialidadIds].filter(
-    (x): x is string[] => x !== undefined,
-  )
+  const idFilters = [
+    subEstado3Ids, searchIds, conFaltantesIds, especialidadIds, puestoIds, conduccionIds,
+  ].filter((x): x is string[] => x !== undefined)
   let idIn: string[] | undefined
   if (idFilters.length > 0) {
     idIn = idFilters.reduce((acc, cur) => acc.filter((id) => cur.includes(id)))

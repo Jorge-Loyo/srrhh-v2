@@ -26,6 +26,15 @@ export const concursosCphQuerySchema = z.object({
   // Filtro dedicado por especialidad (busca en especialidad_solicitada del
   // concurso y en la especialidad del cargo).
   especialidad: z.string().trim().min(1).optional(),
+  // Filtro dedicado por puesto (busca en puesto_solicitado del concurso y en
+  // el literal_puesto del cargo).
+  puesto: z.string().trim().min(1).optional(),
+  // Filtro por tipo de cargo: true = conducción (jefaturas/dirección),
+  // false = ejecución. Tri-estado como `validado`.
+  conduccion: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
   // Origen del concurso (documentación respaldatoria):
   //  - 'baja': tiene baja asociada (concurso.bajaId not null) → expediente de baja
   //  - 'ampliacion': sin baja pero el cargo tiene expediente de alta → cargo.expediente
@@ -176,10 +185,12 @@ export const generarSorteoJuradoSchema = z
     cantTitulares: z.number().int().min(1).max(10).default(3),
     cantSuplentes: z.number().int().min(1).max(10).default(3),
     antiguedadMinimaAnios: z.number().int().min(0).max(60).default(15),
-    // Hasta 2 especialidades extra que también cuentan como "cumple
+    // Hasta 3 especialidades extra que también cuentan como "cumple
     // especialidad" (además de la propia del concurso) para ampliar el pool de
-    // jurados elegibles por especialidad.
-    especialidadesAdicionales: z.array(z.string().trim().min(1).max(200)).max(2).optional(),
+    // jurados elegibles por especialidad. En cargos de conducción sin
+    // especialidad propia, al menos una es obligatoria (se valida en el service
+    // porque depende del cargo, no del body).
+    especialidadesAdicionales: z.array(z.string().trim().min(1).max(200)).max(3).optional(),
     // Expediente que respalda las especialidades adicionales — obligatorio si
     // se cargó alguna (validado abajo con refine).
     expedienteEspecialidades: z.string().trim().min(1).max(200).optional(),

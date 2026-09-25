@@ -42,6 +42,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { GenerarSorteoJuradoBody } from './concursos-cph.schema.js'
 import { calcConcursoCph } from './concursosCph.calc.js'
+import { esConduccionPorPrefijo, esConduccionPorLiteral } from '../../shared/codigoCargo.js'
 
 // ── RNG determinista (mulberry32) sembrado con un hash de la semilla ─────────
 // No usamos Math.random() para que el sorteo sea reproducible dado la semilla
@@ -133,6 +134,7 @@ interface Candidato {
   hospitalId: string | null
   hospitalNombre: string | null
   puesto: string | null
+  reparticion: string | null
   especialidad: string | null
   esMismoHospital: boolean
   cumpleEspecialidad: boolean
@@ -225,6 +227,7 @@ async function obtenerCandidatos(params: {
         select: {
           hospitalId: true,
           literalPuesto: true,
+          descripcionRepa: true,
           unificadorPuesto: true,
           hospital: { select: { nombre: true, sigla: true } },
         },
@@ -258,6 +261,7 @@ async function obtenerCandidatos(params: {
       hospitalId: o.cargo.hospitalId,
       hospitalNombre: o.cargo.hospital?.nombre ?? o.cargo.hospital?.sigla ?? null,
       puesto: o.cargo.literalPuesto,
+      reparticion: o.cargo.descripcionRepa,
       especialidad: especialidadPersona,
       esMismoHospital,
       cumpleEspecialidad,
@@ -328,6 +332,9 @@ function sortearJurado(
   cantSuplentes: number,
   rng: () => number,
   reglasOrden: ReglaJurado[],
+  // Solo conducción: intentar que el 1er titular y el 1er suplente sean del
+  // mismo hospital del cargo a concursar, si hay candidatos de ese hospital.
+  preferirHospital = false,
 ): MiembroElegido[] {
   const total = cantTitulares + cantSuplentes
   // Orden de selección: por regla (según `reglasOrden`); dentro de la regla,
@@ -345,7 +352,38 @@ function sortearJurado(
     )
     priorizado.push(...conEsp, ...sinEsp)
   }
-  const sorteados = priorizado.slice(0, total)
+
+  // Preferencia de hospital (conducción): reserva el primer cupo de titular y
+  // el primero de suplente para candidatos del mismo hospital, si existen. El
+  // resto conserva el orden priorizado. Si no hay del hospital, no bloquea:
+  // los cupos se llenan con el sistema como siempre.
+  let sorteados: Candidato[]
+  if (preferirHospital) {
+    const delHospital = priorizado.filter((c) => c.esMismoHospital)
+    const restoOrdenado = [...priorizado] // mismo orden priorizado
+    const usados = new Set<string>()
+
+    const titularHospital = delHospital[0]
+    if (titularHospital) usados.add(titularHospital.personaId)
+    const suplenteHospital = delHospital.find((c) => !usados.has(c.personaId))
+    if (suplenteHospital) usados.add(suplenteHospital.personaId)
+
+    const relleno = restoOrdenado.filter((c) => !usados.has(c.personaId))
+
+    // Titulares: 1° el del hospital (si hay) + relleno hasta cantTitulares.
+    const titulares: Candidato[] = []
+    if (titularHospital) titulares.push(titularHospital)
+    while (titulares.length < cantTitulares && relleno.length) titulares.push(relleno.shift()!)
+
+    // Suplentes: 1° el del hospital (si hay) + relleno hasta cantSuplentes.
+    const suplentes: Candidato[] = []
+    if (suplenteHospital) suplentes.push(suplenteHospital)
+    while (suplentes.length < cantSuplentes && relleno.length) suplentes.push(relleno.shift()!)
+
+    sorteados = [...titulares, ...suplentes]
+  } else {
+    sorteados = priorizado.slice(0, total)
+  }
   return sorteados.map((c, i) => {
     const esTitular = i < cantTitulares
     const rol: 'titular' | 'suplente' = esTitular ? 'titular' : 'suplente'
@@ -404,15 +442,44 @@ export async function generarSorteoJuradoService(
   }
   const esCentralizado = concurso.tipoGestion === 'centralizado'
 
+  // Si el CARGO A CONCURSAR es de conducción (jefatura/dirección) —por el
+  // prefijo de su código o por su literal de puesto—, el jurado se busca en
+  // TODO el sistema de salud con una regla única (conducción + misma
+  // especialidad, cualquier hospital), sin importar el tipo de gestión. Es el
+  // mismo camino que el centralizado. Los cargos de ejecución conservan la
+  // cascada POF/POU (o el centralizado si así se definió).
+  const puestoConcursado = concurso.puestoSolicitado ?? cargo.literalPuesto
+  const esCargoConduccion =
+    esConduccionPorPrefijo(cargo.codigo) || esConduccionPorLiteral(puestoConcursado)
+
+  const usaReglaUnicaSistema = esCentralizado || esCargoConduccion
+
   const especialidadConcurso = concurso.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
   const especialidadesAdicionales = body.especialidadesAdicionales ?? []
   const especialidadesConcurso = [especialidadConcurso, ...especialidadesAdicionales]
-  // Centralizado: regla única, sin distinción POF/POU. Descentralizado:
-  // cascada según la modalidad del cargo (comportamiento ya existente).
-  const modalidadConcurso: ModalidadCargo | null = esCentralizado
+
+  // Regla de negocio: no se puede sortear sin al menos una especialidad para
+  // buscar jurado. Si el cargo a concursar es de CONDUCCIÓN y no tiene
+  // especialidad propia (especialidadSolicitada / especialidadLegacy en null),
+  // hay que cargar al menos una especialidad adicional. Los cargos con
+  // especialidad propia avanzan sin exigirla.
+  const tieneEspecialidadEfectiva = especialidadesConcurso.some((e) => norm(e) !== '')
+  if (esCargoConduccion && !especialidadConcurso && especialidadesAdicionales.length === 0) {
+    throw AppError.badRequest(
+      'El cargo a concursar es de conducción y no tiene especialidad asociada. Cargá al menos una especialidad adicional (máximo 3) para poder buscar el jurado.',
+    )
+  }
+  if (!tieneEspecialidadEfectiva) {
+    throw AppError.badRequest(
+      'Se necesita al menos una especialidad para buscar el jurado. Cargá una especialidad adicional.',
+    )
+  }
+  // Regla única de sistema (centralizado o cargo de conducción): sin distinción
+  // POF/POU. Ejecución descentralizada: cascada según la modalidad del cargo.
+  const modalidadConcurso: ModalidadCargo | null = usaReglaUnicaSistema
     ? null
     : modalidadDeCargo(cargo.unificadorPuesto)
-  const reglasOrden = esCentralizado
+  const reglasOrden = usaReglaUnicaSistema
     ? REGLAS_CENTRALIZADO
     : modalidadConcurso === 'pou'
       ? REGLAS_POU
@@ -454,6 +521,8 @@ export async function generarSorteoJuradoService(
     body.cantSuplentes,
     rng,
     reglasOrden,
+    // Preferencia de hospital solo para cargos de conducción.
+    esCargoConduccion,
   )
   const titulares = miembros.filter((m) => m.rol === 'titular')
   const suplentes = miembros.filter((m) => m.rol === 'suplente')
@@ -493,6 +562,9 @@ export async function generarSorteoJuradoService(
     expedienteEspecialidades: body.expedienteEspecialidades ?? null,
     tipoGestion: concurso.tipoGestion,
     modalidadConcurso,
+    // true si se aplicó la regla única de sistema por ser el CARGO A CONCURSAR
+    // de conducción (además del caso centralizado). Trazabilidad para el acta.
+    cargoConcursadoEsConduccion: esCargoConduccion,
     totalCandidatos: pool.length,
     candidatosMismoHospital: pool.filter((c) => c.esMismoHospital).length,
     // Trazabilidad de la cascada de reglas usada.
@@ -533,6 +605,7 @@ export async function generarSorteoJuradoService(
             hospitalId: m.hospitalId,
             hospitalNombre: m.hospitalNombre,
             puesto: m.puesto,
+            reparticion: m.reparticion,
             especialidad: m.especialidad,
             ambito: m.ambito,
             reglaAplicada: m.reglaAplicada,
@@ -877,6 +950,7 @@ export async function asignarJuradoExistenteService(
             hospitalId: m.hospitalId,
             hospitalNombre: m.hospitalNombre,
             puesto: m.puesto,
+            reparticion: m.reparticion,
             especialidad: m.especialidad,
             ambito: m.ambito,
             reglaAplicada: m.reglaAplicada,

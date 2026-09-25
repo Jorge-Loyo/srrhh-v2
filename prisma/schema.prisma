@@ -787,6 +787,8 @@ model MiembroJuradoSorteado {
   hospitalId     String? @map("hospital_id") @db.Uuid
   hospitalNombre String? @map("hospital_nombre") @db.VarChar(200)
   puesto         String? @db.VarChar(200)
+  // Repartición del cargo (descripcion_repa) — "jefe de qué" (unidad/servicio).
+  reparticion    String? @db.VarChar(200)
   especialidad   String? @db.VarChar(200)
   // 'hospital' (misma unidad organizativa que el concurso) | 'sistema'
   ambito         String  @db.VarChar(20)

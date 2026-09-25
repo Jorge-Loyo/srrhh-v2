@@ -172,6 +172,7 @@ export function ConcursoCphWizard() {
       hospitalNombre: c?.hospital?.nombre ?? '',
       cargo: c?.cargo?.codigo ?? '',
       puesto: c?.cargo?.literalPuesto ?? '—',
+      reparticion: c?.cargo?.descripcionRepa ?? null,
       especialidad:
         cphData.especialidadSolicitada ??
         (c?.cargo as any)?.especialidadLegacy ??
@@ -586,6 +587,18 @@ export function ConcursoCphWizard() {
   // hospital), sin distinción POF/POU — ver comentario de cabecera de
   // sorteoJurado.service.ts.
   const esCentralizado = cphData?.tipoGestion === 'centralizado'
+  // Si el CARGO A CONCURSAR es de conducción (jefatura/dirección), el jurado se
+  // busca con la regla única de sistema (jefes de cualquier hospital), igual que
+  // el centralizado — mismo criterio que el backend (sorteoJurado.service.ts).
+  const esCargoConduccionJurado = (() => {
+    const codigo = cphData?.concurso?.cargo?.codigo ?? ''
+    const lit = normEsp(cphData?.puestoSolicitado ?? cphData?.concurso?.cargo?.literalPuesto)
+    const codCond = /^(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG)/.test(codigo)
+    const litCond = /(jefe|director|sub director|gerente)/.test(lit)
+    return codCond || litCond
+  })()
+  // Regla única de sistema: centralizado O cargo de conducción a concursar.
+  const usaReglaUnicaSistema = esCentralizado || esCargoConduccionJurado
   // Sin Tipo de gestión definido no se puede evaluar si un jurado vigente es
   // compatible: un concurso descentralizado exige mismo hospital (prioridad
   // de Regla 1/2), uno centralizado no. Sin ese dato, no se sugiere nada —
@@ -1273,6 +1286,14 @@ export function ConcursoCphWizard() {
                         {cphData?.concurso?.cargo?.literalPuesto ?? '-'}
                       </span>
                     </div>
+                    {cphData?.concurso?.cargo?.descripcionRepa && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-500">Repartición</span>
+                        <span className="font-medium text-gray-800 text-right">
+                          {cphData.concurso.cargo.descripcionRepa}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between gap-2">
                       <span className="text-gray-500">Especialidad</span>
                       <span className="font-medium text-gray-800 text-right">
@@ -1285,18 +1306,20 @@ export function ConcursoCphWizard() {
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
                     <p className="text-xs font-semibold text-gray-500">
-                      Reglas de elegibilidad {esCentralizado ? '' : '(en orden de prioridad)'}
+                      Reglas de elegibilidad {usaReglaUnicaSistema ? '' : '(en orden de prioridad)'}
                     </p>
                     <span
                       className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                        esCentralizado
+                        usaReglaUnicaSistema
                           ? 'bg-amber-100 text-amber-700'
                           : 'bg-indigo-100 text-indigo-700'
                       }`}
                     >
-                      {esCentralizado
-                        ? 'Concurso centralizado'
-                        : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
+                      {esCargoConduccionJurado
+                        ? 'Cargo de conducción'
+                        : esCentralizado
+                          ? 'Concurso centralizado'
+                          : `Cargo ${modalidadCargoJurado === 'pou' ? 'de guardia (POU)' : 'de planta (POF)'}`}
                     </span>
                   </div>
                   {(() => {
@@ -1305,16 +1328,24 @@ export function ConcursoCphWizard() {
                         .filter(Boolean)
                         .join(', ') || 'sin especialidad definida'
 
-                    if (esCentralizado) {
+                    if (usaReglaUnicaSistema) {
                       return (
-                        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
-                          <li>
-                            <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
-                            superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
-                            <strong>cualquier hospital de toda la base</strong> (no prioriza el
-                            hospital del cargo a concursar).
-                          </li>
-                        </ul>
+                        <>
+                          {esCargoConduccionJurado && !esCentralizado && (
+                            <p className="text-xs text-indigo-700 bg-indigo-50 rounded px-2 py-1 mb-1.5">
+                              El cargo a concursar es de <strong>conducción</strong>: el jurado se
+                              busca en todo el sistema de salud (no solo en este hospital).
+                            </p>
+                          )}
+                          <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                            <li>
+                              <strong>Regla única</strong> — cargo de conducción (Jefe de Sección o
+                              superior) + especialidad (<strong>{especNombre}</strong>), en{' '}
+                              <strong>cualquier hospital de toda la base</strong> (no prioriza el
+                              hospital del cargo a concursar).
+                            </li>
+                          </ul>
+                        </>
                       )
                     }
                     return modalidadCargoJurado === 'pof' ? (
@@ -1362,10 +1393,11 @@ export function ConcursoCphWizard() {
                     En todos los casos se exige la misma profesión (escalafón) que el cargo a
                     concursar y ocupación activa. Director y Subdirector quedan excluidos de
                     cualquier jurado.{' '}
-                    {esCentralizado ? (
+                    {usaReglaUnicaSistema ? (
                       <>
-                        Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el
-                        pool de candidatos es directamente toda la base de datos.
+                        {esCargoConduccionJurado && !esCentralizado
+                          ? 'Al ser un cargo de conducción, no hay cascada de reglas ni prioridad de hospital: el pool de candidatos son los cargos de conducción de la misma profesión y especialidad de todo el sistema de salud.'
+                          : 'Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: el pool de candidatos es directamente toda la base de datos.'}
                       </>
                     ) : (
                       <>
@@ -1481,10 +1513,11 @@ export function ConcursoCphWizard() {
                     jurados elegibles.
                   </p>
                   <div className="grid grid-cols-1 gap-2">
-                    {[0, 1].map((i) => {
+                    {[0, 1, 2].map((i) => {
                       const slots = [
                         sorteoCriterios.especialidadesAdicionales[0] ?? '',
                         sorteoCriterios.especialidadesAdicionales[1] ?? '',
+                        sorteoCriterios.especialidadesAdicionales[2] ?? '',
                       ]
                       return (
                         <SearchableSelect
@@ -1538,6 +1571,14 @@ export function ConcursoCphWizard() {
                       )}
                     </div>
                   )}
+                  {esCargoConduccionJurado &&
+                    !especialidadParaJurado &&
+                    sorteoCriterios.especialidadesAdicionales.length === 0 && (
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 mt-2">
+                        Este cargo de conducción no tiene especialidad asociada. Cargá al menos una
+                        especialidad adicional (hasta 3) para poder buscar el jurado.
+                      </p>
+                    )}
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -1568,7 +1609,11 @@ export function ConcursoCphWizard() {
                 disabled={
                   generarSorteoMutation.isPending ||
                   (sorteoCriterios.especialidadesAdicionales.length > 0 &&
-                    !sorteoCriterios.expedienteEspecialidades.trim())
+                    !sorteoCriterios.expedienteEspecialidades.trim()) ||
+                  // Conducción sin especialidad propia: obliga al menos una adicional.
+                  (esCargoConduccionJurado &&
+                    !especialidadParaJurado &&
+                    sorteoCriterios.especialidadesAdicionales.length === 0)
                 }
                 onClick={async () => {
                   try {
@@ -2391,6 +2436,9 @@ export function ConcursoCphWizard() {
           <div>
             <h1 className="font-primary text-lg font-bold text-gray-900 leading-tight">
               {c.cargo} — {c.puesto}
+              {c.reparticion && (
+                <span className="font-normal text-gray-500"> · {c.reparticion}</span>
+              )}
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {c.hospitalNombre} · {c.especialidad} · {c.escalafon}
@@ -3549,6 +3597,7 @@ export function ConcursoCphWizard() {
                                         )}
                                         {m.hospitalNombre && <span>🏥 {m.hospitalNombre}</span>}
                                         {m.puesto && <span>💼 {m.puesto}</span>}
+                                        {m.reparticion && <span>🏛️ {m.reparticion}</span>}
                                         {m.especialidad && (
                                           <span
                                             className={m.cumpleEspecialidad ? 'text-green-600' : ''}
