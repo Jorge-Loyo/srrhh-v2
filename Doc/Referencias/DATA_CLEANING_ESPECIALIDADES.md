@@ -1,9 +1,16 @@
 # Data-cleaning de especialidades — análisis y plan
 
-> Estado: **análisis / pendiente de ejecución**. Este documento registra el
-> diagnóstico de las especialidades en la base y el plan para normalizarlas.
-> No se han modificado datos (salvo la mejora de matching del jurado, que NO
-> toca datos — ver sección "Lo ya resuelto").
+> Estado: **📚 REFERENCIA (diagnóstico).** Documento de análisis de cómo están las
+> especialidades en la base.
+>
+> - Las **reglas de normalización** (paréntesis, acentos, catálogo canónico, excepción
+>   Bioquímica Clínica) ya están consolidadas en **Sprint 22** (adición A22-2) y en
+>   `Doc/Referencias/DOTANEITOR_DECISIONES.md` — se ejecutan ahí, no acá.
+> - El **plan de limpieza retroactiva de datos ya cargados** (más abajo) quedó **OBSOLETO**:
+>   el Sprint 20 hace `prisma migrate reset` (borra la BD de desarrollo), así que no hay datos
+>   viejos que limpiar — todo entra limpio desde cero con las reglas del S22.
+> - Lo que se conserva de este doc como referencia útil: el **diagnóstico** (dónde viven las
+>   especialidades, el hallazgo del paréntesis, los volúmenes, las consultas SQL de diagnóstico).
 
 ## Contexto
 
@@ -22,17 +29,17 @@ compatibles, reutilización).
 
 ## Dónde viven las especialidades (columnas de texto)
 
-| Tabla | Columna | Notas |
-|---|---|---|
-| `cargos` | `especialidad_legacy` | Cargo. Suele traer paréntesis y mayúsculas. |
-| `personas` | `especialidad_cph`, `especialidad_principal` | Padrón. Forma base con acentos. |
-| `concursos_cph` | `especialidad_solicitada` | Concurso (puede ser null → cae a `cargo.especialidad_legacy`). |
-| `inscriptos_concurso` | `especialidad` | Inscriptos a examen. |
-| `orden_merito_integrantes` | `especialidad` | Integrantes de OM. |
-| `ordenes_merito` | `especialidad` | Clave de compatibilidad de OM. |
-| `miembros_jurado_sorteados` | `especialidad` | Snapshot del jurado. |
-| `padron_historico` | `especialidad` | Padrón semanal. |
-| `postulantes`, `solicitudes_alta`, `pou`, `baja_sial_diffs` | `especialidad` | Otros orígenes. |
+| Tabla                                                       | Columna                                      | Notas                                                          |
+| ----------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------- |
+| `cargos`                                                    | `especialidad_legacy`                        | Cargo. Suele traer paréntesis y mayúsculas.                    |
+| `personas`                                                  | `especialidad_cph`, `especialidad_principal` | Padrón. Forma base con acentos.                                |
+| `concursos_cph`                                             | `especialidad_solicitada`                    | Concurso (puede ser null → cae a `cargo.especialidad_legacy`). |
+| `inscriptos_concurso`                                       | `especialidad`                               | Inscriptos a examen.                                           |
+| `orden_merito_integrantes`                                  | `especialidad`                               | Integrantes de OM.                                             |
+| `ordenes_merito`                                            | `especialidad`                               | Clave de compatibilidad de OM.                                 |
+| `miembros_jurado_sorteados`                                 | `especialidad`                               | Snapshot del jurado.                                           |
+| `padron_historico`                                          | `especialidad`                               | Padrón semanal.                                                |
+| `postulantes`, `solicitudes_alta`, `pou`, `baja_sial_diffs` | `especialidad`                               | Otros orígenes.                                                |
 
 ## Tablas de referencia existentes
 
