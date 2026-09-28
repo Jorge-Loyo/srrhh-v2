@@ -78,9 +78,16 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000 })
 
+// Espera máxima por cada job del Python (normalizar/procesar/cruzar). En
+// instancias con poca CPU (ej. Render Free, fracción de vCPU) el procesamiento
+// de un padrón grande de ~48k filas tarda varios minutos, muy por encima de
+// los 4 min originales. Configurable por env para poder ajustarlo sin redeploy
+// de código; default 15 min.
+const PADRON_JOB_TIMEOUT_MS = Number(process.env.PADRON_JOB_TIMEOUT_MS ?? 900_000)
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-async function pollJob(jobId: string, maxWaitMs = 240_000): Promise<unknown> {
+async function pollJob(jobId: string, maxWaitMs = PADRON_JOB_TIMEOUT_MS): Promise<unknown> {
   const start = Date.now()
   while (Date.now() - start < maxWaitMs) {
     const { data } = await python.get(`/job/${jobId}`)
