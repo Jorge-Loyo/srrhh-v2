@@ -16,16 +16,36 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: DATABASE_URL
-        sync: false          # se carga manualmente en el dashboard de Render
+        sync: false # se carga manualmente en el dashboard de Render
       - key: JWT_SECRET
-        generateValue: true  # Render genera un valor aleatorio seguro
+        generateValue: true # Render genera un valor aleatorio seguro
       - key: JWT_ACCESS_EXPIRES
         value: 15m
       - key: JWT_REFRESH_EXPIRES
         value: 7d
       - key: PYTHON_SERVICE_URL
-        value: https://placeholder.internal  # reemplazar cuando exista el servicio Python
+        # URL pública COMPLETA del servicio Dotaneitor (definido abajo), con
+        # https:// y sin barra final — ej. https://srrhh-dotaneitor.onrender.com
+        # Se carga a mano en el dashboard porque el backend valida que sea una
+        # URL completa (z.string().url()), y la referencia fromService/hostport
+        # de Render no incluye el esquema https://.
+        sync: false
       - key: CORS_ORIGINS
-        sync: false          # URL del frontend en Vercel — se carga manualmente
+        sync: false # URL del frontend en Vercel — se carga manualmente
       - key: LOG_LEVEL
         value: info
+
+  # ── Microservicio Python (Dotaneitor) — procesa el Excel del padrón ─────────
+  - type: web
+    name: srrhh-dotaneitor
+    runtime: docker
+    region: oregon
+    branch: deploy
+    rootDir: services/dotaneitor
+    dockerfilePath: services/dotaneitor/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false # misma base Neon que el backend — se carga a mano
+      - key: CORS_ORIGINS
+        value: '' # Node le habla server-to-server; CORS no aplica
