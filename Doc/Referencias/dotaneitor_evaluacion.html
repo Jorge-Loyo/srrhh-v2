@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dotaneitor — Evaluación del pipeline · SRRHH</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171e2e; --panel2:#1e2740; --line:#2b3654;
+    --txt:#e6ebf5; --muted:#9aa7c2; --accent:#4f8cff; --accent2:#22c7a9;
+    --amber:#f5b13d; --red:#ff6b6b; --green:#3ddc97; --purple:#b78bff;
+    --chip:#243050;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.5;font-size:15px}
+  a{color:var(--accent)}
+  header{padding:28px 32px;border-bottom:1px solid var(--line);
+    background:linear-gradient(120deg,#182238,#101827)}
+  header h1{margin:0 0 6px;font-size:26px}
+  header p{margin:0;color:var(--muted)}
+  .badge{display:inline-block;background:var(--chip);border:1px solid var(--line);
+    color:var(--muted);border-radius:999px;padding:2px 10px;font-size:12px;margin-right:6px}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 32px 80px}
+  nav.toc{position:sticky;top:0;z-index:20;background:rgba(15,20,32,.92);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px 32px;
+    display:flex;gap:14px;flex-wrap:wrap;font-size:14px}
+  nav.toc a{color:var(--muted);text-decoration:none;padding:4px 8px;border-radius:6px}
+  nav.toc a:hover{background:var(--panel2);color:var(--txt)}
+  section{margin:38px 0}
+  h2{font-size:21px;border-left:4px solid var(--accent);padding-left:12px;margin:0 0 16px}
+  h3{font-size:17px;color:#cdd8f0;margin:22px 0 10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .muted{color:var(--muted)}
+  code{background:#0c1120;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px;color:#bfe1ff}
+
+  /* Flujo */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0}
+  .step{flex:1;min-width:150px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:14px;position:relative;margin:8px}
+  .step .n{position:absolute;top:-10px;left:-10px;width:26px;height:26px;border-radius:50%;
+    background:var(--accent);color:#04102a;font-weight:700;display:grid;place-items:center;font-size:13px}
+  .step h4{margin:2px 0 6px;font-size:15px}
+  .step small{color:var(--muted);display:block}
+  .step.py{border-color:#3a5fb0}
+  .step.node{border-color:#2f7d6b}
+  .step.manual{border-color:#7a5fb0}
+  .arrow{align-self:center;color:var(--muted);font-size:22px;padding:0 2px}
+  .legend span{margin-right:16px;font-size:13px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd8f0;font-weight:600}
+  tr:nth-child(even) td{background:#141b2b}
+
+  /* Pasos procesamiento */
+  .steps-list{counter-reset:s;list-style:none;padding:0;margin:0}
+  .steps-list li{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent2);
+    border-radius:8px;padding:10px 14px;margin:8px 0}
+  .steps-list li b{color:#dfe8fb}
+  .tag{font-size:11px;border-radius:5px;padding:1px 7px;margin-left:6px;border:1px solid var(--line)}
+  .tag.ref{background:#132a3f;color:#7fc7ff;border-color:#28527a}
+  .tag.vec{background:#12301f;color:#6be0a0;border-color:#245c3d}
+
+  /* Tablas BD dos columnas */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  .pill{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
+  .pill.read{background:#132a3f;color:#7fc7ff}
+  .pill.write{background:#2a1f10;color:var(--amber)}
+
+  /* Candidatos con decisión */
+  .decision{display:flex;gap:8px;margin-top:8px}
+  .decision label{flex:1;text-align:center;border:1px solid var(--line);border-radius:6px;
+    padding:5px;cursor:pointer;font-size:12px;color:var(--muted);user-select:none}
+  .decision input{display:none}
+  .decision input:checked + label.keep{background:#12301f;color:var(--green);border-color:#2f6b48}
+  .decision input:checked + label.mod{background:#2a2210;color:var(--amber);border-color:#7a5f22}
+  .decision input:checked + label.drop{background:#2e1414;color:var(--red);border-color:#7a2f2f}
+  .cand{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0}
+  .cand h4{margin:0 0 4px;font-size:15px}
+  .sev{font-size:11px;border-radius:5px;padding:1px 7px;margin-left:8px}
+  .sev.alta{background:#2e1414;color:#ff9b9b}
+  .sev.media{background:#2a2210;color:var(--amber)}
+  .sev.baja{background:#14202e;color:#8fb8e0}
+
+  .note{background:#221a0c;border:1px solid #6b5320;border-radius:8px;padding:10px 14px;color:#f0d79b}
+  .print{margin-top:10px}
+  .btn{background:var(--accent);color:#04102a;border:none;border-radius:8px;padding:8px 14px;
+    font-weight:600;cursor:pointer;font-size:14px}
+  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  .btn.mini{font-size:12px;padding:3px 9px;margin-left:10px;background:transparent;color:var(--accent);border:1px dashed var(--line)}
+  .btn.mini:hover{background:var(--panel2)}
+
+  /* Editor de pasos */
+  .editor-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:6px}
+  .editor-actions{display:flex;gap:8px}
+  .pstep{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent2);
+    border-radius:9px;padding:12px 14px;margin:8px 0;transition:opacity .15s,border-color .15s}
+  .pstep.mod{border-left-color:var(--amber)}
+  .pstep.drop{border-left-color:var(--red);opacity:.6}
+  .pstep.drop .pstep-body{text-decoration:line-through;color:var(--muted)}
+  .pstep.new{border-left-color:var(--purple);border-style:dashed}
+  .pstep-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .pstep-body{flex:1}
+  .pstep-body b{color:#dfe8fb}
+  .pstep .st-actions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+  .st-actions button{font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);
+    background:transparent;color:var(--muted);cursor:pointer}
+  .st-actions button.on-keep{background:#12301f;color:var(--green);border-color:#2f6b48}
+  .st-actions button.on-mod{background:#2a2210;color:var(--amber);border-color:#7a5f22}
+  .st-actions button.on-drop{background:#2e1414;color:var(--red);border-color:#7a2f2f}
+  .st-note{width:100%;margin-top:8px;background:#0c1120;border:1px solid var(--line);border-radius:6px;
+    color:var(--txt);padding:7px 9px;font-size:13px;font-family:inherit;resize:vertical;display:none}
+  .st-note.show{display:block}
+  .st-title-edit{width:100%;background:#0c1120;border:1px solid var(--line);border-radius:6px;
+    color:var(--txt);padding:6px 9px;font-size:14px;font-family:inherit;margin-bottom:6px}
+  .add-between{text-align:center;margin:-2px 0}
+  .add-between button{font-size:11px;color:var(--muted);background:transparent;border:1px dashed var(--line);
+    border-radius:6px;padding:2px 12px;cursor:pointer}
+  .add-between button:hover{color:var(--purple);border-color:var(--purple)}
+
+  /* Modal */
+  .modal{display:none;position:fixed;inset:0;background:rgba(4,8,18,.75);z-index:50;
+    align-items:center;justify-content:center;padding:20px}
+  .modal.show{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:14px 18px;border-bottom:1px solid var(--line)}
+  .modal-head span{display:flex;gap:8px}
+  #exportText{flex:1;min-height:60vh;background:#0c1120;color:#dfe8fb;border:none;border-radius:0 0 12px 12px;
+    padding:16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.55;resize:none}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding:18px 32px;margin-top:40px}
+  @media print{
+    body{background:#fff;color:#000}
+    nav.toc{display:none}
+    .card,.step,.cand,.steps-list li{border-color:#bbb}
+    header{background:#eee}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧩 Dotaneitor — Evaluación del pipeline</h1>
+  <p>Base para el sprint de rediseño · Reunión con el equipo de datos</p>
+  <div style="margin-top:10px">
+    <span class="badge">Producción · rama jorge · 0f180cb</span>
+    <span class="badge">Microservicio Python / FastAPI</span>
+    <span class="badge">Actualizado 2026-09-28</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#que-es">Qué es</a>
+  <a href="#flujo">Flujo end-to-end</a>
+  <a href="#endpoints">Endpoints</a>
+  <a href="#pasos">Procesamiento paso a paso</a>
+  <a href="#especialidad">Especialidades</a>
+  <a href="#columnas">Columnas de salida</a>
+  <a href="#bd">Mapa de la base de datos</a>
+  <a href="#candidatos">Candidatos a rediseño</a>
+  <a href="#metodo">Método de trabajo</a>
+</nav>
+
+<div class="wrap">
+
+<!-- QUE ES -->
+<section id="que-es">
+  <h2>1 · Qué es y dónde vive</h2>
+  <div class="card">
+    <p>Microservicio <b>Python / FastAPI</b> (<code>services/dotaneitor/</code>) de <b>solo transformación</b>:
+      recibe el Excel del padrón (<code>Cargos_Salud</code>), lo limpia, lo enriquece cruzando contra tablas
+      de referencia y <b>devuelve un DataFrame</b> vía HTTP.</p>
+    <p><b>No escribe en las tablas de negocio.</b> Quien persiste es el backend Node
+      (<code>apps/api/.../padron.service.ts</code>): consume el resultado, calcula el diff contra Postgres y,
+      al aprobar el snapshot, alimenta las tablas.</p>
+    <div class="legend" style="margin-top:8px">
+      <span><i class="dot" style="background:#4f8cff"></i>Python (Dotaneitor)</span>
+      <span><i class="dot" style="background:#22c7a9"></i>Node (backend)</span>
+      <span><i class="dot" style="background:#b78bff"></i>Acción manual</span>
+    </div>
+  </div>
+</section>
+
+<!-- FLUJO -->
+<section id="flujo">
+  <h2>2 · Flujo end-to-end</h2>
+  <div class="card">
+    <div class="flow">
+      <div class="step py"><span class="n">1</span><h4>Upload</h4><small>/session + /upload-cargos<br>guarda el Excel</small></div>
+      <div class="arrow">→</div>
+      <div class="step py"><span class="n">2</span><h4>Normalizar</h4><small>limpia y reescribe el Excel<br>(mojibake, fechas, formato)</small></div>
+      <div class="arrow">→</div>
+      <div class="step py"><span class="n">3</span><h4>Procesar</h4><small>transforma (pasos 0–10)<br>lee: hospitales, ref_agrupadores, ref_unificadores</small></div>
+      <div class="arrow">→</div>
+      <div class="step py"><span class="n">4</span><h4>Cruzar</h4><small>completa ESPECIALIDAD<br>lee: ref_especialidades_cuil, ref_especialidad_por_puesto</small></div>
+    </div>
+    <div class="flow">
+      <div class="step node"><span class="n">5</span><h4>Preview</h4><small>Node pagina /preview<br>arma el DataFrame completo</small></div>
+      <div class="arrow">→</div>
+      <div class="step node"><span class="n">6</span><h4>Diff</h4><small>compara contra Cargo + Ocupacion<br>de Postgres → PadronDiff</small></div>
+      <div class="arrow">→</div>
+      <div class="step manual"><span class="n">7</span><h4>Revisión</h4><small>aprobar/rechazar los diffs "nuevo"<br>snapshot 'pendiente'</small></div>
+      <div class="arrow">→</div>
+      <div class="step node"><span class="n">8</span><h4>Aprobar</h4><small>alimenta Persona/Cargo/Ocupacion<br>+ histórico + KPIs → 'aprobado'</small></div>
+    </div>
+    <p class="muted" style="margin-top:10px">Los pasos 2–4 corren como <b>jobs asíncronos</b> (Thread + estado JSON en disco). El backend hace <b>polling</b> de <code>/job/&lt;id&gt;</code> hasta <code>done</code>/<code>error</code>. El resultado se persiste en <code>tmp/&lt;sid&gt;/resultado.parquet</code> y en <code>exports/&lt;snapshot_id&gt;/dotacion.xlsx</code>.</p>
+  </div>
+</section>
+
+<!-- ENDPOINTS -->
+<section id="endpoints">
+  <h2>3 · Endpoints del servicio</h2>
+  <table>
+    <tr><th>Endpoint</th><th>Método</th><th>Qué hace</th></tr>
+    <tr><td><code>/health</code></td><td>GET</td><td>Estado del servicio. Lo usa el health check de Render.</td></tr>
+    <tr><td><code>/session</code></td><td>POST</td><td>Crea sesión (uuid) + carpeta <code>tmp/&lt;sid&gt;</code>.</td></tr>
+    <tr><td><code>/upload-cargos</code></td><td>POST</td><td>Guarda el Excel subido. Cuenta filas.</td></tr>
+    <tr><td><code>/normalizar</code></td><td>POST</td><td><b>Job:</b> limpia el Excel y lo reescribe.</td></tr>
+    <tr><td><code>/procesar</code></td><td>POST</td><td><b>Job:</b> corre <code>procesar()</code> (pasos 0–10). Guarda parquet.</td></tr>
+    <tr><td><code>/cruzar</code></td><td>POST</td><td><b>Job:</b> completa ESPECIALIDAD. Re-guarda parquet + Excel del snapshot.</td></tr>
+    <tr><td><code>/preview</code></td><td>GET</td><td>Devuelve el DataFrame paginado (JSON). <b>Así lo consume Node.</b></td></tr>
+    <tr><td><code>/job/&lt;id&gt;</code></td><td>GET</td><td>Estado del job asíncrono.</td></tr>
+    <tr><td><code>/descargar</code>, <code>/reporte-calidad</code></td><td>GET</td><td>Excel del resultado / de calidad (4 hojas).</td></tr>
+    <tr><td><code>/session/delete</code></td><td>POST</td><td>Borra la sesión (memoria + disco).</td></tr>
+  </table>
+  <div class="note">⚠️ Estado <code>sessions{}</code> en memoria (DataFrame en RAM por sesión). Volátil: se pierde al reiniciar. Se reconstruye desde el parquet. <b>Punto sensible de memoria y del reinicio en Render.</b></div>
+</section>
+
+<!-- PASOS -->
+<section id="pasos">
+  <h2>4 · Procesamiento paso a paso</h2>
+
+  <div class="editor-bar">
+    <span class="muted">Editor de taller — marcá cada paso, agregá notas o pasos nuevos, y al final exportá el documento.</span>
+    <span class="editor-actions">
+      <button class="btn ghost" onclick="resetSteps()">↺ Restaurar original</button>
+      <button class="btn" onclick="exportDoc()">📄 Generar documento</button>
+    </span>
+  </div>
+
+  <h3>4.1 · Normalización <span class="tag ref">/normalizar</span>
+    <button class="btn mini" onclick="addStep('norm',-1)">＋ agregar paso al inicio</button></h3>
+  <div id="steps-norm"></div>
+
+  <h3>4.2 · Procesamiento <span class="tag ref">/procesar</span> — pasos 0 a 10
+    <button class="btn mini" onclick="addStep('proc',-1)">＋ agregar paso al inicio</button></h3>
+  <div id="steps-proc"></div>
+</section>
+
+<!-- MODAL EXPORT -->
+<div id="exportModal" class="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <b>Documento de modificaciones</b>
+      <span>
+        <button class="btn" onclick="copyDoc()">📋 Copiar</button>
+        <button class="btn" onclick="downloadDoc()">⬇ Descargar .md</button>
+        <button class="btn ghost" onclick="closeModal()">Cerrar</button>
+      </span>
+    </div>
+    <textarea id="exportText" spellcheck="false"></textarea>
+  </div>
+</div>
+
+<!-- ESPECIALIDAD -->
+<section id="especialidad">
+  <h2>5 · Cruce de especialidades <span class="tag ref">/cruzar</span></h2>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">A · Por CUIL</h3>
+      <p><span class="tag ref">lee ref_especialidades_cuil</span></p>
+      <p>Un lookup por COD_REG (37/23/24). Completa <b>solo los huecos</b> de ESPECIALIDAD cruzando por CUIL.</p>
+      <p class="muted">Limitación conocida y aceptada: el cruce es <b>solo por CUIL</b>.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">B · Por puesto / agrupador</h3>
+      <p><span class="tag ref">lee ref_especialidad_por_puesto</span> + aprende del propio df</p>
+      <p>Para médicos/residentes sin especialidad, la deriva del LITERAL PUESTO usando un diccionario de "moda empírica".</p>
+      <p class="note" style="margin:6px 0 0">⚠️ El diccionario <code>MAPEO_ESPECIALIDAD_POR_PUESTO</code> se calculó <b>a mano una sola vez</b> y no se recalcula → riesgo de desincronización.</p>
+    </div>
+  </div>
+  <div class="card">
+    <b>Reporte de calidad</b> (Excel, 4 hojas): Resumen · Detalle · Completitud por columna · Completitud por fila.
+    Detecta: siglas/unificador/agrupador sin coincidencia, especialidad vaciada, especialidad sin puesto,
+    ID SIAL duplicado, jefaturas CPH duplicadas, especialidad no derivable.
+  </div>
+</section>
+
+<!-- COLUMNAS -->
+<section id="columnas">
+  <h2>6 · Columnas de salida del Excel <span class="muted" style="font-size:14px">— decidí cuáles quedan, cuáles se modifican y cuáles agregar</span></h2>
+  <div class="editor-bar">
+    <span class="muted">Las 58 columnas del archivo procesado, en orden. Marcá cada una y agregá columnas nuevas si hace falta. Se incluye en el documento exportado.</span>
+    <span class="editor-actions">
+      <button class="btn mini" onclick="addCol(-1)">＋ columna al inicio</button>
+      <button class="btn ghost" onclick="resetCols()">↺ Restaurar</button>
+    </span>
+  </div>
+  <p class="muted" style="font-size:13px">Origen: <b>SIAL</b> = viene del Excel original (renombrada) · <b>Derivada</b> = la calcula el Dotaneitor (cruce/regla) · <b>Identidad</b> = clave.</p>
+
+  <div class="grid2">
+    <div class="card" style="border-color:#2f6b48">
+      <b style="color:var(--green)">🔧 Columnas que CREA el Dotaneitor</b>
+      <p class="muted" style="margin:4px 0 8px;font-size:13px">No existen en el Excel de raíz: se calculan por cruce contra tablas de referencia o por regla de negocio.</p>
+      <ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.9">
+        <li><b>CUIL Y ROL</b> <span class="muted">— arma CUIL + ROL (identidad)</span></li>
+        <li><b>EDAD</b> <span class="muted">— calculada de la fecha de nacimiento</span></li>
+        <li><b>UNIVERSO TOTALIZADOR</b> <span class="muted">— cruce con hospitales</span></li>
+        <li><b>TIPO DE HOSPITAL / SIGLA</b> <span class="muted">— cruce con hospitales</span></li>
+        <li><b>MONOVALENCIA</b> <span class="muted">— cruce con hospitales</span></li>
+        <li><b>UNIFICADOR DE PUESTOS</b> <span class="muted">— cruce con ref_unificadores_puesto</span></li>
+        <li><b>AGRUPADOR</b> <span class="muted">— cruce con ref_agrupadores</span></li>
+        <li><b>ESPECIALIDAD</b> <span class="muted">— parte de raíz, pero se COMPLETA por cruce (CUIL/puesto)</span></li>
+        <li><b>JEFE ESCALAFON</b> <span class="muted">— regla por CODIGO DE REGISTRO</span></li>
+        <li><b>ESTADO</b> <span class="muted">— regla por SITUACION DE REVISTA / bloqueo</span></li>
+      </ul>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">Nota: <b>ID SIAL</b> y <b>CUIL</b> vienen de raíz pero se transforman (renombre / limpieza de guiones).</p>
+    </div>
+    <div class="card" style="border-color:#28527a">
+      <b style="color:#7fc7ff">📥 Columnas que vienen de la RAÍZ</b>
+      <p class="muted" style="margin:4px 0 8px;font-size:13px">Existen en el Excel SIAL original. El Dotaneitor solo las <b>renombra</b> y <b>limpia</b> (no cambia el dato de fondo).</p>
+      <p style="margin:0;font-size:13px;line-height:1.8">
+        ID SIAL <span class="muted">(ex CARGO)</span>, CUIL, AYN, FECHA NACIMIENTO <span class="muted">(FEC_NACIM)</span>, SEXO,
+        TIPO DOC, NUMERO DOC, CODIGO/DESCRIPCION REPA, SIGLAS <span class="muted">(SIGLA)</span>, ESCALAFON,
+        CODIGO DE REGISTRO <span class="muted">(COD_REG)</span>, LITERAL CR, REGIMEN, SITUACION DE REVISTA <span class="muted">(SIT_REV)</span>,
+        PUESTO, LITERAL PUESTO, CODIGO JEFATURAS <span class="muted">(JCAT)</span>, DOCUMENTACION/COMENTARIOS JEFATURA,
+        ESCRITORIO, POU_DESDE, DIA, DOCUEMNTACION POU, SR_DOC_RESPALD, SR_COMENTARIO, COMISION, REPA COMISION,
+        CR_COMENTARIO, COD/LIT AGRUPAMIENTO y FAMILIA, COD SITUACION, TELEFONO, MAILS, DOMICILIO, LOCALIDAD,
+        PROVINCIA, FECHA/COMENTARIO/MOTIVO BLOQUEO, CARGO_DESDE/HASTA, DOCUMENTACION DEL ROL/BAJA, ANTIGÜEDAD.
+      </p>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">≈ 48 columnas de raíz vs ≈ 10 creadas por el Dotaneitor.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:22px">Detalle columna por columna <span class="muted" style="font-size:13px">(editable)</span></h3>
+  <div id="cols-list"></div>
+</section>
+
+<!-- BD -->
+<section id="bd">
+  <h2>7 · Mapa de la base de datos</h2>
+
+  <h3>7.1 · Tablas que NECESITA <span class="pill read">referencia · solo lectura</span></h3>
+  <table>
+    <tr><th>Tabla</th><th>Para qué</th><th>Cómo se carga</th></tr>
+    <tr><td><code>hospitales</code></td><td>Cruce SIGLAS (paso 5): universo, tipo, monovalencia</td><td>seed (hoja SIGLAS) + migración</td></tr>
+    <tr><td><code>ref_agrupadores</code></td><td>Deriva AGRUPADOR (paso 7)</td><td>seed_referencias.py (hoja AGRUPADOR)</td></tr>
+    <tr><td><code>ref_unificadores_puesto</code></td><td>Deriva UNIFICADOR (paso 6)</td><td>seed_referencias.py</td></tr>
+    <tr><td><code>ref_especialidades_cuil</code></td><td>Especialidad por CUIL (~49k filas)</td><td>seed_referencias.py (hojas ESPECIALIDADES)</td></tr>
+    <tr><td><code>ref_especialidad_por_puesto</code></td><td>Especialidad por puesto</td><td>migración / carga aparte (fallback hardcodeado)</td></tr>
+    <tr><td><code>ref_correcciones_lit_puesto</code></td><td>Normalizar LIT_PUESTO</td><td>migración / fallback hardcodeado</td></tr>
+    <tr><td><code>ref_correcciones_especialidad</code></td><td>Corregir tipeos de especialidad</td><td>migración / fallback hardcodeado</td></tr>
+  </table>
+  <div class="note">⚠️ Si estas tablas quedan <b>vacías</b>, el pipeline no falla: deja las columnas derivadas en blanco <b>en silencio</b>. Ya pasó al migrar de Excel a Postgres.</div>
+
+  <h3>7.2 · Tablas que ALIMENTA <span class="pill write">negocio · las escribe Node al aprobar</span></h3>
+  <table>
+    <tr><th>Tabla</th><th>Qué se escribe</th></tr>
+    <tr><td><code>personas</code></td><td>cuil, doc, apellidoNombre, nacimiento, sexo, especialidad, contacto, antigüedad, activo</td></tr>
+    <tr><td><code>cargos</code></td><td>idSial, código interno, hospital, escalafón, codigoRegistro, literalPuesto, agrupador, unificador, estado</td></tr>
+    <tr><td><code>ocupaciones</code></td><td>vínculo persona↔cargo, idSialRol, situacionRevista, desde/hasta, jefatura/comisión, snapshotId</td></tr>
+    <tr><td><code>padron_historico</code></td><td>foto inmutable por snapshot</td></tr>
+    <tr><td><code>kpis_dotacion_snapshot</code></td><td>personas únicas por escalafón / mes</td></tr>
+    <tr><td><code>hospitales</code>, <code>escalafones</code>, <code>codigos_registro</code></td><td>altas incidentales de valores nuevos (catálogo)</td></tr>
+    <tr><td><code>bajas</code>, <code>organigramas</code></td><td>vínculo de bajas y sync de universo</td></tr>
+  </table>
+
+  <h3>7.3 · Control del flujo</h3>
+  <div class="card">
+    <p><b>PadronSnapshot</b> — estados: <code>procesando → pendiente → aprobado</code> / <code>error</code>. <code>pasoActual</code>: normalizar/procesar/cruzar/diff/guardando.</p>
+    <p><b>PadronDiff</b> — tipo: <code>nuevo</code> / <code>modificado</code> / <code>eliminado</code>. <code>aprobado</code>: null=pendiente · true · false. Los "nuevo" RES/DOC/AS-* se auto-aprueban.</p>
+  </div>
+</section>
+
+<!-- CANDIDATOS -->
+<section id="candidatos">
+  <h2>8 · Candidatos a rediseño <span class="muted" style="font-size:14px">— según el objetivo del servicio</span></h2>
+
+  <div class="card" style="border-color:#2f6b48">
+    <b style="color:var(--green)">🎯 Objetivo del Dotaneitor (replanteado)</b>
+    <p style="margin:8px 0 0">Que haga <b>solo</b> esto, bien y liviano:</p>
+    <p style="margin:6px 0 0">1 · <b>Limpiar</b> el archivo del padrón. &nbsp; 2 · <b>Guardar toda la información procesada</b> de cada archivo (no solo las diferencias) de forma <b>permanente y consultable siempre</b> — es clave para las estadísticas. &nbsp; 3 · Ser <b>liviano y optimizado</b>.</p>
+    <p class="muted" style="margin:8px 0 0">La optimización y el peso del microservicio se evalúan <b>después</b> de definir qué debe hacer y cómo guarda la información. Primero el "qué", luego el "cómo".</p>
+  </div>
+
+  <p class="muted">Marcá cada punto como <b style="color:var(--green)">Se queda</b>, <b style="color:var(--amber)">Se modifica</b> o <b style="color:var(--red)">Se va</b>. Las decisiones son solo visuales (para la reunión); anotá los acuerdos aparte.</p>
+
+  <h3>8.1 · Persistencia y consulta <span class="sev alta">el corazón del objetivo</span></h3>
+  <div id="cands"></div>
+
+  <h3>8.2 · Responsabilidad única del microservicio</h3>
+  <div id="cands2"></div>
+
+  <h3>8.3 · Robustez e integridad de lo guardado</h3>
+  <div id="cands3"></div>
+
+  <h3>8.4 · Preguntas abiertas para el equipo de datos</h3>
+  <div class="card">
+    <p>▪ ¿Dónde vive la <b>foto completa</b>? ¿Tabla nueva (58 columnas × fila × mes), archivo permanente, o ambos?</p>
+    <p>▪ ¿Qué <b>estadísticas</b> concretas se necesitan? (define cómo indexar/consultar la foto).</p>
+    <p>▪ ¿El <b>diff</b> actual (altas/bajas/modificaciones) se mantiene, o las estadísticas salen de comparar fotos completas?</p>
+    <p>▪ ¿El servicio <b>escribe en la BD</b> o sigue devolviendo datos para que Node los guarde?</p>
+    <p>▪ ¿Cuánto historial se conserva? ¿Se guarda cada mes indefinidamente?</p>
+  </div>
+
+  <div class="print"><button class="btn" onclick="window.print()">🖨️ Imprimir / exportar a PDF</button></div>
+</section>
+
+<!-- METODO -->
+<section id="metodo">
+  <h2>9 · Método de trabajo propuesto</h2>
+  <ol class="steps-list">
+    <li>Recorrer este documento y marcar por cada bloque: <b>se queda / se va / se modifica</b>.</li>
+    <li>Definir el alcance del "Dotaneitor nuevo": ¿reescritura, refactor o solo optimización?</li>
+    <li><b>Congelar el contrato de datos:</b> entrada (columnas del Excel), salida (58 columnas), tablas de referencia y de negocio — para que el rediseño no rompa el consumo de Node.</li>
+    <li>Priorizar las optimizaciones de 7.1 (son las que ya dieron problemas en producción).</li>
+  </ol>
+</section>
+
+</div>
+
+<footer>
+  Documento de evaluación · Dotaneitor · SRRHH-Legacy · generado para el sprint de rediseño.
+  Fuente: <code>Doc/Referencias/DOTANEITOR_EVALUACION.md</code>
+</footer>
+
+<script>
+  const perf = [
+    {t:"Guardar la FOTO COMPLETA de cada archivo procesado", d:"Hoy el Dotaneitor NO persiste nada: procesa en memoria y deja un parquet temporal; lo permanente es solo el diff (diferencias) que arma Node. Objetivo: guardar las 58 columnas de cada fila de cada padrón/mes en una tabla consultable (ej. padron_procesado), no solo lo que cambió.", s:"alta"},
+    {t:"Consulta histórica para estadísticas (no solo diffs)", d:"Se necesita poder consultar SIEMPRE la información completa de cualquier mes para estadísticas, no reconstruirla a partir de diffs. Definir el modelo de consulta (por fecha/snapshot, por escalafón, por efector).", s:"alta"},
+    {t:"Conservar el archivo procesado como artefacto permanente", d:"Hoy exports/<snapshot>/dotacion.xlsx queda por snapshot pero el parquet es efímero (tmp, se borra por TTL). Definir qué se conserva de forma permanente: ¿la tabla, el archivo, o ambos?", s:"media"},
+    {t:"Relación entre 'foto completa' y el diff existente", d:"¿El diff (altas/bajas/modificaciones contra Postgres) se mantiene como está y se SUMA la foto completa, o las estadísticas pasan a salir de comparar fotos? Decidir cómo conviven.", s:"alta"},
+  ];
+  const magic = [
+    {t:"Que el Dotaneitor haga SOLO lo suyo: limpiar + entregar/guardar", d:"Delimitar su responsabilidad: recibir el archivo, limpiarlo/normalizarlo, enriquecerlo y dejar la información guardada y consultable. Sacar de él cualquier lógica que no sea eso.", s:"alta"},
+    {t:"¿El Dotaneitor escribe en la BD o sigue Node persistiendo?", d:"Hoy es solo-transformación y Node persiste. Si el objetivo es 'que guarde la información', evaluar si el propio servicio escribe la foto completa, o si sigue devolviéndola y otro la guarda.", s:"alta"},
+    {t:"Reglas de negocio hardcodeadas dentro del limpiador", d:"Códigos 37/23/24/85/87/83, COD_SIT 32, SIGLA UAIEAIT→EAIT, mapeos de especialidad calculados a mano. Evaluar moverlas a tablas de configuración para que 'limpiar' no dependa de reglas escondidas en el código.", s:"media"},
+    {t:"Contrato de salida estable (58 columnas)", d:"Congelar las columnas de salida y sus nombres (hoy con typos como 'DOCUEMNTACION POU') para que la foto guardada y el consumo de Node no se rompan al rediseñar.", s:"media"},
+  ];
+  const robust = [
+    {t:"Tablas de referencia vacías → columnas en blanco en silencio", d:"Si falta una tabla de referencia, hoy guarda datos incompletos sin avisar. La información que se persiste debe ser confiable: validar/alertar antes de guardar.", s:"alta"},
+    {t:"Trazabilidad: qué archivo, cuándo, quién, con qué resultado", d:"Cada foto guardada debe poder rastrearse a su archivo de origen, fecha y estado de calidad, para que las estadísticas sean auditables.", s:"media"},
+    {t:"Optimización y peso del microservicio (fase posterior)", d:"IMPORTANTE: se evalúa DESPUÉS de definir qué debe hacer y cómo guarda. Una vez claro el modelo de datos, elegir la forma más liviana y optimizada (evitar copias de DataFrame, lecturas repetidas, estado en RAM, etc.).", s:"baja"},
+  ];
+  /* ============ EDITOR DE PASOS (sección 4) ============ */
+  const ORIGINAL = {
+    norm: [
+      {t:"Mojibake + espacios", d:'Repara doble-encoding UTF-8 ("Ã³"→"ó"), quita _x000D_, colapsa espacios.'},
+      {t:"Fechas", d:'Quita la hora ("0:00:00").'},
+      {t:"Teléfono", d:"Solo dígitos, quita prefijo país 54 y 0 de área."},
+      {t:"AYN", d:'Formato Título "Apellido, Nombre" respetando conectores.'},
+      {t:"LIT_PUESTO", d:"Consolida variantes de tipeo (diccionario por COD_REG)."},
+      {t:"Vocabulario técnico", d:"Formato Título preservando abreviaturas (SECC, DEPT, siglas)."},
+      {t:"Emails", d:"A minúscula."},
+    ],
+    proc: [
+      {t:"0. Limpieza previa", d:'SIGLA (UAIEAIT→EAIT, quita DGA de DGAH); COD_REG 22 → "Nueva Carrera Prof. Hosp".'},
+      {t:"1–4. Identidad", d:"Extrae ROL del CARGO, limpia CUIL, arma CUIL Y ROL (clave del reporte)."},
+      {t:"5. Cruce SIGLAS", d:"Lee hospitales → UNIVERSO TOTALIZADOR, TIPO DE HOSPITAL, MONOVALENCIA.", ref:true},
+      {t:"6. Cruce UNIFICADOR", d:"Lee ref_unificadores_puesto → UNIFICADOR DE PUESTOS.", ref:true},
+      {t:"7. Cruce AGRUPADOR", d:"Lee ref_agrupadores → AGRUPADOR. (7.5 Enfermero/a ATP · 7.6 JCAT '0'→None)", ref:true},
+      {t:"8. JEFE ESCALAFON", d:"Por COD_REG (37→CPH POF/POU, 85→Técnico, 87→Enfermería, 83→Administrativo). Vectorizado."},
+      {t:"9. ESTADO", d:"Por SIT_REV (retención/comisión) o BLOQ_DESDE; default Activo. Vectorizado."},
+      {t:"9.5. Renombre", d:"Nombres SIAL → nombres de negocio (CARGO→ID SIAL, etc.)."},
+      {t:"9.6–9.7. Especialidad", d:"Vacía especialidad si COD_REG no es 37/23/24; marca especialidad sin puesto."},
+      {t:"9.75. Forzar mayúsculas / sin tilde", d:"En columnas pactadas."},
+      {t:"9.8. Dedup ID SIAL", d:"Conserva la fila más completa por cargo."},
+      {t:"9.9. Jefaturas duplicadas", d:"Elimina el rol jefe CPH duplicado sin CODIGO JEFATURAS."},
+      {t:"10. Reordenar", d:"Al orden canónico de 58 columnas."},
+    ]
+  };
+  const LABELS = {norm:"4.1 Normalización (/normalizar)", proc:"4.2 Procesamiento (/procesar)"};
+  // estado editable: cada item {t,d,ref,new,estado:'keep'|'mod'|'drop',nota}
+  let STEPS = load();
+
+  function load(){
+    try{
+      const s = localStorage.getItem('dotaneitor_steps');
+      if(s) return JSON.parse(s);
+    }catch(e){}
+    return clone(ORIGINAL);
+  }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function persist(){ try{ localStorage.setItem('dotaneitor_steps', JSON.stringify(STEPS)); }catch(e){} }
+  function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderSteps(){
+    for(const grupo of ['norm','proc']){
+      const c = document.getElementById('steps-'+grupo);
+      c.innerHTML = '';
+      STEPS[grupo].forEach((it, i)=>{
+        if(it.estado===undefined) it.estado='keep';
+        const div = document.createElement('div');
+        div.className = 'pstep ' + (it.estado==='mod'?'mod':it.estado==='drop'?'drop':'') + (it.new?' new':'');
+        const refTag = it.ref ? ' <span class="tag ref">referencia BD</span>' : '';
+        const newTag = it.new ? ' <span class="tag" style="background:#231a3a;color:#c9b0ff;border-color:#5a4a8a">paso nuevo</span>' : '';
+        div.innerHTML = `
+          <div class="pstep-top">
+            <div class="pstep-body">
+              <div class="edit-title" style="display:none">
+                <input class="st-title-edit" value="${esc(it.t)}" data-g="${grupo}" data-i="${i}" data-f="t">
+                <input class="st-title-edit" value="${esc(it.d)}" data-g="${grupo}" data-i="${i}" data-f="d" placeholder="descripción">
+              </div>
+              <div class="view-title"><b>${esc(it.t)}</b>${refTag}${newTag} — <span class="muted">${esc(it.d)}</span></div>
+            </div>
+            <div class="st-actions">
+              <button class="${it.estado==='keep'?'on-keep':''}" onclick="setEstado('${grupo}',${i},'keep')">✔ Queda</button>
+              <button class="${it.estado==='mod'?'on-mod':''}" onclick="setEstado('${grupo}',${i},'mod')">✎ Modificar</button>
+              <button class="${it.estado==='drop'?'on-drop':''}" onclick="setEstado('${grupo}',${i},'drop')">✖ Eliminar</button>
+              <button onclick="toggleEdit(this)" title="Editar texto">✐</button>
+              <button onclick="delStep('${grupo}',${i})" title="Quitar de la lista">🗑</button>
+            </div>
+          </div>
+          <textarea class="st-note ${it.nota?'show':''}" placeholder="Nota / cómo se modifica…"
+            oninput="setNota('${grupo}',${i},this.value)" data-g="${grupo}" data-i="${i}">${esc(it.nota||'')}</textarea>
+        `;
+        c.appendChild(div);
+        // botón "agregar entre pasos"
+        const between = document.createElement('div');
+        between.className = 'add-between';
+        between.innerHTML = `<button onclick="addStep('${grupo}',${i})">＋ insertar paso aquí</button>`;
+        c.appendChild(between);
+      });
+    }
+    // enganchar edición de título
+    document.querySelectorAll('.st-title-edit').forEach(inp=>{
+      inp.addEventListener('input', e=>{
+        const g=e.target.dataset.g, i=+e.target.dataset.i, f=e.target.dataset.f;
+        STEPS[g][i][f]=e.target.value; persist();
+      });
+    });
+  }
+  function setEstado(g,i,e){
+    STEPS[g][i].estado = e;
+    if(e==='mod'){ STEPS[g][i].nota = STEPS[g][i].nota || ''; }
+    persist(); renderSteps();
+    // si es modificar, mostrar nota
+    if(e==='mod'){
+      const c=document.getElementById('steps-'+g);
+      const notes=c.querySelectorAll('.st-note');
+      if(notes[i]){ notes[i].classList.add('show'); notes[i].focus(); }
+    }
+  }
+  function setNota(g,i,v){ STEPS[g][i].nota=v; persist(); }
+  function toggleEdit(btn){
+    const body=btn.closest('.pstep').querySelector('.pstep-body');
+    body.querySelector('.edit-title').style.display = body.querySelector('.edit-title').style.display==='none'?'block':'none';
+    body.querySelector('.view-title').style.display = body.querySelector('.view-title').style.display==='none'?'block':'none';
+  }
+  function addStep(g, afterIdx){
+    const nuevo = {t:"Nuevo paso", d:"(describir)", new:true, estado:'keep', nota:''};
+    STEPS[g].splice(afterIdx+1, 0, nuevo);
+    persist(); renderSteps();
+  }
+  function delStep(g,i){
+    if(!confirm('¿Quitar este paso de la lista?')) return;
+    STEPS[g].splice(i,1); persist(); renderSteps();
+  }
+  function resetSteps(){
+    if(!confirm('¿Restaurar los pasos originales? Se pierden las marcas y notas.')) return;
+    STEPS = clone(ORIGINAL); persist(); renderSteps();
+  }
+
+  /* ---- Exportar documento ---- */
+  function buildDoc(){
+    const hoy = new Date().toISOString().slice(0,10);
+    let out = `# Dotaneitor — Modificaciones al procesamiento\n\n`;
+    out += `> Documento generado en el taller de evaluación · ${hoy}\n`;
+    out += `> Base: producción rama jorge (0f180cb). Leyenda: ✔ se queda · ✎ se modifica · ✖ se elimina · ＋ paso nuevo\n\n`;
+    let totMod=0, totDrop=0, totNew=0;
+    for(const g of ['norm','proc']){
+      out += `## ${LABELS[g]}\n\n`;
+      STEPS[g].forEach((it)=>{
+        const mark = it.estado==='drop'?'✖':it.estado==='mod'?'✎':it.new?'＋':'✔';
+        if(it.estado==='drop') totDrop++;
+        if(it.estado==='mod') totMod++;
+        if(it.new) totNew++;
+        out += `- ${mark} **${it.t}** — ${it.d}`;
+        if(it.new) out += `  _(paso nuevo)_`;
+        out += `\n`;
+        if(it.nota && it.nota.trim()) out += `    - 📝 ${it.nota.trim()}\n`;
+      });
+      out += `\n`;
+    }
+    // Columnas de salida
+    let colMod=0, colDrop=0, colNew=0;
+    out += `## Columnas de salida del Excel\n\n`;
+    COLS.forEach((it)=>{
+      const mark = it.estado==='drop'?'✖':it.estado==='mod'?'✎':it.new?'＋':'✔';
+      if(it.estado==='drop') colDrop++;
+      if(it.estado==='mod') colMod++;
+      if(it.new) colNew++;
+      out += `- ${mark} **${it.t}** _(${it.o})_${it.d?' — '+it.d:''}`;
+      out += `\n`;
+      if(it.nota && it.nota.trim()) out += `    - 📝 ${it.nota.trim()}\n`;
+    });
+    out += `\n`;
+
+    out += `## Resumen\n\n`;
+    out += `**Pasos del procesamiento:**\n`;
+    out += `- Pasos a modificar: **${totMod}**\n`;
+    out += `- Pasos a eliminar: **${totDrop}**\n`;
+    out += `- Pasos nuevos: **${totNew}**\n\n`;
+    out += `**Columnas de salida:**\n`;
+    out += `- Columnas totales: **${COLS.length}**\n`;
+    out += `- A modificar: **${colMod}** · A eliminar: **${colDrop}** · Nuevas: **${colNew}**\n`;
+    return out;
+  }
+  function exportDoc(){
+    document.getElementById('exportText').value = buildDoc();
+    document.getElementById('exportModal').classList.add('show');
+  }
+  function closeModal(){ document.getElementById('exportModal').classList.remove('show'); }
+  function copyDoc(){
+    const ta=document.getElementById('exportText'); ta.select();
+    navigator.clipboard.writeText(ta.value).then(()=>alert('Documento copiado al portapapeles')).catch(()=>{
+      document.execCommand('copy'); alert('Documento copiado');
+    });
+  }
+  function downloadDoc(){
+    const blob=new Blob([document.getElementById('exportText').value],{type:'text/markdown'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='dotaneitor_modificaciones.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  /* ============ EDITOR DE COLUMNAS (sección 6) ============ */
+  // Las 58 columnas de salida en orden. origen: SIAL | Derivada | Identidad
+  const COLS_ORIG = [
+    {t:"ID SIAL", o:"Identidad", d:"Identificador SIAL del cargo (ex CARGO). Clave del registro."},
+    {t:"CUIL", o:"Identidad", d:"CUIL de la persona (sin guiones)."},
+    {t:"CUIL Y ROL", o:"Identidad", d:"CUIL-ROL. Clave usada en el reporte de calidad."},
+    {t:"AYN", o:"SIAL", d:"Apellido y Nombre (Formato Título)."},
+    {t:"FECHA NACIMIENTO", o:"SIAL", d:"ex FEC_NACIM."},
+    {t:"EDAD", o:"Derivada", d:"Calculada."},
+    {t:"SEXO", o:"SIAL", d:""},
+    {t:"TIPO DOC", o:"SIAL", d:"ex TIP_DOC."},
+    {t:"NUMERO DOC", o:"SIAL", d:"ex NUM_DOC."},
+    {t:"CODIGO REPA", o:"SIAL", d:"ex COD_REP."},
+    {t:"DESCRIPCION REPA", o:"SIAL", d:"ex DESC_REP."},
+    {t:"SIGLAS", o:"SIAL", d:"ex SIGLA (con limpieza UAIEAIT/DGAH)."},
+    {t:"UNIVERSO TOTALIZADOR", o:"Derivada", d:"Cruce SIGLAS contra tabla hospitales."},
+    {t:"TIPO DE HOSPITAL / SIGLA", o:"Derivada", d:"Cruce SIGLAS contra hospitales."},
+    {t:"MONOVALENCIA", o:"Derivada", d:"Cruce SIGLAS contra hospitales."},
+    {t:"ESCALAFON", o:"SIAL", d:""},
+    {t:"CODIGO DE REGISTRO", o:"SIAL", d:"ex COD_REG."},
+    {t:"LITERAL CR", o:"SIAL", d:"ex LIT_COD_REG (limpio)."},
+    {t:"REGIMEN", o:"SIAL", d:""},
+    {t:"SITUACION DE REVISTA", o:"SIAL", d:"ex SIT_REV."},
+    {t:"PUESTO", o:"SIAL", d:""},
+    {t:"LITERAL PUESTO", o:"SIAL", d:"ex LIT_PUESTO (consolidado)."},
+    {t:"ESPECIALIDAD", o:"Derivada", d:"ex LIT_ESP_CARGO + cruce por CUIL/puesto."},
+    {t:"UNIFICADOR DE PUESTOS", o:"Derivada", d:"Cruce contra ref_unificadores_puesto."},
+    {t:"AGRUPADOR", o:"Derivada", d:"Cruce contra ref_agrupadores."},
+    {t:"CODIGO JEFATURAS", o:"SIAL", d:"ex JCAT (0→vacío)."},
+    {t:"JEFE ESCALAFON", o:"Derivada", d:"Calculado por COD_REG (37/85/87/83)."},
+    {t:"DOCUMENTACION JEFATURA", o:"SIAL", d:"ex DOC_RESPALD."},
+    {t:"COMENTARIOS JEFATURAS", o:"SIAL", d:"ex J_COMENTARIO."},
+    {t:"ESCRITORIO", o:"SIAL", d:"Determina Jefe CPH POF vs POU."},
+    {t:"POU_DESDE", o:"SIAL", d:""},
+    {t:"DIA", o:"SIAL", d:""},
+    {t:"DOCUEMNTACION POU", o:"SIAL", d:"⚠️ typo en el nombre (ex DOC_RESP)."},
+    {t:"SR_DOC_RESPALD", o:"SIAL", d:""},
+    {t:"SR_COMENTARIO", o:"SIAL", d:""},
+    {t:"COMISION", o:"SIAL", d:"ex SR_WU_COMISION."},
+    {t:"REPA COMISION", o:"SIAL", d:"ex SR_DESC_WU_COMISION."},
+    {t:"CR_COMENTARIO", o:"SIAL", d:""},
+    {t:"COD_AGRUPAMIENTO", o:"SIAL", d:""},
+    {t:"AGRUPAMIENTO", o:"SIAL", d:"ex LIT_AGRUPAMIENTO."},
+    {t:"COD_FAMILIA", o:"SIAL", d:""},
+    {t:"LIT_FAMILIA", o:"SIAL", d:""},
+    {t:"COD SITUACION", o:"SIAL", d:"ex COD_SIT."},
+    {t:"TELEFONO", o:"SIAL", d:"Normalizado (solo dígitos)."},
+    {t:"MAIL_PERSONAL", o:"SIAL", d:"A minúscula."},
+    {t:"MAIL_LABORAL", o:"SIAL", d:"A minúscula."},
+    {t:"DOMICILIO", o:"SIAL", d:""},
+    {t:"LOCALIDAD", o:"SIAL", d:""},
+    {t:"PROVINCIA", o:"SIAL", d:""},
+    {t:"FECHA BLOQUEO", o:"SIAL", d:"ex BLOQ_DESDE."},
+    {t:"BLOQUEO COMENTARIO", o:"SIAL", d:"ex BLOQ_COMENTARIO."},
+    {t:"BLOQ MOTIVO", o:"SIAL", d:"ex BL_MOTIVO."},
+    {t:"CARGO_DESDE", o:"SIAL", d:""},
+    {t:"CARGO_HASTA", o:"SIAL", d:""},
+    {t:"DOCUMENTACION DEL ROL", o:"SIAL", d:"ex DOC_RESP_ALTA."},
+    {t:"DOCUMENTACION BAJA", o:"SIAL", d:"ex DOC_RESP_BAJA."},
+    {t:"ANTIGÜEDAD", o:"SIAL", d:"ex SALUD_1ER_CARGO (⚠️ diéresis en el nombre)."},
+    {t:"ESTADO", o:"Derivada", d:"Calculado: Activo/Retención/Comisión/Bloqueado."},
+  ];
+  let COLS = loadCols();
+  function loadCols(){
+    try{ const s=localStorage.getItem('dotaneitor_cols'); if(s) return JSON.parse(s); }catch(e){}
+    return clone(COLS_ORIG);
+  }
+  function persistCols(){ try{ localStorage.setItem('dotaneitor_cols', JSON.stringify(COLS)); }catch(e){} }
+  function origBadge(o){
+    const map={'SIAL':'#132a3f;#7fc7ff','Derivada':'#12301f;#6be0a0','Identidad':'#231a3a;#c9b0ff'};
+    const [bg,fg]=(map[o]||'#243050;#9aa7c2').split(';');
+    return `<span class="tag" style="background:${bg};color:${fg};border-color:${bg}">${esc(o)}</span>`;
+  }
+  function renderCols(){
+    const c=document.getElementById('cols-list'); c.innerHTML='';
+    COLS.forEach((it,i)=>{
+      if(it.estado===undefined) it.estado='keep';
+      const div=document.createElement('div');
+      div.className='pstep '+(it.estado==='mod'?'mod':it.estado==='drop'?'drop':'')+(it.new?' new':'');
+      const newTag=it.new?' <span class="tag" style="background:#231a3a;color:#c9b0ff;border-color:#5a4a8a">columna nueva</span>':'';
+      div.innerHTML=`
+        <div class="pstep-top">
+          <div class="pstep-body">
+            <div class="edit-title" style="display:none">
+              <input class="st-title-edit" value="${esc(it.t)}" data-c="${i}" data-f="t">
+              <input class="st-title-edit" value="${esc(it.d)}" data-c="${i}" data-f="d" placeholder="descripción / origen">
+            </div>
+            <div class="view-title"><b>${esc(it.t)}</b> ${origBadge(it.o)}${newTag}${it.d?' — <span class="muted">'+esc(it.d)+'</span>':''}</div>
+          </div>
+          <div class="st-actions">
+            <button class="${it.estado==='keep'?'on-keep':''}" onclick="setEstadoCol(${i},'keep')">✔ Queda</button>
+            <button class="${it.estado==='mod'?'on-mod':''}" onclick="setEstadoCol(${i},'mod')">✎ Modificar</button>
+            <button class="${it.estado==='drop'?'on-drop':''}" onclick="setEstadoCol(${i},'drop')">✖ Eliminar</button>
+            <button onclick="toggleEdit(this)" title="Editar">✐</button>
+            <button onclick="delCol(${i})" title="Quitar">🗑</button>
+          </div>
+        </div>
+        <textarea class="st-note ${it.nota?'show':''}" placeholder="Nota / cómo se modifica…"
+          oninput="setNotaCol(${i},this.value)">${esc(it.nota||'')}</textarea>`;
+      c.appendChild(div);
+      const between=document.createElement('div');
+      between.className='add-between';
+      between.innerHTML=`<button onclick="addCol(${i})">＋ insertar columna aquí</button>`;
+      c.appendChild(between);
+    });
+    document.querySelectorAll('#cols-list .st-title-edit').forEach(inp=>{
+      inp.addEventListener('input',e=>{ COLS[+e.target.dataset.c][e.target.dataset.f]=e.target.value; persistCols(); });
+    });
+  }
+  function setEstadoCol(i,e){ COLS[i].estado=e; if(e==='mod') COLS[i].nota=COLS[i].nota||''; persistCols(); renderCols();
+    if(e==='mod'){ const n=document.querySelectorAll('#cols-list .st-note'); if(n[i]){n[i].classList.add('show');n[i].focus();} } }
+  function setNotaCol(i,v){ COLS[i].nota=v; persistCols(); }
+  function addCol(after){ COLS.splice(after+1,0,{t:"NUEVA COLUMNA",o:"Nueva",d:"(describir)",new:true,estado:'keep',nota:''}); persistCols(); renderCols(); }
+  function delCol(i){ if(!confirm('¿Quitar esta columna de la lista?'))return; COLS.splice(i,1); persistCols(); renderCols(); }
+  function resetCols(){ if(!confirm('¿Restaurar las columnas originales? Se pierden marcas y notas.'))return; COLS=clone(COLS_ORIG); persistCols(); renderCols(); }
+
+  renderSteps();
+  renderCols();
+
+  function render(list, containerId){
+    const c = document.getElementById(containerId);
+    list.forEach((it,i)=>{
+      const id = containerId+"_"+i;
+      const el = document.createElement("div");
+      el.className="cand";
+      el.innerHTML = `<h4>${it.t}<span class="sev ${it.s}">${it.s}</span></h4>
+        <p class="muted" style="margin:2px 0 0">${it.d}</p>
+        <div class="decision">
+          <input type="radio" name="${id}" id="${id}_k"><label class="keep" for="${id}_k">✔ Se queda</label>
+          <input type="radio" name="${id}" id="${id}_m"><label class="mod" for="${id}_m">✎ Se modifica</label>
+          <input type="radio" name="${id}" id="${id}_d"><label class="drop" for="${id}_d">✖ Se va</label>
+        </div>`;
+      c.appendChild(el);
+    });
+  }
+  render(perf,"cands"); render(magic,"cands2"); render(robust,"cands3");
+</script>
+</body>
+</html>
