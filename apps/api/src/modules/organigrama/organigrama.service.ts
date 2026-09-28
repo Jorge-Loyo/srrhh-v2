@@ -8,8 +8,13 @@ import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.j
 // este proyecto es ESM).
 const require = createRequire(import.meta.url)
 const XLSX = require('xlsx') as {
-  read: (data: Buffer, opts: Record<string, unknown>) => { SheetNames: string[]; Sheets: Record<string, unknown> }
-  utils: { sheet_to_json: (ws: unknown, opts: Record<string, unknown>) => Record<string, unknown>[] }
+  read: (
+    data: Buffer,
+    opts: Record<string, unknown>,
+  ) => { SheetNames: string[]; Sheets: Record<string, unknown> }
+  utils: {
+    sheet_to_json: (ws: unknown, opts: Record<string, unknown>) => Record<string, unknown>[]
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,18 +87,25 @@ const UNIFICADOR_60 = new Set(['gerente', 'subgerente'])
 // Director/Subdirector médico son conducción por definición — no requieren codigoJefaturas.
 const UNIFICADOR_37_SIN_JEFATURA = new Set(['director/a medico/a', 'subdirector/a medico/a'])
 const UNIFICADOR_37 = new Set([
-  'cph de planta', 'cph de guardia',
-  'jefe/a de departamento', 'jefe/a de division', 'jefe/a de unidad', 'jefe/a de seccion',
+  'cph de planta',
+  'cph de guardia',
+  'jefe/a de departamento',
+  'jefe/a de division',
+  'jefe/a de unidad',
+  'jefe/a de seccion',
 ])
 const UNIFICADOR_JEFATURAS_OPERATIVAS = new Set([
-  'administrativo/a', 'enfermero/a', 'servicios generales', 'tecnico/a de la salud',
+  'administrativo/a',
+  'enfermero/a',
+  'servicios generales',
+  'tecnico/a de la salud',
 ])
 const CODIGOS_JEFATURAS_OPERATIVAS = new Set(['83', '85', '87'])
 
 function esCargoDeConduccion(
   codigoRegistro: string | undefined,
   unificadorPuesto: string | null,
-  codigoJefaturas: string | null
+  codigoJefaturas: string | null,
 ): boolean {
   if (!codigoRegistro || !unificadorPuesto) return false
   const up = unificadorPuesto.toLowerCase().trim()
@@ -101,7 +113,8 @@ function esCargoDeConduccion(
 
   if (codigoRegistro === '25') return up === 'autoridades superiores'
   if (codigoRegistro === '60') return UNIFICADOR_60.has(up)
-  if (codigoRegistro === '37') return UNIFICADOR_37_SIN_JEFATURA.has(up) || (UNIFICADOR_37.has(up) && tieneCategoriaJefatura)
+  if (codigoRegistro === '37')
+    return UNIFICADOR_37_SIN_JEFATURA.has(up) || (UNIFICADOR_37.has(up) && tieneCategoriaJefatura)
   if (CODIGOS_JEFATURAS_OPERATIVAS.has(codigoRegistro)) {
     return UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) && tieneCategoriaJefatura
   }
@@ -110,11 +123,29 @@ function esCargoDeConduccion(
 
 // ── Orden jerárquico por tipo de unidad — puerto literal de `ordenTipos` ────
 const ORDEN_TIPOS: Record<string, number> = {
-  Ministerio: 0, AREA: 1, 'SSEC/DIREJE': 2, GO: 3, SGO: 4, DG: 5, 'F/N DG': 6,
-  DHOS: 7, SDHOS: 8, 'UAI DG': 8.5, 'F/N DEJE': 8.6, 'UAI MSTR': 8.7,
-  'PLTA TRANS. DOCENTE': 8.8, 'F/N MSTR - GO': 8.9, REGIMEN: 9,
-  DEPT: 10, 'DEPT CA': 10.5, DIV: 11, 'DIV CA': 11.5, UNID: 12,
-  SECCION: 13, SECC: 13, 'SECCION CA': 13.5,
+  Ministerio: 0,
+  AREA: 1,
+  'SSEC/DIREJE': 2,
+  GO: 3,
+  SGO: 4,
+  DG: 5,
+  'F/N DG': 6,
+  DHOS: 7,
+  SDHOS: 8,
+  'UAI DG': 8.5,
+  'F/N DEJE': 8.6,
+  'UAI MSTR': 8.7,
+  'PLTA TRANS. DOCENTE': 8.8,
+  'F/N MSTR - GO': 8.9,
+  REGIMEN: 9,
+  DEPT: 10,
+  'DEPT CA': 10.5,
+  DIV: 11,
+  'DIV CA': 11.5,
+  UNID: 12,
+  SECCION: 13,
+  SECC: 13,
+  'SECCION CA': 13.5,
 }
 
 function ordenarHijos(nodo: OrganigramaNodo) {
@@ -147,7 +178,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
 
   if (rows.length === 0) {
     throw AppError.notFound(
-      sigla ? `No se encontró organigrama para la sigla: ${sigla}` : `No se encontró organigrama para la sección: ${seccion}`
+      sigla
+        ? `No se encontró organigrama para la sigla: ${sigla}`
+        : `No se encontró organigrama para la sección: ${seccion}`,
     )
   }
 
@@ -177,7 +210,19 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           idSialRol: true,
           cargoDesdeFecha: true,
           cargoHastaFecha: true,
-          persona: { select: { id: true, apellidoNombre: true, cuil: true, sexo: true, especialidadPrincipal: true, mailLaboral: true, telefono: true, fechaNacimiento: true, antiguedadDesde: true } },
+          persona: {
+            select: {
+              id: true,
+              apellidoNombre: true,
+              cuil: true,
+              sexo: true,
+              especialidadPrincipal: true,
+              mailLaboral: true,
+              telefono: true,
+              fechaNacimiento: true,
+              antiguedadDesde: true,
+            },
+          },
         },
       },
     },
@@ -191,7 +236,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     if (!cargo.codigoRepa || personasMap.has(cargo.codigoRepa)) continue
     const ocup = cargo.ocupaciones[0]
     if (!ocup) continue
-    if (!esCargoDeConduccion(cargo.codigoRegistro?.codigo, cargo.unificadorPuesto, ocup.codigoJefaturas)) continue
+    if (
+      !esCargoDeConduccion(
+        cargo.codigoRegistro?.codigo,
+        cargo.unificadorPuesto,
+        ocup.codigoJefaturas,
+      )
+    )
+      continue
 
     personasMap.set(cargo.codigoRepa, {
       personaId: ocup.persona.id,
@@ -226,7 +278,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
       unificadorPuesto: { not: null },
     },
-    select: { id: true, codigoRepa: true, codigo: true, unificadorPuesto: true, codigoRegistro: { select: { codigo: true } } },
+    select: {
+      id: true,
+      codigoRepa: true,
+      codigo: true,
+      unificadorPuesto: true,
+      codigoRegistro: { select: { codigo: true } },
+    },
     orderBy: { codigoRepa: 'asc' },
   })
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
@@ -245,20 +303,28 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   if (nodosSinMapeo.length > 0) {
     const cargosClasif = await prisma.cargo.findMany({
       where: { codigoRepa: { in: nodosSinMapeo }, deletedAt: null },
-      select: { codigoRepa: true, unificadorPuesto: true, codigoRegistro: { select: { codigo: true } } },
+      select: {
+        codigoRepa: true,
+        unificadorPuesto: true,
+        codigoRegistro: { select: { codigo: true } },
+      },
     })
     // Agrupar por codigoRepa para clasificar
     const porRepa = new Map<string, { codigos: Set<string>; tieneUpVacio: boolean }>()
     for (const c of cargosClasif) {
       if (!c.codigoRepa) continue
-      if (!porRepa.has(c.codigoRepa)) porRepa.set(c.codigoRepa, { codigos: new Set(), tieneUpVacio: false })
+      if (!porRepa.has(c.codigoRepa))
+        porRepa.set(c.codigoRepa, { codigos: new Set(), tieneUpVacio: false })
       const entry = porRepa.get(c.codigoRepa)!
       if (c.codigoRegistro?.codigo) entry.codigos.add(c.codigoRegistro.codigo)
       if (!c.unificadorPuesto?.trim()) entry.tieneUpVacio = true
     }
     for (const cod of nodosSinMapeo) {
       const entry = porRepa.get(cod)
-      if (!entry) { razonSinCargoMap.set(cod, 'sin_cargo'); continue }
+      if (!entry) {
+        razonSinCargoMap.set(cod, 'sin_cargo')
+        continue
+      }
       const { codigos, tieneUpVacio } = entry
       if (codigos.has('23') || codigos.has('24') || codigos.has('07')) {
         razonSinCargoMap.set(cod, 'guardia_residencia_docente')
@@ -273,12 +339,19 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // === 4. Mapa de nodos ===
   // Pre-cargar padres que no estén en el recorte (ej. SS de APS vive bajo NC)
   const codigosEnRecorte = new Set(rows.map((r) => r.codigoReparticion))
-  const codigosPadresFuera = [...new Set(
-    rows.map((r) => r.padre?.trim() || null).filter((p): p is string => !!p && !codigosEnRecorte.has(p))
-  )]
-  const padresFuera = codigosPadresFuera.length > 0
-    ? await prisma.organigrama.findMany({ where: { codigoReparticion: { in: codigosPadresFuera } } })
-    : []
+  const codigosPadresFuera = [
+    ...new Set(
+      rows
+        .map((r) => r.padre?.trim() || null)
+        .filter((p): p is string => !!p && !codigosEnRecorte.has(p)),
+    ),
+  ]
+  const padresFuera =
+    codigosPadresFuera.length > 0
+      ? await prisma.organigrama.findMany({
+          where: { codigoReparticion: { in: codigosPadresFuera } },
+        })
+      : []
 
   const mapa = new Map<string, OrganigramaNodo>()
   // Agregar padres externos al mapa para que los hijos puedan linkearse
@@ -305,10 +378,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       padre: r.padre,
       regimenEmpleo: r.regimenEmpleo || 'Sin Régimen',
       persona: personasMap.get(r.codigoReparticion) ?? null,
-      cargoVacante: !personasMap.has(r.codigoReparticion) ? (cargosVacantesMap.get(r.codigoReparticion) ?? null) : null,
-      razonSinCargo: (!personasMap.has(r.codigoReparticion) && !cargosVacantesMap.has(r.codigoReparticion))
-        ? (razonSinCargoMap.get(r.codigoReparticion) ?? null)
+      cargoVacante: !personasMap.has(r.codigoReparticion)
+        ? (cargosVacantesMap.get(r.codigoReparticion) ?? null)
         : null,
+      razonSinCargo:
+        !personasMap.has(r.codigoReparticion) && !cargosVacantesMap.has(r.codigoReparticion)
+          ? (razonSinCargoMap.get(r.codigoReparticion) ?? null)
+          : null,
       hijos: [],
     })
   }
@@ -317,7 +393,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   let sdhosCod: string | null = null
   if (sigla) {
     for (const r of rows) {
-      if (r.tipo === 'SDHOS' && r.descRep?.includes('Subdirección Médica')) sdhosCod = r.codigoReparticion
+      if (r.tipo === 'SDHOS' && r.descRep?.includes('Subdirección Médica'))
+        sdhosCod = r.codigoReparticion
     }
   }
 
@@ -351,7 +428,8 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // aporta algo que `raices` no tiene (el hospital real), así que conviene
   // usarla como raíz visual y colgarle el huérfano al lado, para no perder
   // esa fila silenciosamente ni tapar el árbol real.
-  const anclaExterna = padresFuera.length === 1 ? mapa.get(padresFuera[0]!.codigoReparticion) : undefined
+  const anclaExterna =
+    padresFuera.length === 1 ? mapa.get(padresFuera[0]!.codigoReparticion) : undefined
 
   let raiz: OrganigramaNodo | null = null
   if (anclaExterna && anclaExterna.hijos.length > 0) {
@@ -368,10 +446,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     // Huérfanos que comparten un mismo padre fuera de este recorte (ej. la SS
     // de Atención Primaria vive bajo un nodo de Nivel Central) -> se busca ese
     // nodo ancla en la base para usarlo de raíz visual.
-    const padres = new Set(raices.map((n) => n.padre).filter((p): p is string => !!p && p !== 'ROOT'))
+    const padres = new Set(
+      raices.map((n) => n.padre).filter((p): p is string => !!p && p !== 'ROOT'),
+    )
     if (padres.size === 1) {
       const anchorCod = [...padres][0]!
-      const anchor = await prisma.organigrama.findUnique({ where: { codigoReparticion: anchorCod } })
+      const anchor = await prisma.organigrama.findUnique({
+        where: { codigoReparticion: anchorCod },
+      })
       if (anchor) {
         raiz = {
           id: anchor.codigoReparticion,
@@ -381,10 +463,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
           padre: anchor.padre,
           regimenEmpleo: anchor.regimenEmpleo || '',
           persona: personasMap.get(anchor.codigoReparticion) ?? null,
-          cargoVacante: !personasMap.has(anchor.codigoReparticion) ? (cargosVacantesMap.get(anchor.codigoReparticion) ?? null) : null,
-          razonSinCargo: (!personasMap.has(anchor.codigoReparticion) && !cargosVacantesMap.has(anchor.codigoReparticion))
-            ? (razonSinCargoMap.get(anchor.codigoReparticion) ?? null)
+          cargoVacante: !personasMap.has(anchor.codigoReparticion)
+            ? (cargosVacantesMap.get(anchor.codigoReparticion) ?? null)
             : null,
+          razonSinCargo:
+            !personasMap.has(anchor.codigoReparticion) &&
+            !cargosVacantesMap.has(anchor.codigoReparticion)
+              ? (razonSinCargoMap.get(anchor.codigoReparticion) ?? null)
+              : null,
           hijos: raices,
         }
       }
@@ -392,9 +478,12 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     // Caso 2: múltiples raíces sin padre común (ej. nodos generados desde cargos
     // sin jerarquía) — crear nodo virtual que las agrupe todas.
     if (!raiz) {
-      const label = seccion === 'nivel-central' ? 'Nivel Central'
-        : seccion === 'atencion-primaria' ? 'Atención Primaria'
-        : seccion ?? sigla ?? 'Organigrama'
+      const label =
+        seccion === 'nivel-central'
+          ? 'Nivel Central'
+          : seccion === 'atencion-primaria'
+            ? 'Atención Primaria'
+            : (seccion ?? sigla ?? 'Organigrama')
       raiz = {
         id: `ROOT_${seccion ?? sigla}`,
         nombre: label,
@@ -411,7 +500,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   }
 
   if (!raiz) {
-    throw AppError.notFound(`No se encontró nodo raíz para ${sigla ? `el hospital ${sigla}` : `la sección ${seccion}`}`)
+    throw AppError.notFound(
+      `No se encontró nodo raíz para ${sigla ? `el hospital ${sigla}` : `la sección ${seccion}`}`,
+    )
   }
 
   // === 7. Agrupar hijos de SDHOS por régimen de empleo ===
@@ -535,7 +626,11 @@ const HOSPITAL_TIPO_A_UNIVERSO: Record<string, string> = {
 const SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA = 'SSAPAC'
 
 function normalizarTexto(s: string): string {
-  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
 }
 
 export function esFilaArea(tipo: string | null | undefined): boolean {
@@ -552,18 +647,25 @@ export function inferirRegimenEmpleoPorTipo(tipo: string): string | null {
 export function inferirUniversoTotalizador(
   sigla: string,
   tipo: string,
-  hospitalTipoPorSigla: Map<string, string | null>
+  hospitalTipoPorSigla: Map<string, string | null>,
 ): string {
   const hospitalTipo = hospitalTipoPorSigla.get(sigla)
   if (hospitalTipo) {
     const universo = HOSPITAL_TIPO_A_UNIVERSO[normalizarTexto(hospitalTipo)]
     if (universo) return universo
   }
-  if (sigla === SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA && tipo.trim().toUpperCase() !== 'SSEC/DIREJE') return 'ATENCION PRIMARIA'
+  if (
+    sigla === SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA &&
+    tipo.trim().toUpperCase() !== 'SSEC/DIREJE'
+  )
+    return 'ATENCION PRIMARIA'
   return 'NIVEL CENTRAL'
 }
 
-function normalizarFilaExcel(norm: Record<string, unknown>, numeroFila: number): Prisma.OrganigramaCreateManyInput {
+function normalizarFilaExcel(
+  norm: Record<string, unknown>,
+  numeroFila: number,
+): Prisma.OrganigramaCreateManyInput {
   const lvlRaw = celda(norm, 'lvl')
   const tipo = celda(norm, 'tipo')
   const codigoReparticion = celda(norm, 'codigo_reparticion')
@@ -572,14 +674,23 @@ function normalizarFilaExcel(norm: Record<string, unknown>, numeroFila: number):
   const pathNombres = celda(norm, 'path_nombres')
 
   const faltantes = [
-    ['lvl', lvlRaw], ['tipo', tipo], ['codigo_reparticion', codigoReparticion],
-    ['sigla', sigla], ['path', path], ['path_nombres', pathNombres],
-  ].filter(([, v]) => v === null).map(([k]) => k)
+    ['lvl', lvlRaw],
+    ['tipo', tipo],
+    ['codigo_reparticion', codigoReparticion],
+    ['sigla', sigla],
+    ['path', path],
+    ['path_nombres', pathNombres],
+  ]
+    .filter(([, v]) => v === null)
+    .map(([k]) => k)
   if (faltantes.length) {
-    throw AppError.badRequest(`Fila ${numeroFila}: faltan columnas obligatorias (${faltantes.join(', ')})`)
+    throw AppError.badRequest(
+      `Fila ${numeroFila}: faltan columnas obligatorias (${faltantes.join(', ')})`,
+    )
   }
   const lvl = Number(lvlRaw)
-  if (!Number.isFinite(lvl)) throw AppError.badRequest(`Fila ${numeroFila}: "lvl" no es un número (${lvlRaw})`)
+  if (!Number.isFinite(lvl))
+    throw AppError.badRequest(`Fila ${numeroFila}: "lvl" no es un número (${lvlRaw})`)
 
   return {
     lvl,
@@ -595,7 +706,11 @@ function normalizarFilaExcel(norm: Record<string, unknown>, numeroFila: number):
   }
 }
 
-export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: string, filename?: string): Promise<{ filas: number }> {
+export async function reemplazarOrganigramaService(
+  buffer: Buffer,
+  usuarioId?: string,
+  filename?: string,
+): Promise<{ filas: number }> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw AppError.badRequest('El archivo no tiene ninguna hoja')
   const hoja = wb.Sheets[wb.SheetNames[0]]
@@ -614,7 +729,9 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
   const vistos = new Set<string>()
   for (const f of filas) {
     if (vistos.has(f.codigoReparticion)) {
-      throw AppError.badRequest(`codigo_reparticion duplicado en el archivo: ${f.codigoReparticion}`)
+      throw AppError.badRequest(
+        `codigo_reparticion duplicado en el archivo: ${f.codigoReparticion}`,
+      )
     }
     vistos.add(f.codigoReparticion)
   }
@@ -623,11 +740,17 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
   // trae (formato "Árbol Salud" original) — ver comentario extenso arriba. Se
   // hereda por codigo_reparticion de la carga anterior; si el código es nuevo
   // se sugiere el universo y se corta la carga pidiendo el régimen a mano.
-  const historial = new Map<string, { regimenEmpleo: string | null; universoTotalizador: string | null }>()
+  const historial = new Map<
+    string,
+    { regimenEmpleo: string | null; universoTotalizador: string | null }
+  >()
   for (const r of await prisma.organigrama.findMany({
     select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
   })) {
-    historial.set(r.codigoReparticion, { regimenEmpleo: r.regimenEmpleo, universoTotalizador: r.universoTotalizador })
+    historial.set(r.codigoReparticion, {
+      regimenEmpleo: r.regimenEmpleo,
+      universoTotalizador: r.universoTotalizador,
+    })
   }
   const hospitalTipoPorSigla = new Map<string, string | null>()
   for (const h of await prisma.hospital.findMany({ select: { sigla: true, tipo: true } })) {
@@ -637,31 +760,63 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
   // Mapa sigla|universo -> regimenEmpleo: si todos los nodos existentes de esa
   // combinación tienen el mismo régimen, se puede inferir para nodos nuevos.
   const regimenSetPorSiglaUniverso = new Map<string, Set<string>>()
+  // Mapa más fino sigla|universo|tipo -> regimenEmpleo. Necesario porque hay
+  // siglas (ej. SSSAME) donde sigla|universo mezcla varios regímenes, pero
+  // dentro de un mismo TIPO (ej. "DIV CA") el régimen es consistente. Se usa
+  // como fallback cuando sigla|universo no alcanza (ver loop de pendientes).
+  const regimenSetPorSiglaUniversoTipo = new Map<string, Set<string>>()
   for (const r of await prisma.organigrama.findMany({
-    select: { sigla: true, universoTotalizador: true, regimenEmpleo: true },
+    select: { sigla: true, universoTotalizador: true, regimenEmpleo: true, tipo: true },
     where: { regimenEmpleo: { not: '' } },
   })) {
     const key = `${r.sigla}|${r.universoTotalizador ?? ''}`
     if (!regimenSetPorSiglaUniverso.has(key)) regimenSetPorSiglaUniverso.set(key, new Set())
     regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo)
+
+    const keyTipo = `${r.sigla}|${r.universoTotalizador ?? ''}|${normalizarHeader(r.tipo ?? '')}`
+    if (!regimenSetPorSiglaUniversoTipo.has(keyTipo))
+      regimenSetPorSiglaUniversoTipo.set(keyTipo, new Set())
+    regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo)
   }
   const regimenPorSiglaUniverso = new Map<string, string>()
   for (const [key, set] of regimenSetPorSiglaUniverso) {
     if (set.size === 1) regimenPorSiglaUniverso.set(key, [...set][0])
   }
+  const regimenPorSiglaUniversoTipo = new Map<string, string>()
+  for (const [key, set] of regimenSetPorSiglaUniversoTipo) {
+    if (set.size === 1) regimenPorSiglaUniversoTipo.set(key, [...set][0])
+  }
 
-  const pendientes: Array<{ codigoReparticion: string; tipo: string; descRep: string | null; sigla: string; universoSugerido: string }> = []
+  const pendientes: Array<{
+    codigoReparticion: string
+    tipo: string
+    descRep: string | null
+    sigla: string
+    universoSugerido: string
+  }> = []
   for (const f of filas) {
     const hist = historial.get(f.codigoReparticion)
     if (!f.universoTotalizador) {
-      f.universoTotalizador = hist?.universoTotalizador ?? inferirUniversoTotalizador(f.sigla, f.tipo, hospitalTipoPorSigla)
+      f.universoTotalizador =
+        hist?.universoTotalizador ??
+        inferirUniversoTotalizador(f.sigla, f.tipo, hospitalTipoPorSigla)
     }
     if (!f.regimenEmpleo) {
       if (hist?.regimenEmpleo) {
         f.regimenEmpleo = hist.regimenEmpleo
       } else {
-        const inferido = regimenPorSiglaUniverso.get(`${f.sigla}|${f.universoTotalizador ?? ''}`)
-          ?? inferirRegimenEmpleoPorTipo(f.tipo)
+        // Orden de inferencia (de más específico a más general):
+        //   1. sigla|universo|tipo — régimen consistente dentro del mismo tipo
+        //      (cubre casos como SSSAME donde la sigla mezcla regímenes pero
+        //      cada TIPO —ej. "DIV CA"— es homogéneo).
+        //   2. sigla|universo — régimen único para toda la sigla en ese universo.
+        //   3. por tipo — solo Autoridades Superiores.
+        const inferido =
+          regimenPorSiglaUniversoTipo.get(
+            `${f.sigla}|${f.universoTotalizador ?? ''}|${normalizarHeader(f.tipo)}`,
+          ) ??
+          regimenPorSiglaUniverso.get(`${f.sigla}|${f.universoTotalizador ?? ''}`) ??
+          inferirRegimenEmpleoPorTipo(f.tipo)
         if (inferido) {
           f.regimenEmpleo = inferido
         } else {
@@ -686,15 +841,20 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
     const TOPE_DETALLE = 25
     const detalle = pendientes
       .slice(0, TOPE_DETALLE)
-      .map((p) => `${p.codigoReparticion} (${p.tipo}, "${p.descRep ?? 'sin descripción'}", sigla ${p.sigla}, universo sugerido: ${p.universoSugerido})`)
+      .map(
+        (p) =>
+          `${p.codigoReparticion} (${p.tipo}, "${p.descRep ?? 'sin descripción'}", sigla ${p.sigla}, universo sugerido: ${p.universoSugerido})`,
+      )
       .join('; ')
-    const resto = pendientes.length > TOPE_DETALLE ? ` ... y ${pendientes.length - TOPE_DETALLE} más.` : ''
-    const sugerenciaVacio = historial.size === 0
-      ? ' La tabla "organigramas" está vacía — si es una carga inicial, cargá primero el histórico ya clasificado (script import-organigrama.ts o un Excel ya curado con REGIMEN EMPLEO) antes de usar este endpoint para altas puntuales.'
-      : ''
+    const resto =
+      pendientes.length > TOPE_DETALLE ? ` ... y ${pendientes.length - TOPE_DETALLE} más.` : ''
+    const sugerenciaVacio =
+      historial.size === 0
+        ? ' La tabla "organigramas" está vacía — si es una carga inicial, cargá primero el histórico ya clasificado (script import-organigrama.ts o un Excel ya curado con REGIMEN EMPLEO) antes de usar este endpoint para altas puntuales.'
+        : ''
     throw AppError.badRequest(
       `${pendientes.length} repartición(es) nueva(s) sin REGIMEN EMPLEO (no se puede inferir solo): ${detalle}.${resto} ` +
-        `Agregá la columna "REGIMEN EMPLEO" con el valor correspondiente para estos códigos puntuales y volvé a subir el archivo.${sugerenciaVacio}`
+        `Agregá la columna "REGIMEN EMPLEO" con el valor correspondiente para estos códigos puntuales y volvé a subir el archivo.${sugerenciaVacio}`,
     )
   }
 
@@ -710,7 +870,7 @@ export async function reemplazarOrganigramaService(buffer: Buffer, usuarioId?: s
         await tx.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
       }
     },
-    { timeout: 120_000 }
+    { timeout: 120_000 },
   )
 
   await prisma.organigramaUpload.create({
