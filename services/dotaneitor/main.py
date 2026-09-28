@@ -3,6 +3,7 @@ Dotaneitor — Microservicio FastAPI
 Puerto: 5001
 """
 import asyncio
+import gc
 import io
 import os
 import shutil
@@ -65,7 +66,13 @@ def _cargar_todas_las_tablas_ref():
 
 _cargar_todas_las_tablas_ref()
 
-SESSION_TTL = 7200
+# TTL de sesión en memoria. Bajo a propósito: el objeto automation (con el
+# resultado_df de ~48k filas + detalle_calidad) queda en RAM mientras la sesión
+# vive, y en instancias chicas (512MB) acumular varias revienta la memoria. El
+# resultado se persiste a parquet, así que una sesión expirada se reconstruye
+# desde disco al vuelo (ver get_session). 20 min cubre de sobra el flujo
+# procesar → cruzar → preview → descargar de un upload.
+SESSION_TTL = int(os.getenv('SESSION_TTL', '1200'))
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title='Dotaneitor', version='2.0')
@@ -315,11 +322,13 @@ def _df_to_excel_bytes(df: pd.DataFrame, sheet_name: str = 'Hoja1') -> bytes:
 def _cleanup_loop():
     while True:
         import time as _time
-        _time.sleep(1800)
+        _time.sleep(300)  # revisar cada 5 min (antes 30) para liberar RAM antes
         cutoff = time() - SESSION_TTL
         to_del = [sid for sid, s in sessions.items() if s['last_access'] < cutoff]
         for sid in to_del:
             _remove_session(sid)
+        if to_del:
+            gc.collect()
 
 
 def _remove_session(session_id: str):
@@ -331,10 +340,17 @@ def _remove_session(session_id: str):
 
 def _save_df(session_id: str, df: pd.DataFrame):
     path = TMP_DIR / session_id / 'resultado.parquet'
-    df = df.copy()
-    for col in df.select_dtypes(include='object').columns:
-        df[col] = df[col].where(df[col].isna(), df[col].astype(str))
+    # Castear columnas object a str para parquet SIN copiar el DataFrame entero:
+    # se arma un dict con solo las columnas object convertidas y se pasa a
+    # to_parquet vía un DataFrame liviano que comparte el resto de las columnas.
+    # (antes se hacía df.copy() completo — otra duplicación del padrón de 48k).
+    obj_cols = list(df.select_dtypes(include='object').columns)
+    if obj_cols:
+        casted = {c: df[c].where(df[c].isna(), df[c].astype(str)) for c in obj_cols}
+        df = df.assign(**casted)
     df.to_parquet(path, index=False)
+    del df
+    gc.collect()
 
 
 def _load_df(session_id: str) -> pd.DataFrame | None:
@@ -383,9 +399,15 @@ async def upload_cargos(session_id: str = Form(...), file: UploadFile = File(...
     dest = folder / file.filename
     dest.write_bytes(await file.read())
 
+    # Contar filas sin cargar el padrón entero en memoria: openpyxl en modo
+    # read-only recorre las filas de a una (antes se hacía pd.read_excel del
+    # archivo completo — ~48k filas × 57 cols — solo para un len()).
     try:
-        df_full = pd.read_excel(dest, sheet_name='Sheet1')
-        rows = len(df_full)
+        from openpyxl import load_workbook
+        wb = load_workbook(dest, read_only=True)
+        ws = wb['Sheet1']
+        rows = max((ws.max_row or 1) - 1, 0)  # descontar la fila de header
+        wb.close()
     except Exception:
         rows = None
 

@@ -4,6 +4,7 @@
 # poder importar DotacionAutomation sin arrastrarla. Se sacó de acá (la app de
 # escritorio standalone con GUI vive en su repo original, dotacion-rrhh); esto
 # es ahora solo el módulo de lógica de negocio, y ya no depende de tkinter.
+import gc
 import pandas as pd
 import numpy as np
 import traceback
@@ -117,7 +118,13 @@ class DotacionAutomation:
     def procesar(self):
         """Ejecuta todas las transformaciones"""
         try:
-            df = self.cargos_df.copy()
+            # Se trabaja sobre el DataFrame de entrada directamente (sin copia):
+            # cargos_df solo se usa acá y no se vuelve a leer, así evitamos tener
+            # dos copias del padrón completo (~48k filas) vivas a la vez, que es
+            # el mayor pico de memoria del pipeline. Se transfiere la referencia
+            # y se libera el atributo para que el original quede en una sola var.
+            df = self.cargos_df
+            self.cargos_df = None
             
             # 0. Limpiar y ajustar datos previos
             # Limpiar SIGLA: UAIEAIT -> EAIT, quitar DGA solo de siglas que empiezan con DGAH
@@ -165,14 +172,11 @@ class DotacionAutomation:
             df['LIT_COD_REG_LIMPIO'] = df['LIT_COD_REG'].astype(str).str.replace('|', '').str.strip()
             df['CRUCE_UNIFICADOR'] = df['LIT_COD_REG_LIMPIO'] + ' - ' + df['LIT_PUESTO'].astype(str)
             
-            # Crear diccionario de búsqueda para UNIFICADOR (normalizado: sin tilde, mayúscula)
-            unificador_map = {}
+            # Crear diccionario de búsqueda para UNIFICADOR (normalizado: sin tilde, mayúscula).
+            # Solo se arma el mapa normalizado (el crudo no se usaba).
             unificador_map_norm = {}
             for idx, row in self.unificador_df.iterrows():
-                cruce = str(row['Cruce'])
-                valor = row.get('UNIFICADOR DE PUESTO')
-                unificador_map[cruce] = valor
-                unificador_map_norm[sin_tilde_mayuscula(cruce)] = valor
+                unificador_map_norm[sin_tilde_mayuscula(str(row['Cruce']))] = row.get('UNIFICADOR DE PUESTO')
             
             cruce_norm = df['CRUCE_UNIFICADOR'].apply(
                 lambda v: sin_tilde_mayuscula(str(v)) if isinstance(v, str) else v
@@ -186,18 +190,16 @@ class DotacionAutomation:
             )
 
             df = df.drop(columns=['CRUCE_UNIFICADOR', 'LIT_COD_REG_LIMPIO'])
+            del cruce_norm, mask_sin_unificador, unificador_map_norm
             
             # 7. Crear AGRUPADOR
             df['CRUCE_AGRUPADOR'] = df['ESCALAFON'].astype(str) + ' - ' + df['LIT_PUESTO'].astype(str)
             
-            # Crear diccionario de búsqueda para AGRUPADOR (normalizado: sin tilde, mayúscula)
-            agrupador_map = {}
+            # Crear diccionario de búsqueda para AGRUPADOR (normalizado: sin tilde, mayúscula).
+            # Solo se arma el mapa normalizado (el crudo no se usaba).
             agrupador_map_norm = {}
             for idx, row in self.agrupador_df.iterrows():
-                cruce = str(row['CRUCE'])
-                valor = row.get('AGRUPADOR')
-                agrupador_map[cruce] = valor
-                agrupador_map_norm[sin_tilde_mayuscula(cruce)] = valor
+                agrupador_map_norm[sin_tilde_mayuscula(str(row['CRUCE']))] = row.get('AGRUPADOR')
             
             cruce_agrup_norm = df['CRUCE_AGRUPADOR'].apply(
                 lambda v: sin_tilde_mayuscula(str(v)) if isinstance(v, str) else v
@@ -218,6 +220,13 @@ class DotacionAutomation:
             )
 
             df = df.drop(columns=['CRUCE_AGRUPADOR'])
+            del cruce_agrup_norm, mask_sin_agrupador, agrupador_map_norm
+            # Las tablas de referencia ya no se usan después de los cruces; se
+            # liberan para no arrastrarlas mientras corre el resto del proceso.
+            self.siglas_df = None
+            self.unificador_df = None
+            self.agrupador_df = None
+            gc.collect()
             
             # 7.5. Ajustar AGRUPADOR: si COD_SIT=32 y AGRUPADOR="Enfermero/a", cambiar a "Enfermero/a ATP"
             df.loc[(df['AGRUPADOR'] == 'Enfermero/a') & (df['COD_SIT'].astype(str) == '32'), 'AGRUPADOR'] = 'Enfermero/a ATP'
