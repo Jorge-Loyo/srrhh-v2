@@ -1425,6 +1425,25 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         AND (o.universo_totalizador IS DISTINCT FROM h.universo_totalizador)
     `
 
+    // ── 10. Reactivar personas con ocupación vigente ───────────────────────
+    // Invariante de negocio: una persona con al menos una ocupación vigente
+    // (hasta IS NULL) NO puede estar inactiva. El paso 5 solo inactiva (nunca
+    // reactiva) y las altas del paso 3 usan skipDuplicates (no tocan el flag
+    // de una persona ya existente), así que un REINGRESO (persona dada de baja
+    // que vuelve a aparecer con un cargo nuevo) quedaba inactiva con cargo
+    // activo. Este paso cierra ese hueco de forma idempotente: al final de cada
+    // aprobación, cualquier persona inactiva que tenga una ocupación vigente
+    // vuelve a activo=true. Corre después de crear altas y de procesar bajas.
+    await tx.$executeRaw`
+      UPDATE personas p
+      SET activo = true
+      WHERE p.activo = false
+        AND EXISTS (
+          SELECT 1 FROM ocupaciones o
+          WHERE o.persona_id = p.id AND o.hasta IS NULL
+        )
+    `
+
     await tx.padronSnapshot.update({
       where: { id },
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
