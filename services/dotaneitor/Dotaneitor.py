@@ -502,31 +502,53 @@ class DotacionAutomation:
         ]
         vacios_por_fila = df[columnas_nucleo].apply(lambda col: col.map(_vacio)).sum(axis=1)
 
-        indices_a_eliminar = []
+        # Elegir la fila a CONSERVAR por grupo de forma vectorizada: la de menos
+        # columnas núcleo vacías y, a igualdad, la de menor índice (orden de
+        # aparición). Se ordena una sola vez por (id, vacios, indice) y el primer
+        # elemento de cada grupo es el conservado; el resto se descarta.
+        # (Antes: groupby.groups + sorted por grupo en un bucle Python — costoso
+        # sobre decenas de miles de duplicados y retenía el GIL varios minutos,
+        # lo que en 1 CPU dejaba sin responder al health check y Render reiniciaba.)
+        dup = df.loc[mask_dup, [columna_id]].copy()
+        dup['__vac'] = vacios_por_fila.loc[dup.index].to_numpy()
+        dup['__idx'] = dup.index.to_numpy()
+        dup_ordenado = dup.sort_values([columna_id, '__vac', '__idx'], kind='mergesort')
+        # Primer registro de cada id = conservado; los demás = descartados.
+        es_conservado = ~dup_ordenado.duplicated(subset=[columna_id], keep='first')
+        idx_conservado_por_id = (
+            dup_ordenado.loc[es_conservado].set_index(columna_id)['__idx']
+        )
+        indices_a_eliminar = dup_ordenado.loc[~es_conservado, '__idx'].tolist()
+
+        # Detalle para el reporte de calidad: en qué columnas difería cada fila
+        # descartada respecto de la conservada de su grupo. Se calcula solo sobre
+        # las filas DESCARTADAS (subconjunto chico) comparando escalar contra la
+        # fila conservada — misma semántica exacta que la versión original (str()
+        # celda a celda), pero sin el sorted() por grupo ni recorrer los grupos
+        # sin duplicados. Las filas conservadas ya se resolvieron vectorizado.
         detalle_filas = []
-        grupos = df.loc[mask_dup].groupby(columna_id).groups
-        for id_sial, indices in grupos.items():
-            # df conserva el índice original (RangeIndex) en este punto del pipeline, así que el
-            # propio índice ya refleja el orden de aparición en el archivo de origen
-            orden = sorted(indices, key=lambda i: (vacios_por_fila[i], i))
-            idx_conservado = orden[0]
-            fila_conservada = df.loc[idx_conservado]
-            for idx in orden[1:]:
-                indices_a_eliminar.append(idx)
-                fila_descartada = df.loc[idx]
-                columnas_distintas = [
-                    c for c in df.columns
-                    if c != columna_id
-                    and str(fila_descartada.get(c)) != str(fila_conservada.get(c))
-                ]
-                valor = f"ID SIAL {id_sial}: fila descartada por duplicado"
-                if columnas_distintas:
-                    valor += f" (difería en: {', '.join(columnas_distintas)})"
-                detalle_filas.append({
-                    'CUIL Y ROL': fila_descartada.get('CUIL Y ROL'),
-                    'AYN': fila_descartada.get('AYN'),
-                    'VALOR': valor,
-                })
+        cols_comparar = [c for c in df.columns if c != columna_id]
+        conservada_cache: dict = {}
+        for idx in indices_a_eliminar:
+            id_sial = df.at[idx, columna_id]
+            idx_cons = idx_conservado_por_id.get(id_sial)
+            fila_conservada = conservada_cache.get(id_sial)
+            if fila_conservada is None:
+                fila_conservada = df.loc[idx_cons]
+                conservada_cache[id_sial] = fila_conservada
+            fila_descartada = df.loc[idx]
+            columnas_distintas = [
+                c for c in cols_comparar
+                if str(fila_descartada.get(c)) != str(fila_conservada.get(c))
+            ]
+            valor = f"ID SIAL {id_sial}: fila descartada por duplicado"
+            if columnas_distintas:
+                valor += f" (difería en: {', '.join(columnas_distintas)})"
+            detalle_filas.append({
+                'CUIL Y ROL': fila_descartada.get('CUIL Y ROL'),
+                'AYN': fila_descartada.get('AYN'),
+                'VALOR': valor,
+            })
 
         df_resultado = df.drop(index=indices_a_eliminar).reset_index(drop=True)
         detalle_df = pd.DataFrame(detalle_filas, columns=['CUIL Y ROL', 'AYN', 'VALOR'])
