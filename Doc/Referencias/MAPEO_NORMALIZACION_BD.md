@@ -198,3 +198,34 @@ retroactiva).
 | `diasGuardia` camelCase                                             | Corregir a `dias_guardia` (snake_case)                                                      | A21-5          |
 | postulantes redundante                                              | Dejar solo `inscriptos_concurso`                                                            | A21-6          |
 | `_backup_cph_estados`, `lit_familia` vacía, drift `cantidad_cargos` | Limpieza estructural                                                                        | A21-7          |
+
+---
+
+## 7. Inventario de tablas resultante (post S21/S22)
+
+Schema Prisma actual: **57 modelos**. Tras las adiciones planificadas:
+
+- **−2** por unificar postulantes (`postulantes`, `postulantes_concurso` → `inscriptos_concurso`, A21-6).
+- **+1** por el histórico de roles (`roles_persona`, A21-4b).
+
+**Total resultante: 56 tablas** (además la BD física pierde `_backup_cph_estados`, `pou_cargas`,
+`pou_especialidad_mapeo` y la vista `v_pou_triangulacion`, que no son modelos Prisma).
+
+### Agrupadas por origen del dato
+
+| Grupo                          | Tablas                                                                                                                                                                                                                                                                              | Se alimenta de                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Núcleo dotación** (6)        | `personas`, `cargos`, `ocupaciones`, `roles_persona`, `padron_snapshots`, `padron_diff`                                                                                                                                                                                             | Padrón vía **Dotaneitor** (pipeline lineal) + aprobación en Node    |
+| **Histórico / KPI** (2)        | `padron_historico`, `kpis_dotacion_snapshot`                                                                                                                                                                                                                                        | Corte al aprobar cada snapshot (base del KPI histórico por período) |
+| **Catálogos** (7)              | `escalafones`, `codigos_registro`, `puestos_cargo`, `especialidades_puesto`, `hospitales`, `organigramas`, `organigrama_uploads`                                                                                                                                                    | Seed curado + auto-alta revisable; Árbol por Excel de estructura    |
+| **Concursos** (11)             | `concursos`, `concursos_cph`, `concursos_ceetps`, `concursos_cph_desiertos`, `inscriptos_concurso`, `sorteos_jurado`, `miembros_jurado_sorteados`, `jornadas_sorteo`, `jornada_sorteo_concursos`, `ordenes_merito`, `orden_merito_integrantes`                                      | Carga manual + wizard del proceso concursal                         |
+| **Bajas / altas** (5)          | `bajas`, `baja_sial_snapshots`, `baja_sial_diffs`, `baja_sial_registros`, `solicitudes_alta`                                                                                                                                                                                        | Manual + upload archivo SIAL (Node)                                 |
+| **Workflow** (3)               | `autorizaciones`, `notificaciones`, `role_jerarquias`                                                                                                                                                                                                                               | Eventos automáticos del sistema                                     |
+| **POU** (1)                    | `pou`                                                                                                                                                                                                                                                                               | Excel mensual (Node); reemplaza la tabla entera                     |
+| **Referencia Dotaneitor** (10) | `ref_agrupadores`, `ref_unificadores_puesto`, `ref_especialidades_cuil`, `ref_abreviaturas_tecnicas`, `ref_abreviaturas_titulo`, `ref_correcciones_lit_puesto`, `ref_correcciones_especialidad`, `ref_especialidad_por_puesto`, `ref_conectores_minuscula`, `ref_sufijos_ordinales` | Seed; las lee el Dotaneitor al arrancar                             |
+| **Seguridad / auditoría** (6)  | `usuarios`, `roles`, `permisos`, `role_permisos`, `refresh_tokens`, `audit_logs`                                                                                                                                                                                                    | Gestión de usuarios + automático por request                        |
+| **Etiquetas** (5)              | `etiquetas` + 4 pivote (`etiquetas_cargo`, `etiquetas_concurso_cph`, `etiquetas_baja`, `etiquetas_solicitud_alta`)                                                                                                                                                                  | Etiquetado transversal manual                                       |
+
+**Flujos de carga de Excel (4):** solo el **padrón** pasa por el Dotaneitor (Python). **Bajas SIAL,
+POU y Organigrama** se procesan en Node con `xlsx` — ver §9.8 del doc de decisiones para la
+propuesta de unificar su normalización (A21-8, a confirmar).

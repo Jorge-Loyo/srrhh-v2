@@ -509,3 +509,87 @@ consumidores (módulo `postulantes` de back/front) a `inscriptos_concurso`.
   pero la columna sigue existiendo en `concursos_cph`/`concursos_ceetps` en la base local. Como la
   BD se rearma desde cero, el schema queda como fuente de verdad; verificar tras el reset que la
   columna efectivamente NO exista (coherente con Contrato_Datos).
+
+### 9.6 · Histórico de roles — tabla dedicada `roles_persona` (decisión 2026-09-22)
+
+`ocupaciones` hoy mezcla dos cosas: el **estado vivo** (quién ocupa qué hoy) y el **histórico de
+roles** de una persona. Se separa el histórico en una tabla propia:
+
+**`roles_persona`** — un registro por cada rol que tuvo la persona a lo largo del tiempo:
+
+| campo         | descripción                                                     |
+| ------------- | --------------------------------------------------------------- |
+| `id`          | PK                                                              |
+| `persona_id`  | FK → `personas` (vínculo directo a la persona)                  |
+| `id_sial`     | legajo SIAL **sin** el rol (clave de agrupación del histórico)  |
+| `nro_rol`     | número de rol dentro del legajo                                 |
+| `cargo_id`    | FK → `cargos` (mapeo del rol al cargo)                          |
+| `desde`       | inicio del rol                                                  |
+| `hasta`       | fin del rol (`null` = rol vigente)                              |
+| `id_sial_rol` | crudo `legajo-rol-cuil-rol` (auditoría / identificador natural) |
+
+- **PK de agrupación:** `id_sial` (legajo sin rol) permite responder "cuántos roles tuvo esta
+  persona" con un `COUNT` y mapear los cargos por el FK `cargo_id`.
+- **Relación con `ocupaciones` (decisión):** se adopta la **opción (a)** — `roles_persona` es el
+  histórico completo; `ocupaciones` queda como estado vivo. No se reemplaza `ocupaciones` (evitar
+  reescribir medio backend). A confirmar en la implementación si algún lector de `ocupaciones`
+  histórico debe pasar a `roles_persona`.
+- La vista de Personas (que hoy ya muestra bien esto derivándolo) pasa a leer de `roles_persona`.
+- Lo alimenta el pipeline al cargar (descomposición de `id_sial_rol`, ver S22-16).
+
+### 9.7 · `padron_snapshots` y `padron_diff` — se conservan (decisión 2026-09-22)
+
+Ambas tablas **se mantienen** y son la base del análisis histórico:
+
+- **`padron_snapshots`**: cada snapshot es la foto de una fecha. Habilita consultas históricas por
+  período sin reconstruir nada (ej. "cuántos psicólogos había la 1ª semana de julio en tal
+  hospital" = consultar `padron_historico` del snapshot de esa fecha). Es el insumo del **KPI
+  mensual** pendiente (corte del último padrón de cada mes).
+- **`padron_diff`**: permite ver diferencias entre semanas sin recalcular. Se conserva.
+
+### 9.8 · Normalización de los OTROS Excel (bajas SIAL / POU / organigrama)
+
+Hallazgo (auditoría de código 2026-09-22): **solo el padrón pasa por el Dotaneitor (Python)**.
+Bajas SIAL, POU y Organigrama se procesan 100% en Node (`xlsx`). Estado real verificado leyendo el
+código:
+
+- **`toLowerCase` no existe en NINGÚN archivo del backend Node.** Es decir, ningún flujo Node baja
+  a minúscula. La única normalización de caja es `_forzar_mayusculas()` del Dotaneitor (Python), que
+  hoy fuerza **MAYÚSCULA** (lo contrario de lo que queremos).
+- **Bajas SIAL** (`bajas-sial.service.ts`): la función `str()` hace **solo `.trim()`** — no baja a
+  minúscula, no saca tildes, no repara mojibake. Los campos `ayn`, `desc_rep`, `lit_puesto`,
+  `mot_baja` entran **crudos** (MAYÚSCULA + tildes). La única regla es la canonización CPH
+  (`NOMBRES_CPH_VIEJOS` → `"Nueva Carrera Profesional Hospitalaria"`, en formato Título, con tilde),
+  duplicada a mano del `normalizador_cargos.py` de Python.
+- **POU** (`pou.service.ts`): `normalizeCell` hace trim + parseInt. Sin minúscula/tilde/mojibake.
+- **Organigrama** (`organigrama.service.ts`): tiene su propio `normalizarTexto` (NFD + strip de
+  diacríticos) que sí saca tildes, pero solo para **comparar/matchear**, no necesariamente para lo
+  que persiste; y es una copia suelta de la lógica de Python.
+
+Esto coincide con la auditoría de datos: `baja_sial_registros.desc_rep` = 100% mayúscula, 30.697 con
+tilde; `baja_sial_registros.ayn` = 100% mayúscula. **Hoy estos 3 flujos ya están "dañando" la BD**
+en el sentido de tu preocupación: meten texto sin normalizar.
+
+**Decisión de arquitectura (2026-09-22): paquete compartido, NO microservicios separados.**
+Se evaluó separar cada subida en su propio microservicio y se **descartó** por sobre-ingeniería:
+cada microservicio nuevo es más infra que deployar/monitorear (ya dolió con UN solo servicio Python
+en Render: OOM, timeouts, health checks), y bajas/POU/organigrama son cargas livianas que no
+necesitan Python ni pandas. El único que justifica microservicio propio es el padrón (pipeline
+pesado + pandas), y ya existe.
+
+**Decisión confirmada (2026-09-22):** **solo el padrón queda como microservicio** (Python/
+Dotaneitor, por el pipeline pesado). **Bajas SIAL, POU y Organigrama quedan como módulos internos
+en Node (TypeScript, mismo lenguaje que el backend)** — NO se crean microservicios nuevos para
+ellos. Los tres consumen un **paquete de normalización compartido** (`packages/normalizacion`, TS)
+con una única fuente de verdad (minúscula, sin tilde, mojibake, canonización CPH). El Dotaneitor
+(Python) mantiene su copia equivalente (no puede importar TS) y se documenta que ambas deben
+coincidir. Resuelve la consistencia **sin agregar infra**. Ver tareas A21-8..A21-11.
+
+### 9.9 · Peso del nuevo Dotaneitor — se espera **más liviano**
+
+El microservicio actual son ~2.313 líneas Python con dependencias pesadas (pandas 3, numpy,
+pyarrow, sqlalchemy, openpyxl). El rediseño lineal (S22) elimina justo lo que más pesa: sesiones en
+memoria, jobs con polling, **parquet temporal (`pyarrow`)**, reporte de calidad de 4 hojas y los
+endpoints `/normalizar`+`/procesar`+`/cruzar`+`/preview`+`/descargar`. Esto probablemente permite
+**soltar `pyarrow`** y aliviar memoria — ataca directamente la causa del OOM en Render (plan free
+512MB). La medición formal de peso queda como fase final (§7, punto 5).
