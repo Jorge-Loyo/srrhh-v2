@@ -222,3 +222,29 @@ DB). Se decidió **limpieza de raíz** (BD de desarrollo, descartable):
 > `agustin` tiene el historial viejo — al integrar, deberá **resetear su BD local** (`migrate reset`)
 > contra el nuevo historial, no intentar mergear migraciones viejas con las nuevas. Sus cambios de
 > CÓDIGO se mergean normal; solo el historial de `prisma/migrations/` es el que se consolidó.
+
+---
+
+## Progreso de ejecución (2026-09-22)
+
+Backend implementado y verificado (typecheck back+front OK, SQL validado en BD local):
+
+- ✅ **A21-3/4/4b/5/6** — lote de schema (personas apellido/nombre, ocupaciones cuil/dias_guardia,
+  `roles_persona`, drop postulantes). Consolidado en el baseline `0_init`.
+- ✅ **A21-8/9/10/11** — paquete `@srrhh/normalizacion` + integración en bajas-SIAL/POU/organigrama.
+- ✅ **A21-12..A21-16** — correctivas del catálogo (codigos_registro, normalización, dedup, remap).
+- ✅ **S21-1** — `inscriptos_concurso.personaId` (FK nullable) para el match diferido.
+- ✅ **S21-2** — filtro/alerta de OM por especialidad **normalizada** (`normalizarTexto`), y guardado
+  normalizado al crear OM/integrante. Sin FK (dato externo).
+- ✅ **A21-18** — match diferido CUIL→persona en `aprobarSnapshotService` (bloque 6c): al aprobar
+  snapshot, vincula `personaId` en `orden_merito_integrantes` e `inscriptos_concurso` cuyo CUIL
+  entra al padrón. Idempotente, por CUIL normalizado a 11 dígitos.
+
+Pendiente (próxima sesión — es lo más riesgoso, toca varios lectores):
+
+- ⏳ **S21-5/6/7** — `Persona.especialidadPrincipal` (write-once/stale) → derivar en runtime desde
+  el cargo vigente (`LEFT JOIN LATERAL` Ocupacion→Cargo). Migrar lectores: `sorteoJurado.service`
+  (fallback `especialidadCph ?? especialidadPrincipal`), `personas.service`, selects de
+  `concursos-cph.service`. Evaluar si se elimina la columna o queda deprecada (ya existe
+  `especialidadCph` que sí se resincroniza cada semana en el bloque 6b).
+- ⏳ **S21-4** (frontend combobox), **S21-8/9** (exportables), **S21-10/11** (e2e).

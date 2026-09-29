@@ -1,3 +1,4 @@
+import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type {
@@ -32,10 +33,13 @@ const includeIntegrantes = {
 
 export async function listOrdenesMeritoService(query: OrdenesMeritoQuery) {
   const { concursoCphId, especialidad, estado } = query
+  // S21-2: la especialidad se guarda normalizada (minúscula/sin tilde) en origen,
+  // así que el filtro compara contra el término también normalizado — el match
+  // deja de depender de casing/tildes (bug de "Clínica Médica" vs "Clinica Medica").
   return prisma.ordenMerito.findMany({
     where: {
       ...(concursoCphId && { concursoCphId }),
-      ...(especialidad && { especialidad: { contains: especialidad, mode: 'insensitive' } }),
+      ...(especialidad && { especialidad: { contains: normalizarTexto(especialidad) } }),
       ...(estado && { estado }),
     },
     include: includeIntegrantes,
@@ -55,8 +59,10 @@ export async function createOrdenMeritoService(body: CreateOrdenMeritoBody) {
   return prisma.ordenMerito.create({
     data: {
       concursoCphId: body.concursoCphId,
-      especialidad: body.especialidad,
-      ...(body.puesto && { puesto: body.puesto }),
+      // S21-2: especialidad/puesto se guardan normalizados (minúscula/sin tilde)
+      // para que el filtro y la alerta hagan match consistente.
+      especialidad: normalizarTexto(body.especialidad),
+      ...(body.puesto && { puesto: normalizarTexto(body.puesto) }),
       ...(body.expediente && { expediente: body.expediente }),
       fechaPublicacion,
       fechaVencimiento,
@@ -118,7 +124,7 @@ export async function createIntegranteService(ordenMeritoId: string, body: Creat
       cuil: body.cuil,
       apellidoNombre: body.apellidoNombre,
       posicion: body.posicion,
-      ...(body.especialidad && { especialidad: body.especialidad }),
+      ...(body.especialidad && { especialidad: normalizarTexto(body.especialidad) }),
       ...(persona && { personaId: persona.id }),
     },
     include: { persona: { select: { id: true, cuil: true, apellidoNombre: true } } },
@@ -161,7 +167,8 @@ export async function alertaOrdenesMeritoService(query: AlertaQuery) {
   const hoy = new Date()
   return prisma.ordenMerito.findMany({
     where: {
-      especialidad: { contains: query.especialidad, mode: 'insensitive' },
+      // S21-2: match por especialidad normalizada (columna ya normalizada en origen)
+      especialidad: { contains: normalizarTexto(query.especialidad) },
       estado: { in: ['vigente', 'prorrogada'] },
       // Vigente si no venció (o tiene prórroga activa)
       OR: [

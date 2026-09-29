@@ -1372,6 +1372,38 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     }
 
+    // ── 6c. A21-18: match diferido CUIL→persona (Orden de Mérito + inscriptos).
+    //       Los integrantes de OM e inscriptos a concurso son datos externos que
+    //       pueden cargarse por CUIL antes de que la persona exista en el padrón
+    //       (ver Doc/Referencias/DOTANEITOR_DECISIONES.md §9.12). Cuando ese CUIL
+    //       entra al padrón (aparece acá), se vincula personaId automáticamente.
+    //       Idempotente: solo toca filas con persona_id NULL. El CUIL de OM/
+    //       inscripto puede venir con o sin guiones — se normaliza a 11 dígitos
+    //       en el join (regexp_replace) contra personas.cuil (ya son 11 dígitos).
+    if (cuilsEnEstePadron.length > 0) {
+      for (const lote of chunk(cuilsEnEstePadron, 1000)) {
+        // Orden de Mérito
+        await tx.$executeRaw`
+          UPDATE orden_merito_integrantes omi
+          SET persona_id = p.id
+          FROM personas p
+          WHERE omi.persona_id IS NULL
+            AND p.cuil = ANY(${lote})
+            AND regexp_replace(omi.cuil, '\D', '', 'g') = p.cuil
+        `
+        // Inscriptos a concurso
+        await tx.$executeRaw`
+          UPDATE inscriptos_concurso ic
+          SET persona_id = p.id
+          FROM personas p
+          WHERE ic.persona_id IS NULL
+            AND ic.cuil IS NOT NULL
+            AND p.cuil = ANY(${lote})
+            AND regexp_replace(ic.cuil, '\D', '', 'g') = p.cuil
+        `
+      }
+    }
+
     // ── 7. Histórico: una sola lectura en bloque del estado final de todas
     //       las ocupaciones tocadas, y un createMany en vez de un create por
     //       fila ────────────────────────────────────────────────────────────
