@@ -1,6 +1,33 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { prisma } from '../../shared/prisma.js'
+import { AppError } from '../../shared/errors/AppError.js'
+
+const crearPuestoSchema = z.object({
+  escalafonId: z.string().uuid(),
+  nombre: z.string().trim().min(1).max(200),
+  modalidad: z.enum(['pof', 'pou', 'ambos']),
+  tipoPuesto: z.enum(['ejecucion', 'conduccion']).default('ejecucion'),
+})
+
+const editarPuestoSchema = z.object({
+  nombre: z.string().trim().min(1).max(200).optional(),
+  activo: z.boolean().optional(),
+  tipoPuesto: z.enum(['ejecucion', 'conduccion']).optional(),
+  pendienteCurar: z.boolean().optional(),
+})
+
+const crearEspecialidadSchema = z.object({
+  puestoCargId: z.string().uuid(),
+  nombre: z.string().trim().min(1).max(200),
+})
+
+const editarEspecialidadSchema = z.object({
+  nombre: z.string().trim().min(1).max(200).optional(),
+  activo: z.boolean().optional(),
+})
 
 export async function puestosCargoRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -44,7 +71,35 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
       : tipoPuesto === 'conduccion'
         ? rows.filter((r) => r.modalidad === 'ambos')
         : rows
-    return reply.send({ data: filtrados.map((r) => r.nombre) })
+    // S20-11: el combobox necesita el id real para mandar puestoCargoId al
+    // backend — antes solo devolvía el nombre.
+    return reply.send({ data: filtrados.map((r) => ({ id: r.id, nombre: r.nombre })) })
+  })
+
+  // POST /puestos-cargo — S20-12: alta manual de puesto en el catálogo
+  app.post('/', { preHandler: requirePermiso({ modulo: 'cargos', accion: 'crear' }) }, async (request, reply) => {
+    const body = crearPuestoSchema.parse(request.body)
+    const creado = await prisma.puestoCargo.create({
+      data: {
+        escalafonId: body.escalafonId,
+        nombre: body.nombre,
+        modalidad: body.modalidad,
+        tipoPuesto: body.tipoPuesto,
+      },
+    })
+    return reply.status(201).send({ data: creado })
+  })
+
+  // PUT /puestos-cargo/:id — S20-12: editar nombre/activo/tipoPuesto, o
+  // marcar pendienteCurar=false una vez revisado un puesto auto-creado por
+  // el import del padrón (S20-6).
+  app.put('/:id', { preHandler: requirePermiso({ modulo: 'cargos', accion: 'editar' }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = editarPuestoSchema.parse(request.body)
+    const existente = await prisma.puestoCargo.findUnique({ where: { id } })
+    if (!existente) throw AppError.notFound('Puesto no encontrado')
+    const actualizado = await prisma.puestoCargo.update({ where: { id }, data: body })
+    return reply.send({ data: actualizado })
   })
 
   // GET /puestos-cargo/especialidades?escalafonId=&nombre=
@@ -64,11 +119,11 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
       if (!escalafonId) return reply.send({ data: [] })
       const rows = await prisma.especialidadPuesto.findMany({
         where: { activo: true, puesto: { activo: true, escalafonId } },
-        select: { nombre: true },
+        select: { id: true, nombre: true },
         distinct: ['nombre'],
         orderBy: { nombre: 'asc' },
       })
-      return reply.send({ data: rows.map((r) => r.nombre) })
+      return reply.send({ data: rows.map((r) => ({ id: r.id, nombre: r.nombre })) })
     }
 
     const puesto = await prisma.puestoCargo.findFirst({
@@ -80,12 +135,33 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
       include: {
         especialidades: {
           where: { activo: true },
-          select: { nombre: true },
+          select: { id: true, nombre: true },
           orderBy: { nombre: 'asc' },
         },
       },
     })
 
-    return reply.send({ data: puesto?.especialidades.map((e) => e.nombre) ?? [] })
+    return reply.send({ data: puesto?.especialidades.map((e) => ({ id: e.id, nombre: e.nombre })) ?? [] })
+  })
+
+  // POST /puestos-cargo/especialidades — S20-12: alta manual de especialidad
+  app.post('/especialidades', { preHandler: requirePermiso({ modulo: 'cargos', accion: 'crear' }) }, async (request, reply) => {
+    const body = crearEspecialidadSchema.parse(request.body)
+    const puesto = await prisma.puestoCargo.findUnique({ where: { id: body.puestoCargId } })
+    if (!puesto) throw AppError.notFound('Puesto no encontrado')
+    const creada = await prisma.especialidadPuesto.create({
+      data: { puestoCargId: body.puestoCargId, nombre: body.nombre },
+    })
+    return reply.status(201).send({ data: creada })
+  })
+
+  // PUT /puestos-cargo/especialidades/:id — S20-12: editar nombre/activo
+  app.put('/especialidades/:id', { preHandler: requirePermiso({ modulo: 'cargos', accion: 'editar' }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = editarEspecialidadSchema.parse(request.body)
+    const existente = await prisma.especialidadPuesto.findUnique({ where: { id } })
+    if (!existente) throw AppError.notFound('Especialidad no encontrada')
+    const actualizada = await prisma.especialidadPuesto.update({ where: { id }, data: body })
+    return reply.send({ data: actualizada })
   })
 }

@@ -20,6 +20,9 @@ export type ConcursosCeetpsQuery = z.infer<typeof concursosCeetpsQuerySchema>
 export const patchConcursoCeetpsSchema = z
   .object({
     expedienteConcurso: z.string().trim().max(150).nullable(),
+    // S20-10: id del catálogo — el string puestoSolicitado se recalcula en
+    // el backend a partir de este id (deja de aceptarse como input directo).
+    puestoCargoSolicitadoId: z.string().uuid().nullable(),
     puestoSolicitado: z.string().trim().max(200).nullable(),
     dispoLlamado: z.string().trim().max(500).nullable(),
     // Carga horaria (hs) — Enfermería/Técnicos. Apertura 2x18hs — solo Enfermería.

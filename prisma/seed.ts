@@ -1,7 +1,11 @@
 import { PrismaClient } from '@prisma/client'
 import * as bcrypt from 'bcrypt'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 const prisma = new PrismaClient()
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const HOSPITALES = [
   // Agudos
@@ -97,6 +101,52 @@ async function main() {
     },
   })
   console.log('✅ Usuario admin creado (admin / Admin1234!)')
+
+  // S20-4: catálogo curado de puesto/especialidad — extraído de los ~48k
+  // cargos reales pre-reset (2026-09-28, ver
+  // Doc/Planificacion/Sprints/SPRINT_20_consolidacion_puesto_escalafon_especialidad.md)
+  // más los ~167 puestos ya sembrados a mano. Solo se cargan puestos cuyo
+  // escalafón tiene un código ESTABLE (numérico SIAL o sembrado a mano
+  // ENF/TEC/CPH) — los escalafones "basura" con sufijo random (duplicados
+  // auto-creados por el padrón, fuera de alcance de este sprint) se saltean.
+  type PuestoCurado = {
+    escalafonCodigo: string
+    nombre: string
+    modalidad: 'pof' | 'pou' | 'ambos'
+    tipoPuesto: 'ejecucion' | 'conduccion'
+    especialidades: string[]
+  }
+  let puestosJson: PuestoCurado[] = []
+  try {
+    puestosJson = JSON.parse(readFileSync(join(__dirname, 'catalogo-puestos-curado.json'), 'utf-8'))
+  } catch {
+    console.log('ℹ️  Sin catalogo-puestos-curado.json — se omite la carga del catálogo (se puede regenerar con apps/api/scripts/extraer_catalogo_puestos.ts)')
+  }
+
+  let puestosCount = 0
+  let especialidadesCount = 0
+  for (const p of puestosJson) {
+    const escalafon = await prisma.escalafon.findUnique({ where: { codigo: p.escalafonCodigo } })
+    if (!escalafon) {
+      console.warn(`⚠️  Escalafón "${p.escalafonCodigo}" no existe — se omite el puesto "${p.nombre}"`)
+      continue
+    }
+    const puesto = await prisma.puestoCargo.upsert({
+      where: { escalafonId_modalidad_nombre: { escalafonId: escalafon.id, modalidad: p.modalidad, nombre: p.nombre } },
+      update: {},
+      create: { escalafonId: escalafon.id, modalidad: p.modalidad, nombre: p.nombre, tipoPuesto: p.tipoPuesto },
+    })
+    puestosCount++
+    for (const nombreEsp of p.especialidades) {
+      await prisma.especialidadPuesto.upsert({
+        where: { puestoCargId_nombre: { puestoCargId: puesto.id, nombre: nombreEsp } },
+        update: {},
+        create: { puestoCargId: puesto.id, nombre: nombreEsp },
+      })
+      especialidadesCount++
+    }
+  }
+  console.log(`✅ Catálogo puesto/especialidad: ${puestosCount} puestos, ${especialidadesCount} especialidades`)
 
   console.log('🎉 Seed completado.')
 }

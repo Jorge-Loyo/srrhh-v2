@@ -482,12 +482,16 @@ export function ConcursoCphWizard() {
   const [escalafonId, setEscalafonId] = useState('')
   const [eeConcursoInput, setEeConcursoInput] = useState('')
   const [ifAutorizacionInput, setIfAutorizacionInput] = useState('')
-  // Puestos del escalafón seleccionado (sin filtrar por tipo)
-  const { data: puestosDisponibles = [] } = usePuestosCargoNormalizados(
+  // Puestos del escalafón seleccionado (sin filtrar por tipo). Este wizard
+  // todavía trabaja con el string mostrado (no manda puestoCargoSolicitadoId
+  // al backend — queda como deuda de S20-11, fuera de este pase por el
+  // tamaño y criticidad del archivo); se toma solo el nombre del catálogo.
+  const { data: puestosDisponiblesCatalogo = [] } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     undefined,
     undefined,
   )
+  const puestosDisponibles = puestosDisponiblesCatalogo.map((p) => p.nombre)
   const [modalCambios, setModalCambios] = useState<
     { campo: string; de: string; a: string }[] | null
   >(null)
@@ -788,14 +792,21 @@ export function ConcursoCphWizard() {
     especialidad: '',
   }
   const [originales, setOriginales] = useState(originalesRef)
-  const { data: especialidadesDisponibles = [] } = useEspecialidadesPuesto(
+  const { data: especialidadesDisponiblesCatalogo = [] } = useEspecialidadesPuesto(
     escalafonId || undefined,
     puestoConcurso || undefined,
   )
+  const especialidadesDisponibles = especialidadesDisponiblesCatalogo.map((e) => e.nombre)
   // Universo más amplio (todos los puestos del escalafón, no solo el del
   // concurso) — un puesto puntual suele tener 1 sola especialidad cargada,
   // insuficiente para ofrecer especialidades adicionales al sortear jurado.
-  const { data: especialidadesEscalafon = [] } = useEspecialidadesPuesto(escalafonId || undefined)
+  const { data: especialidadesEscalafonCatalogo = [] } = useEspecialidadesPuesto(escalafonId || undefined)
+  const especialidadesEscalafon = especialidadesEscalafonCatalogo.map((e) => e.nombre)
+  // S20-11: ids del catálogo derivados de los strings ya normalizados contra
+  // la BD (ver los dos useEffect de abajo) — se mandan junto con el texto en
+  // el PATCH, sin cambiar la lógica existente basada en string.
+  const puestoConcursoId = puestosDisponiblesCatalogo.find((p) => p.nombre === puestoConcurso)?.id ?? null
+  const especialidadConcursoId = especialidadesDisponiblesCatalogo.find((e) => e.nombre === especialidadConcurso)?.id ?? null
 
   // Cuando llegan los puestos disponibles, normalizar puestoConcurso contra la BD
   // (los cargos legacy tienen MEDICO DE PLANTA, la BD tiene Medico de Planta)
@@ -1059,9 +1070,14 @@ export function ConcursoCphWizard() {
     }
     // Incluir valores de SearchableSelect (no tienen data-key, viven en estado React)
     if (etapaActiva === 'baja') {
-      if (especialidadConcurso !== originales.especialidad)
+      if (especialidadConcurso !== originales.especialidad) {
         body.especialidadSolicitada = especialidadConcurso || null
-      if (puestoConcurso !== originales.puesto) body.puestoSolicitado = puestoConcurso || null
+        body.especialidadPuestoSolicitadaId = especialidadConcursoId
+      }
+      if (puestoConcurso !== originales.puesto) {
+        body.puestoSolicitado = puestoConcurso || null
+        body.puestoCargoSolicitadoId = puestoConcursoId
+      }
     }
     if (Object.keys(body).length > 0) patchMutation.mutate(body)
 
@@ -1132,6 +1148,7 @@ export function ConcursoCphWizard() {
       sigla: siglaConcurso || null,
       codigoRegistroId: crIdDeEscalafon(escalafonId),
       especialidadSolicitada: especialidadConcurso || null,
+      especialidadPuestoSolicitadaId: especialidadConcursoId,
     })
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)

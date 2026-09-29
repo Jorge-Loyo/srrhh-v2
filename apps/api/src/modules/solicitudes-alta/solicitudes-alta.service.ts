@@ -28,14 +28,29 @@ export async function createSolicitudAltaService(
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
   }
 
+  const puestoCargo = await prisma.puestoCargo.findUnique({ where: { id: body.puestoCargoId } })
+  if (!puestoCargo || puestoCargo.escalafonId !== body.escalafonId) {
+    throw AppError.notFound('Puesto no encontrado en el catálogo para ese escalafón')
+  }
+  let especialidadPuesto: { id: string; nombre: string; puestoCargId: string } | null = null
+  if (body.especialidadPuestoId) {
+    especialidadPuesto = await prisma.especialidadPuesto.findUnique({ where: { id: body.especialidadPuestoId } })
+    if (!especialidadPuesto || especialidadPuesto.puestoCargId !== body.puestoCargoId) {
+      throw AppError.notFound('Especialidad no encontrada en el catálogo para ese puesto')
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     const solicitud = await tx.solicitudAlta.create({
       data: {
         hospitalId:       body.hospitalId,
         escalafonId:      body.escalafonId,
         codigoRegistroId: body.codigoRegistroId ?? null,
-        literalPuesto:    body.literalPuesto,
-        especialidad:     body.especialidad ?? null,
+        puestoCargoId:      body.puestoCargoId,
+        especialidadPuestoId: body.especialidadPuestoId ?? null,
+        // Snapshot de auditoría — nombre canónico del catálogo al momento de la solicitud.
+        literalPuesto:    puestoCargo.nombre,
+        especialidad:     especialidadPuesto?.nombre ?? null,
         agrupador:        body.agrupador ?? null,
         unificadorPuesto: body.unificadorPuesto ?? null,
         regimen:          body.regimen ?? null,

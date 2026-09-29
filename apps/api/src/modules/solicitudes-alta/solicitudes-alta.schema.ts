@@ -6,8 +6,10 @@ export const createSolicitudAltaSchema = z.object({
   hospitalId:       z.string().uuid(),
   escalafonId:      z.string().uuid(),
   codigoRegistroId: z.string().uuid().optional(),
-  literalPuesto:    z.string().trim().min(1).max(200),
-  especialidad:     z.string().trim().max(200).optional(),
+  // S20-11: el combobox manda el id del catálogo — literalPuesto/especialidad
+  // se completan en el backend a partir del nombre canónico de estos ids.
+  puestoCargoId:       z.string().uuid(),
+  especialidadPuestoId: z.string().uuid().optional(),
   agrupador:        z.string().trim().max(150).optional(),
   unificadorPuesto: z.string().trim().max(200).optional(),
   regimen:          z.string().trim().max(50).optional(),

@@ -6,6 +6,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
 import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
+import { cargarCatalogoPuestos, resolverPuestoCargoId, resolverEspecialidadPuestoId, normPuestoKey } from './resolverPuestoCargo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import type { DiffQuery } from './padron.schema.js'
 
@@ -906,6 +907,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const personaCache = new Map(personasExistentes.map((p) => [p.cuil, p]))
     const cargoCache = new Map(cargosExistentes.map((c) => [c.idSial, c]))
     const ocupacionExistenteMap = new Map(ocupacionesExistentes.map((o) => [o.idSialRol, o]))
+    // S20-6: catálogo puesto/especialidad — cargado una vez, cardinalidad chica.
+    const catalogoPuestos = await cargarCatalogoPuestos(tx)
 
     // ── 2. Crear en bloque hospitales / escalafones faltantes (catálogos —
     //       cardinalidad chica, no escala con la cantidad de filas) ────────
@@ -994,6 +997,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         estado: 'vigente'
         hospitalId: string
         escalafonId: string
+        puestoCargoId: string
+        especialidadPuestoId: string | null
         literalPuesto: string | null
         especialidadLegacy: string | null
         agrupador: string | null
@@ -1027,8 +1032,14 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
       if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
-        // Resolución canónica: primero por CODIGO DE REGISTRO, luego por nombre
-        const escalafon = (datos.codigo_de_registro && escalafonPorCodRegCache.get(datos.codigo_de_registro))
+        // Resolución canónica: primero por CODIGO DE REGISTRO, luego por nombre.
+        // Bug encontrado en vivo (Sprint 20, 2026-09-29): `datos.codigo_de_registro`
+        // viene de strVal() y es '' (no undefined) cuando la fila no lo trae —
+        // `'' && x` da '' (falsy, no null/undefined), así que `?? fallback` NO
+        // se disparaba y el fallback por nombre quedaba muerto para cualquier
+        // fila sin CODIGO DE REGISTRO (la mayoría de las filas reales sin ese
+        // dato quedaban sin escalafón resuelto y su Cargo nunca se creaba).
+        const escalafon = (datos.codigo_de_registro ? escalafonPorCodRegCache.get(datos.codigo_de_registro) : undefined)
           ?? escalafonCache.get(datos.escalafon ?? '')
         if (!hospital || !escalafon) continue
         // B-12: antes de crear un cargo nuevo, buscar por clave estructural
@@ -1056,10 +1067,19 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           cargoCache.set(datos.id_sial, { id: cargoEstructural.id, idSial: datos.id_sial, estado: 'vigente' })
           continue
         }
+        const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+          escalafonId: escalafon.id,
+          literalPuesto: datos.literal_puesto ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+        })
+        const especialidadResuelta = await resolverEspecialidadPuestoId(
+          tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+        )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           agrupador: datos.agrupador ?? null,
+          puestoCargo: puestoResuelto,
         })
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
@@ -1070,6 +1090,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           estado: 'vigente' as const,
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
+          puestoCargoId: puestoResuelto.id,
+          especialidadPuestoId: especialidadResuelta,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,
           agrupador: datos.agrupador ?? null,
@@ -1509,18 +1531,27 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   const hospitalMap   = new Map(hospitalesLookup.map((h) => [h.sigla, h.id]))
   const codRegEscMap  = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
   const escNombreMap  = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+  // S20-9: catálogo puesto/especialidad — usado para resolver puestoCargoId
+  // por escalafón+literal_puesto, solo lectura (diagnóstico, no auto-crea).
+  const catalogoPuestosDiag = await cargarCatalogoPuestos(prisma)
 
-  // Buscar concursos CPH abiertos por clave estructural (hospital + escalafon + literal_puesto)
+  function puestoCargoIdDe(escalafonId: string | undefined, literalPuesto: string | undefined): string | undefined {
+    if (!escalafonId || !literalPuesto) return undefined
+    return catalogoPuestosDiag.puestos.get(`${escalafonId}:${normPuestoKey(literalPuesto)}`)?.id
+  }
+
+  // Buscar concursos CPH abiertos por clave estructural (hospital + escalafon + puesto)
   // para cada diff nuevo — un query por lote en vez de uno por fila.
-  // Clave: hospitalId:escalafonId:literalPuesto (normalizado a mayúsculas)
-  const clavesConcurso: { hospitalId: string; escalafonId: string; literalPuesto: string }[] = []
+  // Clave: hospitalId:escalafonId:puestoCargoId (FK real, S20-9)
+  const clavesConcurso: { hospitalId: string; escalafonId: string; puestoCargoId: string }[] = []
   for (const p of parsed) {
     const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
-    const escalafonId = (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro))
-      ?? (p.escalafon && escNombreMap.get(p.escalafon))
-    const literalPuesto = p.literalPuesto?.toUpperCase().trim()
-    if (hospitalId && escalafonId && literalPuesto) {
-      clavesConcurso.push({ hospitalId, escalafonId, literalPuesto })
+    // Ver nota de S20-6 sobre el bug '' && x — mismo fix acá.
+    const escalafonId = (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined)
+      ?? (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
+    const puestoCargoId = puestoCargoIdDe(escalafonId, p.literalPuesto)
+    if (hospitalId && escalafonId && puestoCargoId) {
+      clavesConcurso.push({ hospitalId, escalafonId, puestoCargoId })
     }
   }
 
@@ -1539,17 +1570,17 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
         select: {
           id: true,
           estado: true,
-          cargo: { select: { id: true, hospitalId: true, escalafonId: true, literalPuesto: true, codigo: true } },
+          cargo: { select: { id: true, hospitalId: true, escalafonId: true, puestoCargoId: true, codigo: true } },
           concurso: { select: { id: true } },
         },
       })
     : []
 
-  // Índice: hospitalId:escalafonId:literalPuesto → concursoCph
+  // Índice: hospitalId:escalafonId:puestoCargoId → concursoCph
   type ConcursoInfo = { concursoCphId: string; concursoCodigo: string | null; estadoConcurso: string }
   const concursoMap = new Map<string, ConcursoInfo>()
   for (const cc of concursosCandidatos) {
-    const key = `${cc.cargo.hospitalId}:${cc.cargo.escalafonId}:${(cc.cargo.literalPuesto ?? '').toUpperCase().trim()}`
+    const key = `${cc.cargo.hospitalId}:${cc.cargo.escalafonId}:${cc.cargo.puestoCargoId}`
     if (!concursoMap.has(key)) {
       concursoMap.set(key, { concursoCphId: cc.id, concursoCodigo: cc.cargo.codigo, estadoConcurso: cc.estado })
     }
@@ -1564,10 +1595,10 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
 
     // Buscar concurso abierto por clave estructural
     const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
-    const escalafonId = (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro))
-      ?? (p.escalafon && escNombreMap.get(p.escalafon))
-    const literalPuesto = p.literalPuesto?.toUpperCase().trim() ?? ''
-    const concursoKey = hospitalId && escalafonId ? `${hospitalId}:${escalafonId}:${literalPuesto}` : null
+    const escalafonId = (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined)
+      ?? (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
+    const puestoCargoId = puestoCargoIdDe(escalafonId, p.literalPuesto)
+    const concursoKey = hospitalId && escalafonId && puestoCargoId ? `${hospitalId}:${escalafonId}:${puestoCargoId}` : null
     const concursoAbierto = concursoKey ? concursoMap.get(concursoKey) : undefined
 
     return {
@@ -1707,8 +1738,8 @@ export async function getValidacionesPreviewService(snapshotId: string) {
       if (!cc) return null
 
       const escalafonDiff =
-        (p.codigoDeRegistro && codRegEscMap.get(p.codigoDeRegistro)) ??
-        (p.escalafon && escNombreMap.get(p.escalafon)) ??
+        (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+        (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
         null
       const carreraCoincide =
         !!escalafonDiff && escalafonDiff === (cc.concurso?.cargo?.escalafonId ?? null)
@@ -1909,10 +1940,20 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     }
 
     if (!cargo && datos.id_sial) {
+      const catalogoPuestos = await cargarCatalogoPuestos(tx)
+      const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+        escalafonId: escalafon.id,
+        literalPuesto: datos.literal_puesto ?? null,
+        unificadorPuesto: datos.unificador_de_puestos ?? null,
+      })
+      const especialidadResuelta = await resolverEspecialidadPuestoId(
+        tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+      )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
         agrupador: datos.agrupador ?? null,
+        puestoCargo: puestoResuelto,
       })
       const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`
@@ -1923,6 +1964,8 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
           codigo,
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
+          puestoCargoId: puestoResuelto.id,
+          especialidadPuestoId: especialidadResuelta,
           codigoRegistroId,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,
@@ -2062,11 +2105,23 @@ export async function marcarTransferenciaService(snapshotId: string, diffId: str
   }
   if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado (${datos.escalafon ?? ''})`)
 
+  const catalogoPuestosTransferencia = await cargarCatalogoPuestos(prisma)
+  const puestoResueltoTransferencia = await resolverPuestoCargoId(prisma, catalogoPuestosTransferencia, {
+    escalafonId: escalafon.id,
+    literalPuesto: datos.literal_puesto ?? null,
+    unificadorPuesto: datos.unificador_de_puestos ?? null,
+  })
+  const especialidadResueltaTransferencia = await resolverEspecialidadPuestoId(
+    prisma, catalogoPuestosTransferencia, puestoResueltoTransferencia.id, datos.especialidad ?? null,
+  )
+
   // Crear SolicitudAlta como transferencia aprobada directamente
   await prisma.solicitudAlta.create({
     data: {
       hospitalId:      hospital.id,
       escalafonId:     escalafon.id,
+      puestoCargoId:      puestoResueltoTransferencia.id,
+      especialidadPuestoId: especialidadResueltaTransferencia,
       literalPuesto:   datos.literal_puesto ?? '',
       especialidad:    datos.especialidad || null,
       agrupador:       datos.agrupador || null,
@@ -2155,12 +2210,23 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       : null
 
     if (!cargo && datos.id_sial) {
+      const catalogoPuestos = await cargarCatalogoPuestos(tx)
+      const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+        escalafonId: escalafon.id,
+        literalPuesto: datos.literal_puesto ?? null,
+        unificadorPuesto: datos.unificador_de_puestos ?? null,
+      })
+      const especialidadResuelta = await resolverEspecialidadPuestoId(
+        tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+      )
       cargo = await tx.cargo.create({
         data: {
           idSial: datos.id_sial,
           codigo: null,  // sin código — aparece como "Sin asignar" en historial
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
+          puestoCargoId: puestoResuelto.id,
+          especialidadPuestoId: especialidadResuelta,
           codigoRegistroId,
           literalPuesto: datos.literal_puesto ?? null,
           especialidadLegacy: datos.especialidad ?? null,

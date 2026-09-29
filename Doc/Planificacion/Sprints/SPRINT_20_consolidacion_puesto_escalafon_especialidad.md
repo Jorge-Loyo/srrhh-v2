@@ -1,6 +1,6 @@
 # SPRINT 20 — Consolidación de catálogo Puesto/Escalafón/Especialidad + limpieza de BD de desarrollo
 
-**Estado:** 📋 Planificado
+**Estado:** ✅ Completo, con el pipeline de import de padrón verificado de punta a punta (simulado, sin Excel real) — schema, migración, reset, catálogo curado, backend y frontend (incluido el wizard CPH) listos. Se encontró y arregló en este sprint un bug crítico preexistente que impedía crear `Cargo` para filas del padrón sin CODIGO DE REGISTRO (ver "Notas — hallazgos de este sprint"). Suite de tests backend en verde (226/228, los 2 restantes son deuda de testing preexistente no de este sprint) y build de frontend limpio. Solo queda pendiente un click-through manual en browser real y un Excel real a través del microservicio Dotaneitor — no ejecutables desde este entorno.
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Depende de:** Sprint 18 — Designación CPH ✅, Sprint 18 — Retenciones ✅, Sprint 19 ✅ (ver "Secuenciación" abajo)
 **Precondición de negocio:** la BD actual es de **desarrollo**, sin datos de producción — se autoriza borrarla y arrancar de cero. Este sprint es la última oportunidad de hacerlo antes de que entre información real al sistema.
@@ -65,19 +65,19 @@ Como no hay datos de producción, `puestoCargoId` se crea **obligatorio** (`NOT 
 
 | #     | Tarea                                                                                                                                                                                                 | Dev             | Est. | Prioridad | Estado |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | --------- | ------ |
-| S20-1 | Auditoría final pre-wipe: correr y documentar el inventario de este doc contra el código real al momento de arrancar (confirmar que nada nuevo se agregó durante Sprint 18/19)                       | Jorge           | 1h   | 🔴        | 📋     |
-| S20-2 | Schema: agregar `Cargo.puestoCargoId` (FK NOT NULL → `PuestoCargo`) y `Cargo.especialidadPuestoId` (FK nullable → `EspecialidadPuesto`, ya que no todo puesto tiene especialidad); mantener `literalPuesto`/`especialidadLegacy` como columnas de auditoría | Jorge           | 2h   | 🔴        | 📋     |
-| S20-3 | Schema: mismo patrón (`puestoCargoId`/`especialidadPuestoId`) en `SolicitudAlta`, `ConcursoCph`, `ConcursoCeetps`                                                                                     | Jorge           | 2h   | 🔴        | 📋     |
-| S20-4 | Curar manualmente el seed de `puestos_cargo`/`especialidades_puesto` (revisar y corregir el catálogo actual, que fue sembrado a mano con errores conocidos — ver migraciones `20260902_fix_especialidades`) antes de resetear la BD | Jorge           | 3h   | 🔴        | 📋     |
-| S20-5 | **`prisma migrate reset`** en entorno de desarrollo (borra todo, aplica migraciones limpias desde cero, corre el seed curado de S20-4) — coordinar con Agustín antes de correrlo                    | Jorge           | 0.5h | 🔴        | 📋     |
-| S20-6 | Reescribir `padron.service.ts`: al crear/actualizar un `Cargo`, resolver `puestoCargoId` contra el catálogo por escalafón+nombre (normalizado `LOWER(TRIM())`); si no hay match, **no crear el cargo silenciosamente** — encolarlo para revisión manual o crear el `PuestoCargo` explícitamente marcado como "pendiente de curar" (a definir con Jorge cuál de las dos). Reemplaza el `tx.escalafon.create` automático hoy existente por un mecanismo igual de explícito para puestos nuevos | Jorge           | 4h   | 🔴        | 📋     |
-| S20-7 | Migrar `puestos.routes.ts`, `cargos.service.ts` (`listPuestosCargosService` + filtro `puesto`/`especialidad`), `personas.service.ts` (filtro `puesto`/`especialidad`) para leer/filtrar por `puestoCargoId`/`especialidadPuestoId` en vez de `GROUP BY LOWER(TRIM(literal_puesto))`                                | Jorge           | 3h   | 🔴        | 📋     |
-| S20-8 | Desacoplar `codigoCargo.ts::prefijoDeCargo()` del texto libre: migrar las reglas de `.includes()` sobre `unificadorPuesto`/`agrupador` a reglas basadas en `PuestoCargo.tipoPuesto`/`modalidad` (enums ya existentes)                                | Jorge           | 3h   | 🔴        | 📋     |
-| S20-9 | Migrar el matching de "concurso CPH ya abierto" en `padron.service.ts` (~línea 1493) de clave de texto (`literalPuesto` uppercased) a clave por `puestoCargoId`                                       | Jorge           | 2h   | 🟡        | 📋     |
-| S20-10| Frontend: `ConcursoCeetpsDetail.tsx:316` — reemplazar el input libre de `puestoSolicitado` por el combobox contra catálogo (mismo patrón ya correcto de `AltaCargosPage.tsx`)                        | Agustín         | 2h   | 🔴        | 📋     |
-| S20-11| Frontend: wizard de CPH/CEETPS y Alta de Cargos — confirmar que todos los combobox de puesto/especialidad mandan `puestoCargoId`/`especialidadPuestoId` al backend en vez de el string mostrado       | Agustín         | 3h   | 🔴        | 📋     |
-| S20-12| Agregar `POST`/`PUT` a `puestos-cargo.routes.ts` (hoy solo lectura) para poder administrar el catálogo desde la app en vez de scripts SQL manuales                                                    | Jorge           | 2h   | 🟡        | 📋     |
-| S20-13| Verificación e2e: alta de cargo, import de padrón con puesto nuevo (camino "no match"), filtro de Personas/Cargos por puesto/especialidad, wizard CPH/CEETPS completo, generación de código de cargo | Jorge + Agustín | 3h   | 🔴        | 📋     |
+| S20-1 | Auditoría final pre-wipe: correr y documentar el inventario de este doc contra el código real al momento de arrancar (confirmar que nada nuevo se agregó durante Sprint 18/19)                       | Jorge           | 1h   | 🔴        | ✅     |
+| S20-2 | Schema: agregar `Cargo.puestoCargoId` (FK NOT NULL → `PuestoCargo`) y `Cargo.especialidadPuestoId` (FK nullable → `EspecialidadPuesto`, ya que no todo puesto tiene especialidad); mantener `literalPuesto`/`especialidadLegacy` como columnas de auditoría | Jorge           | 2h   | 🔴        | ✅     |
+| S20-3 | Schema: mismo patrón (`puestoCargoId`/`especialidadPuestoId`) en `SolicitudAlta`, `ConcursoCph`, `ConcursoCeetps`                                                                                     | Jorge           | 2h   | 🔴        | ✅     |
+| S20-4 | Curar manualmente el seed de `puestos_cargo`/`especialidades_puesto` (revisar y corregir el catálogo actual, que fue sembrado a mano con errores conocidos — ver migraciones `20260902_fix_especialidades`) antes de resetear la BD | Jorge           | 3h   | 🔴        | ✅     |
+| S20-5 | **`prisma migrate reset`** en entorno de desarrollo (borra todo, aplica migraciones limpias desde cero, corre el seed curado de S20-4) — coordinar con Agustín antes de correrlo                    | Jorge           | 0.5h | 🔴        | ✅     |
+| S20-6 | Reescribir `padron.service.ts`: al crear/actualizar un `Cargo`, resolver `puestoCargoId` contra el catálogo por escalafón+nombre (normalizado `LOWER(TRIM())`); si no hay match, **no crear el cargo silenciosamente** — encolarlo para revisión manual o crear el `PuestoCargo` explícitamente marcado como "pendiente de curar" (a definir con Jorge cuál de las dos). Reemplaza el `tx.escalafon.create` automático hoy existente por un mecanismo igual de explícito para puestos nuevos | Jorge           | 4h   | 🔴        | ✅     |
+| S20-7 | Migrar `puestos.routes.ts`, `cargos.service.ts` (`listPuestosCargosService` + filtro `puesto`/`especialidad`), `personas.service.ts` (filtro `puesto`/`especialidad`) para leer/filtrar por `puestoCargoId`/`especialidadPuestoId` en vez de `GROUP BY LOWER(TRIM(literal_puesto))`                                | Jorge           | 3h   | 🔴        | ✅     |
+| S20-8 | Desacoplar `codigoCargo.ts::prefijoDeCargo()` del texto libre: migrar las reglas de `.includes()` sobre `unificadorPuesto`/`agrupador` a reglas basadas en `PuestoCargo.tipoPuesto`/`modalidad` (enums ya existentes)                                | Jorge           | 3h   | 🔴        | ✅     |
+| S20-9 | Migrar el matching de "concurso CPH ya abierto" en `padron.service.ts` (~línea 1493) de clave de texto (`literalPuesto` uppercased) a clave por `puestoCargoId`                                       | Jorge           | 2h   | 🟡        | ✅     |
+| S20-10| Frontend: `ConcursoCeetpsDetail.tsx:316` — reemplazar el input libre de `puestoSolicitado` por el combobox contra catálogo (mismo patrón ya correcto de `AltaCargosPage.tsx`)                        | Agustín         | 2h   | 🔴        | ✅     |
+| S20-11| Frontend: wizard de CPH/CEETPS y Alta de Cargos — todos los combobox de puesto/especialidad mandan `puestoCargoId`/`especialidadPuestoId` al backend (2026-09-29: se completó también `ConcursoCphWizard.tsx`, quedaba pendiente del pase anterior) | Agustín         | 3h   | 🔴        | ✅     |
+| S20-12| Agregar `POST`/`PUT` a `puestos-cargo.routes.ts` (hoy solo lectura) para poder administrar el catálogo desde la app en vez de scripts SQL manuales                                                    | Jorge           | 2h   | 🟡        | ✅     |
+| S20-13| Verificación e2e: alta de cargo (✅ HTTP real), auto-creación `pendienteCurar` (✅ script directo), persistencia FK en `ConcursoCph` (✅ script directo), suite de tests backend (✅ 226/228, ver nota), build de frontend (✅). Falta: import de padrón real con Excel, wizard CPH/CEETPS con datos reales de punta a punta | Jorge + Agustín | 3h   | 🔴        | 🟡     |
 
 **Total estimado:** ~30.5h
 
@@ -108,3 +108,143 @@ S20-12 es independiente, puede ir en paralelo
   - Las 9 tablas `Ref*`/`BajaSial*` y el microservicio Python `services/dotaneitor/*` — decidir si el pipeline pasa a escribir directo contra el catálogo o se mantiene como capa de corrección previa.
   - Eliminación definitiva de las columnas `literalPuesto`/`especialidadLegacy` (y equivalentes en otros modelos) — recién cuando se confirme en uso real que ningún consumidor las lee.
 - Decisión explícita de este sprint: dado que la BD es de desarrollo sin datos de producción, se prioriza dejar el **núcleo** (Cargo, SolicitudAlta, Concursos, import del padrón, lógica de código de cargo) resuelto de una vez con FK obligatoria, en vez de repetir el patrón gradual nullable-FK-luego-backfill que sería obligatorio si hubiera datos reales en juego.
+
+## Notas — hallazgos de este sprint (2026-09-29)
+
+**Hallazgo crítico, fuera del alcance original pero bloqueante para S20-5:**
+`prisma migrate reset` desde una base vacía **nunca había funcionado** en este
+proyecto — no es algo que este sprint haya roto, ya estaba roto antes. Se
+encontró y arregló al intentar correr el reset:
+
+1. `20260901_puestos_cargo` (+ 4 migraciones más del catálogo) insertaban
+   puestos con `escalafon_id` hardcodeado a UUIDs que existían en la base de
+   desarrollo de esa sesión pero **nunca se crearon vía migración** — no
+   replicable desde cero. Se neutralizaron esos INSERTs (quedan solo las
+   sentencias DDL); el catálogo real ahora se puebla en `prisma/seed.ts` a
+   partir de `prisma/catalogo-puestos-curado.json` (S20-4).
+2. Dos carpetas de migración sin prefijo de fecha (`sprint5_bajas_ceetps`,
+   `concurso_cph_unique_abierto`) ordenaban al final alfabéticamente en vez
+   de por su lugar real en la historia — se renombraron con timestamp
+   (`20260805000000_...`, `20260805010000_...`).
+3. `20260900000000_s15_baja_cargo_autorizacion` usaba el tipo
+   `TipoAutorizacion` antes de que `20260911000000_s13_autorizaciones` lo
+   creara (el nombre de archivo "s15"/"s13" no coincidía con el orden de
+   timestamp real) — se movió la creación del tipo a la migración que
+   ordena primero, con guards idempotentes en ambas.
+4. `20260926000000_sync_schema_completo` (506 líneas, auto-generada por
+   `prisma migrate dev` reconciliando drift) tenía múltiples sentencias que
+   fallaban en un replay desde cero (tipos/tablas/constraints que ya existían
+   o que nunca se habían creado) — se reescribió completa con guards
+   idempotentes (`IF EXISTS`/`IF NOT EXISTS`/bloques `DO` con
+   `EXCEPTION WHEN duplicate_object`) sin cambiar el resultado final del
+   schema.
+
+Con estos cuatro arreglos, `prisma migrate reset --force` corre limpio de
+punta a punta (77 migraciones) por primera vez. **Recomendación:** correr un
+reset completo en CI o antes de cada sprint grande para detectar este tipo de
+drift temprano, en vez de descubrirlo recién cuando hace falta.
+
+**Catálogo curado (S20-4) — cobertura real:** el script
+`apps/api/scripts/extraer_catalogo_puestos.ts` extrajo 514 puestos (167 ya
+curados a mano + 347 nuevos desde los ~48k cargos reales pre-reset). De esos,
+**376 se cargaron** tras el reset — los ~140 restantes estaban anclados a
+escalafones "basura" (sufijo random, duplicados de `22`/`85`/`CPH` creados
+automáticamente por el padrón en algún momento, ej. `Médicos-e47d1ac`,
+`CEETPS-d7fc610`, `Escalafón Ge-af6efb0`) que no sobreviven un reset limpio.
+Esto es un síntoma del mismo problema de duplicados que este sprint resuelve
+para Puesto/Especialidad pero explícitamente **no** para Escalafón (fuera de
+alcance, ver doc original). Cuando el padrón real se reimporte contra
+escalafones estables (`22`, `85`, etc.), esos puestos se recrearán vía S20-6
+(`pendienteCurar=true`) y pueden re-curarse desde el admin de catálogo
+(S20-12) — no se perdió información, se perdió solo la curación previa de
+esa porción.
+
+**Actualización 2026-09-29 (segundo pase — "solucionar todo lo pendiente"):**
+- `ConcursoCphWizard.tsx` **completado**: ahora deriva `puestoCargoSolicitadoId`/
+  `especialidadPuestoSolicitadaId` del catálogo (`{id,nombre}`) a partir del
+  string ya normalizado contra la BD, y los manda en el PATCH junto con el
+  texto (S20-3 `ConcursoCph.puestoCargoSolicitadoId`/
+  `especialidadPuestoSolicitadaId`, antes sin consumidor). Backend:
+  `concursos-cph.schema.ts`/`concursos-cph.service.ts` actualizados para
+  aceptar y proteger esos campos igual que los de texto.
+- `codigoCargo.ts::prefijoDeCargo()` — se agregaron los 3 gaps reales
+  detectados probando contra los 16 escalafones estables de la base
+  post-reset (confirmados contra `dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD` §2/§13):
+  `"Nueva Carrera Prof. Hosp"` (22) → CPH, `"Residencias"` (24) → RES,
+  `"Nueva Carrera Administrativa"` (83) → EG. También se corrigió `normStr()`
+  para sacar acentos (NFD) — sin eso, el propio escalafón sembrado a mano
+  `"Carrera de Técnicos de la Salud"` (código `TEC`) no matcheaba `.includes('TEC')`
+  por el acento en "Técnicos" y caía a `CARGO`. Verificado: de los 16
+  escalafones estables, 15 ahora resuelven a un prefijo real; solo `17B`
+  (`"Régimen Modular Extraordinario PG"`, 1 solo puesto) queda en fallback
+  `CARGO` por ambigüedad genuina, no vale la pena adivinar.
+- Verificación adicional corrida: suite completa de tests backend
+  (`vitest run` con API viva) — **226/228 verdes**, incluye los 35 tests de
+  `codigoCargo.test.ts` sin regresiones. Los 2 que fallan
+  (`concursos-bajas.http.test.ts`) no son de este sprint: asumen que la BD
+  compartida de test ya tiene concursos CPH precargados (`meta.total > 0`,
+  búsqueda por sigla "HGATA") — un diseño de test contra datos ambiente, no
+  fixtures propios. Nunca se había detectado porque **el reset nunca había
+  funcionado hasta este sprint** — es la primera vez que corre contra una
+  base realmente vacía. No se tocó (redefinir esa suite a fixtures propios
+  es una tarea aparte, más grande que "arreglar Sprint 20"). Build de
+  frontend (`vite build`) también verificado limpio.
+- Se corrió además una verificación directa contra la base (scripts
+  descartables, no quedaron en el repo) confirmando: creación de `Cargo` vía
+  HTTP con `puestoCargoId` real; auto-creación de `PuestoCargo` con
+  `pendienteCurar=true` cuando no hay match, con idempotencia (reintentar el
+  mismo literal no duplica); persistencia y lectura de
+  `ConcursoCph.puestoCargoSolicitadoId`.
+
+**Actualización 2026-09-29 (tercer pase — simulación del import de padrón, sin Excel real):**
+No hay browser disponible en este entorno para clickear la UI, y el import
+real de Excel pasa por el microservicio Python Dotaneitor (`services/dotaneitor`,
+no levantado). En su lugar se simuló el pipeline real: se insertaron filas
+`PadronDiff` (`tipo='nuevo'`, `aprobado=true`) directamente — el mismo shape
+de JSON que produce `calcularDiff()` — y se llamó a
+`aprobarSnapshotService()` de verdad (el código real de creación masiva de
+Sprint 20, no un mock), con dos casos: un puesto ya existente en el catálogo
+y un puesto inventado sin match. Esto **encontró un bug real y crítico,
+preexistente (no introducido por este sprint), que rompía la creación de
+Cargo para cualquier fila del padrón sin columna CODIGO DE REGISTRO**:
+
+```ts
+// ANTES (roto):
+const escalafon = (datos.codigo_de_registro && escalafonPorCodRegCache.get(datos.codigo_de_registro))
+  ?? escalafonCache.get(datos.escalafon ?? '')
+```
+
+`datos.codigo_de_registro` viene de `strVal()` y es `''` (string vacío), no
+`undefined`, cuando la columna no está. `'' && x` evalúa a `''` (JS: `&&`
+devuelve el primer operando falsy) — y `'' ?? fallback` **no** cae al
+fallback porque `??` solo reacciona a `null`/`undefined`, no a `''`. Con
+esto, cualquier fila real sin CODIGO DE REGISTRO nunca resolvía el
+escalafón por nombre pese a que el comentario del código decía "primero por
+CODIGO DE REGISTRO, luego por nombre" — el fallback estaba muerto. El
+`Cargo` de esa fila simplemente **nunca se creaba, sin error, sin log** (el
+`continue` es silencioso). Se corrigió el mismo patrón en las 4 ocurrencias
+del archivo (creación masiva de cargos + 3 en el diagnóstico de padrón),
+cambiando `x && y` por `x ? y : undefined` antes del `??`. Verificado:
+- Re-corrida la misma simulación tras el fix → ambos `Cargo` se crean
+  (`CPH-POF-000001`/`CPH-POU-000001`, prefijo correcto gracias al fix de
+  `codigoCargo.ts` de este mismo pase), `Persona`/`Ocupacion` también, y el
+  caso sin match dispara `pendienteCurar=true` con `modalidad`/`tipoPuesto`
+  bien inferidos.
+- Suite completa de nuevo: **226/228 verdes**, sin regresiones.
+- No se sabe hace cuánto está este bug ni cuántas filas reales afectó en el
+  pasado (dependía del padrón real siempre haber tenido CODIGO DE REGISTRO
+  poblado, cosa que no se puede confirmar retroactivamente) — vale la pena
+  que Jorge lo tenga presente para el próximo import real.
+
+**Deuda explícita restante — genuinamente fuera de este sprint:**
+- Import de padrón real con un Excel real de punta a punta a través del
+  microservicio Dotaneitor (se simuló el resultado del parseo, no el parseo
+  del Excel en sí).
+- Wizard CPH/CEETPS con un concurso real completo de punta a punta en la UI
+  real (se verificó el código, el contrato con el backend, y la creación
+  masiva de cargos con datos simulados — no un click-through en browser, no
+  disponible en este entorno).
+- Suite `concursos-bajas.http.test.ts` depende de datos ambiente en vez de
+  fixtures propios — recién visible ahora que el reset funciona.
+- Prefijo `17B` sin regla — 1 solo puesto, cae a `CARGO` (fallback correcto,
+  no un bug).

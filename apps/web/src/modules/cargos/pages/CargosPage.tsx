@@ -36,8 +36,8 @@ export function CargosPage() {
   const personaSearch = searchParams.get('personaSearch') ?? ''
   const hospitalId    = searchParams.get('hospitalId') ?? ''
   const escalafonId   = searchParams.get('escalafonId') ?? ''
-  const puesto        = searchParams.get('puesto') ?? ''
-  const especialidad  = searchParams.get('especialidad') ?? ''
+  const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
+  const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
   const soloJefes     = searchParams.get('soloJefes') === 'true'
@@ -71,8 +71,8 @@ export function CargosPage() {
     ...(personaSearchDebounced && { personaSearch: personaSearchDebounced }),
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
-    ...(puesto      && { puesto }),
-    ...(especialidad && { especialidad }),
+    ...(puestoCargoId      && { puestoCargoId }),
+    ...(especialidadPuestoId && { especialidadPuestoId }),
     ...(estado      && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
     ...(soloJefes && { soloJefes: true }),
@@ -81,7 +81,7 @@ export function CargosPage() {
   const { data, isLoading, isFetching, isError } = useCargos(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones()
-  const { data: puestos }     = usePuestosCargos(escalafonId || undefined, hospitalId || undefined)
+  const { data: puestos }     = usePuestosCargos(escalafonId || undefined)
 
   const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
@@ -90,14 +90,15 @@ export function CargosPage() {
   // Especialidad en cascada con el puesto elegido — mismo patrón que
   // PersonasPage: solo tiene sentido con un puesto elegido, y solo si ESE
   // puesto realmente tiene especialidades en los datos reales.
-  const especialidadesDelPuesto = puestos?.find((p) => p.puesto === puesto)?.especialidades ?? []
+  const puestoSeleccionado = puestos?.find((p) => p.id === puestoCargoId)
+  const especialidadesDelPuesto = puestoSeleccionado?.especialidades ?? []
 
   function cambiarEscalafon(nuevoId: string) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoId) next.set('escalafonId', nuevoId); else next.delete('escalafonId')
-      next.delete('puesto')
-      next.delete('especialidad')
+      next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
       next.delete('page')
       return next
     })
@@ -107,18 +108,18 @@ export function CargosPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoId) next.set('hospitalId', nuevoId); else next.delete('hospitalId')
-      next.delete('puesto')
-      next.delete('especialidad')
+      next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
       next.delete('page')
       return next
     })
   }
 
-  function cambiarPuesto(nuevoPuesto: string) {
+  function cambiarPuesto(nuevoPuestoCargoId: string) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
-      next.delete('especialidad')
+      if (nuevoPuestoCargoId) next.set('puestoCargoId', nuevoPuestoCargoId); else next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
       next.delete('page')
       return next
     })
@@ -214,21 +215,23 @@ export function CargosPage() {
             ))}
           </select>
           <SearchableSelect
-            value={puesto}
+            value={puestoCargoId}
             onChange={cambiarPuesto}
             options={puestos?.map((p) => p.puesto) ?? []}
+            valueToDisplay={(id) => puestos?.find((p) => p.id === id)?.puesto ?? id}
+            displayToValue={(label) => puestos?.find((p) => p.puesto === label)?.id ?? label}
             placeholder="Todos los puestos"
             className="min-w-[220px]"
           />
-          {puesto && especialidadesDelPuesto.length > 0 && (
+          {puestoCargoId && especialidadesDelPuesto.length > 0 && (
             <select
-              value={especialidad}
-              onChange={(e) => setParam('especialidad', e.target.value)}
+              value={especialidadPuestoId}
+              onChange={(e) => setParam('especialidadPuestoId', e.target.value)}
               className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
             >
               <option value="">Todas las especialidades</option>
               {especialidadesDelPuesto.map((esp) => (
-                <option key={esp} value={esp}>{esp}</option>
+                <option key={esp.id} value={esp.id}>{esp.nombre}</option>
               ))}
             </select>
           )}
@@ -289,8 +292,11 @@ export function CargosPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
-          if (puesto) chips.push({ label: puesto, key: 'puesto' })
-          if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
+          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.puesto ?? puestoCargoId, key: 'puestoCargoId' })
+          if (especialidadPuestoId) {
+            const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
+            chips.push({ label: esp?.nombre ?? especialidadPuestoId, key: 'especialidadPuestoId' })
+          }
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
@@ -304,7 +310,7 @@ export function CargosPage() {
                     onClick={() => {
                       if (chip.key === 'escalafonId') cambiarEscalafon('')
                       else if (chip.key === 'hospitalId') cambiarHospital('')
-                      else if (chip.key === 'puesto') cambiarPuesto('')
+                      else if (chip.key === 'puestoCargoId') cambiarPuesto('')
                       else setParam(chip.key, '')
                     }}
                     className="ml-0.5 hover:text-secondary/60"

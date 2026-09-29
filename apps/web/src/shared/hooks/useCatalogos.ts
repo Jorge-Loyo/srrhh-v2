@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Hospital, Escalafon, CodigoRegistro, Puesto } from '@srrhh/types'
+import type { Hospital, Escalafon, CodigoRegistro, Puesto, PuestoCatalogoEspecialidad } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 // Catálogos para selectores de filtro (PersonasPage, CargosPage, y lo que
@@ -64,12 +64,14 @@ export function usePuestosCargos(escalafonId?: string, hospitalId?: string, tipo
   })
 }
 
+// S20-11: devuelve {id, nombre} — el id es lo que hay que mandar al backend
+// como puestoCargoId, nombre es solo para mostrar en el combobox.
 export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos', tipoPuesto?: 'ejecucion' | 'conduccion') {
   return useQuery({
     queryKey: ['puestos-cargo', escalafonId, modalidad, tipoPuesto],
     enabled: !!escalafonId,
     queryFn: async () => {
-      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo', {
+      const res = await apiClient.get<{ data: PuestoCatalogoEspecialidad[] }>('/api/v1/puestos-cargo', {
         params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }), ...(tipoPuesto && { tipoPuesto }) },
       })
       return res.data.data
@@ -85,7 +87,7 @@ export function useEspecialidadesPuesto(escalafonId?: string, nombrePuesto?: str
     queryKey: ['especialidades-puesto', escalafonId, nombrePuesto],
     enabled: !!escalafonId,
     queryFn: async () => {
-      const res = await apiClient.get<{ data: string[] }>('/api/v1/puestos-cargo/especialidades', {
+      const res = await apiClient.get<{ data: PuestoCatalogoEspecialidad[] }>('/api/v1/puestos-cargo/especialidades', {
         params: { escalafonId, nombre: nombrePuesto },
       })
       return res.data.data

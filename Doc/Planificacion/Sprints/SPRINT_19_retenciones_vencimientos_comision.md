@@ -1,6 +1,6 @@
 # SPRINT 19 — Retenciones: vencimientos, renovación, comisión y vista de conducción
 
-**Estado:** 🟡 En curso — **Backend ✅ (Jorge)** verificado en local (6/6 e2e), **commiteado y pusheado** a las 3 ramas de GCBA (`jorge`/`main`/`deploy`) en `3da0ec0` (vencimientos, renovación, comisión) y `fb58f66` (endpoint `/vencimientos` + documento de respaldo en renovación) · **Frontend ⬜ pendiente (Agustín)** — S19-9/10/11 + e2e frontend.
+**Estado:** ✅ Completo — Backend (Jorge) verificado en local (6/6 e2e), commiteado y pusheado a las 3 ramas de GCBA (`jorge`/`main`/`deploy`) en `3da0ec0` y `fb58f66`. Frontend (Agustín) S19-9/10/11 también commiteado desde `49a89e5` (2026-09-25) — este doc había quedado desactualizado marcándolo como pendiente; corregido 2026-09-29 al arrancar Sprint 20 (que depende de este sprint estando cerrado). Falta solo dejar registrada formalmente la verificación e2e de frontend (S19-13).
 **Fecha de inicio:** 2026-09-30 (backend cerrado y subido 2026-09-30)
 **Autores:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge` / `agustin` según tarea

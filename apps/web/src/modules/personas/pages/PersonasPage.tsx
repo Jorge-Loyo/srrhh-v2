@@ -19,8 +19,8 @@ export function PersonasPage() {
   const hospitalId   = searchParams.get('hospitalId') ?? ''
   const escalafonId  = searchParams.get('escalafonId') ?? ''
   const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
-  const puesto       = searchParams.get('puesto') ?? ''
-  const especialidad = searchParams.get('especialidad') ?? ''
+  const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
+  const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
   const idSial       = searchParams.get('idSial') ?? ''
   const soloJefes    = searchParams.get('soloJefes') === 'true'
   const page         = Number(searchParams.get('page') ?? '1')
@@ -53,8 +53,8 @@ export function PersonasPage() {
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(activo && { activo: activo === 'true' }),
-    ...(puesto && { puesto }),
-    ...(especialidad && { especialidad }),
+    ...(puestoCargoId && { puestoCargoId }),
+    ...(especialidadPuestoId && { especialidadPuestoId }),
     ...(idSial && { idSial }),
     ...(soloJefes && { soloJefes: true }),
   }
@@ -77,13 +77,14 @@ export function PersonasPage() {
   // elegido, y solo si ESE puesto realmente tiene especialidades en los
   // datos reales (la mayoría de los puestos no médicos no tienen ninguna —
   // ver Puesto en packages/types).
-  const especialidadesDelPuesto = puestos?.find((p) => p.puesto === puesto)?.especialidades ?? []
+  const puestoSeleccionado = puestos?.find((p) => p.id === puestoCargoId)
+  const especialidadesDelPuesto = puestoSeleccionado?.especialidades ?? []
 
-  function cambiarPuesto(nuevoPuesto: string) {
+  function cambiarPuesto(nuevoPuestoCargoId: string) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nuevoPuesto) next.set('puesto', nuevoPuesto); else next.delete('puesto')
-      next.delete('especialidad')
+      if (nuevoPuestoCargoId) next.set('puestoCargoId', nuevoPuestoCargoId); else next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
       next.delete('page')
       return next
     })
@@ -93,8 +94,8 @@ export function PersonasPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoEscalafonId) next.set('escalafonId', nuevoEscalafonId); else next.delete('escalafonId')
-      next.delete('puesto')
-      next.delete('especialidad')
+      next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
       next.delete('page')
       return next
     })
@@ -200,22 +201,24 @@ export function PersonasPage() {
             <option value="false">Solo inactivos</option>
           </select>
           <SearchableSelect
-            value={puesto}
+            value={puestoCargoId}
             onChange={cambiarPuesto}
             options={puestos?.map((p) => p.puesto) ?? []}
+            valueToDisplay={(id) => puestos?.find((p) => p.id === id)?.puesto ?? id}
+            displayToValue={(label) => puestos?.find((p) => p.puesto === label)?.id ?? label}
             placeholder="Todos los puestos"
             className="min-w-[240px]"
           />
-          {puesto && especialidadesDelPuesto.length > 0 && (
+          {puestoCargoId && especialidadesDelPuesto.length > 0 && (
             <select
-              value={especialidad}
-              onChange={(e) => setParam('especialidad', e.target.value)}
+              value={especialidadPuestoId}
+              onChange={(e) => setParam('especialidadPuestoId', e.target.value)}
               className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
             >
               <option value="">Todas las especialidades</option>
               {especialidadesDelPuesto.map((esp) => (
-                <option key={esp} value={esp}>
-                  {esp}
+                <option key={esp.id} value={esp.id}>
+                  {esp.nombre}
                 </option>
               ))}
             </select>
@@ -248,8 +251,11 @@ export function PersonasPage() {
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
-          if (puesto) chips.push({ label: puesto, key: 'puesto' })
-          if (especialidad) chips.push({ label: especialidad, key: 'especialidad' })
+          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.puesto ?? puestoCargoId, key: 'puestoCargoId' })
+          if (especialidadPuestoId) {
+            const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
+            chips.push({ label: esp?.nombre ?? especialidadPuestoId, key: 'especialidadPuestoId' })
+          }
           if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
           if (chips.length === 0) return null
           return (
@@ -260,7 +266,7 @@ export function PersonasPage() {
                   <button
                     onClick={() => {
                       if (chip.key === 'escalafonId') cambiarEscalafon('')
-                      else if (chip.key === 'puesto') cambiarPuesto('')
+                      else if (chip.key === 'puestoCargoId') cambiarPuesto('')
                       else setParam(chip.key, '')
                     }}
                     className="ml-0.5 hover:text-secondary/60"

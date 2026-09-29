@@ -277,7 +277,7 @@ async function _aprobarAltaCargo(
 
     const solicitud = await tx.solicitudAlta.findUnique({
       where:   { id: aut.referenciaId },
-      include: { hospital: true, escalafon: true, codigoRegistro: true },
+      include: { hospital: true, escalafon: true, codigoRegistro: true, puestoCargo: true },
     })
     if (!solicitud) throw AppError.notFound('SolicitudAlta no encontrada')
 
@@ -285,6 +285,7 @@ async function _aprobarAltaCargo(
       escalafon:        solicitud.escalafon.nombre,
       unificadorPuesto: solicitud.unificadorPuesto ?? null,
       agrupador:        solicitud.agrupador ?? null,
+      puestoCargo:      solicitud.puestoCargo,
     })
 
     const cargosCreadosIds: string[] = []
@@ -297,6 +298,8 @@ async function _aprobarAltaCargo(
           hospitalId:       solicitud.hospitalId,
           escalafonId:      solicitud.escalafonId,
           codigoRegistroId: solicitud.codigoRegistroId ?? null,
+          puestoCargoId:      solicitud.puestoCargoId,
+          especialidadPuestoId: solicitud.especialidadPuestoId,
           literalPuesto:    solicitud.literalPuesto,
           especialidadLegacy: solicitud.especialidad ?? null,
           agrupador:        solicitud.agrupador ?? null,

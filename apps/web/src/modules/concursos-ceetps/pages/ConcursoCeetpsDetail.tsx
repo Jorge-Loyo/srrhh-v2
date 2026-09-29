@@ -9,6 +9,7 @@ import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { usePuestosCargoNormalizados } from '@/shared/hooks/useCatalogos'
 import { useConcursoCeetps, usePatchConcursoCeetps, useDesignarConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
@@ -22,7 +23,8 @@ const texto = z.string()
 // POST /:id/designar (S16-4), no via PATCH.
 const formSchema = z.object({
   expedienteConcurso: texto,
-  puestoSolicitado: texto,
+  // S20-10: id del catálogo — reemplaza el input libre de puestoSolicitado.
+  puestoCargoSolicitadoId: texto,
   dispoLlamado: texto,
   cargaHoraria: z.string().regex(/^\d{0,2}$/, 'Máximo 2 dígitos'),
   apertura2x18: z.boolean(),
@@ -81,15 +83,19 @@ export function ConcursoCeetpsDetail() {
     enabled: designarSearch.length >= 2,
   })
 
-  const { register, handleSubmit, reset, watch, formState } = useForm<FormValues>({
+  const { register, handleSubmit, reset, watch, setValue, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })
+
+  // S20-10: catálogo de puestos del escalafón del concurso, para el combobox.
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(concurso?.escalafonId)
+  const puestoCargoSolicitadoId = watch('puestoCargoSolicitadoId')
 
   useEffect(() => {
     if (!concurso) return
     reset({
       expedienteConcurso: concurso.expedienteConcurso ?? '',
-      puestoSolicitado: concurso.puestoSolicitado ?? '',
+      puestoCargoSolicitadoId: concurso.puestoCargoSolicitadoId ?? '',
       dispoLlamado: concurso.dispoLlamado ?? '',
       cargaHoraria: concurso.cargaHoraria != null ? String(concurso.cargaHoraria) : '',
       apertura2x18: concurso.apertura2x18 ?? false,
@@ -313,7 +319,16 @@ export function ConcursoCeetpsDetail() {
               <input {...register('expedienteConcurso')} className="input h-10 w-full" />
             </Campo>
             <Campo label="Puesto solicitado">
-              <input {...register('puestoSolicitado')} className="input h-10 w-full" />
+              <select
+                value={puestoCargoSolicitadoId}
+                onChange={(e) => setValue('puestoCargoSolicitadoId', e.target.value, { shouldDirty: true })}
+                className="input h-10 w-full"
+              >
+                <option value="">— Mismo puesto que la baja —</option>
+                {puestosCatalogo.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
             </Campo>
             <Campo label="Disposición de llamado" ancho="sm:col-span-2 md:col-span-1">
               <input {...register('dispoLlamado')} className="input h-10 w-full" />

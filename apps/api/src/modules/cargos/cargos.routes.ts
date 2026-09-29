@@ -7,10 +7,10 @@ import { listCargosService, listPuestosCargosService, getCargoByIdService, creat
 export async function cargosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
-  // GET /puestos — valores distintos de literal_puesto para el filtro
+  // GET /puestos — catálogo PuestoCargo (con especialidades anidadas) por escalafón
   app.get('/puestos', async (request, reply) => {
-    const { escalafonId, hospitalId } = request.query as { escalafonId?: string; hospitalId?: string }
-    const data = await listPuestosCargosService(escalafonId, hospitalId)
+    const { escalafonId } = request.query as { escalafonId?: string }
+    const data = await listPuestosCargosService(escalafonId)
     return reply.send({ data })
   })
 
