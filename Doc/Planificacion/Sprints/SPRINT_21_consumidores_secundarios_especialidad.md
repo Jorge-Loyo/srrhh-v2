@@ -137,3 +137,39 @@ Postulante) deben ofrecer **solo** las opciones con `revisado=true`.
 > `nombre`) y la **descomposición de `id_sial_rol`** las hace el pipeline del Dotaneitor al cargar
 > (ver S22, **S22-15 y S22-16**). En S21 se crean las columnas y se migran los consumidores; en S22
 > se alimenta el dato desde la carga.
+
+---
+
+## Evaluación del Sprint 20 aplicado (2026-09-22) — deuda que hereda S21/S22
+
+> Se aplicó el Sprint 20 en la base local (`migrate reset` + seed, 83 migraciones OK) y se evaluó
+> tarea por tarea. Balance: **el núcleo funciona** (FK, resolver, dropdowns por catálogo, typecheck
+> back+front OK), pero quedaron **4 pendientes** que S21 debe cerrar antes de habilitar S22, porque
+> el pipeline nuevo (S22) depende de ellos.
+
+### Lo que quedó bien en S20
+
+- FK `puestoCargoId` (NOT NULL) + `especialidadPuestoId` (nullable) en `Cargo` y `SolicitudAlta`.
+- `resolverPuestoCargo.ts`: resuelve por `escalafonId:lower(trim(literal))`; sin match auto-crea
+  con `pendienteCurar=true` sin frenar el import. Bien resuelto.
+- `puestos.routes` ya no agrupa por `LOWER(TRIM(literal_puesto))` (lee del catálogo).
+- `prefijoDeCargo()` prioriza `modalidad`/`tipoPuesto` del catálogo (con fallback `.includes()`).
+- Frontend: `AltaCargosPage`/wizards mandan `puestoCargoId`/`especialidadPuestoId`;
+  `puestos-cargo.routes` tiene `POST`/`PUT` (admin de catálogo). `Sub-Director` quedó `conduccion`.
+
+### Pendientes que hereda S21 (tareas correctivas)
+
+| #      | Tarea                                                                                                                                                                                                                                                                                                                             | Dev   | Est. | Prioridad | Estado |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
+| A21-12 | **Poblar `codigos_registro`.** Hoy quedó con solo 2 filas (07, 16T); faltan los mapeos clave **37→CPH, 22→CPH, 23→Guardias, 24→Residencias, 83, 85, 87**. Sin esto, S22-5 (resolver carrera por código de registro) NO funciona. Agregar seed/migración con el mapeo completo.                                                    | Jorge | 2h   | 🔴        | 📋     |
+| A21-13 | **Normalizar el catálogo a minúscula/sin tilde** (cumplir A21-1). Tras el seed quedó en formato Título con tildes (`puestos_cargo` 376/376 con mayúsc., 83 con tilde; `especialidades_puesto` 1371 con mayúsc., 112 con tilde). Corregir el generador del `catalogo-puestos-curado.json` **y** re-sembrar en minúscula/sin tilde. | Jorge | 3h   | 🔴        | 📋     |
+| A21-14 | **Deduplicar el catálogo por tilde/casing.** Coexisten `Jefe de Division (04)` y `Jefe de División (04)`; `Jefe de Seccion (06)` y `Jefe de Sección (06)` (justo el duplicado que S20 venía a eliminar). Fusionar tras normalizar (A21-13).                                                                                       | Jorge | 2h   | 🔴        | 📋     |
+| A21-15 | **Arreglar los warnings del seed.** El `catalogo-puestos-curado.json` referencia escalafones con nombres corruptos/viejos (`Médicos-e47d1ac`, `CEETPS-d7fc610`, `Escalafón Ge-af6efb0`, `CPH`) que no matchean los canónicos → se **omiten puestos**. Regenerar el JSON contra los nombres/códigos canónicos de `escalafones`.    | Jorge | 2h   | 🟡        | 📋     |
+| A21-16 | **Unificar el naming del flag "sin revisar".** S20 usa `PuestoCargo.pendienteCurar`; S21/S22 planificaron `revisado`. Elegir uno (recomendado: adoptar `pendienteCurar` que ya existe, y actualizar A21-2 / S22 / DECISIONES §4.ter para no mezclar términos).                                                                    | Jorge | 1h   | 🟡        | 📋     |
+| A21-17 | **(opcional) FK de puesto/especialidad en `ConcursoCph`/`ConcursoCeetps`.** S20-3 las pedía pero solo quedaron en `Cargo`/`SolicitudAlta`. Evaluar si estos dos las necesitan como dato vivo o si su `puestoSolicitado` es un caso aparte (puede quedar fuera de alcance si se decide que es texto de solicitud).                 | Jorge | 2h   | 🟢        | ❓     |
+
+**Subtotal correctivas:** ~10h (A21-12..A21-16) · +2h si A21-17.
+
+> **Orden recomendado:** A21-13 (normalizar) → A21-14 (deduplicar) → A21-15 (regenerar JSON) van
+> juntas (tocan el mismo seed). A21-12 (códigos de registro) es independiente y **bloqueante para
+> S22**. A21-16 (naming) antes de tocar S22.

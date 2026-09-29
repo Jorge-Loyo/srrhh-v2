@@ -118,6 +118,18 @@ S22-13 independiente (doc)
 
 ---
 
+## ⚠️ Precondición (evaluación S20 aplicado, 2026-09-22)
+
+Antes de arrancar S22 hay que cerrar deuda que dejó el Sprint 20 al aplicarse, porque el pipeline
+de este sprint depende de ella (ver "Evaluación del Sprint 20" en `SPRINT_21`):
+
+- **`codigos_registro` casi vacío** (solo 07 y 16T) → **S22-5 no puede resolver la carrera por
+  código de registro**. Bloqueante. Se resuelve en **A21-12**.
+- **Catálogo NO normalizado** (Título + tildes) y con **duplicados por tilde** → contradice la
+  resolución `lower(trim())` del pipeline. Se resuelve en **A21-13/A21-14/A21-15**.
+- **Flag `pendienteCurar` (S20) vs `revisado` (plan)** → unificar naming (**A21-16**) antes de
+  escribir la política "sin match" de S22-6.
+
 ## Adiciones de estructura de datos al pipeline (2026-09-22)
 
 > Origen: auditoría de la BD local (`Doc/Referencias/MAPEO_NORMALIZACION_BD.md`) +
