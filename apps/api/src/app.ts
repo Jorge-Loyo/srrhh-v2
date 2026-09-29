@@ -34,6 +34,7 @@ import { referenciasRoutes } from './modules/referencias/referencias.routes.js'
 import { organigramaRoutes } from './modules/organigrama/organigrama.routes.js'
 import { pouRoutes } from './modules/pou/pou.routes.js'
 import { dotacionRoutes } from './modules/dotacion/dotacion.routes.js'
+import { reportesRoutes } from './modules/reportes/reportes.routes.js'
 import { tokensRoutes } from './modules/tokens/tokens.routes.js'
 import { auditoriaRoutes } from './modules/auditoria/auditoria.routes.js'
 import { cadenaMandoRoutes } from './modules/cadena-mando/cadena-mando.routes.js'
@@ -111,6 +112,7 @@ await app.register(referenciasRoutes,      { prefix: '/api/v1/referencias' })
 await app.register(organigramaRoutes,      { prefix: '/api/v1/organigrama' })
 await app.register(pouRoutes,              { prefix: '/api/v1/pou' })
 await app.register(dotacionRoutes,         { prefix: '/api/v1/dotacion' })
+await app.register(reportesRoutes,         { prefix: '/api/v1/reportes' })
 await app.register(tokensRoutes,           { prefix: '/api/v1/tokens' })
 await app.register(auditoriaRoutes,        { prefix: '/api/v1/auditoria' })
 await app.register(cadenaMandoRoutes,      { prefix: '/api/v1/cadena-mando' })

@@ -34,7 +34,10 @@ const EXCLUIR_ESPEJO_JEFATURA = Prisma.sql`
 // "Vigente" replicado del criterio ya usado en todo el proyecto (ver
 // personas.service.ts, kpis.service.ts, padron.service.ts): la ocupación no
 // tiene fecha de fin y el cargo que ocupa está vigente.
-const BASE_FROM = Prisma.sql`
+// Exportado para reutilizar desde reportes.service.ts (mismo criterio de
+// "vigente" que /dotacion, sin fecha de corte histórica — los reportes son
+// sobre la foto actual).
+export const BASE_FROM = Prisma.sql`
   FROM ocupaciones o
   JOIN personas p    ON p.id = o.persona_id
   JOIN cargos c      ON c.id = o.cargo_id
@@ -275,7 +278,13 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
 // el facetado de opciones (getDistinctValues) para que cada desplegable calcule
 // sus opciones aplicando todos los filtros MENOS el suyo propio — así se pueden
 // tildar varias opciones de una misma dimensión sin que las demás desaparezcan.
-function buildConditions(query: DotacionQuery, omitir?: keyof DimensionesDotacion): Prisma.Sql[] {
+// Subconjunto de DotacionQuery que efectivamente participa del filtrado (todo
+// menos paginación/orden/fecha de corte) — tipo del parámetro de
+// buildConditions para poder reutilizarla desde reportes.service.ts, que no
+// maneja esos campos. DotacionQuery sigue siendo asignable acá sin cambios.
+export type DotacionFiltersQuery = Omit<DotacionQuery, 'page' | 'limit' | 'sortBy' | 'sortDir' | 'skipDistinct' | 'mesCorte'>
+
+export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof DimensionesDotacion): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = []
 
   // ── UNIONES (OR) ──────────────────────────────────────────────────────────
