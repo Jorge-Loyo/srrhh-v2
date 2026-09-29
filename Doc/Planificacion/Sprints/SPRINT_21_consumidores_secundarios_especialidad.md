@@ -105,3 +105,30 @@ Postulante) deben ofrecer **solo** las opciones con `revisado=true`.
 
 - Documento de decisiones del taller: `Doc/Referencias/DOTANEITOR_DECISIONES.md` (decisiones §1, §4.ter).
 - Fix relacionado ya aplicado: `persona.activo` (paso 10 en `aprobarSnapshotService`) — ver ese doc §6.
+
+---
+
+## Adiciones de estructura de datos (2026-09-22)
+
+> Origen: auditoría de la BD local (`Doc/Referencias/MAPEO_NORMALIZACION_BD.md`) y decisiones
+> consolidadas en `DOTANEITOR_DECISIONES.md §9`. **Sprint 20 ya está terminado en otra rama**, así
+> que estos cambios de schema entran acá como **migraciones nuevas sobre el schema que dejó S20**
+> (no como parte de su `migrate reset`). Todo aplica a la **toma de información**, sin limpieza
+> retroactiva. Ver `DOTANEITOR_DECISIONES.md §9` para el detalle de cada decisión.
+
+### Tareas
+
+| #     | Tarea                                                                                                                                                                                                                                                                                                                                                           | Dev             | Est. | Prioridad | Estado |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---- | --------- | ------ |
+| A21-3 | **`personas` tabla única + nombre en 3 columnas.** Schema: agregar `apellido` y `nombre` a `personas`, manteniendo `apellido_nombre` (regla de negocio). Confirmar que todas las cargas (padrón, bajas SIAL, alta manual) alimentan **esta** tabla, sin tablas paralelas de persona. Migración + ajuste de los writers. (§9.2)                                  | Jorge           | 3h   | 🔴        | 📋     |
+| A21-4 | **`ocupaciones`: CUIL y roles.** Schema: `cuil_y_rol` deja de guardar el concatenado → renombrar/reducir a `cuil` (solo CUIL). Agregar columnas descompuestas de `id_sial_rol`: `id_sial` (legajo) + `nro_rol`, conservando `id_sial_rol` crudo. Habilita el histórico "cuántos roles tuvo un legajo/persona". Migración + backend que lea el histórico. (§9.3) | Jorge           | 4h   | 🔴        | 📋     |
+| A21-5 | **Estandarizar convención snake_case.** Renombrar la columna `ocupaciones."diasGuardia"` → `dias_guardia` (única columna camelCase de la BD, hoy vacía) y su `@map` en Prisma. Verificar que ningún `$queryRaw` la referencie con el nombre viejo. (§9.1)                                                                                                       | Jorge           | 1h   | 🟡        | 📋     |
+| A21-6 | **Unificar postulantes → `inscriptos_concurso`.** Eliminar las tablas `postulantes` y `postulantes_concurso` (vacías) y el modelo Prisma. Migrar los consumidores del módulo `postulantes` (back `postulantes.service.ts` + front módulo `postulantes`) a `inscriptos_concurso`. Confirmar que no hay datos que migrar. (§9.4)                                  | Jorge + Agustín | 3h   | 🟡        | 📋     |
+| A21-7 | **Limpieza estructural.** (a) Eliminar la tabla de backup `_backup_cph_estados`. (b) Confirmar si `cargos.lit_familia` se llena en algún flujo; si no, eliminar la columna. (c) Verificar tras el schema que `cantidad_cargos` NO exista en `concursos_cph`/`concursos_ceetps` (drift detectado en local). (§9.5)                                               | Jorge           | 1.5h | 🟢        | 📋     |
+
+**Subtotal adiciones:** ~12.5h (se suma al total del sprint).
+
+> Nota de dependencia con S22: la **partición del nombre** (`"Apellido, Nombre"` → `apellido` +
+> `nombre`) y la **descomposición de `id_sial_rol`** las hace el pipeline del Dotaneitor al cargar
+> (ver S22, A22-5). En S21 se crean las columnas y se migran los consumidores; en S22 se alimenta
+> el dato desde la carga.

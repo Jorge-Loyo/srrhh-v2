@@ -438,3 +438,74 @@ paréntesis al matchear contra el catálogo.
 - ¿"minúscula y sin tilde en toda la BD" aplica también a las tablas de referencia y datos ya
   cargados (migración de limpieza de lo existente), o solo a lo nuevo que entra?
 - ¿La unificación por filtros (ex pasos 6/7) es una vista, una tabla derivada, o filtros en la UI?
+
+---
+
+## 9. Ajustes de estructura de datos (sesión 2026-09-22, sobre el mapeo de la BD)
+
+> Origen: auditoría de la BD local (`Doc/Referencias/MAPEO_NORMALIZACION_BD.md`). Todo esto aplica
+> a la **toma de información** (cómo entra el dato al cargarlo), NO a limpieza retroactiva de datos
+> viejos. **Sprint 20 ya está terminado en otra rama**, así que estos cambios entran como
+> **adiciones a Sprint 21 y Sprint 22** — migraciones nuevas sobre el schema que dejó S20, no como
+> parte de su `migrate reset`.
+
+### Trazabilidad decisión (2026-09-22) → sprint
+
+| Decisión                                                                                   | Dónde se ejecuta                             |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Normalizar a minúscula/sin tilde **al cargar** (ya decidido, se ratifica)                  | S22 (A22-1)                                  |
+| `personas` tabla única; toda carga la alimenta                                             | S21 (A21-3)                                  |
+| `personas` mantiene `apellido_nombre` (regla de negocio) **y además** `apellido`+`nombre`  | S21 (A21-3) + S22 (el pipeline parte nombre) |
+| `ocupaciones.cuil_y_rol` → dejar solo `cuil`                                               | S21 (A21-4)                                  |
+| `ocupaciones.id_sial_rol` → separar al cargar: ID SIAL + histórico de roles                | S21 (A21-4) + S22 (el pipeline separa)       |
+| Estandarizar convención: corregir `diasGuardia` → `dias_guardia` (snake_case)              | S21 (A21-5)                                  |
+| Unificar postulantes: dejar **solo `inscriptos_concurso`**, eliminar las otras dos         | S21 (A21-6)                                  |
+| Limpieza estructural (`_backup_cph_estados`, `lit_familia` vacía, drift `cantidad_cargos`) | S21 (A21-7)                                  |
+
+### 9.1 · Convención de nombres — se ratifica **snake_case** (no camelCase)
+
+**snake_case en columnas físicas de Postgres + camelCase en el modelo Prisma** (con `@map`) — lo
+que ya rige de hecho y el estándar de Prisma. La única excepción rota es `ocupaciones."diasGuardia"`
+(única columna camelCase de toda la BD, además vacía) → se corrige a `dias_guardia`. No se toca el
+resto: reescribir las 60+ tablas a camelCase físico rompería todo el SQL crudo (`$queryRaw`) sin
+aportar nada.
+
+### 9.2 · `personas` — tabla única + nombre en 3 columnas
+
+- **Una sola tabla `personas`.** Todas las cargas (padrón, bajas SIAL, altas manuales) la alimentan.
+  No se crean tablas paralelas de persona.
+- Se **mantiene `apellido_nombre`** como columna (regla de negocio: así lo consumen documentos y
+  vistas hoy).
+- Se **agregan** `apellido` y `nombre` separados, **alimentados desde la carga** (el pipeline parte
+  el `"Apellido, Nombre"` por la primera coma). Permiten ordenar/filtrar por apellido o por nombre
+  sin parsear en runtime.
+- Regla de partición: todo antes de la primera coma = `apellido`; el resto = `nombre`. Apellidos
+  compuestos (`Gonzalez Bernaldo de Quiros`) quedan enteros en `apellido` (correcto). Sin coma:
+  `apellido` = todo, `nombre` = null (se cuenta cuántos hay y se informa en el diff).
+
+### 9.3 · `ocupaciones` — CUIL y roles
+
+- **`cuil_y_rol` → dejar solo `cuil`.** Deja de guardar el CUIL+rol concatenado; guarda solo el CUIL
+  (que además ya está en `personas.cuil`).
+- **`id_sial_rol` → separar al cargar.** Hoy empaqueta `legajoSial-rol-cuil-rol`
+  (`001812167-1-27246838076-1`). El pipeline lo descompone para tener explícito el **ID SIAL** (el
+  legajo) y el **número de rol**, y así poder responder "cuántos roles tuvo este legajo/persona" y
+  armar el **histórico de roles**. Se conserva `id_sial_rol` crudo como identificador natural del
+  SIAL (auditoría) y se agregan las columnas descompuestas.
+
+### 9.4 · Unificar postulantes → `inscriptos_concurso`
+
+`postulantes` y `postulantes_concurso` están **vacías** y duplican a `inscriptos_concurso` (que
+tiene datos y ya está atomizado en `apellido`/`nombre`). Se **eliminan** las dos; queda
+`inscriptos_concurso` como única tabla de "persona anotada a un concurso CPH". Migrar los
+consumidores (módulo `postulantes` de back/front) a `inscriptos_concurso`.
+
+### 9.5 · Limpieza estructural
+
+- **`_backup_cph_estados`** (backup de una migración, 2.004 filas) → eliminar cuando no se necesite.
+- **`cargos.lit_familia`** está vacía (0 filas con dato) → confirmar si algún flujo la llena; si no,
+  eliminar la columna.
+- **Drift `cantidad_cargos`:** la migración `20260926000000_sync_schema_completo` figura aplicada
+  pero la columna sigue existiendo en `concursos_cph`/`concursos_ceetps` en la base local. Como la
+  BD se rearma desde cero, el schema queda como fuente de verdad; verificar tras el reset que la
+  columna efectivamente NO exista (coherente con Contrato_Datos).

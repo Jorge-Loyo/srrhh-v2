@@ -115,3 +115,33 @@ S22-13 independiente (doc)
   elimina** — el Dotaneitor entrega el dataset, Node arma el diff que el usuario revisa.
 - **KPI mensual:** NO entra en este sprint — sprint futuro propio (backend + tabla de corte mensual).
 - Referencia de decisiones: `Doc/Referencias/DOTANEITOR_DECISIONES.md`.
+
+---
+
+## Adiciones de estructura de datos al pipeline (2026-09-22)
+
+> Origen: auditoría de la BD local (`Doc/Referencias/MAPEO_NORMALIZACION_BD.md`) +
+> `DOTANEITOR_DECISIONES.md §9`. Estas tareas son lo que el **pipeline hace al cargar** para
+> alimentar las columnas que S21 crea en el schema. Todo se resuelve **en la toma de información**,
+> sin limpieza retroactiva.
+
+### A22-1 · Normalización total minúscula + sin tilde (ya listada en S22-3)
+
+Se ratifica: **todo el texto de salida en minúscula y sin tilde** (excepto siglas y enums de hecho
+como `sexo`, `situacion_revista` — decidir caso por caso). Ya cubierto por la tarea **S22-3**.
+
+### Tareas nuevas
+
+| #      | Tarea                                                                                                                                                                                                                                                                                                                  | Dev   | Est. | Prioridad | Estado |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
+| S22-15 | **Partir el nombre al cargar.** El pipeline separa `"Apellido, Nombre"` (AYN) en `apellido` + `nombre` (por la primera coma) y **también** entrega `apellido_nombre` normalizado. Sin coma → `apellido`=todo, `nombre`=null; contar e informar en el diff los casos sin coma. Salida: 3 campos para `personas`. (§9.2) | Jorge | 2h   | 🔴        | 📋     |
+| S22-16 | **Descomponer `id_sial_rol` al cargar.** El pipeline separa `legajoSial-rol-cuil-rol` en `id_sial` (legajo) + `nro_rol`, entrega solo `cuil` (no el `cuil_y_rol` concatenado) y conserva `id_sial_rol` crudo. Salida con los campos descompuestos para que Node arme el histórico de roles. (§9.3)                     | Jorge | 3h   | 🔴        | 📋     |
+
+**Subtotal adiciones:** ~5h (se suma al total del sprint).
+
+### Criterio de éxito (adiciones)
+
+- [ ] El dataset de salida trae `apellido` + `nombre` separados **y** `apellido_nombre`, todo en
+      minúscula/sin tilde; los registros sin coma se informan en el diff.
+- [ ] El dataset trae `id_sial` (legajo) + `nro_rol` descompuestos y `cuil` solo (sin la parte de
+      rol), conservando `id_sial_rol` crudo para auditoría.
