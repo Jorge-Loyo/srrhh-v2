@@ -953,6 +953,8 @@ export interface PersonaFilters {
   activo?: boolean
   hospitalId?: string
   escalafonId?: string
+  // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
+  modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/puestos.
   puestoCargoId?: string
   especialidadPuestoId?: string

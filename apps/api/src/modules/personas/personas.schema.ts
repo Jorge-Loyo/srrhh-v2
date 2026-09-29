@@ -16,6 +16,8 @@ export const personasQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   // S20-7: puesto/especialidad filtran por FK real al catálogo.
   puestoCargoId: z.string().uuid().optional(),
   especialidadPuestoId: z.string().uuid().optional(),

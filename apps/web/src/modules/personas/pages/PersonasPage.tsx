@@ -4,11 +4,11 @@ import type { PaginatedResponse, PersonaListItem, PersonaFilters } from '@srrhh/
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
-import { usePersonas, usePuestos } from '../hooks/usePersonas'
+import { usePersonas } from '../hooks/usePersonas'
 
 const LIMIT = 50
 
@@ -18,6 +18,7 @@ export function PersonasPage() {
   const search       = searchParams.get('search') ?? ''
   const hospitalId   = searchParams.get('hospitalId') ?? ''
   const escalafonId  = searchParams.get('escalafonId') ?? ''
+  const modalidad    = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
   const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
@@ -52,6 +53,7 @@ export function PersonasPage() {
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(modalidad && { modalidad }),
     ...(activo && { activo: activo === 'true' }),
     ...(puestoCargoId && { puestoCargoId }),
     ...(especialidadPuestoId && { especialidadPuestoId }),
@@ -61,10 +63,23 @@ export function PersonasPage() {
 
   const { data, isLoading, isFetching, isError } = usePersonas(filters)
   const { data: hospitales } = useHospitales()
-  const { data: escalafones } = useEscalafones()
-  // Pedido de Jorge (2026-08-26): el dropdown de puesto queda en cascada con
-  // el escalafón elegido — sin escalafón, trae todos los puestos como antes.
-  const { data: puestos } = usePuestos(escalafonId || undefined)
+  // S21: los filtros usan el CATÁLOGO (escalafón→modalidad→puesto→especialidad),
+  // igual que Altas de Cargo — así el desplegable se llena aunque no haya padrón
+  // cargado. `paraNuevaAlta=true` trae los escalafones con puestos en el catálogo.
+  const { data: escalafones } = useEscalafones(true)
+  // Puestos del catálogo del escalafón + modalidad elegidos. Sin escalafón, no
+  // hay puestos (la cascada arranca en escalafón).
+  const { data: puestosCatalogo } = usePuestosCargoNormalizados(
+    escalafonId || undefined,
+    modalidad || undefined,
+  )
+  const puestos = puestosCatalogo ?? []
+  // Especialidades del puesto elegido (por nombre) — solo si ese puesto tiene.
+  const puestoSel = puestos.find((p) => p.id === puestoCargoId)
+  const { data: especialidadesPuesto } = useEspecialidadesPuesto(
+    escalafonId || undefined,
+    puestoSel?.nombre,
+  )
 
   // Pedido de Jorge (2026-08-26): orden alfabético por el LABEL mostrado
   // (no por Escalafon.nombre crudo) — así "CPH" ordena en la C y no se queda
@@ -74,11 +89,10 @@ export function PersonasPage() {
   )
 
   // Filtro de especialidad en cascada: solo tiene sentido con un puesto
-  // elegido, y solo si ESE puesto realmente tiene especialidades en los
-  // datos reales (la mayoría de los puestos no médicos no tienen ninguna —
-  // ver Puesto en packages/types).
-  const puestoSeleccionado = puestos?.find((p) => p.id === puestoCargoId)
-  const especialidadesDelPuesto = puestoSeleccionado?.especialidades ?? []
+  // elegido, y solo si ESE puesto realmente tiene especialidades en el
+  // catálogo (la mayoría de los puestos no médicos no tienen ninguna).
+  const puestoSeleccionado = puestoSel
+  const especialidadesDelPuesto = especialidadesPuesto ?? []
 
   function cambiarPuesto(nuevoPuestoCargoId: string) {
     setSearchParams((prev) => {
@@ -94,6 +108,20 @@ export function PersonasPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (nuevoEscalafonId) next.set('escalafonId', nuevoEscalafonId); else next.delete('escalafonId')
+      // Al cambiar la carrera se reinicia toda la cascada.
+      next.delete('modalidad')
+      next.delete('puestoCargoId')
+      next.delete('especialidadPuestoId')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function cambiarModalidad(nuevaModalidad: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (nuevaModalidad) next.set('modalidad', nuevaModalidad); else next.delete('modalidad')
+      // Al cambiar la modalidad se reinicia puesto y especialidad.
       next.delete('puestoCargoId')
       next.delete('especialidadPuestoId')
       next.delete('page')
@@ -172,7 +200,7 @@ export function PersonasPage() {
             onChange={(e) => setParam('hospitalId', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
-            <option value="">Todos los hospitales</option>
+            <option value="">Todas las reparticiones</option>
             {hospitales?.map((h) => (
               <option key={h.id} value={h.id}>
                 {hospitalLabel(h)}
@@ -191,6 +219,17 @@ export function PersonasPage() {
               </option>
             ))}
           </select>
+          {escalafonId && (
+            <select
+              value={modalidad}
+              onChange={(e) => cambiarModalidad(e.target.value)}
+              className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="">Todas las modalidades</option>
+              <option value="pof">Planta (POF)</option>
+              <option value="pou">Guardia (POU)</option>
+            </select>
+          )}
           <select
             value={activo}
             onChange={(e) => setParam('activo', e.target.value)}
@@ -200,15 +239,17 @@ export function PersonasPage() {
             <option value="true">Solo activos</option>
             <option value="false">Solo inactivos</option>
           </select>
-          <SearchableSelect
-            value={puestoCargoId}
-            onChange={cambiarPuesto}
-            options={puestos?.map((p) => p.puesto) ?? []}
-            valueToDisplay={(id) => puestos?.find((p) => p.id === id)?.puesto ?? id}
-            displayToValue={(label) => puestos?.find((p) => p.puesto === label)?.id ?? label}
-            placeholder="Todos los puestos"
-            className="min-w-[240px]"
-          />
+          {escalafonId && (
+            <SearchableSelect
+              value={puestoCargoId}
+              onChange={cambiarPuesto}
+              options={puestos.map((p) => p.nombre)}
+              valueToDisplay={(id) => puestos.find((p) => p.id === id)?.nombre ?? id}
+              displayToValue={(label) => puestos.find((p) => p.nombre === label)?.id ?? label}
+              placeholder="Todos los puestos"
+              className="min-w-[240px]"
+            />
+          )}
           {puestoCargoId && especialidadesDelPuesto.length > 0 && (
             <select
               value={especialidadPuestoId}
@@ -250,8 +291,9 @@ export function PersonasPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
+          if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
-          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.puesto ?? puestoCargoId, key: 'puestoCargoId' })
+          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.nombre ?? puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
             const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
             chips.push({ label: esp?.nombre ?? especialidadPuestoId, key: 'especialidadPuestoId' })
@@ -266,6 +308,7 @@ export function PersonasPage() {
                   <button
                     onClick={() => {
                       if (chip.key === 'escalafonId') cambiarEscalafon('')
+                      else if (chip.key === 'modalidad') cambiarModalidad('')
                       else if (chip.key === 'puestoCargoId') cambiarPuesto('')
                       else setParam(chip.key, '')
                     }}

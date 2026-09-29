@@ -28,6 +28,7 @@ export async function listPersonasService(query: PersonasQuery) {
     activo,
     hospitalId,
     escalafonId,
+    modalidad,
     puestoCargoId,
     especialidadPuestoId,
     idSial,
@@ -53,6 +54,13 @@ export async function listPersonasService(query: PersonasQuery) {
   if (activo !== undefined) conditions.push(Prisma.sql`p.activo = ${activo}`)
   if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
+  // S21: modalidad del cargo (POF/POU) — vía el puesto del catálogo. Una
+  // persona activa con este cargo es un profesional de esa modalidad.
+  if (modalidad)
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM puestos_cargo pcm
+      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${modalidad}::"ModalidadPuesto"
+    )`)
   // S20-7: filtro por FK real al catálogo — sin duplicados por casing.
   if (puestoCargoId) conditions.push(Prisma.sql`c.puesto_cargo_id = ${puestoCargoId}::uuid`)
   if (especialidadPuestoId)
@@ -79,6 +87,11 @@ export async function listPersonasService(query: PersonasQuery) {
     ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
     : Prisma.empty
 
+  // S21-5: la "especialidad principal" es la del CARGO vigente de la persona
+  // (semántica real de la columna). Se deriva en runtime desde el cargo vigente
+  // (fuente de verdad: especialidad_puesto del catálogo, con fallback al snapshot
+  // especialidad_legacy) en vez de leer p.especialidad_principal, que era
+  // write-once y quedaba stale. Ver S21-5 / DECISIONES.
   const joinCargoVigente = Prisma.sql`
     LEFT JOIN LATERAL (
       SELECT o.cargo_id FROM ocupaciones o
@@ -87,6 +100,7 @@ export async function listPersonasService(query: PersonasQuery) {
       LIMIT 1
     ) oc ON true
     LEFT JOIN cargos c ON c.id = oc.cargo_id
+    LEFT JOIN especialidades_puesto ep ON ep.id = c.especialidad_puesto_id
   `
 
   const [rows, totalRows] = await Promise.all([
@@ -96,7 +110,8 @@ export async function listPersonasService(query: PersonasQuery) {
         p.numero_doc AS "numeroDoc", p.tipo_doc AS "tipoDoc",
         p.apellido_nombre AS "apellidoNombre",
         p.fecha_nacimiento AS "fechaNacimiento",
-        p.sexo, p.especialidad_principal AS "especialidadPrincipal",
+        p.sexo,
+        COALESCE(ep.nombre, c.especialidad_legacy) AS "especialidadPrincipal",
         p.especialidad_cph AS "especialidadCph",
         p.activo, p.created_at AS "createdAt", p.updated_at AS "updatedAt",
         c.literal_puesto AS "puesto",

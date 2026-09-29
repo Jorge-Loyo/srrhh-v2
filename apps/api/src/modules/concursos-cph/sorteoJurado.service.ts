@@ -220,7 +220,6 @@ async function obtenerCandidatos(params: {
           cuil: true,
           antiguedadDesde: true,
           especialidadCph: true,
-          especialidadPrincipal: true,
         },
       },
       cargo: {
@@ -246,7 +245,11 @@ async function obtenerCandidatos(params: {
     if (norm(o.cargo.literalPuesto).includes('director')) continue
 
     const p = o.persona
-    const especialidadPersona = p.especialidadCph ?? p.especialidadPrincipal
+    // S21-6: la especialidad del candidato al jurado es la especialidad PROPIA de
+    // la persona (especialidadCph, canónica y resincronizada cada snapshot), no la
+    // del cargo actual. Se eliminó el fallback a especialidadPrincipal (columna
+    // write-once/stale que se está deprecando — ver S21-5).
+    const especialidadPersona = p.especialidadCph
     const conduccion = esConduccion(o.codigoJefaturas)
     const esGuardiaCandidato = modalidadDeCargo(o.cargo.unificadorPuesto) === 'pou'
     const antiguedad = aniosDesde(p.antiguedadDesde, hoy)
