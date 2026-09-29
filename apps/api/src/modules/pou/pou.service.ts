@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import type { Prisma } from '@prisma/client'
+import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 
@@ -213,6 +214,13 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
       valores[mapping.field] = normalizeCell(fila[colIndex!], mapping.tipo)
     }
 
+    // A21-10: normalizar los campos de texto de negocio (minúscula/sin tilde)
+    // ANTES del dedup y la validación, para que el colapso por casing sea
+    // consistente. La sigla se deja como código (solo trim de normalizeCell).
+    for (const campo of ['perfil', 'especialidad', 'descripcionSigla'] as const) {
+      if (typeof valores[campo] === 'string') valores[campo] = normalizarTexto(valores[campo] as string) || null
+    }
+
     // Fila vacía (las 3 columnas clave sin datos) — se descarta en silencio, igual que la app vieja.
     if (!valores.sigla && !valores.perfil && !valores.especialidad) continue
 
@@ -234,6 +242,8 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
     vistos.add(key)
 
     filas.push({
+      // A21-10: perfil/especialidad/descripcionSigla ya vienen normalizados
+      // (arriba, antes del dedup); sigla se deja como código.
       sigla: valores.sigla as string,
       descripcionSigla: valores.descripcionSigla as string | null,
       perfil: valores.perfil as string,

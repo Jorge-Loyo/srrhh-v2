@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import type { Prisma } from '@prisma/client'
+import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.js'
@@ -625,13 +626,9 @@ const HOSPITAL_TIPO_A_UNIVERSO: Record<string, string> = {
 // debajo es Atención Primaria.
 const SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA = 'SSAPAC'
 
-function normalizarTexto(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .trim()
-}
+// A21-11: normalizarTexto se movió a @srrhh/normalizacion (fuente de verdad
+// única). La versión del paquete MANTIENE la ñ (la local acá la borraba con
+// \p{Diacritic}); es el comportamiento correcto del proyecto (§9.1).
 
 export function esFilaArea(tipo: string | null | undefined): boolean {
   return normalizarHeader(tipo ?? '') === 'area'

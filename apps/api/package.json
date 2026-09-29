@@ -23,6 +23,7 @@
     "@fastify/multipart": "^9.0.0",
     "@fastify/rate-limit": "^10.0.0",
     "@prisma/client": "^5.14.0",
+    "@srrhh/normalizacion": "workspace:*",
     "@srrhh/types": "workspace:*",
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^20.19.43",

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { normalizarTexto, canonizarCph } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { DiffQuery } from './bajas-sial.schema.js'
@@ -24,6 +25,11 @@ function parseFecha(v: unknown): Date | null {
 
 function str(v: unknown): string {
   return v === null || v === undefined ? '' : String(v).trim()
+}
+
+// A21-9: normaliza a minúscula/sin tilde y devuelve null si queda vacío.
+function norm(v: unknown): string | null {
+  return normalizarTexto(v == null ? '' : String(v)) || null
 }
 
 function parseExcel(buffer: Buffer): Record<string, unknown>[] {
@@ -91,25 +97,10 @@ function cuilPuro(cuil: string): string {
   return cuil.replace(/-/g, '').slice(0, 11)
 }
 
-// Nombres históricos del escalafón CPH — mismo set que normalizador_cargos.py
-const NOMBRES_CPH_VIEJOS = new Set([
-  'MEDICOS', 'MÉDICOS', 'CPH',
-  'CARRERA PROFESIONAL HOSPITALARIA',
-  'NUEVA CARRERA PROF. HOSP',
-  'NUEVA CARRERA PROF HOSP',
-])
-const NOMBRE_CPH_CANONICO = 'Nueva Carrera Profesional Hospitalaria'
-
-function normalizarEscalafon(v: string | null): string | null {
-  if (!v) return v
-  return NOMBRES_CPH_VIEJOS.has(v.trim().toUpperCase()) ? NOMBRE_CPH_CANONICO : v
-}
-
-function normalizarLitCodReg(v: string | null): string | null {
-  if (!v) return v
-  const limpio = v.replace(/\|/g, '').trim()
-  return NOMBRES_CPH_VIEJOS.has(limpio.toUpperCase()) ? NOMBRE_CPH_CANONICO : limpio || null
-}
+// A21-9: la canonización CPH y la normalización minúscula/sin tilde se
+// centralizan en @srrhh/normalizacion (canonizarCph / normalizarTexto). Se
+// eliminaron NOMBRES_CPH_VIEJOS / normalizarEscalafon / normalizarLitCodReg
+// duplicados que había acá.
 
 export async function uploadBajasSialService(
   file: UploadedFile,
@@ -149,31 +140,34 @@ async function procesarSnapshot(
   const registros = rows.map((r) => ({
     id:            randomUUID(),
     snapshot_id:   snapshotId,
+    // A21-9: campos de texto de negocio → normalizarTexto (minúscula/sin tilde);
+    // escalafon/lit_cod_reg → canonizarCph (unifica variantes CPH). Los códigos,
+    // CUIL, sexo, fechas y doc no se normalizan (son ids/enums de hecho).
     cargo:         str(r.CARGO),
     cuil:          str(r.CUIL),
-    ayn:           str(r.AYN),
+    ayn:           norm(r.AYN),
     num_doc:       str(r.NUM_DOC) || null,
     sexo:          str(r.SEXO) || null,
     fec_nacim:     parseFecha(r.FEC_NACIM),
     edad:          r.EDAD ? Number(r.EDAD) || null : null,
     cod_rep:       str(r.COD_REP) || null,
-    desc_rep:      str(r.DESC_REP) || null,
-    escalafon:     normalizarEscalafon(str(r.ESCALAFON) || null),
+    desc_rep:      norm(r.DESC_REP),
+    escalafon:     canonizarCph(str(r.ESCALAFON) || null),
     regimen:       str(r.REGIMEN) || null,
     sit_rev:       str(r.SIT_REV) || null,
     cod_reg:       str(r.COD_REG) || null,
-    lit_cod_reg:   normalizarLitCodReg(str(r.LIT_COD_REG) || null),
+    lit_cod_reg:   canonizarCph(str(r.LIT_COD_REG) || null),
     puesto:        str(r.PUESTO) || null,
-    lit_puesto:    str(r.LIT_PUESTO) || null,
+    lit_puesto:    norm(r.LIT_PUESTO),
     cod_agrup:     str(r.COD_AGRUPAMIENTO) || null,
-    lit_agrup:     str(r.LIT_AGRUPAMIENTO) || null,
+    lit_agrup:     norm(r.LIT_AGRUPAMIENTO),
     cargo_desde:   parseFecha(r.CARGO_DESDE),
     cargo_hasta:   parseFecha(r.CARGO_HASTA),
     doc_resp_alta: str(r.DOC_RESP_ALTA) || null,
     doc_resp_baja: str(r.DOC_RESP_BAJA) || null,
-    mot_baja:      str(r.MOT_BAJA) || null,
+    mot_baja:      norm(r.MOT_BAJA),
     car_codigo:    str(r.CAR_CODIGO) || null,
-    funcion:       str(r.FUNCION) || null,
+    funcion:       norm(r.FUNCION),
   }))
 
   for (let i = 0; i < registros.length; i += 500) {

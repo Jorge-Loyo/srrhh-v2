@@ -651,3 +651,21 @@ texto, sin exigir que la persona exista en el sistema.
 
 **A futuro:** la carga de inscriptos hoy es manual/Excel, pero pasará a ser una **API que trae los
 postulados**. El modelo (carga externa por CUIL, sin persona obligatoria) ya lo soporta.
+
+### 9.13 · Excepción de normalización — nombres del Organigrama (decisión 2026-09-22)
+
+Los nombres que persiste el **Organigrama** (`descRep`, `pathNombres`, `path`) **NO** se normalizan
+a minúscula/sin tilde. Motivos:
+
+- Es una **vista de presentación**: el árbol muestra los nombres de las unidades organizativas
+  (ej. "Subdirección Médica") tal como se leen; pasarlos a minúscula/sin tilde empeoraría la UX sin
+  beneficio.
+- El **cruce con `cargos.codigoRepa` es por `codigoReparticion` (un código)**, no por el nombre —
+  así que la normalización no aporta a ningún match.
+
+Lo único que se unificó del organigrama (A21-11) es el **helper** `normalizarTexto` (que se usa
+para el match interno tipo-de-hospital → universo): pasó a `@srrhh/normalizacion`, y de paso se
+corrigió que **mantenga la ñ** (la versión local la borraba). La regla general "minúscula/sin tilde
+en toda la BD" aplica a los **datos de dotación** (puestos, especialidades, nombres de personas,
+bajas SIAL, POU perfil/especialidad) que se cruzan y filtran — el organigrama es la excepción
+documentada.
