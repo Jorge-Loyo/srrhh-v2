@@ -30,7 +30,6 @@ import { autorizacionesRoutes } from './modules/autorizaciones/autorizaciones.ro
 import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-alta.routes.js'
 import { etiquetasRoutes } from './modules/etiquetas/etiquetas.routes.js'
 import { ordenesMeritoRoutes } from './modules/ordenes-merito/ordenes-merito.routes.js'
-import { postulantesRoutes } from './modules/postulantes/postulantes.routes.js'
 import { referenciasRoutes } from './modules/referencias/referencias.routes.js'
 import { organigramaRoutes } from './modules/organigrama/organigrama.routes.js'
 import { pouRoutes } from './modules/pou/pou.routes.js'
@@ -108,7 +107,6 @@ await app.register(autorizacionesRoutes,   { prefix: '/api/v1/autorizaciones' })
 await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' })
 await app.register(etiquetasRoutes,        { prefix: '/api/v1/etiquetas' })
 await app.register(ordenesMeritoRoutes,    { prefix: '/api/v1/ordenes-merito' })
-await app.register(postulantesRoutes,      { prefix: '/api/v1/postulantes' })
 await app.register(referenciasRoutes,      { prefix: '/api/v1/referencias' })
 await app.register(organigramaRoutes,      { prefix: '/api/v1/organigrama' })
 await app.register(pouRoutes,              { prefix: '/api/v1/pou' })

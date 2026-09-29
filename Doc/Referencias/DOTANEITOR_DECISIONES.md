@@ -619,3 +619,33 @@ Tras evaluar el S20 aplicado, las correctivas del catálogo (A21-12..A21-16) se 
 - Códigos de escalafón "basura" del JSON remapeados a canónicos (sin puestos omitidos).
 
 Con esto queda cumplida la **precondición de arranque de S22**.
+
+### 9.12 · Match diferido CUIL→persona en Orden de Mérito e Inscriptos (decisión 2026-09-22)
+
+Los integrantes de una **Orden de Mérito** y los **inscriptos a concurso** (`inscriptos_concurso`)
+son gente que **puede no existir todavía** en `personas` (se presentó a concurso pero aún no es
+empleada). Esa lista es **externa e informativa**: se carga por **CUIL** + apellido/nombre como
+texto, sin exigir que la persona exista en el sistema.
+
+**Regla del match (automático + diferido):**
+
+- Mientras el CUIL no exista en `personas`, el integrante/inscripto queda "a la espera" (solo
+  informativo). `personaId` nullable.
+- Cuando ese CUIL **aparece en el padrón con un `id_sial_rol` válido** (o sea, entra como empleado
+  con un rol), el sistema lo **vincula automáticamente al aprobar el snapshot** (`personaId` se
+  completa). No requiere confirmación manual.
+- A partir del vínculo, el CUIL queda **en observación**: si su rol o período cambia, el sistema
+  puede detectar que **ese concurso ya fue asignado** con esos parámetros (CUIL + carrera +
+  especialidad + rol). Esto se apoya en el mecanismo ya existente `ConcursoCph.validado` /
+  `validadoAt` / `validadoIdSialRol` (validación contra el padrón), extendido a los integrantes de
+  OM e inscriptos.
+
+**Implicancias de modelo (ya reflejadas o a garantizar):**
+
+- `OrdenMeritoIntegrante.personaId` nullable + vínculo por `cuil` (texto). ✔ ya está así.
+- `inscriptos_concurso` se carga por CUIL sin exigir persona. ✔ ya está así.
+- El match automático al aprobar snapshot se implementa en `aprobarSnapshotService` (backend) —
+  tarea propia, ver **A21-18**.
+
+**A futuro:** la carga de inscriptos hoy es manual/Excel, pero pasará a ser una **API que trae los
+postulados**. El modelo (carga externa por CUIL, sin persona obligatoria) ya lo soporta.

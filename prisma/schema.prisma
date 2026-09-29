@@ -240,7 +240,14 @@ model Persona {
   cuil                  String    @unique @db.VarChar(11)
   numeroDoc             String?   @map("numero_doc") @db.VarChar(20)
   tipoDoc               String?   @map("tipo_doc") @db.VarChar(10)
+  // apellidoNombre se mantiene (regla de negocio: lo consumen documentos y
+  // vistas). A21-3: se agregan apellido + nombre separados, alimentados desde
+  // la carga (el pipeline parte "Apellido, Nombre" por la primera coma, S22-15)
+  // para poder ordenar/filtrar sin parsear en runtime. Nullable hasta que el
+  // pipeline nuevo (S22) los popule.
   apellidoNombre        String    @map("apellido_nombre") @db.VarChar(200)
+  apellido              String?   @db.VarChar(120)
+  nombre                String?   @db.VarChar(120)
   fechaNacimiento       DateTime? @map("fecha_nacimiento") @db.Date
   sexo                  String?   @db.VarChar(10)
   especialidadPrincipal String?   @map("especialidad_principal") @db.VarChar(200)
@@ -267,9 +274,9 @@ model Persona {
   concursosCeetpsDesignado ConcursoCeetps[] @relation("PersonaDesignadaCeetps")
   padronHistorico          PadronHistorico[]
   bajas                    Baja[]
-  postulante               Postulante?
   ordenMeritoIntegrante    OrdenMeritoIntegrante[]
   juradosSorteados         MiembroJuradoSorteado[] @relation("MiembroJuradoPersona")
+  rolesPersona             RolesPersona[]
 
   @@index([numeroDoc])
   @@index([especialidadCph])
@@ -349,6 +356,7 @@ model Cargo {
   especialidadPuesto  EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
   createdBy       Usuario?        @relation("CargosCreados", fields: [createdById], references: [id])
   ocupaciones     Ocupacion[]
+  rolesPersona    RolesPersona[]
   concursos       Concurso[]
   concursosCph    ConcursoCph[]
   concursosCeetps ConcursoCeetps[]
@@ -377,7 +385,11 @@ model Ocupacion {
   personaId        String    @map("persona_id") @db.Uuid
   cargoId          String    @map("cargo_id") @db.Uuid
   idSialRol             String    @unique @map("id_sial_rol") @db.VarChar(50)
-  cuilYRol              String?   @map("cuil_y_rol") @db.VarChar(80)
+  // A21-4: deja de guardar el CUIL+rol concatenado; guarda solo el CUIL (11
+  // dígitos). El nº de rol y el legajo viven descompuestos en `roles_persona`
+  // (A21-4b). Columna renombrada a `cuil`; el pipeline v2 (S22) la llena con
+  // el CUIL puro.
+  cuil                  String?   @map("cuil") @db.VarChar(11)
   situacionRevista      String?   @map("situacion_revista") @db.VarChar(50)
   estadoPersona         String?   @map("estado_persona") @db.VarChar(50)
   desde                 DateTime? @db.Date
@@ -405,7 +417,9 @@ model Ocupacion {
   documentacionDelRol   String?   @map("documentacion_del_rol") @db.Text
   documentacionBaja     String?   @map("documentacion_baja") @db.Text
   // S2-17: días de guardia (una fila por día en origen → array)
-  diasGuardia           String[]
+  // A21-5: columna física a snake_case (`dias_guardia`) para unificar la
+  // convención — era la única columna camelCase de la BD.
+  diasGuardia           String[]  @map("dias_guardia")
   // cargo_desde / cargo_hasta: fechas del cargo en SIAL (CARGO_DESDE / CARGO_HASTA del Excel)
   cargoDesdeFecha       DateTime? @map("cargo_desde") @db.Date
   cargoHastaFecha       DateTime? @map("cargo_hasta") @db.Date
@@ -422,6 +436,35 @@ model Ocupacion {
   @@index([cargoId])
   @@index([hasta])
   @@map("ocupaciones")
+}
+
+// A21-4b: histórico de roles de una persona. Separa "qué roles tuvo a lo largo
+// del tiempo" del estado vivo (que sigue en `ocupaciones`). Se agrupa por
+// `idSial` (legajo SIAL SIN el nº de rol) para responder "cuántos roles tuvo
+// este legajo/persona" con un COUNT y mapear los cargos por FK. El pipeline v2
+// (S22-16) descompone `id_sial_rol` (legajo-rol-cuil-rol) y alimenta esta tabla
+// al cargar; en S21 solo se crea la estructura (queda vacía).
+model RolesPersona {
+  id         String    @id @default(uuid()) @db.Uuid
+  personaId  String    @map("persona_id") @db.Uuid
+  // Legajo SIAL sin el rol — clave de agrupación del histórico.
+  idSial     String    @map("id_sial") @db.VarChar(50)
+  nroRol     String?   @map("nro_rol") @db.VarChar(10)
+  cargoId    String?   @map("cargo_id") @db.Uuid
+  desde      DateTime? @db.Date
+  hasta      DateTime? @db.Date
+  // Identificador natural crudo del SIAL (legajo-rol-cuil-rol), para auditoría.
+  idSialRol  String?   @map("id_sial_rol") @db.VarChar(50)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  persona Persona @relation(fields: [personaId], references: [id])
+  cargo   Cargo?  @relation(fields: [cargoId], references: [id])
+
+  @@index([personaId])
+  @@index([idSial])
+  @@index([cargoId])
+  @@map("roles_persona")
 }
 
 // =============================================================================
@@ -660,7 +703,6 @@ model ConcursoCph {
   inscriptoReservado InscriptoConcurso? @relation("InscriptoReservadoCph", fields: [inscriptoReservadoId], references: [id], onDelete: SetNull)
   etiquetas        EtiquetaConcursoCph[]
   ordenesMerito    OrdenMerito[]
-  postulantes      PostulanteConcurso[]
   integrantesDesignados OrdenMeritoIntegrante[] @relation("IntegranteDesignadoEn")
   desiertoHistorial     ConcursoCphDesierto[]
   sorteosJurado         SorteoJurado[]
@@ -1342,53 +1384,11 @@ model OrdenMeritoIntegrante {
   @@map("orden_merito_integrantes")
 }
 
-// =============================================================================
-// POSTULANTES — personas que se postulan a concursos CPH
-// Pueden o no estar en el padrón (personaId nullable).
-// Al cargar un CUIL que ya existe en Persona se vincula automáticamente.
-// =============================================================================
-
-enum EstadoPostulacion {
-  inscripto
-  admitido
-  rechazado
-}
-
-model Postulante {
-  id             String    @id @default(uuid()) @db.Uuid
-  // personaId nullable: postulante externo que no está en el padrón
-  personaId      String?   @unique @map("persona_id") @db.Uuid
-  cuil           String    @unique @db.VarChar(11)
-  apellidoNombre String    @map("apellido_nombre") @db.VarChar(200)
-  especialidad   String?   @db.VarChar(200)
-  // fuente: si vino del padrón o es externo (se postuló sin estar en planta)
-  esExterno      Boolean   @default(false) @map("es_externo")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-
-  persona       Persona?              @relation(fields: [personaId], references: [id])
-  postulaciones PostulanteConcurso[]
-
-  @@map("postulantes")
-}
-
-model PostulanteConcurso {
-  id              String             @id @default(uuid()) @db.Uuid
-  postulanteId    String             @map("postulante_id") @db.Uuid
-  concursoCphId   String             @map("concurso_cph_id") @db.Uuid
-  fechaPostulacion DateTime          @map("fecha_postulacion") @db.Date
-  estado          EstadoPostulacion  @default(inscripto)
-  observaciones   String?            @db.Text
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
-
-  postulante  Postulante  @relation(fields: [postulanteId], references: [id])
-  concursoCph ConcursoCph @relation(fields: [concursoCphId], references: [id])
-
-  // Un postulante no puede inscribirse dos veces al mismo concurso
-  @@unique([postulanteId, concursoCphId])
-  @@index([concursoCphId])
-  @@map("postulantes_concurso")
-}
+// A21-6: los modelos Postulante / PostulanteConcurso y el enum EstadoPostulacion
+// se ELIMINARON — estaban vacíos y duplicaban inscriptos_concurso (que tiene
+// datos y ya está atomizado en apellido/nombre). La única tabla de "persona
+// anotada a un concurso CPH" es ahora `inscriptos_concurso`. Ver
+// Doc/Referencias/DOTANEITOR_DECISIONES.md §9.4.
 
 // =============================================================================
 // CATALOGOS (S2-14 / S2-15)

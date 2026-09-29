@@ -185,7 +185,7 @@ async function calcularDiff(sessionId: string) {
       ocupaciones: {
         where: { hasta: null },
         select: {
-          idSialRol: true, situacionRevista: true, estadoPersona: true, cuilYRol: true,
+          idSialRol: true, situacionRevista: true, estadoPersona: true, cuil: true,
           codigoJefaturas: true, jefeEscalafon: true, comision: true, repaComision: true, codSituacion: true,
         },
         take: 1,
@@ -296,7 +296,7 @@ async function calcularDiff(sessionId: string) {
       campo: null,
       valorAnterior: JSON.stringify({
         id_sial:        idSial,
-        cuil_y_rol:     ocup?.cuilYRol ?? null,
+        cuil_y_rol:     ocup?.cuil ?? null,
         literal_puesto: actual.literalPuesto,
         especialidad:   actual.especialidadLegacy,
         agrupador:      actual.agrupador,
@@ -1164,7 +1164,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       personaId: string
       cargoId: string
       idSialRol: string
-      cuilYRol: string | null
+      cuil: string | null
       situacionRevista: string | null
       estadoPersona: string | null
       codigoJefaturas: string | null
@@ -1195,7 +1195,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         personaId: persona.id,
         cargoId: cargo.id,
         idSialRol,
-        cuilYRol: datos.cuil_y_rol ?? null,
+        cuil: cuilDe(datos),
         situacionRevista: datos.situacion_de_revista ?? null,
         estadoPersona: datos.estado ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
@@ -1989,7 +1989,7 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
             personaId: persona.id,
             cargoId: cargo.id,
             idSialRol: diff.idSialRol,
-            cuilYRol: datos.cuil_y_rol ?? null,
+            cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
@@ -2249,7 +2249,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             personaId: persona.id,
             cargoId: cargo.id,
             idSialRol: diff.idSialRol,
-            cuilYRol: datos.cuil_y_rol ?? null,
+            cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
