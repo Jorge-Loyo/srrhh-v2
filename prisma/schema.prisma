@@ -290,6 +290,13 @@ model Cargo {
   hospitalId        String       @map("hospital_id") @db.Uuid
   escalafonId       String       @map("escalafon_id") @db.Uuid
   codigoRegistroId  String?      @map("codigo_registro_id") @db.Uuid
+  // S20-2: catálogo real de puesto/especialidad, FK obligatoria (puesto) /
+  // opcional (especialidad, no todo puesto la tiene). literalPuesto/
+  // especialidadLegacy se mantienen como snapshot de auditoría del padrón
+  // SIAL tal cual llegó esa semana — ningún filtro/dropdown/lógica de
+  // negocio debe leerlos, solo puestoCargoId/especialidadPuestoId.
+  puestoCargoId      String       @map("puesto_cargo_id") @db.Uuid
+  especialidadPuestoId String?    @map("especialidad_puesto_id") @db.Uuid
   literalPuesto     String?      @map("literal_puesto") @db.VarChar(200)
   especialidadLegacy String?      @map("especialidad_legacy") @db.VarChar(200)
   agrupador         String?      @db.VarChar(150)
@@ -338,6 +345,8 @@ model Cargo {
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  puestoCargo         PuestoCargo         @relation(fields: [puestoCargoId], references: [id])
+  especialidadPuesto  EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
   createdBy       Usuario?        @relation("CargosCreados", fields: [createdById], references: [id])
   ocupaciones     Ocupacion[]
   concursos       Concurso[]
@@ -358,6 +367,8 @@ model Cargo {
   @@index([estado])
   @@index([cargoBaseId])
   @@index([cargoRetenidoId])
+  @@index([puestoCargoId])
+  @@index([especialidadPuestoId])
   @@map("cargos")
 }
 
@@ -553,6 +564,10 @@ model ConcursoCph {
   // (cargo.literalPuesto) en los casos Jefaturas/Cobertura POU. Si es null,
   // los documentos exportables asumen que es el mismo que el de la baja.
   puestoSolicitado      String?          @map("puesto_solicitado") @db.VarChar(200)
+  // S20-3: FK al catálogo — nullable igual que los campos de texto que
+  // reemplaza, ya que "mismo puesto que la baja" es un caso legítimo.
+  puestoCargoSolicitadoId      String? @map("puesto_cargo_solicitado_id") @db.Uuid
+  especialidadPuestoSolicitadaId String? @map("especialidad_puesto_solicitada_id") @db.Uuid
   eeBaja                String?          @map("ee_baja") @db.VarChar(150)
   fechaBaja             DateTime?        @map("fecha_baja") @db.Date
   eeConcurso            String?          @map("ee_concurso") @db.VarChar(150)
@@ -639,6 +654,8 @@ model ConcursoCph {
   concurso         Concurso  @relation(fields: [concursoId], references: [id])
   cargo            Cargo     @relation(fields: [cargoId], references: [id])
   hospital         Hospital  @relation(fields: [hospitalId], references: [id])
+  puestoCargoSolicitado        PuestoCargo?        @relation(fields: [puestoCargoSolicitadoId], references: [id])
+  especialidadPuestoSolicitada EspecialidadPuesto? @relation(fields: [especialidadPuestoSolicitadaId], references: [id])
   personaDesignada Persona?  @relation("PersonaDesignadaCph", fields: [personaDesignadaId], references: [id])
   inscriptoReservado InscriptoConcurso? @relation("InscriptoReservadoCph", fields: [inscriptoReservadoId], references: [id], onDelete: SetNull)
   etiquetas        EtiquetaConcursoCph[]
@@ -870,6 +887,8 @@ model ConcursoCeetps {
   estado                EstadoConcursoCeetps @default(sin_autorizar)
   expedienteConcurso    String?             @map("expediente_concurso") @db.VarChar(150)
   puestoSolicitado      String?             @map("puesto_solicitado") @db.VarChar(200)
+  // S20-3: FK al catálogo, nullable igual que puestoSolicitado (texto que reemplaza).
+  puestoCargoSolicitadoId String?           @map("puesto_cargo_solicitado_id") @db.Uuid
   dispoLlamado          String?             @map("dispo_llamado") @db.VarChar(500)
   // Carga horaria en hs (Enfermería/Técnicos) — máx. 2 dígitos, igual al mask
   // del legacy (SeguimientoCeetpsDetail.jsx).
@@ -894,6 +913,7 @@ model ConcursoCeetps {
   cargo            Cargo     @relation(fields: [cargoId], references: [id])
   hospital         Hospital  @relation(fields: [hospitalId], references: [id])
   escalafon        Escalafon @relation(fields: [escalafonId], references: [id])
+  puestoCargoSolicitado PuestoCargo? @relation(fields: [puestoCargoSolicitadoId], references: [id])
   personaDesignada Persona?  @relation("PersonaDesignadaCeetps", fields: [personaDesignadaId], references: [id])
 
   @@index([hospitalId])
@@ -1020,6 +1040,10 @@ model SolicitudAlta {
   hospitalId       String             @map("hospital_id") @db.Uuid
   escalafonId      String             @map("escalafon_id") @db.Uuid
   codigoRegistroId String?            @map("codigo_registro_id") @db.Uuid
+  // S20-3: mismo patrón que Cargo — FK real al catálogo, literalPuesto/
+  // especialidad quedan como snapshot de lo tipeado/elegido al solicitar.
+  puestoCargoId      String            @map("puesto_cargo_id") @db.Uuid
+  especialidadPuestoId String?         @map("especialidad_puesto_id") @db.Uuid
   literalPuesto    String             @map("literal_puesto") @db.VarChar(200)
   especialidad     String?            @db.VarChar(200)
   agrupador        String?            @db.VarChar(150)
@@ -1043,12 +1067,15 @@ model SolicitudAlta {
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
+  puestoCargo         PuestoCargo         @relation(fields: [puestoCargoId], references: [id])
+  especialidadPuesto  EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
   bajaOrigen      Baja?           @relation(fields: [bajaOrigenId], references: [id])
   solicitadoPor   Usuario?        @relation("SolicitudAltaSolicitadaPor", fields: [solicitadoPorId], references: [id])
   etiquetas       EtiquetaSolicitudAlta[]
 
   @@index([hospitalId])
   @@index([estado])
+  @@index([puestoCargoId])
   @@map("solicitudes_alta")
 }
 
@@ -1386,9 +1413,17 @@ model PuestoCargo {
   nombre      String          @db.VarChar(200)
   activo      Boolean         @default(true)
   tipoPuesto  TipoPuesto      @default(ejecucion) @map("tipo_puesto")
+  // S20-6: true cuando el import del padrón auto-creó este puesto porque no
+  // matcheó ningún nombre existente del catálogo para el escalafón — queda
+  // visible para que alguien lo revise/fusione desde el admin de catálogo.
+  pendienteCurar Boolean      @default(false) @map("pendiente_curar")
 
   escalafon      Escalafon            @relation(fields: [escalafonId], references: [id])
   especialidades EspecialidadPuesto[]
+  cargos                Cargo[]
+  solicitudesAlta       SolicitudAlta[]
+  concursosCphSolicitados    ConcursoCph[]
+  concursosCeetpsSolicitados ConcursoCeetps[]
 
   @@unique([escalafonId, modalidad, nombre])
   @@index([escalafonId, modalidad])
@@ -1403,6 +1438,9 @@ model EspecialidadPuesto {
   activo       Boolean    @default(true)
 
   puesto PuestoCargo @relation(fields: [puestoCargId], references: [id], onDelete: Cascade)
+  cargos              Cargo[]
+  solicitudesAlta     SolicitudAlta[]
+  concursosCphSolicitados ConcursoCph[]
 
   @@unique([puestoCargId, nombre])
   @@index([puestoCargId])

@@ -351,6 +351,8 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   const camposProtegidos: (keyof PatchConcursoCphBody)[] = [
     'especialidadSolicitada',
     'puestoSolicitado',
+    'puestoCargoSolicitadoId',
+    'especialidadPuestoSolicitadaId',
   ]
   const tieneCambioProtegido =
     !requiereAutorizacionDoble &&

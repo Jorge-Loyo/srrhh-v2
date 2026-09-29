@@ -30,31 +30,66 @@ import { Prisma, PrismaClient } from '@prisma/client'
 //   Plantas Transitorias Módulo Operativo            → MO
 //   Fallback (escalafón desconocido)                → CARGO
 
+// Saca acentos además de mayusculizar — detectado en vivo tras el
+// `prisma migrate reset` de Sprint 20: el escalafón hand-seedeado "TEC"
+// (nombre real "Carrera de Técnicos de la Salud") no matcheaba
+// `esc.includes('TEC')` porque "TÉCNICOS" con acento no contiene la
+// substring ASCII "TEC". Antes se compensaba a mano listando variantes
+// acentuadas/sin acentuar por separado (ver 'MÉDICO'/'MEDICO' más abajo,
+// que se dejan igual — son inofensivos ahora que también matchean por esto).
 function normStr(s: string | null | undefined): string {
-  return (s ?? '').trim().toUpperCase()
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .toUpperCase()
+}
+
+// S20-8: cuando el llamador ya resolvió el PuestoCargo del catálogo (import
+// del padrón, alta manual — ver resolverPuestoCargo.ts), se puede pasar acá
+// para decidir POU/POF por el enum ModalidadPuesto en vez de `.includes()`
+// sobre unificadorPuesto. tipoPuesto/nombre siguen sin poder reemplazar del
+// todo la distinción Director/SubDirector/Jefe de CPH (el enum solo separa
+// ejecución/conducción, no esos sub-tipos) — para esos casos se sigue
+// mirando el nombre del puesto (ya no el agrupador de texto libre del Excel).
+export interface PuestoCargoResuelto {
+  nombre: string
+  tipoPuesto: 'ejecucion' | 'conduccion'
+  modalidad: 'pof' | 'pou' | 'ambos'
 }
 
 export function prefijoDeCargo(params: {
   escalafon: string | null
   unificadorPuesto: string | null
   agrupador: string | null
+  puestoCargo?: PuestoCargoResuelto | null
 }): string {
   const esc  = normStr(params.escalafon)
   const unif = normStr(params.unificadorPuesto)
   const agr  = normStr(params.agrupador)
+  const pc   = params.puestoCargo
+  const esPou = pc ? pc.modalidad === 'pou' : (unif.includes('POU') || unif.includes('GUARDIA'))
+  // Nombre canónico del catálogo cuando está disponible — más confiable que
+  // el agrupador de texto libre del Excel para distinguir Director/Jefe.
+  const nombrePuesto = pc ? normStr(pc.nombre) : agr
+  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (unif.includes('JEFATURA') || agr.includes('JEFE') || agr.includes('DIRECTOR'))
 
   // ── CPH (Médicos) ──────────────────────────────────────────────────────────
+  // "Nueva Carrera Prof. Hosp" (escalafón estable código 22, ver migración
+  // 20260902000001_escalafon_normalizacion) es el nombre canónico real de
+  // CPH desde Sprint 20 — se agrega ese patrón explícito (detectado
+  // verificando en vivo tras el `prisma migrate reset` de Sprint 20: caía al
+  // fallback 'CARGO' en vez de 'CPH-*').
   if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc === 'CPH'
-    || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')) {
-    if (agr.includes('DIRECTOR') && agr.includes('SUB')) return 'CPH-SD'
-    if (agr.includes('DIRECTOR'))                         return 'CPH-D'
-    if (unif.includes('JEFATURA') || agr.includes('JEFE')) {
-      // Jefe de guardia vs jefe de planta — se determina por el unificador
-      if (unif.includes('POU') || unif.includes('GUARDIA')) return 'CPH-J-POU'
-      return 'CPH-J-POF'
+    || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')
+    || esc.includes('PROF. HOSP') || esc.includes('PROFESIONAL HOSP')) {
+    if (esConduccion && nombrePuesto.includes('DIRECTOR') && nombrePuesto.includes('SUB')) return 'CPH-SD'
+    if (esConduccion && nombrePuesto.includes('DIRECTOR'))                                  return 'CPH-D'
+    if (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE')) {
+      // Jefe de guardia vs jefe de planta — se determina por la modalidad
+      return esPou ? 'CPH-J-POU' : 'CPH-J-POF'
     }
-    if (unif.includes('POU') || unif.includes('GUARDIA')) return 'CPH-POU'
-    return 'CPH-POF'
+    return esPou ? 'CPH-POU' : 'CPH-POF'
   }
 
   // ── Enfermería ─────────────────────────────────────────────────────────────
@@ -63,12 +98,15 @@ export function prefijoDeCargo(params: {
 
   // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
   if (esc.includes('CEETPS') || esc.includes('TEC')) {
-    if (unif.includes('POU') || unif.includes('GUARDIA')) return 'TEC-POU'
-    return 'TEC-POF'
+    return esPou ? 'TEC-POU' : 'TEC-POF'
   }
 
   // ── Escalafón General ──────────────────────────────────────────────────────
-  if (esc.includes('GENERAL') || esc === 'EG') {
+  // "Nueva Carrera Administrativa" (escalafón estable código 83) es el
+  // nombre canónico real de EG desde Sprint 20 — confirmado contra
+  // dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD §13.1 ("83 | Escalafón General" /
+  // "83 | Servicios"), detectado en vivo tras el `prisma migrate reset`.
+  if (esc.includes('GENERAL') || esc === 'EG' || esc.includes('ADMINISTRATIVA')) {
     if (agr.includes('GERENCIAL') || unif.includes('GERENCIAL')) return 'EG-G'
     if (agr.includes('DIRECTOR') || unif.includes('DIRECTOR'))   return 'EG-D'
     if (agr.includes('JEFE') || unif.includes('JEFE'))           return 'EG-J'
@@ -89,7 +127,9 @@ export function prefijoDeCargo(params: {
 
   // ── Suplentes / Residentes / Docentes ──────────────────────────────────────
   if (esc.includes('SUPLENTE') || esc === 'SG')  return 'SG'
-  if (esc.includes('RESIDENTE') || esc === 'RES') return 'RES'
+  // "RESIDEN" cubre tanto "Residente" como "Residencias" (escalafón estable
+  // código 24) — detectado en vivo tras el reset de Sprint 20.
+  if (esc.includes('RESIDEN') || esc === 'RES') return 'RES'
   if (esc.includes('DOCENTE') || esc === 'DOC')   return 'DOC'
 
   // ── Escalafones especiales GCABA ───────────────────────────────────────────

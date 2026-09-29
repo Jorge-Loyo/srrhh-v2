@@ -1,84 +1,79 @@
--- CreateEnum
-CREATE TYPE "MotivoConcurso" AS ENUM ('nuevo_cargo', 'alta_por_baja');
+-- NOTA (Sprint 20, 2026-09-29): esta migración fue generada por
+-- `prisma migrate dev` como reconciliación contra una base ya parcheada a
+-- mano — varias de sus sentencias ya habían sido aplicadas por otras
+-- migraciones (algunas incluso revertidas después, ej. `especialidades`/
+-- `cargos.especialidad_id` de 20260910000001_especialidades_fk, dropeadas en
+-- 20260925000000_drop_especialidades). `prisma migrate reset` desde una base
+-- vacía fallaba acá (tipos/constraints/tablas duplicados o inexistentes). Se
+-- reescribió con guards idempotentes (IF EXISTS / IF NOT EXISTS / DO blocks)
+-- para que sea segura tanto en un replay desde cero como en el estado real
+-- que tenía cuando se generó — sin cambiar el resultado final del schema.
 
 -- CreateEnum
-CREATE TYPE "EstadoOrdenMerito" AS ENUM ('vigente', 'prorrogada', 'vencida');
+DO $$ BEGIN
+  CREATE TYPE "MotivoConcurso" AS ENUM ('nuevo_cargo', 'alta_por_baja');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- CreateEnum
-CREATE TYPE "EstadoPostulacion" AS ENUM ('inscripto', 'admitido', 'rechazado');
+DO $$ BEGIN
+  CREATE TYPE "EstadoOrdenMerito" AS ENUM ('vigente', 'prorrogada', 'vencida');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "EstadoPostulacion" AS ENUM ('inscripto', 'admitido', 'rechazado');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- AlterEnum
-BEGIN;
-CREATE TYPE "EstadoConcursoCph_new" AS ENUM ('no_iniciado', 'activo', 'finalizado', 'suspendido');
-ALTER TABLE "concursos_cph" ALTER COLUMN "estado" DROP DEFAULT;
-ALTER TABLE "concursos_cph" ALTER COLUMN "estado" TYPE "EstadoConcursoCph_new" USING ("estado"::text::"EstadoConcursoCph_new");
-ALTER TYPE "EstadoConcursoCph" RENAME TO "EstadoConcursoCph_old";
-ALTER TYPE "EstadoConcursoCph_new" RENAME TO "EstadoConcursoCph";
-DROP TYPE "EstadoConcursoCph_old";
-ALTER TABLE "concursos_cph" ALTER COLUMN "estado" SET DEFAULT 'no_iniciado';
-COMMIT;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'EstadoConcursoCph' AND e.enumlabel = 'suspendido'
+  ) THEN
+    CREATE TYPE "EstadoConcursoCph_new" AS ENUM ('no_iniciado', 'activo', 'finalizado', 'suspendido');
+    ALTER TABLE "concursos_cph" ALTER COLUMN "estado" DROP DEFAULT;
+    ALTER TABLE "concursos_cph" ALTER COLUMN "estado" TYPE "EstadoConcursoCph_new" USING ("estado"::text::"EstadoConcursoCph_new");
+    ALTER TYPE "EstadoConcursoCph" RENAME TO "EstadoConcursoCph_old";
+    ALTER TYPE "EstadoConcursoCph_new" RENAME TO "EstadoConcursoCph";
+    DROP TYPE "EstadoConcursoCph_old";
+    ALTER TABLE "concursos_cph" ALTER COLUMN "estado" SET DEFAULT 'no_iniciado';
+  END IF;
+END $$;
 
 -- AlterEnum
-ALTER TYPE "TipoNotificacion" ADD VALUE 'concurso_iniciado';
+ALTER TYPE "TipoNotificacion" ADD VALUE IF NOT EXISTS 'concurso_iniciado';
 
 -- DropForeignKey
-ALTER TABLE "baja_sial_diffs" DROP CONSTRAINT "baja_sial_diffs_snapshot_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "baja_sial_registros" DROP CONSTRAINT "baja_sial_registros_snapshot_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "bajas" DROP CONSTRAINT "bajas_cargo_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "bajas" DROP CONSTRAINT "bajas_hospital_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "bajas" DROP CONSTRAINT "bajas_persona_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "bajas" DROP CONSTRAINT "bajas_registrado_por_fkey";
-
--- DropForeignKey
-ALTER TABLE "cargos" DROP CONSTRAINT "cargos_especialidad_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "concursos" DROP CONSTRAINT "concursos_baja_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "concursos_cph" DROP CONSTRAINT "concursos_cph_codigo_registro_solicitado_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "escalafon_codigos_registro" DROP CONSTRAINT "escalafon_codigos_registro_escalafon_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "solicitudes_alta" DROP CONSTRAINT "solicitudes_alta_escalafon_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "solicitudes_alta" DROP CONSTRAINT "solicitudes_alta_hospital_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "usuarios" DROP CONSTRAINT "usuarios_role_id_fkey";
+ALTER TABLE "baja_sial_diffs" DROP CONSTRAINT IF EXISTS "baja_sial_diffs_snapshot_id_fkey";
+ALTER TABLE "baja_sial_registros" DROP CONSTRAINT IF EXISTS "baja_sial_registros_snapshot_id_fkey";
+ALTER TABLE "bajas" DROP CONSTRAINT IF EXISTS "bajas_cargo_id_fkey";
+ALTER TABLE "bajas" DROP CONSTRAINT IF EXISTS "bajas_hospital_id_fkey";
+ALTER TABLE "bajas" DROP CONSTRAINT IF EXISTS "bajas_persona_id_fkey";
+ALTER TABLE "bajas" DROP CONSTRAINT IF EXISTS "bajas_registrado_por_fkey";
+ALTER TABLE "cargos" DROP CONSTRAINT IF EXISTS "cargos_especialidad_id_fkey";
+ALTER TABLE "concursos" DROP CONSTRAINT IF EXISTS "concursos_baja_id_fkey";
+ALTER TABLE "concursos_cph" DROP CONSTRAINT IF EXISTS "concursos_cph_codigo_registro_solicitado_id_fkey";
+ALTER TABLE "escalafon_codigos_registro" DROP CONSTRAINT IF EXISTS "escalafon_codigos_registro_escalafon_id_fkey";
+ALTER TABLE "solicitudes_alta" DROP CONSTRAINT IF EXISTS "solicitudes_alta_escalafon_id_fkey";
+ALTER TABLE "solicitudes_alta" DROP CONSTRAINT IF EXISTS "solicitudes_alta_hospital_id_fkey";
+ALTER TABLE "usuarios" DROP CONSTRAINT IF EXISTS "usuarios_role_id_fkey";
 
 -- DropIndex
-DROP INDEX "cargos_especialidad_id_idx";
-
--- DropIndex
-DROP INDEX "usuarios_role_id_idx";
+DROP INDEX IF EXISTS "cargos_especialidad_id_idx";
+DROP INDEX IF EXISTS "usuarios_role_id_idx";
 
 -- AlterTable
-ALTER TABLE "audit_logs" ADD COLUMN     "metodo" VARCHAR(10),
-ADD COLUMN     "ruta" VARCHAR(300);
+ALTER TABLE "audit_logs"
+  ADD COLUMN IF NOT EXISTS "metodo" VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS "ruta" VARCHAR(300);
 
 -- AlterTable
 ALTER TABLE "autorizaciones" ALTER COLUMN "id" DROP DEFAULT,
 ALTER COLUMN "updated_at" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "baja_sial_diffs" ALTER COLUMN "id" DROP DEFAULT,
-DROP COLUMN "tipo",
-ADD COLUMN     "tipo" "TipoDiff" NOT NULL,
-ALTER COLUMN "existe_en_personas" SET NOT NULL,
+ALTER TABLE "baja_sial_diffs" ALTER COLUMN "id" DROP DEFAULT;
+ALTER TABLE "baja_sial_diffs" DROP COLUMN IF EXISTS "tipo";
+ALTER TABLE "baja_sial_diffs" ADD COLUMN IF NOT EXISTS "tipo" "TipoDiff" NOT NULL;
+ALTER TABLE "baja_sial_diffs" ALTER COLUMN "existe_en_personas" SET NOT NULL,
 ALTER COLUMN "tiene_ocup_activa" SET NOT NULL;
 
 -- AlterTable
@@ -89,31 +84,32 @@ ALTER TABLE "baja_sial_snapshots" ALTER COLUMN "id" DROP DEFAULT,
 ALTER COLUMN "total_registros" SET NOT NULL,
 ALTER COLUMN "nuevas" SET NOT NULL,
 ALTER COLUMN "salidas" SET NOT NULL,
-ALTER COLUMN "modificadas" SET NOT NULL,
-DROP COLUMN "estado",
-ADD COLUMN     "estado" "EstadoSnapshot" NOT NULL DEFAULT 'procesando',
-ALTER COLUMN "created_at" SET NOT NULL;
+ALTER COLUMN "modificadas" SET NOT NULL;
+ALTER TABLE "baja_sial_snapshots" DROP COLUMN IF EXISTS "estado";
+ALTER TABLE "baja_sial_snapshots" ADD COLUMN IF NOT EXISTS "estado" "EstadoSnapshot" NOT NULL DEFAULT 'procesando';
+ALTER TABLE "baja_sial_snapshots" ALTER COLUMN "created_at" SET NOT NULL;
 
 -- AlterTable
 ALTER TABLE "bajas" ALTER COLUMN "id" DROP DEFAULT,
 ALTER COLUMN "updated_at" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "cargos" DROP COLUMN "especialidad_id";
+ALTER TABLE "cargos" DROP COLUMN IF EXISTS "especialidad_id";
 
 -- AlterTable
-ALTER TABLE "concursos" ADD COLUMN     "motivo_concurso" "MotivoConcurso";
+ALTER TABLE "concursos" ADD COLUMN IF NOT EXISTS "motivo_concurso" "MotivoConcurso";
 
 -- AlterTable
-ALTER TABLE "concursos_ceetps" DROP COLUMN "cantidad_cargos";
+ALTER TABLE "concursos_ceetps" DROP COLUMN IF EXISTS "cantidad_cargos";
 
 -- AlterTable
-ALTER TABLE "concursos_cph" DROP COLUMN "cantidad_cargos",
-ADD COLUMN     "cambio_especialidad" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "ifacs" VARCHAR(200),
-ADD COLUMN     "insal" VARCHAR(200),
-ADD COLUMN     "motivo_cambio_especialidad" TEXT,
-ADD COLUMN     "q_inscriptos" INTEGER;
+ALTER TABLE "concursos_cph" DROP COLUMN IF EXISTS "cantidad_cargos";
+ALTER TABLE "concursos_cph"
+  ADD COLUMN IF NOT EXISTS "cambio_especialidad" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "ifacs" VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS "insal" VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS "motivo_cambio_especialidad" TEXT,
+  ADD COLUMN IF NOT EXISTS "q_inscriptos" INTEGER;
 
 -- AlterTable
 ALTER TABLE "especialidades_puesto" ALTER COLUMN "id" DROP DEFAULT;
@@ -132,30 +128,27 @@ ALTER TABLE "permisos" ALTER COLUMN "id" DROP DEFAULT;
 ALTER TABLE "puestos_cargo" ALTER COLUMN "id" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "refresh_tokens" ADD COLUMN     "ip" VARCHAR(64);
+ALTER TABLE "refresh_tokens" ADD COLUMN IF NOT EXISTS "ip" VARCHAR(64);
 
 -- AlterTable
 ALTER TABLE "roles" ALTER COLUMN "id" DROP DEFAULT,
 ALTER COLUMN "updated_at" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "solicitudes_alta" ADD COLUMN     "baja_origen_id" UUID,
-ADD COLUMN     "es_transferencia" BOOLEAN NOT NULL DEFAULT false,
-ALTER COLUMN "id" DROP DEFAULT,
+ALTER TABLE "solicitudes_alta"
+  ADD COLUMN IF NOT EXISTS "baja_origen_id" UUID,
+  ADD COLUMN IF NOT EXISTS "es_transferencia" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "solicitudes_alta" ALTER COLUMN "id" DROP DEFAULT,
 ALTER COLUMN "cargos_creados_ids" DROP DEFAULT,
 ALTER COLUMN "updated_at" DROP DEFAULT;
 
 -- DropTable
-DROP TABLE "escalafon_codigos_registro";
-
--- DropTable
-DROP TABLE "especialidades";
-
--- DropTable
-DROP TABLE "puestos";
+DROP TABLE IF EXISTS "escalafon_codigos_registro";
+DROP TABLE IF EXISTS "especialidades";
+DROP TABLE IF EXISTS "puestos";
 
 -- CreateTable
-CREATE TABLE "organigramas" (
+CREATE TABLE IF NOT EXISTS "organigramas" (
     "id" UUID NOT NULL,
     "lvl" INTEGER NOT NULL,
     "tipo" VARCHAR(50) NOT NULL,
@@ -172,7 +165,7 @@ CREATE TABLE "organigramas" (
 );
 
 -- CreateTable
-CREATE TABLE "organigrama_uploads" (
+CREATE TABLE IF NOT EXISTS "organigrama_uploads" (
     "id" UUID NOT NULL,
     "filename" VARCHAR(255) NOT NULL,
     "filas" INTEGER NOT NULL,
@@ -183,7 +176,7 @@ CREATE TABLE "organigrama_uploads" (
 );
 
 -- CreateTable
-CREATE TABLE "kpis_dotacion_snapshot" (
+CREATE TABLE IF NOT EXISTS "kpis_dotacion_snapshot" (
     "fecha" DATE NOT NULL,
     "escalafon" VARCHAR(100) NOT NULL,
     "personas" INTEGER NOT NULL,
@@ -192,7 +185,7 @@ CREATE TABLE "kpis_dotacion_snapshot" (
 );
 
 -- CreateTable
-CREATE TABLE "pou" (
+CREATE TABLE IF NOT EXISTS "pou" (
     "id" UUID NOT NULL,
     "sigla" VARCHAR(10) NOT NULL,
     "descripcion_sigla" VARCHAR(100),
@@ -209,7 +202,7 @@ CREATE TABLE "pou" (
 );
 
 -- CreateTable
-CREATE TABLE "concursos_cph_desiertos" (
+CREATE TABLE IF NOT EXISTS "concursos_cph_desiertos" (
     "id" UUID NOT NULL,
     "concurso_cph_id" UUID NOT NULL,
     "nro_ronda" INTEGER NOT NULL,
@@ -239,7 +232,7 @@ CREATE TABLE "concursos_cph_desiertos" (
 );
 
 -- CreateTable
-CREATE TABLE "etiquetas" (
+CREATE TABLE IF NOT EXISTS "etiquetas" (
     "id" UUID NOT NULL,
     "nombre" VARCHAR(100) NOT NULL,
     "color" VARCHAR(20),
@@ -250,7 +243,7 @@ CREATE TABLE "etiquetas" (
 );
 
 -- CreateTable
-CREATE TABLE "etiquetas_cargo" (
+CREATE TABLE IF NOT EXISTS "etiquetas_cargo" (
     "etiqueta_id" UUID NOT NULL,
     "cargo_id" UUID NOT NULL,
 
@@ -258,7 +251,7 @@ CREATE TABLE "etiquetas_cargo" (
 );
 
 -- CreateTable
-CREATE TABLE "etiquetas_concurso_cph" (
+CREATE TABLE IF NOT EXISTS "etiquetas_concurso_cph" (
     "etiqueta_id" UUID NOT NULL,
     "concurso_cph_id" UUID NOT NULL,
 
@@ -266,7 +259,7 @@ CREATE TABLE "etiquetas_concurso_cph" (
 );
 
 -- CreateTable
-CREATE TABLE "etiquetas_baja" (
+CREATE TABLE IF NOT EXISTS "etiquetas_baja" (
     "etiqueta_id" UUID NOT NULL,
     "baja_id" UUID NOT NULL,
 
@@ -274,7 +267,7 @@ CREATE TABLE "etiquetas_baja" (
 );
 
 -- CreateTable
-CREATE TABLE "etiquetas_solicitud_alta" (
+CREATE TABLE IF NOT EXISTS "etiquetas_solicitud_alta" (
     "etiqueta_id" UUID NOT NULL,
     "solicitud_alta_id" UUID NOT NULL,
 
@@ -282,7 +275,7 @@ CREATE TABLE "etiquetas_solicitud_alta" (
 );
 
 -- CreateTable
-CREATE TABLE "ordenes_merito" (
+CREATE TABLE IF NOT EXISTS "ordenes_merito" (
     "id" UUID NOT NULL,
     "concurso_cph_id" UUID NOT NULL,
     "especialidad" VARCHAR(200) NOT NULL,
@@ -300,7 +293,7 @@ CREATE TABLE "ordenes_merito" (
 );
 
 -- CreateTable
-CREATE TABLE "orden_merito_integrantes" (
+CREATE TABLE IF NOT EXISTS "orden_merito_integrantes" (
     "id" UUID NOT NULL,
     "orden_merito_id" UUID NOT NULL,
     "persona_id" UUID,
@@ -316,7 +309,7 @@ CREATE TABLE "orden_merito_integrantes" (
 );
 
 -- CreateTable
-CREATE TABLE "postulantes" (
+CREATE TABLE IF NOT EXISTS "postulantes" (
     "id" UUID NOT NULL,
     "persona_id" UUID,
     "cuil" VARCHAR(11) NOT NULL,
@@ -330,7 +323,7 @@ CREATE TABLE "postulantes" (
 );
 
 -- CreateTable
-CREATE TABLE "postulantes_concurso" (
+CREATE TABLE IF NOT EXISTS "postulantes_concurso" (
     "id" UUID NOT NULL,
     "postulante_id" UUID NOT NULL,
     "concurso_cph_id" UUID NOT NULL,
@@ -343,164 +336,151 @@ CREATE TABLE "postulantes_concurso" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "organigramas_codigo_reparticion_key" ON "organigramas"("codigo_reparticion");
+CREATE UNIQUE INDEX IF NOT EXISTS "organigramas_codigo_reparticion_key" ON "organigramas"("codigo_reparticion");
+CREATE INDEX IF NOT EXISTS "organigramas_sigla_idx" ON "organigramas"("sigla");
+CREATE INDEX IF NOT EXISTS "organigramas_padre_idx" ON "organigramas"("padre");
+CREATE INDEX IF NOT EXISTS "organigramas_universo_totalizador_idx" ON "organigramas"("universo_totalizador");
+CREATE INDEX IF NOT EXISTS "kpis_dotacion_snapshot_fecha_idx" ON "kpis_dotacion_snapshot"("fecha");
+CREATE INDEX IF NOT EXISTS "pou_sigla_idx" ON "pou"("sigla");
+CREATE UNIQUE INDEX IF NOT EXISTS "pou_sigla_perfil_especialidad_key" ON "pou"("sigla", "perfil", "especialidad");
+CREATE INDEX IF NOT EXISTS "concursos_cph_desiertos_concurso_cph_id_idx" ON "concursos_cph_desiertos"("concurso_cph_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "etiquetas_nombre_key" ON "etiquetas"("nombre");
+CREATE INDEX IF NOT EXISTS "ordenes_merito_especialidad_estado_idx" ON "ordenes_merito"("especialidad", "estado");
+CREATE INDEX IF NOT EXISTS "orden_merito_integrantes_cuil_idx" ON "orden_merito_integrantes"("cuil");
+CREATE UNIQUE INDEX IF NOT EXISTS "orden_merito_integrantes_orden_merito_id_posicion_key" ON "orden_merito_integrantes"("orden_merito_id", "posicion");
+CREATE UNIQUE INDEX IF NOT EXISTS "orden_merito_integrantes_orden_merito_id_cuil_key" ON "orden_merito_integrantes"("orden_merito_id", "cuil");
+CREATE UNIQUE INDEX IF NOT EXISTS "postulantes_persona_id_key" ON "postulantes"("persona_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "postulantes_cuil_key" ON "postulantes"("cuil");
+CREATE INDEX IF NOT EXISTS "postulantes_concurso_concurso_cph_id_idx" ON "postulantes_concurso"("concurso_cph_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "postulantes_concurso_postulante_id_concurso_cph_id_key" ON "postulantes_concurso"("postulante_id", "concurso_cph_id");
+CREATE INDEX IF NOT EXISTS "baja_sial_diffs_tipo_idx" ON "baja_sial_diffs"("tipo");
 
--- CreateIndex
-CREATE INDEX "organigramas_sigla_idx" ON "organigramas"("sigla");
+-- AddForeignKey (guardado con DO block — Postgres no soporta ADD CONSTRAINT IF NOT EXISTS)
+DO $$ BEGIN
+  ALTER TABLE "organigrama_uploads" ADD CONSTRAINT "organigrama_uploads_subido_por_id_fkey" FOREIGN KEY ("subido_por_id") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "concursos" ADD CONSTRAINT "concursos_baja_id_fkey" FOREIGN KEY ("baja_id") REFERENCES "bajas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "concursos_cph" ADD CONSTRAINT "concursos_cph_codigo_registro_solicitado_id_fkey" FOREIGN KEY ("codigo_registro_solicitado_id") REFERENCES "codigos_registro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "concursos_cph_desiertos" ADD CONSTRAINT "concursos_cph_desiertos_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "concursos_cph_desiertos" ADD CONSTRAINT "concursos_cph_desiertos_registrado_por_id_fkey" FOREIGN KEY ("registrado_por_id") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "bajas" ADD CONSTRAINT "bajas_cargo_id_fkey" FOREIGN KEY ("cargo_id") REFERENCES "cargos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "bajas" ADD CONSTRAINT "bajas_hospital_id_fkey" FOREIGN KEY ("hospital_id") REFERENCES "hospitales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "bajas" ADD CONSTRAINT "bajas_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "bajas" ADD CONSTRAINT "bajas_registrado_por_fkey" FOREIGN KEY ("registrado_por") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_hospital_id_fkey" FOREIGN KEY ("hospital_id") REFERENCES "hospitales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_escalafon_id_fkey" FOREIGN KEY ("escalafon_id") REFERENCES "escalafones"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_baja_origen_id_fkey" FOREIGN KEY ("baja_origen_id") REFERENCES "bajas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "usuarios" ADD CONSTRAINT "usuarios_role_id_fkey" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_cargo" ADD CONSTRAINT "etiquetas_cargo_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_cargo" ADD CONSTRAINT "etiquetas_cargo_cargo_id_fkey" FOREIGN KEY ("cargo_id") REFERENCES "cargos"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_concurso_cph" ADD CONSTRAINT "etiquetas_concurso_cph_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_concurso_cph" ADD CONSTRAINT "etiquetas_concurso_cph_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_baja" ADD CONSTRAINT "etiquetas_baja_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_baja" ADD CONSTRAINT "etiquetas_baja_baja_id_fkey" FOREIGN KEY ("baja_id") REFERENCES "bajas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_solicitud_alta" ADD CONSTRAINT "etiquetas_solicitud_alta_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "etiquetas_solicitud_alta" ADD CONSTRAINT "etiquetas_solicitud_alta_solicitud_alta_id_fkey" FOREIGN KEY ("solicitud_alta_id") REFERENCES "solicitudes_alta"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "ordenes_merito" ADD CONSTRAINT "ordenes_merito_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_orden_merito_id_fkey" FOREIGN KEY ("orden_merito_id") REFERENCES "ordenes_merito"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_concurso_cph_designado_id_fkey" FOREIGN KEY ("concurso_cph_designado_id") REFERENCES "concursos_cph"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "postulantes" ADD CONSTRAINT "postulantes_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "postulantes_concurso" ADD CONSTRAINT "postulantes_concurso_postulante_id_fkey" FOREIGN KEY ("postulante_id") REFERENCES "postulantes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "postulantes_concurso" ADD CONSTRAINT "postulantes_concurso_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "baja_sial_diffs" ADD CONSTRAINT "baja_sial_diffs_snapshot_id_fkey" FOREIGN KEY ("snapshot_id") REFERENCES "baja_sial_snapshots"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "baja_sial_registros" ADD CONSTRAINT "baja_sial_registros_snapshot_id_fkey" FOREIGN KEY ("snapshot_id") REFERENCES "baja_sial_snapshots"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- CreateIndex
-CREATE INDEX "organigramas_padre_idx" ON "organigramas"("padre");
-
--- CreateIndex
-CREATE INDEX "organigramas_universo_totalizador_idx" ON "organigramas"("universo_totalizador");
-
--- CreateIndex
-CREATE INDEX "kpis_dotacion_snapshot_fecha_idx" ON "kpis_dotacion_snapshot"("fecha");
-
--- CreateIndex
-CREATE INDEX "pou_sigla_idx" ON "pou"("sigla");
-
--- CreateIndex
-CREATE UNIQUE INDEX "pou_sigla_perfil_especialidad_key" ON "pou"("sigla", "perfil", "especialidad");
-
--- CreateIndex
-CREATE INDEX "concursos_cph_desiertos_concurso_cph_id_idx" ON "concursos_cph_desiertos"("concurso_cph_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "etiquetas_nombre_key" ON "etiquetas"("nombre");
-
--- CreateIndex
-CREATE INDEX "ordenes_merito_especialidad_estado_idx" ON "ordenes_merito"("especialidad", "estado");
-
--- CreateIndex
-CREATE INDEX "orden_merito_integrantes_cuil_idx" ON "orden_merito_integrantes"("cuil");
-
--- CreateIndex
-CREATE UNIQUE INDEX "orden_merito_integrantes_orden_merito_id_posicion_key" ON "orden_merito_integrantes"("orden_merito_id", "posicion");
-
--- CreateIndex
-CREATE UNIQUE INDEX "orden_merito_integrantes_orden_merito_id_cuil_key" ON "orden_merito_integrantes"("orden_merito_id", "cuil");
-
--- CreateIndex
-CREATE UNIQUE INDEX "postulantes_persona_id_key" ON "postulantes"("persona_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "postulantes_cuil_key" ON "postulantes"("cuil");
-
--- CreateIndex
-CREATE INDEX "postulantes_concurso_concurso_cph_id_idx" ON "postulantes_concurso"("concurso_cph_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "postulantes_concurso_postulante_id_concurso_cph_id_key" ON "postulantes_concurso"("postulante_id", "concurso_cph_id");
-
--- CreateIndex
-CREATE INDEX "baja_sial_diffs_tipo_idx" ON "baja_sial_diffs"("tipo");
-
--- AddForeignKey
-ALTER TABLE "organigrama_uploads" ADD CONSTRAINT "organigrama_uploads_subido_por_id_fkey" FOREIGN KEY ("subido_por_id") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "concursos" ADD CONSTRAINT "concursos_baja_id_fkey" FOREIGN KEY ("baja_id") REFERENCES "bajas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "concursos_cph" ADD CONSTRAINT "concursos_cph_codigo_registro_solicitado_id_fkey" FOREIGN KEY ("codigo_registro_solicitado_id") REFERENCES "codigos_registro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "concursos_cph_desiertos" ADD CONSTRAINT "concursos_cph_desiertos_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "concursos_cph_desiertos" ADD CONSTRAINT "concursos_cph_desiertos_registrado_por_id_fkey" FOREIGN KEY ("registrado_por_id") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "bajas" ADD CONSTRAINT "bajas_cargo_id_fkey" FOREIGN KEY ("cargo_id") REFERENCES "cargos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "bajas" ADD CONSTRAINT "bajas_hospital_id_fkey" FOREIGN KEY ("hospital_id") REFERENCES "hospitales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "bajas" ADD CONSTRAINT "bajas_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "bajas" ADD CONSTRAINT "bajas_registrado_por_fkey" FOREIGN KEY ("registrado_por") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_hospital_id_fkey" FOREIGN KEY ("hospital_id") REFERENCES "hospitales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_escalafon_id_fkey" FOREIGN KEY ("escalafon_id") REFERENCES "escalafones"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "solicitudes_alta" ADD CONSTRAINT "solicitudes_alta_baja_origen_id_fkey" FOREIGN KEY ("baja_origen_id") REFERENCES "bajas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "usuarios" ADD CONSTRAINT "usuarios_role_id_fkey" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_cargo" ADD CONSTRAINT "etiquetas_cargo_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_cargo" ADD CONSTRAINT "etiquetas_cargo_cargo_id_fkey" FOREIGN KEY ("cargo_id") REFERENCES "cargos"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_concurso_cph" ADD CONSTRAINT "etiquetas_concurso_cph_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_concurso_cph" ADD CONSTRAINT "etiquetas_concurso_cph_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_baja" ADD CONSTRAINT "etiquetas_baja_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_baja" ADD CONSTRAINT "etiquetas_baja_baja_id_fkey" FOREIGN KEY ("baja_id") REFERENCES "bajas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_solicitud_alta" ADD CONSTRAINT "etiquetas_solicitud_alta_etiqueta_id_fkey" FOREIGN KEY ("etiqueta_id") REFERENCES "etiquetas"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "etiquetas_solicitud_alta" ADD CONSTRAINT "etiquetas_solicitud_alta_solicitud_alta_id_fkey" FOREIGN KEY ("solicitud_alta_id") REFERENCES "solicitudes_alta"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ordenes_merito" ADD CONSTRAINT "ordenes_merito_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_orden_merito_id_fkey" FOREIGN KEY ("orden_merito_id") REFERENCES "ordenes_merito"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "orden_merito_integrantes" ADD CONSTRAINT "orden_merito_integrantes_concurso_cph_designado_id_fkey" FOREIGN KEY ("concurso_cph_designado_id") REFERENCES "concursos_cph"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "postulantes" ADD CONSTRAINT "postulantes_persona_id_fkey" FOREIGN KEY ("persona_id") REFERENCES "personas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "postulantes_concurso" ADD CONSTRAINT "postulantes_concurso_postulante_id_fkey" FOREIGN KEY ("postulante_id") REFERENCES "postulantes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "postulantes_concurso" ADD CONSTRAINT "postulantes_concurso_concurso_cph_id_fkey" FOREIGN KEY ("concurso_cph_id") REFERENCES "concursos_cph"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "baja_sial_diffs" ADD CONSTRAINT "baja_sial_diffs_snapshot_id_fkey" FOREIGN KEY ("snapshot_id") REFERENCES "baja_sial_snapshots"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "baja_sial_registros" ADD CONSTRAINT "baja_sial_registros_snapshot_id_fkey" FOREIGN KEY ("snapshot_id") REFERENCES "baja_sial_snapshots"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- RenameIndex
-ALTER INDEX "autorizaciones_rol_estado_idx" RENAME TO "autorizaciones_resolver_por_rol_slug_estado_idx";
-
--- RenameIndex
-ALTER INDEX "idx_baja_sial_diffs_cuil" RENAME TO "baja_sial_diffs_cuil_idx";
-
--- RenameIndex
-ALTER INDEX "idx_baja_sial_diffs_snapshot" RENAME TO "baja_sial_diffs_snapshot_id_idx";
-
--- RenameIndex
-ALTER INDEX "idx_baja_sial_diffs_tipo" RENAME TO "baja_sial_diffs_tipo_idx";
-
--- RenameIndex
-ALTER INDEX "idx_baja_sial_reg_cuil" RENAME TO "baja_sial_registros_cuil_idx";
-
--- RenameIndex
-ALTER INDEX "idx_baja_sial_reg_snapshot" RENAME TO "baja_sial_registros_snapshot_id_idx";
-
+-- RenameIndex (guardado — solo renombra si el índice viejo existe y el nuevo no)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'autorizaciones_rol_estado_idx')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'autorizaciones_resolver_por_rol_slug_estado_idx') THEN
+    ALTER INDEX "autorizaciones_rol_estado_idx" RENAME TO "autorizaciones_resolver_por_rol_slug_estado_idx";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_baja_sial_diffs_cuil')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'baja_sial_diffs_cuil_idx') THEN
+    ALTER INDEX "idx_baja_sial_diffs_cuil" RENAME TO "baja_sial_diffs_cuil_idx";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_baja_sial_diffs_snapshot')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'baja_sial_diffs_snapshot_id_idx') THEN
+    ALTER INDEX "idx_baja_sial_diffs_snapshot" RENAME TO "baja_sial_diffs_snapshot_id_idx";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_baja_sial_diffs_tipo')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'baja_sial_diffs_tipo_idx') THEN
+    ALTER INDEX "idx_baja_sial_diffs_tipo" RENAME TO "baja_sial_diffs_tipo_idx";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_baja_sial_reg_cuil')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'baja_sial_registros_cuil_idx') THEN
+    ALTER INDEX "idx_baja_sial_reg_cuil" RENAME TO "baja_sial_registros_cuil_idx";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_baja_sial_reg_snapshot')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'baja_sial_registros_snapshot_id_idx') THEN
+    ALTER INDEX "idx_baja_sial_reg_snapshot" RENAME TO "baja_sial_registros_snapshot_id_idx";
+  END IF;
+END $$;

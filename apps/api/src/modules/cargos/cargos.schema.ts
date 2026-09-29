@@ -8,8 +8,10 @@ export const cargosQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
-  puesto: z.string().trim().min(1).optional(),
-  especialidad: z.string().trim().min(1).optional(),
+  // S20-7: filtro por FK real al catálogo — reemplaza los viejos `puesto`/
+  // `especialidad` de texto libre normalizado.
+  puestoCargoId: z.string().uuid().optional(),
+  especialidadPuestoId: z.string().uuid().optional(),
   estado: z.nativeEnum(EstadoCargo).optional(),
   ocupado: z
     .enum(['true', 'false'])
@@ -35,8 +37,11 @@ export const createCargoSchema = z.object({
   hospitalId:       z.string().uuid(),
   escalafonId:      z.string().uuid(),
   codigoRegistroId: z.string().uuid().optional(),
-  literalPuesto:    z.string().trim().min(1).max(200),
-  especialidad:     z.string().trim().max(200).optional(),
+  // S20-11: el combobox de puesto/especialidad manda el id del catálogo, no
+  // el string mostrado. literalPuesto/especialidadLegacy en Cargo se
+  // completan en el backend a partir del nombre canónico de estos ids.
+  puestoCargoId:       z.string().uuid(),
+  especialidadPuestoId: z.string().uuid().optional(),
   agrupador:        z.string().trim().max(150).optional(),
   unificadorPuesto: z.string().trim().max(200).optional(),
   regimen:          z.string().trim().max(50).optional(),

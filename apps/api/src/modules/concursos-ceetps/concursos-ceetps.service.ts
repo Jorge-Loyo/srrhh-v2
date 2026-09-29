@@ -93,6 +93,19 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
     ;(patch as Record<string, unknown>)[key] = isFecha && typeof value === 'string' ? new Date(value) : value
   }
 
+  // S20-10: puestoSolicitado (auditoría) se recalcula del catálogo cuando se
+  // manda puestoCargoSolicitadoId — el combobox ya no manda el string a mano.
+  if ('puestoCargoSolicitadoId' in body) {
+    const puestoCargoSolicitadoId = body.puestoCargoSolicitadoId
+    if (puestoCargoSolicitadoId) {
+      const puesto = await prisma.puestoCargo.findUnique({ where: { id: puestoCargoSolicitadoId } })
+      if (!puesto) throw AppError.notFound('Puesto no encontrado en el catálogo')
+      patch.puestoSolicitado = puesto.nombre
+    } else {
+      patch.puestoSolicitado = null
+    }
+  }
+
   const merged = { ...existing, ...(patch as Partial<typeof existing>) }
   const estado = calcEstadoCeetps(merged)
 

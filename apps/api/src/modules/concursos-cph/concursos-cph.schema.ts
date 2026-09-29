@@ -76,6 +76,10 @@ export const patchConcursoCphSchema = z
     // Puesto solicitado, si difiere del puesto de la baja (cargo.literalPuesto)
     // — lo usan los documentos exportables (Validación/Autorización).
     puestoSolicitado: z.string().trim().max(200).nullable(),
+    // S20-11: ids del catálogo — el string sigue existiendo como snapshot de
+    // auditoría, pero deja de ser la fuente de lectura.
+    puestoCargoSolicitadoId: z.string().uuid().nullable(),
+    especialidadPuestoSolicitadaId: z.string().uuid().nullable(),
     eeBaja: z.string().trim().max(150).nullable(),
     fechaBaja: fecha.nullable(),
     eeConcurso: z.string().trim().max(150).nullable(),

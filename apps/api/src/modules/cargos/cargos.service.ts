@@ -6,38 +6,28 @@ import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.j
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
 interface PuestoCargoRow {
+  id: string
   puesto: string
-  especialidades: string[]
+  especialidades: { id: string; nombre: string }[]
 }
 
-// Filtro puesto + especialidad en cascada de CargosPage (mismo patrón que
-// GET /api/v1/puestos para PersonasPage, ver puestos.routes.ts): cada puesto
-// trae las especialidades reales (`especialidad_legacy`, no la vieja columna
-// `especialidad` que ya no existe — ver migración especialidades_fk) que
-// aparecen en cargos con ese puesto, acotado por escalafón y/u hospital.
-// `literal_puesto` es texto libre (ver comentario en puestos.routes.ts) y
-// puede repetirse con distinto casing/espacios ("Enfermero" / "ENFERMERO"),
-// así que se agrupa por LOWER(TRIM(...)) y se muestra un label Title Case.
-// El filtro `puesto` de listCargosService (abajo) normaliza igual para
-// seguir matcheando cualquiera de esas variantes. `especialidad_legacy`
-// tiene el mismo problema de texto libre, así que se dedupea/normaliza
-// igual dentro del array_agg.
-export async function listPuestosCargosService(escalafonId?: string, hospitalId?: string) {
-  return prisma.$queryRaw<PuestoCargoRow[]>(Prisma.sql`
-    SELECT
-      MIN(INITCAP(TRIM(literal_puesto))) AS puesto,
-      array_remove(array_agg(DISTINCT NULLIF(INITCAP(TRIM(especialidad_legacy)), '')), NULL) AS especialidades
-    FROM cargos
-    WHERE literal_puesto IS NOT NULL
-    ${escalafonId ? Prisma.sql`AND escalafon_id = ${escalafonId}::uuid` : Prisma.empty}
-    ${hospitalId ? Prisma.sql`AND hospital_id = ${hospitalId}::uuid` : Prisma.empty}
-    GROUP BY LOWER(TRIM(literal_puesto))
-    ORDER BY puesto ASC
-  `)
+// S20-7: dropdown puesto + especialidad en cascada de CargosPage/PersonasPage
+// — ya no agrupa texto libre (`literal_puesto`/`especialidad_legacy`) con
+// GROUP BY LOWER(TRIM(...)), lee directo el catálogo PuestoCargo/
+// EspecialidadPuesto por FK. `hospitalId` ya no acota el catálogo (el
+// catálogo no tiene hospital, es por escalafón) — se ignora ese filtro,
+// que solo tenía sentido cuando se agrupaba sobre la tabla `cargos`.
+export async function listPuestosCargosService(escalafonId?: string) {
+  const puestos = await prisma.puestoCargo.findMany({
+    where: { activo: true, ...(escalafonId && { escalafonId }) },
+    select: { id: true, nombre: true, especialidades: { where: { activo: true }, select: { id: true, nombre: true } } },
+    orderBy: { nombre: 'asc' },
+  })
+  return puestos.map((p): PuestoCargoRow => ({ id: p.id, puesto: p.nombre, especialidades: p.especialidades }))
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, puesto, especialidad, estado, ocupado, soloJefes, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, puestoCargoId, especialidadPuestoId, estado, ocupado, soloJefes, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -99,13 +89,9 @@ export async function listCargosService(query: CargosQuery) {
   const where: Prisma.CargoWhereInput = {
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
-    // literalPuesto es texto libre y puede repetirse con distinto casing
-    // (ver comentario de listPuestosCargosService más arriba); el dropdown
-    // de CargosPage manda una versión Title Case normalizada, así que acá
-    // se compara sin distinguir mayúsculas/minúsculas para seguir
-    // matcheando el valor crudo real guardado en cargos.
-    ...(puesto      && { literalPuesto: { equals: puesto, mode: 'insensitive' as const } }),
-    ...(especialidad && { especialidadLegacy: { equals: especialidad, mode: 'insensitive' as const } }),
+    // S20-7: filtro por FK real — sin duplicados por casing, sin normalizar texto.
+    ...(puestoCargoId      && { puestoCargoId }),
+    ...(especialidadPuestoId && { especialidadPuestoId }),
     ...(estado      && { estado }),
     // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
     // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS
@@ -236,12 +222,24 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
   }
 
+  const puestoCargo = await prisma.puestoCargo.findUnique({ where: { id: body.puestoCargoId } })
+  if (!puestoCargo || puestoCargo.escalafonId !== body.escalafonId) {
+    throw AppError.notFound('Puesto no encontrado en el catálogo para ese escalafón')
+  }
+  let especialidadPuesto: { id: string; nombre: string; puestoCargId: string } | null = null
+  if (body.especialidadPuestoId) {
+    especialidadPuesto = await prisma.especialidadPuesto.findUnique({ where: { id: body.especialidadPuestoId } })
+    if (!especialidadPuesto || especialidadPuesto.puestoCargId !== body.puestoCargoId) {
+      throw AppError.notFound('Especialidad no encontrada en el catálogo para ese puesto')
+    }
+  }
+
   if (!body.forzar) {
     const duplicado = await prisma.cargo.findFirst({
       where: {
         hospitalId:   body.hospitalId,
         escalafonId:  body.escalafonId,
-        literalPuesto: body.literalPuesto,
+        puestoCargoId: body.puestoCargoId,
         estado: 'vigente',
       },
       include: { hospital: { select: { sigla: true } }, escalafon: { select: { nombre: true } } },
@@ -261,6 +259,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     escalafon: escalafon.nombre,
     unificadorPuesto: body.unificadorPuesto ?? null,
     agrupador: body.agrupador ?? null,
+    puestoCargo,
   })
 
   const cargos = await prisma.$transaction(async (tx) => {
@@ -275,8 +274,11 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           hospitalId:       body.hospitalId,
           escalafonId:      body.escalafonId,
           codigoRegistroId: body.codigoRegistroId ?? null,
-          literalPuesto:    body.literalPuesto,
-          especialidadLegacy: body.especialidad ?? null,
+          puestoCargoId:      body.puestoCargoId,
+          especialidadPuestoId: body.especialidadPuestoId ?? null,
+          // Snapshot de auditoría — nombre canónico del catálogo al momento del alta.
+          literalPuesto:    puestoCargo.nombre,
+          especialidadLegacy: especialidadPuesto?.nombre ?? null,
           agrupador:        body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
           regimen:          body.regimen ?? null,

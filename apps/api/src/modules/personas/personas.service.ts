@@ -28,8 +28,8 @@ export async function listPersonasService(query: PersonasQuery) {
     activo,
     hospitalId,
     escalafonId,
-    puesto,
-    especialidad,
+    puestoCargoId,
+    especialidadPuestoId,
     idSial,
     soloJefes,
   } = query
@@ -53,16 +53,10 @@ export async function listPersonasService(query: PersonasQuery) {
   if (activo !== undefined) conditions.push(Prisma.sql`p.activo = ${activo}`)
   if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
   if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
-  // El value que llega del dropdown de PersonasPage es una versión Title
-  // Case normalizada de literal_puesto (ver GET /api/v1/puestos), porque esa
-  // columna es texto libre y trae variantes de mayúsculas/espacios para un
-  // mismo puesto. Se compara normalizando ambos lados para que matchee
-  // cualquiera de esas variantes.
-  if (puesto) conditions.push(Prisma.sql`LOWER(TRIM(c.literal_puesto)) = LOWER(TRIM(${puesto}))`)
-  // Mismo problema de texto libre que literal_puesto (ver comentario arriba):
-  // especialidad_legacy también puede repetirse con distinto casing.
-  if (especialidad)
-    conditions.push(Prisma.sql`LOWER(TRIM(c.especialidad_legacy)) = LOWER(TRIM(${especialidad}))`)
+  // S20-7: filtro por FK real al catálogo — sin duplicados por casing.
+  if (puestoCargoId) conditions.push(Prisma.sql`c.puesto_cargo_id = ${puestoCargoId}::uuid`)
+  if (especialidadPuestoId)
+    conditions.push(Prisma.sql`c.especialidad_puesto_id = ${especialidadPuestoId}::uuid`)
   if (idSial)
     conditions.push(Prisma.sql`EXISTS (
       SELECT 1 FROM ocupaciones o2

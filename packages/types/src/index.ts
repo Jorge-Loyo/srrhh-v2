@@ -115,13 +115,19 @@ export interface PersonaListItem extends Persona {
   idSial: string | null
 }
 
-// Devuelto por GET /api/v1/puestos — cada puesto real (Cargo.literalPuesto)
-// con las especialidades que efectivamente aparecen en cargos con ese
-// puesto. Alimenta el filtro en cascada de PersonasPage: la mayoría de los
-// puestos no médicos nunca tienen especialidad (`especialidades: []`).
+// Devuelto por GET /api/v1/puestos y GET /api/v1/cargos/puestos — S20-7:
+// catálogo real PuestoCargo (FK), con sus EspecialidadPuesto anidadas.
+// Alimenta el filtro en cascada de PersonasPage/CargosPage: la mayoría de
+// los puestos no médicos nunca tienen especialidad (`especialidades: []`).
+export interface PuestoCatalogoEspecialidad {
+  id: string
+  nombre: string
+}
+
 export interface Puesto {
+  id: string
   puesto: string
-  especialidades: string[]
+  especialidades: PuestoCatalogoEspecialidad[]
 }
 
 export interface Hospital {
@@ -339,6 +345,10 @@ export interface ConcursoCph {
   // Puesto solicitado, si difiere del de la baja (cargo.literalPuesto) —
   // usado por los documentos exportables (Validación/Autorización).
   puestoSolicitado: string | null
+  // S20-3: FK real al catálogo — puestoSolicitado/especialidadSolicitada
+  // quedan como snapshot de auditoría.
+  puestoCargoSolicitadoId: string | null
+  especialidadPuestoSolicitadaId: string | null
   eeBaja: string | null
   fechaBaja: string | null
   eeConcurso: string | null
@@ -415,6 +425,7 @@ export interface ConcursoCeetps {
   escalafonId: string
   estado: EstadoConcursoCeetps
   expedienteConcurso: string | null
+  puestoCargoSolicitadoId: string | null
   puestoSolicitado: string | null
   dispoLlamado: string | null
   // Carga horaria (hs, Enfermería/Técnicos) y apertura 2x18hs (solo Enfermería)
@@ -723,6 +734,8 @@ export interface CreateConcursoRequest {
 export interface PatchConcursoCphRequest {
   especialidadSolicitada?: string | null
   puestoSolicitado?: string | null
+  puestoCargoSolicitadoId?: string | null
+  especialidadPuestoSolicitadaId?: string | null
   eeBaja?: string | null
   fechaBaja?: string | null
   eeConcurso?: string | null
@@ -940,10 +953,9 @@ export interface PersonaFilters {
   activo?: boolean
   hospitalId?: string
   escalafonId?: string
-  // Texto libre (Cargo.literalPuesto/especialidad no tienen catálogo/FK) —
-  // igualdad exacta contra los valores que devuelve GET /api/v1/puestos.
-  puesto?: string
-  especialidad?: string
+  // S20-7: FK real al catálogo — ver GET /api/v1/puestos.
+  puestoCargoId?: string
+  especialidadPuestoId?: string
   idSial?: string
   // Solo personas con una ocupación vigente de jefatura (codigoJefaturas).
   soloJefes?: boolean
@@ -956,8 +968,9 @@ export interface CargoFilters {
   personaSearch?: string
   hospitalId?: string
   escalafonId?: string
-  puesto?: string
-  especialidad?: string
+  // S20-7: FK real al catálogo — ver GET /api/v1/cargos/puestos.
+  puestoCargoId?: string
+  especialidadPuestoId?: string
   estado?: EstadoCargo
   ocupado?: boolean
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
@@ -1116,8 +1129,9 @@ export interface CreateSolicitudAltaRequest {
   hospitalId: string
   escalafonId: string
   codigoRegistroId?: string
-  literalPuesto: string
-  especialidad?: string
+  // S20-11: el combobox manda el id del catálogo, no el string mostrado.
+  puestoCargoId: string
+  especialidadPuestoId?: string
   agrupador?: string
   unificadorPuesto?: string
   regimen?: string
@@ -1170,6 +1184,10 @@ export interface CreateBajaRequest {
 // calcula el backend (calcEstadoCeetps), no es editable por el cliente.
 export interface PatchConcursoCeetpsRequest {
   expedienteConcurso?: string | null
+  // S20-10: el combobox manda el id del catálogo — puestoSolicitado (texto)
+  // se sigue aceptando por compatibilidad/auditoría pero deja de ser la
+  // fuente de verdad.
+  puestoCargoSolicitadoId?: string | null
   puestoSolicitado?: string | null
   dispoLlamado?: string | null
   cargaHoraria?: number | null

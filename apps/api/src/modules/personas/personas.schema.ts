@@ -16,11 +16,9 @@ export const personasQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
-  // Puesto/especialidad son texto libre en Cargo (sin catálogo, ver
-  // Doc/Planificacion/PLAN_SCRUM_2026.md) — se filtra por igualdad exacta
-  // contra el valor que ya devuelve GET /api/v1/puestos.
-  puesto: z.string().trim().min(1).optional(),
-  especialidad: z.string().trim().min(1).optional(),
+  // S20-7: puesto/especialidad filtran por FK real al catálogo.
+  puestoCargoId: z.string().uuid().optional(),
+  especialidadPuestoId: z.string().uuid().optional(),
   idSial: z.string().trim().min(1).optional(),
   // Solo jefes: personas con una ocupación vigente de jefatura. Mismo patrón
   // enum→boolean que `activo` (z.coerce.boolean no sirve para 'false').

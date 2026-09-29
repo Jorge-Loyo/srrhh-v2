@@ -3,7 +3,14 @@
 -- resolverPorRolSlug es string (sin FK) igual que Notificacion.rolSlug.
 -- Para CPH con cambio estructural se crean dos en cadena (director → sgrasv).
 
-CREATE TYPE "TipoAutorizacion" AS ENUM ('concurso_cph', 'alta_cargo');
+-- S20 (2026-09-29): TipoAutorizacion ya puede existir si se llegó acá vía
+-- 20260900000000_s15_baja_cargo_autorizacion (ordena antes por timestamp
+-- pero depende de este tipo) — ver nota en esa migración.
+DO $$ BEGIN
+  CREATE TYPE "TipoAutorizacion" AS ENUM ('concurso_cph', 'alta_cargo');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 CREATE TYPE "EstadoAutorizacion" AS ENUM ('pendiente', 'aprobada', 'rechazada');
 
 CREATE TABLE "autorizaciones" (

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { Baja, SolicitudAlta, SolicitudAltaEstado } from '@srrhh/types'
+import type { Baja, SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
@@ -87,7 +87,9 @@ interface ItemPendiente {
   hospitalSigla: string
   escalafonId: string
   escalafon: string
+  puestoCargoId: string
   puesto: string
+  especialidadPuestoId?: string
   especialidad: string
   unificadorPuesto: string
   agrupador?: string
@@ -98,18 +100,18 @@ interface ItemPendiente {
   bajaOrigenId?: string
 }
 
-// ── Combobox con búsqueda ─────────────────────────────────────────────────────
-function PuestoCombobox({ puestos, value, onChange, placeholder = 'Buscar...' }: {
-  puestos: string[]
+// ── Combobox con búsqueda — S20-11: opera sobre {id, nombre}, emite el id ────
+function PuestoCombobox({ opciones, value, onChange, placeholder = 'Buscar...' }: {
+  opciones: PuestoCatalogoEspecialidad[]
   value: string
-  onChange: (v: string) => void
+  onChange: (opcion: PuestoCatalogoEspecialidad) => void
   placeholder?: string
 }) {
   const [query,   setQuery]   = useState('')
   const [abierto, setAbierto] = useState(false)
   const filtrados = query.trim()
-    ? puestos.filter((p) => p.toLowerCase().includes(query.toLowerCase()))
-    : puestos
+    ? opciones.filter((p) => p.nombre.toLowerCase().includes(query.toLowerCase()))
+    : opciones
   return (
     <div className="relative">
       <input
@@ -126,9 +128,9 @@ function PuestoCombobox({ puestos, value, onChange, placeholder = 'Buscar...' }:
           {filtrados.length === 0
             ? <li className="px-3 py-2 text-sm text-gray-400">Sin resultados</li>
             : filtrados.map((p) => (
-                <li key={p} onMouseDown={() => { onChange(p); setQuery(''); setAbierto(false) }}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-secondary/10 ${p === value ? 'bg-secondary/10 font-medium text-secondary' : 'text-gray-700'}`}>
-                  {p}
+                <li key={p.id} onMouseDown={() => { onChange(p); setQuery(''); setAbierto(false) }}
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-secondary/10 ${p.nombre === value ? 'bg-secondary/10 font-medium text-secondary' : 'text-gray-700'}`}>
+                  {p.nombre}
                 </li>
               ))
           }
@@ -150,8 +152,10 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [hospitalId,    setHospitalId]    = useState('')
   const [escalafonId,   setEscalafonId]   = useState('')
   const [modalidadIdx,  setModalidadIdx]  = useState<number | null>(null)
-  const [puesto,        setPuesto]        = useState('')
-  const [especialidad,  setEspecialidad]  = useState('')
+  const [puestoSel,       setPuestoSel]       = useState<PuestoCatalogoEspecialidad | null>(null)
+  const [especialidadSel, setEspecialidadSel] = useState<PuestoCatalogoEspecialidad | null>(null)
+  const puesto = puestoSel?.nombre ?? ''
+  const especialidad = especialidadSel?.nombre ?? ''
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
   const [etiqueta,      setEtiqueta]      = useState('')
@@ -189,7 +193,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   }
 
   function handleAgregar() {
-    if (!formCompleto || !modalidadEfectiva) return
+    if (!formCompleto || !modalidadEfectiva || !puestoSel) return
     const hospital = hospitales.find((h) => h.id === hospitalId)
     const esc      = escalafonesFiltrados.find((e) => e.id === escalafonId)
     onAgregar({
@@ -199,7 +203,9 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       hospitalSigla:    hospital?.sigla ?? hospitalId,
       escalafonId,
       escalafon:        esc?.nombre ?? escalafonId,
+      puestoCargoId:    puestoSel.id,
       puesto,
+      especialidadPuestoId: especialidadSel?.id,
       especialidad:     especialidad || '',
       unificadorPuesto: modalidadEfectiva.unificadorPuesto,
       agrupador:        modalidadEfectiva.agrupador,
@@ -209,7 +215,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       etiqueta:         etiqueta || '',
       bajaOrigenId,
     })
-    setPuesto(''); setEspecialidad(''); setCantidad(1); setEtiqueta(''); setBajaOrigenId(undefined)
+    setPuestoSel(null); setEspecialidadSel(null); setCantidad(1); setEtiqueta(''); setBajaOrigenId(undefined)
   }
 
   return (
@@ -251,14 +257,14 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Sigla <span className="text-danger">*</span></label>
-            <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
+            <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
               {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón <span className="text-danger">*</span></label>
-            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setModalidadIdx(null); setPuesto(''); setEspecialidad('') }} className="h-10 input w-full">
+            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
               {escalafonesFiltrados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
@@ -271,7 +277,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Modalidad / Categoría <span className="text-danger">*</span></label>
             <div className="flex flex-wrap gap-2">
               {opciones.map((op, i) => (
-                <button key={i} type="button" onClick={() => { setModalidadIdx(i); setPuesto(''); setEspecialidad('') }}
+                <button key={i} type="button" onClick={() => { setModalidadIdx(i); setPuestoSel(null); setEspecialidadSel(null) }}
                   className={`px-3 py-1.5 rounded border text-sm font-medium transition-colors ${
                     modalidadIdx === i
                       ? 'border-secondary bg-secondary text-white'
@@ -289,12 +295,12 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto <span className="text-danger">*</span></label>
-              <PuestoCombobox puestos={puestos} value={puesto} onChange={(v) => { setPuesto(v); setEspecialidad('') }} />
+              <PuestoCombobox opciones={puestos} value={puesto} onChange={(op) => { setPuestoSel(op); setEspecialidadSel(null) }} />
             </div>
             {puesto && especialidades.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad <span className="text-danger">*</span></label>
-                <PuestoCombobox puestos={especialidades} value={especialidad} onChange={setEspecialidad} placeholder="Buscar especialidad..." />
+                <PuestoCombobox opciones={especialidades} value={especialidad} onChange={setEspecialidadSel} placeholder="Buscar especialidad..." />
               </div>
             )}
           </div>
@@ -387,8 +393,8 @@ export function AltaCargosPage() {
     return crearSolicitud.mutateAsync({
       hospitalId:       item.hospitalId,
       escalafonId:      item.escalafonId,
-      literalPuesto:    item.puesto,
-      especialidad:     item.especialidad || undefined,
+      puestoCargoId:       item.puestoCargoId,
+      especialidadPuestoId: item.especialidadPuestoId,
       unificadorPuesto: item.unificadorPuesto,
       agrupador:        item.agrupador,
       expediente:       item.expediente || undefined,

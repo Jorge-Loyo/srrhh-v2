@@ -107,6 +107,8 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
         codigo,
         hospitalId: cargo.hospitalId,
         escalafonId: cargo.escalafonId,
+        puestoCargoId: cargo.puestoCargoId,
+        especialidadPuestoId: cargo.especialidadPuestoId,
         codigoRegistroId: cargo.codigoRegistroId,
         literalPuesto: cargo.literalPuesto,
         agrupador: cargo.agrupador,
