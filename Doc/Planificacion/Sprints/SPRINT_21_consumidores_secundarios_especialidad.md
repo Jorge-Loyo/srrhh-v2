@@ -40,19 +40,29 @@ Antes de escribir este sprint se auditó código real (no supuestos) de cada con
 
 ## Tareas
 
-| #      | Tarea                                                                                                                                                                                                                                                                                                                                                                                                        | Dev   | Est. | Prioridad | Estado |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ---- | --------- | ------ |
-| S21-1  | Schema: `OrdenMerito.especialidadPuestoId` (FK obligatoria → `EspecialidadPuesto`) + `puestoCargoId` opcional; `OrdenMeritoIntegrante.especialidadPuestoId`; `Postulante.especialidadPuestoId`. Reemplazan los campos de texto (se puede dropear directo, no hay datos de producción)                                                                                                                        | Jorge | 2h   | 🔴        | 📋     |
-| S21-2  | Backend: `ordenes-merito.service.ts` — filtro/alerta de "OM vigente de la misma especialidad" pasa de `contains`/`insensitive` a comparación por `especialidadPuestoId` (elimina el bug de variantes de tipeo)                                                                                                                                                                                               | Jorge | 2h   | 🔴        | 📋     |
-| S21-3  | Backend: `postulantes.service.ts` — alta/listado/filtro de postulante usa `especialidadPuestoId`                                                                                                                                                                                                                                                                                                             | Jorge | 1.5h | 🟡        | 📋     |
-| S21-4  | Frontend: formularios de alta de Orden de Mérito e Inscripto — combobox de **especialidad** contra el catálogo (en vez de input libre). **La persona NO se exige que exista:** se carga por CUIL + apellido/nombre como dato externo/informativo (la OM/inscripción puede tener CUILs que aún no están en `personas`). Vínculo a persona diferido y automático (ver A21-18, DECISIONES §9.12).               | Jorge | 3h   | 🔴        | 📋     |
-| S21-5  | Decisión + implementación: `Persona.especialidadPrincipal` deja de ser una columna que se escribe una vez y queda vieja — se resuelve **en runtime** desde el `Cargo` vigente de la persona (join ya existente vía `Ocupacion`, mismo patrón `LEFT JOIN LATERAL` de `personas.service.ts`) usando `puestoCargoId`/`especialidadPuestoId`. Se elimina la columna una vez migrados los lectores (S21-6, S21-7) | Jorge | 4h   | 🔴        | 📋     |
-| S21-6  | Backend: `sorteoJurado.service.ts:181` — el fallback `p.especialidadCph ?? p.especialidadPrincipal` pasa a usar la especialidad derivada en runtime de S21-5 en vez de la columna vieja                                                                                                                                                                                                                      | Jorge | 1h   | 🔴        | 📋     |
-| S21-7  | Backend: revisar todo otro lector de `especialidadPrincipal` detectado en el análisis (listados/filtros de `personas.service.ts`) y migrarlo al valor derivado                                                                                                                                                                                                                                               | Jorge | 2h   | 🟡        | 📋     |
-| S21-8  | Backend: exponer en las respuestas de API que alimentan `exportConcursoDocs.ts` (autorización CPH, sorteo de jurado, orden de mérito) el nombre de especialidad resuelto desde `especialidadPuestoId` en vez de `especialidadLegacy`, preservando el mismo shape de campo que ya consume el frontend                                                                                                         | Jorge | 2h   | 🔴        | 📋     |
-| S21-9  | Frontend: `exportConcursoDocs.ts` — actualizar las 4 lecturas (`getCasoCph` x2, `exportJuradoPdf`, `exportOrdenMeritoPdf`) para leer el campo nuevo de S21-8 en vez de `cargo?.especialidadLegacy`, con test manual de que los 4 documentos generados (PDF/Word) siguen mostrando la especialidad correctamente                                                                                              | Jorge | 2h   | 🔴        | 📋     |
-| S21-10 | Corregir la nota de Sprint 18 — Designación CPH que asume que `especialidadPrincipal` refleja el cargo actual en tiempo real (no lo hacía antes de S21-5); confirmar que el badge de validación de ese sprint sigue funcionando igual ahora que el dato es derivado en runtime en vez de una columna vieja                                                                                                   | Jorge | 1h   | 🟡        | 📋     |
-| S21-11 | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                               | Jorge | 2h   | 🔴        | 📋     |
+> ⚠️ **Cambio de alcance (2026-09-22, tras evaluar el terreno real):** Orden de Mérito e Inscriptos
+> son **listas externas** (gente que puede no estar en `personas`, se carga por CUIL, a futuro por
+> API — ver DECISIONES §9.12). Forzar su especialidad a **FK del catálogo** entra en tensión con
+> "dato externo" (un postulante externo puede traer una especialidad que no está en el catálogo).
+> Además, como la especialidad ahora se **normaliza en origen** (minúscula/sin tilde, paquete A21-8),
+> el bug de variantes de tipeo ("Clínica Médica" vs "Clinica Medica") **ya no ocurre**.
+> **Decisión:** en OM/inscriptos la especialidad queda como **texto normalizado** (no FK). Se
+> re-enfoca el sprint en lo de mayor valor: **A21-18 (match diferido CUIL→persona)** y **S21-5
+> (`especialidadPrincipal` derivada en runtime)**. S21-1/2/3 se ajustan abajo.
+
+| #         | Tarea                                                                                                                                                                                                                                                                                                                                                                                                        | Dev   | Est. | Prioridad | Estado |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ---- | --------- | ------ |
+| S21-1     | **(REENFOCADA)** Schema: `inscriptos_concurso.personaId` (FK nullable → `Persona`) para habilitar el match diferido (hoy no lo tiene). OM/OMIntegrante mantienen `especialidad` como **texto normalizado** (no FK — dato externo, ya normalizado en origen). Migración.                                                                                                                                      | Jorge | 1.5h | 🔴        | 📋     |
+| S21-2     | **(REENFOCADA)** Backend: `ordenes-merito.service.ts` — el filtro/alerta "OM vigente de la misma especialidad" sigue por texto pero **normalizado** (usar `normalizarTexto` del paquete en ambos lados en vez de `contains`/`insensitive` crudo). El bug de tipeo se resuelve por normalización, sin FK.                                                                                                     | Jorge | 1.5h | 🟡        | 📋     |
+| ~~S21-3~~ | **DESCARTADA** — `postulantes` fue eliminado (A21-6, unificado en `inscriptos_concurso`). La carga de inscriptos ya normaliza vía el paquete.                                                                                                                                                                                                                                                                | —     | —    | —         | ❌     |
+| S21-4     | Frontend: formularios de alta de Orden de Mérito e Inscripto — combobox de **especialidad** contra el catálogo (en vez de input libre). **La persona NO se exige que exista:** se carga por CUIL + apellido/nombre como dato externo/informativo (la OM/inscripción puede tener CUILs que aún no están en `personas`). Vínculo a persona diferido y automático (ver A21-18, DECISIONES §9.12).               | Jorge | 3h   | 🔴        | 📋     |
+| S21-5     | Decisión + implementación: `Persona.especialidadPrincipal` deja de ser una columna que se escribe una vez y queda vieja — se resuelve **en runtime** desde el `Cargo` vigente de la persona (join ya existente vía `Ocupacion`, mismo patrón `LEFT JOIN LATERAL` de `personas.service.ts`) usando `puestoCargoId`/`especialidadPuestoId`. Se elimina la columna una vez migrados los lectores (S21-6, S21-7) | Jorge | 4h   | 🔴        | 📋     |
+| S21-6     | Backend: `sorteoJurado.service.ts:181` — el fallback `p.especialidadCph ?? p.especialidadPrincipal` pasa a usar la especialidad derivada en runtime de S21-5 en vez de la columna vieja                                                                                                                                                                                                                      | Jorge | 1h   | 🔴        | 📋     |
+| S21-7     | Backend: revisar todo otro lector de `especialidadPrincipal` detectado en el análisis (listados/filtros de `personas.service.ts`) y migrarlo al valor derivado                                                                                                                                                                                                                                               | Jorge | 2h   | 🟡        | 📋     |
+| S21-8     | Backend: exponer en las respuestas de API que alimentan `exportConcursoDocs.ts` (autorización CPH, sorteo de jurado, orden de mérito) el nombre de especialidad resuelto desde `especialidadPuestoId` en vez de `especialidadLegacy`, preservando el mismo shape de campo que ya consume el frontend                                                                                                         | Jorge | 2h   | 🔴        | 📋     |
+| S21-9     | Frontend: `exportConcursoDocs.ts` — actualizar las 4 lecturas (`getCasoCph` x2, `exportJuradoPdf`, `exportOrdenMeritoPdf`) para leer el campo nuevo de S21-8 en vez de `cargo?.especialidadLegacy`, con test manual de que los 4 documentos generados (PDF/Word) siguen mostrando la especialidad correctamente                                                                                              | Jorge | 2h   | 🔴        | 📋     |
+| S21-10    | Corregir la nota de Sprint 18 — Designación CPH que asume que `especialidadPrincipal` refleja el cargo actual en tiempo real (no lo hacía antes de S21-5); confirmar que el badge de validación de ese sprint sigue funcionando igual ahora que el dato es derivado en runtime en vez de una columna vieja                                                                                                   | Jorge | 1h   | 🟡        | 📋     |
+| S21-11    | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                               | Jorge | 2h   | 🔴        | 📋     |
 
 **Total estimado:** ~22.5h
 
@@ -184,3 +194,31 @@ Postulante) deben ofrecer **solo** las opciones con `revisado=true`.
 
 > Las correctivas se aplicaron en `prisma/seed.ts` y se validaron con `migrate reset` + `db:seed`.
 > Con esto la precondición de S22 (`codigos_registro` + catálogo normalizado) queda cumplida.
+
+---
+
+## Consolidación del historial de migraciones (2026-09-22)
+
+Al aplicar el lote de schema de S21, `prisma migrate dev` reveló **deriva acumulada** en el
+historial de migraciones (el `schema.prisma` no coincidía con lo que las migraciones previas
+generaban; además el orden estaba roto: `jornadas_sorteo` se alteraba antes de crearse en la shadow
+DB). Se decidió **limpieza de raíz** (BD de desarrollo, descartable):
+
+- Se respaldó el historial viejo (~84 migraciones) y se **consolidó en 2 migraciones limpias**:
+  - **`0_init`** — baseline de estructura completo generado desde el `schema.prisma` actual (incluye
+    todos los cambios S21: `personas.apellido/nombre`, `ocupaciones.cuil`/`dias_guardia`,
+    `roles_persona`, `inscriptos_concurso.personaId`, sin `postulantes`).
+  - **`0_seed`** — datos semilla "duros" que aplican limpio: `ref_*` del Dotaneitor, `hospitales`
+    enriquecidos y el **RBAC completo** (roles, permisos, role_permisos, role_jerarquias), con
+    defaults temporales de `id`/`updated_at` (los INSERT viejos los asumían).
+- Los datos semilla que daban problemas como SQL crudo (escalafones numéricos, codigos_registro,
+  etiquetas) se movieron al **`seed.ts`** (Prisma Client, robusto): ahora siembra 16 escalafones,
+  7 codigos_registro, catálogo curado normalizado y el usuario admin.
+- Resultado verificado: `migrate reset` + `db:seed` corre limpio; `migrate status` = up to date;
+  typecheck back+front OK. BD: roles 6, permisos 37, role_permisos 127, escalafones 16,
+  codigos_registro 7, puestos_cargo 382 (normalizado).
+
+> ⚠️ **Coordinar con Agustín:** el historial de migraciones se reescribió (de ~84 a 2). Su rama
+> `agustin` tiene el historial viejo — al integrar, deberá **resetear su BD local** (`migrate reset`)
+> contra el nuevo historial, no intentar mergear migraciones viejas con las nuevas. Sus cambios de
+> CÓDIGO se mergean normal; solo el historial de `prisma/migrations/` es el que se consolidó.

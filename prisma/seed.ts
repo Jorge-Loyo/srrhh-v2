@@ -49,7 +49,25 @@ const HOSPITALES = [
   { sigla: 'HO', nombre: 'Hospital Carrillo', tipo: 'HOSPITALES MONOVALENTES' },
 ]
 
+// Escalafones canónicos. Los numéricos (código SIAL) venían de una migración
+// histórica; al consolidar el historial (limpieza de raíz S21) se movieron acá,
+// junto a los dos sembrados a mano (ENF/TEC). El upsert por código los hace
+// idempotentes.
 const ESCALAFONES = [
+  { codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' },
+  { codigo: '23', nombre: 'Salud - Guardias' },
+  { codigo: '24', nombre: 'Residencias' },
+  { codigo: '25', nombre: 'Autoridades Superiores' },
+  { codigo: '17', nombre: 'Gabinete' },
+  { codigo: '17B', nombre: 'Régimen Modular Extraordinario PG' },
+  { codigo: '60', nombre: 'Carrera Gerencial' },
+  { codigo: '65', nombre: 'Plantas Transitorias Acta 06/2014' },
+  { codigo: '7', nombre: 'Docentes Históricos' },
+  { codigo: '16T', nombre: 'Plantas Transitorias Modulo Operativo' },
+  { codigo: '70', nombre: 'Cuerpo Especialistas Profesionales' },
+  { codigo: '83', nombre: 'Nueva Carrera Administrativa' },
+  { codigo: '85', nombre: 'CEETPS' },
+  { codigo: '87', nombre: 'Nueva Carrera Enfermería' },
   { codigo: 'ENF', nombre: 'Carrera de Enfermería' },
   { codigo: 'TEC', nombre: 'Carrera de Técnicos de la Salud' },
 ]

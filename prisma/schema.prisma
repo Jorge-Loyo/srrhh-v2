@@ -277,6 +277,7 @@ model Persona {
   ordenMeritoIntegrante    OrdenMeritoIntegrante[]
   juradosSorteados         MiembroJuradoSorteado[] @relation("MiembroJuradoPersona")
   rolesPersona             RolesPersona[]
+  inscriptosConcurso       InscriptoConcurso[]
 
   @@index([numeroDoc])
   @@index([especialidadCph])
@@ -875,6 +876,12 @@ model InscriptoConcurso {
   id             String   @id @default(uuid()) @db.Uuid
   concursoCphId  String   @map("concurso_cph_id") @db.Uuid
 
+  // A21-18 (S21): vínculo diferido a Persona. Nullable porque el inscripto es
+  // dato externo (puede no estar en el padrón). Se completa automáticamente al
+  // aprobar un snapshot cuando el CUIL entra al padrón con id_sial_rol válido.
+  // Ver Doc/Referencias/DOTANEITOR_DECISIONES.md §9.12.
+  personaId      String?  @map("persona_id") @db.Uuid
+
   // Datos personales
   apellido       String   @db.VarChar(120)
   nombre         String   @db.VarChar(120)
@@ -913,10 +920,13 @@ model InscriptoConcurso {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   concursoCph    ConcursoCph @relation("InscriptosDeConcurso", fields: [concursoCphId], references: [id], onDelete: Cascade)
+  persona        Persona?    @relation(fields: [personaId], references: [id])
   // Concursos en los que este inscripto quedó reservado para el INSAL (Etapa 4).
   reservadoEnCph ConcursoCph[] @relation("InscriptoReservadoCph")
 
   @@index([concursoCphId])
+  @@index([cuil])
+  @@index([personaId])
   @@map("inscriptos_concurso")
 }
 

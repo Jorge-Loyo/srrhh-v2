@@ -1,2 +1,0 @@
-ALTER TABLE bajas ADD COLUMN IF NOT EXISTS doc_respaldatoria VARCHAR(500);
-ALTER TABLE bajas ADD COLUMN IF NOT EXISTS fecha_pase_paralelo DATE;

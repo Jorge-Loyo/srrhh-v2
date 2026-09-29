@@ -1,1 +1,0 @@
-ALTER TABLE bajas ADD COLUMN IF NOT EXISTS carga_horaria INTEGER;
