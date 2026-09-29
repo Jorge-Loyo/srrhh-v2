@@ -31,6 +31,58 @@ http://localhost:5180
 
 ---
 
+## 🆕 Arranque con BD nueva desde cero (post-consolidación S21, 2026-09-22)
+
+> Este es el camino a seguir para levantar el proyecto con una **base nueva** (borrando la que se
+> tenga) sobre el historial de migraciones **consolidado** (`0_init` + `0_seed`, ver
+> `Doc/Planificacion/Sprints/SPRINT_21...` → "Consolidación del historial"). Es el procedimiento que
+> se le pasa a otro dev que toma este código: su BD vieja se descarta.
+
+```bash
+# 1. Traer el código (rama con S21/S22)
+git pull
+
+# 2. Instalar dependencias (enlaza los workspaces: @srrhh/normalizacion, @srrhh/types)
+pnpm install
+
+# 3. Levantar Postgres local en Docker (desde WSL) — :5433
+wsl
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
+
+# 4. Reset de la BD: BORRA todo y aplica el historial limpio (0_init + 0_seed).
+#    0_init = estructura; 0_seed = datos duros (ref_*, hospitales, RBAC).
+pnpm exec prisma migrate reset --force --skip-generate
+
+# 5. Seed de datos (escalafones, codigos_registro, catálogo puesto/especialidad
+#    normalizado, usuario admin). El migrate reset intenta correr el seed solo pero
+#    falla ("tsx" no está global) — es esperado; se corre a mano con el script del repo:
+pnpm run db:seed
+
+# 6. Regenerar el cliente Prisma (por si el reset lo salteó con --skip-generate)
+pnpm exec prisma generate
+```
+
+**Resultado esperado del seed** (verificado 2026-09-22):
+
+```
+✅ Hospitales: 35
+✅ Escalafones: 16
+✅ Códigos de registro: 7
+✅ Usuario admin creado (admin / Admin1234!)
+✅ Catálogo puesto/especialidad: 514 puestos, 2043 especialidades
+```
+
+> ⚠️ **El seed automático del `migrate reset` falla con `"tsx" no se reconoce`** — el binario no
+> está en el PATH global. **No es un error real**: correr `pnpm run db:seed` a mano después (usa el
+> `tsx` del workspace). El seed es idempotente (`upsert`), se puede repetir sin duplicar.
+>
+> ⚠️ **NO usar `migrate deploy` + crear migraciones nuevas sobre el historial viejo.** El historial
+> se consolidó de ~84 migraciones a 2 (`0_init` + `0_seed`). Si tenías una BD/rama con el historial
+> viejo, el único camino es `migrate reset` sobre el nuevo (borra y recrea).
+
+---
+
 ## 1. Arquitectura de lo que se levanta
 
 ```
@@ -46,18 +98,20 @@ PostgreSQL (Docker)  ←→  API Fastify (Docker)  ←→  Web Vite (nativo, Win
 
 ## 2. Requisitos
 
-| Herramienta | Dónde vive | Notas |
-|---|---|---|
+| Herramienta                   | Dónde vive                    | Notas                                                                                                |
+| ----------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Docker Desktop (backend WSL2) | Windows, gestionado desde WSL | El CLI `docker` **no está en el PATH de Git Bash/PowerShell** — solo funciona desde una terminal WSL |
-| Node 20+, pnpm 9+ | Windows | Para correr Vite y los comandos `pnpm` sueltos (typecheck, prisma, etc.) |
-| WSL (Ubuntu) | Windows | Para todo lo que sea `docker compose ...` |
+| Node 20+, pnpm 9+             | Windows                       | Para correr Vite y los comandos `pnpm` sueltos (typecheck, prisma, etc.)                             |
+| WSL (Ubuntu)                  | Windows                       | Para todo lo que sea `docker compose ...`                                                            |
 
 ### Entrar a WSL
 
 Desde Git Bash, PowerShell o CMD:
+
 ```
 wsl
 ```
+
 Te deja en una terminal Ubuntu parada donde sea que la hayas dejado. El proyecto se ve en
 `/mnt/c/Desarrollo/SRH/SRRHH-Legacy` (la misma carpeta que `C:\Desarrollo\SRH\SRRHH-Legacy` en
 Windows, dos vistas del mismo disco).
@@ -100,7 +154,7 @@ pnpm db:seed
 
 > `prisma migrate dev` (el que crea migraciones nuevas) necesita una terminal interactiva y **no
 > corre así, en un pipe o script no-interactivo** — tira `Error: Prisma Migrate has detected that
-> the environment is non-interactive`. Para aplicar migraciones ya existentes alcanza con
+the environment is non-interactive`. Para aplicar migraciones ya existentes alcanza con
 > `migrate deploy`. Para crear una migración nueva a mano (sin `migrate dev`), ver el historial de
 > `Doc/Planificacion/PLAN_SCRUM_2026.md` (sección de hallazgos de Sprint 2) — se hizo con
 > `prisma migrate diff` + `prisma migrate resolve --applied`.
@@ -109,8 +163,8 @@ El seed es idempotente (usa `upsert`), se puede correr de nuevo sin miedo a dupl
 
 **Usuario admin del seed:**
 
-| Usuario | Contraseña |
-|---|---|
+| Usuario | Contraseña   |
+| ------- | ------------ |
 | `admin` | `Admin1234!` |
 
 ---
@@ -166,17 +220,17 @@ cada vez, pero:
 
 ## 6. URLs y accesos
 
-| Servicio | URL |
-|---|---|
-| App (frontend) | http://localhost:5180 |
-| API | http://localhost:3000 |
-| API health | http://localhost:3000/health |
-| Dotaneitor | http://localhost:5001 |
-| Dotaneitor health | http://localhost:5001/health |
+| Servicio              | URL                                                                       |
+| --------------------- | ------------------------------------------------------------------------- |
+| App (frontend)        | http://localhost:5180                                                     |
+| API                   | http://localhost:3000                                                     |
+| API health            | http://localhost:3000/health                                              |
+| Dotaneitor            | http://localhost:5001                                                     |
+| Dotaneitor health     | http://localhost:5001/health                                              |
 | Postgres (desde host) | `localhost:5433` (usuario `srrhh_user`, pass `srrhh_pass`, db `srrhh_db`) |
 
-| Usuario | Contraseña |
-|---|---|
+| Usuario | Contraseña   |
+| ------- | ------------ |
 | `admin` | `Admin1234!` |
 
 ---
@@ -198,14 +252,14 @@ pnpm db:studio                                 # Prisma Studio (explorar la BD c
 
 ## 8. Troubleshooting — problemas reales que ya aparecieron
 
-| Síntoma | Causa | Solución |
-|---|---|---|
-| `docker: command not found` | Estás en Git Bash/PowerShell, no en WSL | Escribí `wsl` primero |
-| Vite arranca pero la app no carga nada raro, o un `curl` a 5173 da contenido inesperado ("TorneoApp") | Puerto 5173 ocupado por otra app en esta máquina | Usar `--port 5180` (ver sección 4) |
-| Error de CORS en la consola del browser (`No 'Access-Control-Allow-Origin'...`) | El origin del frontend no está en `CORS_ORIGINS` de la API | Si usás Docker: agregar el puerto a `docker-compose.override.yml` y `docker compose up -d --build api`. Si es API nativa: agregar a `apps/api/.env` |
-| Un endpoint nuevo (agregado a `apps/api/src`) da 404 pese a que el código está bien | El container `api` no se reconstruyó tras el cambio | `docker compose up -d --build api` (no alcanza sin `--build`) |
-| `prisma migrate dev` tira `environment is non-interactive` | Se corrió en un script/pipe, no en terminal interactiva | Usar `prisma migrate deploy` para aplicar migraciones existentes; para crear una nueva a mano, ver `Doc/Planificacion/PLAN_SCRUM_2026.md` (hallazgos Sprint 2) |
-| Prisma tira un error no-JSON raro al conectar (dentro de un container) | Falta `libssl` en la imagen `node:20-alpine` | Ya resuelto en `apps/api/Dockerfile` (`apk add openssl`) — si reaparece, revisar que ese Dockerfile no se haya tocado |
+| Síntoma                                                                                               | Causa                                                      | Solución                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker: command not found`                                                                           | Estás en Git Bash/PowerShell, no en WSL                    | Escribí `wsl` primero                                                                                                                                          |
+| Vite arranca pero la app no carga nada raro, o un `curl` a 5173 da contenido inesperado ("TorneoApp") | Puerto 5173 ocupado por otra app en esta máquina           | Usar `--port 5180` (ver sección 4)                                                                                                                             |
+| Error de CORS en la consola del browser (`No 'Access-Control-Allow-Origin'...`)                       | El origin del frontend no está en `CORS_ORIGINS` de la API | Si usás Docker: agregar el puerto a `docker-compose.override.yml` y `docker compose up -d --build api`. Si es API nativa: agregar a `apps/api/.env`            |
+| Un endpoint nuevo (agregado a `apps/api/src`) da 404 pese a que el código está bien                   | El container `api` no se reconstruyó tras el cambio        | `docker compose up -d --build api` (no alcanza sin `--build`)                                                                                                  |
+| `prisma migrate dev` tira `environment is non-interactive`                                            | Se corrió en un script/pipe, no en terminal interactiva    | Usar `prisma migrate deploy` para aplicar migraciones existentes; para crear una nueva a mano, ver `Doc/Planificacion/PLAN_SCRUM_2026.md` (hallazgos Sprint 2) |
+| Prisma tira un error no-JSON raro al conectar (dentro de un container)                                | Falta `libssl` en la imagen `node:20-alpine`               | Ya resuelto en `apps/api/Dockerfile` (`apk add openssl`) — si reaparece, revisar que ese Dockerfile no se haya tocado                                          |
 
 ---
 
