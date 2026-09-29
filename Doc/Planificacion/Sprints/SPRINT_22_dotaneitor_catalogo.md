@@ -118,17 +118,17 @@ S22-13 independiente (doc)
 
 ---
 
-## ⚠️ Precondición (evaluación S20 aplicado, 2026-09-22)
+## ✅ Precondición (evaluación S20 aplicado, 2026-09-22) — RESUELTA
 
-Antes de arrancar S22 hay que cerrar deuda que dejó el Sprint 20 al aplicarse, porque el pipeline
-de este sprint depende de ella (ver "Evaluación del Sprint 20" en `SPRINT_21`):
+La deuda que dejó el Sprint 20 y que este pipeline necesitaba ya se corrigió (A21-12..A21-16 en
+`prisma/seed.ts`, verificada contra la BD local). Estado:
 
-- **`codigos_registro` casi vacío** (solo 07 y 16T) → **S22-5 no puede resolver la carrera por
-  código de registro**. Bloqueante. Se resuelve en **A21-12**.
-- **Catálogo NO normalizado** (Título + tildes) y con **duplicados por tilde** → contradice la
-  resolución `lower(trim())` del pipeline. Se resuelve en **A21-13/A21-14/A21-15**.
-- **Flag `pendienteCurar` (S20) vs `revisado` (plan)** → unificar naming (**A21-16**) antes de
-  escribir la política "sin match" de S22-6.
+- **`codigos_registro` poblado** (9 filas; 22 y 37 → CPH, 23/24/83/85/87) → S22-5 ya puede
+  resolver la carrera por código de registro. ✅
+- **Catálogo normalizado** a minúscula/sin tilde y **deduplicado** (puestos 514→382, esp.
+  2043→1197) → coherente con la resolución `lower(trim())` del pipeline. ✅
+- **Flag unificado a `pendienteCurar`** (ver `DOTANEITOR_DECISIONES.md §9.10`) → usar ese nombre en
+  la política "sin match" de S22-6, no `revisado`. ✅
 
 ## Adiciones de estructura de datos al pipeline (2026-09-22)
 

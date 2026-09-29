@@ -593,3 +593,29 @@ memoria, jobs con polling, **parquet temporal (`pyarrow`)**, reporte de calidad 
 endpoints `/normalizar`+`/procesar`+`/cruzar`+`/preview`+`/descargar`. Esto probablemente permite
 **soltar `pyarrow`** y aliviar memoria — ataca directamente la causa del OOM en Render (plan free
 512MB). La medición formal de peso queda como fase final (§7, punto 5).
+
+### 9.10 · Naming del flag "sin revisar" — se adopta `pendienteCurar` (decisión 2026-09-22)
+
+A lo largo de este documento y de los sprints se usó indistintamente **`revisado`** y
+**`pendienteCurar`** para el mismo concepto (una entrada del catálogo auto-creada por el import,
+pendiente de validación humana). **Decisión: la fuente de verdad es `PuestoCargo.pendienteCurar`**
+(ya existe en el schema/código desde S20). Equivalencia:
+
+- `pendienteCurar = true` ⟺ lo que se llamó `revisado = false` (alta automática, sin validar).
+- `pendienteCurar = false` ⟺ `revisado = true` (validado por humano / seed curado).
+
+Donde el texto de este doc o de los sprints diga `revisado`, léase como el inverso de
+`pendienteCurar`. Los dropdowns que "solo muestran opciones revisadas" ⟺ filtran
+`pendienteCurar = false`.
+
+### 9.11 · Correctivas del catálogo aplicadas (2026-09-22)
+
+Tras evaluar el S20 aplicado, las correctivas del catálogo (A21-12..A21-16) se implementaron en
+`prisma/seed.ts` y se verificaron contra la BD local reseteada:
+
+- `codigos_registro` poblado (9 filas; 22 y 37 → CPH, 23/24/83/85/87).
+- Catálogo normalizado a minúscula/sin tilde (puestos 0/382 con mayúsc./tilde; especialidades 0/1197).
+- Duplicados por tilde/casing colapsados vía upsert normalizado (puestos 514→382, esp. 2043→1197).
+- Códigos de escalafón "basura" del JSON remapeados a canónicos (sin puestos omitidos).
+
+Con esto queda cumplida la **precondición de arranque de S22**.
