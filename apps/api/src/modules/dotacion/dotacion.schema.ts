@@ -5,7 +5,7 @@ import { z } from 'zod'
 // whitelist fija para no exponer nombres de columna SQL arbitrarios en la query.
 export const DOTACION_SORT_COLUMNS = [
   'nombreApellido', 'cuil', 'sexo', 'literalPuesto', 'especialidad',
-  'unificadorPuesto', 'agrupador', 'escalafon', 'situacionRevista',
+  'escalafon', 'situacionRevista',
   'reparticion', 'sigla', 'codigoCargo', 'codigoRol', 'edad', 'antiguedad',
 ] as const
 
@@ -35,12 +35,30 @@ export const dotacionQuerySchema = z.object({
   tipoHospital: csv(),
   monovalencia: csv(),
 
-  // Filtros de dotación (multi-select, CSV)
-  unificadorPuesto: csv(),
-  especialidad: csv(),
-  agrupador: csv(),
-  literalPuesto: csv(),
+  // S21: /dotacion combina persona + cargo. Filtros de CATÁLOGO del cargo, NO
+  // en cascada forzada: se pueden combinar libremente (buscar por especialidad
+  // sin puesto, etc.). Puesto/especialidad filtran por NOMBRE (normalizado, vía
+  // join a puestos_cargo/especialidades_puesto) para poder buscar sobre todo el
+  // catálogo sin fijar el nivel superior. Reemplazan los viejos multi-select
+  // de texto snapshot (unificadorPuesto/agrupador/literalPuesto/especialidad).
   escalafonId: csv(),
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
+  puestoNombre: csv(),
+  especialidadNombre: csv(),
+  codigoRegistroId: csv(),
+  regimen: csv(),
+  tipoOrigen: csv(), // 'R' | 'TTR' | 'normal'
+  // Especialidad CPH propia de la persona (personas.especialidad_cph)
+  especialidadCph: csv(),
+  provincia: csv(),
+  localidad: csv(),
+  // Solo personas con ocupación vigente de jefatura
+  soloJefes: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+
+  // Filtros de personal / dotación que se mantienen (multi-select, CSV)
   sexo: csv(),
   situacionRevista: csv(),
   reparticion: csv(),

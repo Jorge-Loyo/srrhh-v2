@@ -5,10 +5,15 @@ import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones, usePuestosCargos } from '@/shared/hooks/useCatalogos'
-import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
+import type { FiltrosCatalogoValores } from '@/shared/components/filtros/FiltrosCatalogo'
+import {
+  FiltrosCatalogoUniones,
+  type GrupoCatalogo,
+  serializarGrupos,
+} from '@/shared/components/filtros/FiltrosCatalogoUniones'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
-import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
 import { useCargos } from '../hooks/useCargos'
 import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
 
@@ -36,12 +41,25 @@ export function CargosPage() {
   const personaSearch = searchParams.get('personaSearch') ?? ''
   const hospitalId    = searchParams.get('hospitalId') ?? ''
   const escalafonId   = searchParams.get('escalafonId') ?? ''
+  const modalidad     = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
   const soloJefes     = searchParams.get('soloJefes') === 'true'
   const page          = Number(searchParams.get('page') ?? '1')
+
+  // S21: uniones (OR) de la cascada de catálogo — JSON en el param `grupos`.
+  const grupos: GrupoCatalogo[] = (() => {
+    const raw = searchParams.get('grupos')
+    if (!raw) return []
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? (parsed as GrupoCatalogo[]) : []
+    } catch {
+      return []
+    }
+  })()
 
   function setParam(key: string, value: string) {
     setSearchParams((prev) => {
@@ -71,55 +89,98 @@ export function CargosPage() {
     ...(personaSearchDebounced && { personaSearch: personaSearchDebounced }),
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(modalidad && { modalidad }),
     ...(puestoCargoId      && { puestoCargoId }),
     ...(especialidadPuestoId && { especialidadPuestoId }),
+    ...(grupos.length > 0 && { grupos: serializarGrupos(grupos) }),
     ...(estado      && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
     ...(soloJefes && { soloJefes: true }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
+  // Hooks de catálogo — el componente FiltrosCatalogo maneja los selectores;
+  // acá se leen (misma cache de TanStack) solo para los labels de los chips.
   const { data: hospitales } = useHospitales()
-  const { data: escalafones } = useEscalafones()
-  const { data: puestos }     = usePuestosCargos(escalafonId || undefined)
-
-  const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
-    escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
+  const { data: escalafones } = useEscalafones(true)
+  const { data: puestos } = usePuestosCargoNormalizados(
+    escalafonId || undefined,
+    modalidad || undefined,
   )
+  const puestosLista = puestos ?? []
+  const puestoSeleccionado = puestosLista.find((p) => p.id === puestoCargoId)
+  const { data: especialidadesPuesto } = useEspecialidadesDePuestoId(puestoCargoId || undefined)
+  const especialidadesDelPuesto = especialidadesPuesto ?? []
 
-  // Especialidad en cascada con el puesto elegido — mismo patrón que
-  // PersonasPage: solo tiene sentido con un puesto elegido, y solo si ESE
-  // puesto realmente tiene especialidades en los datos reales.
-  const puestoSeleccionado = puestos?.find((p) => p.id === puestoCargoId)
-  const especialidadesDelPuesto = puestoSeleccionado?.especialidades ?? []
-
-  function cambiarEscalafon(nuevoId: string) {
+  // S21: sincroniza FiltrosCatalogo con la URL (reparticionId → hospitalId).
+  function onChangeFiltros(cambios: Partial<FiltrosCatalogoValores>) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nuevoId) next.set('escalafonId', nuevoId); else next.delete('escalafonId')
-      next.delete('puestoCargoId')
-      next.delete('especialidadPuestoId')
+      const mapa: Record<keyof FiltrosCatalogoValores, string> = {
+        reparticionId: 'hospitalId',
+        escalafonId: 'escalafonId',
+        modalidad: 'modalidad',
+        puestoCargoId: 'puestoCargoId',
+        especialidadPuestoId: 'especialidadPuestoId',
+      }
+      for (const [k, v] of Object.entries(cambios)) {
+        const param = mapa[k as keyof FiltrosCatalogoValores]
+        if (v) next.set(param, v); else next.delete(param)
+      }
       next.delete('page')
       return next
     })
   }
 
-  function cambiarHospital(nuevoId: string) {
+  const valoresFiltros: FiltrosCatalogoValores = {
+    reparticionId: hospitalId,
+    escalafonId,
+    modalidad,
+    puestoCargoId,
+    especialidadPuestoId,
+  }
+
+  // S21: fija el grupo en edición como una unión (OR), resolviendo labels desde
+  // las caches de catálogo, y limpia la cascada para armar el próximo.
+  function agregarUnion() {
+    const nuevo: GrupoCatalogo = {
+      reparticionId: hospitalId,
+      escalafonId,
+      modalidad,
+      puestoCargoId,
+      especialidadPuestoId,
+      labels: {
+        reparticion: hospitalId ? hospitales?.find((h) => h.id === hospitalId)?.sigla : undefined,
+        escalafon: escalafonId
+          ? (() => {
+              const e = escalafones?.find((e) => e.id === escalafonId)
+              return e ? escalafonLabel(e.nombre) : undefined
+            })()
+          : undefined,
+        modalidad: modalidad ? (modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)') : undefined,
+        puesto: puestoCargoId ? puestoSeleccionado?.nombre : undefined,
+        especialidad: especialidadPuestoId
+          ? especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)?.nombre
+          : undefined,
+      },
+    }
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nuevoId) next.set('hospitalId', nuevoId); else next.delete('hospitalId')
-      next.delete('puestoCargoId')
-      next.delete('especialidadPuestoId')
+      next.set('grupos', JSON.stringify([...grupos, nuevo]))
+      for (const k of ['hospitalId', 'escalafonId', 'modalidad', 'puestoCargoId', 'especialidadPuestoId']) {
+        next.delete(k)
+      }
       next.delete('page')
       return next
     })
   }
 
-  function cambiarPuesto(nuevoPuestoCargoId: string) {
+  function quitarGrupo(index: number) {
+    const restantes = grupos.filter((_, i) => i !== index)
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nuevoPuestoCargoId) next.set('puestoCargoId', nuevoPuestoCargoId); else next.delete('puestoCargoId')
-      next.delete('especialidadPuestoId')
+      if (restantes.length) next.set('grupos', JSON.stringify(restantes))
+      else next.delete('grupos')
       next.delete('page')
       return next
     })
@@ -143,11 +204,11 @@ export function CargosPage() {
         `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
         cargos.map((c) => ({
           'Código Cargo': c.codigo ?? '',
-          Puesto: c.literalPuesto ?? '',
-          Especialidad: c.especialidadLegacy ?? c.especialidad ?? '',
+          Puesto: capitalizar(c.literalPuesto),
+          Especialidad: capitalizar(c.especialidadLegacy ?? c.especialidad),
           Agrupador: c.agrupador ?? '',
           'Unificador de Puesto': c.unificadorPuesto ?? '',
-          Hospital: c.hospital?.sigla ?? '',
+          Repartición: c.hospital?.sigla ?? '',
           Escalafón: c.escalafon?.nombre ?? '',
           Régimen: c.regimen ?? '',
           Estado: ESTADO_LABEL[c.estado],
@@ -194,47 +255,13 @@ export function CargosPage() {
             onChange={(e) => setParam('personaSearch', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
-          <select
-            value={hospitalId}
-            onChange={(e) => cambiarHospital(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todos los hospitales</option>
-            {hospitales?.map((h) => (
-              <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>
-            ))}
-          </select>
-          <select
-            value={escalafonId}
-            onChange={(e) => cambiarEscalafon(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todos los escalafones</option>
-            {escalafonesOrdenados.map((e) => (
-              <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>
-            ))}
-          </select>
-          <SearchableSelect
-            value={puestoCargoId}
-            onChange={cambiarPuesto}
-            options={puestos?.map((p) => p.puesto) ?? []}
-            valueToDisplay={(id) => puestos?.find((p) => p.id === id)?.puesto ?? id}
-            displayToValue={(label) => puestos?.find((p) => p.puesto === label)?.id ?? label}
-            placeholder="Todos los puestos"
-            className="min-w-[220px]"
+          <FiltrosCatalogoUniones
+            valores={valoresFiltros}
+            onChange={onChangeFiltros}
+            grupos={grupos}
+            onAgregarUnion={agregarUnion}
+            onQuitarGrupo={quitarGrupo}
           />
-          {puestoCargoId && especialidadesDelPuesto.length > 0 && (
-            <select
-              value={especialidadPuestoId}
-              onChange={(e) => setParam('especialidadPuestoId', e.target.value)}
-              className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            >
-              <option value="">Todas las especialidades</option>
-              {especialidadesDelPuesto.map((esp) => (
-                <option key={esp.id} value={esp.id}>{esp.nombre}</option>
-              ))}
-            </select>
-          )}
           <select
             value={estado}
             onChange={(e) => {
@@ -292,10 +319,11 @@ export function CargosPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
-          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.puesto ?? puestoCargoId, key: 'puestoCargoId' })
+          if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
+          if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
             const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
-            chips.push({ label: esp?.nombre ?? especialidadPuestoId, key: 'especialidadPuestoId' })
+            chips.push({ label: capitalizar(esp?.nombre) || especialidadPuestoId, key: 'especialidadPuestoId' })
           }
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
@@ -308,9 +336,11 @@ export function CargosPage() {
                   {chip.label}
                   <button
                     onClick={() => {
-                      if (chip.key === 'escalafonId') cambiarEscalafon('')
-                      else if (chip.key === 'hospitalId') cambiarHospital('')
-                      else if (chip.key === 'puestoCargoId') cambiarPuesto('')
+                      if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+                      else if (chip.key === 'modalidad') onChangeFiltros({ modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+                      else if (chip.key === 'hospitalId') onChangeFiltros({ reparticionId: '' })
+                      else if (chip.key === 'puestoCargoId') onChangeFiltros({ puestoCargoId: '', especialidadPuestoId: '' })
+                      else if (chip.key === 'especialidadPuestoId') onChangeFiltros({ especialidadPuestoId: '' })
                       else setParam(chip.key, '')
                     }}
                     className="ml-0.5 hover:text-secondary/60"
@@ -350,7 +380,7 @@ export function CargosPage() {
                 <thead className="bg-navy text-white text-left sticky top-0 z-10">
                   <tr>
                     <th className="px-4 py-3 font-semibold rounded-tl-lg">Código Cargo</th>
-                    <th className="px-4 py-3 font-semibold">Hospital</th>
+                    <th className="px-4 py-3 font-semibold">Repartición</th>
                     <th className="px-4 py-3 font-semibold">Escalafón</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
@@ -368,8 +398,8 @@ export function CargosPage() {
                       <td className="px-4 py-3 font-medium text-gray-800">{c.codigo ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{c.literalPuesto ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{c.especialidadLegacy ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{capitalizar(c.literalPuesto) || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{capitalizar(c.especialidadLegacy) || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={
                           c.estado === EstadoCargo.VIGENTE ? 'badge-success' :

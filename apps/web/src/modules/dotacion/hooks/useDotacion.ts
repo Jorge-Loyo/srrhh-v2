@@ -6,29 +6,37 @@ export interface DotacionRow {
   nombreApellido: string
   cuil: string
   sexo: string | null
-  literalPuesto: string | null
-  especialidad: string | null
-  unificadorPuesto: string | null
-  agrupador: string | null
+  literalPuesto: string | null // nombre del puesto (catálogo)
+  especialidad: string | null // nombre de la especialidad (catálogo)
   escalafon: string
+  codigoRegistro: string | null
+  regimen: string | null
   situacionRevista: string | null
   reparticion: string | null
   sigla: string
   codigoRol: string
   mailLaboral: string | null
   telefono: string | null
+  provincia: string | null
+  localidad: string | null
   edad: number | null
   antiguedad: number | null
 }
 
+// S21: /dotacion combina persona + cargo. Puesto/especialidad se ofrecen por
+// NOMBRE del catálogo (buscables sobre todo el dataset filtrado). Se quitaron
+// agrupador/unificadorPuesto (ya no existen en la dotación).
 export interface DotacionDistinctValues {
-  unificadorPuesto: string[]
-  especialidad: string[]
-  agrupador: string[]
-  literalPuesto: string[]
   sexo: string[]
   situacionRevista: string[]
   reparticion: string[]
+  regimen: string[]
+  tipoOrigen: string[]
+  especialidadCph: string[]
+  provincia: string[]
+  localidad: string[]
+  puesto: string[]
+  especialidad: string[]
 }
 
 export interface DotacionSiglasDistinctValues {
@@ -45,6 +53,8 @@ export interface DotacionListResponse {
   limit: number
   pages: number
   distinctValues?: DotacionDistinctValues
+  // Código de registro con {id, nombre} — el filtro va por id (FK).
+  codigoRegistro?: { id: string; nombre: string }[]
   siglasDistinctValues?: DotacionSiglasDistinctValues
 }
 
@@ -61,11 +71,18 @@ export interface DotacionFilters {
   universoTotalizador?: string[]
   tipoHospital?: string[]
   monovalencia?: string[]
-  unificadorPuesto?: string[]
-  especialidad?: string[]
-  agrupador?: string[]
-  literalPuesto?: string[]
+  // S21: catálogo del cargo (multi-select combinable, NO cascada forzada).
   escalafonId?: string[]
+  modalidad?: 'pof' | 'pou' | 'ambos'
+  puestoNombre?: string[]
+  especialidadNombre?: string[]
+  codigoRegistroId?: string[]
+  regimen?: string[]
+  tipoOrigen?: string[]
+  especialidadCph?: string[]
+  provincia?: string[]
+  localidad?: string[]
+  soloJefes?: boolean
   sexo?: string[]
   situacionRevista?: string[]
   reparticion?: string[]
@@ -82,8 +99,9 @@ export interface DotacionFilters {
 
 const CSV_KEYS: (keyof DotacionFilters)[] = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
-  'unificadorPuesto', 'especialidad', 'agrupador', 'literalPuesto',
-  'escalafonId', 'sexo', 'situacionRevista', 'reparticion',
+  'escalafonId', 'puestoNombre', 'especialidadNombre', 'codigoRegistroId',
+  'regimen', 'tipoOrigen', 'especialidadCph', 'provincia', 'localidad',
+  'sexo', 'situacionRevista', 'reparticion',
 ]
 
 export function toDotacionParams(filters: DotacionFilters): Record<string, string | number | boolean> {
@@ -95,6 +113,8 @@ export function toDotacionParams(filters: DotacionFilters): Record<string, strin
     const v = filters[key] as string[] | undefined
     if (v?.length) params[key] = v.join(',')
   }
+  if (filters.modalidad) params.modalidad = filters.modalidad
+  if (filters.soloJefes) params.soloJefes = 'true'
   if (filters.codigoCargo) params.codigoCargo = filters.codigoCargo
   if (filters.nombreApellido) params.nombreApellido = filters.nombreApellido
   if (filters.cuil) params.cuil = filters.cuil

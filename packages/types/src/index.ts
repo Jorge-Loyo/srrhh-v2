@@ -647,7 +647,6 @@ export interface SolicitudAlta {
   expediente: string | null
   desde: string | null
   cantidad: number
-  etiqueta: string | null
   esTransferencia: boolean
   estado: SolicitudAltaEstado
   solicitadoPorId: string | null
@@ -660,6 +659,9 @@ export interface SolicitudAlta {
   escalafon?: Escalafon
   codigoRegistro?: CodigoRegistro | null
   solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+  // S21: etiquetas asignadas (N:M vía EtiquetaSolicitudAlta). El backend
+  // devuelve la fila join con la etiqueta expandida.
+  etiquetas?: { etiqueta: Etiqueta }[]
 }
 
 export interface RoleJerarquia {
@@ -961,6 +963,10 @@ export interface PersonaFilters {
   idSial?: string
   // Solo personas con una ocupación vigente de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // S21: uniones (OR) de la cascada de catálogo — JSON array de grupos, cada
+  // grupo es un AND de {hospitalId,escalafonId,modalidad,puestoCargoId,
+  // especialidadPuestoId}; los grupos se combinan con OR. Ver personas.service.
+  grupos?: string
   page?: number
   limit?: number
 }
@@ -970,9 +976,14 @@ export interface CargoFilters {
   personaSearch?: string
   hospitalId?: string
   escalafonId?: string
+  // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
+  modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/cargos/puestos.
   puestoCargoId?: string
   especialidadPuestoId?: string
+  // S21: uniones (OR) de la cascada de catálogo — JSON array de grupos. Ver
+  // cargos.service.
+  grupos?: string
   estado?: EstadoCargo
   ocupado?: boolean
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).

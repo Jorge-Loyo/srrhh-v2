@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import type { Baja, SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad } from '@srrhh/types'
+import type { SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad, Etiqueta } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesPuesto } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
+import { useEtiquetas } from '@/modules/concursos-cph/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudAlta } from '../hooks/useSolicitudesAlta'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
@@ -97,7 +98,6 @@ interface ItemPendiente {
   desde: string
   cantidad: number
   etiqueta: string
-  bajaOrigenId?: string
 }
 
 // ── Combobox con búsqueda — S20-11: opera sobre {id, nombre}, emite el id ────
@@ -109,15 +109,20 @@ function PuestoCombobox({ opciones, value, onChange, placeholder = 'Buscar...' }
 }) {
   const [query,   setQuery]   = useState('')
   const [abierto, setAbierto] = useState(false)
+  // Filtra por el texto original o el capitalizado (para que buscar "Medi" o
+  // "medi" funcione igual). La caja de la BD es minúscula; se muestra capitalizado.
   const filtrados = query.trim()
-    ? opciones.filter((p) => p.nombre.toLowerCase().includes(query.toLowerCase()))
+    ? opciones.filter((p) =>
+        p.nombre.toLowerCase().includes(query.toLowerCase()) ||
+        capitalizar(p.nombre).toLowerCase().includes(query.toLowerCase()),
+      )
     : opciones
   return (
     <div className="relative">
       <input
         type="text"
-        value={abierto ? query : value}
-        placeholder={value || placeholder}
+        value={abierto ? query : capitalizar(value)}
+        placeholder={capitalizar(value) || placeholder}
         className="h-10 input w-full"
         onFocus={() => { setAbierto(true); setQuery('') }}
         onBlur={() => setTimeout(() => setAbierto(false), 150)}
@@ -130,11 +135,66 @@ function PuestoCombobox({ opciones, value, onChange, placeholder = 'Buscar...' }
             : filtrados.map((p) => (
                 <li key={p.id} onMouseDown={() => { onChange(p); setQuery(''); setAbierto(false) }}
                   className={`px-3 py-2 text-sm cursor-pointer hover:bg-secondary/10 ${p.nombre === value ? 'bg-secondary/10 font-medium text-secondary' : 'text-gray-700'}`}>
-                  {p.nombre}
+                  {capitalizar(p.nombre)}
                 </li>
               ))
           }
         </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Selector de etiqueta ─────────────────────────────────────────────────────
+// Permite ELEGIR una etiqueta ya creada (chips del catálogo) o escribir una
+// nueva. El valor emitido es el nombre (string) — el backend crea la etiqueta
+// si no existe y la vincula al crear la solicitud (mismo catálogo que CPH).
+function EtiquetaPicker({ value, onChange, catalogo }: {
+  value: string
+  onChange: (v: string) => void
+  catalogo: Etiqueta[]
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const q = value.trim().toLowerCase()
+  const filtradas = q ? catalogo.filter((e) => e.nombre.toLowerCase().includes(q)) : catalogo
+  const existeExacta = !!q && catalogo.some((e) => e.nombre.toLowerCase() === q)
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setAbierto(true)}
+        onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Elegí o creá una"
+        maxLength={100}
+        className="h-10 input w-full font-bold"
+      />
+      {abierto && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+          {filtradas.length === 0 && !q && (
+            <p className="px-3 py-2 text-xs text-gray-400">No hay etiquetas. Escribí para crear una.</p>
+          )}
+          {filtradas.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              onMouseDown={() => { onChange(e.nombre); setAbierto(false) }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary/10"
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: e.color ?? '#4b5563' }} />
+              <span className={e.nombre.toLowerCase() === value.toLowerCase() ? 'font-medium text-secondary' : 'text-gray-700'}>
+                {e.nombre}
+              </span>
+            </button>
+          ))}
+          {q && !existeExacta && (
+            <div className="border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+              Se creará la etiqueta <span className="font-bold text-secondary">"{value.trim()}"</span> al enviar
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -159,26 +219,20 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const [desde,         setDesde]         = useState('')
   const [cantidad,      setCantidad]      = useState(1)
   const [etiqueta,      setEtiqueta]      = useState('')
-  const [bajaOrigenId,  setBajaOrigenId]  = useState<string | undefined>(undefined)
 
   const { data: hospitales        = [] } = useHospitales()
   const { data: escalafonesFiltrados = [] } = useEscalafonesPorTipoAlta(tipo)
-
-  // S16-8: bajas confirmadas con concurso para vincular como origen
-  const { data: bajasConfirmadas = [] } = useQuery({
-    queryKey: ['bajas', { estado: 'confirmada', generaConcurso: true }],
-    queryFn: async () => {
-      const res = await apiClient.get<{ data: Baja[] }>('/api/v1/bajas', { params: { estado: 'confirmada', limit: 200 } })
-      return res.data.data ?? []
-    },
-  })
+  // Catálogo de etiquetas reutilizable (mismo que Concursos CPH): permite
+  // elegir una etiqueta ya creada o escribir una nueva.
+  const { data: catalogoEtiquetas = [] } = useEtiquetas()
 
   const escNombre         = escalafonesFiltrados.find((e) => e.id === escalafonId)?.nombre ?? ''
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
   const modalidadEfectiva = opciones.length === 1 ? opciones[0]! : (modalidadIdx !== null ? opciones[modalidadIdx] ?? null : null)
 
   const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
-  const { data: especialidades = [] } = useEspecialidadesPuesto(escalafonId || undefined, puesto || undefined)
+  // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
+  const { data: especialidades = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
     && (especialidades.length === 0 || !!especialidad) && !!desde
@@ -213,9 +267,8 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       desde,
       cantidad,
       etiqueta:         etiqueta || '',
-      bajaOrigenId,
     })
-    setPuestoSel(null); setEspecialidadSel(null); setCantidad(1); setEtiqueta(''); setBajaOrigenId(undefined)
+    setPuestoSel(null); setEspecialidadSel(null); setCantidad(1); setEtiqueta('')
   }
 
   return (
@@ -256,7 +309,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
         {/* Hospital + Escalafón */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Sigla <span className="text-danger">*</span></label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Repartición <span className="text-danger">*</span></label>
             <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
               {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
@@ -306,23 +359,6 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           </div>
         )}
 
-        {/* Baja origen — opcional */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1.5">¿Reemplaza una baja? <span className="text-gray-400 font-normal">(opcional)</span></label>
-          <select
-            value={bajaOrigenId ?? ''}
-            onChange={(e) => setBajaOrigenId(e.target.value || undefined)}
-            className="h-10 input w-full"
-          >
-            <option value="">— No vinculada —</option>
-            {bajasConfirmadas.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.cargo?.codigo ?? b.cargoId} · {b.cargo?.literalPuesto ?? '—'} · {b.fechaBaja?.slice(0, 10)}
-              </option>
-            ))}
-          </select>
-        </div>
-
         {/* Desde + Cantidad + botones */}
         <div className="grid grid-cols-5 gap-4 items-end">
           <div>
@@ -339,13 +375,10 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta</label>
-            <input
-              type="text"
+            <EtiquetaPicker
               value={etiqueta}
-              onChange={(e) => setEtiqueta(e.target.value.toUpperCase())}
-              placeholder="Ej: BA"
-              maxLength={100}
-              className="h-10 input w-full font-bold"
+              onChange={setEtiqueta}
+              catalogo={catalogoEtiquetas}
             />
           </div>
           <div className="col-span-2 flex gap-2">
@@ -401,7 +434,6 @@ export function AltaCargosPage() {
       desde:            item.desde,
       cantidad:         item.cantidad,
       etiqueta:         item.etiqueta || undefined,
-      bajaOrigenId:     item.bajaOrigenId,
     })
   }
 
@@ -692,8 +724,23 @@ function HistorialSolicitudes({
                 {modalSolicitud.especialidad && (
                   <div className="col-span-2"><span className="text-gray-500">Especialidad:</span> <span className="font-medium text-gray-800">{modalSolicitud.especialidad}</span></div>
                 )}
-                {modalSolicitud.etiqueta && (
-                  <div className="col-span-2"><span className="text-gray-500">Etiqueta:</span> <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{modalSolicitud.etiqueta}</span></div>
+                {modalSolicitud.etiquetas && modalSolicitud.etiquetas.length > 0 && (
+                  <div className="col-span-2 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-gray-500">Etiquetas:</span>
+                    {modalSolicitud.etiquetas.map(({ etiqueta }) => (
+                      <span
+                        key={etiqueta.id}
+                        className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: `${etiqueta.color ?? '#4b5563'}1a`,
+                          color: etiqueta.color ?? '#4b5563',
+                          borderColor: `${etiqueta.color ?? '#4b5563'}55`,
+                        }}
+                      >
+                        {etiqueta.nombre}
+                      </span>
+                    ))}
+                  </div>
                 )}
                 {modalSolicitud.observaciones && (
                   <div className="col-span-2"><span className="text-gray-500">Observaciones:</span> <span className="text-gray-700">{modalSolicitud.observaciones}</span></div>

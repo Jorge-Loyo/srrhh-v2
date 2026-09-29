@@ -1,6 +1,18 @@
 import { z } from 'zod'
 import { EstadoCargo } from '@srrhh/types'
 
+// S21: un grupo de la cascada de catálogo. Varios grupos se combinan con OR
+// (uniones), ver `grupos` abajo y cargos.service.
+export const grupoCatalogoSchema = z.object({
+  hospitalId: z.string().uuid().optional(),
+  escalafonId: z.string().uuid().optional(),
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
+  puestoCargoId: z.string().uuid().optional(),
+  especialidadPuestoId: z.string().uuid().optional(),
+})
+
+export type GrupoCatalogo = z.infer<typeof grupoCatalogoSchema>
+
 // S3-4/S3-3: filtros de GET /api/v1/cargos — ver CargoFilters en packages/types.
 export const cargosQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -8,10 +20,29 @@ export const cargosQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   // S20-7: filtro por FK real al catálogo — reemplaza los viejos `puesto`/
   // `especialidad` de texto libre normalizado.
   puestoCargoId: z.string().uuid().optional(),
   especialidadPuestoId: z.string().uuid().optional(),
+  // S21: uniones (OR) de la cascada de catálogo. JSON string en el query param
+  // `grupos`. Cada grupo es un AND de sus campos; los grupos se combinan con OR.
+  grupos: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (!v) return undefined
+      try {
+        const parsed = JSON.parse(v)
+        const arr = z.array(grupoCatalogoSchema).max(20).parse(parsed)
+        const noVacios = arr.filter((g) => Object.values(g).some((x) => x != null && x !== ''))
+        return noVacios.length ? noVacios : undefined
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'grupos: JSON inválido' })
+        return z.NEVER
+      }
+    }),
   estado: z.nativeEnum(EstadoCargo).optional(),
   ocupado: z
     .enum(['true', 'false'])

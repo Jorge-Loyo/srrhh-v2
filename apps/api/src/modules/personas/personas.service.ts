@@ -1,7 +1,26 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { PersonasQuery } from './personas.schema.js'
+import type { PersonasQuery, GrupoCatalogo } from './personas.schema.js'
+
+// S21: compila un grupo de la cascada de catálogo a un AND de condiciones SQL
+// sobre el cargo vigente (alias `c`). Devuelve null si el grupo no aporta nada.
+// Varios grupos se combinan con OR (uniones) — ver listPersonasService.
+function condicionesCatalogo(g: GrupoCatalogo): Prisma.Sql | null {
+  const conds: Prisma.Sql[] = []
+  if (g.hospitalId) conds.push(Prisma.sql`c.hospital_id = ${g.hospitalId}::uuid`)
+  if (g.escalafonId) conds.push(Prisma.sql`c.escalafon_id = ${g.escalafonId}::uuid`)
+  if (g.modalidad)
+    conds.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM puestos_cargo pcm
+      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${g.modalidad}::"ModalidadPuesto"
+    )`)
+  if (g.puestoCargoId) conds.push(Prisma.sql`c.puesto_cargo_id = ${g.puestoCargoId}::uuid`)
+  if (g.especialidadPuestoId)
+    conds.push(Prisma.sql`c.especialidad_puesto_id = ${g.especialidadPuestoId}::uuid`)
+  if (conds.length === 0) return null
+  return Prisma.sql`(${Prisma.join(conds, ' AND ')})`
+}
 
 interface PersonaRow {
   id: string
@@ -33,6 +52,7 @@ export async function listPersonasService(query: PersonasQuery) {
     especialidadPuestoId,
     idSial,
     soloJefes,
+    grupos,
   } = query
   const offset = (page - 1) * limit
 
@@ -52,19 +72,23 @@ export async function listPersonasService(query: PersonasQuery) {
     )`)
   }
   if (activo !== undefined) conditions.push(Prisma.sql`p.activo = ${activo}`)
-  if (hospitalId) conditions.push(Prisma.sql`c.hospital_id = ${hospitalId}::uuid`)
-  if (escalafonId) conditions.push(Prisma.sql`c.escalafon_id = ${escalafonId}::uuid`)
-  // S21: modalidad del cargo (POF/POU) — vía el puesto del catálogo. Una
-  // persona activa con este cargo es un profesional de esa modalidad.
-  if (modalidad)
-    conditions.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM puestos_cargo pcm
-      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${modalidad}::"ModalidadPuesto"
-    )`)
-  // S20-7: filtro por FK real al catálogo — sin duplicados por casing.
-  if (puestoCargoId) conditions.push(Prisma.sql`c.puesto_cargo_id = ${puestoCargoId}::uuid`)
-  if (especialidadPuestoId)
-    conditions.push(Prisma.sql`c.especialidad_puesto_id = ${especialidadPuestoId}::uuid`)
+
+  // S21: cascada de catálogo con UNIONES (OR). Los campos sueltos forman el
+  // "grupo en edición"; se combinan con los `grupos` recibidos. Cada grupo es
+  // un AND de sus campos (repartición · escalafón → modalidad → puesto →
+  // especialidad); entre grupos hay OR. Los filtros globales (search, activo,
+  // idSial, soloJefes) se aplican con AND sobre la unión.
+  const gruposCatalogo: GrupoCatalogo[] = [
+    ...(grupos ?? []),
+    { hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId },
+  ]
+  const orClauses = gruposCatalogo
+    .map(condicionesCatalogo)
+    .filter((c): c is Prisma.Sql => c !== null)
+  if (orClauses.length > 0) {
+    conditions.push(Prisma.sql`(${Prisma.join(orClauses, ' OR ')})`)
+  }
+
   if (idSial)
     conditions.push(Prisma.sql`EXISTS (
       SELECT 1 FROM ocupaciones o2

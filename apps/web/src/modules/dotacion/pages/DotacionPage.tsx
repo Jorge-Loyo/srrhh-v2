@@ -7,6 +7,7 @@ import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
 import { DotacionKpisPanel } from '../components/DotacionKpisPanel'
 import {
   useDotacion, toDotacionParams,
@@ -15,17 +16,27 @@ import {
 
 const LIMIT = 50
 
-// Filtros multi-select "libres" (sin catálogo propio, distinct values vienen
-// de la propia tabla — ver dotacion.service.ts:getDistinctValues). El de
-// escalafón usa useEscalafones() en cambio, tiene catálogo real.
-const MULTI_FILTERS: { key: keyof DotacionFilters; label: string }[] = [
-  { key: 'unificadorPuesto', label: 'Unificador Puesto' },
-  { key: 'especialidad', label: 'Especialidad' },
-  { key: 'agrupador', label: 'Agrupamiento' },
-  { key: 'literalPuesto', label: 'Puesto' },
-  { key: 'sexo', label: 'Sexo' },
-  { key: 'situacionRevista', label: 'Situación de Revista' },
-  { key: 'reparticion', label: 'Repartición' },
+// S21: /dotacion combina persona + cargo. Los filtros NO son cascada forzada:
+// se combinan libremente. Puesto/especialidad se buscan por NOMBRE sobre todo
+// el catálogo (distinctValues del dataset filtrado). Se quitaron agrupador y
+// unificadorPuesto (ya no existen en la dotación).
+//
+// Multi-select del CARGO (catálogo, por nombre) — distinct del propio dataset.
+const CARGO_MULTI: { key: keyof DotacionFilters; distinctKey: keyof NonNullable<DotacionListResponse['distinctValues']>; label: string }[] = [
+  { key: 'puestoNombre', distinctKey: 'puesto', label: 'Puesto' },
+  { key: 'especialidadNombre', distinctKey: 'especialidad', label: 'Especialidad' },
+  { key: 'regimen', distinctKey: 'regimen', label: 'Régimen' },
+  { key: 'tipoOrigen', distinctKey: 'tipoOrigen', label: 'Tipo de origen' },
+]
+
+// Multi-select de la PERSONA / ocupación — distinct del propio dataset.
+const PERSONA_MULTI: { key: keyof DotacionFilters; distinctKey: keyof NonNullable<DotacionListResponse['distinctValues']>; label: string }[] = [
+  { key: 'sexo', distinctKey: 'sexo', label: 'Sexo' },
+  { key: 'situacionRevista', distinctKey: 'situacionRevista', label: 'Situación de Revista' },
+  { key: 'reparticion', distinctKey: 'reparticion', label: 'Repartición (SIAL)' },
+  { key: 'especialidadCph', distinctKey: 'especialidadCph', label: 'Especialidad CPH' },
+  { key: 'provincia', distinctKey: 'provincia', label: 'Provincia' },
+  { key: 'localidad', distinctKey: 'localidad', label: 'Localidad' },
 ]
 
 const SIGLAS_FILTERS: { key: keyof DotacionFilters; label: string }[] = [
@@ -34,25 +45,28 @@ const SIGLAS_FILTERS: { key: keyof DotacionFilters; label: string }[] = [
   { key: 'monovalencia', label: 'Monovalencia' },
 ]
 
-// Orden calcado de la app legacy (DotacionPadronPage.jsx → COLUMNS):
-// ID SIAL, CUIL, Apellido y Nombre, Sigla, Escalafón, Cód. Registro, Puesto,
-// Especialidad, Agrupador, Unificador, Sit. Revista — el resto (Estado,
-// Universo, Tipo Hospital, Fecha Proceso) no existe como columna acá, solo
-// como filtro. sexo/reparticion/edad/antiguedad son campos nuevos sin
-// equivalente legacy, van al final.
-const COLUMNS: { key: keyof DotacionRow; label: string; sortKey: string }[] = [
+// Etiqueta legible de tipo de origen (R / TTR / null=normal).
+function tipoOrigenLabel(v: string): string {
+  if (v === 'R') return 'Reemplazante (R)'
+  if (v === 'TTR') return 'Titular transitorio (TTR)'
+  return v
+}
+
+// Columnas de la tabla. Puesto/especialidad muestran el nombre del catálogo
+// (capitalizado). Se agregaron Cód. Registro; se quitaron Agrupador/Unificador.
+const COLUMNS: { key: keyof DotacionRow; label: string; sortKey?: string; cap?: boolean }[] = [
   { key: 'codigoRol', label: 'Cód. SIAL', sortKey: 'codigoRol' },
   { key: 'cuil', label: 'CUIL', sortKey: 'cuil' },
   { key: 'nombreApellido', label: 'Apellido y Nombre', sortKey: 'nombreApellido' },
-  { key: 'sigla', label: 'Hospital', sortKey: 'sigla' },
+  { key: 'sigla', label: 'Repartición', sortKey: 'sigla' },
   { key: 'escalafon', label: 'Escalafón', sortKey: 'escalafon' },
+  { key: 'codigoRegistro', label: 'Cód. Registro' },
   { key: 'codigoCargo', label: 'Cód. Cargo', sortKey: 'codigoCargo' },
-  { key: 'literalPuesto', label: 'Puesto', sortKey: 'literalPuesto' },
-  { key: 'especialidad', label: 'Especialidad', sortKey: 'especialidad' },
-  { key: 'agrupador', label: 'Agrupamiento', sortKey: 'agrupador' },
-  { key: 'unificadorPuesto', label: 'Unificador', sortKey: 'unificadorPuesto' },
+  { key: 'literalPuesto', label: 'Puesto', sortKey: 'literalPuesto', cap: true },
+  { key: 'especialidad', label: 'Especialidad', sortKey: 'especialidad', cap: true },
+  { key: 'regimen', label: 'Régimen' },
   { key: 'situacionRevista', label: 'Situación de Revista', sortKey: 'situacionRevista' },
-  { key: 'reparticion', label: 'Repartición', sortKey: 'reparticion' },
+  { key: 'reparticion', label: 'Repartición (SIAL)', sortKey: 'reparticion' },
   { key: 'sexo', label: 'Sexo', sortKey: 'sexo' },
   { key: 'edad', label: 'Edad', sortKey: 'edad' },
   { key: 'antiguedad', label: 'Antigüedad', sortKey: 'antiguedad' },
@@ -74,6 +88,9 @@ export function DotacionPage() {
   const sortDir = (searchParams.get('sortDir') as 'asc' | 'desc' | null) ?? 'asc'
   const sigla = searchParams.get('sigla') ?? ''
   const escalafonId = getCsv(searchParams, 'escalafonId')
+  const codigoRegistroId = getCsv(searchParams, 'codigoRegistroId')
+  const modalidad = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
+  const soloJefes = searchParams.get('soloJefes') === 'true'
   const codigoCargo = searchParams.get('codigoCargo') ?? ''
   const nombreApellido = searchParams.get('nombreApellido') ?? ''
   const cuil = searchParams.get('cuil') ?? ''
@@ -105,7 +122,8 @@ export function DotacionPage() {
     }, { replace: true })
   }
 
-  function handleSort(sortKey: string) {
+  function handleSort(sortKey?: string) {
+    if (!sortKey) return
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       const curSortBy = prev.get('sortBy')
@@ -124,14 +142,22 @@ export function DotacionPage() {
     ...(getCsv(searchParams, 'universoTotalizador').length && { universoTotalizador: getCsv(searchParams, 'universoTotalizador') }),
     ...(getCsv(searchParams, 'tipoHospital').length && { tipoHospital: getCsv(searchParams, 'tipoHospital') }),
     ...(getCsv(searchParams, 'monovalencia').length && { monovalencia: getCsv(searchParams, 'monovalencia') }),
-    ...(getCsv(searchParams, 'unificadorPuesto').length && { unificadorPuesto: getCsv(searchParams, 'unificadorPuesto') }),
-    ...(getCsv(searchParams, 'especialidad').length && { especialidad: getCsv(searchParams, 'especialidad') }),
-    ...(getCsv(searchParams, 'agrupador').length && { agrupador: getCsv(searchParams, 'agrupador') }),
-    ...(getCsv(searchParams, 'literalPuesto').length && { literalPuesto: getCsv(searchParams, 'literalPuesto') }),
+    // Catálogo del cargo (multi-select combinable, por nombre / FK).
     ...(escalafonId.length && { escalafonId }),
+    ...(modalidad && { modalidad }),
+    ...(getCsv(searchParams, 'puestoNombre').length && { puestoNombre: getCsv(searchParams, 'puestoNombre') }),
+    ...(getCsv(searchParams, 'especialidadNombre').length && { especialidadNombre: getCsv(searchParams, 'especialidadNombre') }),
+    ...(codigoRegistroId.length && { codigoRegistroId }),
+    ...(getCsv(searchParams, 'regimen').length && { regimen: getCsv(searchParams, 'regimen') }),
+    ...(getCsv(searchParams, 'tipoOrigen').length && { tipoOrigen: getCsv(searchParams, 'tipoOrigen') }),
+    ...(soloJefes && { soloJefes: true }),
+    // Persona / ocupación.
     ...(getCsv(searchParams, 'sexo').length && { sexo: getCsv(searchParams, 'sexo') }),
     ...(getCsv(searchParams, 'situacionRevista').length && { situacionRevista: getCsv(searchParams, 'situacionRevista') }),
     ...(getCsv(searchParams, 'reparticion').length && { reparticion: getCsv(searchParams, 'reparticion') }),
+    ...(getCsv(searchParams, 'especialidadCph').length && { especialidadCph: getCsv(searchParams, 'especialidadCph') }),
+    ...(getCsv(searchParams, 'provincia').length && { provincia: getCsv(searchParams, 'provincia') }),
+    ...(getCsv(searchParams, 'localidad').length && { localidad: getCsv(searchParams, 'localidad') }),
     ...(codigoCargoDeb && { codigoCargo: codigoCargoDeb }),
     ...(nombreApellidoDeb && { nombreApellido: nombreApellidoDeb }),
     ...(cuilDeb && { cuil: cuilDeb }),
@@ -145,13 +171,27 @@ export function DotacionPage() {
 
   const { data, isLoading, isFetching, isError } = useDotacion(filters)
   const { data: hospitales } = useHospitales()
-  const { data: escalafones } = useEscalafones()
+  const { data: escalafones } = useEscalafones(true)
   const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
   )
+  const codigosRegistro = data?.codigoRegistro ?? []
 
   const hasActiveFilters = Array.from(searchParams.keys()).some((k) => !['page', 'sortBy', 'sortDir'].includes(k))
   const estadoFilter = searchParams.get('estado') ?? ''
+
+  // Multi-select de escalafón (por id; muestra el nombre). Independiente:
+  // se puede elegir varios; el resto de filtros se combinan con AND.
+  const escalafonOptions = escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))
+  const escalafonNombreToId = (nombre: string) =>
+    escalafonesOrdenados.find((e) => escalafonLabel(e.nombre) === nombre)?.id ?? ''
+  const escalafonIdToNombre = (id: string) => {
+    const e = escalafonesOrdenados.find((x) => x.id === id)
+    return e ? escalafonLabel(e.nombre) : id
+  }
+  const codigoRegistroOptions = codigosRegistro.map((c) => c.nombre)
+  const codigoRegistroNombreToId = (nombre: string) => codigosRegistro.find((c) => c.nombre === nombre)?.id ?? ''
+  const codigoRegistroIdToNombre = (id: string) => codigosRegistro.find((c) => c.id === id)?.nombre ?? id
 
   async function handleExport(kind: 'pagina' | 'completo') {
     if (!data) return
@@ -159,10 +199,13 @@ export function DotacionPage() {
     try {
       const rowsMapper = (rows: DotacionRow[]) => rows.map((r) => ({
         'Cód. SIAL': r.codigoRol, CUIL: r.cuil, 'Apellido y Nombre': r.nombreApellido,
-        Hospital: r.sigla, Escalafón: r.escalafon, 'Cód. Cargo': r.codigoCargo ?? '',
-        Puesto: r.literalPuesto ?? '', Especialidad: r.especialidad ?? '', Agrupamiento: r.agrupador ?? '',
-        Unificador: r.unificadorPuesto ?? '', 'Situación de Revista': r.situacionRevista ?? '',
-        Repartición: r.reparticion ?? '', Sexo: r.sexo ?? '', Edad: r.edad ?? '', Antigüedad: r.antiguedad ?? '',
+        Repartición: r.sigla, Escalafón: r.escalafon, 'Cód. Registro': r.codigoRegistro ?? '',
+        'Cód. Cargo': r.codigoCargo ?? '',
+        Puesto: capitalizar(r.literalPuesto), Especialidad: capitalizar(r.especialidad),
+        Régimen: r.regimen ?? '', 'Situación de Revista': r.situacionRevista ?? '',
+        'Repartición (SIAL)': r.reparticion ?? '', Sexo: r.sexo ?? '',
+        Provincia: r.provincia ?? '', Localidad: r.localidad ?? '',
+        Edad: r.edad ?? '', Antigüedad: r.antiguedad ?? '',
         'Mail Laboral': r.mailLaboral ?? '', Teléfono: r.telefono ?? '',
       }))
       const filename = `dotacion_${new Date().toISOString().slice(0, 10)}.xlsx`
@@ -182,15 +225,20 @@ export function DotacionPage() {
     }
   }
 
+  function renderCell(row: DotacionRow, col: (typeof COLUMNS)[number]) {
+    const raw = row[col.key]
+    if (raw === null || raw === undefined || raw === '') return '—'
+    return col.cap ? capitalizar(String(raw)) : raw
+  }
+
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-primary text-xl font-bold text-gray-900">Dotación</h1>
-          <p className="text-xs text-gray-400">{sigla ? `Hospital: ${sigla}` : 'Todos los hospitales'}</p>
+          <p className="text-xs text-gray-400">{sigla ? `Repartición: ${sigla}` : 'Todas las reparticiones'}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Acciones principales */}
           <button
             onClick={() => setKpisOpen(true)}
             className="inline-flex items-center gap-1.5 bg-secondary text-white text-sm font-semibold px-3 py-2 rounded hover:bg-secondary-dark transition-colors"
@@ -215,10 +263,8 @@ export function DotacionPage() {
             )}
           </button>
 
-          {/* Separador */}
           <div className="w-px h-6 bg-gray-200" />
 
-          {/* Exportar */}
           <button
             onClick={() => handleExport('pagina')}
             disabled={exportando !== null}
@@ -239,8 +285,6 @@ export function DotacionPage() {
             </svg>
             {exportando === 'completo' ? 'Exportando...' : 'Completo'}
           </button>
-
-
         </div>
       </div>
 
@@ -258,6 +302,12 @@ export function DotacionPage() {
             <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
               {sigla}
               <button onClick={() => setParam('sigla', '')} className="hover:text-danger">×</button>
+            </span>
+          )}
+          {soloJefes && (
+            <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
+              Solo jefes
+              <button onClick={() => setParam('soloJefes', '')} className="hover:text-danger">×</button>
             </span>
           )}
           <button onClick={() => setSearchParams({})} className="ml-auto text-xs text-danger hover:underline">
@@ -283,11 +333,11 @@ export function DotacionPage() {
                         <th
                           key={col.key}
                           onClick={() => handleSort(col.sortKey)}
-                          className="px-3 py-2.5 font-semibold whitespace-nowrap cursor-pointer hover:bg-navy/80 select-none"
+                          className={`px-3 py-2.5 font-semibold whitespace-nowrap select-none ${col.sortKey ? 'cursor-pointer hover:bg-navy/80' : ''}`}
                         >
                           <div className="flex items-center gap-1">
                             {col.label}
-                            {sortBy === col.sortKey && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                            {col.sortKey && sortBy === col.sortKey && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
                           </div>
                         </th>
                       ))}
@@ -298,7 +348,7 @@ export function DotacionPage() {
                       <tr key={`${row.cuil}-${row.codigoRol}-${idx}`} className="hover:bg-gray-50">
                         {COLUMNS.map((col) => (
                           <td key={col.key} className="px-3 py-1.5 whitespace-nowrap text-gray-800">
-                            {row[col.key] ?? '—'}
+                            {renderCell(row, col)}
                           </td>
                         ))}
                       </tr>
@@ -354,20 +404,16 @@ export function DotacionPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-5">
 
               <section>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Hospital</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Repartición</p>
                 <select
                   value={sigla}
                   onChange={(e) => setParam('sigla', e.target.value)}
                   className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
                 >
-                  <option value="">Todos los hospitales</option>
+                  <option value="">Todas las reparticiones</option>
                   {hospitales?.map((h) => <option key={h.id} value={h.sigla}>{hospitalLabel(h)}</option>)}
                 </select>
-              </section>
-
-              <section>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Segmentación</p>
-                <div className="space-y-2">
+                <div className="space-y-2 mt-2">
                   {SIGLAS_FILTERS.map(({ key, label }) => (
                     <MultiSelectDropdown
                       key={key}
@@ -381,27 +427,42 @@ export function DotacionPage() {
               </section>
 
               <section>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Escalafón</p>
-                <select
-                  value={escalafonId[0] ?? ''}
-                  onChange={(e) => setCsvParam('escalafonId', e.target.value ? [e.target.value] : [])}
-                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-                >
-                  <option value="">Todos los escalafones</option>
-                  {escalafonesOrdenados.map((e) => <option key={e.id} value={e.id}>{escalafonLabel(e.nombre)}</option>)}
-                </select>
-              </section>
-
-              <section>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Puesto y agrupamiento</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
                 <div className="space-y-2">
-                  {(['unificadorPuesto', 'especialidad', 'agrupador', 'literalPuesto'] as const).map((key) => (
+                  {/* Escalafón (multi, por id mostrando nombre) */}
+                  <MultiSelectDropdown
+                    label="Escalafón"
+                    value={escalafonId.map(escalafonIdToNombre)}
+                    options={escalafonOptions}
+                    onChange={(nombres) => setCsvParam('escalafonId', nombres.map(escalafonNombreToId).filter(Boolean))}
+                  />
+                  {/* Modalidad (única) */}
+                  <select
+                    value={modalidad}
+                    onChange={(e) => setParam('modalidad', e.target.value)}
+                    className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                  >
+                    <option value="">Todas las modalidades</option>
+                    <option value="pof">Planta (POF)</option>
+                    <option value="pou">Guardia (POU)</option>
+                  </select>
+                  {/* Código de registro (multi, por id mostrando nombre) */}
+                  <MultiSelectDropdown
+                    label="Código de registro"
+                    value={codigoRegistroId.map(codigoRegistroIdToNombre)}
+                    options={codigoRegistroOptions}
+                    onChange={(nombres) => setCsvParam('codigoRegistroId', nombres.map(codigoRegistroNombreToId).filter(Boolean))}
+                  />
+                  {/* Puesto / especialidad por NOMBRE (buscables sobre todo el
+                      catálogo — se acotan solos según lo ya elegido vía distinct) */}
+                  {CARGO_MULTI.map(({ key, distinctKey, label }) => (
                     <MultiSelectDropdown
                       key={key}
-                      label={MULTI_FILTERS.find((f) => f.key === key)!.label}
+                      label={label}
                       value={getCsv(searchParams, key)}
-                      options={data?.distinctValues?.[key] ?? []}
+                      options={data?.distinctValues?.[distinctKey] ?? []}
                       onChange={(v) => setCsvParam(key, v)}
+                      formatOption={distinctKey === 'tipoOrigen' ? tipoOrigenLabel : distinctKey === 'puesto' || distinctKey === 'especialidad' ? capitalizar : undefined}
                     />
                   ))}
                 </div>
@@ -410,12 +471,24 @@ export function DotacionPage() {
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Personal</p>
                 <div className="space-y-2">
-                  {(['sexo', 'situacionRevista', 'reparticion'] as const).map((key) => (
+                  {/* Solo jefes (toggle) */}
+                  <button
+                    type="button"
+                    onClick={() => setParam('soloJefes', soloJefes ? '' : 'true')}
+                    className={`w-full h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+                      soloJefes
+                        ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    👔 Solo jefes
+                  </button>
+                  {PERSONA_MULTI.map(({ key, distinctKey, label }) => (
                     <MultiSelectDropdown
                       key={key}
-                      label={MULTI_FILTERS.find((f) => f.key === key)!.label}
+                      label={label}
                       value={getCsv(searchParams, key)}
-                      options={data?.distinctValues?.[key] ?? []}
+                      options={data?.distinctValues?.[distinctKey] ?? []}
                       onChange={(v) => setCsvParam(key, v)}
                     />
                   ))}

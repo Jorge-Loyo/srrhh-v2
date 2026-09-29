@@ -6,13 +6,17 @@ interface MultiSelectDropdownProps {
   options: string[]
   onChange: (value: string[]) => void
   className?: string
+  // Opcional: transforma SOLO la presentación de cada opción (el value real que
+  // se guarda no cambia). Ej. capitalizar puestos/especialidades en minúscula.
+  formatOption?: (opt: string) => string
 }
 
 // Primer multi-select del proyecto (no existía ninguno reutilizable, solo
 // SearchableSelect de selección única) — filtro de checkboxes con búsqueda,
 // pensado para la pantalla de Dotación (9 filtros multi-valor tipo legacy).
 // Mismo patrón de "click afuera cierra" que SearchableSelect.
-export function MultiSelectDropdown({ label, value, options, onChange, className }: MultiSelectDropdownProps) {
+export function MultiSelectDropdown({ label, value, options, onChange, className, formatOption }: MultiSelectDropdownProps) {
+  const fmt = (opt: string) => (formatOption ? formatOption(opt) : opt)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -29,7 +33,9 @@ export function MultiSelectDropdown({ label, value, options, onChange, className
   }, [])
 
   const q = query.trim().toLowerCase()
-  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options
+  const filtered = q
+    ? options.filter((o) => o.toLowerCase().includes(q) || fmt(o).toLowerCase().includes(q))
+    : options
 
   function toggle(opt: string) {
     onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt])
@@ -73,7 +79,7 @@ export function MultiSelectDropdown({ label, value, options, onChange, className
           {filtered.map((opt) => (
             <label key={opt} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
               <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)} className="accent-secondary" />
-              <span className="truncate">{opt}</span>
+              <span className="truncate">{fmt(opt)}</span>
             </label>
           ))}
         </div>

@@ -34,6 +34,12 @@ const BASE_FROM = Prisma.sql`
   JOIN cargos c      ON c.id = o.cargo_id
   JOIN hospitales h  ON h.id = c.hospital_id
   JOIN escalafones e ON e.id = c.escalafon_id
+  -- S21: catálogo del cargo (puesto/especialidad curados) + código de registro,
+  -- para mostrar el nombre canónico y poblar los filtros por nombre. LEFT JOIN:
+  -- especialidad y código de registro son opcionales en el cargo.
+  JOIN puestos_cargo pcd        ON pcd.id = c.puesto_cargo_id
+  LEFT JOIN especialidades_puesto epd ON epd.id = c.especialidad_puesto_id
+  LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
   WHERE o.hasta IS NULL AND c.estado = 'vigente'
   ${EXCLUIR_ESPEJO_JEFATURA}
 `
@@ -44,10 +50,8 @@ const SORT_EXPR: Record<string, Prisma.Sql> = {
   nombreApellido:   Prisma.sql`p.apellido_nombre`,
   cuil:             Prisma.sql`p.cuil`,
   sexo:             Prisma.sql`p.sexo`,
-  literalPuesto:    Prisma.sql`c.literal_puesto`,
-  especialidad:     Prisma.sql`c.especialidad_legacy`,
-  unificadorPuesto: Prisma.sql`c.unificador_puesto`,
-  agrupador:        Prisma.sql`c.agrupador`,
+  literalPuesto:    Prisma.sql`pcd.nombre`,
+  especialidad:     Prisma.sql`epd.nombre`,
   escalafon:        Prisma.sql`e.nombre`,
   situacionRevista: Prisma.sql`o.situacion_revista`,
   reparticion:      Prisma.sql`c.descripcion_repa`,
@@ -65,15 +69,17 @@ interface DotacionRow {
   sexo: string | null
   literalPuesto: string | null
   especialidad: string | null
-  unificadorPuesto: string | null
-  agrupador: string | null
   escalafon: string
+  codigoRegistro: string | null
+  regimen: string | null
   situacionRevista: string | null
   reparticion: string | null
   sigla: string
   codigoRol: string
   mailLaboral: string | null
   telefono: string | null
+  provincia: string | null
+  localidad: string | null
   edad: number | null
   antiguedad: number | null
 }
@@ -83,22 +89,62 @@ function buildConditions(query: DotacionQuery): Prisma.Sql[] {
   const inList = (col: Prisma.Sql, values?: string[]) => {
     if (values?.length) conditions.push(Prisma.sql`${col} IN (${Prisma.join(values)})`)
   }
+  // IN de UUIDs (castea cada valor a ::uuid).
+  const inUuid = (col: Prisma.Sql, values?: string[]) => {
+    if (values?.length) conditions.push(Prisma.sql`${col} IN (${Prisma.join(values.map((v) => Prisma.sql`${v}::uuid`))})`)
+  }
 
+  // ── Segmentación de hospital ──
   inList(Prisma.sql`h.sigla`, query.sigla)
   inList(Prisma.sql`h.universo_totalizador`, query.universoTotalizador)
   inList(Prisma.sql`h.tipo`, query.tipoHospital)
   inList(Prisma.sql`h.monovalencia`, query.monovalencia)
-  inList(Prisma.sql`c.unificador_puesto`, query.unificadorPuesto)
-  inList(Prisma.sql`c.especialidad_legacy`, query.especialidad)
-  inList(Prisma.sql`c.agrupador`, query.agrupador)
-  inList(Prisma.sql`c.literal_puesto`, query.literalPuesto)
-  inList(Prisma.sql`p.sexo`, query.sexo)
-  inList(Prisma.sql`o.situacion_revista`, query.situacionRevista)
-  inList(Prisma.sql`c.descripcion_repa`, query.reparticion)
 
-  if (query.escalafonId?.length) {
-    conditions.push(Prisma.sql`c.escalafon_id IN (${Prisma.join(query.escalafonId.map((id) => Prisma.sql`${id}::uuid`))})`)
+  // ── Persona ──
+  inList(Prisma.sql`p.sexo`, query.sexo)
+  inList(Prisma.sql`p.especialidad_cph`, query.especialidadCph)
+  inList(Prisma.sql`p.provincia`, query.provincia)
+  inList(Prisma.sql`p.localidad`, query.localidad)
+
+  // ── Ocupación ──
+  inList(Prisma.sql`o.situacion_revista`, query.situacionRevista)
+
+  // ── Cargo ──
+  inList(Prisma.sql`c.descripcion_repa`, query.reparticion)
+  inList(Prisma.sql`c.regimen`, query.regimen)
+  inList(Prisma.sql`c.tipo_origen`, query.tipoOrigen)
+  inUuid(Prisma.sql`c.escalafon_id`, query.escalafonId)
+  inUuid(Prisma.sql`c.codigo_registro_id`, query.codigoRegistroId)
+
+  // ── Catálogo del cargo (S21): NO cascada — cada filtro es independiente y
+  // combinable. Puesto/especialidad por NOMBRE del catálogo (join a
+  // puestos_cargo / especialidades_puesto por la FK del cargo), para poder
+  // buscar sobre todo el catálogo sin fijar escalafón/puesto. Multi-select ⇒
+  // IN (OR interno). ──
+  if (query.modalidad) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM puestos_cargo pcm
+      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${query.modalidad}::"ModalidadPuesto"
+    )`)
   }
+  if (query.puestoNombre?.length) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM puestos_cargo pcn
+      WHERE pcn.id = c.puesto_cargo_id AND pcn.nombre IN (${Prisma.join(query.puestoNombre)})
+    )`)
+  }
+  if (query.especialidadNombre?.length) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM especialidades_puesto epn
+      WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(query.especialidadNombre)})
+    )`)
+  }
+
+  // ── Solo jefes: ocupación vigente con codigo_jefaturas no vacío ──
+  if (query.soloJefes) {
+    conditions.push(Prisma.sql`(o.codigo_jefaturas IS NOT NULL AND TRIM(o.codigo_jefaturas) NOT IN ('', '0'))`)
+  }
+
   if (query.codigoCargo) conditions.push(Prisma.sql`c.codigo ILIKE ${`%${query.codigoCargo}%`}`)
   if (query.nombreApellido) conditions.push(Prisma.sql`p.apellido_nombre ILIKE ${`%${query.nombreApellido}%`}`)
   if (query.cuil) conditions.push(Prisma.sql`p.cuil ILIKE ${`%${query.cuil}%`}`)
@@ -128,17 +174,23 @@ async function getDistinctValues(baseConditions: Prisma.Sql[]) {
       .map((r) => r.value)
       .filter((v): v is string => v !== null)
 
+  // S21: agrupador/unificadorPuesto ya no existen en la dotación. Puesto y
+  // especialidad se ofrecen por NOMBRE del catálogo (join a puestos_cargo /
+  // especialidades_puesto por la FK del cargo), no por texto snapshot.
   const [
-    unificadorPuesto, especialidad, agrupador, literalPuesto,
-    sexo, situacionRevista, reparticion,
+    sexo, situacionRevista, reparticion, regimen, tipoOrigen,
+    especialidadCph, provincia, localidad, puesto, especialidad,
   ] = await Promise.all([
-    distinctCol(Prisma.sql`c.unificador_puesto`),
-    distinctCol(Prisma.sql`c.especialidad_legacy`),
-    distinctCol(Prisma.sql`c.agrupador`),
-    distinctCol(Prisma.sql`c.literal_puesto`),
     distinctCol(Prisma.sql`p.sexo`),
     distinctCol(Prisma.sql`o.situacion_revista`),
     distinctCol(Prisma.sql`c.descripcion_repa`),
+    distinctCol(Prisma.sql`c.regimen`),
+    distinctCol(Prisma.sql`c.tipo_origen`),
+    distinctCol(Prisma.sql`p.especialidad_cph`),
+    distinctCol(Prisma.sql`p.provincia`),
+    distinctCol(Prisma.sql`p.localidad`),
+    distinctCol(Prisma.sql`pcd.nombre`),
+    distinctCol(Prisma.sql`epd.nombre`),
   ])
 
   const [sigla, universoTotalizador, tipoHospital, monovalencia] = await Promise.all([
@@ -148,8 +200,22 @@ async function getDistinctValues(baseConditions: Prisma.Sql[]) {
     distinctCol(Prisma.sql`h.monovalencia`),
   ])
 
+  // Código de registro con {id, nombre} — el filtro va por id (FK). La columna
+  // real es `literal` (no `nombre`); se expone como `nombre` al front.
+  const codigoRegistro = (
+    await prisma.$queryRaw<{ id: string; nombre: string }[]>(Prisma.sql`
+      SELECT DISTINCT cr.id, cr.literal AS nombre ${BASE_FROM} ${andWhere}
+      AND cr.id IS NOT NULL
+      ORDER BY cr.literal
+    `)
+  ).map((r) => ({ id: r.id, nombre: r.nombre }))
+
   return {
-    distinctValues: { unificadorPuesto, especialidad, agrupador, literalPuesto, sexo, situacionRevista, reparticion },
+    distinctValues: {
+      sexo, situacionRevista, reparticion, regimen, tipoOrigen,
+      especialidadCph, provincia, localidad, puesto, especialidad,
+    },
+    codigoRegistro,
     siglasDistinctValues: { sigla, universoTotalizador, tipoHospital, monovalencia },
   }
 }
@@ -170,17 +236,19 @@ export async function listDotacionService(query: DotacionQuery) {
         p.apellido_nombre AS "nombreApellido",
         p.cuil,
         p.sexo,
-        c.literal_puesto AS "literalPuesto",
-        c.especialidad_legacy AS "especialidad",
-        c.unificador_puesto AS "unificadorPuesto",
-        c.agrupador,
+        pcd.nombre AS "literalPuesto",
+        epd.nombre AS "especialidad",
         e.nombre AS "escalafon",
+        cr.literal AS "codigoRegistro",
+        c.regimen,
         o.situacion_revista AS "situacionRevista",
         c.descripcion_repa AS "reparticion",
         h.sigla,
         o.id_sial_rol AS "codigoRol",
         p.mail_laboral AS "mailLaboral",
         p.telefono,
+        p.provincia,
+        p.localidad,
         date_part('year', age(p.fecha_nacimiento))::int AS "edad",
         date_part('year', age(p.antiguedad_desde))::int AS "antiguedad"
       ${BASE_FROM} ${where}

@@ -62,7 +62,10 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
         ...(escalafonId && { escalafonId }),
         ...modalidadFilter,
       },
-      select: { id: true, nombre: true, modalidad: true, tipoPuesto: true },
+      select: {
+        id: true, nombre: true, modalidad: true, tipoPuesto: true, escalafonId: true,
+        escalafon: { select: { nombre: true } },
+      },
       orderBy: { nombre: 'asc' },
     })
 
@@ -73,7 +76,17 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
         : rows
     // S20-11: el combobox necesita el id real para mandar puestoCargoId al
     // backend — antes solo devolvía el nombre.
-    return reply.send({ data: filtrados.map((r) => ({ id: r.id, nombre: r.nombre })) })
+    // S21: se agregan escalafonId/escalafonNombre/modalidad para el buscador
+    // libre de /dotacion (elegir puesto sin cascada, distinguir homónimos).
+    return reply.send({
+      data: filtrados.map((r) => ({
+        id: r.id,
+        nombre: r.nombre,
+        escalafonId: r.escalafonId,
+        escalafonNombre: r.escalafon?.nombre ?? null,
+        modalidad: r.modalidad,
+      })),
+    })
   })
 
   // POST /puestos-cargo — S20-12: alta manual de puesto en el catálogo
@@ -110,9 +123,23 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
   // puesto puntual suele tener 1 sola especialidad cargada, insuficiente para
   // ofrecer alternativas).
   app.get('/especialidades', async (request, reply) => {
-    const { escalafonId, nombre } = request.query as {
+    const { escalafonId, nombre, puestoCargoId } = request.query as {
       escalafonId?: string
       nombre?: string
+      puestoCargoId?: string
+    }
+
+    // Camino preferido para FILTROS: especialidades del puesto EXACTO por su
+    // id. Con `nombre` (abajo) hay puestos homónimos entre escalafones/modalidades
+    // y `findFirst` devolvía las especialidades de OTRO puesto → el filtro por
+    // especialidad no coincidía con la FK real del cargo (bug S21).
+    if (puestoCargoId) {
+      const especialidades = await prisma.especialidadPuesto.findMany({
+        where: { activo: true, puestoCargId: puestoCargoId },
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'asc' },
+      })
+      return reply.send({ data: especialidades.map((e) => ({ id: e.id, nombre: e.nombre })) })
     }
 
     if (!nombre) {

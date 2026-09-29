@@ -1,8 +1,22 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery, CreateCargoBody, AltasQuery } from './cargos.schema.js'
+import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo } from './cargos.schema.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+
+// S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
+// sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
+// combinan con OR (uniones) — ver listCargosService.
+function whereGrupoCatalogo(g: GrupoCatalogo): Prisma.CargoWhereInput | null {
+  const w: Prisma.CargoWhereInput = {
+    ...(g.hospitalId && { hospitalId: g.hospitalId }),
+    ...(g.escalafonId && { escalafonId: g.escalafonId }),
+    ...(g.modalidad && { puestoCargo: { modalidad: g.modalidad } }),
+    ...(g.puestoCargoId && { puestoCargoId: g.puestoCargoId }),
+    ...(g.especialidadPuestoId && { especialidadPuestoId: g.especialidadPuestoId }),
+  }
+  return Object.keys(w).length ? w : null
+}
 
 // ─── S3-4 + S3-3: listado paginado con filtros ──────────────────────────────
 interface PuestoCargoRow {
@@ -27,7 +41,7 @@ export async function listPuestosCargosService(escalafonId?: string) {
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, puestoCargoId, especialidadPuestoId, estado, ocupado, soloJefes, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -86,12 +100,23 @@ export async function listCargosService(query: CargosQuery) {
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
   ]
 
+  // S21: cascada de catálogo con UNIONES (OR). Los campos sueltos forman el
+  // "grupo en edición"; se combinan con los `grupos` recibidos. Cada grupo es
+  // un AND de sus campos; entre grupos hay OR. Se agrega como una sola
+  // condición dentro del AND global (junto con los filtros globales), para no
+  // pisar claves como `puestoCargo`/`ocupaciones`.
+  const gruposCatalogo: GrupoCatalogo[] = [
+    ...(grupos ?? []),
+    { hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId },
+  ]
+  const orClauses = gruposCatalogo
+    .map(whereGrupoCatalogo)
+    .filter((w): w is Prisma.CargoWhereInput => w !== null)
+  const catalogoWhere: Prisma.CargoWhereInput | undefined =
+    orClauses.length > 0 ? { OR: orClauses } : undefined
+
   const where: Prisma.CargoWhereInput = {
-    ...(hospitalId  && { hospitalId }),
-    ...(escalafonId && { escalafonId }),
-    // S20-7: filtro por FK real — sin duplicados por casing, sin normalizar texto.
-    ...(puestoCargoId      && { puestoCargoId }),
-    ...(especialidadPuestoId && { especialidadPuestoId }),
+    ...(catalogoWhere && catalogoWhere),
     ...(estado      && { estado }),
     // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
     // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS

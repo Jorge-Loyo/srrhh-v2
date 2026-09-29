@@ -95,6 +95,23 @@ export function useEspecialidadesPuesto(escalafonId?: string, nombrePuesto?: str
   })
 }
 
+// S21: especialidades del puesto EXACTO por id. Preferido para FILTROS: evita
+// el bug de puestos homónimos (mismo nombre en distintos escalafones/modalidades),
+// donde buscar por `nombre` traía las especialidades de otro puesto y el filtro
+// por especialidad no coincidía con la FK real del cargo.
+export function useEspecialidadesDePuestoId(puestoCargoId?: string) {
+  return useQuery({
+    queryKey: ['especialidades-puesto-id', puestoCargoId],
+    enabled: !!puestoCargoId,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: PuestoCatalogoEspecialidad[] }>('/api/v1/puestos-cargo/especialidades', {
+        params: { puestoCargoId },
+      })
+      return res.data.data
+    },
+  })
+}
+
 // S7-7: historial persistente de altas manuales
 export function useAltasCargos(params?: { expediente?: string; desde?: string; hasta?: string; page?: number }) {
   return useQuery({

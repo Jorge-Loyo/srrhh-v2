@@ -1,4 +1,5 @@
 import { esConduccionPorLiteral } from '../../shared/codigoCargo.js'
+import { normalizarTexto } from '@srrhh/normalizacion'
 import type { ModalidadPuesto, TipoPuesto } from '@prisma/client'
 
 // S20-6: el catálogo PuestoCargo/EspecialidadPuesto pasa a ser la fuente real
@@ -23,8 +24,29 @@ type TxCatalogo = {
   }
 }
 
+// S21: la clave de matcheo con el catálogo curado usa la MISMA normalización
+// que el seed (minúscula + sin tilde, mantiene ñ — @srrhh/normalizacion). Antes
+// esto solo hacía trim().toLowerCase() SIN sacar tildes, así "Médico de Planta"
+// del padrón no matcheaba "medico de planta" del catálogo y auto-creaba un
+// puesto duplicado pendienteCurar. Ahora matchea y no duplica.
 export function normPuestoKey(s: string | null | undefined): string {
-  return (s ?? '').trim().toLowerCase()
+  return normalizarTexto(s)
+}
+
+// S21: modalidad derivada del unificador del padrón (misma regla que usa el
+// auto-alta). POU/guardia → 'pou', el resto → 'pof'.
+function modalidadDeUnificador(unificadorPuesto: string | null | undefined): ModalidadPuesto {
+  const unif = (unificadorPuesto ?? '').toUpperCase()
+  return unif.includes('POU') || unif.includes('GUARDIA') ? 'pou' : 'pof'
+}
+
+// S21: clave del cache de puestos. INCLUYE la modalidad — antes era solo
+// escalafón:nombre y colapsaba los puestos homónimos de distinta modalidad
+// (ej. "medico de planta" POF y POU del mismo escalafón: uno pisaba al otro en
+// el Map, ~150 casos en el catálogo). Así el import resolvía cargos a la
+// modalidad equivocada. Ver búsqueda con fallback a 'ambos' en resolverPuestoCargoId.
+function clavePuesto(escalafonId: string, modalidad: ModalidadPuesto | 'ambos', nombre: string | null | undefined): string {
+  return `${escalafonId}:${modalidad}:${normPuestoKey(nombre)}`
 }
 
 export interface PuestoCargoInfo {
@@ -53,7 +75,9 @@ export async function cargarCatalogoPuestos(tx: TxCatalogo): Promise<CatalogoPue
   ])
   const puestosMap = new Map<string, PuestoCargoInfo>()
   for (const p of puestos) {
-    puestosMap.set(`${p.escalafonId}:${normPuestoKey(p.nombre)}`, { id: p.id, nombre: p.nombre, modalidad: p.modalidad, tipoPuesto: p.tipoPuesto })
+    // Clave con modalidad REAL del puesto ('pof' | 'pou' | 'ambos') — así los
+    // homónimos de distinta modalidad conviven en el Map sin pisarse.
+    puestosMap.set(clavePuesto(p.escalafonId, p.modalidad, p.nombre), { id: p.id, nombre: p.nombre, modalidad: p.modalidad, tipoPuesto: p.tipoPuesto })
   }
   const especialidadesMap = new Map<string, string>()
   for (const e of especialidades) {
@@ -77,46 +101,62 @@ export async function resolverPuestoCargoId(
   params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null },
 ): Promise<PuestoCargoInfo> {
   const literal = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
+  // S21: el nombre se guarda CURADO (minúscula + sin tilde), igual que el
+  // catálogo del seed — la curación es exactamente eso. Así el puesto
+  // auto-creado por el padrón queda en el mismo formato y no aparece
+  // "Médico" y "medico" como dos puestos.
+  const nombreCurado = normalizarTexto(literal).slice(0, 200) || SIN_ESPECIFICAR
 
-  const key = `${params.escalafonId}:${normPuestoKey(literal)}`
-  const existente = cache.puestos.get(key)
+  // Modalidad derivada del padrón. La búsqueda en el cache es por (escalafón,
+  // modalidad, nombre) con FALLBACK a 'ambos': un cargo POF/POU puede
+  // corresponder a un puesto catalogado como 'ambos' (Residencias,
+  // Administrativa, etc.). Prioriza el match de modalidad exacta.
+  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto)
+
+  const existente =
+    cache.puestos.get(clavePuesto(params.escalafonId, modalidad, literal)) ??
+    cache.puestos.get(clavePuesto(params.escalafonId, 'ambos', literal))
   if (existente) return existente
 
-  const unif = (params.unificadorPuesto ?? '').toUpperCase()
-  const modalidad: ModalidadPuesto = unif.includes('POU') || unif.includes('GUARDIA') ? 'pou' : 'pof'
   const tipoPuesto: TipoPuesto = esConduccionPorLiteral(literal) ? 'conduccion' : 'ejecucion'
 
   const creado = await tx.puestoCargo.create({
     data: {
       escalafonId: params.escalafonId,
-      nombre: literal.slice(0, 200),
+      nombre: nombreCurado,
       modalidad,
       tipoPuesto,
       pendienteCurar: true,
     },
     select: { id: true, nombre: true, modalidad: true, tipoPuesto: true },
   })
-  console.warn(`[padron] Puesto sin match en catálogo: "${literal}" (escalafón ${params.escalafonId}) — PuestoCargo creado con pendienteCurar=true`)
+  console.warn(`[padron] Puesto sin match en catálogo: "${literal}" (escalafón ${params.escalafonId}, modalidad ${modalidad}) — PuestoCargo creado (curado="${nombreCurado}") con pendienteCurar=true`)
   const info: PuestoCargoInfo = { id: creado.id, nombre: creado.nombre, modalidad: creado.modalidad, tipoPuesto: creado.tipoPuesto }
-  cache.puestos.set(key, info)
+  cache.puestos.set(clavePuesto(params.escalafonId, creado.modalidad, creado.nombre), info)
   return info
 }
 
+// S21: resuelve (o auto-crea CURADA) la especialidad del puesto. Decisión de
+// negocio (Jorge): el proceso de dotación ALIMENTA el catálogo — si el padrón
+// trae una especialidad que no existe para ese puesto, se agrega curada
+// (minúscula + sin tilde), así el mapeo se va limpiando y completando import a
+// import. El matcheo usa la misma normalización, por lo que "Cardiología" del
+// padrón matchea "cardiologia" del catálogo y NO duplica.
 export async function resolverEspecialidadPuestoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
   puestoCargoId: string,
   especialidad: string | null,
 ): Promise<string | null> {
-  const nombre = (especialidad ?? '').trim()
-  if (!nombre) return null
+  const nombreCurado = normalizarTexto(especialidad).slice(0, 200)
+  if (!nombreCurado) return null
 
-  const key = `${puestoCargoId}:${normPuestoKey(nombre)}`
+  const key = `${puestoCargoId}:${normPuestoKey(nombreCurado)}`
   const existente = cache.especialidades.get(key)
   if (existente) return existente
 
   const creada = await tx.especialidadPuesto.create({
-    data: { puestoCargId: puestoCargoId, nombre: nombre.slice(0, 200) },
+    data: { puestoCargId: puestoCargoId, nombre: nombreCurado },
     select: { id: true },
   })
   cache.especialidades.set(key, creada.id)

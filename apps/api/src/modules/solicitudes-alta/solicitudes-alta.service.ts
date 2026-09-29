@@ -10,6 +10,8 @@ const include = {
   solicitadoPor:  { select: { id: true, username: true, email: true } },
   // S16-8: baja origen vinculada
   bajaOrigen:     { select: { id: true, fechaBaja: true, motivo: true, cargo: { select: { codigo: true, literalPuesto: true } } } },
+  // S21: etiquetas asignadas (mismo catálogo que Concursos CPH).
+  etiquetas:      { include: { etiqueta: true } },
 } as const
 
 // --- POST / --- crear solicitud + autorizacion pendiente --------------------
@@ -63,6 +65,20 @@ export async function createSolicitudAltaService(
       },
       include,
     })
+
+    // S21: etiqueta (opcional) — mismo catálogo reutilizable que Concursos CPH.
+    // Se crea si no existe (por nombre, único) y se vincula a la solicitud vía
+    // la relación N:M EtiquetaSolicitudAlta. Reemplaza el viejo campo string
+    // libre `etiqueta` que el service ignoraba.
+    if (body.etiqueta?.trim()) {
+      const nombre = body.etiqueta.trim()
+      const etiqueta =
+        (await tx.etiqueta.findUnique({ where: { nombre } })) ??
+        (await tx.etiqueta.create({ data: { nombre } }))
+      await tx.etiquetaSolicitudAlta.create({
+        data: { etiquetaId: etiqueta.id, solicitudAltaId: solicitud.id },
+      })
+    }
 
     // Transferencias se aprueban directamente — no requieren autorización
     if (!body.esTransferencia) {
