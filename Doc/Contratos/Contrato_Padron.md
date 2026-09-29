@@ -1,13 +1,20 @@
 # Módulo Padrón — Documentación técnica
 
+> Fuente de verdad del flujo de importación del padrón semanal (Dotaneitor + diff + aprobación).
+> Última actualización: 2026-09-28 (invariante `persona.activo` en la aprobación — commit `85d8267`).
+> Estado: VIGENTE.
+> ⚠️ El Dotaneitor se reescribe en el **Sprint 22** (flujo lineal): los pasos internos y endpoints
+> descritos abajo cambiarán. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md` y
+> `Sprints/SPRINT_22_dotaneitor_catalogo.md`.
+
 ## Stack y URLs
 
-| Componente | URL / Puerto |
-|---|---|
-| Frontend (Vite) | `http://localhost:5180/padron` |
-| API (Fastify) | `http://localhost:3000` |
-| Dotaneitor (FastAPI Python) | `http://localhost:5001` (interno Docker) |
-| Base de datos | Postgres `srrhh_db`, usuario `srrhh_user` |
+| Componente                  | URL / Puerto                              |
+| --------------------------- | ----------------------------------------- |
+| Frontend (Vite)             | `http://localhost:5180/padron`            |
+| API (Fastify)               | `http://localhost:3000`                   |
+| Dotaneitor (FastAPI Python) | `http://localhost:5001` (interno Docker)  |
+| Base de datos               | Postgres `srrhh_db`, usuario `srrhh_user` |
 
 ---
 
@@ -43,45 +50,45 @@ Frontend polling cada 2s
 
 El servicio Python (`DotacionAutomationBD.procesar()`) transforma el Excel en un DataFrame normalizado:
 
-| Paso | Qué hace |
-|---|---|
-| 0 | Limpia SIGLA: `UAIEAIT→EAIT`, quita prefijo `DGAH` |
-| 1 | Extrae ROL del campo CARGO (número tras el guión) |
-| 2 | Limpia CUIL (quita guiones) |
-| 3 | Construye `CUIL Y ROL` = `CUIL-ROL` |
-| 5 | Cruza SIGLA → `hospitales` (BD) → UNIVERSO TOTALIZADOR, TIPO DE HOSPITAL, MONOVALENCIA |
-| 6 | Cruza `LIT_COD_REG + LIT_PUESTO` → `ref_unificadores_puesto` (BD) → **UNIFICADOR DE PUESTOS** |
-| 7 | Cruza `ESCALAFON + LIT_PUESTO` → `ref_agrupadores` (BD) → **AGRUPADOR** |
-| 7.5 | Regla especial: `COD_SIT=32` + `AGRUPADOR="Enfermero/a"` → `"Enfermero/a ATP"` |
-| 7.6 | Limpia JCAT: valor `"0"` → `null` |
-| 8 | Calcula **JEFE ESCALAFON** (vectorizado, ver tabla abajo) |
-| 9 | Calcula **ESTADO** (vectorizado, ver tabla abajo) |
-| 9.5 | Renombra columnas SIAL → nombres finales (ej. `CARGO→ID SIAL`, `LIT_ESP_CARGO→ESPECIALIDAD`) |
-| 9.6 | Limpia ESPECIALIDAD en COD_REG que no corresponden (solo 37/23/24 tienen especialidad) |
-| 9.75 | Fuerza MAYÚSCULA SIN TILDE en `COLUMNAS_MAYUSCULA_FORZADA` |
-| 9.8 | Elimina duplicados de ID SIAL (conserva la fila más completa) |
-| 9.9 | Elimina jefaturas CPH con rol duplicado activo (sin CODIGO JEFATURAS) |
-| 10 | Reordena columnas según orden de referencia |
+| Paso | Qué hace                                                                                      |
+| ---- | --------------------------------------------------------------------------------------------- |
+| 0    | Limpia SIGLA: `UAIEAIT→EAIT`, quita prefijo `DGAH`                                            |
+| 1    | Extrae ROL del campo CARGO (número tras el guión)                                             |
+| 2    | Limpia CUIL (quita guiones)                                                                   |
+| 3    | Construye `CUIL Y ROL` = `CUIL-ROL`                                                           |
+| 5    | Cruza SIGLA → `hospitales` (BD) → UNIVERSO TOTALIZADOR, TIPO DE HOSPITAL, MONOVALENCIA        |
+| 6    | Cruza `LIT_COD_REG + LIT_PUESTO` → `ref_unificadores_puesto` (BD) → **UNIFICADOR DE PUESTOS** |
+| 7    | Cruza `ESCALAFON + LIT_PUESTO` → `ref_agrupadores` (BD) → **AGRUPADOR**                       |
+| 7.5  | Regla especial: `COD_SIT=32` + `AGRUPADOR="Enfermero/a"` → `"Enfermero/a ATP"`                |
+| 7.6  | Limpia JCAT: valor `"0"` → `null`                                                             |
+| 8    | Calcula **JEFE ESCALAFON** (vectorizado, ver tabla abajo)                                     |
+| 9    | Calcula **ESTADO** (vectorizado, ver tabla abajo)                                             |
+| 9.5  | Renombra columnas SIAL → nombres finales (ej. `CARGO→ID SIAL`, `LIT_ESP_CARGO→ESPECIALIDAD`)  |
+| 9.6  | Limpia ESPECIALIDAD en COD_REG que no corresponden (solo 37/23/24 tienen especialidad)        |
+| 9.75 | Fuerza MAYÚSCULA SIN TILDE en `COLUMNAS_MAYUSCULA_FORZADA`                                    |
+| 9.8  | Elimina duplicados de ID SIAL (conserva la fila más completa)                                 |
+| 9.9  | Elimina jefaturas CPH con rol duplicado activo (sin CODIGO JEFATURAS)                         |
+| 10   | Reordena columnas según orden de referencia                                                   |
 
 ### Reglas JEFE ESCALAFON
 
-| Condición | Valor |
-|---|---|
-| Sin JCAT | `null` |
-| COD_REG=37, sin ESCRITORIO | `Jefe CPH POF` |
-| COD_REG=37, con ESCRITORIO | `Jefe CPH POU` |
-| COD_REG=85 | `Jefe Tecnico` |
-| COD_REG=87 | `Jefe Enfermeria` |
-| COD_REG=83 | `Jefe Administrativo` |
+| Condición                  | Valor                 |
+| -------------------------- | --------------------- |
+| Sin JCAT                   | `null`                |
+| COD_REG=37, sin ESCRITORIO | `Jefe CPH POF`        |
+| COD_REG=37, con ESCRITORIO | `Jefe CPH POU`        |
+| COD_REG=85                 | `Jefe Tecnico`        |
+| COD_REG=87                 | `Jefe Enfermeria`     |
+| COD_REG=83                 | `Jefe Administrativo` |
 
 ### Reglas ESTADO
 
-| Condición | Valor |
-|---|---|
-| Tiene BLOQ_DESDE | `Bloqueado` |
+| Condición                    | Valor                |
+| ---------------------------- | -------------------- |
+| Tiene BLOQ_DESDE             | `Bloqueado`          |
 | SIT_REV contiene "retención" | `Retención de Cargo` |
-| SIT_REV contiene "comisión" | `Comisión` |
-| Default | `Activo` |
+| SIT_REV contiene "comisión"  | `Comisión`           |
+| Default                      | `Activo`             |
 
 ---
 
@@ -121,37 +128,50 @@ COLUMNAS_CON_TILDE = {
 
 El diff se calcula en Node (`calcularDiff()`) comparando el DataFrame de Dotaneitor contra `cargos` vigentes en Postgres.
 
-| Campo Python | Tabla BD | Campo Prisma |
-|---|---|---|
-| `literal_puesto` | cargo | `literalPuesto` |
-| `especialidad` | cargo | `especialidadLegacy` |
-| `agrupador` | cargo | `agrupador` |
-| `unificador_de_puestos` | cargo | `unificadorPuesto` |
-| `codigo_repa` | cargo | `codigoRepa` |
-| `descripcion_repa` | cargo | `descripcionRepa` |
-| `codigo_de_registro` | cargo | `codigoRegistro.codigo` |
-| `agrupamiento` | cargo | `agrupamiento` |
-| `situacion_de_revista` | ocupacion | `situacionRevista` |
-| `estado` | ocupacion | `estadoPersona` |
-| `codigo_jefaturas` | ocupacion | `codigoJefaturas` |
-| `jefe_escalafon` | ocupacion | `jefeEscalafon` |
-| `comision` | ocupacion | `comision` |
-| `repa_comision` | ocupacion | `repaComision` |
-| `cod_situacion` | ocupacion | `codSituacion` |
-| `cargo_desde` | ocupacion | `cargoDesdeFecha` |
-| `cargo_hasta` | ocupacion | `cargoHastaFecha` |
+| Campo Python            | Tabla BD  | Campo Prisma            |
+| ----------------------- | --------- | ----------------------- |
+| `literal_puesto`        | cargo     | `literalPuesto`         |
+| `especialidad`          | cargo     | `especialidadLegacy`    |
+| `agrupador`             | cargo     | `agrupador`             |
+| `unificador_de_puestos` | cargo     | `unificadorPuesto`      |
+| `codigo_repa`           | cargo     | `codigoRepa`            |
+| `descripcion_repa`      | cargo     | `descripcionRepa`       |
+| `codigo_de_registro`    | cargo     | `codigoRegistro.codigo` |
+| `agrupamiento`          | cargo     | `agrupamiento`          |
+| `situacion_de_revista`  | ocupacion | `situacionRevista`      |
+| `estado`                | ocupacion | `estadoPersona`         |
+| `codigo_jefaturas`      | ocupacion | `codigoJefaturas`       |
+| `jefe_escalafon`        | ocupacion | `jefeEscalafon`         |
+| `comision`              | ocupacion | `comision`              |
+| `repa_comision`         | ocupacion | `repaComision`          |
+| `cod_situacion`         | ocupacion | `codSituacion`          |
+| `cargo_desde`           | ocupacion | `cargoDesdeFecha`       |
+| `cargo_hasta`           | ocupacion | `cargoHastaFecha`       |
 
 ---
 
 ## Tipos de diff y comportamiento al aprobar
 
-| Tipo | Condición | Al aprobar snapshot |
-|---|---|---|
-| `nuevo` | ID SIAL en padrón, no en BD | Crea Persona + Cargo (con código) + Ocupación + Histórico. Requiere decisión individual previa. |
-| `eliminado` | ID SIAL en BD, no en padrón | Cierra Ocupación (`hasta = fechaPadron`). Cargo pasa a `validacion_vacante`. Persona sin ocupaciones vigentes → `activo=false`. |
-| `modificado` | ID SIAL en ambos, campo distinto | Actualiza Cargo u Ocupación según el campo. |
+| Tipo         | Condición                        | Al aprobar snapshot                                                                                                             |
+| ------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `nuevo`      | ID SIAL en padrón, no en BD      | Crea Persona + Cargo (con código) + Ocupación + Histórico. Requiere decisión individual previa.                                 |
+| `eliminado`  | ID SIAL en BD, no en padrón      | Cierra Ocupación (`hasta = fechaPadron`). Cargo pasa a `validacion_vacante`. Persona sin ocupaciones vigentes → `activo=false`. |
+| `modificado` | ID SIAL en ambos, campo distinto | Actualiza Cargo u Ocupación según el campo.                                                                                     |
 
 **Regla de validacion_vacante:** si un cargo en `validacion_vacante` reaparece en el siguiente padrón, vuelve automáticamente a `vigente`.
+
+**Invariante `persona.activo` (paso 10 de la aprobación — commit `85d8267`, 2026-09-28):**
+una persona con **al menos una ocupación vigente** (`hasta IS NULL`) **no puede** estar
+`activo=false`. El paso de `eliminado` solo inactiva (nunca reactiva) y las altas usan
+`skipDuplicates` (no tocan el flag de una persona ya existente), así que un **reingreso**
+(persona dada de baja que reaparece con un cargo nuevo en un padrón posterior) quedaba inactiva
+con cargo activo. Al final de `aprobarSnapshotService` corre un `UPDATE` idempotente que
+reactiva (`activo=true`) a toda persona inactiva con ocupación vigente. Corre **después** de
+crear altas y de procesar bajas.
+
+> Detectado con 382 personas afectadas en la BD local (ej. Rodríguez Insfrán: baja de
+> Residente + alta CPH posterior → quedaba inactiva). La corrección de datos no se versiona
+> (se rehace sola al reprocesar; además la BD de desarrollo se resetea en el Sprint 20).
 
 ---
 
@@ -167,60 +187,60 @@ El prefijo se calcula en `prefijoDeCargo()` a partir de escalafón + unificador 
 
 Todas se leen desde Postgres al arrancar Dotaneitor. Se pueden actualizar con SQL sin rebuild.
 
-| Tabla | Uso |
-|---|---|
-| `hospitales` | SIGLA → UNIVERSO TOTALIZADOR, TIPO, MONOVALENCIA |
-| `ref_agrupadores` | ESCALAFON + LIT_PUESTO → AGRUPADOR |
-| `ref_unificadores_puesto` | LIT_COD_REG + LIT_PUESTO → UNIFICADOR DE PUESTOS |
-| `ref_especialidades_cuil` | CUIL + tipo → ESPECIALIDAD (cruce por CUIL) |
+| Tabla                         | Uso                                                     |
+| ----------------------------- | ------------------------------------------------------- |
+| `hospitales`                  | SIGLA → UNIVERSO TOTALIZADOR, TIPO, MONOVALENCIA        |
+| `ref_agrupadores`             | ESCALAFON + LIT_PUESTO → AGRUPADOR                      |
+| `ref_unificadores_puesto`     | LIT_COD_REG + LIT_PUESTO → UNIFICADOR DE PUESTOS        |
+| `ref_especialidades_cuil`     | CUIL + tipo → ESPECIALIDAD (cruce por CUIL)             |
 | `ref_especialidad_por_puesto` | AGRUPADOR + PUESTO → ESPECIALIDAD (cruce por agrupador) |
 
 ---
 
 ## Endpoints API
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/api/v1/padron/snapshots` | Lista todos los snapshots |
-| `POST` | `/api/v1/padron/upload` | Sube Excel, dispara pipeline async |
-| `GET` | `/api/v1/padron/snapshots/:id/estado` | Polling de estado del pipeline |
-| `GET` | `/api/v1/padron/snapshots/:id/diff` | Diff paginado con filtros |
-| `POST` | `/api/v1/padron/snapshots/:id/aprobar` | Aprueba el snapshot completo |
-| `POST` | `/api/v1/padron/snapshots/:id/rechazar` | Rechaza el snapshot |
-| `POST` | `/api/v1/padron/snapshots/:id/diffs/:diffId/aprobar` | Aprueba un diff nuevo individual |
-| `POST` | `/api/v1/padron/snapshots/:id/diffs/:diffId/rechazar` | Rechaza un diff nuevo individual |
-| `POST` | `/api/v1/padron/snapshots/:id/diffs/aprobar-todos` | Aprueba todos los pendientes en bloque |
-| `GET` | `/api/v1/padron/snapshots/:id/exportar` | Descarga Excel del Dotaneitor |
-| `GET` | `/api/v1/padron/snapshots/:id/conflictos-validacion` | Cargos en validacion_vacante que reaparecen |
-| `DELETE` | `/api/v1/padron/snapshots/:id` | Elimina snapshot en estado error/rechazado |
+| Método   | Ruta                                                  | Descripción                                 |
+| -------- | ----------------------------------------------------- | ------------------------------------------- |
+| `GET`    | `/api/v1/padron/snapshots`                            | Lista todos los snapshots                   |
+| `POST`   | `/api/v1/padron/upload`                               | Sube Excel, dispara pipeline async          |
+| `GET`    | `/api/v1/padron/snapshots/:id/estado`                 | Polling de estado del pipeline              |
+| `GET`    | `/api/v1/padron/snapshots/:id/diff`                   | Diff paginado con filtros                   |
+| `POST`   | `/api/v1/padron/snapshots/:id/aprobar`                | Aprueba el snapshot completo                |
+| `POST`   | `/api/v1/padron/snapshots/:id/rechazar`               | Rechaza el snapshot                         |
+| `POST`   | `/api/v1/padron/snapshots/:id/diffs/:diffId/aprobar`  | Aprueba un diff nuevo individual            |
+| `POST`   | `/api/v1/padron/snapshots/:id/diffs/:diffId/rechazar` | Rechaza un diff nuevo individual            |
+| `POST`   | `/api/v1/padron/snapshots/:id/diffs/aprobar-todos`    | Aprueba todos los pendientes en bloque      |
+| `GET`    | `/api/v1/padron/snapshots/:id/exportar`               | Descarga Excel del Dotaneitor               |
+| `GET`    | `/api/v1/padron/snapshots/:id/conflictos-validacion`  | Cargos en validacion_vacante que reaparecen |
+| `DELETE` | `/api/v1/padron/snapshots/:id`                        | Elimina snapshot en estado error/rechazado  |
 
 ---
 
 ## Endpoints Dotaneitor (interno)
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `POST` | `/session` | Crea sesión en memoria |
-| `POST` | `/upload-cargos` | Sube el Excel a la sesión |
-| `POST` | `/normalizar` | Normaliza columnas (async job) |
-| `POST` | `/procesar` | Procesa el DataFrame (async job) |
-| `POST` | `/cruzar` | Cruza especialidades (async job) |
-| `GET` | `/job/:job_id` | Polling de estado de un job |
-| `GET` | `/preview` | DataFrame paginado (usado por calcularDiff) |
-| `GET` | `/exports/:snapshotId/dotacion.xlsx` | Descarga Excel persistente |
-| `POST` | `/session/delete` | Elimina sesión y archivos tmp |
+| Método | Ruta                                 | Descripción                                 |
+| ------ | ------------------------------------ | ------------------------------------------- |
+| `GET`  | `/health`                            | Health check                                |
+| `POST` | `/session`                           | Crea sesión en memoria                      |
+| `POST` | `/upload-cargos`                     | Sube el Excel a la sesión                   |
+| `POST` | `/normalizar`                        | Normaliza columnas (async job)              |
+| `POST` | `/procesar`                          | Procesa el DataFrame (async job)            |
+| `POST` | `/cruzar`                            | Cruza especialidades (async job)            |
+| `GET`  | `/job/:job_id`                       | Polling de estado de un job                 |
+| `GET`  | `/preview`                           | DataFrame paginado (usado por calcularDiff) |
+| `GET`  | `/exports/:snapshotId/dotacion.xlsx` | Descarga Excel persistente                  |
+| `POST` | `/session/delete`                    | Elimina sesión y archivos tmp               |
 
 ---
 
 ## Permisos requeridos
 
-| Acción | Permiso |
-|---|---|
-| Subir padrón | `padron.subir` |
-| Aprobar/rechazar snapshot | `padron.aprobar_padron` |
+| Acción                           | Permiso                 |
+| -------------------------------- | ----------------------- |
+| Subir padrón                     | `padron.subir`          |
+| Aprobar/rechazar snapshot        | `padron.aprobar_padron` |
 | Aprobar/rechazar diff individual | `padron.aprobar_padron` |
-| Eliminar snapshot | `padron.eliminar_snap` |
+| Eliminar snapshot                | `padron.eliminar_snap`  |
 
 ---
 
