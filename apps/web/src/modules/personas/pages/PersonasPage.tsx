@@ -8,6 +8,7 @@ import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecial
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 
 const LIMIT = 50
@@ -243,9 +244,9 @@ export function PersonasPage() {
             <SearchableSelect
               value={puestoCargoId}
               onChange={cambiarPuesto}
-              options={puestos.map((p) => p.nombre)}
-              valueToDisplay={(id) => puestos.find((p) => p.id === id)?.nombre ?? id}
-              displayToValue={(label) => puestos.find((p) => p.nombre === label)?.id ?? label}
+              options={puestos.map((p) => capitalizar(p.nombre))}
+              valueToDisplay={(id) => capitalizar(puestos.find((p) => p.id === id)?.nombre) || id}
+              displayToValue={(label) => puestos.find((p) => capitalizar(p.nombre) === label)?.id ?? label}
               placeholder="Todos los puestos"
               className="min-w-[240px]"
             />
@@ -259,7 +260,7 @@ export function PersonasPage() {
               <option value="">Todas las especialidades</option>
               {especialidadesDelPuesto.map((esp) => (
                 <option key={esp.id} value={esp.id}>
-                  {esp.nombre}
+                  {capitalizar(esp.nombre)}
                 </option>
               ))}
             </select>
@@ -293,10 +294,10 @@ export function PersonasPage() {
           }
           if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
-          if (puestoCargoId) chips.push({ label: puestoSeleccionado?.nombre ?? puestoCargoId, key: 'puestoCargoId' })
+          if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
             const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
-            chips.push({ label: esp?.nombre ?? especialidadPuestoId, key: 'especialidadPuestoId' })
+            chips.push({ label: capitalizar(esp?.nombre) || especialidadPuestoId, key: 'especialidadPuestoId' })
           }
           if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
           if (chips.length === 0) return null
@@ -365,8 +366,8 @@ export function PersonasPage() {
                       <td className="px-4 py-3 text-gray-600">{p.cuil}</td>
                       <td className="px-4 py-3 text-gray-600">{p.numeroDoc ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{p.idSial ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{p.puesto ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{p.especialidadPrincipal ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{capitalizar(p.puesto) || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{capitalizar(p.especialidadPrincipal) || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={p.activo ? 'badge-success' : 'badge-default'}>
                           {p.activo ? 'Activo' : 'Inactivo'}

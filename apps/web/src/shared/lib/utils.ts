@@ -13,3 +13,11 @@ export function getApiErrorMessage(error: unknown): string {
     ?.data
   return data?.error?.message ?? 'Ocurrió un error inesperado. Intentá de nuevo.'
 }
+
+// Capitaliza solo la primera letra de la cadena, para mostrar valores que en
+// la BD están en minúscula (puestos, especialidades — normalizados en S21).
+// Es SOLO presentación: no cambia el dato guardado. Devuelve '' si es nulo.
+export function capitalizar(texto: string | null | undefined): string {
+  if (!texto) return ''
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
