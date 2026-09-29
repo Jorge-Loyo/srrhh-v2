@@ -1,8 +1,10 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09 — Jurados y Órdenes de mérito reutilizables (`sorteos_jurado`, `miembros_jurado_sorteados`, `ordenes_merito`, `orden_merito_integrantes`, etiquetas) + campos nuevos en `concursos_cph` (`if_autorizacion`, `tipo_gestion`, cierres de inscripción, etc.)
+> Última actualización: 2026-09-22 — Sincronizado contra `prisma/schema.prisma`: agregadas tablas de Árbol/Organigrama (`organigramas`, `organigrama_uploads`), POU (`pou`), KPI de dotación (`kpis_dotacion_snapshot`), Autorizaciones (`autorizaciones`), Solicitudes de alta (`solicitudes_alta`), Jerarquía de roles (`role_jerarquias`), Notificaciones (`notificaciones`), Jornadas de sorteo (`jornadas_sorteo`), Inscriptos a concurso (`inscriptos_concurso`), Postulantes (`postulantes`, `postulantes_concurso`) y campos faltantes de `cargos` (retención/cadena), `personas` (`especialidad_cph`), `concursos_cph` (validación padrón + INSAL), `bajas` (vínculo padrón) y `audit_logs` (método/ruta). Corregidos 2 desfases: `cantidad_cargos` no existe en `concursos_cph`/`concursos_ceetps` y `desierto` no pertenece al enum de estado de CPH.
 > Estado: VIGENTE
+>
+> ⚠️ **En reescritura (Sprints 20-22):** el esquema de **puesto/especialidad** (catálogo `puestos_cargo`/`especialidades_puesto`, campos `literal_puesto`/`especialidad_legacy`/`especialidad_id` en `cargos`, tablas `ref_*` del Dotaneitor) y la **normalización a minúscula/sin tilde** de toda la BD se están rediseñando con el Dotaneitor v2. Esas secciones documentan el estado ACTUAL y van a cambiar. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md` y `Doc/Planificacion/Sprints/SPRINT_22_dotaneitor_catalogo.md`.
 
 ---
 
@@ -27,20 +29,29 @@ personas ───────────────────────�
 ocupaciones ◄──── cargos ◄──── hospitales              │
                     │                                   │
                     ├──── escalafones                   │
-                    └──── codigos_registro              │
+                    ├──── codigos_registro              │
+                    └──── cargo_base/retenido (cadena)  │
                                                         │
+solicitudes_alta ──► (al aprobar) crea cargos           │
 bajas ──────────────────────────────────────────────────┤
     │  (origen de vacante)                              │
     ▼                                                   │
 concursos ──────────────────────────────────────────────┤
     │                                                   │
-    ├──► concursos_cph                                  │
+    ├──► concursos_cph ──► inscriptos_concurso          │
+    │         │            sorteos_jurado               │
+    │         │            ordenes_merito               │
+    │         └──► jornadas_sorteo (M:N)                 │
     └──► concursos_ceetps                               │
                                                         │
+autorizaciones · notificaciones · audit_logs (transversales)
+                                                        │
 padron_snapshots ──► padron_diff                        │
-        │                                               │
+        │            kpis_dotacion_snapshot             │
         └──► padron_historico ──────────────────────────┘
              (foto completa por fecha)
+
+Catálogos independientes: organigramas (Árbol) · pou (Ocupación)
 ```
 
 ---
@@ -51,26 +62,27 @@ padron_snapshots ──► padron_diff                        │
 
 Una fila por persona única. Existe aunque ya no trabaje.
 
-| Columna                  | Tipo               | Descripción                                 |
-| ------------------------ | ------------------ | ------------------------------------------- |
-| `id`                     | UUID PK            | Identificador interno                       |
-| `cuil`                   | VARCHAR(11) UNIQUE | CUIL sin guiones                            |
-| `numero_doc`             | VARCHAR(20)        | Número de documento                         |
-| `tipo_doc`               | VARCHAR(10)        | DNI, LC, LE, etc.                           |
-| `apellido_nombre`        | VARCHAR(200)       | Apellido y nombre completo                  |
-| `fecha_nacimiento`       | DATE               | —                                           |
-| `sexo`                   | VARCHAR(10)        | —                                           |
-| `especialidad_principal` | VARCHAR(200)       | Especialidad médica si aplica               |
-| `telefono`               | VARCHAR(20)        | —                                           |
-| `mail_personal`          | VARCHAR(255)       | —                                           |
-| `mail_laboral`           | VARCHAR(255)       | —                                           |
-| `domicilio`              | VARCHAR(255)       | —                                           |
-| `localidad`              | VARCHAR(150)       | —                                           |
-| `provincia`              | VARCHAR(100)       | —                                           |
-| `antiguedad_desde`       | DATE               | Fecha del primer cargo en el sistema        |
-| `activo`                 | BOOLEAN            | True si tiene al menos una ocupación activa |
-| `created_at`             | TIMESTAMPTZ        | —                                           |
-| `updated_at`             | TIMESTAMPTZ        | —                                           |
+| Columna                  | Tipo               | Descripción                                                                                                                                                                    |
+| ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                     | UUID PK            | Identificador interno                                                                                                                                                          |
+| `cuil`                   | VARCHAR(11) UNIQUE | CUIL sin guiones                                                                                                                                                               |
+| `numero_doc`             | VARCHAR(20)        | Número de documento                                                                                                                                                            |
+| `tipo_doc`               | VARCHAR(10)        | DNI, LC, LE, etc.                                                                                                                                                              |
+| `apellido_nombre`        | VARCHAR(200)       | Apellido y nombre completo                                                                                                                                                     |
+| `fecha_nacimiento`       | DATE               | —                                                                                                                                                                              |
+| `sexo`                   | VARCHAR(10)        | —                                                                                                                                                                              |
+| `especialidad_principal` | VARCHAR(200)       | Especialidad médica del cargo actual del padrón, si aplica                                                                                                                     |
+| `especialidad_cph`       | VARCHAR(200) null  | Especialidad CPH canónica (de `ref_especialidades_cuil` tipo=cph). Distinta de `especialidad_principal`; se popula al aprobar cada snapshot y no cambia con el cargo. Indexada |
+| `telefono`               | VARCHAR(20)        | —                                                                                                                                                                              |
+| `mail_personal`          | VARCHAR(255)       | —                                                                                                                                                                              |
+| `mail_laboral`           | VARCHAR(255)       | —                                                                                                                                                                              |
+| `domicilio`              | VARCHAR(255)       | —                                                                                                                                                                              |
+| `localidad`              | VARCHAR(150)       | —                                                                                                                                                                              |
+| `provincia`              | VARCHAR(100)       | —                                                                                                                                                                              |
+| `antiguedad_desde`       | DATE               | Fecha del primer cargo en el sistema                                                                                                                                           |
+| `activo`                 | BOOLEAN            | True si tiene al menos una ocupación activa                                                                                                                                    |
+| `created_at`             | TIMESTAMPTZ        | —                                                                                                                                                                              |
+| `updated_at`             | TIMESTAMPTZ        | —                                                                                                                                                                              |
 
 **Índices:** `cuil` (UNIQUE), `numero_doc`, `apellido_nombre` (GIN tsvector con config `spanish_unaccent` para búsqueda full-text sin acentos)
 
@@ -163,6 +175,66 @@ Mapeo de código numérico SIAL → escalafón canónico. Fuente de verdad para 
 
 ---
 
+### `organigramas`
+
+Estructura jerárquica de unidades organizativas por efector y por sección administrativa (Nivel Central, APS). Árbol estático migrado 1:1 desde la tabla `organigramas` de la app vieja (dotacion-rrhh). No cambia con el padrón semanal: la app arma el árbol desde acá y le cruza en runtime quién ocupa cada nodo hoy (join por `codigo_reparticion` contra `cargos.codigo_repa`).
+
+| Columna                | Tipo               | Descripción                                                          |
+| ---------------------- | ------------------ | -------------------------------------------------------------------- |
+| `id`                   | UUID PK            | —                                                                    |
+| `lvl`                  | INTEGER            | Nivel de profundidad en el árbol                                     |
+| `tipo`                 | VARCHAR(50)        | Tipo de nodo                                                         |
+| `codigo_reparticion`   | VARCHAR(20) UNIQUE | Clave de cruce contra `cargos.codigo_repa`                           |
+| `universo_totalizador` | VARCHAR(100) null  | Agrupador de universo                                                |
+| `regimen_empleo`       | VARCHAR(200) null  | —                                                                    |
+| `desc_rep`             | VARCHAR(200) null  | Descripción de la repartición                                        |
+| `sigla`                | VARCHAR(20)        | Sigla (lógica, no FK dura a `hospitales`: hay nodos Ministerio/Área) |
+| `padre`                | VARCHAR(100) null  | Código del nodo padre                                                |
+| `path`                 | VARCHAR(600)       | Ruta de códigos hasta la raíz                                        |
+| `path_nombres`         | VARCHAR(1200)      | Ruta de nombres hasta la raíz                                        |
+
+**Índices:** `sigla`, `padre`, `universo_totalizador`. **Módulo:** `apps/api/src/modules/organigrama`.
+
+---
+
+### `organigrama_uploads`
+
+Historial de cargas del Excel de estructura (módulo Árbol, solo admin). Cada Excel subido se registra acá para trazabilidad.
+
+| Columna         | Tipo                    | Descripción                 |
+| --------------- | ----------------------- | --------------------------- |
+| `id`            | UUID PK                 | —                           |
+| `filename`      | VARCHAR(255)            | Nombre del archivo original |
+| `filas`         | INTEGER                 | Cantidad de filas cargadas  |
+| `subido_por_id` | UUID FK → usuarios null | —                           |
+| `created_at`    | TIMESTAMPTZ             | —                           |
+
+---
+
+### `pou`
+
+Resumen de dotación (personal necesario/ocupado) por hospital, perfil y especialidad — foto cargada a mano desde el Excel "Ocupacion_POU" de RRHH. Migrado 1:1 desde la tabla `pou` de la app vieja. Cada carga de Excel reemplaza la tabla entera (sin histórico, por decisión explícita).
+
+> **Ojo:** nombre superpuesto a propósito distinto de `ModalidadPuesto.pou` (el campo guardia/planta de un `Cargo` individual). Esta tabla es un conteo agregado por puesto de trabajo, no un dato de ningún cargo puntual.
+
+| Columna             | Tipo              | Descripción       |
+| ------------------- | ----------------- | ----------------- |
+| `id`                | UUID PK           | —                 |
+| `sigla`             | VARCHAR(10)       | Sigla del efector |
+| `descripcion_sigla` | VARCHAR(100) null | —                 |
+| `perfil`            | VARCHAR(50)       | —                 |
+| `especialidad`      | VARCHAR(100)      | —                 |
+| `dotacion_diaria`   | INTEGER null      | —                 |
+| `dotacion_sem`      | INTEGER null      | —                 |
+| `dotacion_total`    | INTEGER null      | —                 |
+| `activos`           | INTEGER null      | —                 |
+| `tecnicos`          | INTEGER null      | —                 |
+| `vacantes`          | INTEGER null      | —                 |
+
+**Único:** `(sigla, perfil, especialidad)`. **Índice:** `sigla`.
+
+---
+
 ### `cargos`
 
 Una posición estructural. Existe independientemente de quién lo ocupa.
@@ -193,17 +265,28 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 | `estado_desde`        | DATE                              | Fecha en que el cargo entró al estado actual                                                                                                                                                                    |
 | `expediente`          | VARCHAR(150)                      | Expediente de alta manual                                                                                                                                                                                       |
 | `fecha_desde`         | DATE                              | Fecha de inicio del cargo (alta manual)                                                                                                                                                                         |
+| `created_by_id`       | UUID FK → usuarios nullable       | Usuario que creó el cargo (alta manual). Null en cargos del padrón                                                                                                                                              |
+| `tipo_origen`         | VARCHAR(5) nullable               | Rol en la cadena de retención (S18): `R` = remplazante de ejecución, `TTR` = remplazante de conducción, `null` = cargo normal                                                                                   |
+| `cargo_retenido_id`   | UUID FK → cargos nullable         | Cargo que este está remplazando (null si no es remplazante)                                                                                                                                                     |
+| `cargo_base_id`       | UUID FK → cargos nullable         | Cargo base de la cadena (desnormalizado). Null si este cargo ES el base                                                                                                                                         |
+| `periodo_desde`       | DATE nullable                     | Inicio del período de conducción (solo TTR y bases de conducción)                                                                                                                                               |
+| `periodo_hasta`       | DATE nullable                     | Fin del período de conducción                                                                                                                                                                                   |
+| `periodo_renovado`    | BOOLEAN default false             | El período fue renovado                                                                                                                                                                                         |
+| `fecha_renovacion`    | DATE nullable                     | Fecha de la última renovación de período                                                                                                                                                                        |
+| `doc_renovacion`      | TEXT nullable                     | Acto administrativo de la última renovación de período (S19-4)                                                                                                                                                  |
 | `created_at`          | TIMESTAMPTZ                       | —                                                                                                                                                                                                               |
 | `updated_at`          | TIMESTAMPTZ                       | —                                                                                                                                                                                                               |
 | `deleted_at`          | TIMESTAMPTZ                       | Soft delete                                                                                                                                                                                                     |
 
-**Índices:** `id_sial` (UNIQUE), `codigo` (UNIQUE), `hospital_id`, `escalafon_id`, `estado`
+**Índices:** `id_sial` (UNIQUE), `codigo` (UNIQUE), `hospital_id`, `escalafon_id`, `estado`, `cargo_base_id`, `cargo_retenido_id`
 
 **Estados:**
 
 - `vigente` — activo en la estructura
 - `no_vigente` — estado terminal, suprimido
 - `validacion_vacante` — baja detectada por el padrón SIAL pendiente de confirmación administrativa (Sprint 8A)
+
+**Cadena de retención (S18):** un cargo remplazante (`tipo_origen` = `R`/`TTR`) apunta al cargo que cubre vía `cargo_retenido_id` y al cargo base de la cadena vía `cargo_base_id`. Ver `Doc/Contratos/Contrato_Retenciones.md` y `Doc/Contratos/Contrato_Logica_Cargo.md` para el detalle de la lógica.
 
 ---
 
@@ -299,23 +382,43 @@ Cambios detectados entre el snapshot nuevo y el estado actual. Se genera al proc
 
 Foto completa del padrón en cada fecha aprobada.
 
-| Columna             | Tipo                       | Descripción                         |
-| ------------------- | -------------------------- | ----------------------------------- |
-| `id`                | UUID PK                    | —                                   |
-| `snapshot_id`       | UUID FK → padron_snapshots | —                                   |
-| `fecha_asignada`    | DATE                       | Desnormalizado para queries rápidas |
-| `persona_id`        | UUID FK → personas         | —                                   |
-| `cargo_id`          | UUID FK → cargos           | —                                   |
-| `id_sial_rol`       | VARCHAR(50)                | —                                   |
-| `escalafon`         | VARCHAR(50)                | Desnormalizado para performance     |
-| `hospital_sigla`    | VARCHAR(20)                | Desnormalizado para performance     |
-| `literal_puesto`    | VARCHAR(200)               | —                                   |
-| `especialidad`      | VARCHAR(200)               | —                                   |
-| `agrupador`         | VARCHAR(150)               | —                                   |
-| `estado_persona`    | VARCHAR(50)                | —                                   |
-| `situacion_revista` | VARCHAR(50)                | —                                   |
+| Columna             | Tipo                       | Descripción                                                                        |
+| ------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| `id`                | UUID PK                    | —                                                                                  |
+| `snapshot_id`       | UUID FK → padron_snapshots | —                                                                                  |
+| `fecha_asignada`    | DATE                       | Desnormalizado para queries rápidas                                                |
+| `persona_id`        | UUID FK → personas         | —                                                                                  |
+| `cargo_id`          | UUID FK → cargos           | —                                                                                  |
+| `id_sial_rol`       | VARCHAR(50)                | —                                                                                  |
+| `cuil`              | VARCHAR(11) null           | Nullable en filas anteriores a S6-0 hasta el backfill; toda fila nueva lo completa |
+| `escalafon`         | VARCHAR(50)                | Desnormalizado para performance                                                    |
+| `hospital_sigla`    | VARCHAR(20)                | Desnormalizado para performance                                                    |
+| `literal_puesto`    | VARCHAR(200)               | —                                                                                  |
+| `especialidad`      | VARCHAR(200)               | —                                                                                  |
+| `agrupador`         | VARCHAR(150)               | —                                                                                  |
+| `unificador_puesto` | VARCHAR(200) null          | —                                                                                  |
+| `estado_persona`    | VARCHAR(50)                | —                                                                                  |
+| `situacion_revista` | VARCHAR(50)                | —                                                                                  |
+
+**Índices:** `snapshot_id`, `fecha_asignada`, `persona_id`, `cargo_id`, `cuil`.
 
 **Regla:** solo inserción. Nunca se modifica ni se borra.
+
+---
+
+### `kpis_dotacion_snapshot`
+
+Resumen de evolución histórica de dotación por escalafón. Una fila por `(fecha, escalafon)`, insertada al aprobar cada snapshot de padrón (`padron.service.ts`, `aprobarSnapshotService`). El escalafón viene de `cargo_id → escalafones.nombre` (nombre canónico, no el texto desnormalizado de `padron_historico`).
+
+| Columna     | Tipo         | Descripción                        |
+| ----------- | ------------ | ---------------------------------- |
+| `fecha`     | DATE         | Fecha del snapshot (parte de PK)   |
+| `escalafon` | VARCHAR(100) | Nombre canónico (parte de PK)      |
+| `personas`  | INTEGER      | Personas del escalafón en la fecha |
+
+**PK compuesta:** `(fecha, escalafon)`. **Índice:** `fecha`.
+
+> ⚠️ **Muta (backlog B-15):** el KPI mensual planificado (última foto de cada mes, armado en backend desde `ocupaciones`) va a rediseñar cómo se alimenta esta tabla. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md` y `Doc/Planificacion/PLAN_SCRUM_2026.md` (B-15).
 
 ---
 
@@ -323,20 +426,21 @@ Foto completa del padrón en cada fecha aprobada.
 
 Registro de vacantes que originan un proceso concursal.
 
-| Columna          | Tipo                     | Descripción                                           |
-| ---------------- | ------------------------ | ----------------------------------------------------- |
-| `id`             | UUID PK                  | —                                                     |
-| `persona_id`     | UUID FK → personas       | Persona que dejó el cargo (nullable si es ampliación) |
-| `cargo_id`       | UUID FK → cargos         | —                                                     |
-| `hospital_id`    | UUID FK → hospitales     | —                                                     |
-| `baja_id`        | UUID FK → bajas nullable | Baja que originó el concurso (null si es ampliación)  |
-| `origen`         | VARCHAR(50)              | Baja \| Cobertura Dotación \| Ampliación \| POU→POF   |
-| `fecha_vacante`  | DATE                     | Fecha en que se generó la vacante                     |
-| `motivo`         | VARCHAR(200)             | Motivo de la vacante                                  |
-| `expediente`     | VARCHAR(150)             | Número de expediente                                  |
-| `tipo_concurso`  | ENUM                     | `cph` \| `ceetps` \| `sin_concurso`                   |
-| `registrado_por` | UUID FK → usuarios       | —                                                     |
-| `created_at`     | TIMESTAMPTZ              | —                                                     |
+| Columna           | Tipo                     | Descripción                                                                                                                                     |
+| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | UUID PK                  | —                                                                                                                                               |
+| `persona_id`      | UUID FK → personas       | Persona que dejó el cargo (nullable si es ampliación)                                                                                           |
+| `cargo_id`        | UUID FK → cargos         | —                                                                                                                                               |
+| `hospital_id`     | UUID FK → hospitales     | —                                                                                                                                               |
+| `baja_id`         | UUID FK → bajas nullable | Baja que originó el concurso (null si es ampliación)                                                                                            |
+| `origen`          | VARCHAR(50)              | Baja \| Cobertura Dotación \| Ampliación \| POU→POF                                                                                             |
+| `fecha_vacante`   | DATE                     | Fecha en que se generó la vacante                                                                                                               |
+| `motivo`          | VARCHAR(200)             | Motivo de la vacante                                                                                                                            |
+| `expediente`      | VARCHAR(150)             | Número de expediente                                                                                                                            |
+| `tipo_concurso`   | ENUM                     | `cph` \| `ceetps` \| `sin_concurso`                                                                                                             |
+| `motivo_concurso` | ENUM null                | Motivo tipificado cuando el concurso nace de una solicitud de alta (S14-1): `nuevo_cargo` \| `alta_por_baja`. Distinto del campo libre `motivo` |
+| `registrado_por`  | UUID FK → usuarios       | —                                                                                                                                               |
+| `created_at`      | TIMESTAMPTZ              | —                                                                                                                                               |
 
 ---
 
@@ -344,62 +448,67 @@ Registro de vacantes que originan un proceso concursal.
 
 Seguimiento de concursos de la Carrera Profesional Hospitalaria (Ley 6.035).
 
-| Columna                         | Tipo                       | Descripción                                                                                                                                                                  |
-| ------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                            | UUID PK                    | —                                                                                                                                                                            |
-| `concurso_id`                   | UUID FK → concursos UNIQUE | —                                                                                                                                                                            |
-| `cargo_id`                      | UUID FK → cargos           | —                                                                                                                                                                            |
-| `hospital_id`                   | UUID FK → hospitales       | —                                                                                                                                                                            |
-| `estado`                        | ENUM                       | `no_iniciado` \| `activo` \| `finalizado` \| `suspendido` \| `desierto`                                                                                                      |
-| `sub_estado`                    | VARCHAR(50)                | 19 niveles calculados por `calcConcursoCph()` — no editable                                                                                                                  |
-| `sub_estado_3`                  | VARCHAR(50)                | 8 niveles resumidos para KPIs/alertas — no editable                                                                                                                          |
-| `especialidad_solicitada`       | VARCHAR(200)               | —                                                                                                                                                                            |
-| `ee_baja`                       | VARCHAR(150)               | Expediente de baja                                                                                                                                                           |
-| `fecha_baja`                    | DATE                       | —                                                                                                                                                                            |
-| `ee_concurso`                   | VARCHAR(150)               | Expediente del concurso                                                                                                                                                      |
-| `fecha_ee_concurso`             | DATE                       | —                                                                                                                                                                            |
-| `if_autorizacion`               | VARCHAR(150)               | IF de autorización — número de documento que se completa en la apertura (Etapa 1) antes de solicitar la autorización a SGRASV. Visible en solo-lectura en etapas posteriores |
-| `fecha_autorizacion`            | DATE                       | —                                                                                                                                                                            |
-| `sorteo_jurado`                 | DATE                       | Fecha del sorteo de jurado (Etapa 2). El acta detallada vive en `sorteos_jurado`                                                                                             |
-| `puesto_solicitado`             | VARCHAR(200)               | Puesto que se solicita cubrir — distinto del literal de la baja en casos Jefaturas/Cobertura POU. Si es null, se asume el mismo que el de la baja                            |
-| `tipo_gestion`                  | VARCHAR(20)                | `centralizado` (interviene SGOCDCPS en la etapa 3) \| `descentralizado` (interviene un tercero). Informativo, se define en Etapa 2                                           |
-| `disposicion`                   | VARCHAR(100)               | Disposición de llamado                                                                                                                                                       |
-| `fecha_insc_desde`              | DATE                       | —                                                                                                                                                                            |
-| `fecha_insc_hasta`              | DATE                       | —                                                                                                                                                                            |
-| `inscripcion_cerrada`           | BOOLEAN default false      | Al cerrarse el período de inscripción de exámenes (Etapa 3) el sub-estado avanza de C a D                                                                                    |
-| `fecha_cierre_inscripcion`      | DATE                       | Fecha del cierre de inscripción de exámenes                                                                                                                                  |
-| `presentados_confirmados`       | BOOLEAN default false      | Al confirmarse se congela quién se presentó al examen                                                                                                                        |
-| `orden_merito_confirmado`       | BOOLEAN default false      | Al confirmarse se fija el ranking, `fecha_orden_merito` = hoy y el sub-estado avanza a E                                                                                     |
-| `fecha_examen`                  | DATE                       | —                                                                                                                                                                            |
-| `fecha_orden_merito`            | DATE                       | —                                                                                                                                                                            |
-| `fecha_ifacs`                   | DATE                       | —                                                                                                                                                                            |
-| `fecha_insal`                   | DATE                       | —                                                                                                                                                                            |
-| `ee_designacion`                | VARCHAR(150)               | —                                                                                                                                                                            |
-| `carga_documentacion`           | BOOLEAN                    | —                                                                                                                                                                            |
-| `fecha_apto_medico`             | DATE                       | —                                                                                                                                                                            |
-| `fecha_ite`                     | DATE                       | —                                                                                                                                                                            |
-| `proyecto_resolucion`           | BOOLEAN                    | —                                                                                                                                                                            |
-| `reso_a_la_firma`               | BOOLEAN                    | —                                                                                                                                                                            |
-| `resolucion_designacion`        | VARCHAR(100)               | —                                                                                                                                                                            |
-| `fecha_resolucion`              | DATE                       | —                                                                                                                                                                            |
-| `cargo_sial`                    | VARCHAR(50)                | Código SIAL del cargo asignado tras la designación                                                                                                                           |
-| `dispo_desierta`                | VARCHAR(50)                | —                                                                                                                                                                            |
-| `fecha_dispo_desierta`          | DATE                       | —                                                                                                                                                                            |
-| `cantidad_cargos`               | INTEGER default 1          | Cantidad de cargos a cubrir. 1 en el caso estándar; >1 en ampliaciones con múltiples expedientes                                                                             |
-| `persona_designada_id`          | UUID FK → personas         | —                                                                                                                                                                            |
-| `suspendido`                    | BOOLEAN default false      | Concurso pausado. Manda sobre el semáforo de estado (un suspendido nunca aparece como activo/finalizado)                                                                     |
-| `ifacs`                         | VARCHAR(200)               | Expediente IF del IFACS (dato del CSV histórico)                                                                                                                             |
-| `insal`                         | VARCHAR(200)               | Expediente IF del INSAL (dato del CSV histórico)                                                                                                                             |
-| `cambio_especialidad`           | BOOLEAN default false      | El concurso cambió de especialidad respecto de la baja de origen                                                                                                             |
-| `motivo_cambio_especialidad`    | TEXT                       | Justificación del cambio de especialidad                                                                                                                                     |
-| `q_inscriptos`                  | INTEGER                    | Cantidad de inscriptos (dato del CSV histórico / autocalculado)                                                                                                              |
-| `pendiente_autorizacion`        | BOOLEAN default false      | Modificación de sigla/código pendiente de aprobación por SGRASV                                                                                                              |
-| `sigla_solicitada`              | VARCHAR nullable           | Nueva sigla solicitada (dispara flujo Director → SGRASV)                                                                                                                     |
-| `codigo_registro_solicitado_id` | UUID FK nullable           | Nuevo código de registro solicitado (ídem)                                                                                                                                   |
-| `aprobado_director`             | BOOLEAN default false      | El Director ya aprobó el cambio de sigla/CR                                                                                                                                  |
-| `observaciones`                 | TEXT                       | —                                                                                                                                                                            |
-| `created_at`                    | TIMESTAMPTZ                | —                                                                                                                                                                            |
-| `updated_at`                    | TIMESTAMPTZ                | —                                                                                                                                                                            |
+| Columna                         | Tipo                                   | Descripción                                                                                                                                                                                                                             |
+| ------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                            | UUID PK                                | —                                                                                                                                                                                                                                       |
+| `concurso_id`                   | UUID FK → concursos UNIQUE             | —                                                                                                                                                                                                                                       |
+| `cargo_id`                      | UUID FK → cargos                       | —                                                                                                                                                                                                                                       |
+| `hospital_id`                   | UUID FK → hospitales                   | —                                                                                                                                                                                                                                       |
+| `estado`                        | ENUM                                   | `no_iniciado` \| `activo` \| `finalizado` \| `suspendido` (enum `EstadoConcursoCph`). Una ronda desierta no cambia el enum: deja el concurso en `suspendido` + sub-estado `Q-DESIERTO` y registra la ronda en `concursos_cph_desiertos` |
+| `sub_estado`                    | VARCHAR(50)                            | 19 niveles calculados por `calcConcursoCph()` — no editable                                                                                                                                                                             |
+| `sub_estado_3`                  | VARCHAR(50)                            | 8 niveles resumidos para KPIs/alertas — no editable                                                                                                                                                                                     |
+| `especialidad_solicitada`       | VARCHAR(200)                           | —                                                                                                                                                                                                                                       |
+| `ee_baja`                       | VARCHAR(150)                           | Expediente de baja                                                                                                                                                                                                                      |
+| `fecha_baja`                    | DATE                                   | —                                                                                                                                                                                                                                       |
+| `ee_concurso`                   | VARCHAR(150)                           | Expediente del concurso                                                                                                                                                                                                                 |
+| `fecha_ee_concurso`             | DATE                                   | —                                                                                                                                                                                                                                       |
+| `if_autorizacion`               | VARCHAR(150)                           | IF de autorización — número de documento que se completa en la apertura (Etapa 1) antes de solicitar la autorización a SGRASV. Visible en solo-lectura en etapas posteriores                                                            |
+| `fecha_autorizacion`            | DATE                                   | —                                                                                                                                                                                                                                       |
+| `sorteo_jurado`                 | DATE                                   | Fecha del sorteo de jurado (Etapa 2). El acta detallada vive en `sorteos_jurado`                                                                                                                                                        |
+| `puesto_solicitado`             | VARCHAR(200)                           | Puesto que se solicita cubrir — distinto del literal de la baja en casos Jefaturas/Cobertura POU. Si es null, se asume el mismo que el de la baja                                                                                       |
+| `tipo_gestion`                  | VARCHAR(20)                            | `centralizado` (interviene SGOCDCPS en la etapa 3) \| `descentralizado` (interviene un tercero). Informativo, se define en Etapa 2                                                                                                      |
+| `disposicion`                   | VARCHAR(100)                           | Disposición de llamado                                                                                                                                                                                                                  |
+| `fecha_insc_desde`              | DATE                                   | —                                                                                                                                                                                                                                       |
+| `fecha_insc_hasta`              | DATE                                   | —                                                                                                                                                                                                                                       |
+| `inscripcion_cerrada`           | BOOLEAN default false                  | Al cerrarse el período de inscripción de exámenes (Etapa 3) el sub-estado avanza de C a D                                                                                                                                               |
+| `fecha_cierre_inscripcion`      | DATE                                   | Fecha del cierre de inscripción de exámenes                                                                                                                                                                                             |
+| `presentados_confirmados`       | BOOLEAN default false                  | Al confirmarse se congela quién se presentó al examen                                                                                                                                                                                   |
+| `orden_merito_confirmado`       | BOOLEAN default false                  | Al confirmarse se fija el ranking, `fecha_orden_merito` = hoy y el sub-estado avanza a E                                                                                                                                                |
+| `fecha_examen`                  | DATE                                   | —                                                                                                                                                                                                                                       |
+| `fecha_orden_merito`            | DATE                                   | —                                                                                                                                                                                                                                       |
+| `fecha_ifacs`                   | DATE                                   | —                                                                                                                                                                                                                                       |
+| `fecha_insal`                   | DATE                                   | —                                                                                                                                                                                                                                       |
+| `ee_designacion`                | VARCHAR(150)                           | —                                                                                                                                                                                                                                       |
+| `carga_documentacion`           | BOOLEAN                                | —                                                                                                                                                                                                                                       |
+| `fecha_apto_medico`             | DATE                                   | —                                                                                                                                                                                                                                       |
+| `fecha_ite`                     | DATE                                   | —                                                                                                                                                                                                                                       |
+| `proyecto_resolucion`           | BOOLEAN                                | —                                                                                                                                                                                                                                       |
+| `reso_a_la_firma`               | BOOLEAN                                | —                                                                                                                                                                                                                                       |
+| `resolucion_designacion`        | VARCHAR(100)                           | —                                                                                                                                                                                                                                       |
+| `fecha_resolucion`              | DATE                                   | —                                                                                                                                                                                                                                       |
+| `cargo_sial`                    | VARCHAR(50)                            | Código SIAL del cargo asignado tras la designación                                                                                                                                                                                      |
+| `dispo_desierta`                | VARCHAR(50)                            | —                                                                                                                                                                                                                                       |
+| `fecha_dispo_desierta`          | DATE                                   | —                                                                                                                                                                                                                                       |
+| `persona_designada_id`          | UUID FK → personas                     | Etapa 5 — designación oficial resuelta contra el padrón                                                                                                                                                                                 |
+| `suspendido`                    | BOOLEAN default false                  | Concurso pausado. Manda sobre el semáforo de estado (un suspendido nunca aparece como activo/finalizado)                                                                                                                                |
+| `ifacs`                         | VARCHAR(200)                           | Expediente IF del IFACS (dato del CSV histórico)                                                                                                                                                                                        |
+| `insal`                         | VARCHAR(200)                           | Expediente IF del INSAL (dato del CSV histórico)                                                                                                                                                                                        |
+| `insal_aceptado`                | BOOLEAN nullable                       | Respuesta de la persona propuesta al INSAL (Etapa 4). `null` = sin respuesta, `true` = aceptó. Si rechaza no se guarda `false`: se limpia `persona_designada_id` y el inscripto pasa a `insal_rechazados`                               |
+| `insal_rechazados`              | TEXT[]                                 | IDs de `inscriptos_concurso` propuestos al INSAL que rechazaron el cargo — se excluyen del orden de mérito                                                                                                                              |
+| `inscripto_reservado_id`        | UUID FK → inscriptos_concurso nullable | Etapa 4 — candidato del orden de mérito reservado para el INSAL (apunta a `inscriptos_concurso`, no al padrón). Se limpia si el candidato no acepta                                                                                     |
+| `validado`                      | BOOLEAN default false                  | Etapa 5 — `true` cuando el padrón trae a la persona designada con un `id_sial_rol` cuyo cargo coincide en carrera y especialidad con el concurso                                                                                        |
+| `validado_at`                   | TIMESTAMPTZ nullable                   | —                                                                                                                                                                                                                                       |
+| `validado_id_sial_rol`          | VARCHAR(50) nullable                   | `id_sial_rol` del padrón que validó la designación                                                                                                                                                                                      |
+| `cambio_especialidad`           | BOOLEAN default false                  | El concurso cambió de especialidad respecto de la baja de origen                                                                                                                                                                        |
+| `motivo_cambio_especialidad`    | TEXT                                   | Justificación del cambio de especialidad                                                                                                                                                                                                |
+| `q_inscriptos`                  | INTEGER                                | Cantidad de inscriptos (dato del CSV histórico / autocalculado)                                                                                                                                                                         |
+| `pendiente_autorizacion`        | BOOLEAN default false                  | Modificación de sigla/código pendiente de aprobación por SGRASV                                                                                                                                                                         |
+| `sigla_solicitada`              | VARCHAR nullable                       | Nueva sigla solicitada (dispara flujo Director → SGRASV)                                                                                                                                                                                |
+| `codigo_registro_solicitado_id` | UUID FK nullable                       | Nuevo código de registro solicitado (ídem)                                                                                                                                                                                              |
+| `aprobado_director`             | BOOLEAN default false                  | El Director ya aprobó el cambio de sigla/CR                                                                                                                                                                                             |
+| `observaciones`                 | TEXT                                   | —                                                                                                                                                                                                                                       |
+| `created_at`                    | TIMESTAMPTZ                            | —                                                                                                                                                                                                                                       |
+| `updated_at`                    | TIMESTAMPTZ                            | —                                                                                                                                                                                                                                       |
 
 **Sub-estados (calculados, no editables directamente):**
 `VACANTE → A-CARATULADO → A-AUTZN → B-SORTEO JUR → C-DISPO DE LLAMADO → D-EXAMEN PUBLICADO → E-ORDEN DE MERITO → F-IFACS → G-INSAL → H-TAD → I-CARGA DOCU → J-APTO MED → K-ITE → L-PYCTO DE RESO → M-RESO A LA FIRMA → N-DESIGNADO → O-ALTA SIAL → P-SUSPENDIDO → Q-DESIERTO`
@@ -459,25 +568,26 @@ Acta de sorteo de jurado de un concurso CPH (Etapa 2). El jurado se sortea entre
 
 Un integrante del jurado sorteado. Guarda el snapshot de por qué fue elegible (para el acta), no solo el vínculo a la persona (el padrón cambia semanalmente).
 
-| Columna               | Tipo                     | Descripción                                         |
-| --------------------- | ------------------------ | --------------------------------------------------- |
-| `id`                  | UUID PK                  | —                                                   |
-| `sorteo_jurado_id`    | UUID FK → sorteos_jurado | —                                                   |
-| `persona_id`          | UUID FK → personas       | —                                                   |
-| `rol`                 | VARCHAR(10)              | `titular` \| `suplente`                             |
-| `orden`               | INTEGER                  | Orden dentro del rol (1, 2, 3…)                     |
-| `apellido_nombre`     | VARCHAR(200)             | Snapshot del nombre al momento del sorteo           |
-| `cuil`                | VARCHAR(11)              | —                                                   |
-| `hospital_id`         | UUID null                | —                                                   |
-| `hospital_nombre`     | VARCHAR(200)             | Snapshot del hospital                               |
-| `puesto`              | VARCHAR(200)             | Snapshot del puesto                                 |
-| `especialidad`        | VARCHAR(200)             | Snapshot de la especialidad                         |
-| `ambito`              | VARCHAR(20)              | `hospital` (misma unidad organizativa) \| `sistema` |
-| `regla_aplicada`      | INTEGER null             | Regla de elegibilidad por la que entró (1, 2 o 3)   |
-| `cumple_especialidad` | BOOLEAN default false    | —                                                   |
-| `es_conduccion`       | BOOLEAN default false    | Ocupa cargo de conducción                           |
-| `antiguedad_anios`    | INTEGER null             | —                                                   |
-| `created_at`          | TIMESTAMPTZ              | —                                                   |
+| Columna               | Tipo                     | Descripción                                                                  |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `id`                  | UUID PK                  | —                                                                            |
+| `sorteo_jurado_id`    | UUID FK → sorteos_jurado | —                                                                            |
+| `persona_id`          | UUID FK → personas       | —                                                                            |
+| `rol`                 | VARCHAR(10)              | `titular` \| `suplente`                                                      |
+| `orden`               | INTEGER                  | Orden dentro del rol (1, 2, 3…)                                              |
+| `apellido_nombre`     | VARCHAR(200)             | Snapshot del nombre al momento del sorteo                                    |
+| `cuil`                | VARCHAR(11)              | —                                                                            |
+| `hospital_id`         | UUID null                | —                                                                            |
+| `hospital_nombre`     | VARCHAR(200)             | Snapshot del hospital                                                        |
+| `puesto`              | VARCHAR(200)             | Snapshot del puesto                                                          |
+| `reparticion`         | VARCHAR(200) null        | Repartición del cargo (`descripcion_repa`) — "jefe de qué" (unidad/servicio) |
+| `especialidad`        | VARCHAR(200)             | Snapshot de la especialidad                                                  |
+| `ambito`              | VARCHAR(20)              | `hospital` (misma unidad organizativa) \| `sistema`                          |
+| `regla_aplicada`      | INTEGER null             | Regla de elegibilidad por la que entró (1, 2 o 3)                            |
+| `cumple_especialidad` | BOOLEAN default false    | —                                                                            |
+| `es_conduccion`       | BOOLEAN default false    | Ocupa cargo de conducción                                                    |
+| `antiguedad_anios`    | INTEGER null             | —                                                                            |
+| `created_at`          | TIMESTAMPTZ              | —                                                                            |
 
 **Reglas de elegibilidad (prioridad R1 → R2 → R3):** dentro de cada regla se prioriza a quien cumple la especialidad. El match de especialidad **ignora lo que está entre paréntesis** (`Clínica Médica (Medicina Interna)` ≡ `Clínica Médica`) sin modificar los datos de la base — ver `Doc/DATA_CLEANING_ESPECIALIDADES.md`.
 
@@ -529,6 +639,91 @@ Cada persona rankeada dentro de un orden de mérito. Un integrante puede reserva
 
 ---
 
+### `inscriptos_concurso`
+
+Inscripto a un concurso CPH (Etapa 3 — Inscripción / Examen / OM). Se cargan a mano o por importación de Excel/CSV. La "cantidad de inscriptos" del concurso se autocalcula contando estas filas.
+
+| Columna            | Tipo                    | Descripción                                                                                       |
+| ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `id`               | UUID PK                 | —                                                                                                 |
+| `concurso_cph_id`  | UUID FK → concursos_cph | —                                                                                                 |
+| `apellido`         | VARCHAR(120)            | —                                                                                                 |
+| `nombre`           | VARCHAR(120)            | —                                                                                                 |
+| `dni`              | VARCHAR(20) null        | —                                                                                                 |
+| `cuil`             | VARCHAR(20) null        | —                                                                                                 |
+| `sexo`             | VARCHAR(4) null         | M / F / NB / X                                                                                    |
+| `fecha_nacimiento` | DATE null               | —                                                                                                 |
+| `nacionalidad`     | VARCHAR(80) null        | —                                                                                                 |
+| `telefono`         | VARCHAR(40) null        | —                                                                                                 |
+| `email`            | VARCHAR(200) null       | —                                                                                                 |
+| `titulo`           | VARCHAR(200) null       | —                                                                                                 |
+| `matricula`        | VARCHAR(80) null        | —                                                                                                 |
+| `especialidad`     | VARCHAR(200) null       | —                                                                                                 |
+| `presento_examen`  | BOOLEAN default false   | Si se presentó al examen. Base del orden de mérito                                                |
+| `nota`             | FLOAT null              | Nota del examen (0-10). Recalcula el orden de mérito (nota más alta = posición 1; empate por A/N) |
+| `orden_merito`     | INTEGER null            | Posición (1 = primero). Solo presentados. Calculada de `nota`, no editable a mano                 |
+| `observaciones`    | TEXT null               | —                                                                                                 |
+| `created_at`       | TIMESTAMPTZ             | —                                                                                                 |
+| `updated_at`       | TIMESTAMPTZ             | —                                                                                                 |
+
+**Índice:** `concurso_cph_id`. Un inscripto puede quedar reservado para el INSAL en un concurso (`concursos_cph.inscripto_reservado_id`).
+
+---
+
+### `jornadas_sorteo` y `jornada_sorteo_concursos`
+
+Una **jornada de sorteo** es un día en que se sortean los jurados de varios concursos CPH juntos. v1: se agenda la fecha y se asocian los concursos (que deben estar en sub-estado `B-SORTEO JUR`).
+
+`jornadas_sorteo`:
+
+| Columna         | Tipo                    | Descripción                                                             |
+| --------------- | ----------------------- | ----------------------------------------------------------------------- |
+| `id`            | UUID PK                 | —                                                                       |
+| `fecha`         | DATE                    | Fecha de la jornada                                                     |
+| `titulo`        | VARCHAR(200) null       | —                                                                       |
+| `estado`        | VARCHAR(20)             | `planificada` \| `en_curso` \| `finalizada` (v1 usa solo `planificada`) |
+| `observaciones` | TEXT null               | —                                                                       |
+| `created_by_id` | UUID FK → usuarios null | —                                                                       |
+| `created_at`    | TIMESTAMPTZ             | —                                                                       |
+| `updated_at`    | TIMESTAMPTZ             | —                                                                       |
+
+`jornada_sorteo_concursos` — pivote M:N jornada ↔ concurso_cph. PK compuesta `(jornada_id, concurso_cph_id)`, `ON DELETE CASCADE` en ambas FKs.
+
+---
+
+### `postulantes` y `postulantes_concurso`
+
+Personas que se postulan a concursos CPH. Pueden o no estar en el padrón (`persona_id` nullable). Al cargar un CUIL que ya existe en `personas` se vincula automáticamente.
+
+`postulantes`:
+
+| Columna           | Tipo                           | Descripción                                      |
+| ----------------- | ------------------------------ | ------------------------------------------------ |
+| `id`              | UUID PK                        | —                                                |
+| `persona_id`      | UUID FK → personas null UNIQUE | Null = postulante externo (no está en el padrón) |
+| `cuil`            | VARCHAR(11) UNIQUE             | —                                                |
+| `apellido_nombre` | VARCHAR(200)                   | —                                                |
+| `especialidad`    | VARCHAR(200) null              | —                                                |
+| `es_externo`      | BOOLEAN default false          | Vino del padrón o se postuló sin estar en planta |
+| `created_at`      | TIMESTAMPTZ                    | —                                                |
+| `updated_at`      | TIMESTAMPTZ                    | —                                                |
+
+`postulantes_concurso`:
+
+| Columna             | Tipo                    | Descripción                              |
+| ------------------- | ----------------------- | ---------------------------------------- |
+| `id`                | UUID PK                 | —                                        |
+| `postulante_id`     | UUID FK → postulantes   | —                                        |
+| `concurso_cph_id`   | UUID FK → concursos_cph | —                                        |
+| `fecha_postulacion` | DATE                    | —                                        |
+| `estado`            | ENUM                    | `inscripto` \| `admitido` \| `rechazado` |
+| `observaciones`     | TEXT null               | —                                        |
+| `created_at`        | TIMESTAMPTZ             | —                                        |
+
+**Único:** `(postulante_id, concurso_cph_id)` — un postulante no se inscribe dos veces al mismo concurso. **Índice:** `concurso_cph_id`.
+
+---
+
 ### `concursos_ceetps`
 
 Seguimiento de concursos ENF / TEC / EG (Leyes 6.767 / 6.035 / 471).
@@ -549,7 +744,10 @@ Seguimiento de concursos ENF / TEC / EG (Leyes 6.767 / 6.035 / 471).
 | `expediente_designacion` | VARCHAR(150)               | —                                                                             |
 | `dispo_designacion`      | VARCHAR(500)               | —                                                                             |
 | `resolucion_designacion` | VARCHAR(500)               | —                                                                             |
-| `cantidad_cargos`        | INTEGER default 1          | Cantidad de cargos a cubrir. 1 en el caso estándar; >1 en ampliaciones        |
+| `carga_horaria`          | SMALLINT nullable          | Carga horaria en hs (Enfermería/Técnicos), máx. 2 dígitos                     |
+| `apertura_2x18`          | BOOLEAN default false      | Excepción de Enfermería (código 87): un cargo de 35hs se abre en dos de 18hs  |
+| `informe_apertura`       | VARCHAR(150) nullable      | IF de apertura                                                                |
+| `expediente_concurso_2`  | VARCHAR(150) nullable      | Segundo expediente (apertura 2x18)                                            |
 | `persona_designada_id`   | UUID FK → personas         | —                                                                             |
 | `observaciones`          | TEXT                       | —                                                                             |
 | `created_at`             | TIMESTAMPTZ                | —                                                                             |
@@ -563,27 +761,29 @@ Seguimiento de concursos ENF / TEC / EG (Leyes 6.767 / 6.035 / 471).
 
 Registro de bajas de cargo que originan vacantes.
 
-| Columna                  | Tipo                        | Descripción                                                         |
-| ------------------------ | --------------------------- | ------------------------------------------------------------------- |
-| `id`                     | UUID PK                     | —                                                                   |
-| `cargo_id`               | UUID FK → cargos            | —                                                                   |
-| `hospital_id`            | UUID FK → hospitales        | —                                                                   |
-| `persona_id`             | UUID FK → personas nullable | Persona que deja el cargo                                           |
-| `fecha_baja`             | DATE                        | Fecha en que se produce la vacante                                  |
-| `tipo_baja`              | VARCHAR(100) nullable       | Campo libre                                                         |
-| `motivo`                 | VARCHAR(500)                | —                                                                   |
-| `tipificador_origen`     | VARCHAR(200) nullable       | Trazabilidad del origen (ej: "Bajas 2025")                          |
-| `ee_baja`                | VARCHAR(500) nullable       | Expediente electrónico de la baja                                   |
-| `partida_presupuestaria` | VARCHAR(100) nullable       | Partida presupuestaria del cargo                                    |
-| `doc_respaldatoria`      | VARCHAR(500) nullable       | Documento respaldatorio                                             |
-| `fecha_pase_paralelo`    | DATE nullable               | Fecha de pase paralelo / GT                                         |
-| `carga_horaria`          | INTEGER nullable            | Carga horaria del cargo (hs)                                        |
-| `genera_concurso`        | BOOLEAN default true        | Si true, crea el seguimiento concursal automáticamente              |
-| `estado`                 | ENUM                        | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
-| `observaciones`          | TEXT                        | —                                                                   |
-| `registrado_por`         | UUID FK → usuarios          | —                                                                   |
-| `created_at`             | TIMESTAMPTZ                 | —                                                                   |
-| `updated_at`             | TIMESTAMPTZ                 | —                                                                   |
+| Columna                  | Tipo                                | Descripción                                                           |
+| ------------------------ | ----------------------------------- | --------------------------------------------------------------------- |
+| `id`                     | UUID PK                             | —                                                                     |
+| `cargo_id`               | UUID FK → cargos                    | —                                                                     |
+| `hospital_id`            | UUID FK → hospitales                | —                                                                     |
+| `persona_id`             | UUID FK → personas nullable         | Persona que deja el cargo                                             |
+| `fecha_baja`             | DATE                                | Fecha en que se produce la vacante                                    |
+| `tipo_baja`              | VARCHAR(100) nullable               | Campo libre                                                           |
+| `motivo`                 | VARCHAR(500)                        | —                                                                     |
+| `tipificador_origen`     | VARCHAR(200) nullable               | Trazabilidad del origen (ej: "Bajas 2025")                            |
+| `ee_baja`                | VARCHAR(500) nullable               | Expediente electrónico de la baja                                     |
+| `partida_presupuestaria` | VARCHAR(100) nullable               | Partida presupuestaria del cargo                                      |
+| `doc_respaldatoria`      | VARCHAR(500) nullable               | Documento respaldatorio                                               |
+| `fecha_pase_paralelo`    | DATE nullable                       | Fecha de pase paralelo / GT                                           |
+| `carga_horaria`          | INTEGER nullable                    | Carga horaria del cargo (hs)                                          |
+| `genera_concurso`        | BOOLEAN default true                | Si true, crea el seguimiento concursal automáticamente                |
+| `estado`                 | ENUM                                | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada`   |
+| `padron_vinculado_at`    | TIMESTAMPTZ nullable                | S17 — momento en que la baja se vinculó al archivo semanal del padrón |
+| `snapshot_vinculado_id`  | UUID FK → padron_snapshots nullable | Snapshot del padrón que confirmó la baja                              |
+| `observaciones`          | TEXT                                | —                                                                     |
+| `registrado_por`         | UUID FK → usuarios                  | —                                                                     |
+| `created_at`             | TIMESTAMPTZ                         | —                                                                     |
+| `updated_at`             | TIMESTAMPTZ                         | —                                                                     |
 
 **Índices:** `cargo_id`, `hospital_id`, `estado`
 
@@ -592,6 +792,94 @@ Registro de bajas de cargo que originan vacantes.
 - `resolucion_a_la_firma` — borrador editable, no toca el cargo ni crea concurso
 - `pendiente` — confirmada, cargo pasa a `no_vigente`, concurso creado si aplica
 - `confirmada` / `anulada` — estados finales
+
+---
+
+### `autorizaciones` (S13)
+
+Autorización genérica: cualquier acción del sistema que requiere aprobación de un superior. `referencia_id` apunta al id del objeto origen (`ConcursoCph` o `SolicitudAlta`). Para CPH con cambio estructural se crean dos en cadena: primero `director`, y cuando aprueba se crea la de `sgrasv`.
+
+| Columna                 | Tipo                    | Descripción                                                                            |
+| ----------------------- | ----------------------- | -------------------------------------------------------------------------------------- |
+| `id`                    | UUID PK                 | —                                                                                      |
+| `tipo`                  | ENUM                    | `concurso_cph` \| `alta_cargo` \| `baja_cargo`                                         |
+| `referencia_id`         | UUID                    | Id del objeto origen                                                                   |
+| `referencia_tipo`       | VARCHAR(50)             | Tipo del objeto origen                                                                 |
+| `estado`                | ENUM                    | `pendiente` \| `aprobada` \| `rechazada`                                               |
+| `resolver_por_rol_slug` | VARCHAR(40)             | Slug del rol que debe resolver (sin FK a `roles`, igual que `notificaciones.rol_slug`) |
+| `solicitado_por_id`     | UUID FK → usuarios null | —                                                                                      |
+| `resuelto_por_id`       | UUID FK → usuarios null | —                                                                                      |
+| `observaciones`         | TEXT null               | —                                                                                      |
+| `created_at`            | TIMESTAMPTZ             | —                                                                                      |
+| `updated_at`            | TIMESTAMPTZ             | —                                                                                      |
+
+**Índices:** `referencia_id`, `(resolver_por_rol_slug, estado)`.
+
+---
+
+### `solicitudes_alta` (S7 / S16-8)
+
+Solicitud de alta de cargo — no es un `Cargo` hasta ser aprobada por el director. Al aprobar se generan los `Cargo` reales con código asignado; al rechazar persiste para trazabilidad.
+
+| Columna              | Tipo                            | Descripción                                                        |
+| -------------------- | ------------------------------- | ------------------------------------------------------------------ |
+| `id`                 | UUID PK                         | —                                                                  |
+| `hospital_id`        | UUID FK → hospitales            | —                                                                  |
+| `escalafon_id`       | UUID FK → escalafones           | —                                                                  |
+| `codigo_registro_id` | UUID FK → codigos_registro null | —                                                                  |
+| `literal_puesto`     | VARCHAR(200)                    | —                                                                  |
+| `especialidad`       | VARCHAR(200) null               | —                                                                  |
+| `agrupador`          | VARCHAR(150) null               | —                                                                  |
+| `unificador_puesto`  | VARCHAR(200) null               | —                                                                  |
+| `regimen`            | VARCHAR(50) null                | —                                                                  |
+| `expediente`         | VARCHAR(150) null               | —                                                                  |
+| `desde`              | DATE null                       | —                                                                  |
+| `cantidad`           | INTEGER default 1               | Cantidad de cargos a crear al aprobar                              |
+| `estado`             | ENUM                            | `pendiente` \| `aprobada` \| `rechazada`                           |
+| `baja_origen_id`     | UUID FK → bajas null            | S16-8 — baja que originó la vacante que viene a cubrir             |
+| `es_transferencia`   | BOOLEAN default false           | —                                                                  |
+| `solicitado_por_id`  | UUID FK → usuarios null         | —                                                                  |
+| `cargos_creados_ids` | UUID[]                          | IDs de los `Cargo` creados al aprobar (uno por unidad de cantidad) |
+| `observaciones`      | TEXT null                       | —                                                                  |
+| `created_at`         | TIMESTAMPTZ                     | —                                                                  |
+| `updated_at`         | TIMESTAMPTZ                     | —                                                                  |
+
+**Índices:** `hospital_id`, `estado`. Etiquetable vía `etiquetas_solicitud_alta`.
+
+---
+
+### `role_jerarquias` (S13)
+
+Jerarquía de roles — cimientos para asignación de tareas y permisos en cascada. Un rol puede tener múltiples padres e hijos.
+
+| Columna          | Tipo        | Descripción             |
+| ---------------- | ----------- | ----------------------- |
+| `rol_hijo_slug`  | VARCHAR(40) | Slug del rol hijo (PK)  |
+| `rol_padre_slug` | VARCHAR(40) | Slug del rol padre (PK) |
+
+**PK compuesta:** `(rol_hijo_slug, rol_padre_slug)`.
+
+---
+
+### `notificaciones` (S10-1)
+
+Alertas por rol destinatario. Deduplicación por `origen_key` para no crear la misma alerta dos veces.
+
+| Columna       | Tipo                     | Descripción                                                                                                                                        |
+| ------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | UUID PK                  | —                                                                                                                                                  |
+| `tipo`        | ENUM                     | `concurso_estancado` \| `concurso_iniciado` \| `baja_pendiente` \| `autorizacion_pendiente` \| `autorizacion_resuelta` \| `vencimiento_conduccion` |
+| `rol_slug`    | VARCHAR(40)              | Rol destinatario (ej. `director`, `concursales_cph`)                                                                                               |
+| `titulo`      | VARCHAR(200)             | —                                                                                                                                                  |
+| `mensaje`     | TEXT                     | —                                                                                                                                                  |
+| `origen_tipo` | VARCHAR(50) null         | Tipo del objeto que la originó (`concurso_cph`, `baja`, etc.)                                                                                      |
+| `origen_id`   | UUID null                | —                                                                                                                                                  |
+| `origen_key`  | VARCHAR(200) UNIQUE null | Clave de deduplicación (ej. `concurso_estancado:{id}:30d`)                                                                                         |
+| `leida`       | BOOLEAN default false    | —                                                                                                                                                  |
+| `creada_at`   | TIMESTAMPTZ              | —                                                                                                                                                  |
+| `leida_at`    | TIMESTAMPTZ null         | —                                                                                                                                                  |
+
+**Índices:** `(rol_slug, leida)`, `tipo`, `creada_at`.
 
 ---
 
@@ -684,16 +972,18 @@ Catálogo normalizado de puestos por escalafón. Alimenta los selectores de form
 
 ### `audit_logs`
 
-| Columna      | Tipo               | Descripción                                    |
-| ------------ | ------------------ | ---------------------------------------------- |
-| `id`         | UUID PK            | —                                              |
-| `usuario_id` | UUID FK → usuarios | —                                              |
-| `accion`     | VARCHAR(32)        | create \| update \| delete \| login \| approve |
-| `entidad`    | VARCHAR(64)        | Nombre de la tabla afectada                    |
-| `entidad_id` | VARCHAR(64)        | ID del registro afectado                       |
-| `cambios`    | JSONB              | `{ campo: { antes, despues } }`                |
-| `ip`         | VARCHAR(64)        | —                                              |
-| `created_at` | TIMESTAMPTZ        | —                                              |
+| Columna      | Tipo               | Descripción                                                                                                                 |
+| ------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | UUID PK            | —                                                                                                                           |
+| `usuario_id` | UUID FK → usuarios | —                                                                                                                           |
+| `accion`     | VARCHAR(32)        | create \| update \| delete \| login \| approve                                                                              |
+| `entidad`    | VARCHAR(64)        | Nombre de la tabla afectada                                                                                                 |
+| `entidad_id` | VARCHAR(64)        | ID del registro afectado                                                                                                    |
+| `metodo`     | VARCHAR(10) null   | Método HTTP de la request (ej. `POST`). Red de seguridad cuando `accion` no alcanza. Null en registros previos a la columna |
+| `ruta`       | VARCHAR(300) null  | Ruta completa de la request (ej. `/api/v1/padron/snapshots/xxx/rechazar`)                                                   |
+| `cambios`    | JSONB              | `{ campo: { antes, despues } }`                                                                                             |
+| `ip`         | VARCHAR(64)        | —                                                                                                                           |
+| `created_at` | TIMESTAMPTZ        | —                                                                                                                           |
 
 ---
 

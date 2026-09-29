@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09 (Post-Sprint 16 — filtro conFaltantes concursos CPH + tests + actualización modales flujo)
+> Última actualización: 2026-09-22 — Sincronizado el árbol de módulos contra `apps/api/src/modules` (35 módulos reales) y corregido el desfase de `cantidadCargos` en la sección Exportables (columna eliminada de la BD).
 > Estado: VIGENTE
 
 ---
@@ -26,23 +26,41 @@
 ```
 apps/api/
 ├── src/
-│   ├── modules/              ← Un módulo por dominio
+│   ├── modules/              ← Un módulo por dominio (35 módulos)
 │   │   ├── auth/
+│   │   ├── auditoria/            ← consulta de audit_logs
 │   │   ├── personas/
 │   │   ├── cargos/
+│   │   ├── codigos-registro/     ← catálogo código SIAL → escalafón
+│   │   ├── escalafones/
+│   │   ├── hospitales/
+│   │   ├── puestos/              ← selector puestos (cargos/puestos)
+│   │   ├── puestos-cargo/        ← catálogo puesto+especialidad en cascada (S2-14/15)
+│   │   ├── referencias/          ← tablas ref_* del Dotaneitor
 │   │   ├── padron/
-│   │   ├── concursos/
+│   │   ├── dotacion/             ← generación/consulta de dotación
+│   │   ├── pou/                  ← Ocupación POU (Excel mensual)
+│   │   ├── organigrama/          ← Árbol de estructura (Post-Sprint 14)
+│   │   ├── concursos/            ← módulo padre de concursos
 │   │   ├── concursos-cph/
 │   │   ├── concursos-ceetps/
+│   │   ├── jornadas-sorteo/      ← jornadas de sorteo de jurado
+│   │   ├── ordenes-merito/       ← órdenes de mérito reutilizables
+│   │   ├── postulantes/          ← postulantes a concursos CPH
 │   │   ├── bajas/
 │   │   ├── bajas-sial/
+│   │   ├── retenciones/          ← cadena de retención (S18)
+│   │   ├── cadena-mando/         ← cadena de mando / conducción
+│   │   ├── comisiones/           ← comisiones de servicio
+│   │   ├── solicitudes-alta/     ← solicitudes de alta de cargo (S13)
+│   │   ├── autorizaciones/       ← autorizaciones genéricas (S13/S15)
+│   │   ├── etiquetas/            ← catálogo global de etiquetas
 │   │   ├── kpis/
-│   │   ├── hospitales/
-│   │   ├── escalafones/
+│   │   ├── notificaciones/       ← Sprint 10
 │   │   ├── usuarios/
-│   │   ├── notificaciones/   ← Sprint 10
-│   │   ├── roles/            ← RBAC dinámico (Sprint 9)
-│   │   └── permisos/         ← Catálogo de permisos (Sprint 9)
+│   │   ├── roles/                ← RBAC dinámico (Sprint 9)
+│   │   ├── permisos/             ← Catálogo de permisos (Sprint 9)
+│   │   └── tokens/               ← refresh tokens
 │   ├── shared/
 │   │   ├── middleware/
 │   │   │   ├── auth.middleware.ts
@@ -56,6 +74,8 @@ apps/api/
 │   │   └── env.ts
 │   └── app.ts
 ```
+
+> ⚠️ **En reescritura (Sprints 20-22):** los módulos `dotacion`, `referencias` (tablas `ref_*`) y el catálogo `puestos-cargo` se rediseñan con el Dotaneitor v2 (reescritura lineal). Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md` y `Doc/Planificacion/Sprints/SPRINT_22_dotaneitor_catalogo.md`.
 
 ---
 
@@ -404,7 +424,7 @@ LOG_LEVEL="info"
 
 - **Validación**: disponible siempre que `getCasoCph(data).validacion` no sea null (casos CPH_ESTANDAR, CPH_JEFATURAS, CPH_COBERTURA_POU, CPH_SUPLENTE).
 - **Autorización**: disponible **solo cuando el concurso está caratulado** — es decir, cuando `eeConcurso` (CPH) o `expedienteConcurso` (CEETPS) tienen valor. Sin expediente de concurso el documento no tiene sentido.
-- **`cantidadCargos`**: campo `Int default 1` en `concursos_cph` y `concursos_ceetps`. Los exportables usan `data.cantidadCargos ?? 1`. La excepción `apertura2x18hs` de Enfermería siempre muestra `'2'` (hardcodeado por diseño).
+- **Cantidad de cargos**: el campo `cantidad_cargos` fue **eliminado** de `concursos_cph` y `concursos_ceetps` (migración `20260926000000_sync_schema_completo`). El caso estándar es un cargo por concurso. La excepción `apertura2x18` de Enfermería (código 87) abre un cargo de 35hs en dos de 18hs y los exportables muestran `'2'` (por diseño).
 
 ---
 

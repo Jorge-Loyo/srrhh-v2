@@ -2,6 +2,8 @@
 
 > Fuente de verdad para el ciclo de vida de un cargo en el sistema SRRHH.
 > Todo código que cree, modifique o consulte cargos u ocupaciones debe respetar estas reglas.
+> Última actualización: 2026-09-22 — Completado §8 con los campos de retención/cadena de `cargos` (S18) y documentados los helpers `esConduccionPorPrefijo` / `esConduccionPorLiteral` / `prefijoRemplazante` y el set `PREFIJOS_CONDUCCION` (`shared/codigoCargo.ts`).
+> Estado: VIGENTE
 
 ---
 
@@ -29,26 +31,26 @@ Ejemplos: `CPH-POU-000056`, `RG-CG-000047`, `ENF-000012`
 
 **Tabla de prefijos por escalafón** (fuente de verdad: `shared/codigoCargo.ts`):
 
-| Prefijo | Escalafón / Condición |
-|---|---|
-| `CPH-POF` | Médicos — Planta de Oficio Fija |
-| `CPH-POU` | Médicos — Planta de Oficio Universitaria / Guardia |
-| `CPH-J-POF` / `CPH-J-POU` | Médicos — Jefaturas |
-| `CPH-D` | Médicos — Director |
-| `CPH-SD` | Médicos — Sub Director |
-| `ENF` | Nueva Carrera Enfermería |
-| `TEC-POF` / `TEC-POU` | CEETPS / Técnicos |
-| `EG` / `EG-J` / `EG-D` / `EG-G` | Escalafón General |
-| `AS-MIN` / `AS-SS` / `AS-DG` / `AS-DGA` | Autoridades Superiores |
-| `RG-CG` | Régimen Gerencial |
-| `SG` | Suplentes de Guardia |
-| `RES` | Residentes |
-| `DOC` | Docentes Históricos |
-| `PT` | Plantas Transitorias Acta 06/2014 |
-| `MO` | Plantas Transitorias Módulo Operativo (16T) |
-| `CT` | Cuerpos Transitorios |
-| `PG` | Gabinete |
-| `CARGO` | Fallback — escalafón desconocido (no debe ocurrir en datos limpios) |
+| Prefijo                                 | Escalafón / Condición                                               |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `CPH-POF`                               | Médicos — Planta de Oficio Fija                                     |
+| `CPH-POU`                               | Médicos — Planta de Oficio Universitaria / Guardia                  |
+| `CPH-J-POF` / `CPH-J-POU`               | Médicos — Jefaturas                                                 |
+| `CPH-D`                                 | Médicos — Director                                                  |
+| `CPH-SD`                                | Médicos — Sub Director                                              |
+| `ENF`                                   | Nueva Carrera Enfermería                                            |
+| `TEC-POF` / `TEC-POU`                   | CEETPS / Técnicos                                                   |
+| `EG` / `EG-J` / `EG-D` / `EG-G`         | Escalafón General                                                   |
+| `AS-MIN` / `AS-SS` / `AS-DG` / `AS-DGA` | Autoridades Superiores                                              |
+| `RG-CG`                                 | Régimen Gerencial                                                   |
+| `SG`                                    | Suplentes de Guardia                                                |
+| `RES`                                   | Residentes                                                          |
+| `DOC`                                   | Docentes Históricos                                                 |
+| `PT`                                    | Plantas Transitorias Acta 06/2014                                   |
+| `MO`                                    | Plantas Transitorias Módulo Operativo (16T)                         |
+| `CT`                                    | Cuerpos Transitorios                                                |
+| `PG`                                    | Gabinete                                                            |
+| `CARGO`                                 | Fallback — escalafón desconocido (no debe ocurrir en datos limpios) |
 
 ---
 
@@ -56,11 +58,11 @@ Ejemplos: `CPH-POU-000056`, `RG-CG-000047`, `ENF-000012`
 
 El campo `cargos.estado` (enum `EstadoCargo`) tiene tres valores posibles:
 
-| Estado | Descripción |
-|---|---|
-| `vigente` | El cargo está activo en la estructura orgánica. |
+| Estado               | Descripción                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `vigente`            | El cargo está activo en la estructura orgánica.                                              |
 | `validacion_vacante` | Estado intermedio. El padrón SIAL detectó una baja pendiente de confirmación administrativa. |
-| `no_vigente` | Estado terminal. El cargo fue suprimido. No puede reactivarse. |
+| `no_vigente`         | Estado terminal. El cargo fue suprimido. No puede reactivarse.                               |
 
 ### 2.1 VIGENTE
 
@@ -69,11 +71,13 @@ El campo `cargos.estado` (enum `EstadoCargo`) tiene tres valores posibles:
 El cargo existe y está activo en la estructura orgánica del hospital.
 
 **Cómo se llega**:
+
 - Alta de cargo: se crea en el sistema (manual o por importación del padrón SIAL). El estado inicial siempre es `vigente`.
 - Padrón semanal — diff tipo `nuevo`: aparece un `id_sial_rol` que no existía. El sistema busca cargo por `(hospital, escalafon, codigo_repa, literal_puesto)`. Si no existe, crea uno nuevo con `estado = vigente`.
 - Operador rechaza desde Validación de Bajas: cargo vuelve a `vigente` desde `validacion_vacante`.
 
 **Validaciones**:
+
 - No puede tener `estado = no_vigente` si existe una ocupación con `hasta IS NULL`.
 - El código del cargo (ej: `RG-CG-000047`) no cambia aunque cambien las personas.
 - Un cargo vigente puede estar VACANTE u OCUPADO — son **condiciones derivadas**, no estados almacenados.
@@ -87,13 +91,16 @@ El cargo existe y está activo en la estructura orgánica del hospital.
 Estado intermedio generado exclusivamente por el padrón semanal cuando detecta que un `id_sial_rol` desapareció del Excel. La baja aún no fue confirmada administrativamente.
 
 **Cómo se llega**:
+
 - Padrón semanal — diff tipo `eliminado`: el `id_sial_rol` desaparece del Excel. El sistema cierra la ocupación activa (`hasta = fecha del padrón`) y pone el cargo en `validacion_vacante`.
 
 **Cómo se sale**:
+
 - Operador **confirma** la baja desde `/bajas/validacion` → cargo pasa a `no_vigente`.
 - Operador **rechaza** (error del sistema) desde `/bajas/validacion` → cargo vuelve a `vigente`, se reabre la ocupación (`hasta = NULL`).
 
 **Validaciones**:
+
 - El padrón **no puede aprobarse** si hay cargos en `validacion_vacante` que reaparecen en el nuevo Excel (alerta bloqueante).
 - Un cargo en `validacion_vacante` **no puede generar concurso** directamente — primero debe confirmarse la baja.
 - Desde `/cargos/baja/nueva` se pueden seleccionar cargos `validacion_vacante` para el flujo de reemplazo de persona.
@@ -108,19 +115,21 @@ Estado terminal. El cargo fue suprimido de la estructura. No puede reactivarse.
 
 **Razones de baja**:
 
-| Razón | Descripción |
-|---|---|
-| Desfinanciación | El cargo pierde financiamiento presupuestario. Se registra en un acto administrativo de baja. |
-| Modificación de Estructura | Modificacion de la estructura. con un expediente y un acto administrativo. |
-| Vacante a No Vigente | Un cargo vacante pasa a no vigente de forma manual en el sistema. La contrapartida es un expediente de alta de otro cargo. |
+| Razón                      | Descripción                                                                                                                |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Desfinanciación            | El cargo pierde financiamiento presupuestario. Se registra en un acto administrativo de baja.                              |
+| Modificación de Estructura | Modificacion de la estructura. con un expediente y un acto administrativo.                                                 |
+| Vacante a No Vigente       | Un cargo vacante pasa a no vigente de forma manual en el sistema. La contrapartida es un expediente de alta de otro cargo. |
 
 **Cómo se llega**:
+
 - Baja manual por desfinanciación.
 - Baja manual por modificación de estructura.
 - Baja manual vacante a no vigente.
 - Operador confirma baja desde `/bajas/validacion` (cargo venía de `validacion_vacante`).
 
 **Validaciones**:
+
 - El padrón semanal **NUNCA** marca un cargo como `no_vigente` directamente — pasa por `validacion_vacante` primero.
 - Al pasar a `no_vigente` por baja manual: cerrar ocupación activa si existe (`ocupacion.hasta = fecha de baja`).
 - No puede generarse un concurso sobre un cargo `no_vigente`.
@@ -136,6 +145,7 @@ Estado terminal. El cargo fue suprimido de la estructura. No puede reactivarse.
 ### 3.1 VACANTE
 
 **Condición SQL**:
+
 ```sql
 cargo.estado = 'vigente'
 AND NOT EXISTS (
@@ -147,11 +157,13 @@ AND NOT EXISTS (
 El cargo está vigente pero no tiene ninguna persona asignada actualmente.
 
 **Cómo se genera**:
+
 - Cierre de ocupación activa: se setea `ocupacion.hasta = fecha`. Puede ser por jubilación, renuncia, fallecimiento, vencimiento de mandato (RG), etc.
 - Cargo recién creado sin designación.
 - Padrón semanal — diff tipo `eliminado` con `genera_concurso = true`: la baja del ocupante genera vacante y habilita apertura de concurso.
 
 **Validaciones**:
+
 - No es un campo en la tabla `cargos` — se calcula en tiempo de consulta.
 - Un cargo vacante puede o no tener un concurso abierto asociado.
 - Puede quedar vacante sin generar concurso (genera_concurso = false) o puede seguir Vacante si el concurso no prosperó.
@@ -161,9 +173,9 @@ El cargo está vigente pero no tiene ninguna persona asignada actualmente.
 
 **Sub-condiciones de vacante**:
 
-| Sub-condición | Descripción |
-|---|---|
-| No requiere Concurso | El cargo espera designación directa (RG, AS, EG estructura) o está en pausa. |
+| Sub-condición        | Descripción                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- |
+| No requiere Concurso | El cargo espera designación directa (RG, AS, EG estructura) o está en pausa.  |
 | Con concurso abierto | Se inició un proceso de selección. El tipo de concurso depende del escalafón. |
 
 ---
@@ -171,6 +183,7 @@ El cargo está vigente pero no tiene ninguna persona asignada actualmente.
 ### 3.2 OCUPADO
 
 **Condición SQL**:
+
 ```sql
 cargo.estado = 'vigente'
 AND EXISTS (
@@ -182,11 +195,13 @@ AND EXISTS (
 El cargo está vigente y tiene exactamente una persona asignada (`ocupacion.hasta IS NULL`).
 
 **Cómo se genera**:
+
 - Nueva designación: se inserta una fila en `ocupaciones` con `hasta = NULL`.
 - Padrón semanal — diff tipo `nuevo` sobre cargo existente: aparece un `id_sial_rol` nuevo para un cargo que ya existe. Se crea la ocupación sin cerrar el cargo.
 - Resolución de concurso (CPH/ENF/TEC): el ganador es designado. Se crea la ocupación con `situacion_revista = Activo`.
 
 **Validaciones**:
+
 - Solo puede existir **UNA** ocupación activa (`hasta IS NULL`) por cargo a la vez.
 - Antes de insertar una nueva ocupación, verificar que no exista otra activa.
 - El `id_sial_rol` es único por ocupación — identifica persona + cargo + período.
@@ -213,11 +228,13 @@ La situación de revista describe el estado de la **persona** dentro de la ocupa
 La persona ejerce normalmente en el cargo. Es la situación de revista estándar.
 
 **Cómo se llega**:
+
 - Designación normal: valor por defecto al crear la ocupación.
 - Fin de retención de cargo: la persona vuelve a ejercer en su cargo original.
 - Fin de comisión: la persona regresa de la comisión.
 
 **Campos involucrados**:
+
 - `ocupaciones.situacion_revista = 'Activo'`
 - `ocupaciones.hasta IS NULL`
 
@@ -230,15 +247,18 @@ La persona ejerce normalmente en el cargo. Es la situación de revista estándar
 La persona retiene formalmente este cargo pero ejerce funciones en otro puesto (ej: jefe que asume como director interino).
 
 **Cómo se llega**:
+
 - El agente es designado en un cargo de mayor jerarquía pero retiene el cargo de origen. Se actualiza `situacion_revista = Retencion de Cargo`.
 
 **Validaciones**:
+
 - El cargo sigue **OCUPADO** — no genera vacante ni habilita concurso.
 - `sr_doc_respaldo` debe registrar el documento que avala la retención.
 - `sr_comentario` puede contener observaciones adicionales.
 - Al finalizar la retención, `situacion_revista` vuelve a `Activo`.
 
 **Campos involucrados**:
+
 - `ocupaciones.situacion_revista = 'Retencion de Cargo'`
 - `ocupaciones.sr_doc_respaldo` — nro. de resolución
 - `ocupaciones.sr_comentario` — texto libre
@@ -253,10 +273,12 @@ La persona pertenece a un hospital de origen pero presta servicios temporalmente
 en otro hospital (hospital de destino). El cargo de origen sigue ocupado.
 
 **Cómo se llega**:
+
 - Meta4 informa el cambio en el archivo semanal. SGRASV puede registrarlo
   manualmente antes de que llegue el archivo.
 
 **Validaciones**:
+
 - El cargo sigue **OCUPADO** — no genera vacante, no genera cargo remplazante.
 - `comision` debe describir el motivo/tipo de comisión.
 - `repa_comision` debe registrar el hospital/repartición de destino.
@@ -266,6 +288,7 @@ en otro hospital (hospital de destino). El cargo de origen sigue ocupado.
 - Al finalizar la comisión, `situacion_revista` vuelve a `Activo`.
 
 **Campos involucrados**:
+
 - `ocupaciones.situacion_revista = 'Comision'`
 - `ocupaciones.comision` — descripción
 - `ocupaciones.repa_comision` — hospital/repartición destino
@@ -327,6 +350,7 @@ CARGO
 ```
 
 **Ejemplo real**:
+
 - Cargo estructural: `RG-CG-000047` (Régimen Gerencial, Hospital X)
 - Cattaneo ocupa el cargo → `id_sial_rol = 001234567-1`
 - Cattaneo se jubila → diff `eliminado` → se cierra la ocupación (`hasta = fecha`)
@@ -372,68 +396,113 @@ CARGO
 
 ---
 
+## 7.bis Detección ejecución vs conducción (S18-3)
+
+Cuando una ocupación pasa a `Retencion de Cargo` se genera automáticamente un cargo remplazante. El **tipo** de remplazante depende de si el cargo retenido es de ejecución (`R`) o de conducción (`TTR`, con período fijo). Esa decisión la toman tres funciones puras de `apps/api/src/shared/codigoCargo.ts` (no tocan BD, se testean exhaustivamente):
+
+### `esConduccionPorPrefijo(codigo)`
+
+Devuelve `true` si el prefijo del código pertenece al set `PREFIJOS_CONDUCCION`. Prueba el prefijo de más largo a más corto (ej. `CPH-J-POF-000015` prueba `CPH-J-POF`, luego `CPH-J`, luego `CPH`) porque la cantidad de segmentos antes del secuencial varía según el prefijo base. Un código de remplazante (`CPH-J-POF-TTR-000001`) hereda la condición del prefijo base.
+
+**`PREFIJOS_CONDUCCION`** (fuente de verdad):
+
+```
+CPH-J-POF, CPH-J-POU, CPH-D, CPH-SD,
+EG-J, EG-D, EG-G, RG-CG,
+AS-MIN, AS-SS, AS-DG, AS-DGA
+```
+
+Los prefijos de ejecución (`CPH-POF`, `CPH-POU`, `ENF`, `TEC-POF`, `TEC-POU`, `EG`) devuelven `false`.
+
+### `esConduccionPorLiteral(literalPuesto)`
+
+Fallback para cargos legacy **sin código**: infiere conducción por el literal del puesto. Devuelve `true` si el texto normalizado (mayúsculas, sin acentos) contiene `JEFE`, `DIRECTOR`, `SUB DIRECTOR` o `GERENTE`.
+
+### `prefijoRemplazante(prefijoCargo, tipo)`
+
+Arma el prefijo del cargo remplazante agregando el sufijo `-R` o `-TTR`:
+
+```
+prefijoRemplazante('CPH-POF', 'R')    → 'CPH-POF-R'
+prefijoRemplazante('CPH-J-POF', 'TTR') → 'CPH-J-POF-TTR'
+```
+
+**Regla de uso combinado** (`retenciones.service.ts`, `jornadas-sorteo.service.ts`, `sorteoJurado.service.ts`): un cargo es de conducción si `esConduccionPorPrefijo(codigo)` **o**, cuando no hay código, `esConduccionPorLiteral(literalPuesto)`. El resultado determina `R` vs `TTR` al registrar la retención.
+
+---
+
 ## 8. Modelo de datos relevante
 
 ### Tabla `cargos`
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | UUID | PK interno |
-| `id_sial` | VARCHAR(50) UNIQUE | Legajo SIAL de la persona en la importación inicial (NO identifica el cargo estructural) |
-| `codigo` | VARCHAR(30) UNIQUE | Código interno del sistema (ej: `RG-CG-000047`) |
-| `hospital_id` | UUID | FK → hospitales |
-| `escalafon_id` | UUID | FK → escalafones |
-| `codigo_repa` | VARCHAR(20) | Código de repartición SIAL |
-| `literal_puesto` | VARCHAR(200) | Descripción del puesto |
-| `estado` | `EstadoCargo` | `vigente` \| `validacion_vacante` \| `no_vigente` |
-| `estado_desde` | DATE | Fecha en que el cargo entró al estado actual |
+| Campo                             | Tipo               | Descripción                                                                                                |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `id`                              | UUID               | PK interno                                                                                                 |
+| `id_sial`                         | VARCHAR(50) UNIQUE | Legajo SIAL de la persona en la importación inicial (NO identifica el cargo estructural)                   |
+| `codigo`                          | VARCHAR(30) UNIQUE | Código interno del sistema (ej: `RG-CG-000047`)                                                            |
+| `hospital_id`                     | UUID               | FK → hospitales                                                                                            |
+| `escalafon_id`                    | UUID               | FK → escalafones                                                                                           |
+| `codigo_repa`                     | VARCHAR(20)        | Código de repartición SIAL                                                                                 |
+| `literal_puesto`                  | VARCHAR(200)       | Descripción del puesto                                                                                     |
+| `estado`                          | `EstadoCargo`      | `vigente` \| `validacion_vacante` \| `no_vigente`                                                          |
+| `estado_desde`                    | DATE               | Fecha en que el cargo entró al estado actual                                                               |
+| `tipo_origen`                     | VARCHAR(5) null    | Rol en la cadena (S18): `R` = remplazante de ejecución, `TTR` = remplazante de conducción, `null` = normal |
+| `cargo_retenido_id`               | UUID null          | FK → cargos. Cargo que este remplaza (null si no es remplazante)                                           |
+| `cargo_base_id`                   | UUID null          | FK → cargos. Cargo base de la cadena (desnormalizado). Null si este cargo ES el base                       |
+| `periodo_desde` / `periodo_hasta` | DATE null          | Período de conducción (solo TTR y bases de conducción)                                                     |
+| `periodo_renovado`                | BOOLEAN            | El período fue renovado                                                                                    |
+| `fecha_renovacion`                | DATE null          | Fecha de la última renovación de período                                                                   |
+| `doc_renovacion`                  | TEXT null          | Acto administrativo de la última renovación (S19-4)                                                        |
+| `created_by_id`                   | UUID null          | FK → usuarios. Usuario que creó el cargo (alta manual); null si vino del padrón                            |
 
 **Clave de identidad estructural**: `(hospital_id, escalafon_id, codigo_repa, literal_puesto)`
 
+> El modelo completo de retenciones, cadenas de conducción, vencimientos de período y comisiones vive en `Doc/Contratos/Contrato_Retenciones.md`. Acá se documentan solo los campos de `cargos` que soportan esa lógica.
+
 ### Tabla `ocupaciones`
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | UUID | PK interno |
-| `persona_id` | UUID | FK → personas |
-| `cargo_id` | UUID | FK → cargos |
-| `id_sial_rol` | VARCHAR(50) UNIQUE | `{legajo_sial}-{nro_rol}` — identifica persona+cargo+período |
-| `situacion_revista` | VARCHAR(50) | `Activo` \| `Retencion de Cargo` \| `Comision` |
-| `desde` | DATE | Inicio de la ocupación |
-| `hasta` | DATE | Fin de la ocupación. `NULL` = ocupación activa |
-| `sr_doc_respaldo` | TEXT | Documento de retención de cargo |
-| `sr_comentario` | TEXT | Observaciones de retención |
-| `comision` | VARCHAR(150) | Descripción de la comisión |
-| `repa_comision` | VARCHAR(200) | Repartición de destino en comisión |
-| `cr_comentario` | TEXT | Comentarios de comisión |
+| Campo               | Tipo               | Descripción                                                  |
+| ------------------- | ------------------ | ------------------------------------------------------------ |
+| `id`                | UUID               | PK interno                                                   |
+| `persona_id`        | UUID               | FK → personas                                                |
+| `cargo_id`          | UUID               | FK → cargos                                                  |
+| `id_sial_rol`       | VARCHAR(50) UNIQUE | `{legajo_sial}-{nro_rol}` — identifica persona+cargo+período |
+| `situacion_revista` | VARCHAR(50)        | `Activo` \| `Retencion de Cargo` \| `Comision`               |
+| `desde`             | DATE               | Inicio de la ocupación                                       |
+| `hasta`             | DATE               | Fin de la ocupación. `NULL` = ocupación activa               |
+| `sr_doc_respaldo`   | TEXT               | Documento de retención de cargo                              |
+| `sr_comentario`     | TEXT               | Observaciones de retención                                   |
+| `comision`          | VARCHAR(150)       | Descripción de la comisión                                   |
+| `repa_comision`     | VARCHAR(200)       | Repartición de destino en comisión                           |
+| `cr_comentario`     | TEXT               | Comentarios de comisión                                      |
 
 **Regla de unicidad**: solo puede existir una fila con `cargo_id = X AND hasta IS NULL` a la vez.
 
 ### Tabla `bajas`
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `cargo_id` | UUID | FK → cargos |
-| `fecha_baja` | DATE | Fecha en que se produce la vacante |
-| `tipo_baja` | VARCHAR(100) | Jubilación, Renuncia, etc. (campo libre) |
-| `genera_concurso` | BOOLEAN | Si `true`, habilita apertura de concurso |
-| `estado` | `EstadoBaja` | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
+| Campo             | Tipo         | Descripción                                                         |
+| ----------------- | ------------ | ------------------------------------------------------------------- |
+| `cargo_id`        | UUID         | FK → cargos                                                         |
+| `fecha_baja`      | DATE         | Fecha en que se produce la vacante                                  |
+| `tipo_baja`       | VARCHAR(100) | Jubilación, Renuncia, etc. (campo libre)                            |
+| `genera_concurso` | BOOLEAN      | Si `true`, habilita apertura de concurso                            |
+| `estado`          | `EstadoBaja` | `resolucion_a_la_firma` \| `pendiente` \| `confirmada` \| `anulada` |
 
 ---
 
 ## 9. Resumen de transiciones
 
-| Desde | Hacia | Evento / Condición |
-|---|---|---|
-| (inexistente) | VIGENTE | Alta de cargo o diff `nuevo` en padrón |
-| VIGENTE + VACANTE | VIGENTE + OCUPADO | Nueva designación (insertar ocupación con `hasta = NULL`) |
-| VIGENTE + OCUPADO | VIGENTE + VACANTE | Cierre de ocupación (`hasta = fecha`) |
-| VIGENTE + OCUPADO | VALIDACION_VACANTE | Diff `eliminado` en padrón (cierra ocupación) |
-| VALIDACION_VACANTE | NO VIGENTE | Operador confirma baja en `/bajas/validacion` |
-| VALIDACION_VACANTE | VIGENTE | Operador rechaza baja en `/bajas/validacion` (reabre ocupación) |
-| VIGENTE | NO VIGENTE | Baja manual |
-| OCUPADO Activo | OCUPADO Retención | Designación en cargo superior |
-| OCUPADO Activo | OCUPADO Comisionado | Comisión de servicios |
-| OCUPADO Retención | OCUPADO Activo | Fin de retención |
-| OCUPADO Comisionado | OCUPADO Activo | Fin de comisión |
-| NO VIGENTE | (ninguno) | Estado terminal — irreversible |
+| Desde               | Hacia               | Evento / Condición                                              |
+| ------------------- | ------------------- | --------------------------------------------------------------- |
+| (inexistente)       | VIGENTE             | Alta de cargo o diff `nuevo` en padrón                          |
+| VIGENTE + VACANTE   | VIGENTE + OCUPADO   | Nueva designación (insertar ocupación con `hasta = NULL`)       |
+| VIGENTE + OCUPADO   | VIGENTE + VACANTE   | Cierre de ocupación (`hasta = fecha`)                           |
+| VIGENTE + OCUPADO   | VALIDACION_VACANTE  | Diff `eliminado` en padrón (cierra ocupación)                   |
+| VALIDACION_VACANTE  | NO VIGENTE          | Operador confirma baja en `/bajas/validacion`                   |
+| VALIDACION_VACANTE  | VIGENTE             | Operador rechaza baja en `/bajas/validacion` (reabre ocupación) |
+| VIGENTE             | NO VIGENTE          | Baja manual                                                     |
+| OCUPADO Activo      | OCUPADO Retención   | Designación en cargo superior                                   |
+| OCUPADO Activo      | OCUPADO Comisionado | Comisión de servicios                                           |
+| OCUPADO Retención   | OCUPADO Activo      | Fin de retención                                                |
+| OCUPADO Comisionado | OCUPADO Activo      | Fin de comisión                                                 |
+| NO VIGENTE          | (ninguno)           | Estado terminal — irreversible                                  |
