@@ -1,27 +1,32 @@
 ﻿# Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09 (Post-Sprint 16 — filtro conFaltantes + tests + actualización modales flujo CPH)
+> Última actualización: 2026-09-22 — Sincronizado el stack (Zustand, @xyflow/react, docx, html-to-image) y el árbol de módulos contra `apps/web/src/modules` (22 módulos reales; agregados auditoria, comisiones, dotacion, importacion, pou, retenciones, tokens). Documentada la duplicación de `AdminUsuariosPage`.
 > Estado: VIGENTE
 
 ---
 
 ## Stack
 
-| Tecnología | Versión | Rol |
-|---|---|---|
-| React | 18 | UI |
-| TypeScript | 5.x | Lenguaje |
-| Vite | 5.x | Build tool |
-| Tailwind CSS | 3.x | Estilos |
-| shadcn/ui | latest | Componentes base |
-| TanStack Query | v5 | Estado servidor (fetching, cache) |
-| React Router | v7 | Routing |
-| React Hook Form | 7.x | Formularios |
-| Zod | 3.x | Validación de formularios |
-| Axios | 1.x | Cliente HTTP |
-| jsPDF | latest | Generación de PDF en el browser |
-| xlsx (SheetJS) | latest | Exportación a Excel |
+| Tecnología                      | Versión   | Rol                                            |
+| ------------------------------- | --------- | ---------------------------------------------- |
+| React                           | 18        | UI                                             |
+| TypeScript                      | 5.x       | Lenguaje                                       |
+| Vite                            | 5.x       | Build tool                                     |
+| Tailwind CSS                    | 3.x       | Estilos                                        |
+| shadcn/ui                       | latest    | Componentes base                               |
+| TanStack Query                  | v5        | Estado servidor (fetching, cache)              |
+| Zustand                         | 5.x       | Estado global de cliente (UI local)            |
+| React Router                    | v7        | Routing                                        |
+| React Hook Form                 | 7.x       | Formularios                                    |
+| Zod                             | 3.x       | Validación de formularios                      |
+| Axios                           | 1.x       | Cliente HTTP                                   |
+| @xyflow/react                   | 12.x      | Diagrama de flujo del organigrama (React Flow) |
+| jsPDF + jspdf-autotable         | 4.x / 5.x | Generación de PDF en el browser                |
+| docx                            | 9.x       | Generación de documentos Word                  |
+| html-to-image                   | 1.x       | Exportar vistas (ej. organigrama) a imagen     |
+| xlsx (SheetJS)                  | 0.18      | Exportación a Excel                            |
+| lucide-react + @heroicons/react | —         | Iconos                                         |
 
 ---
 
@@ -121,9 +126,16 @@ apps/web/
 │   │   ├── kpis/
 │   │   │   └── pages/
 │   │   │       └── KpisPage.tsx
-│   │   └── usuarios/
-│   │       └── pages/
-│   │           └── AdminUsuariosPage.tsx
+│   │   ├── usuarios/
+│   │   │   └── pages/
+│   │   │       └── AdminUsuariosPage.tsx    ← ⚠️ duplicado: existe también en configuracion/ (ver nota abajo)
+│   │   ├── auditoria/                  ← consulta de audit logs
+│   │   ├── comisiones/                 ← comisiones de servicio
+│   │   ├── retenciones/                ← cadena de retención (S18)
+│   │   ├── dotacion/                   ← generación/consulta de dotación (en reescritura S20-22)
+│   │   ├── importacion/                ← importación de archivos (Excel/CSV)
+│   │   ├── pou/                        ← Ocupación POU (Excel mensual)
+│   │   └── tokens/                     ← gestión de refresh tokens / sesiones
 │   ├── shared/
 │   │   ├── components/
 │   │   │   ├── ui/                 ← Componentes shadcn/ui (copiados)
@@ -158,6 +170,10 @@ apps/web/
 └── package.json
 ```
 
+> **Duplicación conocida — `AdminUsuariosPage`:** el árbol tiene el archivo en `modules/usuarios/pages/` y en `modules/configuracion/pages/`. El router monta la ruta `configuracion/usuarios` (la versión de `configuracion/`); la de `usuarios/` es legacy. **Pendiente:** consolidar en una sola ubicación y borrar la copia muerta.
+
+> ⚠️ **En reescritura (Sprints 20-22):** el módulo `dotacion` y las vistas relacionadas con el catálogo puesto/especialidad se rediseñan con el Dotaneitor v2. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md`.
+
 ---
 
 ## Arquitectura de módulos
@@ -185,7 +201,9 @@ Components reciben datos como props — no hacen fetch directamente
 
 ```typescript
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 0, refetchOnMount: true, refetchOnWindowFocus: false, retry: 1 } },
+  defaultOptions: {
+    queries: { staleTime: 0, refetchOnMount: true, refetchOnWindowFocus: false, retry: 1 },
+  },
 })
 ```
 
@@ -208,7 +226,7 @@ export function usePersonas(filters: PersonaFilters) {
   return useQuery({
     queryKey: personasKeys.list(filters),
     queryFn: () => fetchPersonas(filters),
-    staleTime: 1000 * 60 * 5,  // 5 minutos
+    staleTime: 1000 * 60 * 5, // 5 minutos
   })
 }
 ```
@@ -242,7 +260,11 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 function BajaForm() {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
   // ...
@@ -343,12 +365,12 @@ Las páginas de listado (`PersonasPage`, `CargosPage`, `ConcursosCphPage`) usan 
 
 ### Nomenclatura
 
-| Tipo | Convención | Ejemplo |
-|---|---|---|
-| Páginas | `{Nombre}Page.tsx` | `PersonasPage.tsx` |
-| Componentes | PascalCase | `PersonaDetailPanel.tsx` |
-| Hooks | `use{Nombre}.ts` | `usePersonas.ts` |
-| Types/DTOs | desde `packages/types` | — |
+| Tipo        | Convención             | Ejemplo                  |
+| ----------- | ---------------------- | ------------------------ |
+| Páginas     | `{Nombre}Page.tsx`     | `PersonasPage.tsx`       |
+| Componentes | PascalCase             | `PersonaDetailPanel.tsx` |
+| Hooks       | `use{Nombre}.ts`       | `usePersonas.ts`         |
+| Types/DTOs  | desde `packages/types` | —                        |
 
 ### Props tipadas siempre
 
@@ -411,12 +433,12 @@ Panel en `ConcursosCphPage`. Umbrales acumulativos 30+/60+/90+ días desde `upda
 
 La app debe funcionar en desktop y mobile. Breakpoints Tailwind:
 
-| Breakpoint | Ancho | Uso |
-|---|---|---|
-| `sm` | 640px | Mobile landscape |
-| `md` | 768px | Tablet |
-| `lg` | 1024px | Desktop |
-| `xl` | 1280px | Desktop wide |
+| Breakpoint | Ancho  | Uso              |
+| ---------- | ------ | ---------------- |
+| `sm`       | 640px  | Mobile landscape |
+| `md`       | 768px  | Tablet           |
+| `lg`       | 1024px | Desktop          |
+| `xl`       | 1280px | Desktop wide     |
 
 El sidebar colapsa a un drawer en mobile. Las tablas tienen scroll horizontal en mobile.
 
@@ -447,7 +469,7 @@ apiClient.interceptors.response.use(
       return apiClient(error.config)
     }
     return Promise.reject(error)
-  }
+  },
 )
 ```
 
