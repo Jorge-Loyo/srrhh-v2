@@ -635,10 +635,12 @@ texto, sin exigir que la persona exista en el sistema.
   con un rol), el sistema lo **vincula automáticamente al aprobar el snapshot** (`personaId` se
   completa). No requiere confirmación manual.
 - A partir del vínculo, el CUIL queda **en observación**: si su rol o período cambia, el sistema
-  puede detectar que **ese concurso ya fue asignado** con esos parámetros (CUIL + carrera +
-  especialidad + rol). Esto se apoya en el mecanismo ya existente `ConcursoCph.validado` /
-  `validadoAt` / `validadoIdSialRol` (validación contra el padrón), extendido a los integrantes de
-  OM e inscriptos.
+  puede detectar que **ese concurso ya fue asignado** con estos parámetros de match:
+  **CUIL + carrera + especialidad + rol + repartición + sigla (hospital)**. La **sigla** y la
+  **repartición** son las que fijan **a qué cargo concreto** se asigna la persona (un mismo CUIL
+  puede tener el mismo puesto en distintos efectores/reparticiones). Esto se apoya en el mecanismo
+  ya existente `ConcursoCph.validado` / `validadoAt` / `validadoIdSialRol` (validación contra el
+  padrón), extendido a los integrantes de OM e inscriptos.
 
 **Implicancias de modelo (ya reflejadas o a garantizar):**
 
