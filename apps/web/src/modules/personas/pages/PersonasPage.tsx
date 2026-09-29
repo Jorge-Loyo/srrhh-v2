@@ -231,15 +231,6 @@ export function PersonasPage() {
               <option value="pou">Guardia (POU)</option>
             </select>
           )}
-          <select
-            value={activo}
-            onChange={(e) => setParam('activo', e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Activos e inactivos</option>
-            <option value="true">Solo activos</option>
-            <option value="false">Solo inactivos</option>
-          </select>
           {escalafonId && (
             <SearchableSelect
               value={puestoCargoId}
@@ -276,6 +267,31 @@ export function PersonasPage() {
             title="Mostrar solo personas con cargo de jefatura"
           >
             👔 Solo jefes
+          </button>
+          {/* Estado: botones toggle excluyentes (reemplazan el desplegable). */}
+          <button
+            type="button"
+            onClick={() => setParam('activo', activo === 'true' ? '' : 'true')}
+            className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+              activo === 'true'
+                ? 'bg-green-100 border-green-300 text-green-800'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Mostrar solo personas activas"
+          >
+            Activos
+          </button>
+          <button
+            type="button"
+            onClick={() => setParam('activo', activo === 'false' ? '' : 'false')}
+            className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+              activo === 'false'
+                ? 'bg-gray-200 border-gray-400 text-gray-800'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Mostrar solo personas inactivas"
+          >
+            Inactivos
           </button>
         </div>
 
