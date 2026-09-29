@@ -59,10 +59,10 @@ Antes de escribir este sprint se auditó código real (no supuestos) de cada con
 | S21-5     | Decisión + implementación: `Persona.especialidadPrincipal` deja de ser una columna que se escribe una vez y queda vieja — se resuelve **en runtime** desde el `Cargo` vigente de la persona (join ya existente vía `Ocupacion`, mismo patrón `LEFT JOIN LATERAL` de `personas.service.ts`) usando `puestoCargoId`/`especialidadPuestoId`. Se elimina la columna una vez migrados los lectores (S21-6, S21-7) | Jorge | 4h   | 🔴        | 📋     |
 | S21-6     | Backend: `sorteoJurado.service.ts:181` — el fallback `p.especialidadCph ?? p.especialidadPrincipal` pasa a usar la especialidad derivada en runtime de S21-5 en vez de la columna vieja                                                                                                                                                                                                                      | Jorge | 1h   | 🔴        | 📋     |
 | S21-7     | Backend: revisar todo otro lector de `especialidadPrincipal` detectado en el análisis (listados/filtros de `personas.service.ts`) y migrarlo al valor derivado                                                                                                                                                                                                                                               | Jorge | 2h   | 🟡        | 📋     |
-| S21-8     | Backend: exponer en las respuestas de API que alimentan `exportConcursoDocs.ts` (autorización CPH, sorteo de jurado, orden de mérito) el nombre de especialidad resuelto desde `especialidadPuestoId` en vez de `especialidadLegacy`, preservando el mismo shape de campo que ya consume el frontend                                                                                                         | Jorge | 2h   | 🔴        | 📋     |
-| S21-9     | Frontend: `exportConcursoDocs.ts` — actualizar las 4 lecturas (`getCasoCph` x2, `exportJuradoPdf`, `exportOrdenMeritoPdf`) para leer el campo nuevo de S21-8 en vez de `cargo?.especialidadLegacy`, con test manual de que los 4 documentos generados (PDF/Word) siguen mostrando la especialidad correctamente                                                                                              | Jorge | 2h   | 🔴        | 📋     |
-| S21-10    | Corregir la nota de Sprint 18 — Designación CPH que asume que `especialidadPrincipal` refleja el cargo actual en tiempo real (no lo hacía antes de S21-5); confirmar que el badge de validación de ese sprint sigue funcionando igual ahora que el dato es derivado en runtime en vez de una columna vieja                                                                                                   | Jorge | 1h   | 🟡        | 📋     |
-| S21-11    | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                               | Jorge | 2h   | 🔴        | 📋     |
+| S21-8     | Backend: exponer en las respuestas de API que alimentan `exportConcursoDocs.ts` (autorización CPH, sorteo de jurado, orden de mérito) el nombre de especialidad resuelto desde `especialidadPuestoId` en vez de `especialidadLegacy`, preservando el mismo shape de campo que ya consume el frontend                                                                                                         | Jorge | 2h   | 🔴        | ✅     |
+| S21-9     | Frontend: `exportConcursoDocs.ts` — actualizar las 4 lecturas (`getCasoCph` x2, `exportJuradoPdf`, `exportOrdenMeritoPdf`) para leer el campo nuevo de S21-8 en vez de `cargo?.especialidadLegacy`, con test manual de que los 4 documentos generados (PDF/Word) siguen mostrando la especialidad correctamente                                                                                              | Jorge | 2h   | 🔴        | ✅     |
+| S21-10    | Corregir la nota de Sprint 18 — Designación CPH que asume que `especialidadPrincipal` refleja el cargo actual en tiempo real (no lo hacía antes de S21-5); confirmar que el badge de validación de ese sprint sigue funcionando igual ahora que el dato es derivado en runtime en vez de una columna vieja                                                                                                   | Jorge | 1h   | 🟡        | ✅     |
+| S21-11    | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                               | Jorge | 2h   | 🔴        | ⏸️     |
 
 **Total estimado:** ~22.5h
 
@@ -240,11 +240,44 @@ Backend implementado y verificado (typecheck back+front OK, SQL validado en BD l
   snapshot, vincula `personaId` en `orden_merito_integrantes` e `inscriptos_concurso` cuyo CUIL
   entra al padrón. Idempotente, por CUIL normalizado a 11 dígitos.
 
-Pendiente (próxima sesión — es lo más riesgoso, toca varios lectores):
+- ✅ **S21-5/6/7** — `Persona.especialidadPrincipal` se deriva en runtime desde el cargo vigente
+  (`LEFT JOIN LATERAL` Ocupacion→Cargo, `COALESCE(especialidades_puesto.nombre, especialidad_legacy)`)
+  en `personas.service`. `sorteoJurado.service` usa `especialidadCph` (dato propio) sin el fallback
+  a la columna vieja.
 
-- ⏳ **S21-5/6/7** — `Persona.especialidadPrincipal` (write-once/stale) → derivar en runtime desde
-  el cargo vigente (`LEFT JOIN LATERAL` Ocupacion→Cargo). Migrar lectores: `sorteoJurado.service`
-  (fallback `especialidadCph ?? especialidadPrincipal`), `personas.service`, selects de
-  `concursos-cph.service`. Evaluar si se elimina la columna o queda deprecada (ya existe
-  `especialidadCph` que sí se resincroniza cada semana en el bloque 6b).
-- ⏳ **S21-4** (frontend combobox), **S21-8/9** (exportables), **S21-10/11** (e2e).
+---
+
+## Progreso de ejecución (2026-09-29) — cierre de exportables + filtros por catálogo
+
+- ✅ **S21-8** — `concursos-cph.service.ts` incluye `especialidadPuesto` en el `cargo`;
+  `sorteoJurado.service.ts` resuelve `especialidadConcurso`/`especialidadDestino` desde el catálogo
+  (`cargo.especialidadPuesto?.nombre ?? especialidadLegacy`). Tipo `Cargo` expone
+  `especialidadPuesto {id,nombre}`.
+- ✅ **S21-9** — `exportConcursoDocs.ts`: las lecturas de Autorización/Validación CPH (`getCasoCph`),
+  Acta de Sorteo de Jurado (`exportJuradoPdf`) y Acta de Orden de Mérito (`exportOrdenMeritoPdf`)
+  prefieren `cargo.especialidadPuesto?.nombre` sobre `especialidadLegacy`. (CEETPS `getCasoCeetps`
+  se deja con fallback seguro — módulo en planificación.)
+- ✅ **S21-10** — corregida la nota de Sprint 18 sobre `especialidadPrincipal` (ver ese doc): se
+  aclara que ya no es columna fija sino derivada en runtime; el badge sigue usando `especialidadCph`.
+- ⏸️ **S21-11** — verificación e2e **parcial**: typecheck back+front+types OK; endpoints
+  (`/personas`, `/cargos`, `/dotacion`, `/concursos-cph`, `/puestos-cargo/especialidades`) responden
+  200 con los cambios; semántica OR validada por SQL; catálogo curado verificado en BD. **Falta la
+  prueba con datos reales** (crear OM con casing repetido, generar los 4 PDF/Word, badge de jurado):
+  la BD local no tiene padrón importado (0 personas/cargos/concursos), así que la verificación visual
+  end-to-end queda pendiente de una BD con datos.
+
+### Extra fuera de las tareas listadas (misma línea, S21)
+
+- ✅ **Filtros por catálogo unificados** (Personas, Cargos, Dotación) — componente `FiltrosCatalogo`
+  - uniones OR; fix del bug de especialidad (buscar por `puestoCargoId` exacto, no por nombre);
+    especialidad buscable; capitalización visual.
+- ✅ **Catálogo puesto/especialidad reconstruido desde la BD vieja** (Neon), normalizado
+  minúscula/sin tilde — corrige la contaminación (médico de planta tenía 128 especialidades con
+  biología/bioquímica; ahora 97, solo médicas). 462 puestos, 336 especialidades.
+- ✅ **Import del padrón robusto** — `resolverPuestoCargo.ts`: usa `normalizarTexto` (matchea el
+  catálogo sin duplicar puestos por tilde/casing) y **cura** las especialidades nuevas; la clave del
+  cache de puestos ahora incluye **modalidad** (`escalafón:modalidad:nombre`) con fallback a `ambos`
+  — corrige la colisión de ~150 puestos homónimos POF/POU que se pisaban en el Map.
+- ✅ **`/cargos/alta`** — label "Repartición", especialidad por id, capitalización visual, sin
+  "reemplaza baja", y **etiquetas reales** (elegir del catálogo o crear, vinculadas vía
+  `EtiquetaSolicitudAlta` — el campo string libre `etiqueta` que se ignoraba pasó a relación N:M).

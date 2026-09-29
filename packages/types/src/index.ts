@@ -165,6 +165,11 @@ export interface Cargo {
   especialidad: string | null // @deprecated — usar especialidadLegacy
   especialidadLegacy: string | null
   especialidadId: string | null
+  especialidadPuestoId: string | null
+  // S21-8: especialidad resuelta del catálogo (fuente de verdad). El backend la
+  // incluye vía la relación; los documentos exportables la prefieren sobre
+  // especialidadLegacy (snapshot que dejó de mantenerse al día).
+  especialidadPuesto?: { id: string; nombre: string } | null
   agrupador: string | null
   unificadorPuesto: string | null
   regimen: string | null

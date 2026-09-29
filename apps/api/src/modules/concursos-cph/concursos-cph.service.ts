@@ -20,7 +20,10 @@ import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 const include = {
   concurso: {
     include: {
-      cargo: { include: { hospital: true, codigoRegistro: true } },
+      // S21-8: incluir especialidadPuesto para exponer la especialidad
+      // resuelta del catálogo (fuente de verdad) en los documentos exportables,
+      // en vez de especialidadLegacy (snapshot que dejó de mantenerse).
+      cargo: { include: { hospital: true, codigoRegistro: true, especialidadPuesto: true } },
       persona: true,
       baja: true,
     },

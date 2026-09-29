@@ -411,7 +411,7 @@ export async function generarSorteoJuradoService(
     where: { id: concursoCphId },
     include: {
       concurso: {
-        include: { cargo: { include: { hospital: true, escalafon: true } }, persona: true },
+        include: { cargo: { include: { hospital: true, escalafon: true, especialidadPuesto: true } }, persona: true },
       },
       hospital: true,
     },
@@ -457,7 +457,9 @@ export async function generarSorteoJuradoService(
 
   const usaReglaUnicaSistema = esCentralizado || esCargoConduccion
 
-  const especialidadConcurso = concurso.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
+  // S21-8: especialidad resuelta del catálogo (fuente de verdad), con fallback
+  // al snapshot especialidadLegacy.
+  const especialidadConcurso = concurso.especialidadSolicitada ?? cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? null
   const especialidadesAdicionales = body.especialidadesAdicionales ?? []
   const especialidadesConcurso = [especialidadConcurso, ...especialidadesAdicionales]
 
@@ -877,7 +879,7 @@ export async function asignarJuradoExistenteService(
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: {
-      concurso: { include: { cargo: { include: { escalafon: true } } } },
+      concurso: { include: { cargo: { include: { escalafon: true, especialidadPuesto: true } } } },
       hospital: true,
     },
   })
@@ -914,7 +916,7 @@ export async function asignarJuradoExistenteService(
     escalafonId?: string
     especialidadConcurso?: string | null
   }
-  const especialidadDestino = destino.especialidadSolicitada ?? cargo.especialidadLegacy ?? null
+  const especialidadDestino = destino.especialidadSolicitada ?? cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? null
 
   if (criteriosOrigen.escalafonId && criteriosOrigen.escalafonId !== cargo.escalafonId) {
     throw AppError.conflict('El jurado de origen no es compatible: escalafón distinto')

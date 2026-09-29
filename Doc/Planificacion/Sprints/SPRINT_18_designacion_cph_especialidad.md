@@ -295,9 +295,18 @@ en el padrón.
   conscientemente, no para impedirlo.
 
 - **`especialidad_cph` vs `especialidad_principal`**: el badge usa `especialidadCph`
-  (la especialidad CPH canónica de `ref_especialidades_cuil`), no `especialidadPrincipal`
-  (que es la del cargo actual del padrón y puede ser diferente). Esta distinción es
-  exactamente la razón por la que se creó el campo en la sesión anterior.
+  (la especialidad CPH canónica de `ref_especialidades_cuil`), no `especialidadPrincipal`.
+  Esta distinción es exactamente la razón por la que se creó el campo en la sesión anterior.
+
+  > **Corrección S21-10 (2026-09):** la redacción original decía que `especialidadPrincipal`
+  > "es la del cargo actual del padrón y puede ser diferente", dando a entender que reflejaba
+  > el cargo actual en tiempo real. **No era así antes de S21-5**: `especialidadPrincipal` era
+  > una columna que se escribía UNA vez al alta de la persona y no se resincronizaba en padrones
+  > posteriores (desincronización silenciosa, ver análisis de S21). A partir de **S21-5** ya no
+  > es una columna fija: se **deriva en runtime** desde el `Cargo` vigente de la persona
+  > (`COALESCE(especialidades_puesto.nombre, especialidad_legacy)` vía la ocupación vigente), así
+  > que ahora sí refleja el cargo actual. El badge de este sprint sigue funcionando igual: usa
+  > `especialidadCph` (dato propio de la persona), que es independiente del cargo y no cambió.
 
 - **Personas sin `especialidad_cph`**: son personas que no tienen registro en
   `ref_especialidades_cuil` tipo=cph (ej. personal administrativo, residentes, docentes).

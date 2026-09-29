@@ -87,11 +87,10 @@ export function getCasoCph(data: ConcursoCph): Caso {
   const efector = efectorTexto(hospital?.sigla, hospital?.nombre)
   const puestoBaja = cargo?.literalPuesto || ''
   const puestoSolic = data.puestoSolicitado || puestoBaja
-  // cargo.especialidad es una relación (Especialidad?, no viene incluida en
-  // el payload de la API) — el string real está en especialidadLegacy, ver
-  // migración especialidades_fk. Usar el campo viejo acá dejaba "Especialidad"
-  // en blanco ("-") en TODOS los documentos generados.
-  const especBaja = cargo?.especialidadLegacy || '-'
+  // S21-9: la especialidad se lee del CATÁLOGO (especialidadPuesto.nombre, que
+  // el backend ahora incluye — S21-8), con fallback al snapshot especialidadLegacy.
+  // especialidadLegacy dejó de mantenerse al día; el catálogo es la fuente de verdad.
+  const especBaja = cargo?.especialidadPuesto?.nombre || cargo?.especialidadLegacy || '-'
   const especSolic = data.especialidadSolicitada || especBaja
   const esSolicitud = origen === 'Ampliación' || origen === 'POU a POF'
   const esSuplente = cargo?.unificadorPuesto === 'Suplente de Guardia'
@@ -660,6 +659,7 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
       'Especialidad',
       jurado.criterios?.especialidadConcurso ??
         data.especialidadSolicitada ??
+        cargo?.especialidadPuesto?.nombre ??
         cargo?.especialidadLegacy,
     ],
     ['Profesión / Carrera', jurado.criterios?.escalafonNombre],
@@ -808,7 +808,7 @@ export function exportOrdenMeritoPdf(data: ConcursoCph, inscriptos: InscriptoAct
     ['Expediente de Concurso', data.eeConcurso],
     ['Efector', efectorTexto(hospital?.sigla, hospital?.nombre)],
     ['Puesto', data.puestoSolicitado || cargo?.literalPuesto],
-    ['Especialidad', data.especialidadSolicitada ?? cargo?.especialidadLegacy],
+    ['Especialidad', data.especialidadSolicitada ?? cargo?.especialidadPuesto?.nombre ?? cargo?.especialidadLegacy],
     ['Fecha de examen', vFecha(data.fechaExamen)],
     ['Fecha orden de mérito', vFecha(data.fechaOrdenMerito)],
     ['Estado', data.ordenMeritoConfirmado ? 'Confirmado' : 'Borrador (sin confirmar)'],
