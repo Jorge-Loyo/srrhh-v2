@@ -61,3 +61,6 @@ analisis_*.sql
 # Archivos temporales
 1
 o_ret.persona_id
+
+# Normas/PDFs de referencia ajenos (no versionados a propósito)
+Doc/Normas/
