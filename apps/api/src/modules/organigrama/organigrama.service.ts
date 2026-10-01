@@ -641,6 +641,20 @@ export function inferirRegimenEmpleoPorTipo(tipo: string): string | null {
   return null
 }
 
+// Universo totalizador canónico para la INFERENCIA de régimen: distintas cargas
+// usan nombres equivalentes para el mismo universo —"APS" ⇔ "ATENCION PRIMARIA"
+// ⇔ "ATENCION PRIMARIA DE SALUD" (APS = Atención Primaria de la Salud)—. Si no
+// se unifican, una repartición nueva con universo "ATENCION PRIMARIA" no matchea
+// las existentes guardadas como "APS" y el régimen no se puede inferir. Solo se
+// usa para construir las claves de inferencia; el valor que se guarda es el que
+// trae/infiere el Excel sin tocar. normalizarTexto quita tildes y pasa a upper.
+export function canonUniverso(universo: string | null | undefined): string {
+  const n = normalizarTexto(universo ?? '')
+  if (n === 'APS' || n === 'ATENCION PRIMARIA' || n === 'ATENCION PRIMARIA DE SALUD' || n === 'ATENCION PRIMARIA SALUD')
+    return 'ATENCION PRIMARIA'
+  return n
+}
+
 export function inferirUniversoTotalizador(
   sigla: string,
   tipo: string,
@@ -766,11 +780,11 @@ export async function reemplazarOrganigramaService(
     select: { sigla: true, universoTotalizador: true, regimenEmpleo: true, tipo: true },
     where: { regimenEmpleo: { not: '' } },
   })) {
-    const key = `${r.sigla}|${r.universoTotalizador ?? ''}`
+    const key = `${r.sigla}|${canonUniverso(r.universoTotalizador)}`
     if (!regimenSetPorSiglaUniverso.has(key)) regimenSetPorSiglaUniverso.set(key, new Set())
     regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo)
 
-    const keyTipo = `${r.sigla}|${r.universoTotalizador ?? ''}|${normalizarHeader(r.tipo ?? '')}`
+    const keyTipo = `${r.sigla}|${canonUniverso(r.universoTotalizador)}|${normalizarHeader(r.tipo ?? '')}`
     if (!regimenSetPorSiglaUniversoTipo.has(keyTipo))
       regimenSetPorSiglaUniversoTipo.set(keyTipo, new Set())
     regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo)
@@ -810,9 +824,9 @@ export async function reemplazarOrganigramaService(
         //   3. por tipo — solo Autoridades Superiores.
         const inferido =
           regimenPorSiglaUniversoTipo.get(
-            `${f.sigla}|${f.universoTotalizador ?? ''}|${normalizarHeader(f.tipo)}`,
+            `${f.sigla}|${canonUniverso(f.universoTotalizador)}|${normalizarHeader(f.tipo)}`,
           ) ??
-          regimenPorSiglaUniverso.get(`${f.sigla}|${f.universoTotalizador ?? ''}`) ??
+          regimenPorSiglaUniverso.get(`${f.sigla}|${canonUniverso(f.universoTotalizador)}`) ??
           inferirRegimenEmpleoPorTipo(f.tipo)
         if (inferido) {
           f.regimenEmpleo = inferido
@@ -852,6 +866,20 @@ export async function reemplazarOrganigramaService(
     throw AppError.badRequest(
       `${pendientes.length} repartición(es) nueva(s) sin REGIMEN EMPLEO (no se puede inferir solo): ${detalle}.${resto} ` +
         `Agregá la columna "REGIMEN EMPLEO" con el valor correspondiente para estos códigos puntuales y volvé a subir el archivo.${sugerenciaVacio}`,
+      // details estructurado para que el front liste cada repartición pendiente
+      // de forma legible (no un párrafo corrido). `tablaVacia` dispara la ayuda
+      // de carga inicial en la UI.
+      {
+        tipo: 'regimen_pendiente',
+        tablaVacia: historial.size === 0,
+        pendientes: pendientes.map((p) => ({
+          codigoReparticion: p.codigoReparticion,
+          tipo: p.tipo,
+          descRep: p.descRep,
+          sigla: p.sigla,
+          universoSugerido: p.universoSugerido,
+        })),
+      },
     )
   }
 
