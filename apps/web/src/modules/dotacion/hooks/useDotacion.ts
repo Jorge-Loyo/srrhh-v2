@@ -53,9 +53,35 @@ export interface DotacionListResponse {
   limit: number
   pages: number
   distinctValues?: DotacionDistinctValues
-  // Código de registro con {id, nombre} — el filtro va por id (FK).
-  codigoRegistro?: { id: string; nombre: string }[]
+  // Código de registro con {id, codigo, nombre} — el filtro va por id (FK).
+  // `codigo` es el código real (24, 37...); `nombre` el literal/escalafón.
+  codigoRegistro?: { id: string; codigo: string; nombre: string }[]
   siglasDistinctValues?: DotacionSiglasDistinctValues
+}
+
+// Un grupo de la UNIÓN (OR): subconjunto de dimensiones del filtro combinadas
+// con AND dentro del grupo. Varios grupos se combinan con OR en el backend.
+// Mismas dimensiones que DotacionFilters (sin paginación/búsqueda/rangos).
+export interface GrupoDotacion {
+  sigla?: string[]
+  universoTotalizador?: string[]
+  tipoHospital?: string[]
+  monovalencia?: string[]
+  escalafonId?: string[]
+  modalidad?: 'pof' | 'pou' | 'ambos'
+  puestoNombre?: string[]
+  especialidadNombre?: string[]
+  codigoRegistroId?: string[]
+  regimen?: string[]
+  tipoOrigen?: string[]
+  especialidadCph?: string[]
+  provincia?: string[]
+  localidad?: string[]
+  sexo?: string[]
+  situacionRevista?: string[]
+  reparticion?: string[]
+  // Snapshot de etiquetas legibles para los chips (NO viaja al backend).
+  labels?: string[]
 }
 
 // Filtros tal cual viajan a GET /api/v1/dotacion — los multi-select se pasan
@@ -67,6 +93,8 @@ export interface DotacionFilters {
   sortBy?: string
   sortDir?: 'asc' | 'desc'
   skipDistinct?: boolean
+  // Uniones (OR). Cada grupo es un AND de sus dimensiones.
+  grupos?: GrupoDotacion[]
   sigla?: string[]
   universoTotalizador?: string[]
   tipoHospital?: string[]
@@ -104,11 +132,30 @@ const CSV_KEYS: (keyof DotacionFilters)[] = [
   'sexo', 'situacionRevista', 'reparticion',
 ]
 
+// Serializa los grupos de unión al JSON que espera el backend: dimensiones con
+// valores (arrays no vacíos / modalidad), sin `labels` ni claves vacías.
+export function serializarGruposDotacion(grupos: GrupoDotacion[]): string {
+  const limpios = grupos.map((g) => {
+    const o: Record<string, string[] | string> = {}
+    for (const [k, v] of Object.entries(g)) {
+      if (k === 'labels') continue
+      if (Array.isArray(v)) {
+        if (v.length) o[k] = v
+      } else if (v) {
+        o[k] = v
+      }
+    }
+    return o
+  })
+  return JSON.stringify(limpios)
+}
+
 export function toDotacionParams(filters: DotacionFilters): Record<string, string | number | boolean> {
   const params: Record<string, string | number | boolean> = { page: filters.page, limit: filters.limit }
   if (filters.sortBy) params.sortBy = filters.sortBy
   if (filters.sortDir) params.sortDir = filters.sortDir
   if (filters.skipDistinct) params.skipDistinct = 'true'
+  if (filters.grupos?.length) params.grupos = serializarGruposDotacion(filters.grupos)
   for (const key of CSV_KEYS) {
     const v = filters[key] as string[] | undefined
     if (v?.length) params[key] = v.join(',')

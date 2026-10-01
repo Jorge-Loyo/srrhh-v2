@@ -84,60 +84,129 @@ interface DotacionRow {
   antiguedad: number | null
 }
 
-function buildConditions(query: DotacionQuery): Prisma.Sql[] {
-  const conditions: Prisma.Sql[] = []
+// Dimensiones combinables tanto por los filtros sueltos como por cada grupo de
+// la unión. Es el subconjunto de DotacionQuery que participa de las UNIONES.
+interface DimensionesDotacion {
+  sigla?: string[]
+  universoTotalizador?: string[]
+  tipoHospital?: string[]
+  monovalencia?: string[]
+  sexo?: string[]
+  especialidadCph?: string[]
+  provincia?: string[]
+  localidad?: string[]
+  situacionRevista?: string[]
+  reparticion?: string[]
+  regimen?: string[]
+  tipoOrigen?: string[]
+  escalafonId?: string[]
+  codigoRegistroId?: string[]
+  modalidad?: 'pof' | 'pou' | 'ambos'
+  puestoNombre?: string[]
+  especialidadNombre?: string[]
+}
+
+// Compila un conjunto de dimensiones a un array de condiciones SQL (todas con
+// semántica AND entre sí; cada dimensión multi-valor es un OR interno vía IN).
+// Reutilizable por el grupo "global" (filtros sueltos) y por cada grupo de la
+// unión OR — misma idea que condicionesCatalogo en personas.service.ts, pero
+// con las dimensiones por nombre/sigla propias de /dotacion.
+function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
+  const conds: Prisma.Sql[] = []
   const inList = (col: Prisma.Sql, values?: string[]) => {
-    if (values?.length) conditions.push(Prisma.sql`${col} IN (${Prisma.join(values)})`)
+    if (values?.length) conds.push(Prisma.sql`${col} IN (${Prisma.join(values)})`)
   }
-  // IN de UUIDs (castea cada valor a ::uuid).
   const inUuid = (col: Prisma.Sql, values?: string[]) => {
-    if (values?.length) conditions.push(Prisma.sql`${col} IN (${Prisma.join(values.map((v) => Prisma.sql`${v}::uuid`))})`)
+    if (values?.length) conds.push(Prisma.sql`${col} IN (${Prisma.join(values.map((v) => Prisma.sql`${v}::uuid`))})`)
   }
 
   // ── Segmentación de hospital ──
-  inList(Prisma.sql`h.sigla`, query.sigla)
-  inList(Prisma.sql`h.universo_totalizador`, query.universoTotalizador)
-  inList(Prisma.sql`h.tipo`, query.tipoHospital)
-  inList(Prisma.sql`h.monovalencia`, query.monovalencia)
+  inList(Prisma.sql`h.sigla`, f.sigla)
+  inList(Prisma.sql`h.universo_totalizador`, f.universoTotalizador)
+  inList(Prisma.sql`h.tipo`, f.tipoHospital)
+  inList(Prisma.sql`h.monovalencia`, f.monovalencia)
 
   // ── Persona ──
-  inList(Prisma.sql`p.sexo`, query.sexo)
-  inList(Prisma.sql`p.especialidad_cph`, query.especialidadCph)
-  inList(Prisma.sql`p.provincia`, query.provincia)
-  inList(Prisma.sql`p.localidad`, query.localidad)
+  inList(Prisma.sql`p.sexo`, f.sexo)
+  inList(Prisma.sql`p.especialidad_cph`, f.especialidadCph)
+  inList(Prisma.sql`p.provincia`, f.provincia)
+  inList(Prisma.sql`p.localidad`, f.localidad)
 
   // ── Ocupación ──
-  inList(Prisma.sql`o.situacion_revista`, query.situacionRevista)
+  inList(Prisma.sql`o.situacion_revista`, f.situacionRevista)
 
   // ── Cargo ──
-  inList(Prisma.sql`c.descripcion_repa`, query.reparticion)
-  inList(Prisma.sql`c.regimen`, query.regimen)
-  inList(Prisma.sql`c.tipo_origen`, query.tipoOrigen)
-  inUuid(Prisma.sql`c.escalafon_id`, query.escalafonId)
-  inUuid(Prisma.sql`c.codigo_registro_id`, query.codigoRegistroId)
+  inList(Prisma.sql`c.descripcion_repa`, f.reparticion)
+  inList(Prisma.sql`c.regimen`, f.regimen)
+  inList(Prisma.sql`c.tipo_origen`, f.tipoOrigen)
+  inUuid(Prisma.sql`c.escalafon_id`, f.escalafonId)
+  inUuid(Prisma.sql`c.codigo_registro_id`, f.codigoRegistroId)
 
   // ── Catálogo del cargo (S21): NO cascada — cada filtro es independiente y
   // combinable. Puesto/especialidad por NOMBRE del catálogo (join a
   // puestos_cargo / especialidades_puesto por la FK del cargo), para poder
   // buscar sobre todo el catálogo sin fijar escalafón/puesto. Multi-select ⇒
   // IN (OR interno). ──
-  if (query.modalidad) {
-    conditions.push(Prisma.sql`EXISTS (
+  if (f.modalidad) {
+    conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM puestos_cargo pcm
-      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${query.modalidad}::"ModalidadPuesto"
+      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${f.modalidad}::"ModalidadPuesto"
     )`)
   }
-  if (query.puestoNombre?.length) {
-    conditions.push(Prisma.sql`EXISTS (
+  if (f.puestoNombre?.length) {
+    conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM puestos_cargo pcn
-      WHERE pcn.id = c.puesto_cargo_id AND pcn.nombre IN (${Prisma.join(query.puestoNombre)})
+      WHERE pcn.id = c.puesto_cargo_id AND pcn.nombre IN (${Prisma.join(f.puestoNombre)})
     )`)
   }
-  if (query.especialidadNombre?.length) {
-    conditions.push(Prisma.sql`EXISTS (
+  if (f.especialidadNombre?.length) {
+    conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM especialidades_puesto epn
-      WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(query.especialidadNombre)})
+      WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(f.especialidadNombre)})
     )`)
+  }
+
+  return conds
+}
+
+function buildConditions(query: DotacionQuery): Prisma.Sql[] {
+  const conditions: Prisma.Sql[] = []
+
+  // ── UNIONES (OR) ──────────────────────────────────────────────────────────
+  // El "grupo en edición" = las dimensiones sueltas de la query. Se combina con
+  // los `grupos` recibidos: cada grupo compila a un AND de sus dimensiones y
+  // entre grupos hay OR. Los filtros globales (búsqueda rápida, edad,
+  // antigüedad, soloJefes, estado) se aplican con AND sobre toda la unión.
+  const gruposDimensiones: DimensionesDotacion[] = [
+    ...(query.grupos ?? []),
+    {
+      sigla: query.sigla,
+      universoTotalizador: query.universoTotalizador,
+      tipoHospital: query.tipoHospital,
+      monovalencia: query.monovalencia,
+      sexo: query.sexo,
+      especialidadCph: query.especialidadCph,
+      provincia: query.provincia,
+      localidad: query.localidad,
+      situacionRevista: query.situacionRevista,
+      reparticion: query.reparticion,
+      regimen: query.regimen,
+      tipoOrigen: query.tipoOrigen,
+      escalafonId: query.escalafonId,
+      codigoRegistroId: query.codigoRegistroId,
+      modalidad: query.modalidad,
+      puestoNombre: query.puestoNombre,
+      especialidadNombre: query.especialidadNombre,
+    },
+  ]
+  const orClauses = gruposDimensiones
+    .map((g) => {
+      const conds = condicionesDimensiones(g)
+      return conds.length ? Prisma.sql`(${Prisma.join(conds, ' AND ')})` : null
+    })
+    .filter((c): c is Prisma.Sql => c !== null)
+  if (orClauses.length > 0) {
+    conditions.push(Prisma.sql`(${Prisma.join(orClauses, ' OR ')})`)
   }
 
   // ── Solo jefes: ocupación vigente con codigo_jefaturas no vacío ──
@@ -193,22 +262,48 @@ async function getDistinctValues(baseConditions: Prisma.Sql[]) {
     distinctCol(Prisma.sql`epd.nombre`),
   ])
 
+  // Universo / Tipo / Monovalencia salen del CATÁLOGO completo de hospitales
+  // (no del dataset filtrado): la clasificación de universo/monovalencia hoy
+  // solo está cargada en reparticiones administrativas que NO tienen dotación,
+  // así que facetar sobre la dotación los dejaba vacíos. Mostrar todas las
+  // opciones del catálogo permite elegirlas aunque devuelvan 0 (ej. "Nivel
+  // Central"). `sigla` sigue facetada sobre la dotación (es el selector real de
+  // reparticiones con personal). Ver análisis: 61/76 hospitales con dotación
+  // tienen universo/monovalencia vacíos.
+  const distinctHospital = async (col: Prisma.Sql) =>
+    (
+      await prisma.$queryRaw<{ value: string | null }[]>(Prisma.sql`
+        SELECT DISTINCT ${col} AS value FROM hospitales
+        WHERE activo = true AND ${col} IS NOT NULL AND trim(${col}) <> ''
+        ORDER BY 1
+      `)
+    )
+      .map((r) => r.value)
+      .filter((v): v is string => v !== null)
+
   const [sigla, universoTotalizador, tipoHospital, monovalencia] = await Promise.all([
     distinctCol(Prisma.sql`h.sigla`),
-    distinctCol(Prisma.sql`h.universo_totalizador`),
-    distinctCol(Prisma.sql`h.tipo`),
-    distinctCol(Prisma.sql`h.monovalencia`),
+    distinctHospital(Prisma.sql`universo_totalizador`),
+    distinctHospital(Prisma.sql`tipo`),
+    distinctHospital(Prisma.sql`monovalencia`),
   ])
 
-  // Código de registro con {id, nombre} — el filtro va por id (FK). La columna
-  // real es `literal` (no `nombre`); se expone como `nombre` al front.
+  // Código de registro con {id, codigo, nombre} — el filtro va por id (FK).
+  // `codigo` es el código real (24, 37, 85...) y `nombre` su literal/escalafón.
+  // El front muestra "codigo — nombre" porque hay literales repetidos entre
+  // códigos distintos (ej. 22 y 37 = "Nueva Carrera Profesional Hospitalaria"),
+  // así que el código es lo que los desambigua. Orden numérico por código.
   const codigoRegistro = (
-    await prisma.$queryRaw<{ id: string; nombre: string }[]>(Prisma.sql`
-      SELECT DISTINCT cr.id, cr.literal AS nombre ${BASE_FROM} ${andWhere}
-      AND cr.id IS NOT NULL
-      ORDER BY cr.literal
+    await prisma.$queryRaw<{ id: string; codigo: string; nombre: string }[]>(Prisma.sql`
+      SELECT id, codigo, nombre FROM (
+        SELECT DISTINCT cr.id, cr.codigo, cr.literal AS nombre ${BASE_FROM} ${andWhere}
+        AND cr.id IS NOT NULL
+      ) q
+      ORDER BY
+        NULLIF(regexp_replace(codigo, '[^0-9]', '', 'g'), '')::int NULLS LAST,
+        codigo
     `)
-  ).map((r) => ({ id: r.id, nombre: r.nombre }))
+  ).map((r) => ({ id: r.id, codigo: r.codigo, nombre: r.nombre }))
 
   return {
     distinctValues: {

@@ -19,6 +19,35 @@ const csv = () => z
   .optional()
   .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined))
 
+// Un grupo de la UNIÓN (OR) de /dotacion: un subconjunto de las mismas
+// dimensiones del filtro, combinadas con AND dentro del grupo (cada dimensión
+// sigue siendo multi-valor = OR interno). Varios grupos se combinan con OR
+// (ver `grupos` abajo y buildConditions en el servicio). A diferencia de
+// /personas (cascada de catálogo por IDs), acá cada grupo replica las
+// dimensiones por nombre/sigla propias de /dotacion. Los arrays llegan ya
+// parseados (JSON), no como CSV.
+export const grupoDotacionSchema = z.object({
+  sigla: z.array(z.string()).optional(),
+  escalafonId: z.array(z.string().uuid()).optional(),
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
+  puestoNombre: z.array(z.string()).optional(),
+  especialidadNombre: z.array(z.string()).optional(),
+  codigoRegistroId: z.array(z.string().uuid()).optional(),
+  regimen: z.array(z.string()).optional(),
+  tipoOrigen: z.array(z.string()).optional(),
+  sexo: z.array(z.string()).optional(),
+  situacionRevista: z.array(z.string()).optional(),
+  reparticion: z.array(z.string()).optional(),
+  especialidadCph: z.array(z.string()).optional(),
+  provincia: z.array(z.string()).optional(),
+  localidad: z.array(z.string()).optional(),
+})
+
+export type GrupoDotacion = z.infer<typeof grupoDotacionSchema>
+
+const esGrupoNoVacio = (g: GrupoDotacion) =>
+  Object.values(g).some((x) => (Array.isArray(x) ? x.length > 0 : x != null))
+
 export const dotacionQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -28,6 +57,25 @@ export const dotacionQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => v === 'true'),
+
+  // UNIONES (OR): llega como JSON string en `grupos`. Cada grupo es un AND de
+  // sus dimensiones; los grupos se combinan con OR. Los filtros sueltos de
+  // abajo siguen aplicándose con AND sobre toda la unión (igual que /personas).
+  grupos: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (!v) return undefined
+      try {
+        const parsed = JSON.parse(v)
+        const arr = z.array(grupoDotacionSchema).max(20).parse(parsed)
+        const noVacios = arr.filter(esGrupoNoVacio)
+        return noVacios.length ? noVacios : undefined
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'grupos: JSON inválido' })
+        return z.NEVER
+      }
+    }),
 
   // Segmentación de hospitales (multi-select, CSV)
   sigla: csv(),

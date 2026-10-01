@@ -7,12 +7,22 @@ import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
-import { capitalizar } from '@/shared/lib/utils'
+import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 import { DotacionKpisPanel } from '../components/DotacionKpisPanel'
 import {
   useDotacion, toDotacionParams,
-  type DotacionFilters, type DotacionListResponse, type DotacionRow,
+  type DotacionFilters, type DotacionListResponse, type DotacionRow, type GrupoDotacion,
 } from '../hooks/useDotacion'
+
+// Dimensiones que participan de las UNIONES (OR). Son las que se "congelan" en
+// un grupo al apretar "+ Unión". Las búsquedas rápidas, edad/antigüedad, solo
+// jefes y estado NO entran al grupo: se aplican como filtros globales (AND).
+const DIMENSIONES_UNION = [
+  'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
+  'escalafonId', 'modalidad', 'puestoNombre', 'especialidadNombre',
+  'codigoRegistroId', 'regimen', 'tipoOrigen',
+  'sexo', 'situacionRevista', 'reparticion', 'especialidadCph', 'provincia', 'localidad',
+] as const
 
 const LIMIT = 50
 
@@ -86,6 +96,19 @@ export function DotacionPage() {
   const page = Number(searchParams.get('page') ?? '1')
   const sortBy = searchParams.get('sortBy') ?? undefined
   const sortDir = (searchParams.get('sortDir') as 'asc' | 'desc' | null) ?? 'asc'
+
+  // Uniones (OR) ya fijadas — persistidas como JSON en el searchParam `grupos`.
+  const grupos: GrupoDotacion[] = (() => {
+    const raw = searchParams.get('grupos')
+    if (!raw) return []
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? (parsed as GrupoDotacion[]) : []
+    } catch {
+      return []
+    }
+  })()
+
   const sigla = searchParams.get('sigla') ?? ''
   const escalafonId = getCsv(searchParams, 'escalafonId')
   const codigoRegistroId = getCsv(searchParams, 'codigoRegistroId')
@@ -114,6 +137,21 @@ export function DotacionPage() {
     setParam(key, values.join(','))
   }
 
+  // Guarda la lista de grupos como JSON en la URL (o la borra si queda vacía).
+  function setGrupos(next: GrupoDotacion[]) {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (next.length) params.set('grupos', JSON.stringify(next))
+      else params.delete('grupos')
+      params.delete('page')
+      return params
+    })
+  }
+
+  function quitarGrupo(index: number) {
+    setGrupos(grupos.filter((_, i) => i !== index))
+  }
+
   function setPage(p: number) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -138,6 +176,7 @@ export function DotacionPage() {
 
   const filters: DotacionFilters = {
     page, limit: LIMIT, sortBy, sortDir,
+    ...(grupos.length && { grupos }),
     ...(sigla && { sigla: [sigla] }),
     ...(getCsv(searchParams, 'universoTotalizador').length && { universoTotalizador: getCsv(searchParams, 'universoTotalizador') }),
     ...(getCsv(searchParams, 'tipoHospital').length && { tipoHospital: getCsv(searchParams, 'tipoHospital') }),
@@ -189,9 +228,67 @@ export function DotacionPage() {
     const e = escalafonesOrdenados.find((x) => x.id === id)
     return e ? escalafonLabel(e.nombre) : id
   }
-  const codigoRegistroOptions = codigosRegistro.map((c) => c.nombre)
-  const codigoRegistroNombreToId = (nombre: string) => codigosRegistro.find((c) => c.nombre === nombre)?.id ?? ''
-  const codigoRegistroIdToNombre = (id: string) => codigosRegistro.find((c) => c.id === id)?.nombre ?? id
+  // Etiqueta "codigo — literal" (ej. "24 — Residencias"): el código desambigua
+  // literales repetidos (22 y 37 comparten "Nueva Carrera Prof. Hosp").
+  const codigoRegistroLabel = (c: { codigo: string; nombre: string }) => `${c.codigo} — ${c.nombre}`
+  const codigoRegistroOptions = codigosRegistro.map(codigoRegistroLabel)
+  const codigoRegistroNombreToId = (label: string) => codigosRegistro.find((c) => codigoRegistroLabel(c) === label)?.id ?? ''
+  const codigoRegistroIdToNombre = (id: string) => {
+    const c = codigosRegistro.find((x) => x.id === id)
+    return c ? codigoRegistroLabel(c) : id
+  }
+
+  // ¿Hay dimensiones de unión seteadas en el "grupo en edición" (filtros sueltos)?
+  const hayDimensionEnEdicion = DIMENSIONES_UNION.some((k) => {
+    if (k === 'modalidad') return Boolean(modalidad)
+    if (k === 'sigla') return Boolean(sigla)
+    return getCsv(searchParams, k).length > 0
+  })
+
+  // Toma las dimensiones actuales (grupo en edición), las congela como una nueva
+  // unión con etiquetas legibles para los chips, y limpia esos filtros sueltos
+  // para armar el próximo grupo. Las búsquedas rápidas / rangos / solo jefes NO
+  // se tocan (son filtros globales AND).
+  function agregarUnion() {
+    if (!hayDimensionEnEdicion) return
+    const g: GrupoDotacion = {}
+    const labels: string[] = []
+
+    const addArr = (key: Exclude<keyof GrupoDotacion, 'labels' | 'modalidad'>, valores: string[], chip: (v: string) => string = (v) => v) => {
+      if (valores.length) {
+        g[key] = valores
+        labels.push(valores.map(chip).join(' / '))
+      }
+    }
+
+    if (sigla) addArr('sigla', [sigla])
+    addArr('universoTotalizador', getCsv(searchParams, 'universoTotalizador'), capitalizarEtiqueta)
+    addArr('tipoHospital', getCsv(searchParams, 'tipoHospital'), capitalizarEtiqueta)
+    addArr('monovalencia', getCsv(searchParams, 'monovalencia'), capitalizarEtiqueta)
+    addArr('escalafonId', getCsv(searchParams, 'escalafonId'), escalafonIdToNombre)
+    if (modalidad) { g.modalidad = modalidad; labels.push(modalidad === 'pof' ? 'POF' : 'POU') }
+    addArr('puestoNombre', getCsv(searchParams, 'puestoNombre'), capitalizar)
+    addArr('especialidadNombre', getCsv(searchParams, 'especialidadNombre'), capitalizar)
+    addArr('codigoRegistroId', getCsv(searchParams, 'codigoRegistroId'), codigoRegistroIdToNombre)
+    addArr('regimen', getCsv(searchParams, 'regimen'))
+    addArr('tipoOrigen', getCsv(searchParams, 'tipoOrigen'), tipoOrigenLabel)
+    addArr('sexo', getCsv(searchParams, 'sexo'))
+    addArr('situacionRevista', getCsv(searchParams, 'situacionRevista'))
+    addArr('reparticion', getCsv(searchParams, 'reparticion'))
+    addArr('especialidadCph', getCsv(searchParams, 'especialidadCph'))
+    addArr('provincia', getCsv(searchParams, 'provincia'))
+    addArr('localidad', getCsv(searchParams, 'localidad'))
+    g.labels = labels
+
+    // Agrega el grupo y limpia las dimensiones sueltas en una sola actualización.
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      params.set('grupos', JSON.stringify([...grupos, g]))
+      for (const k of DIMENSIONES_UNION) params.delete(k)
+      params.delete('page')
+      return params
+    })
+  }
 
   async function handleExport(kind: 'pagina' | 'completo') {
     if (!data) return
@@ -292,6 +389,12 @@ export function DotacionPage() {
       {hasActiveFilters && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex items-center gap-3">
           <span className="text-xs text-gray-500">Filtros activos</span>
+          {grupos.length > 0 && (
+            <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
+              {grupos.length} {grupos.length === 1 ? 'unión' : 'uniones'} (O)
+              <button onClick={() => setGrupos([])} className="hover:text-danger">×</button>
+            </span>
+          )}
           {estadoFilter && (
             <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
               {estadoFilter}
@@ -403,6 +506,47 @@ export function DotacionPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-5">
 
+              {/* Uniones (OR): grupos ya fijados + acción para fijar el actual */}
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Uniones (O)</p>
+                  <button
+                    type="button"
+                    onClick={agregarUnion}
+                    disabled={!hayDimensionEnEdicion}
+                    title="Fijar los filtros de abajo como una unión (OR) y empezar otra combinación"
+                    className="h-8 px-3 rounded border border-secondary text-secondary text-xs font-semibold hover:bg-secondary/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    + Unión
+                  </button>
+                </div>
+                {grupos.length === 0 ? (
+                  <p className="text-xs text-gray-400">
+                    Combiná filtros abajo y tocá <span className="font-semibold">+ Unión</span> para
+                    sumar un conjunto. Los conjuntos se unen con O (ej. “psicólogos del Hospital A” O “enfermeros del Hospital B”).
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {grupos.map((g, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-1 text-xs font-medium text-secondary"
+                      >
+                        {(g.labels && g.labels.length ? g.labels.join(' · ') : 'Filtro')}
+                        <button
+                          type="button"
+                          onClick={() => quitarGrupo(i)}
+                          className="ml-0.5 hover:text-secondary/60"
+                          aria-label="Quitar unión"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Repartición</p>
                 <select
@@ -421,6 +565,7 @@ export function DotacionPage() {
                       value={getCsv(searchParams, key)}
                       options={data?.siglasDistinctValues?.[key as 'universoTotalizador' | 'tipoHospital' | 'monovalencia'] ?? []}
                       onChange={(v) => setCsvParam(key, v)}
+                      formatOption={capitalizarEtiqueta}
                     />
                   ))}
                 </div>
