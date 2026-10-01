@@ -3,63 +3,22 @@ import type { KpiDotacionHistorica } from '@srrhh/types'
 
 // Nombres canónicos = escalafones.nombre (activo=true) de la BD.
 // El backend resuelve via cargo→escalafon_id→escalafones, nunca el campo texto desnormalizado.
-const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; colorLight: string }[] = [
-  {
-    label: 'Nueva Carrera Prof. Hosp',
-    // El nombre canónico en la BD es "Nueva Carrera Prof. Hosp" (corto). Antes
-    // apuntaba a "Nueva Carrera Profesional Hospitalaria" (que existe vacío) →
-    // el grupo más grande (19k cargos) daba 0 y aparecía "sin mapear".
-    escalafones: ['Nueva Carrera Prof. Hosp'],
-    color: '#1D6FA4',
-    colorLight: '#DBEAFE',
-  },
-  {
-    label: 'Nueva Carrera Enfermería',
-    escalafones: ['Nueva Carrera Enfermería'],
-    color: '#0E9F8E',
-    colorLight: '#CCFBF1',
-  },
-  {
-    label: 'Nueva Carrera Administrativa',
-    escalafones: ['Nueva Carrera Administrativa'],
-    color: '#2D7D46',
-    colorLight: '#DCFCE7',
-  },
-  {
-    label: 'Guardias y Residencias',
-    // "Residencias" es el nombre real en BD (antes "Residentes", vacío).
-    escalafones: ['Salud - Guardias', 'Residencias'],
-    color: '#5B6FA8',
-    colorLight: '#E0E7FF',
-  },
-  {
-    label: 'CEETPS',
-    escalafones: ['CEETPS'],
-    color: '#7C3AED',
-    colorLight: '#EDE9FE',
-  },
-  {
-    label: 'Régimen Modular / Transitorio',
-    escalafones: [
-      'Régimen Modular Extraordinario PG',
-      'Plantas Transitorias Acta 06/2014',
-      'Plantas Transitorias Modulo Operativo',
-    ],
-    color: '#A07840',
-    colorLight: '#FEF3C7',
-  },
-  {
-    label: 'Otros / Fuera de Escala',
-    escalafones: [
-      'Gabinete',
-      'Autoridades Superiores',
-      'Docentes', // nombre real en BD (antes "Docentes Históricos", vacío)
-      'Carrera Gerencial',
-      'Cuerpo Especialistas Profesionales',
-    ],
-    color: '#6B7280',
-    colorLight: '#F3F4F6',
-  },
+// Un gráfico por cada escalafón presente en los datos (data.escalafones),
+// sin agrupar: la paleta se asigna por índice de forma rotativa.
+const PALETA: { color: string; colorLight: string }[] = [
+  { color: '#1D6FA4', colorLight: '#DBEAFE' },
+  { color: '#0E9F8E', colorLight: '#CCFBF1' },
+  { color: '#2D7D46', colorLight: '#DCFCE7' },
+  { color: '#5B6FA8', colorLight: '#E0E7FF' },
+  { color: '#7C3AED', colorLight: '#EDE9FE' },
+  { color: '#A07840', colorLight: '#FEF3C7' },
+  { color: '#C2410C', colorLight: '#FFEDD5' },
+  { color: '#BE185D', colorLight: '#FCE7F3' },
+  { color: '#4D7C0F', colorLight: '#ECFCCB' },
+  { color: '#0369A1', colorLight: '#E0F2FE' },
+  { color: '#6D28D9', colorLight: '#F3E8FF' },
+  { color: '#B45309', colorLight: '#FEF9C3' },
+  { color: '#6B7280', colorLight: '#F3F4F6' },
 ]
 
 // ─── Dimensiones del mini-gráfico ───────────────────────────────────────────
@@ -106,19 +65,25 @@ interface Props {
 }
 
 export function EvolucionDotacionChart({ data }: Props) {
-  const agrupacion = 'subida' as const
+  // Cada punto que entrega el backend ahora es el cierre de un mes (el padrón
+  // de fecha más tardía de ese mes), así que el eje X se rotula por mes.
+  const agrupacion = 'mes' as const
   const puntos = data?.puntos ?? []
   const todosEscalafones = data?.escalafones ?? []
 
-  const seriesPorGrupo = useMemo(() =>
-    MACRO_GRUPOS.map((g) => ({
-      ...g,
-      valores: puntos.map((p) =>
-        g.escalafones.reduce((s, e) => s + (p.porEscalafon[e] ?? 0), 0)
-      ),
-    })),
-    [puntos]
-  )
+  // Una serie por cada escalafón presente, ordenadas por dotación actual
+  // (la del último punto) de mayor a menor para que los más grandes vayan primero.
+  const seriesPorEscalafon = useMemo(() => {
+    const ultimo = puntos[puntos.length - 1]
+    return todosEscalafones
+      .map((nombre, i) => ({
+        label: nombre,
+        valores: puntos.map((p) => p.porEscalafon[nombre] ?? 0),
+        actual: ultimo?.porEscalafon[nombre] ?? 0,
+        ...PALETA[i % PALETA.length]!,
+      }))
+      .sort((a, b) => b.actual - a.actual)
+  }, [puntos, todosEscalafones])
 
   const { totalActual, totalInicio, variacionNeta, variacionPct, grupoMayorCrecimiento } = useMemo(() => {
     if (puntos.length === 0) return { totalActual: 0, totalInicio: 0, variacionNeta: 0, variacionPct: 0, grupoMayorCrecimiento: '—' }
@@ -131,14 +96,14 @@ export function EvolucionDotacionChart({ data }: Props) {
 
     let maxCrecimiento = -Infinity
     let grupoMayorCrecimiento = '—'
-    for (const g of seriesPorGrupo) {
+    for (const g of seriesPorEscalafon) {
       const inicio = g.valores[0] ?? 0
       const fin = g.valores[g.valores.length - 1] ?? 0
       const delta = fin - inicio
       if (delta > maxCrecimiento) { maxCrecimiento = delta; grupoMayorCrecimiento = g.label }
     }
     return { totalActual, totalInicio, variacionNeta, variacionPct, grupoMayorCrecimiento }
-  }, [puntos, todosEscalafones, seriesPorGrupo])
+  }, [puntos, todosEscalafones, seriesPorEscalafon])
 
   const fechaCorte = puntos.length > 0
     ? new Date(puntos[puntos.length - 1]!.fecha).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' })
@@ -151,9 +116,6 @@ export function EvolucionDotacionChart({ data }: Props) {
   if (puntos.length < 3) {
     return <p className="text-sm text-gray-400">Se necesitan al menos 3 snapshots completos para mostrar la evolución. Hay {puntos.length} disponible{puntos.length !== 1 ? 's' : ''} hasta ahora.</p>
   }
-
-  const escalafonesMapeados = new Set(MACRO_GRUPOS.flatMap((g) => g.escalafones))
-  const sinMapear = todosEscalafones.filter((e) => !escalafonesMapeados.has(e))
 
   return (
     <div className="space-y-5">
@@ -178,24 +140,18 @@ export function EvolucionDotacionChart({ data }: Props) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {seriesPorGrupo.map((grupo) => (
+        {seriesPorEscalafon.map((esc) => (
           <MiniLineChart
-            key={grupo.label}
-            label={grupo.label}
-            valores={grupo.valores}
-            color={grupo.color}
-            colorLight={grupo.colorLight}
+            key={esc.label}
+            label={esc.label}
+            valores={esc.valores}
+            color={esc.color}
+            colorLight={esc.colorLight}
             fechas={puntos.map((p) => p.fecha)}
             agrupacion={agrupacion}
           />
         ))}
       </div>
-
-      {sinMapear.length > 0 && (
-        <p className="text-xs text-gray-400">
-          Escalafones sin mapear: {sinMapear.join(', ')}
-        </p>
-      )}
     </div>
   )
 }

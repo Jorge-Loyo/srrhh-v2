@@ -396,23 +396,41 @@ export async function getKpisDotacionHistoricaService(_query: KpisDotacionHistor
     orderBy: [{ fecha: 'asc' }, { escalafon: 'asc' }],
   })
 
+  // Un punto por mes = el padrón de cierre, o sea el snapshot cuya fecha es la
+  // más tardía dentro de ese mes calendario. Si en un mes hubo varias subidas
+  // (ej. 04/01 y 11/01) sólo graficamos la última (11/01). Agrupamos por el
+  // par año-mes y nos quedamos con la fecha máxima de cada grupo.
+  const fechasCierrePorMes = new Map<string, Date>()
+  for (const r of rows) {
+    const mesKey = r.fecha.toISOString().slice(0, 7) // YYYY-MM
+    const actual = fechasCierrePorMes.get(mesKey)
+    if (!actual || r.fecha > actual) fechasCierrePorMes.set(mesKey, r.fecha)
+  }
+  const fechasCierre = new Set(
+    [...fechasCierrePorMes.values()].map((f) => f.toISOString().slice(0, 10))
+  )
+
   type PuntoMap = Map<string, { fecha: Date; porEscalafon: Record<string, number> }>
   const porFecha: PuntoMap = new Map()
   const escalafonesSet = new Set<string>()
 
   for (const r of rows) {
     const key = r.fecha.toISOString().slice(0, 10)
+    // Sólo las fechas de cierre de cada mes entran al gráfico.
+    if (!fechasCierre.has(key)) continue
     if (!porFecha.has(key)) porFecha.set(key, { fecha: r.fecha, porEscalafon: {} })
     porFecha.get(key)!.porEscalafon[r.escalafon] = r.personas
     escalafonesSet.add(r.escalafon)
   }
 
   const escalafones = [...escalafonesSet].sort()
-  const puntos = [...porFecha.values()].map((p) => ({
-    fecha: p.fecha,
-    total: Object.values(p.porEscalafon).reduce((s, v) => s + v, 0),
-    porEscalafon: p.porEscalafon,
-  }))
+  const puntos = [...porFecha.values()]
+    .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
+    .map((p) => ({
+      fecha: p.fecha,
+      total: Object.values(p.porEscalafon).reduce((s, v) => s + v, 0),
+      porEscalafon: p.porEscalafon,
+    }))
 
   return { escalafones, puntos }
 }
@@ -479,12 +497,6 @@ export async function getKpisBajasService(query: KpisBajasQuery) {
 const ESPECIALIDAD_VACIA = '(sin especialidad)'
 
 const PUESTO_VACIO = '(SIN PUESTO)'
-
-// Umbral para considerar que un snapshot es una "foto completa" del padrón (y no
-// una carga incremental/parcial). Las fotos completas rondan 28k–48k filas; las
-// parciales, cientos. Solo los meses con al menos una foto completa se grafican,
-// y de cada mes se toma esa foto (la de mayor volumen) — sin arrastrar semanas.
-const UMBRAL_SNAPSHOT_COMPLETO = 10000
 
 // Normaliza especialidad a una clave canónica. '' y 'SIN ESPECIALIDAD' → una
 // única etiqueta. Se aplica unaccent + upper + trim para que variantes que solo
@@ -637,7 +649,13 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
 // y por encima del umbral). Los meses que solo tienen cargas parciales quedan
 // fuera — no hay foto real del padrón ese mes. Es la "foto de la última semana
 // con datos completos" (Opción A). Acota por rango mesDesde/mesHasta.
-function snapshotCompletoPorMesSql(mesDesde?: string, mesHasta?: string) {
+// Cortes mensuales = fecha de cierre de cada mes (el padrón aprobado de fecha
+// más tardía dentro del mes). El padrón NO se sube completo cada semana: la
+// primera carga trae toda la foto y las siguientes son incrementales (altas,
+// bajas y modificaciones). Por eso NO sirve elegir "el snapshot más grande del
+// mes" — hay que reconstruir el estado activo ACUMULADO a cada corte, igual que
+// kpis_dotacion_snapshot (ver scripts/backfill_kpis_dotacion.sql).
+function cortesMensualesSql(mesDesde?: string, mesHasta?: string) {
   const mesDesdeFilter = mesDesde
     ? Prisma.sql`AND date_trunc('month', fecha_asignada) >= to_date(${mesDesde}, 'YYYY-MM')`
     : Prisma.empty
@@ -645,19 +663,59 @@ function snapshotCompletoPorMesSql(mesDesde?: string, mesHasta?: string) {
     ? Prisma.sql`AND date_trunc('month', fecha_asignada) <= to_date(${mesHasta}, 'YYYY-MM')`
     : Prisma.empty
   return Prisma.sql`
-    WITH tam AS (
-      SELECT fecha_asignada, date_trunc('month', fecha_asignada) AS mes, count(*)::int AS filas
-      FROM padron_historico
-      WHERE true ${mesDesdeFilter} ${mesHastaFilter}
-      GROUP BY 1, 2
+    SELECT DISTINCT
+      date_trunc('month', fecha_asignada) AS mes,
+      max(fecha_asignada) OVER (PARTITION BY date_trunc('month', fecha_asignada)) AS corte
+    FROM padron_snapshots
+    WHERE estado = 'aprobado' ${mesDesdeFilter} ${mesHastaFilter}
+  `
+}
+
+// Estado activo acumulado a cada corte: para cada id_sial_rol vigente en el
+// corte, su fila de padron_historico más reciente con fecha_asignada <= corte
+// (trae puesto/especialidad/sigla/cargo vigentes en ese momento). Un rol está
+// vigente si apareció alguna vez <= corte y no fue dado de baja (padron_diff
+// 'eliminado') sin un alta posterior <= corte. Mismo criterio que el backfill
+// de kpis_dotacion_snapshot, pero conservando las dimensiones de padron_historico.
+function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
+  return Prisma.sql`
+    WITH cortes AS (${cortesMensualesSql(mesDesde, mesHasta)}),
+    bajas AS (
+      SELECT d.id_sial_rol, ps.fecha_asignada AS fecha_baja
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id
+      WHERE d.tipo = 'eliminado'
     ),
-    elegido AS (
-      SELECT mes, fecha_asignada, filas,
-        row_number() OVER (PARTITION BY mes ORDER BY filas DESC, fecha_asignada DESC) AS rn
-      FROM tam
-      WHERE filas >= ${UMBRAL_SNAPSHOT_COMPLETO}
+    -- Última fila conocida de cada rol a cada corte (la foto vigente del rol
+    -- en ese mes). DISTINCT ON toma la fecha_asignada más alta <= corte.
+    vigente AS (
+      SELECT DISTINCT ON (c.corte, ph.id_sial_rol)
+        c.corte,
+        c.mes,
+        ph.id_sial_rol,
+        ph.persona_id,
+        ph.cargo_id,
+        ph.literal_puesto,
+        ph.especialidad,
+        ph.hospital_sigla,
+        ph.situacion_revista
+      FROM cortes c
+      JOIN padron_historico ph ON ph.fecha_asignada <= c.corte
+      ORDER BY c.corte, ph.id_sial_rol, ph.fecha_asignada DESC
     )
-    SELECT mes, fecha_asignada FROM elegido WHERE rn = 1
+    SELECT v.*
+    FROM vigente v
+    WHERE NOT EXISTS (
+      SELECT 1 FROM bajas b
+      WHERE b.id_sial_rol = v.id_sial_rol
+        AND b.fecha_baja <= v.corte
+        AND NOT EXISTS (
+          SELECT 1 FROM padron_historico ph3
+          WHERE ph3.id_sial_rol = v.id_sial_rol
+            AND ph3.fecha_asignada > b.fecha_baja
+            AND ph3.fecha_asignada <= v.corte
+        )
+    )
   `
 }
 
@@ -670,20 +728,7 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
   const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura }
 
   const rows = await prisma.$queryRaw<{ mes: string; cantidad: bigint }[]>(Prisma.sql`
-    WITH snap AS (${snapshotCompletoPorMesSql(mesDesde, mesHasta)}),
-    -- Filas del snapshot completo de cada mes (sin arrastre de otras semanas).
-    ult AS (
-      SELECT
-        s.mes,
-        ph.persona_id,
-        ph.cargo_id,
-        ph.literal_puesto,
-        ph.especialidad,
-        ph.hospital_sigla,
-        ph.situacion_revista
-      FROM snap s
-      JOIN padron_historico ph ON ph.fecha_asignada = s.fecha_asignada
-    )
+    WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)})
     SELECT
       to_char(ult.mes, 'YYYY-MM') AS mes,
       -- Dedup espejo jefatura: personas distintas por repartición + puesto
@@ -739,16 +784,20 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
       mesFoto: string
     }[]
   >(Prisma.sql`
-    WITH snap AS (${snapshotCompletoPorMesSql(mesDesde, mesHasta)}),
-    -- Se toma el snapshot completo MÁS RECIENTE del rango (misma foto que el
-    -- último punto graficado). Sin arrastre de otras semanas.
+    WITH acum AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)}),
+    -- Estado acumulado del ÚLTIMO corte del rango = misma foto que el último
+    -- punto graficado. join a personas para traer cuil/apellido-nombre.
     mes_objetivo AS (
-      SELECT mes, fecha_asignada FROM snap ORDER BY mes DESC LIMIT 1
+      SELECT max(mes) AS mes FROM acum
     ),
     ult AS (
-      SELECT ph.*
-      FROM mes_objetivo mo
-      JOIN padron_historico ph ON ph.fecha_asignada = mo.fecha_asignada
+      SELECT
+        a.*,
+        pe.cuil AS cuil,
+        pe.apellido_nombre AS apellido_nombre
+      FROM acum a
+      JOIN mes_objetivo mo ON a.mes = mo.mes
+      LEFT JOIN personas pe ON pe.id = a.persona_id
     ),
     -- Dedup espejo jefatura: un registro por persona + repartición + puesto.
     dedup AS (
@@ -757,14 +806,14 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
         row_number() OVER (
           PARTITION BY ult.persona_id, coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
                        ${puestoNormalizadoSql('ult')}
-          ORDER BY ult.id
+          ORDER BY ult.id_sial_rol
         ) AS drn
       FROM ult
       WHERE ult.situacion_revista = 'Activo'
     )
     SELECT
       d.cuil,
-      p.apellido_nombre AS "apellidoNombre",
+      d.apellido_nombre AS "apellidoNombre",
       d.hospital_sigla AS "efectorSigla",
       e.nombre AS carrera,
       d.literal_puesto AS "literalPuesto",
@@ -782,10 +831,9 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
     FROM dedup d
     JOIN cargos c ON c.id = d.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    LEFT JOIN personas p ON p.id = d.persona_id
     WHERE d.drn = 1
       ${construirFiltros('d', filtros)}
-    ORDER BY e.nombre, d.literal_puesto, p.apellido_nombre
+    ORDER BY e.nombre, d.literal_puesto, d.apellido_nombre
   `)
 
   // Filas del Excel con encabezados legibles (formato del padrón semanal).
