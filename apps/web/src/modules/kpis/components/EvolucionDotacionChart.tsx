@@ -6,7 +6,10 @@ import type { KpiDotacionHistorica } from '@srrhh/types'
 const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; colorLight: string }[] = [
   {
     label: 'Nueva Carrera Prof. Hosp',
-    escalafones: ['Nueva Carrera Profesional Hospitalaria'],
+    // El nombre canónico en la BD es "Nueva Carrera Prof. Hosp" (corto). Antes
+    // apuntaba a "Nueva Carrera Profesional Hospitalaria" (que existe vacío) →
+    // el grupo más grande (19k cargos) daba 0 y aparecía "sin mapear".
+    escalafones: ['Nueva Carrera Prof. Hosp'],
     color: '#1D6FA4',
     colorLight: '#DBEAFE',
   },
@@ -24,7 +27,8 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
   },
   {
     label: 'Guardias y Residencias',
-    escalafones: ['Salud - Guardias', 'Residentes'],
+    // "Residencias" es el nombre real en BD (antes "Residentes", vacío).
+    escalafones: ['Salud - Guardias', 'Residencias'],
     color: '#5B6FA8',
     colorLight: '#E0E7FF',
   },
@@ -49,7 +53,7 @@ const MACRO_GRUPOS: { label: string; escalafones: string[]; color: string; color
     escalafones: [
       'Gabinete',
       'Autoridades Superiores',
-      'Docentes Históricos',
+      'Docentes', // nombre real en BD (antes "Docentes Históricos", vacío)
       'Carrera Gerencial',
       'Cuerpo Especialistas Profesionales',
     ],

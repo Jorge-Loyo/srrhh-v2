@@ -329,7 +329,9 @@ export async function getBajasSialDiffService(id: string, query: DiffQuery) {
   if (!snapRows.length) throw AppError.notFound('Snapshot no encontrado')
   const snapshot = snapRows[0]
 
-  const tipoFilter = query.tipo ? `AND tipo = $2` : ''
+  // `tipo` es el enum Postgres "TipoDiff" — hay que castear el parámetro de
+  // texto a ese enum, si no Postgres tira `operator does not exist: "TipoDiff" = text`.
+  const tipoFilter = query.tipo ? `AND tipo = $2::"TipoDiff"` : ''
   const tipoParam  = query.tipo ? [query.tipo] : []
   const offset = (query.page - 1) * query.limit
 

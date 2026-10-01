@@ -7,6 +7,12 @@
 -- migraciones viejas los defaulteaban en la BD; el baseline Prisma no). Se
 -- setean defaults temporales, se corren los INSERT y se quitan al final.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Búsqueda sin tildes (unaccent) y por similitud (pg_trgm / similarity()) — las
+-- usan varios $queryRaw (cargos, personas, concursos-cph, padron, kpis). Sin
+-- estas extensiones esas queries fallan con "function unaccent/similarity does
+-- not exist" (ej. filtros de la pantalla Evolución por carrera/especialidad).
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ALTER TABLE "roles"    ALTER COLUMN "id" SET DEFAULT gen_random_uuid(), ALTER COLUMN "updated_at" SET DEFAULT now();
 ALTER TABLE "permisos" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 
