@@ -688,11 +688,14 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
     ),
     -- Última fila conocida de cada rol a cada corte (la foto vigente del rol
     -- en ese mes). DISTINCT ON toma la fecha_asignada más alta <= corte.
+    -- id_sial = las 2 primeras partes de id_sial_rol ('{idSial}-{cuil}-{seq}'),
+    -- que es el formato corto que usa padron_diff para las bajas.
     vigente AS (
       SELECT DISTINCT ON (c.corte, ph.id_sial_rol)
         c.corte,
         c.mes,
         ph.id_sial_rol,
+        split_part(ph.id_sial_rol, '-', 1) || '-' || split_part(ph.id_sial_rol, '-', 2) AS id_sial,
         ph.persona_id,
         ph.cargo_id,
         ph.literal_puesto,
@@ -707,7 +710,7 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
     FROM vigente v
     WHERE NOT EXISTS (
       SELECT 1 FROM bajas b
-      WHERE b.id_sial_rol = v.id_sial_rol
+      WHERE b.id_sial_rol = v.id_sial
         AND b.fecha_baja <= v.corte
         AND NOT EXISTS (
           SELECT 1 FROM padron_historico ph3
