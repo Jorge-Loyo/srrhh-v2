@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 
 export interface DotacionRow {
@@ -123,6 +123,8 @@ export interface DotacionFilters {
   antiguedadMin?: number
   antiguedadMax?: number
   estado?: string
+  // Fecha de corte 'YYYY-MM' (foto histórica). Vacío = estado actual.
+  mesCorte?: string
 }
 
 const CSV_KEYS: (keyof DotacionFilters)[] = [
@@ -171,6 +173,7 @@ export function toDotacionParams(filters: DotacionFilters): Record<string, strin
   if (filters.antiguedadMin !== undefined) params.antiguedadMin = filters.antiguedadMin
   if (filters.antiguedadMax !== undefined) params.antiguedadMax = filters.antiguedadMax
   if (filters.estado) params.estado = filters.estado
+  if (filters.mesCorte) params.mesCorte = filters.mesCorte
   return params
 }
 
@@ -199,6 +202,44 @@ export function useDotacionKpis(hospitalId?: string) {
       const res = await apiClient.get<{ data: DotacionKpis }>('/api/v1/dotacion/kpis', {
         params: hospitalId ? { hospitalId } : {},
       })
+      return res.data.data
+    },
+  })
+}
+
+// Exporta a Excel TODO el resultado del filtro actual (server-side, sin
+// paginar). Reusa los mismos filtros/uniones que el listado via toDotacionParams
+// (se descarta la paginación). Patrón blob → <a download>.
+export function useExportDotacion() {
+  return useMutation({
+    mutationFn: async (filters: DotacionFilters) => {
+      const { page: _p, limit: _l, skipDistinct: _s, ...resto } = filters
+      const params = toDotacionParams({ ...resto, page: 1, limit: 1 })
+      delete (params as Record<string, unknown>).page
+      delete (params as Record<string, unknown>).limit
+      const res = await apiClient.get('/api/v1/dotacion/export', { params, responseType: 'blob' })
+      const url = URL.createObjectURL(res.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dotacion_${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+  })
+}
+
+// Meses disponibles para el selector de "Fecha de corte" (foto histórica).
+// Cada uno es el cierre de un mes con padrón aprobado.
+export interface DotacionCorte {
+  mes: string // 'YYYY-MM'
+  corte: string // fecha ISO del snapshot de cierre
+}
+
+export function useDotacionCortes() {
+  return useQuery({
+    queryKey: ['dotacion-cortes'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: DotacionCorte[] }>('/api/v1/dotacion/cortes')
       return res.data.data
     },
   })

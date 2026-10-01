@@ -1,6 +1,12 @@
 import { Prisma } from '@prisma/client'
+import { createRequire } from 'node:module'
 import { prisma } from '../../shared/prisma.js'
 import type { DotacionQuery, DotacionKpisQuery } from './dotacion.schema.js'
+
+// xlsx es CJS — mismo patrón que kpis.service (createRequire en ESM).
+const requireXlsx = createRequire(import.meta.url)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const XLSX = requireXlsx('xlsx') as any
 
 // Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia (mismo
 // puesto + repartición) SIN código de jefatura para colgarle más dotación
@@ -44,6 +50,75 @@ const BASE_FROM = Prisma.sql`
   ${EXCLUIR_ESPEJO_JEFATURA}
 `
 
+// FROM alternativo para la FOTO HISTÓRICA a una fecha de corte (mes 'YYYY-MM').
+// Reconstruye el estado activo acumulado al cierre del mes desde padron_historico
+// (mismo criterio canónico que kpis_dotacion_snapshot): corte = snapshot aprobado
+// de fecha más tardía del mes; por cada id_sial_rol su última fila <= corte;
+// excluye bajas (padron_diff 'eliminado') sin re-alta posterior. La subconsulta
+// se expone con alias `o` y las MISMAS columnas que ocupaciones usa el resto del
+// SQL (situacion_revista, id_sial_rol, persona_id, cargo_id, codigo_jefaturas)
+// para reutilizar DOTACION_SELECT / condicionesDimensiones / SORT_EXPR sin
+// cambios. codigo_jefaturas no está versionado en el histórico → NULL (el dedup
+// de espejo de jefatura no aplica a la foto histórica, se usa DISTINCT por rol).
+// Caveat: regimen/tipo_origen/descripcion_repa (del cargo) y sexo/provincia/
+// localidad/edad (de la persona) reflejan el valor ACTUAL, no el del mes — no
+// están versionados en padron_historico.
+function baseFromHistorico(mesCorte: string) {
+  return Prisma.sql`
+  FROM (
+    WITH corte AS (
+      SELECT max(fecha_asignada) AS fecha
+      FROM padron_snapshots
+      WHERE estado = 'aprobado'
+        AND date_trunc('month', fecha_asignada) = to_date(${mesCorte}, 'YYYY-MM')
+    ),
+    -- Última fila conocida de cada rol <= corte (su foto vigente ese mes).
+    -- id_sial = las 2 primeras partes de id_sial_rol ('{idSial}-{cuil}-{seq}'),
+    -- que es el formato que usa padron_diff para las bajas (ver ultima_baja).
+    vigente AS (
+      SELECT DISTINCT ON (ph.id_sial_rol)
+        ph.id_sial_rol,
+        split_part(ph.id_sial_rol, '-', 1) || '-' || split_part(ph.id_sial_rol, '-', 2) AS id_sial,
+        ph.persona_id, ph.cargo_id, ph.situacion_revista,
+        ph.fecha_asignada AS ultima_alta
+      FROM padron_historico ph, corte
+      WHERE corte.fecha IS NOT NULL AND ph.fecha_asignada <= corte.fecha
+      ORDER BY ph.id_sial_rol, ph.fecha_asignada DESC
+    ),
+    -- Última baja (padron_diff 'eliminado') de cada id SIAL <= corte, AGREGADA
+    -- (una sola pasada, sin subconsulta correlacionada → rápido). El rol está
+    -- dado de baja si su última baja es POSTERIOR a su última alta <= corte.
+    -- OJO: padron_diff.id_sial_rol es el id SIAL corto ('001810581-1'), no el
+    -- compuesto de padron_historico — por eso se joinea contra v.id_sial.
+    ultima_baja AS (
+      SELECT d.id_sial_rol, max(ps.fecha_asignada) AS fecha_baja
+      FROM padron_diff d
+      JOIN padron_snapshots ps ON ps.id = d.snapshot_id, corte
+      WHERE d.tipo = 'eliminado' AND ps.fecha_asignada <= corte.fecha
+      GROUP BY d.id_sial_rol
+    )
+    SELECT v.id_sial_rol, v.persona_id, v.cargo_id, v.situacion_revista,
+           NULL::text AS codigo_jefaturas
+    FROM vigente v
+    LEFT JOIN ultima_baja b ON b.id_sial_rol = v.id_sial
+    WHERE b.fecha_baja IS NULL OR b.fecha_baja <= v.ultima_alta
+  ) o
+  JOIN personas p    ON p.id = o.persona_id
+  JOIN cargos c      ON c.id = o.cargo_id
+  JOIN hospitales h  ON h.id = c.hospital_id
+  JOIN escalafones e ON e.id = c.escalafon_id
+  JOIN puestos_cargo pcd        ON pcd.id = c.puesto_cargo_id
+  LEFT JOIN especialidades_puesto epd ON epd.id = c.especialidad_puesto_id
+  LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+  WHERE true
+`
+}
+
+// Devuelve el FROM apropiado: histórico si hay mesCorte, actual si no.
+function baseFrom(mesCorte?: string) {
+  return mesCorte ? baseFromHistorico(mesCorte) : BASE_FROM
+}
+
 // Expresión SQL de cada columna ordenable — whitelist validada ya en el
 // schema (DOTACION_SORT_COLUMNS), acá solo se mapea a la expresión real.
 const SORT_EXPR: Record<string, Prisma.Sql> = {
@@ -57,10 +132,37 @@ const SORT_EXPR: Record<string, Prisma.Sql> = {
   reparticion:      Prisma.sql`c.descripcion_repa`,
   sigla:            Prisma.sql`h.sigla`,
   codigoCargo:      Prisma.sql`c.codigo`,
-  codigoRol:        Prisma.sql`o.id_sial_rol`,
+  codigoRol:        Prisma.sql`split_part(o.id_sial_rol, '-', 1) || '-' || split_part(o.id_sial_rol, '-', 2)`,
   edad:             Prisma.sql`p.fecha_nacimiento`,
   antiguedad:       Prisma.sql`p.antiguedad_desde`,
 }
+
+// Columnas del listado de dotación — compartidas por el listado paginado y el
+// export a Excel para que ambos devuelvan exactamente los mismos campos.
+const DOTACION_SELECT = Prisma.sql`
+  c.codigo AS "codigoCargo",
+  p.apellido_nombre AS "nombreApellido",
+  p.cuil,
+  p.sexo,
+  pcd.nombre AS "literalPuesto",
+  epd.nombre AS "especialidad",
+  e.nombre AS "escalafon",
+  cr.literal AS "codigoRegistro",
+  c.regimen,
+  o.situacion_revista AS "situacionRevista",
+  c.descripcion_repa AS "reparticion",
+  h.sigla,
+  -- id_sial_rol viene como '{idSial}-{cuil}-{seq}' (el idSial ya tiene un guion
+  -- interno, ej. '001810581-1'). Se muestran solo las 2 primeras partes = el id
+  -- SIAL del rol, sin el CUIL.
+  split_part(o.id_sial_rol, '-', 1) || '-' || split_part(o.id_sial_rol, '-', 2) AS "codigoRol",
+  p.mail_laboral AS "mailLaboral",
+  p.telefono,
+  p.provincia,
+  p.localidad,
+  date_part('year', age(p.fecha_nacimiento))::int AS "edad",
+  date_part('year', age(p.antiguedad_desde))::int AS "antiguedad"
+`
 
 interface DotacionRow {
   codigoCargo: string | null
@@ -169,7 +271,11 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
   return conds
 }
 
-function buildConditions(query: DotacionQuery): Prisma.Sql[] {
+// `omitir`: dimensión a excluir del "grupo en edición" (filtros sueltos). Lo usa
+// el facetado de opciones (getDistinctValues) para que cada desplegable calcule
+// sus opciones aplicando todos los filtros MENOS el suyo propio — así se pueden
+// tildar varias opciones de una misma dimensión sin que las demás desaparezcan.
+function buildConditions(query: DotacionQuery, omitir?: keyof DimensionesDotacion): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = []
 
   // ── UNIONES (OR) ──────────────────────────────────────────────────────────
@@ -177,27 +283,30 @@ function buildConditions(query: DotacionQuery): Prisma.Sql[] {
   // los `grupos` recibidos: cada grupo compila a un AND de sus dimensiones y
   // entre grupos hay OR. Los filtros globales (búsqueda rápida, edad,
   // antigüedad, soloJefes, estado) se aplican con AND sobre toda la unión.
+  const grupoEnEdicion: DimensionesDotacion = {
+    sigla: query.sigla,
+    universoTotalizador: query.universoTotalizador,
+    tipoHospital: query.tipoHospital,
+    monovalencia: query.monovalencia,
+    sexo: query.sexo,
+    especialidadCph: query.especialidadCph,
+    provincia: query.provincia,
+    localidad: query.localidad,
+    situacionRevista: query.situacionRevista,
+    reparticion: query.reparticion,
+    regimen: query.regimen,
+    tipoOrigen: query.tipoOrigen,
+    escalafonId: query.escalafonId,
+    codigoRegistroId: query.codigoRegistroId,
+    modalidad: query.modalidad,
+    puestoNombre: query.puestoNombre,
+    especialidadNombre: query.especialidadNombre,
+  }
+  // Facetado: quita la dimensión propia del grupo en edición para no auto-filtrarse.
+  if (omitir) (grupoEnEdicion as Record<string, unknown>)[omitir] = undefined
   const gruposDimensiones: DimensionesDotacion[] = [
     ...(query.grupos ?? []),
-    {
-      sigla: query.sigla,
-      universoTotalizador: query.universoTotalizador,
-      tipoHospital: query.tipoHospital,
-      monovalencia: query.monovalencia,
-      sexo: query.sexo,
-      especialidadCph: query.especialidadCph,
-      provincia: query.provincia,
-      localidad: query.localidad,
-      situacionRevista: query.situacionRevista,
-      reparticion: query.reparticion,
-      regimen: query.regimen,
-      tipoOrigen: query.tipoOrigen,
-      escalafonId: query.escalafonId,
-      codigoRegistroId: query.codigoRegistroId,
-      modalidad: query.modalidad,
-      puestoNombre: query.puestoNombre,
-      especialidadNombre: query.especialidadNombre,
-    },
+    grupoEnEdicion,
   ]
   const orClauses = gruposDimensiones
     .map((g) => {
@@ -230,36 +339,42 @@ function buildConditions(query: DotacionQuery): Prisma.Sql[] {
   return conditions
 }
 
-async function getDistinctValues(baseConditions: Prisma.Sql[]) {
-  const andWhere = baseConditions.length ? Prisma.sql`AND ${Prisma.join(baseConditions, ' AND ')}` : Prisma.empty
+async function getDistinctValues(query: DotacionQuery) {
+  // Facetado por dimensión: las opciones de cada desplegable se calculan con
+  // TODOS los filtros aplicados MENOS el de esa misma dimensión. Así, al tener
+  // ya seleccionada una opción de (p.ej.) Puesto, el desplegable de Puesto
+  // sigue mostrando las demás opciones para poder sumarlas (multi-select real).
+  const andWherePara = (dim?: keyof DimensionesDotacion) => {
+    const conds = buildConditions(query, dim)
+    return conds.length ? Prisma.sql`AND ${Prisma.join(conds, ' AND ')}` : Prisma.empty
+  }
 
-  const distinctCol = async (col: Prisma.Sql) =>
+  const from = baseFrom(query.mesCorte)
+  const distinctCol = async (col: Prisma.Sql, dim?: keyof DimensionesDotacion) =>
     (
       await prisma.$queryRaw<{ value: string | null }[]>(Prisma.sql`
-        SELECT DISTINCT ${col} AS value ${BASE_FROM} ${andWhere}
+        SELECT DISTINCT ${col} AS value ${from} ${andWherePara(dim)}
         ORDER BY 1
       `)
     )
       .map((r) => r.value)
       .filter((v): v is string => v !== null)
 
-  // S21: agrupador/unificadorPuesto ya no existen en la dotación. Puesto y
-  // especialidad se ofrecen por NOMBRE del catálogo (join a puestos_cargo /
-  // especialidades_puesto por la FK del cargo), no por texto snapshot.
+  // Cada dimensión excluye su propio filtro (2º arg) para el facetado.
   const [
     sexo, situacionRevista, reparticion, regimen, tipoOrigen,
     especialidadCph, provincia, localidad, puesto, especialidad,
   ] = await Promise.all([
-    distinctCol(Prisma.sql`p.sexo`),
-    distinctCol(Prisma.sql`o.situacion_revista`),
-    distinctCol(Prisma.sql`c.descripcion_repa`),
-    distinctCol(Prisma.sql`c.regimen`),
-    distinctCol(Prisma.sql`c.tipo_origen`),
-    distinctCol(Prisma.sql`p.especialidad_cph`),
-    distinctCol(Prisma.sql`p.provincia`),
-    distinctCol(Prisma.sql`p.localidad`),
-    distinctCol(Prisma.sql`pcd.nombre`),
-    distinctCol(Prisma.sql`epd.nombre`),
+    distinctCol(Prisma.sql`p.sexo`, 'sexo'),
+    distinctCol(Prisma.sql`o.situacion_revista`, 'situacionRevista'),
+    distinctCol(Prisma.sql`c.descripcion_repa`, 'reparticion'),
+    distinctCol(Prisma.sql`c.regimen`, 'regimen'),
+    distinctCol(Prisma.sql`c.tipo_origen`, 'tipoOrigen'),
+    distinctCol(Prisma.sql`p.especialidad_cph`, 'especialidadCph'),
+    distinctCol(Prisma.sql`p.provincia`, 'provincia'),
+    distinctCol(Prisma.sql`p.localidad`, 'localidad'),
+    distinctCol(Prisma.sql`pcd.nombre`, 'puestoNombre'),
+    distinctCol(Prisma.sql`epd.nombre`, 'especialidadNombre'),
   ])
 
   // Universo / Tipo / Monovalencia salen del CATÁLOGO completo de hospitales
@@ -296,7 +411,7 @@ async function getDistinctValues(baseConditions: Prisma.Sql[]) {
   const codigoRegistro = (
     await prisma.$queryRaw<{ id: string; codigo: string; nombre: string }[]>(Prisma.sql`
       SELECT id, codigo, nombre FROM (
-        SELECT DISTINCT cr.id, cr.codigo, cr.literal AS nombre ${BASE_FROM} ${andWhere}
+        SELECT DISTINCT cr.id, cr.codigo, cr.literal AS nombre ${from} ${andWherePara('codigoRegistroId')}
         AND cr.id IS NOT NULL
       ) q
       ORDER BY
@@ -324,36 +439,18 @@ export async function listDotacionService(query: DotacionQuery) {
   const orderBy = sortBy ? Prisma.sql`ORDER BY ${SORT_EXPR[sortBy]} ${sortDir === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
     : Prisma.sql`ORDER BY p.apellido_nombre ASC`
 
+  const from = baseFrom(query.mesCorte)
   const [rows, totalRows, distinct] = await Promise.all([
     prisma.$queryRaw<DotacionRow[]>(Prisma.sql`
-      SELECT
-        c.codigo AS "codigoCargo",
-        p.apellido_nombre AS "nombreApellido",
-        p.cuil,
-        p.sexo,
-        pcd.nombre AS "literalPuesto",
-        epd.nombre AS "especialidad",
-        e.nombre AS "escalafon",
-        cr.literal AS "codigoRegistro",
-        c.regimen,
-        o.situacion_revista AS "situacionRevista",
-        c.descripcion_repa AS "reparticion",
-        h.sigla,
-        o.id_sial_rol AS "codigoRol",
-        p.mail_laboral AS "mailLaboral",
-        p.telefono,
-        p.provincia,
-        p.localidad,
-        date_part('year', age(p.fecha_nacimiento))::int AS "edad",
-        date_part('year', age(p.antiguedad_desde))::int AS "antiguedad"
-      ${BASE_FROM} ${where}
+      SELECT ${DOTACION_SELECT}
+      ${from} ${where}
       ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
     `),
     prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-      SELECT count(*)::bigint AS count ${BASE_FROM} ${where}
+      SELECT count(*)::bigint AS count ${from} ${where}
     `),
-    skipDistinct ? Promise.resolve(null) : getDistinctValues(conditions),
+    skipDistinct ? Promise.resolve(null) : getDistinctValues(query),
   ])
 
   const total = Number(totalRows[0]?.count ?? 0)
@@ -453,4 +550,73 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
     porEscalafon: porEscalafon.map((r) => ({ escalafonId: r.escalafonId, escalafon: r.nombre, total: Number(r.total) })),
     porEfector: porEfector.map((r) => ({ hospitalId: r.hospitalId, sigla: r.sigla, total: Number(r.total) })),
   }
+}
+
+// Capitaliza la primera letra (puesto/especialidad vienen en minúscula del
+// catálogo). Equivalente al `capitalizar` del front, solo para el Excel.
+function capPrimera(s: string | null): string {
+  if (!s) return ''
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// Export a Excel de TODO el resultado del filtro actual (sin paginar). Usa los
+// mismos filtros + uniones (buildConditions) y las mismas columnas que el
+// listado (DOTACION_SELECT). Se genera en el servidor de una sola vez para no
+// chocar con el límite de paginación (max 200) del endpoint de listado.
+export async function exportDotacionService(query: DotacionQuery) {
+  const conditions = buildConditions(query)
+  const where = conditions.length ? Prisma.sql`AND ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
+  const orderBy = query.sortBy
+    ? Prisma.sql`ORDER BY ${SORT_EXPR[query.sortBy]} ${query.sortDir === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`}`
+    : Prisma.sql`ORDER BY p.apellido_nombre ASC`
+
+  const rows = await prisma.$queryRaw<DotacionRow[]>(Prisma.sql`
+    SELECT ${DOTACION_SELECT}
+    ${baseFrom(query.mesCorte)} ${where}
+    ${orderBy}
+  `)
+
+  // Mismas columnas/orden que el export del front (hoja "Dotación").
+  const data = rows.map((r) => ({
+    'Cód. SIAL': r.codigoRol,
+    CUIL: r.cuil,
+    'Apellido y Nombre': r.nombreApellido,
+    Repartición: r.sigla,
+    Escalafón: r.escalafon,
+    'Cód. Registro': r.codigoRegistro ?? '',
+    'Cód. Cargo': r.codigoCargo ?? '',
+    Puesto: capPrimera(r.literalPuesto),
+    Especialidad: capPrimera(r.especialidad),
+    Régimen: r.regimen ?? '',
+    'Situación de Revista': r.situacionRevista ?? '',
+    'Repartición (SIAL)': r.reparticion ?? '',
+    Sexo: r.sexo ?? '',
+    Provincia: r.provincia ?? '',
+    Localidad: r.localidad ?? '',
+    Edad: r.edad ?? '',
+    Antigüedad: r.antiguedad ?? '',
+    'Mail Laboral': r.mailLaboral ?? '',
+    Teléfono: r.telefono ?? '',
+  }))
+
+  const sheet = XLSX.utils.json_to_sheet(data)
+  const book = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(book, sheet, 'Dotación')
+  const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+  return { buffer, total: rows.length }
+}
+
+// Meses disponibles para el selector de "Fecha de corte": un corte por mes =
+// la fecha del padrón aprobado más tardío de cada mes. Es la misma noción de
+// cierre mensual que usa el KPI histórico (padron_snapshots estado='aprobado').
+export async function getDotacionCortesService() {
+  const rows = await prisma.$queryRaw<{ mes: string; corte: Date }[]>(Prisma.sql`
+    SELECT to_char(date_trunc('month', fecha_asignada), 'YYYY-MM') AS mes,
+           max(fecha_asignada) AS corte
+    FROM padron_snapshots
+    WHERE estado = 'aprobado'
+    GROUP BY 1
+    ORDER BY 1 DESC
+  `)
+  return rows.map((r) => ({ mes: r.mes, corte: r.corte }))
 }

@@ -124,6 +124,15 @@ export const dotacionQuerySchema = z.object({
 
   // Filtro de estado disparado desde el click en las KPI cards del panel
   estado: z.string().trim().min(1).optional(),
+
+  // Fecha de corte (foto histórica): 'YYYY-MM'. Si viene, el listado/export se
+  // reconstruye al cierre de ese mes (padrón aprobado más tardío del mes) en vez
+  // de la foto actual (ocupaciones vigentes). Vacío = estado actual.
+  mesCorte: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}$/, 'mesCorte debe tener formato YYYY-MM')
+    .optional(),
 })
 
 export type DotacionQuery = z.infer<typeof dotacionQuerySchema>
