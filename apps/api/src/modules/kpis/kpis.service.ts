@@ -548,9 +548,40 @@ function cargoEsJefaturaSql(alias: string) {
   )`
 }
 
-// Construye las cláusulas AND de los filtros multivaluados (OR dentro de cada
-// dimensión vía IN, AND entre dimensiones) + jefatura. Se parametriza por alias
-// para reusarlo en el facetado (ph) y en la serie (ult).
+type DimensionesEvolucion = {
+  siglas?: string[]
+  carreras?: string[]
+  puestos?: string[]
+  especialidades?: string[]
+}
+
+// Condiciones de UN grupo: AND entre dimensiones (OR interno por dimensión vía
+// IN). Devuelve [] si el grupo no aporta nada. Parametrizado por alias para
+// reusarlo en facetado (ph) y serie (ult).
+function condicionesGrupoEvolucion(alias: string, g: DimensionesEvolucion): Prisma.Sql[] {
+  const conds: Prisma.Sql[] = []
+  if (g.siglas?.length) {
+    conds.push(Prisma.sql`${siglaNormalizadaSql(alias)} IN (${Prisma.join(g.siglas)})`)
+  }
+  // La carrera canónica vive en escalafones.nombre (alias e), no en el alias de
+  // padron_historico; e siempre está joineado en las queries que usan esto.
+  if (g.carreras?.length) {
+    conds.push(Prisma.sql`e.nombre IN (${Prisma.join(g.carreras)})`)
+  }
+  if (g.puestos?.length) {
+    conds.push(Prisma.sql`(${puestoNormalizadoSql(alias)}) IN (${Prisma.join(g.puestos)})`)
+  }
+  if (g.especialidades?.length) {
+    conds.push(Prisma.sql`(${especialidadNormalizadaSql(alias)}) IN (${Prisma.join(g.especialidades)})`)
+  }
+  return conds
+}
+
+// Combina los filtros con UNIONES (OR): cada grupo (los recibidos + el "grupo en
+// edición" de las dimensiones sueltas) es un AND de dimensiones; entre grupos
+// hay OR. `jefatura` se aplica con AND global sobre toda la unión (es un atributo
+// transversal del cargo, no parte del perfil). Espejo de buildConditions de
+// /dotacion. `omitirDimension` sirve al facetado (opciones sin el propio filtro).
 function construirFiltros(
   alias: string,
   f: {
@@ -559,26 +590,28 @@ function construirFiltros(
     puestos?: string[]
     especialidades?: string[]
     jefatura?: FiltroJefaturaVal
-  }
+    grupos?: DimensionesEvolucion[]
+  },
+  omitirDimension?: keyof DimensionesEvolucion,
 ) {
-  const partes: Prisma.Sql[] = []
+  const grupoEnEdicion: DimensionesEvolucion = {
+    siglas: f.siglas,
+    carreras: f.carreras,
+    puestos: f.puestos,
+    especialidades: f.especialidades,
+  }
+  if (omitirDimension) grupoEnEdicion[omitirDimension] = undefined
 
-  if (f.siglas?.length) {
-    partes.push(Prisma.sql`AND ${siglaNormalizadaSql(alias)} IN (${Prisma.join(f.siglas)})`)
-  }
-  // La carrera canónica vive en escalafones.nombre (alias e), no en el alias de
-  // padron_historico; e siempre está joineado en las queries que usan esto.
-  if (f.carreras?.length) {
-    partes.push(Prisma.sql`AND e.nombre IN (${Prisma.join(f.carreras)})`)
-  }
-  if (f.puestos?.length) {
-    partes.push(Prisma.sql`AND (${puestoNormalizadoSql(alias)}) IN (${Prisma.join(f.puestos)})`)
-  }
-  if (f.especialidades?.length) {
-    partes.push(
-      Prisma.sql`AND (${especialidadNormalizadaSql(alias)}) IN (${Prisma.join(f.especialidades)})`
-    )
-  }
+  const todosGrupos: DimensionesEvolucion[] = [...(f.grupos ?? []), grupoEnEdicion]
+  const orClauses = todosGrupos
+    .map((g) => {
+      const conds = condicionesGrupoEvolucion(alias, g)
+      return conds.length ? Prisma.sql`(${Prisma.join(conds, ' AND ')})` : null
+    })
+    .filter((c): c is Prisma.Sql => c !== null)
+
+  const partes: Prisma.Sql[] = []
+  if (orClauses.length > 0) partes.push(Prisma.sql`AND (${Prisma.join(orClauses, ' OR ')})`)
   if (f.jefatura === 'solo') partes.push(Prisma.sql`AND ${cargoEsJefaturaSql(alias)}`)
   if (f.jefatura === 'sin') partes.push(Prisma.sql`AND NOT ${cargoEsJefaturaSql(alias)}`)
 
@@ -593,6 +626,7 @@ type FiltrosEvolucion = {
   puestos?: string[]
   especialidades?: string[]
   jefatura?: FiltroJefaturaVal
+  grupos?: DimensionesEvolucion[]
 }
 
 // Opciones FACETADAS: para cada dimensión devuelve los valores válidos dado el
@@ -608,26 +642,24 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
       AND ph.hospital_sigla IS NOT NULL AND trim(ph.hospital_sigla) <> ''
   `
 
-  // Cada dimensión aplica todos los filtros MENOS el suyo.
+  // Cada dimensión aplica todos los filtros MENOS el suyo (del grupo en edición).
+  // Los grupos de unión fijados sí restringen (es coherente con el facetado).
   const distinct = <T extends Record<string, string>>(
     selectExpr: Prisma.Sql,
-    filtrosSinPropia: FiltrosEvolucion
+    omitir: keyof DimensionesEvolucion,
   ) =>
     prisma.$queryRaw<T[]>(Prisma.sql`
       SELECT DISTINCT ${selectExpr} AS valor
       ${BASE}
-      ${construirFiltros('ph', filtrosSinPropia)}
+      ${construirFiltros('ph', filtros, omitir)}
       ORDER BY 1
     `)
 
   const [siglas, carreras, puestos, especialidades, meses] = await Promise.all([
-    distinct<{ valor: string }>(siglaNormalizadaSql('ph'), { ...filtros, siglas: undefined }),
-    distinct<{ valor: string }>(Prisma.sql`e.nombre`, { ...filtros, carreras: undefined }),
-    distinct<{ valor: string }>(puestoNormalizadoSql('ph'), { ...filtros, puestos: undefined }),
-    distinct<{ valor: string }>(especialidadNormalizadaSql('ph'), {
-      ...filtros,
-      especialidades: undefined,
-    }),
+    distinct<{ valor: string }>(siglaNormalizadaSql('ph'), 'siglas'),
+    distinct<{ valor: string }>(Prisma.sql`e.nombre`, 'carreras'),
+    distinct<{ valor: string }>(puestoNormalizadoSql('ph'), 'puestos'),
+    distinct<{ valor: string }>(especialidadNormalizadaSql('ph'), 'especialidades'),
     // Meses disponibles (no dependen de los filtros; es el eje temporal completo).
     prisma.$queryRaw<{ valor: string }[]>(Prisma.sql`
       SELECT DISTINCT to_char(date_trunc('month', fecha_asignada), 'YYYY-MM') AS valor
@@ -727,8 +759,8 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
 // personas activas deduplicadas en el snapshot COMPLETO de ese mes (Opción A:
 // la foto real del padrón; los meses sin foto completa no se grafican).
 export async function getDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura }
+  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta, grupos } = query
+  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura, grupos }
 
   const rows = await prisma.$queryRaw<{ mes: string; cantidad: bigint }[]>(Prisma.sql`
     WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)})
@@ -770,8 +802,8 @@ const requireXlsx = createRequire(import.meta.url)
 const XLSX = requireXlsx('xlsx') as any
 
 export async function exportDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura }
+  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta, grupos } = query
+  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura, grupos }
 
   const rows = await prisma.$queryRaw<
     {

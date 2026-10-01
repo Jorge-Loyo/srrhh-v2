@@ -56,11 +56,40 @@ const multiFiltro = z
     return arr.map((s) => s.trim()).filter((s) => s.length > 0)
   })
 
+// Un grupo de la UNIÓN (OR) del gráfico de evolución: subconjunto de las mismas
+// 4 dimensiones, combinadas con AND dentro del grupo (OR interno por dimensión).
+// Varios grupos se combinan con OR. Llega como JSON string en `grupos`.
+const grupoEvolucionSchema = z.object({
+  siglas: z.array(z.string()).optional(),
+  carreras: z.array(z.string()).optional(),
+  puestos: z.array(z.string()).optional(),
+  especialidades: z.array(z.string()).optional(),
+})
+
+export type GrupoEvolucion = z.infer<typeof grupoEvolucionSchema>
+
+const gruposEvolucion = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    if (!v) return undefined
+    try {
+      const parsed = JSON.parse(v)
+      const arr = z.array(grupoEvolucionSchema).max(20).parse(parsed)
+      const noVacios = arr.filter((g) => Object.values(g).some((x) => Array.isArray(x) && x.length > 0))
+      return noVacios.length ? noVacios : undefined
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'grupos: JSON inválido' })
+      return z.NEVER
+    }
+  })
+
 const filtrosEvolucionBase = {
   siglas: multiFiltro,
   carreras: multiFiltro,
   puestos: multiFiltro,
   especialidades: multiFiltro,
+  grupos: gruposEvolucion,
 }
 
 // Opciones facetadas: mismos filtros, sin jefatura obligatoria pero admitida.

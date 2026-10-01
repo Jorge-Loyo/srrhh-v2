@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { GrupoDotacionEvolucion } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import {
   useDotacionEvolucion,
@@ -222,6 +223,8 @@ export function EvolucionEspecialidadChart() {
   const [especialidades, setEspecialidades] = useState<string[]>([])
   const [mesDesde, setMesDesde] = useState('')
   const [mesHasta, setMesHasta] = useState('')
+  // Uniones (OR): grupos fijados con "+ Unión". Cada grupo = AND de dimensiones.
+  const [grupos, setGrupos] = useState<GrupoDotacionEvolucion[]>([])
 
   const filtros = {
     siglas,
@@ -230,6 +233,7 @@ export function EvolucionEspecialidadChart() {
     especialidades,
     mesDesde: mesDesde || undefined,
     mesHasta: mesHasta || undefined,
+    grupos: grupos.length ? grupos : undefined,
   }
 
   const { data: hospitales } = useHospitales()
@@ -283,7 +287,7 @@ export function EvolucionEspecialidadChart() {
   )
 
   const haySeleccion =
-    siglas.length + carreras.length + puestos.length + especialidades.length > 0
+    siglas.length + carreras.length + puestos.length + especialidades.length > 0 || grupos.length > 0
   const hayFiltroActivo = haySeleccion || Boolean(mesDesde || mesHasta)
   const puntos = serie?.puntos ?? []
 
@@ -294,6 +298,29 @@ export function EvolucionEspecialidadChart() {
     setEspecialidades([])
     setMesDesde('')
     setMesHasta('')
+    setGrupos([])
+  }
+
+  // ¿Hay dimensiones sueltas que fijar como unión?
+  const hayDimensionEnEdicion = siglas.length + carreras.length + puestos.length + especialidades.length > 0
+
+  // Fija las dimensiones sueltas actuales como un grupo de la unión (con labels
+  // legibles para los chips) y limpia la cascada para armar el siguiente.
+  function agregarUnion() {
+    if (!hayDimensionEnEdicion) return
+    const labels: string[] = []
+    const g: GrupoDotacionEvolucion = {}
+    if (siglas.length) { g.siglas = siglas; labels.push(siglas.join(' / ')) }
+    if (carreras.length) { g.carreras = carreras; labels.push(carreras.join(' / ')) }
+    if (puestos.length) { g.puestos = puestos; labels.push(puestos.map(titleCase).join(' / ')) }
+    if (especialidades.length) { g.especialidades = especialidades; labels.push(especialidades.map(titleCase).join(' / ')) }
+    g.labels = labels
+    setGrupos((prev) => [...prev, g])
+    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([])
+  }
+
+  function quitarGrupo(index: number) {
+    setGrupos((prev) => prev.filter((_, i) => i !== index))
   }
 
   return (
@@ -332,6 +359,45 @@ export function EvolucionEspecialidadChart() {
           placeholder="Buscar especialidad…"
           onChange={setEspecialidades}
         />
+      </div>
+
+      {/* ── Uniones (OR): fijar el perfil actual y sumar otro ──────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={agregarUnion}
+          disabled={!hayDimensionEnEdicion}
+          title="Fijar los filtros de arriba como una unión (OR) y armar otro perfil"
+          className="h-8 px-3 rounded border border-secondary text-secondary text-xs font-semibold hover:bg-secondary/5 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          + Unión
+        </button>
+        {grupos.length === 0 ? (
+          <span className="text-xs text-gray-400">
+            Combiná filtros y tocá <span className="font-semibold">+ Unión</span> para sumar perfiles con O
+            (ej. “psicólogos del Hospital A” O “enfermeros del Hospital B”).
+          </span>
+        ) : (
+          <>
+            <span className="text-xs text-gray-400">Uniones (O):</span>
+            {grupos.map((g, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-1 text-xs font-medium text-secondary"
+              >
+                {g.labels?.length ? g.labels.join(' · ') : 'Filtro'}
+                <button
+                  type="button"
+                  onClick={() => quitarGrupo(i)}
+                  className="ml-0.5 hover:text-secondary/60"
+                  aria-label="Quitar unión"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </>
+        )}
       </div>
 
       {/* ── Rango de meses + jefaturas + limpiar ──────────────────────── */}

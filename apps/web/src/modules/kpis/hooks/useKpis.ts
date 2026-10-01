@@ -92,6 +92,18 @@ function filtrosToParams(f: FiltrosDotacionEvolucion): URLSearchParams {
   if (f.jefatura && f.jefatura !== 'todos') sp.set('jefatura', f.jefatura)
   if (f.mesDesde) sp.set('mesDesde', f.mesDesde)
   if (f.mesHasta) sp.set('mesHasta', f.mesHasta)
+  // Uniones (OR): JSON array de grupos, sin labels ni dimensiones vacías.
+  if (f.grupos?.length) {
+    const limpios = f.grupos.map((g) => {
+      const o: Record<string, string[]> = {}
+      if (g.siglas?.length) o.siglas = g.siglas
+      if (g.carreras?.length) o.carreras = g.carreras
+      if (g.puestos?.length) o.puestos = g.puestos
+      if (g.especialidades?.length) o.especialidades = g.especialidades
+      return o
+    })
+    sp.set('grupos', JSON.stringify(limpios))
+  }
   return sp
 }
 
@@ -105,6 +117,7 @@ function filtrosKey(f: FiltrosDotacionEvolucion) {
     f.jefatura ?? 'todos',
     f.mesDesde ?? '',
     f.mesHasta ?? '',
+    JSON.stringify(f.grupos ?? []),
   ]
 }
 
@@ -150,7 +163,8 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
     (filtros.siglas?.length ?? 0) +
       (filtros.carreras?.length ?? 0) +
       (filtros.puestos?.length ?? 0) +
-      (filtros.especialidades?.length ?? 0) >
+      (filtros.especialidades?.length ?? 0) +
+      (filtros.grupos?.length ?? 0) >
     0
   return useQuery({
     queryKey: ['kpis', 'dotacion-evolucion', 'serie', ...filtrosKey(filtros)],

@@ -898,6 +898,18 @@ export interface FiltrosDotacionEvolucion {
   jefatura?: FiltroJefatura
   mesDesde?: string
   mesHasta?: string
+  // Uniones (OR): cada grupo es un AND de dimensiones; los grupos se combinan
+  // con OR. Las dimensiones sueltas de arriba actúan como "grupo en edición".
+  grupos?: GrupoDotacionEvolucion[]
+}
+
+// Un grupo de la unión del gráfico de evolución (+ labels solo presentación).
+export interface GrupoDotacionEvolucion {
+  siglas?: string[]
+  carreras?: string[]
+  puestos?: string[]
+  especialidades?: string[]
+  labels?: string[]
 }
 
 // GET /api/v1/kpis/dotacion-evolucion/opciones
