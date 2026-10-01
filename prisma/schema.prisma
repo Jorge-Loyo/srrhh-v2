@@ -315,8 +315,9 @@ model Cargo {
   descripcionRepa   String?      @map("descripcion_repa") @db.VarChar(200)
   codAgrupamiento   String?      @map("cod_agrupamiento") @db.VarChar(20)
   agrupamiento      String?      @db.VarChar(150)
-  codFamilia        String?      @map("cod_familia") @db.VarChar(20)
-  litFamilia        String?      @map("lit_familia") @db.VarChar(150)
+  // A21-7: cod_familia/lit_familia eliminadas — columnas muertas (0/48k filas,
+  // ningún flujo las escribe; el único consumidor era el panel de detalle que
+  // mostraba "Familia" siempre vacío).
   puestoCodigoSial  String?      @map("puesto_codigo_sial") @db.VarChar(20)
   estado            EstadoCargo  @default(vigente)
   // S8A-1: fecha en que el cargo entró al estado actual (para calcular días en estado)

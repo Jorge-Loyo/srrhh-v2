@@ -97,9 +97,6 @@ export function CargoDetailPanel() {
               <Dato label="Agrupamiento"
                 value={cargo.codAgrupamiento ? `${cargo.codAgrupamiento} — ${cargo.agrupamiento}` : cargo.agrupamiento}
               />
-              <Dato label="Familia"
-                value={cargo.codFamilia ? `${cargo.codFamilia} — ${cargo.litFamilia}` : cargo.litFamilia}
-              />
               <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
             </Section>
           )}

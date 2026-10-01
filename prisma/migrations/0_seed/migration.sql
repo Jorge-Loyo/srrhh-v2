@@ -460,6 +460,7 @@ INSERT INTO permisos (id, modulo, accion, descripcion)
 VALUES
   (gen_random_uuid(), 'dotacion',      'ver',                   'Ver dotación real'),
   (gen_random_uuid(), 'configuracion', 'gestionar_pou',         'Cargar Excel POU'),
+  (gen_random_uuid(), 'configuracion', 'gestionar_organigrama', 'Cargar Árbol de Organigrama'),
   (gen_random_uuid(), 'configuracion', 'gestionar_referencias', 'Gestionar referencias Dotaneitor'),
   (gen_random_uuid(), 'configuracion', 'ver_auditoria',         'Ver log de auditoría'),
   (gen_random_uuid(), 'configuracion', 'purgar_auditoria',      'Purgar registros de auditoría')
@@ -470,7 +471,7 @@ SELECT r.id, p.id
 FROM roles r CROSS JOIN permisos p
 WHERE r.slug = 'admin'
   AND p.modulo IN ('dotacion', 'configuracion')
-  AND p.accion IN ('ver', 'gestionar_pou', 'gestionar_referencias', 'ver_auditoria')
+  AND p.accion IN ('ver', 'gestionar_pou', 'gestionar_organigrama', 'gestionar_referencias', 'ver_auditoria')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO role_permisos (role_id, permiso_id)

@@ -178,8 +178,6 @@ export interface Cargo {
   descripcionRepa: string | null
   codAgrupamiento: string | null
   agrupamiento: string | null
-  codFamilia: string | null
-  litFamilia: string | null
   puestoCodigoSial: string | null
   estado: EstadoCargo
   // S8A-1: días en estado actual (calculado por el backend)
