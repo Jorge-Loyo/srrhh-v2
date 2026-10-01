@@ -123,6 +123,7 @@ const CODIGOS_REGISTRO: { codigo: string; escalafonCodigo: string; literal: stri
   { codigo: '70',  escalafonCodigo: '70',  literal: 'Cuerpo Especialistas Profesionales' },
   { codigo: '17',  escalafonCodigo: '17',  literal: 'Gabinete' },
   { codigo: '17B', escalafonCodigo: '17B', literal: 'Régimen Modular Extraordinario PG' },
+  { codigo: '16T', escalafonCodigo: '16T', literal: 'Plantas Transitorias Modulo Operativo' },
   // Código 19 "Escalafón General" → Nueva Carrera Administrativa (83), mismo
   // criterio que el remap de "Escalafón Ge-hash" del catálogo de puestos (A21-15).
   { codigo: '19',  escalafonCodigo: '83',  literal: 'Escalafón General' },

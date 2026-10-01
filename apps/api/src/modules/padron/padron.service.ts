@@ -1965,6 +1965,14 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     if (!escalafon && datos.escalafon) {
       escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
     }
+    // Fallback de raíz: el código de registro puede existir como `codigo` de un
+    // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
+    // Transitorias Modulo Operativo). El padrón a veces trae el nombre de
+    // escalafón corrupto ('??????????') pero el código sí es válido; usamos el
+    // escalafón que comparte ese código antes de rendirnos.
+    if (!escalafon && datos.codigo_de_registro) {
+      escalafon = await tx.escalafon.findFirst({ where: { codigo: datos.codigo_de_registro, activo: true } }) as EscalafonRow | null
+    }
     if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
 
     // Resolver CodigoRegistro
@@ -2279,6 +2287,14 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     }
     if (!escalafon && datos.escalafon) {
       escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+    }
+    // Fallback de raíz: el código de registro puede existir como `codigo` de un
+    // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
+    // Transitorias Modulo Operativo). El padrón a veces trae el nombre de
+    // escalafón corrupto ('??????????') pero el código sí es válido; usamos el
+    // escalafón que comparte ese código antes de rendirnos.
+    if (!escalafon && datos.codigo_de_registro) {
+      escalafon = await tx.escalafon.findFirst({ where: { codigo: datos.codigo_de_registro, activo: true } }) as EscalafonRow | null
     }
     if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
 
