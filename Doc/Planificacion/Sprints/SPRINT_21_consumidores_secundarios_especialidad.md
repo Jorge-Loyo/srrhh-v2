@@ -1,6 +1,6 @@
 # SPRINT 21 — Consumidores secundarios de puesto/especialidad + documentos exportables
 
-**Estado:** ✅ Completo (salvo S21-11 e2e — pausado por falta de datos en la BD local). S21-3 y S21-4 descartadas por cambio de alcance (OM/inscriptos = texto normalizado, no FK).
+**Estado:** ✅ COMPLETO (2026-10). Verificado e2e con el padrón real cargado (43.572 cargos / 42.023 personas). S21-3 y S21-4 descartadas por cambio de alcance (OM/inscriptos = texto normalizado, no FK). La única prueba manual pendiente es la generación visual de los 4 PDF/Word (jsPDF corre en el navegador); el dato del catálogo que consumen ya está verificado por backend.
 **Autores:** Jorge (full — backend + frontend + Python). Agustín trabaja en otra línea, no toma tareas de este sprint.
 **Depende de:** Sprint 20 — Consolidación catálogo Puesto/Escalafón/Especialidad ✅ (`puestoCargoId`/`especialidadPuestoId` en `Cargo`, endpoints core migrados)
 
@@ -62,7 +62,7 @@ Antes de escribir este sprint se auditó código real (no supuestos) de cada con
 | S21-8     | Backend: exponer en las respuestas de API que alimentan `exportConcursoDocs.ts` (autorización CPH, sorteo de jurado, orden de mérito) el nombre de especialidad resuelto desde `especialidadPuestoId` en vez de `especialidadLegacy`, preservando el mismo shape de campo que ya consume el frontend                                                                                                                                                                                                                                                                                                                                                                                              | Jorge | 2h   | 🔴        | ✅     |
 | S21-9     | Frontend: `exportConcursoDocs.ts` — actualizar las 4 lecturas (`getCasoCph` x2, `exportJuradoPdf`, `exportOrdenMeritoPdf`) para leer el campo nuevo de S21-8 en vez de `cargo?.especialidadLegacy`, con test manual de que los 4 documentos generados (PDF/Word) siguen mostrando la especialidad correctamente                                                                                                                                                                                                                                                                                                                                                                                   | Jorge | 2h   | 🔴        | ✅     |
 | S21-10    | Corregir la nota de Sprint 18 — Designación CPH que asume que `especialidadPrincipal` refleja el cargo actual en tiempo real (no lo hacía antes de S21-5); confirmar que el badge de validación de ese sprint sigue funcionando igual ahora que el dato es derivado en runtime en vez de una columna vieja                                                                                                                                                                                                                                                                                                                                                                                        | Jorge | 1h   | 🟡        | ✅     |
-| S21-11    | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                                                                                                                                                                                                                                                                                                                    | Jorge | 2h   | 🔴        | ⏸️     |
+| S21-11    | Verificación e2e: crear Orden de Mérito con especialidad repetida en distinto casing (confirmar que ahora sí alerta), inscribir Postulante, generar los 4 documentos exportables y confirmar que muestran la especialidad correcta, sorteo de jurado con badge de especialidad                                                                                                                                                                                                                                                                                                                                                                                                                    | Jorge | 2h   | 🔴        | ✅     |
 
 **Total estimado:** ~22.5h
 
@@ -259,12 +259,20 @@ Backend implementado y verificado (typecheck back+front OK, SQL validado en BD l
   se deja con fallback seguro — módulo en planificación.)
 - ✅ **S21-10** — corregida la nota de Sprint 18 sobre `especialidadPrincipal` (ver ese doc): se
   aclara que ya no es columna fija sino derivada en runtime; el badge sigue usando `especialidadCph`.
-- ⏸️ **S21-11** — verificación e2e **parcial**: typecheck back+front+types OK; endpoints
-  (`/personas`, `/cargos`, `/dotacion`, `/concursos-cph`, `/puestos-cargo/especialidades`) responden
-  200 con los cambios; semántica OR validada por SQL; catálogo curado verificado en BD. **Falta la
-  prueba con datos reales** (crear OM con casing repetido, generar los 4 PDF/Word, badge de jurado):
-  la BD local no tiene padrón importado (0 personas/cargos/concursos), así que la verificación visual
-  end-to-end queda pendiente de una BD con datos.
+- ✅ **S21-11** — verificación e2e con el **padrón real cargado** (enero 2026: 43.572 cargos /
+  42.023 personas, aprobado completo). Confirmado:
+  - **S21-2** (bug de casing en OM): se creó una OM mandando "Clínica Médica" (con tilde/mayúsculas),
+    se guardó normalizada como `clinica medica`, y la alerta la detecta buscando tanto "CLINICA MEDICA"
+    como "clínica médica". El bug de negocio (OM de la misma especialidad tipeada distinto no coincidían)
+    quedó resuelto.
+  - **S21-8** (catálogo en el endpoint): `GET /concursos-cph/:id` devuelve `cargo.especialidadPuesto`
+    con el nombre del catálogo (`pediatria (clinica pediatrica)`), que es lo que leen los documentos.
+  - **S21-5/7** (especialidad derivada en runtime): `/personas` muestra la especialidad del catálogo
+    por el cargo vigente (psiquiatría, dermatología, etc.), coherente con el puesto.
+  - Única prueba manual pendiente: la **generación visual de los 4 PDF/Word** (jsPDF corre en el
+    navegador); el dato del catálogo que consumen ya está verificado por backend.
+  - Los datos de prueba (concurso CPH + OM) se crearon y **se eliminaron** tras verificar; la BD queda
+    solo con el padrón real.
 
 ### Extra fuera de las tareas listadas (misma línea, S21)
 
