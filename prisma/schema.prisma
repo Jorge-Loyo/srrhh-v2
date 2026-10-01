@@ -83,6 +83,15 @@ model Hospital {
   universoTotalizador String?  @map("universo_totalizador") @db.VarChar(100)
   tipo                String?  @db.VarChar(100)
   monovalencia        String?  @db.VarChar(100)
+  // Metadata del efector (maestro "Siglas MSGC"): nombre corto para UI, comuna,
+  // coordenadas "lat, lng", tamaño (Grande/Mediano/Pequeño) y la tipificación
+  // de la SS de Atención Hospitalaria. Todos opcionales (Nivel Central/Bienestar
+  // no tienen comuna/coordenadas de hospital).
+  nombreResumido      String?  @map("nombre_resumido") @db.VarChar(200)
+  comuna              String?  @db.VarChar(50)
+  coordenadas         String?  @db.VarChar(60)
+  tamanio             String?  @map("tamanio") @db.VarChar(30)
+  tipificacionSsah    String?  @map("tipificacion_ssah") @db.VarChar(100)
   activo              Boolean  @default(true)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz

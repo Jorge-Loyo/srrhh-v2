@@ -137,6 +137,12 @@ export interface Hospital {
   universoTotalizador: string | null
   tipo: string | null
   monovalencia: string | null
+  // Metadata del maestro "Siglas MSGC" (ver scripts/import-hospitales-siglas.ts).
+  nombreResumido: string | null
+  comuna: string | null
+  coordenadas: string | null
+  tamanio: string | null
+  tipificacionSsah: string | null
   activo: boolean
 }
 

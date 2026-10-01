@@ -1,0 +1,77 @@
+SIGLA,DESC_SIGLA,UNIVERSO TOTALIZADOR,Tipo de Hospital / Sigla,Monovalencia,Coordenadas,Tamaño,Nombre Resumido,Comuna,Tipificacion SSAH
+HGARM,Hospital Ramos Mejia,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.61747, -58.40966",Grande,Ramos Mejia,Comuna 3,Hospitales Agudos
+HGAPP,Hospital Piñero,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.64474, -58.45434",Grande,Piñero,Comuna 7,Hospitales Agudos
+HBR,Hospital Rivadavia,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.58507, -58.40169",Grande,Rivadavia,Comuna 2,Hospitales Agudos
+HGACD,Hospital Durand,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.60988, -58.43780",Grande,Durand,Comuna 6,Hospitales Agudos
+HGAP,Hospital Penna,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.64345, -58.41058",Grande,Penna,Comuna 4,Hospitales Agudos
+HGADS,Hospital Santojanni,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.64884, -58.51518",Grande,Santojanni,Comuna 9,Hospitales Agudos
+HGACA,Hospital Argerich,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.62796, -58.36554",Grande,Argerich,Comuna 4,Hospitales Agudos
+HGATA,Hospital Alvarez,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.62389, -58.46970",Grande,Alvarez,Comuna 7,Hospitales Agudos
+HGAJAF,Hospital Fernandez,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.58138, -58.40694",Grande,Fernandez,Comuna 14,Hospitales Agudos
+HGAIP,Hospital Pirovano,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.56487, -58.47107",Grande,Pirovano,Comuna 12,Hospitales Agudos
+HGNPE,Hospital Elizalde,HOSPITALES,HOSPITALES DE NIÑOS,,"-34.62900, -58.37651",Grande,Elizalde,Comuna 4,Hospitales Pedriátricos
+HGNRG,Hospital Gutierrez,HOSPITALES,HOSPITALES DE NIÑOS,,"-34.59457, -58.41118",Grande,Gutierrez,Comuna 2,Hospitales Pedriátricos
+HIFJM,Hospital Muñiz,HOSPITALES,HOSPITALES MONOVALENTES,INFECTOLOGIA,"-34.63742, -58.39368",Grande,Muñiz,Comuna 4,Resto Hospitales
+HGAVS,Hospital Velez Sarsfield,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.62533, -58.50759",Mediano,Velez Sarsfield,Comuna 10,Hospitales Agudos
+HGAT,Hospital Tornu,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.58672, -58.47199",Mediano,Tornu,Comuna 15,Hospitales Agudos
+HGAZ,Hospital Zubizarreta,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.60014, -58.51074",Mediano,Zubizarreta,Comuna 11,Hospitales Agudos
+HGACG,Hospital Grierson,HOSPITALES,HOSPITALES DE AGUDOS,,"-34.67182, -58.45574",Mediano,Grierson,Comuna 8,Hospitales Agudos
+HNJTB,Hospital Borda,HOSPITALES,HOSPITALES DE SALUD MENTAL,Masculino,"-34.63686, -58.38260",Mediano,Borda,Comuna 4,Hospitales Salud Mental
+HNBM,Hospital Moyano,HOSPITALES,HOSPITALES DE SALUD MENTAL,Femenino,"-34.64053, -58.38390",Mediano,Moyano,Comuna 4,Hospitales Salud Mental
+HMOMC,Hospital Marie Curie,HOSPITALES,HOSPITALES MONOVALENTES,ONCOLOGIA,"-34.60703, -58.43335",Mediano,Marie Curie,Comuna 6,Resto Hospitales
+HMIRS,Hospital Sarda,HOSPITALES,HOSPITALES MONOVALENTES,MATERNIDAD,"-34.63462, -58.40308",Mediano,Sarda,Comuna 4,Resto Hospitales
+HBU,Hospital Udaondo,HOSPITALES,HOSPITALES MONOVALENTES,GASTROENTEROLOGIA,"-34.63400, -58.39179",Mediano,Udaondo,Comuna 4,Resto Hospitales
+HQ,Hospital Illia,HOSPITALES,HOSPITALES MONOVALENTES,QUEMADOS,"-34.62555, -58.43220",Mediano,Illia,Comuna 6,Resto Hospitales
+HIJCTG,Hospital Tobar Garcia,HOSPITALES,HOSPITALES DE SALUD MENTAL,Infanto Juvenil,"-34.63568, -58.38238",Pequeño,Tobar Garcia,Comuna 4,Hospitales Salud Mental
+HEPTA,Hospital Alvear,HOSPITALES,HOSPITALES DE SALUD MENTAL,Psiquiatrico,"-34.59735, -58.47529",Pequeño,Alvear,Comuna 15,Hospitales Salud Mental
+HRRMF,Hospital Ferrer,HOSPITALES,HOSPITALES MONOVALENTES,REHABILITACION RESPIRATORIA,"-34.63022, -58.37577",Pequeño,Ferrer,Comuna 4,Resto Hospitales
+HSL,Hospital Santa Lucia,HOSPITALES,HOSPITALES MONOVALENTES,OFTALMOLOGIA,"-34.62277, -58.39447",Pequeño,Santa Lucia,Comuna 3,Hospitales Oftalmológicos
+IZLP,Instituto Pasteur,HOSPITALES,HOSPITALES MONOVALENTES,ZOONOSIS,"-34.60819, -58.43504",Pequeño,Pasteur,Comuna 6,Resto Hospitales
+HMO,Hospital Dueñas,HOSPITALES,HOSPITALES MONOVALENTES,ODONTOLOGIA,"-34.61460, -58.42764",Pequeño,Dueñas,Comuna 5,Hospitales Odontológicos
+HRR,Hospital Rocca,HOSPITALES,HOSPITALES MONOVALENTES,REHABILITACION,"-34.61848, -58.50161",Pequeño,Rocca,Comuna 10,Resto Hospitales
+IRPS,Instituto R. Psicofisica,HOSPITALES,HOSPITALES MONOVALENTES,REHABILITACION,"-34.55365, -58.44123",Pequeño,R. Psicofisica,Comuna 13,Resto Hospitales
+IREP,Instituto R. Psicofisica,HOSPITALES,HOSPITALES MONOVALENTES,REHABILITACION,"-34.55365, -58.44123",Pequeño,R. Psicofisica,Comuna 13,Resto Hospitales
+HOI,Hospital Quinquela Martin,HOSPITALES,HOSPITALES MONOVALENTES,ODONTOLOGIA INFANTIL,"-34.63888, -58.36025",Pequeño,Quinquela Martin,Comuna 4,Hospitales Odontológicos
+HOPL,Hospital Lagleyze,HOSPITALES,HOSPITALES MONOVALENTES,OFTALMOLOGIA,"-34.60546, -58.45949",Pequeño,Lagleyze,Comuna 11,Hospitales Oftalmológicos
+HO,Hospital Carrillo,HOSPITALES,HOSPITALES MONOVALENTES,ODONTOLOGIA,"-34.58497, -58.40173",Pequeño,Carrillo,Comuna 2,Hospitales Odontológicos
+MSGC,Ministerio de Salud,NIVEL CENTRAL,Unidad de Ministro,,"-34.60798, -58.37397",,Ministerio,,
+EAIT,Instituto de Trasplante,NIVEL CENTRAL,SS Atencion Hospitalaria,TRASPLANTES,"-34.63804, -58.39176",,Trasplante,,
+DGLTMSGC,DG Legal y Técnica,NIVEL CENTRAL,Unidad de Ministro,,"-34.60798, -58.37397",,DG. Legal y Tecnica,,
+URO,Unidad de Odontología,NIVEL CENTRAL,SS Atencion Primaria,,"-34.60798, -58.37397",,U. Odontología,,
+DGCSJ,DG Competencias Santiarias Jurisdiccionales,NIVEL CENTRAL,Unidad de Ministro,,"-34.60798, -58.37397",,DG Jurisdiccionales,,
+UPECSJ,UPE Competencias Sanitarias Jurisdiccionales,NIVEL CENTRAL,Unidad de Ministro,,"-34.60798, -58.37397",,UPE Jurisdiccionales,,
+UAIMS,Unidad de Auditoría Interna,NIVEL CENTRAL,Unidad de Ministro,,"-34.60798, -58.37397",,U. Auditoría Interna,,
+SSASS,SS Administración de Salud,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,SS. Administración,,
+DGADCYP,DG Contable y Presupuesto,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,DG. Contable,,
+DGRFISS,DG Recursos Físicos,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,DG. RR.FF.,,
+DGAYDRH,DG Administración de RR.HH.,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,DG. RR.HH.,,
+DGACSA,DG Adquisiciones y Contrataciones,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,DG. Adquisiciones,,
+DGABS,DG Abastecimiento,NIVEL CENTRAL,SS Administración de Salud,,"-34.60798, -58.37397",,DG. Abastecimiento,,
+SSPSGER,SS Planificación Sanitaria,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.60798, -58.37397",,SS. Planificación,,
+UPETDESRHCE,UPE Transformación digital,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,UPE Transformación,,
+DGCOECSSP,DG Cultura Organizacional y Exp. Ciudadana,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.60798, -58.37397",,DG. Cultura Organizacional,,
+DGGECDSPS,DG Gestión y Exp. Ciudadana,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.60798, -58.37397",,DG. Experiencia Ciudadana,,
+DGSISAN,DG Sistemas de Información,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.60662, -58.42151",,DG. Sistemas,,
+DGDIYDP,DG Docencia,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,DG. Docencia,,
+DGCRFS,DG Coordinación de Redes y Financiamiento,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,DG. Coordinacion,,
+DGCTFS,DG Coordinación y Financiamiento en Salud,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,DG. Coordinacion,,
+DGCTF,DG Coordinación y Fiscalización,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,DG. Coordinacion y Fiscalización,,
+DGPLO,DG Promoción Social - Gestion y Exp. Ciudadana,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.64132, -58.39332",,DG. Plo,,
+DGCOR,DG Cultura Organizacional,NIVEL CENTRAL,SS Planificación Sanitaria,,"-34.60798, -58.37397",,DG. Cultura Organizacional,,
+SSAPAC,SS Atención Primaria,APS ,SS Atencion Primaria / Cesacs y Áreas Programáticas,,"-34.60798, -58.37397",,SS. Atención Primaria,,
+DGATP,DG Atención Primaria,APS ,SS Atencion Primaria / Cesacs y Áreas Programáticas,,"-34.64132, -58.39332",,DG. Atención Primaria,,
+DGSCOM,DG Salud Comunitaria,APS ,SS Atencion Primaria / Cesacs y Áreas Programáticas,,"-34.64132, -58.39332",,DG. Comunitaria,,
+UPESCA,UPE Seguimiento y Coordinación,NIVEL CENTRAL,SS Atencion Primaria,,"-34.60798, -58.37397",,UPE Seguimiento,,
+SSAH,SS Atencion Hospitalaria,NIVEL CENTRAL,SS Atencion Hospitalaria,,"-34.60798, -58.37397",,SS. Atención Hospitalaria,,
+DGHOSP,DG Hospitales,NIVEL CENTRAL,SS Atencion Hospitalaria,,"-34.64132, -58.39332",,DG. Hospitales,,
+UPERICPSM,UPE Cuidados Salud Mental,NIVEL CENTRAL,SS Atencion Hospitalaria,,"-34.60798, -58.37397",,UPE Salud Mental,,
+DGESAME,DG SAME,SAME,SAME,,"-34.64132, -58.39332",,SAME,,
+DGSAM,DG Salud Mental,NIVEL CENTRAL,SS Atencion Hospitalaria,,"-34.64132, -58.39332",,DG. Salud Mental,,
+CSMA,Centro de Salud Mental Ameghino,HOSPITALES,SS Atencion Hospitalaria,,"-34.59827, -58.41073",,Centro Ameghino,,
+TPRPS,Dir. Talleres Protegidos,NIVEL CENTRAL,SS Atencion Hospitalaria,,"-34.64132, -58.39332",,Talleres,,
+SECBI,SECR Bienestar ,BIENESTAR,SECR Bienestar ,,"-34.60798, -58.37397",,S. Bienestar,,
+DGPSB,DG Promoción Social,BIENESTAR,SECR Bienestar ,,"-34.60798, -58.37397",,DG. Promoción Social,,
+SSPPM,SS Personas Mayores,BIENESTAR,SS Personas Mayores,,"-34.60798, -58.37397",,SS. Mayores,,
+DGPAPM,DG Personas Mayores,BIENESTAR,SS Personas Mayores,,"-34.60798, -58.37397",,DG. Personas Mayores,,
+DGCAPM,DG Ciudad Amigable,BIENESTAR,SS Personas Mayores,,"-34.60798, -58.37397",,DG. Ciudad Amigable,,
+DGCVPM,DG Coordinación de Personas Mayores,BIENESTAR,SS Personas Mayores,,"-34.60798, -58.37397",,DG. Coordinación Personas,,
