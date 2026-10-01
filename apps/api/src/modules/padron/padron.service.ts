@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { Agent as HttpAgent } from 'node:http'
+import { Agent as HttpsAgent } from 'node:https'
 import FormData from 'form-data'
 import axios from 'axios'
 import { Prisma } from '@prisma/client'
@@ -77,14 +79,45 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out
 }
 
-const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000 })
+// Agentes HTTP con keep-alive controlado. Sin esto, axios reusa el socket TCP
+// entre requests; el Dotaneitor (uvicorn 1 worker) cierra el keep-alive durante
+// los polls largos de /normalizar-/procesar-/cruzar, y la primera request nueva
+// sobre ese socket muerto tira `read ECONNRESET` (era el error al subir padrones
+// grandes, justo al empezar /preview del diff). keepAlive + reintento lo cubren.
+const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4 })
+const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4 })
+const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000, httpAgent, httpsAgent })
+
+// Errores de red transitorios del contenedor Python que ameritan reintento.
+const ERRORES_RED_TRANSITORIOS = new Set(['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE'])
+
+// Reintenta una llamada al Dotaneitor ante un corte de socket transitorio
+// (hasta `intentos` veces, con backoff corto). No reintenta errores HTTP con
+// respuesta (4xx/5xx del servicio), solo fallos de conexión.
+async function conReintentoRed<T>(fn: () => Promise<T>, intentos = 3): Promise<T> {
+  let ultimoError: unknown
+  for (let i = 0; i < intentos; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const code = axios.isAxiosError(err) ? err.code : undefined
+      const esTransitorio =
+        (code && ERRORES_RED_TRANSITORIOS.has(code)) ||
+        (axios.isAxiosError(err) && !err.response && /socket hang up|ECONNRESET/i.test(err.message))
+      if (!esTransitorio || i === intentos - 1) throw err
+      ultimoError = err
+      await new Promise((r) => setTimeout(r, 500 * (i + 1)))
+    }
+  }
+  throw ultimoError
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 async function pollJob(jobId: string, maxWaitMs = 240_000): Promise<unknown> {
   const start = Date.now()
   while (Date.now() - start < maxWaitMs) {
-    const { data } = await python.get(`/job/${jobId}`)
+    const { data } = await conReintentoRed(() => python.get(`/job/${jobId}`))
     if (data.status === 'done') return data.result
     if (data.status === 'error') throw new Error(`Job Python falló: ${data.error}`)
     await new Promise((r) => setTimeout(r, 2000))
@@ -129,8 +162,10 @@ async function fetchAllPreview(sessionId: string): Promise<RegistroPython[]> {
   let page = 1
   const all: RegistroPython[] = []
   while (true) {
-    const { data } = await python.get<{ rows: RegistroPython[]; total: number }>(
-      '/preview', { params: { session_id: sessionId, page, limit } }
+    const { data } = await conReintentoRed(() =>
+      python.get<{ rows: RegistroPython[]; total: number }>(
+        '/preview', { params: { session_id: sessionId, page, limit } }
+      )
     )
     all.push(...data.rows)
     if (all.length >= data.total) break
@@ -1817,42 +1852,86 @@ export async function getValidacionesPreviewService(snapshotId: string) {
 
 // ─── Aprobar todos los diffs nuevos pendientes en bloque ───────────────────
 
+// S21: progreso de "Aprobar todos" en memoria, por snapshot. El loop de
+// aprobación puede tardar minutos (miles de diffs, una transacción por diff),
+// así que corre en BACKGROUND y la UI hace polling de este estado en vez de
+// esperar una request síncrona gigante (que se cortaba por duración). Se pierde
+// si el proceso reinicia — aceptable: lo ya aprobado queda en la BD (cada diff
+// en su propia tx) y "Aprobar todos" es reejecutable (idempotente sobre los que
+// quedan pendientes).
+export interface AprobacionProgreso {
+  estado: 'procesando' | 'completado' | 'error'
+  total: number
+  procesados: number
+  aprobados: number
+  fallidos: Array<{ diffId: string; cargo: string; motivo: string }>
+  iniciadoAt: number
+  finalizadoAt: number | null
+}
+
+const aprobacionEnCurso = new Map<string, AprobacionProgreso>()
+
+export function getAprobacionProgreso(snapshotId: string): AprobacionProgreso | null {
+  return aprobacionEnCurso.get(snapshotId) ?? null
+}
+
+// Lanza la aprobación de todos los diffs "nuevo" pendientes EN BACKGROUND.
+// Devuelve enseguida el total a procesar; el avance se consulta con
+// getAprobacionProgreso (endpoint /aprobacion-progreso). Si ya hay una
+// aprobación en curso para ese snapshot, no arranca otra.
 export async function aprobarTodosDiffsPendientesService(snapshotId: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(snapshotId)
   if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
-  const pendientes = await prisma.padronDiff.findMany({
-    where: { snapshotId, tipo: 'nuevo', aprobado: null },
-  })
-  if (pendientes.length === 0) return { ok: true, aprobados: 0, fallidos: [] }
-
-  // Procesar cada uno de forma INDEPENDIENTE — antes, un solo cargo con datos
-  // problemáticos (ej. un código de registro sin escalafón mapeado) cortaba
-  // el loop entero con una excepción sin capturar, dejando TODOS los
-  // siguientes sin ni siquiera intentarse (no es que fallaran, nunca
-  // llegaban a correr). Hallazgo real 2026-09-14: de 2343 pendientes, uno
-  // malo a mitad de camino dejó 298 sin procesar, de los cuales solo ~107
-  // tenían un problema real — los otros 191 simplemente nunca se probaron.
-  // Ahora cada fallo se registra y se sigue con el resto; el resumen final
-  // le dice al usuario exactamente cuáles quedaron pendientes y por qué,
-  // en vez de un error genérico que además esconde que la mayoría sí se
-  // pudo aprobar.
-  let aprobados = 0
-  const fallidos: Array<{ diffId: string; cargo: string; motivo: string }> = []
-  for (const diff of pendientes) {
-    try {
-      await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
-      aprobados++
-    } catch (err) {
-      fallidos.push({
-        diffId: diff.id,
-        cargo: diff.idSialRol,
-        motivo: err instanceof AppError ? err.message : (err instanceof Error ? err.message : String(err)),
-      })
-    }
+  const enCurso = aprobacionEnCurso.get(snapshotId)
+  if (enCurso && enCurso.estado === 'procesando') {
+    return { ok: true, yaEnCurso: true, total: enCurso.total, procesados: enCurso.procesados }
   }
 
-  return { ok: true, aprobados, fallidos }
+  const pendientes = await prisma.padronDiff.findMany({
+    where: { snapshotId, tipo: 'nuevo', aprobado: null },
+    select: { id: true, idSialRol: true },
+  })
+  if (pendientes.length === 0) return { ok: true, total: 0, procesados: 0 }
+
+  const progreso: AprobacionProgreso = {
+    estado: 'procesando',
+    total: pendientes.length,
+    procesados: 0,
+    aprobados: 0,
+    fallidos: [],
+    iniciadoAt: Date.now(),
+    finalizadoAt: null,
+  }
+  aprobacionEnCurso.set(snapshotId, progreso)
+
+  // Background — no await. Procesa cada diff en su propia transacción
+  // (aprobarDiffNuevoService) de forma INDEPENDIENTE: un cargo problemático se
+  // registra en `fallidos` y el loop sigue con el resto (hallazgo 2026-09-14).
+  void (async () => {
+    for (const diff of pendientes) {
+      try {
+        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+        progreso.aprobados++
+      } catch (err) {
+        progreso.fallidos.push({
+          diffId: diff.id,
+          cargo: diff.idSialRol,
+          motivo: err instanceof AppError ? err.message : err instanceof Error ? err.message : String(err),
+        })
+      }
+      progreso.procesados++
+    }
+    progreso.estado = 'completado'
+    progreso.finalizadoAt = Date.now()
+  })().catch((err) => {
+    progreso.estado = 'error'
+    progreso.finalizadoAt = Date.now()
+    console.error(`[padron] aprobar-todos error snapshot=${snapshotId}:`, err)
+  })
+
+  // 202: aceptado, procesando en background.
+  return { ok: true, total: pendientes.length, procesados: 0 }
 }
 
 // ─── Aprobar un diff nuevo individual ───────────────────────────────────────

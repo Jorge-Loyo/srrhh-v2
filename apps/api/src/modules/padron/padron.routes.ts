@@ -19,6 +19,7 @@ import {
   rechazarDiffNuevoService,
   marcarTransferenciaService,
   aprobarTodosDiffsPendientesService,
+  getAprobacionProgreso,
   diagnosticarDiffsNuevosService,
   getValidacionesPreviewService,
   getCamposModificadosService,
@@ -108,13 +109,25 @@ export async function padronRoutes(app: FastifyInstance) {
   })
 
   // POST /snapshots/:id/diffs/aprobar-todos — aprobar todos los pendientes en bloque
+  // Lanza la aprobación en BACKGROUND y responde 202 enseguida — el avance se
+  // consulta con GET .../aprobacion-progreso (evita el timeout de una request
+  // síncrona de miles de aprobaciones).
   app.post<{ Params: { id: string } }>(
     '/snapshots/:id/diffs/aprobar-todos',
     { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) },
     async (request, reply) => {
       const user = request.user as { id: string }
       const result = await aprobarTodosDiffsPendientesService(request.params.id, user.id)
-      return reply.send({ data: result })
+      return reply.status(202).send({ data: result })
+    }
+  )
+
+  // GET /snapshots/:id/diffs/aprobacion-progreso — avance de "Aprobar todos".
+  app.get<{ Params: { id: string } }>(
+    '/snapshots/:id/diffs/aprobacion-progreso',
+    async (request, reply) => {
+      const progreso = getAprobacionProgreso(request.params.id)
+      return reply.send({ data: progreso })
     }
   )
 

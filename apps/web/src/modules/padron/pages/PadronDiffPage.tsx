@@ -1,16 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff, useDiagnosticoNuevos, useCamposModificados, useValidacionesPreview } from '../hooks/usePadron'
 import { apiClient } from '@/shared/lib/api-client'
 
-interface ResultadoAprobarTodos {
-  ok: boolean
+// Progreso de "Aprobar todos" (background + polling). El backend expone el
+// avance en GET .../aprobacion-progreso.
+interface AprobacionProgreso {
+  estado: 'procesando' | 'completado' | 'error'
+  total: number
+  procesados: number
   aprobados: number
   fallidos: Array<{ diffId: string; cargo: string; motivo: string }>
+  iniciadoAt: number
+  finalizadoAt: number | null
 }
 
 const TABS: { tipo: TipoDiff; label: string }[] = [
@@ -205,19 +211,41 @@ export function PadronDiffPage() {
     onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
   })
 
+  // "Aprobar todos" corre en BACKGROUND: el POST responde 202 enseguida y el
+  // avance se sigue por polling (useQuery abajo). `aprobacionLanzada` prende
+  // el polling; se apaga al completar.
+  const [aprobacionLanzada, setAprobacionLanzada] = useState(false)
+
   const aprobarTodos = useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ data: ResultadoAprobarTodos }>(`/api/v1/padron/snapshots/${snapshotId}/diffs/aprobar-todos`)
+      await apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/aprobar-todos`)
+    },
+    onSuccess: () => setAprobacionLanzada(true),
+  })
+
+  // Polling del progreso mientras la aprobación está en curso. Se refresca cada
+  // 1.5s; al completar, invalida la tabla de diffs y corta el polling.
+  const { data: progresoAprobacion } = useQuery({
+    queryKey: ['aprobacion-progreso', snapshotId],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: AprobacionProgreso | null }>(
+        `/api/v1/padron/snapshots/${snapshotId}/diffs/aprobacion-progreso`,
+      )
       return res.data.data
     },
-    onSuccess: (resultado) => {
-      // Con fallidos: se deja el modal abierto mostrando el detalle (no
-      // tiene sentido cerrarlo como si nada, el usuario necesita ver qué
-      // quedó pendiente y por qué antes de decidir el siguiente paso).
-      if (resultado.fallidos.length === 0) setModalAprobarTodos(false)
-      queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] })
+    enabled: aprobacionLanzada,
+    refetchInterval: (query) => {
+      const d = query.state.data as AprobacionProgreso | null | undefined
+      return d && d.estado === 'procesando' ? 1500 : false
     },
   })
+
+  // Al terminar la aprobación, refrescar la tabla de diffs una sola vez.
+  useEffect(() => {
+    if (progresoAprobacion && progresoAprobacion.estado !== 'procesando') {
+      queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] })
+    }
+  }, [progresoAprobacion?.estado, snapshotId, queryClient])
 
   const puedeDecidir = can(user, 'padron', 'aprobar_padron')
 
@@ -827,72 +855,112 @@ export function PadronDiffPage() {
       {modalAprobarTodos && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget && !aprobarTodos.isPending) setModalAprobarTodos(false) }}
+          onClick={(e) => { if (e.target === e.currentTarget) setModalAprobarTodos(false) }}
         >
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h2 className="font-primary text-lg font-bold text-gray-900">Aprobar todos los pendientes</h2>
+          {(() => {
+            const prog = progresoAprobacion
+            const procesando = prog?.estado === 'procesando' || (aprobacionLanzada && !prog)
+            const completado = prog?.estado === 'completado' || prog?.estado === 'error'
+            const pct = prog && prog.total > 0 ? Math.round((prog.procesados / prog.total) * 100) : 0
+            const cerrarBloqueado = procesando
+            return (
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
+                <h2 className="font-primary text-lg font-bold text-gray-900">Aprobar todos los pendientes</h2>
 
-            {!aprobarTodos.data && (
-              <p className="text-sm text-gray-600">
-                Se generará un código para cada uno de los{' '}
-                <span className="font-semibold text-gray-900">{nuevosPendientes} cargos pendientes</span>.
-                Esta acción no se puede deshacer.
-              </p>
-            )}
+                {/* Estado inicial: confirmar */}
+                {!aprobacionLanzada && !aprobarTodos.isPending && (
+                  <p className="text-sm text-gray-600">
+                    Se generará un código para cada uno de los{' '}
+                    <span className="font-semibold text-gray-900">{nuevosPendientes} cargos pendientes</span>.
+                    Puede tardar varios minutos; podés seguir el avance acá. Esta acción no se puede deshacer.
+                  </p>
+                )}
 
-            {aprobarTodos.isError && (
-              <p className="text-sm text-danger">
-                No se pudo completar la operación. Volvé a intentar — lo que ya se haya aprobado queda guardado.
-              </p>
-            )}
+                {aprobarTodos.isError && (
+                  <p className="text-sm text-danger">
+                    No se pudo iniciar la operación. Volvé a intentar — lo que ya se haya aprobado queda guardado.
+                  </p>
+                )}
 
-            {aprobarTodos.data && (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-700">
-                  Se aprobaron <span className="font-semibold text-green-700">{aprobarTodos.data.aprobados}</span> cargos.
-                  {aprobarTodos.data.fallidos.length > 0 && (
-                    <> Quedaron <span className="font-semibold text-danger">{aprobarTodos.data.fallidos.length}</span> sin aprobar:</>
-                  )}
-                </p>
-                {aprobarTodos.data.fallidos.length > 0 && (
-                  <div className="max-h-56 overflow-y-auto border border-gray-200 rounded">
-                    <table className="text-xs w-full">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Cargo</th>
-                          <th className="px-2 py-1.5 text-left font-medium text-gray-500">Motivo</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {aprobarTodos.data.fallidos.map((f) => (
-                          <tr key={f.diffId}>
-                            <td className="px-2 py-1.5 font-mono text-gray-600 align-top">{f.cargo}</td>
-                            <td className="px-2 py-1.5 text-gray-700 align-top">{f.motivo}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* En curso: barra de progreso */}
+                {procesando && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm text-gray-700">
+                      <span>Aprobando cargos…</span>
+                      <span className="font-semibold">
+                        {prog ? `${prog.procesados.toLocaleString('es-AR')} / ${prog.total.toLocaleString('es-AR')}` : 'Iniciando…'}
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                      <div className="h-full bg-secondary transition-all duration-300" style={{ width: `${pct}%` }} />
+                    </div>
+                    {prog && prog.fallidos.length > 0 && (
+                      <p className="text-xs text-danger">{prog.fallidos.length} con error hasta ahora (se detallan al terminar)</p>
+                    )}
+                    <p className="text-[11px] text-gray-400">Podés cerrar esta ventana; la aprobación sigue en el servidor.</p>
                   </div>
                 )}
-              </div>
-            )}
 
-            <div className="flex justify-end gap-3 pt-2">
-              <button className="btn-outline" onClick={() => setModalAprobarTodos(false)} disabled={aprobarTodos.isPending}>
-                {aprobarTodos.data ? 'Cerrar' : 'Cancelar'}
-              </button>
-              {!aprobarTodos.data && (
-                <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
-                  {aprobarTodos.isPending ? 'Aprobando...' : `Aprobar ${nuevosPendientes} cargos`}
-                </button>
-              )}
-              {aprobarTodos.data && aprobarTodos.data.fallidos.length > 0 && (
-                <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
-                  {aprobarTodos.isPending ? 'Reintentando...' : `Reintentar ${aprobarTodos.data.fallidos.length} pendientes`}
-                </button>
-              )}
-            </div>
-          </div>
+                {/* Completado: resumen */}
+                {completado && prog && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-700">
+                      Se aprobaron <span className="font-semibold text-green-700">{prog.aprobados.toLocaleString('es-AR')}</span> cargos
+                      {' '}de {prog.total.toLocaleString('es-AR')}.
+                      {prog.fallidos.length > 0 && (
+                        <> Quedaron <span className="font-semibold text-danger">{prog.fallidos.length}</span> sin aprobar:</>
+                      )}
+                    </p>
+                    {prog.fallidos.length > 0 && (
+                      <div className="max-h-56 overflow-y-auto border border-gray-200 rounded">
+                        <table className="text-xs w-full">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="px-2 py-1.5 text-left font-medium text-gray-500">Cargo</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-gray-500">Motivo</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {prog.fallidos.map((f) => (
+                              <tr key={f.diffId}>
+                                <td className="px-2 py-1.5 font-mono text-gray-600 align-top">{f.cargo}</td>
+                                <td className="px-2 py-1.5 text-gray-700 align-top">{f.motivo}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    className="btn-outline"
+                    onClick={() => { setModalAprobarTodos(false); if (completado) { setAprobacionLanzada(false); aprobarTodos.reset() } }}
+                    disabled={cerrarBloqueado}
+                  >
+                    {completado ? 'Cerrar' : 'Cancelar'}
+                  </button>
+                  {/* Iniciar */}
+                  {!aprobacionLanzada && (
+                    <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
+                      {aprobarTodos.isPending ? 'Iniciando…' : `Aprobar ${nuevosPendientes} cargos`}
+                    </button>
+                  )}
+                  {/* Reintentar los que quedaron */}
+                  {completado && prog && prog.fallidos.length > 0 && (
+                    <button
+                      className="btn-primary"
+                      onClick={() => { setAprobacionLanzada(false); aprobarTodos.reset(); aprobarTodos.mutate() }}
+                    >
+                      Reintentar {prog.fallidos.length} pendientes
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </>

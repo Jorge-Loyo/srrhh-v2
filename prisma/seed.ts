@@ -115,6 +115,17 @@ const CODIGOS_REGISTRO: { codigo: string; escalafonCodigo: string; literal: stri
   { codigo: '83', escalafonCodigo: '83', literal: 'Nueva Carrera Administrativa' },
   { codigo: '85', escalafonCodigo: '85', literal: 'CEETPS' },
   { codigo: '87', escalafonCodigo: '87', literal: 'Nueva Carrera Enfermería' },
+  // S21 (padrón real 2026): códigos de registro que el padrón trae y cuyo
+  // escalafón ya existe, pero faltaba el codigo_registro → el import fallaba
+  // con "Escalafón no encontrado" pese a que el escalafón estaba. Directos
+  // (mismo código que el escalafón).
+  { codigo: '65',  escalafonCodigo: '65',  literal: 'Plantas Transitorias Acta 06/2014' },
+  { codigo: '70',  escalafonCodigo: '70',  literal: 'Cuerpo Especialistas Profesionales' },
+  { codigo: '17',  escalafonCodigo: '17',  literal: 'Gabinete' },
+  { codigo: '17B', escalafonCodigo: '17B', literal: 'Régimen Modular Extraordinario PG' },
+  // Código 19 "Escalafón General" → Nueva Carrera Administrativa (83), mismo
+  // criterio que el remap de "Escalafón Ge-hash" del catálogo de puestos (A21-15).
+  { codigo: '19',  escalafonCodigo: '83',  literal: 'Escalafón General' },
 ]
 
 async function main() {
