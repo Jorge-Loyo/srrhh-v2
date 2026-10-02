@@ -1470,6 +1470,22 @@ model EspecialidadPuesto {
   @@map("especialidades_puesto")
 }
 
+// S22-10: mapeo JCAT → cargo de jefatura (nivel jerárquico). El JCAT del padrón
+// codifica el nivel de conducción (Director/Sub-Director/Jefe de Depto/División/
+// Unidad/Sección). Familias: P (CPH planta), G (CPH guardia), Z (no médicos:
+// Administrativo/Técnico/Enfermería; el escalafón lo da el cod. registro, no el
+// JCAT). Opción A (S22-12): `cargo_jefatura` como TEXTO; `cod_puesto` (01-06) se
+// guarda como referencia para una futura resolución a FK (Opción B). En tabla,
+// no hardcode (ver Doc/Referencias/DOTANEITOR_DECISIONES.md §2.2).
+model JcatCargoJefatura {
+  jcat          String  @id @db.VarChar(10)
+  cargoJefatura String  @map("cargo_jefatura") @db.VarChar(100)
+  codPuesto     String? @map("cod_puesto") @db.VarChar(5)
+  familia       String  @db.VarChar(1) // P | G | Z
+
+  @@map("jcat_cargo_jefatura")
+}
+
 // =============================================================================
 // TABLAS DE REFERENCIA (Mapeos Dotaneitor)
 // =============================================================================

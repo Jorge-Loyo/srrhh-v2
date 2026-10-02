@@ -122,7 +122,7 @@ _ORDEN_SALIDA = [
     'tipo_doc', 'numero_doc', 'codigo_repa', 'descripcion_repa', 'siglas',
     'universo_totalizador', 'tipo_de_hospital_sigla', 'monovalencia', 'escalafon',
     'codigo_de_registro', 'literal_cr', 'regimen', 'situacion_de_revista', 'puesto',
-    'literal_puesto', 'especialidad', 'codigo_jefaturas', 'jefe_escalafon',
+    'literal_puesto', 'especialidad', 'codigo_jefaturas', 'jefe_escalafon', 'cargo_jefatura',
     'documentacion_jefatura', 'comentarios_jefaturas', 'escritorio', 'pou_desde',
     'dia', 'documentacion_pou', 'sr_doc_respald', 'sr_comentario', 'comision',
     'repa_comision', 'cr_comentario', 'cod_agrupamiento', 'agrupamiento',
@@ -249,6 +249,7 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
     # Resuelve carrera/puesto/especialidad a sus ids del catálogo. Conserva el
     # texto crudo de origen (literal_puesto_origen/especialidad_origen) antes de
     # normalizar. Sin match → auto-alta pendiente_curar (dentro de Catalogo).
+    jcat_sin_mapeo = 0
     if catalogo is not None:
         df['literal_puesto_origen'] = df.get('literal_puesto')
         df['especialidad_origen'] = df.get('especialidad')
@@ -270,11 +271,25 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         df['puesto_cargo_id'] = puesto_ids
         df['especialidad_puesto_id'] = especialidad_ids
 
+        # ── JCAT → cargo de jefatura (S22-10/11, Opción A texto) ──────────────
+        # Mapea el JCAT (codigo_jefaturas) al cargo de conducción. JCAT con valor
+        # pero sin mapeo en la tabla → None (no frena, se cuenta e informa).
+        jcat_series = df.get('codigo_jefaturas', pd.Series([None] * len(df)))
+        cargos_jef = [catalogo.resolver_cargo_jefatura(j) for j in jcat_series]
+        df['cargo_jefatura'] = cargos_jef
+        jcat_sin_mapeo += sum(
+            1 for j, c in zip(jcat_series, cargos_jef)
+            if j is not None and not (isinstance(j, float) and pd.isna(j)) and str(j).strip() and c is None
+        )
+
         logs.append({
             'text': f"✓ Resolución catálogo — puestos auto-alta: {catalogo.puestos_auto_alta}, "
-                    f"especialidades auto-alta: {catalogo.especialidades_auto_alta}",
+                    f"especialidades auto-alta: {catalogo.especialidades_auto_alta}, "
+                    f"JCAT sin mapeo: {jcat_sin_mapeo}",
             'type': 'info',
         })
+        if jcat_sin_mapeo:
+            logs.append({'text': f"[!] JCAT con valor pero sin mapeo a cargo de jefatura: {jcat_sin_mapeo}", 'type': 'warning'})
 
     # ── Paso 9.75: normalización TOTAL a minúscula + sin tilde (S22-3) ────────
     # Reemplaza _forzar_mayusculas. Aplica a TODAS las columnas salvo las
@@ -312,6 +327,7 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         'nombres_sin_coma': sin_coma,
         'puestos_auto_alta': catalogo.puestos_auto_alta if catalogo else 0,
         'especialidades_auto_alta': catalogo.especialidades_auto_alta if catalogo else 0,
+        'jcat_sin_mapeo': jcat_sin_mapeo,
     }
 
     # Logs resumen

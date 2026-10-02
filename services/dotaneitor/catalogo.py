@@ -67,6 +67,8 @@ class Catalogo:
         self.puesto_por_escalafon: dict[tuple[str, str], str] = {}
         # (puesto_cargo_id, esp_norm) → especialidad_puesto_id
         self.esp_por_puesto: dict[tuple[str, str], str] = {}
+        # jcat (upper) → cargo_jefatura (texto) — S22-10
+        self.jcat_a_cargo: dict[str, str] = {}
         # Contadores de auto-altas de la corrida (para el reporte/diff).
         self.puestos_auto_alta = 0
         self.especialidades_auto_alta = 0
@@ -83,6 +85,9 @@ class Catalogo:
             esp = pd.read_sql(text(
                 'SELECT id, puesto_cargo_id, nombre FROM especialidades_puesto WHERE activo = true'
             ), conn)
+            jcat = pd.read_sql(text(
+                'SELECT jcat, cargo_jefatura FROM jcat_cargo_jefatura'
+            ), conn)
 
         self.cod_reg_a_escalafon = {
             str(r.codigo).strip(): str(r.escalafon_id) for r in cod_reg.itertuples()
@@ -93,6 +98,9 @@ class Catalogo:
         self.esp_por_puesto = {
             (str(r.puesto_cargo_id), _norm_especialidad(r.nombre)): str(r.id)
             for r in esp.itertuples()
+        }
+        self.jcat_a_cargo = {
+            str(r.jcat).strip().upper(): r.cargo_jefatura for r in jcat.itertuples()
         }
 
     # ── Resolución ────────────────────────────────────────────────────────────
@@ -127,6 +135,13 @@ class Catalogo:
         if eid:
             return eid
         return self._auto_alta_especialidad(puesto_cargo_id, clave)
+
+    def resolver_cargo_jefatura(self, jcat) -> str | None:
+        """JCAT → cargo de jefatura (texto, Opción A). None si no hay JCAT o no
+        está mapeado (JCAT sin mapeo no frena: se informa en el reporte)."""
+        if jcat is None or (isinstance(jcat, float) and pd.isna(jcat)):
+            return None
+        return self.jcat_a_cargo.get(str(jcat).strip().upper())
 
     # ── Auto-alta revisable (S22-6) ────────────────────────────────────────────
     def _auto_alta_puesto(self, escalafon_id: str, nombre_norm: str) -> str:
