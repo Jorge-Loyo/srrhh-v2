@@ -619,7 +619,10 @@ async def procesar_padron_lineal(
     file: UploadFile = File(...),
     snapshot_id: str | None = Form(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(500, ge=1, le=5000),
+    # Sin tope efectivo: Node consume el dataset COMPLETO en una sola respuesta
+    # para armar el diff (un padrón real son ~48k filas). El límite alto solo
+    # protege de un valor negativo/0.
+    limit: int = Query(100000, ge=1, le=1000000),
 ):
     """Procesa el Excel de Cargos de punta a punta en un solo flujo síncrono.
 

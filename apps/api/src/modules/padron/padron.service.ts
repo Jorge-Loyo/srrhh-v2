@@ -8,7 +8,12 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
 import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
-import { cargarCatalogoPuestos, resolverPuestoCargoId, resolverEspecialidadPuestoId, normPuestoKey } from './resolverPuestoCargo.js'
+import {
+  cargarCatalogoPuestos,
+  resolverPuestoCargoId,
+  resolverEspecialidadPuestoId,
+  normPuestoKey,
+} from './resolverPuestoCargo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import type { DiffQuery } from './padron.schema.js'
 
@@ -27,15 +32,33 @@ function esAutoAprobable(datos: Record<string, string>): boolean {
 // Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
 // sobre por qué no se recibe el MultipartFile crudo acá (el stream tiene que
 // consumirse mientras el part está activo en el iterador de request.parts()).
-interface UploadedFile { buffer: Buffer; filename: string; mimetype: string }
+interface UploadedFile {
+  buffer: Buffer
+  filename: string
+  mimetype: string
+}
 
 // Formas mínimas de las filas que necesitamos de cada modelo — ver comentario
 // junto a su uso en aprobarSnapshotService() sobre por qué se anotan a mano
 // en vez de importar los tipos generados de @prisma/client.
-interface HospitalRow { id: string; sigla: string; nombre: string }
-interface EscalafonRow { id: string; nombre: string }
-interface PersonaRow { id: string; cuil: string }
-interface CargoRow { id: string; idSial: string; estado: string }
+interface HospitalRow {
+  id: string
+  sigla: string
+  nombre: string
+}
+interface EscalafonRow {
+  id: string
+  nombre: string
+}
+interface PersonaRow {
+  id: string
+  cuil: string
+}
+interface CargoRow {
+  id: string
+  idSial: string
+  estado: string
+}
 interface OcupacionFinalRow {
   personaId: string
   cargoId: string
@@ -53,7 +76,10 @@ interface OcupacionFinalRow {
   }
 }
 
-type PrismaTx = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
+type PrismaTx = Omit<
+  typeof prisma,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>
 
 // Hallazgo crítico (revisión Sprint 2, 2026-08-24): prisma.$transaction sin
 // { timeout } usa el default de Prisma (5000ms — verificado contra
@@ -86,7 +112,12 @@ function chunk<T>(arr: T[], size: number): T[][] {
 // grandes, justo al empezar /preview del diff). keepAlive + reintento lo cubren.
 const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4 })
 const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4 })
-const python = axios.create({ baseURL: env.PYTHON_SERVICE_URL, timeout: 300_000, httpAgent, httpsAgent })
+const python = axios.create({
+  baseURL: env.PYTHON_SERVICE_URL,
+  timeout: 300_000,
+  httpAgent,
+  httpsAgent,
+})
 
 // Errores de red transitorios del contenedor Python que ameritan reintento.
 const ERRORES_RED_TRANSITORIOS = new Set(['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE'])
@@ -114,17 +145,6 @@ async function conReintentoRed<T>(fn: () => Promise<T>, intentos = 3): Promise<T
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-async function pollJob(jobId: string, maxWaitMs = 240_000): Promise<unknown> {
-  const start = Date.now()
-  while (Date.now() - start < maxWaitMs) {
-    const { data } = await conReintentoRed(() => python.get(`/job/${jobId}`))
-    if (data.status === 'done') return data.result
-    if (data.status === 'error') throw new Error(`Job Python falló: ${data.error}`)
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-  throw new Error('Timeout esperando job Python')
-}
-
 async function getSnapshotOrThrow(id: string) {
   const snapshot = await prisma.padronSnapshot.findUnique({ where: { id } })
   if (!snapshot) throw AppError.notFound('Snapshot no encontrado')
@@ -135,48 +155,43 @@ async function getSnapshotOrThrow(id: string) {
 // Columnas del resultado de Dotaneitor que se comparan campo a campo.
 // Clave: nombre en el DataFrame Python (snake_case del COL_MAP). Valor: campo
 // en Cargo u Ocupacion para saber dónde vive ese dato en el modelo relacional.
+// S22-9: el pipeline v2 ya NO produce agrupador / unificador_de_puestos /
+// estado (se eliminaron). Se sacan de la comparación para no marcar
+// modificaciones falsas (vendrían vacíos y marcarían "se vació" en masa).
 const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
-  literal_puesto:        'cargo',
-  especialidad:          'cargo',
-  agrupador:             'cargo',
-  unificador_de_puestos: 'cargo',
-  codigo_repa:           'cargo',
-  descripcion_repa:      'cargo',
-  codigo_de_registro:    'cargo',
-  agrupamiento:          'cargo',
-  situacion_de_revista:  'ocupacion',
-  estado:                'ocupacion',
-  codigo_jefaturas:      'ocupacion',
-  jefe_escalafon:        'ocupacion',
-  comision:              'ocupacion',
-  repa_comision:         'ocupacion',
-  cod_situacion:         'ocupacion',
-  cargo_desde:           'ocupacion',
-  cargo_hasta:           'ocupacion',
+  literal_puesto: 'cargo',
+  especialidad: 'cargo',
+  codigo_repa: 'cargo',
+  descripcion_repa: 'cargo',
+  codigo_de_registro: 'cargo',
+  agrupamiento: 'cargo',
+  situacion_de_revista: 'ocupacion',
+  codigo_jefaturas: 'ocupacion',
+  jefe_escalafon: 'ocupacion',
+  comision: 'ocupacion',
+  repa_comision: 'ocupacion',
+  cod_situacion: 'ocupacion',
+  cargo_desde: 'ocupacion',
+  cargo_hasta: 'ocupacion',
 }
 
 type RegistroPython = Record<string, unknown>
 
-async function fetchAllPreview(sessionId: string): Promise<RegistroPython[]> {
-  const limit = 500
-  let page = 1
-  const all: RegistroPython[] = []
-  while (true) {
-    const { data } = await conReintentoRed(() =>
-      python.get<{ rows: RegistroPython[]; total: number }>(
-        '/preview', { params: { session_id: sessionId, page, limit } }
-      )
-    )
-    all.push(...data.rows)
-    if (all.length >= data.total) break
-    page++
-  }
-  return all
-}
-
 function strVal(v: unknown): string {
   if (v === null || v === undefined) return ''
   return String(v).trim()
+}
+
+// S22-9: comparación normalizada para el diff. El pipeline v2 normaliza todo a
+// minúscula/sin tilde, pero los datos ya cargados en la BD (de padrones viejos)
+// están en MAYÚSCULA/con tilde. Sin esto, el primer padrón tras el cambio marca
+// ~todas las filas como "modificadas" por diferencias que son solo de formato.
+// Se compara minúscula + sin tilde + trim para contar solo cambios reales.
+function normCmp(v: unknown): string {
+  return strVal(v)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 }
 
 // Fechas del padrón real vienen como "DD/MM/YYYY" (string) — Dotaneitor no
@@ -192,9 +207,7 @@ function parseFechaDDMMYYYY(v: string | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-async function calcularDiff(sessionId: string) {
-  const registros = await fetchAllPreview(sessionId)
-
+async function calcularDiff(registros: RegistroPython[]) {
   // Mapa id_sial -> registro Python
   const nuevosMap = new Map<string, RegistroPython>()
   for (const r of registros) {
@@ -220,18 +233,25 @@ async function calcularDiff(sessionId: string) {
       ocupaciones: {
         where: { hasta: null },
         select: {
-          idSialRol: true, situacionRevista: true, estadoPersona: true, cuil: true,
-          codigoJefaturas: true, jefeEscalafon: true, comision: true, repaComision: true, codSituacion: true,
+          idSialRol: true,
+          situacionRevista: true,
+          estadoPersona: true,
+          cuil: true,
+          codigoJefaturas: true,
+          jefeEscalafon: true,
+          comision: true,
+          repaComision: true,
+          codSituacion: true,
         },
         take: 1,
       },
     },
   })
 
-  const actualesMap = new Map<string, typeof cargosActuales[number]>()
+  const actualesMap = new Map<string, (typeof cargosActuales)[number]>()
   for (const c of cargosActuales) actualesMap.set(c.idSial, c)
 
-  const nuevosIds   = new Set(nuevosMap.keys())
+  const nuevosIds = new Set(nuevosMap.keys())
   const actualesIds = new Set(actualesMap.keys())
 
   type DiffEntry = {
@@ -257,64 +277,64 @@ async function calcularDiff(sessionId: string) {
       campo: null,
       valorAnterior: null,
       valorNuevo: JSON.stringify({
-        id_sial:        idSial,
-        cuil_y_rol:     cuilYRol,
-        ayn:            strVal(r['AYN'] ?? r['ayn']),
+        id_sial: idSial,
+        cuil_y_rol: cuilYRol,
+        ayn: strVal(r['AYN'] ?? r['ayn']),
         // Reportado (2026-08-25): Documento/Especialidad vacíos en /personas —
         // numero_doc/tipo_doc nunca se capturaban acá pese a existir en el
         // Dotaneitor real (Dotaneitor.py rename_dict: NUM_DOC -> "NUMERO DOC",
         // TIP_DOC -> "TIPO DOC"). Se agregan para que aprobarSnapshotService
         // pueda escribirlos en Persona al crear.
-        numero_doc:     strVal(r['NUMERO DOC'] ?? r['numero_doc']),
-        tipo_doc:       strVal(r['TIPO DOC'] ?? r['tipo_doc']),
+        numero_doc: strVal(r['NUMERO DOC'] ?? r['numero_doc']),
+        tipo_doc: strVal(r['TIPO DOC'] ?? r['tipo_doc']),
         // Mismo hallazgo, ronda 2 (2026-08-25): sexo/fecha de nacimiento/
         // antigüedad tampoco se capturaban. SEXO no se renombra en
         // Dotaneitor.py; FEC_NACIM -> "FECHA NACIMIENTO"; SALUD_1ER_CARGO ->
         // "ANTIGÜEDAD" (rename_dict). Vienen como "DD/MM/YYYY" (string) del
         // Excel real — se parsean en aprobarSnapshotService, no acá (acá
         // todo el JSON es string/string, sin tipos).
-        sexo:           strVal(r['SEXO'] ?? r['sexo']),
+        sexo: strVal(r['SEXO'] ?? r['sexo']),
         fecha_nacimiento: strVal(r['FECHA NACIMIENTO'] ?? r['fecha_nacimiento']),
-        antiguedad:     strVal(r['ANTIGÜEDAD'] ?? r['antiguedad']),
-        siglas:         strVal(r['SIGLAS'] ?? r['siglas']),
-        escalafon:      strVal(r['ESCALAFON'] ?? r['escalafon']),
+        antiguedad: strVal(r['ANTIGÜEDAD'] ?? r['antiguedad']),
+        siglas: strVal(r['SIGLAS'] ?? r['siglas']),
+        escalafon: strVal(r['ESCALAFON'] ?? r['escalafon']),
         literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
-        especialidad:   strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
+        especialidad: strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
         tipo_hospital_sigla: strVal(r['TIPO DE HOSPITAL / SIGLA'] ?? r['tipo_hospital_sigla']),
         situacion_de_revista: strVal(r['SITUACION DE REVISTA'] ?? r['situacion_de_revista']),
-        estado:         strVal(r['ESTADO'] ?? r['estado']),
-        agrupador:      strVal(r['AGRUPADOR'] ?? r['agrupador']),
+        estado: strVal(r['ESTADO'] ?? r['estado']),
+        agrupador: strVal(r['AGRUPADOR'] ?? r['agrupador']),
         unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
-        regimen:        strVal(r['REGIMEN'] ?? r['regimen']),
+        regimen: strVal(r['REGIMEN'] ?? r['regimen']),
         // Campos de Cargo faltantes (2026-08-25)
-        codigo_repa:    strVal(r['CODIGO REPA'] ?? r['codigo_repa']),
+        codigo_repa: strVal(r['CODIGO REPA'] ?? r['codigo_repa']),
         descripcion_repa: strVal(r['DESCRIPCION REPA'] ?? r['descripcion_repa']),
         codigo_de_registro: strVal(r['CODIGO DE REGISTRO'] ?? r['codigo_de_registro']),
-        literal_cr:     strVal(r['LITERAL CR'] ?? r['literal_cr']),
-        agrupamiento:   strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
+        literal_cr: strVal(r['LITERAL CR'] ?? r['literal_cr']),
+        agrupamiento: strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
         // Campos de Ocupacion faltantes (2026-08-25)
         codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
         jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
         documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
         comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
         documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
-        comision:       strVal(r['COMISION'] ?? r['comision']),
-        repa_comision:  strVal(r['REPA COMISION'] ?? r['repa_comision']),
-        cod_situacion:  strVal(r['COD SITUACION'] ?? r['cod_situacion']),
-        fecha_bloqueo:  strVal(r['FECHA BLOQUEO'] ?? r['fecha_bloqueo']),
+        comision: strVal(r['COMISION'] ?? r['comision']),
+        repa_comision: strVal(r['REPA COMISION'] ?? r['repa_comision']),
+        cod_situacion: strVal(r['COD SITUACION'] ?? r['cod_situacion']),
+        fecha_bloqueo: strVal(r['FECHA BLOQUEO'] ?? r['fecha_bloqueo']),
         bloqueo_comentario: strVal(r['BLOQUEO COMENTARIO'] ?? r['bloqueo_comentario']),
-        bloq_motivo:    strVal(r['BLOQ MOTIVO'] ?? r['bloq_motivo']),
+        bloq_motivo: strVal(r['BLOQ MOTIVO'] ?? r['bloq_motivo']),
         documentacion_del_rol: strVal(r['DOCUMENTACION DEL ROL'] ?? r['documentacion_del_rol']),
         documentacion_baja: strVal(r['DOCUMENTACION BAJA'] ?? r['documentacion_baja']),
-        cargo_desde:    strVal(r['CARGO_DESDE'] ?? r['cargo_desde']),
-        cargo_hasta:    strVal(r['CARGO_HASTA'] ?? r['cargo_hasta']),
+        cargo_desde: strVal(r['CARGO_DESDE'] ?? r['cargo_desde']),
+        cargo_hasta: strVal(r['CARGO_HASTA'] ?? r['cargo_hasta']),
         // Campos de Persona faltantes (2026-08-25)
-        telefono:       strVal(r['TELEFONO'] ?? r['telefono']),
-        mail_personal:  strVal(r['MAIL_PERSONAL'] ?? r['mail_personal']),
-        mail_laboral:   strVal(r['MAIL_LABORAL'] ?? r['mail_laboral']),
-        domicilio:      strVal(r['DOMICILIO'] ?? r['domicilio']),
-        localidad:      strVal(r['LOCALIDAD'] ?? r['localidad']),
-        provincia:      strVal(r['PROVINCIA'] ?? r['provincia']),
+        telefono: strVal(r['TELEFONO'] ?? r['telefono']),
+        mail_personal: strVal(r['MAIL_PERSONAL'] ?? r['mail_personal']),
+        mail_laboral: strVal(r['MAIL_LABORAL'] ?? r['mail_laboral']),
+        domicilio: strVal(r['DOMICILIO'] ?? r['domicilio']),
+        localidad: strVal(r['LOCALIDAD'] ?? r['localidad']),
+        provincia: strVal(r['PROVINCIA'] ?? r['provincia']),
       }),
     })
   }
@@ -330,52 +350,53 @@ async function calcularDiff(sessionId: string) {
       idSialRol,
       campo: null,
       valorAnterior: JSON.stringify({
-        id_sial:        idSial,
-        cuil_y_rol:     ocup?.cuil ?? null,
+        id_sial: idSial,
+        cuil_y_rol: ocup?.cuil ?? null,
         literal_puesto: actual.literalPuesto,
-        especialidad:   actual.especialidadLegacy,
-        agrupador:      actual.agrupador,
+        especialidad: actual.especialidadLegacy,
+        agrupador: actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
-        estado:         ocup?.estadoPersona ?? null,
-        siglas:         actual.hospital?.sigla ?? null,
-        escalafon:      actual.escalafon?.nombre ?? null,
+        estado: ocup?.estadoPersona ?? null,
+        siglas: actual.hospital?.sigla ?? null,
+        escalafon: actual.escalafon?.nombre ?? null,
       }),
       valorNuevo: null,
     })
   }
 
   // Modificados
-  const CAMPO_CARGO_MAP: Record<string, keyof typeof cargosActuales[number]> = {
-    literal_puesto:        'literalPuesto',
-    especialidad:          'especialidadLegacy',
-    agrupador:             'agrupador',
+  const CAMPO_CARGO_MAP: Record<string, keyof (typeof cargosActuales)[number]> = {
+    literal_puesto: 'literalPuesto',
+    especialidad: 'especialidadLegacy',
+    agrupador: 'agrupador',
     unificador_de_puestos: 'unificadorPuesto',
-    codigo_repa:           'codigoRepa',
-    descripcion_repa:      'descripcionRepa',
-    agrupamiento:          'agrupamiento',
+    codigo_repa: 'codigoRepa',
+    descripcion_repa: 'descripcionRepa',
+    agrupamiento: 'agrupamiento',
   }
   const CAMPO_OCUP_MAP: Record<string, string> = {
     situacion_de_revista: 'situacionRevista',
-    estado:               'estadoPersona',
-    codigo_jefaturas:     'codigoJefaturas',
-    jefe_escalafon:       'jefeEscalafon',
-    comision:             'comision',
-    repa_comision:        'repaComision',
-    cod_situacion:        'codSituacion',
+    estado: 'estadoPersona',
+    codigo_jefaturas: 'codigoJefaturas',
+    jefe_escalafon: 'jefeEscalafon',
+    comision: 'comision',
+    repa_comision: 'repaComision',
+    cod_situacion: 'codSituacion',
   }
 
   for (const idSial of nuevosIds) {
     if (!actualesIds.has(idSial)) continue
-    const r      = nuevosMap.get(idSial)!
+    const r = nuevosMap.get(idSial)!
     const actual = actualesMap.get(idSial)!
-    const ocup   = actual.ocupaciones[0]
+    const ocup = actual.ocupaciones[0]
     const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
     const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
-      const colUpper = colPython === 'codigo_de_registro'
-        ? 'CODIGO DE REGISTRO'
-        : colPython.toUpperCase().replace(/_/g, ' ')
+      const colUpper =
+        colPython === 'codigo_de_registro'
+          ? 'CODIGO DE REGISTRO'
+          : colPython.toUpperCase().replace(/_/g, ' ')
       const vNuevo = strVal(r[colUpper] ?? r[colPython])
       let vAnterior = ''
       if (tabla === 'cargo') {
@@ -389,22 +410,27 @@ async function calcularDiff(sessionId: string) {
         const key = CAMPO_OCUP_MAP[colPython]
         vAnterior = strVal(key && ocup ? (ocup as Record<string, unknown>)[key] : null)
       }
-      if (vNuevo !== vAnterior) {
+      // Comparación normalizada: ignora diferencias de solo capitalización/
+      // tilde (el pipeline v2 normaliza a minúscula; la BD tiene datos viejos
+      // en mayúscula). Solo cuenta cambios reales de contenido.
+      if (normCmp(vNuevo) !== normCmp(vAnterior)) {
         diffs.push({
           tipo: 'modificado',
           idSialRol,
           campo: colPython,
           valorAnterior: vAnterior || null,
-          valorNuevo:    vNuevo   || null,
+          valorNuevo: vNuevo || null,
         })
       }
     }
   }
 
-  const totalNuevos      = diffs.filter((d) => d.tipo === 'nuevo').length
-  const totalEliminados  = diffs.filter((d) => d.tipo === 'eliminado').length
-  const totalModificados = new Set(diffs.filter((d) => d.tipo === 'modificado').map((d) => d.idSialRol)).size
-  const totalCampos      = diffs.filter((d) => d.tipo === 'modificado').length
+  const totalNuevos = diffs.filter((d) => d.tipo === 'nuevo').length
+  const totalEliminados = diffs.filter((d) => d.tipo === 'eliminado').length
+  const totalModificados = new Set(
+    diffs.filter((d) => d.tipo === 'modificado').map((d) => d.idSialRol),
+  ).size
+  const totalCampos = diffs.filter((d) => d.tipo === 'modificado').length
 
   return { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos }
 }
@@ -429,40 +455,54 @@ async function setPaso(snapshotId: string, paso: string) {
 export async function cleanupSnapshotsProcesando() {
   const { count } = await prisma.padronSnapshot.updateMany({
     where: { estado: 'procesando' },
-    data: { estado: 'error', errorMsg: 'Proceso interrumpido al reiniciar el servidor', pasoActual: null },
+    data: {
+      estado: 'error',
+      errorMsg: 'Proceso interrumpido al reiniciar el servidor',
+      pasoActual: null,
+    },
   })
-  if (count > 0) console.warn(`[padron] cleanup: ${count} snapshot(s) marcados como error por reinicio`)
+  if (count > 0)
+    console.warn(`[padron] cleanup: ${count} snapshot(s) marcados como error por reinicio`)
 }
 
 // ─── S2-18: pipeline en background ───────────────────────────────────────────
 
+// S22-9: pipeline lineal. Una sola llamada a POST /procesar-padron (sin
+// /session + /normalizar + /procesar + /cruzar + /preview + polling). El
+// Dotaneitor devuelve el dataset completo ya resuelto contra el catálogo
+// (escalafon_id/puesto_cargo_id/especialidad_puesto_id, cargo_jefatura, campos
+// partidos). Node arma el diff sobre esas filas. Sigue en background: /upload
+// responde 202 y la experiencia de revisión/aprobación en /padron no cambia.
 async function runPipeline(
   snapshotId: string,
-  sessionId: string,
-  fechaAsignada: string,
+  fileBuffer: Buffer,
+  filename: string,
+  mimetype: string,
 ) {
   try {
-    await setPaso(snapshotId, 'normalizar')
-    const { data: normJob } = await python.post('/normalizar', { session_id: sessionId })
-    await pollJob(normJob.job_id)
+    await setPaso(snapshotId, 'procesando')
+    const form = new FormData()
+    form.append('file', fileBuffer, { filename, contentType: mimetype })
+    form.append('snapshot_id', snapshotId)
+    // limit alto: queremos TODO el dataset en una sola respuesta para el diff.
+    const { data } = await python.post<{ rows: RegistroPython[]; total: number }>(
+      '/procesar-padron?page=1&limit=100000',
+      form,
+      { headers: form.getHeaders() },
+    )
+    const registros = data.rows ?? []
 
-    await setPaso(snapshotId, 'procesar')
-    const { data: procJob } = await python.post('/procesar', {
-      session_id: sessionId,
-      fecha_asignada: fechaAsignada,
-    })
-    await pollJob(procJob.job_id)
-
-    await setPaso(snapshotId, 'cruzar')
-    const { data: cruzarJob } = await python.post('/cruzar', {
-      session_id: sessionId,
-      fecha_asignada: snapshotId, // reutilizado para pasar snapshot_id al Python
-    })
-    await pollJob(cruzarJob.job_id)
+    // El total real recién se conoce al terminar (el 202 fue con total 0).
+    await prisma.padronSnapshot
+      .update({
+        where: { id: snapshotId },
+        data: { totalRegistros: data.total ?? registros.length },
+      })
+      .catch(() => {})
 
     await setPaso(snapshotId, 'diff')
     const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
-      await calcularDiff(sessionId)
+      await calcularDiff(registros)
 
     await setPaso(snapshotId, 'guardando')
     await prisma.$transaction(async (tx: PrismaTx) => {
@@ -492,17 +532,21 @@ async function runPipeline(
       })
     }, TRANSACTION_OPTS)
 
-    console.info(`[padron] pipeline completado snapshotId=${snapshotId} nuevos=${totalNuevos} eliminados=${totalEliminados} modificados=${totalModificados} campos=${totalCampos}`)
+    console.info(
+      `[padron] pipeline completado snapshotId=${snapshotId} nuevos=${totalNuevos} eliminados=${totalEliminados} modificados=${totalModificados} campos=${totalCampos}`,
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    await prisma.padronSnapshot.update({
-      where: { id: snapshotId },
-      data: { estado: 'error', errorMsg: msg, pasoActual: null },
-    }).catch(() => {})
+    await prisma.padronSnapshot
+      .update({
+        where: { id: snapshotId },
+        data: { estado: 'error', errorMsg: msg, pasoActual: null },
+      })
+      .catch(() => {})
     console.error(`[padron] pipeline error snapshotId=${snapshotId}:`, msg)
-  } finally {
-    python.post('/session/delete', { session_id: sessionId }).catch(() => {})
   }
+  // Sin finally de limpieza de sesión: el pipeline lineal no crea sesión Python
+  // (el tmp del run lo borra el propio endpoint /procesar-padron al terminar).
 }
 
 // ─── S2-2 + S2-3 + S2-4 + S2-18 + S2-19: upload → dispara pipeline async ────
@@ -510,7 +554,7 @@ async function runPipeline(
 export async function uploadPadronService(
   file: UploadedFile,
   fechaAsignada: string,
-  usuarioId: string
+  usuarioId: string,
 ) {
   await assertNoPendiente()
 
@@ -520,40 +564,24 @@ export async function uploadPadronService(
 
   const fileBuffer = file.buffer
 
-  const { data: sessionData } = await python.post('/session')
-  const sessionId: string = sessionData.session_id
-
-  // Upload sincrónico para obtener totalRegistros antes de responder
-  let totalRegistros = 0
-  try {
-    const form = new FormData()
-    form.append('session_id', sessionId)
-    form.append('file', fileBuffer, { filename: file.filename, contentType: file.mimetype })
-    const { data: uploadData } = await python.post('/upload-cargos', form, {
-      headers: form.getHeaders(),
-    })
-    totalRegistros = uploadData.rows ?? 0
-  } catch (err) {
-    python.post('/session/delete', { session_id: sessionId }).catch(() => {})
-    throw err
-  }
-
-  // Crear snapshot en estado procesando
+  // S22-9: el pipeline lineal es síncrono (~1-2 min) y corre en background, así
+  // que no se puede obtener totalRegistros antes de responder — arranca en 0 y
+  // runPipeline lo actualiza al terminar. Ya no se crea sesión Python.
   const snapshot = await prisma.padronSnapshot.create({
     data: {
       fechaAsignada: fechaDate,
       filename: file.filename,
-      totalRegistros,
+      totalRegistros: 0,
       procesadoPorId: usuarioId,
       estado: 'procesando',
-      pasoActual: 'normalizar',
+      pasoActual: 'procesando',
     },
   })
 
   // Disparar pipeline en background — no await
-  void runPipeline(snapshot.id, sessionId, fechaAsignada)
+  void runPipeline(snapshot.id, fileBuffer, file.filename, file.mimetype)
 
-  return { snapshotId: snapshot.id, fechaAsignada, totalRegistros }
+  return { snapshotId: snapshot.id, fechaAsignada, totalRegistros: 0 }
 }
 
 // ─── S2-18: polling de estado ─────────────────────────────────────────────────
@@ -600,20 +628,44 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       where: { snapshotId: id, tipo: 'eliminado' },
       select: { idSialRol: true, valorAnterior: true },
     })
-    const idSialsPre = todosElimPre.map((d) => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial as string } catch { return null } }).filter((v): v is string => Boolean(v))
+    const idSialsPre = todosElimPre
+      .map((d) => {
+        try {
+          return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+        } catch {
+          return null
+        }
+      })
+      .filter((v): v is string => Boolean(v))
     const rolesPre = todosElimPre.map((d) => d.idSialRol)
     const [cargosP, ocupsP] = await Promise.all([
-      prisma.cargo.findMany({ where: { idSial: { in: idSialsPre } }, select: { idSial: true, estado: true } }),
-      prisma.ocupacion.findMany({ where: { idSialRol: { in: rolesPre } }, select: { idSialRol: true } }),
+      prisma.cargo.findMany({
+        where: { idSial: { in: idSialsPre } },
+        select: { idSial: true, estado: true },
+      }),
+      prisma.ocupacion.findMany({
+        where: { idSialRol: { in: rolesPre } },
+        select: { idSialRol: true },
+      }),
     ])
     const cargoEstadoMapP = new Map(cargosP.map((c) => [c.idSial, c.estado]))
-    const conPersonaSetP  = new Set(ocupsP.map((o) => o.idSialRol))
+    const conPersonaSetP = new Set(ocupsP.map((o) => o.idSialRol))
     idSialRolesFiltrados = todosElimPre
       .filter((d) => {
         const tienePersona = conPersonaSetP.has(d.idSialRol)
-        const idSial = (() => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial as string } catch { return null } })()
+        const idSial = (() => {
+          try {
+            return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+          } catch {
+            return null
+          }
+        })()
         const estado = idSial ? cargoEstadoMapP.get(idSial) : null
-        const clasi = tienePersona ? 'con_persona' : estado === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
+        const clasi = tienePersona
+          ? 'con_persona'
+          : estado === 'validacion_vacante'
+            ? 'en_validacion'
+            : 'sin_persona'
         return clasi === query.clasificacionEliminado
       })
       .map((d) => d.idSialRol)
@@ -624,13 +676,15 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     ...(query.tipo ? { tipo: query.tipo } : {}),
     ...(query.campo ? { campo: query.campo } : {}),
     ...(idSialRolesFiltrados ? { idSialRol: { in: idSialRolesFiltrados } } : {}),
-    ...(query.q ? {
-      OR: [
-        { idSialRol: { contains: query.q, mode: 'insensitive' as const } },
-        { valorNuevo: { contains: query.q, mode: 'insensitive' as const } },
-        { valorAnterior: { contains: query.q, mode: 'insensitive' as const } },
-      ],
-    } : {}),
+    ...(query.q
+      ? {
+          OR: [
+            { idSialRol: { contains: query.q, mode: 'insensitive' as const } },
+            { valorNuevo: { contains: query.q, mode: 'insensitive' as const } },
+            { valorAnterior: { contains: query.q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
     ...(query.soloPendientes ? { aprobado: { equals: null } } : {}),
   }
 
@@ -640,15 +694,15 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       where,
       skip: (query.page - 1) * query.limit,
       take: query.limit,
-      orderBy: [
-        { aprobado: { sort: 'asc', nulls: 'first' } },
-        { idSialRol: 'asc' },
-      ],
+      orderBy: [{ aprobado: { sort: 'asc', nulls: 'first' } }, { idSialRol: 'asc' }],
     }),
   ])
 
   // Para diffs modificados: enriquecer con apellidoNombre via join ocupaciones→personas
-  let diffsConNombre: (typeof diffs[number] & { apellidoNombre?: string | null, clasificacionEliminado?: string | null })[] = diffs
+  let diffsConNombre: ((typeof diffs)[number] & {
+    apellidoNombre?: string | null
+    clasificacionEliminado?: string | null
+  })[] = diffs
   if (query.tipo === 'modificado' && diffs.length > 0) {
     const idSialRoles = [...new Set(diffs.map((d) => d.idSialRol))]
     const ocupaciones = await prisma.ocupacion.findMany({
@@ -656,18 +710,35 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       select: { idSialRol: true, persona: { select: { apellidoNombre: true } } },
     })
     const nombreMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.persona.apellidoNombre]))
-    diffsConNombre = diffs.map((d) => ({ ...d, apellidoNombre: nombreMap.get(d.idSialRol) ?? null }))
+    diffsConNombre = diffs.map((d) => ({
+      ...d,
+      apellidoNombre: nombreMap.get(d.idSialRol) ?? null,
+    }))
   }
 
   // Para diffs eliminados: clasificar por estado del cargo y si tiene persona activa
   if (query.tipo === 'eliminado' && diffs.length > 0) {
-    const idSials = diffs.map((d) => { try { return (JSON.parse(d.valorAnterior ?? '{}')).id_sial as string } catch { return null } }).filter((v): v is string => Boolean(v))
+    const idSials = diffs
+      .map((d) => {
+        try {
+          return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+        } catch {
+          return null
+        }
+      })
+      .filter((v): v is string => Boolean(v))
     const idSialRoles = diffs.map((d) => d.idSialRol)
 
     const [cargos, ocupaciones] = await Promise.all([
       prisma.cargo.findMany({
         where: { idSial: { in: idSials } },
-        select: { idSial: true, estado: true, codigo: true, hospital: { select: { sigla: true } }, escalafon: { select: { nombre: true } } },
+        select: {
+          idSial: true,
+          estado: true,
+          codigo: true,
+          hospital: { select: { sigla: true } },
+          escalafon: { select: { nombre: true } },
+        },
       }),
       prisma.ocupacion.findMany({
         where: { idSialRol: { in: idSialRoles } },
@@ -675,25 +746,33 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       }),
     ])
 
-    const cargoEstadoMap  = new Map(cargos.map((c) => [c.idSial, c.estado]))
-    const cargoCodigoMap  = new Map(cargos.map((c) => [c.idSial, c.codigo ?? null]))
-    const cargoSiglaMap   = new Map(cargos.map((c) => [c.idSial, c.hospital.sigla ?? null]))
-    const cargoEscalfMap  = new Map(cargos.map((c) => [c.idSial, c.escalafon.nombre ?? null]))
-    const ocupNombreMap   = new Map(ocupaciones.map((o) => [o.idSialRol, o.persona.apellidoNombre]))
+    const cargoEstadoMap = new Map(cargos.map((c) => [c.idSial, c.estado]))
+    const cargoCodigoMap = new Map(cargos.map((c) => [c.idSial, c.codigo ?? null]))
+    const cargoSiglaMap = new Map(cargos.map((c) => [c.idSial, c.hospital.sigla ?? null]))
+    const cargoEscalfMap = new Map(cargos.map((c) => [c.idSial, c.escalafon.nombre ?? null]))
+    const ocupNombreMap = new Map(ocupaciones.map((o) => [o.idSialRol, o.persona.apellidoNombre]))
 
     diffsConNombre = diffs.map((d) => {
-      const parsed = (() => { try { return JSON.parse(d.valorAnterior ?? '{}') } catch { return {} } })()
+      const parsed = (() => {
+        try {
+          return JSON.parse(d.valorAnterior ?? '{}')
+        } catch {
+          return {}
+        }
+      })()
       const idSial = parsed.id_sial as string | null
       const estadoCargo = idSial ? cargoEstadoMap.get(idSial) : null
-      const codigoCargo = idSial ? cargoCodigoMap.get(idSial) ?? null : null
+      const codigoCargo = idSial ? (cargoCodigoMap.get(idSial) ?? null) : null
       const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
       const clasificacionEliminado = apellidoNombre
         ? 'con_persona'
-        : estadoCargo === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
+        : estadoCargo === 'validacion_vacante'
+          ? 'en_validacion'
+          : 'sin_persona'
       // siglas/escalafon: preferir lo guardado en valorAnterior (diffs nuevos),
       // caer al join con cargo para diffs ya existentes sin esos campos
-      const siglas   = parsed.siglas   ?? (idSial ? cargoSiglaMap.get(idSial)  ?? null : null)
-      const escalafon = parsed.escalafon ?? (idSial ? cargoEscalfMap.get(idSial) ?? null : null)
+      const siglas = parsed.siglas ?? (idSial ? (cargoSiglaMap.get(idSial) ?? null) : null)
+      const escalafon = parsed.escalafon ?? (idSial ? (cargoEscalfMap.get(idSial) ?? null) : null)
       return { ...d, apellidoNombre, clasificacionEliminado, codigoCargo, siglas, escalafon }
     })
   }
@@ -706,20 +785,48 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
   ])
 
-  let eliminadosConPersona = 0, eliminadosEnValidacion = 0, eliminadosSinPersona = 0
-  const todosElim = await prisma.padronDiff.findMany({ where: { snapshotId: id, tipo: 'eliminado' }, select: { idSialRol: true, valorAnterior: true } })
+  let eliminadosConPersona = 0,
+    eliminadosEnValidacion = 0,
+    eliminadosSinPersona = 0
+  const todosElim = await prisma.padronDiff.findMany({
+    where: { snapshotId: id, tipo: 'eliminado' },
+    select: { idSialRol: true, valorAnterior: true },
+  })
   if (todosElim.length > 0) {
     const roles = todosElim.map((d) => d.idSialRol)
-    const idSials = todosElim.map((d) => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial } catch { return null } }).filter(Boolean)
+    const idSials = todosElim
+      .map((d) => {
+        try {
+          return JSON.parse(d.valorAnterior ?? '{}').id_sial
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean)
     const [ocups, cargosE] = await Promise.all([
-      prisma.ocupacion.findMany({ where: { idSialRol: { in: roles } }, select: { idSialRol: true } }),
-      prisma.cargo.findMany({ where: { idSial: { in: idSials } }, select: { idSial: true, estado: true } }),
+      prisma.ocupacion.findMany({
+        where: { idSialRol: { in: roles } },
+        select: { idSialRol: true },
+      }),
+      prisma.cargo.findMany({
+        where: { idSial: { in: idSials } },
+        select: { idSial: true, estado: true },
+      }),
     ])
     const conPersonaSet = new Set(ocups.map((o) => o.idSialRol))
     const estadoMap = new Map(cargosE.map((c) => [c.idSial, c.estado]))
     for (const d of todosElim) {
-      if (conPersonaSet.has(d.idSialRol)) { eliminadosConPersona++; continue }
-      const idSial = (() => { try { return JSON.parse(d.valorAnterior ?? '{}').id_sial } catch { return null } })()
+      if (conPersonaSet.has(d.idSialRol)) {
+        eliminadosConPersona++
+        continue
+      }
+      const idSial = (() => {
+        try {
+          return JSON.parse(d.valorAnterior ?? '{}').id_sial
+        } catch {
+          return null
+        }
+      })()
       if (estadoMap.get(idSial) === 'validacion_vacante') eliminadosEnValidacion++
       else eliminadosSinPersona++
     }
@@ -728,7 +835,10 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   // Para diffs nuevos aprobados: enriquecer con el código real del cargo creado.
   // codigoReutilizado=true solo cuando el cargo proviene de un concurso CPH
   // (el cargo ya existía con código asignado antes de la aprobación del diff).
-  const codigoRealMap = new Map<string, { codigo: string; reutilizado: boolean; concursoCodigo?: string | null }>()
+  const codigoRealMap = new Map<
+    string,
+    { codigo: string; reutilizado: boolean; concursoCodigo?: string | null }
+  >()
   if (query.tipo === 'nuevo') {
     const diffsAprobados = diffs.filter((d) => d.aprobado === true)
     if (diffsAprobados.length > 0) {
@@ -770,12 +880,17 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       for (const d of diffsDecidibles) {
         try {
           const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
-          prefijosPorDiff.set(d.id, prefijoDeCargo({
-            escalafon: datos.escalafon ?? null,
-            unificadorPuesto: datos.unificador_de_puestos ?? null,
-            agrupador: datos.agrupador ?? null,
-          }))
-        } catch { /* ignorar */ }
+          prefijosPorDiff.set(
+            d.id,
+            prefijoDeCargo({
+              escalafon: datos.escalafon ?? null,
+              unificadorPuesto: datos.unificador_de_puestos ?? null,
+              agrupador: datos.agrupador ?? null,
+            }),
+          )
+        } catch {
+          /* ignorar */
+        }
       }
       const prefijosUnicos = [...new Set(prefijosPorDiff.values())]
       const maxPorPrefijo = new Map<string, number>()
@@ -802,7 +917,16 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
     },
-    summary: { nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados, eliminadosConPersona, eliminadosEnValidacion, eliminadosSinPersona },
+    summary: {
+      nuevos,
+      modificados,
+      eliminados,
+      nuevosPendientes,
+      nuevosRechazados,
+      eliminadosConPersona,
+      eliminadosEnValidacion,
+      eliminadosSinPersona,
+    },
     diffs: {
       data: diffsConNombre.map((d) => ({
         ...d,
@@ -824,24 +948,24 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 // ─── S2-6 + S2-7: aprobar snapshot ───────────────────────────────────────────
 
 const CAMPOS_CARGO: Record<string, string> = {
-  literal_puesto:        'literalPuesto',
-  especialidad:          'especialidadLegacy',
-  agrupador:             'agrupador',
+  literal_puesto: 'literalPuesto',
+  especialidad: 'especialidadLegacy',
+  agrupador: 'agrupador',
   unificador_de_puestos: 'unificadorPuesto',
-  codigo_repa:           'codigoRepa',
-  descripcion_repa:      'descripcionRepa',
-  agrupamiento:          'agrupamiento',
+  codigo_repa: 'codigoRepa',
+  descripcion_repa: 'descripcionRepa',
+  agrupamiento: 'agrupamiento',
 }
 const CAMPOS_OCUPACION: Record<string, string> = {
-  situacion_de_revista:  'situacionRevista',
-  estado:                'estadoPersona',
-  codigo_jefaturas:      'codigoJefaturas',
-  jefe_escalafon:        'jefeEscalafon',
-  comision:              'comision',
-  repa_comision:         'repaComision',
-  cod_situacion:         'codSituacion',
-  cargo_desde:           'cargoDesdeFecha',
-  cargo_hasta:           'cargoHastaFecha',
+  situacion_de_revista: 'situacionRevista',
+  estado: 'estadoPersona',
+  codigo_jefaturas: 'codigoJefaturas',
+  jefe_escalafon: 'jefeEscalafon',
+  comision: 'comision',
+  repa_comision: 'repaComision',
+  cod_situacion: 'codSituacion',
+  cargo_desde: 'cargoDesdeFecha',
+  cargo_hasta: 'cargoHastaFecha',
 }
 
 // Bug crítico confirmado corriendo contra datos reales (2026-08-25, sin
@@ -861,11 +985,17 @@ function cuilDe(datos: Record<string, string>): string | undefined {
 
 export async function aprobarSnapshotService(id: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(id)
-  if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
+  if (snapshot.estado !== 'pendiente')
+    throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
   // Bloquear si hay diffs nuevos sin decisión (aprobado IS NULL)
-  const pendientes = await prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } })
-  if (pendientes > 0) throw AppError.conflict(`Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`)
+  const pendientes = await prisma.padronDiff.count({
+    where: { snapshotId: id, tipo: 'nuevo', aprobado: null },
+  })
+  if (pendientes > 0)
+    throw AppError.conflict(
+      `Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`,
+    )
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 
@@ -898,8 +1028,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
-      if (tipo === 'nuevo' && cambios[0]!.aprobado === true) nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
-      else if (tipo === 'nuevo' && cambios[0]!.aprobado === false) rechazados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      if (tipo === 'nuevo' && cambios[0]!.aprobado === true)
+        nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && cambios[0]!.aprobado === false)
+        rechazados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
       else if (tipo === 'eliminado') eliminados.push(idSialRol)
       else if (tipo === 'modificado') modificados.push({ idSialRol, cambios })
     }
@@ -909,35 +1041,58 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
     const todosNuevos = [...nuevos, ...rechazados]
     const siglasNecesarias = [...new Set(todosNuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
-    const cuilsNecesarios = [...new Set(todosNuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)))]
-    const idSialsNecesarios = [...new Set(todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)))]
-    const codigosRegNecesarios = [...new Set(todosNuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)))]
-    const escalafonesNecesarios = [...new Set(todosNuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean))]
+    const cuilsNecesarios = [
+      ...new Set(todosNuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v))),
+    ]
+    const idSialsNecesarios = [
+      ...new Set(todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v))),
+    ]
+    const codigosRegNecesarios = [
+      ...new Set(
+        todosNuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)),
+      ),
+    ]
+    const escalafonesNecesarios = [
+      ...new Set(todosNuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean)),
+    ]
 
-    const [hospitalesExistentes, codigosRegistroExistentesLookup, escalafonesExistentes, personasExistentes, cargosExistentes, ocupacionesExistentes] =
-      await Promise.all([
-        tx.hospital.findMany({ where: { sigla: { in: siglasNecesarias } } }) as Promise<HospitalRow[]>,
-        // Lookup canónico: CODIGO DE REGISTRO → escalafón via codigos_registro (fuente de verdad)
-        tx.codigoRegistro.findMany({
-          where: { codigo: { in: codigosRegNecesarios } },
-          include: { escalafon: true },
-        }) as Promise<{ codigo: string; id: string; escalafonId: string; escalafon: EscalafonRow }[]>,
-        // Fallback: buscar por nombre para códigos no mapeados
-        tx.escalafon.findMany({ where: { nombre: { in: escalafonesNecesarios }, activo: true } }) as Promise<EscalafonRow[]>,
-        tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
-        tx.cargo.findMany({ where: { idSial: { in: idSialsNecesarios } } }) as Promise<CargoRow[]>,
-        tx.ocupacion.findMany({
-          where: { idSialRol: { in: todosLosIdSialRol } },
-          select: { idSialRol: true, cargoId: true },
-        }) as Promise<{ idSialRol: string; cargoId: string }[]>,
-      ])
+    const [
+      hospitalesExistentes,
+      codigosRegistroExistentesLookup,
+      escalafonesExistentes,
+      personasExistentes,
+      cargosExistentes,
+      ocupacionesExistentes,
+    ] = await Promise.all([
+      tx.hospital.findMany({ where: { sigla: { in: siglasNecesarias } } }) as Promise<
+        HospitalRow[]
+      >,
+      // Lookup canónico: CODIGO DE REGISTRO → escalafón via codigos_registro (fuente de verdad)
+      tx.codigoRegistro.findMany({
+        where: { codigo: { in: codigosRegNecesarios } },
+        include: { escalafon: true },
+      }) as Promise<{ codigo: string; id: string; escalafonId: string; escalafon: EscalafonRow }[]>,
+      // Fallback: buscar por nombre para códigos no mapeados
+      tx.escalafon.findMany({
+        where: { nombre: { in: escalafonesNecesarios }, activo: true },
+      }) as Promise<EscalafonRow[]>,
+      tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
+      tx.cargo.findMany({ where: { idSial: { in: idSialsNecesarios } } }) as Promise<CargoRow[]>,
+      tx.ocupacion.findMany({
+        where: { idSialRol: { in: todosLosIdSialRol } },
+        select: { idSialRol: true, cargoId: true },
+      }) as Promise<{ idSialRol: string; cargoId: string }[]>,
+    ])
 
     const hospitalCache = new Map(hospitalesExistentes.map((h) => [h.sigla, h]))
     const escalafonCache = new Map<string, EscalafonRow>(
-      escalafonesExistentes.map((e) => [e.nombre, e])
+      escalafonesExistentes.map((e) => [e.nombre, e]),
     )
     const escalafonPorCodRegCache = new Map(
-      codigosRegistroExistentesLookup.map((cr) => [cr.codigo, { id: cr.escalafon.id, nombre: cr.escalafon.nombre }])
+      codigosRegistroExistentesLookup.map((cr) => [
+        cr.codigo,
+        { id: cr.escalafon.id, nombre: cr.escalafon.nombre },
+      ]),
     )
     const personaCache = new Map(personasExistentes.map((p) => [p.cuil, p]))
     const cargoCache = new Map(cargosExistentes.map((c) => [c.idSial, c]))
@@ -955,7 +1110,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       // (sigla desconocida) lo crea con los datos disponibles del padrón.
       const h = await tx.hospital.upsert({
         where: { sigla },
-        update: {},  // no sobreescribir nombre/tipo/universo_totalizador/monovalencia ya enriquecidos
+        update: {}, // no sobreescribir nombre/tipo/universo_totalizador/monovalencia ya enriquecidos
         create: {
           sigla,
           nombre: sigla,
@@ -968,7 +1123,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       if (escalafonCache.has(nombre)) continue
       // Si ya está mapeado por código de registro no crear uno nuevo
       const yaMapado = [...escalafonPorCodRegCache.values()].find((e) => e.nombre === nombre)
-      if (yaMapado) { escalafonCache.set(nombre, yaMapado); continue }
+      if (yaMapado) {
+        escalafonCache.set(nombre, yaMapado)
+        continue
+      }
       const e = await tx.escalafon.create({
         data: { codigo: `${nombre.slice(0, 12)}-${randomUUID().slice(0, 7)}`, nombre },
       })
@@ -979,19 +1137,26 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // Fuente de verdad: codigos_registro (ya cargado en codigosRegistroExistentesLookup).
     // Si el código no existe (genuinamente nuevo), se crea con el escalafón
     // resuelto por nombre como fallback.
-    const codigosRegistroNecesarios = [...new Set(
-      nuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v))
-    )]
+    const codigosRegistroNecesarios = [
+      ...new Set(
+        nuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)),
+      ),
+    ]
     const codigoRegistroCache = new Map(
-      codigosRegistroExistentesLookup.map((cr) => [cr.codigo, cr as { id: string; codigo: string }])
+      codigosRegistroExistentesLookup.map((cr) => [
+        cr.codigo,
+        cr as { id: string; codigo: string },
+      ]),
     )
     for (const codigo of codigosRegistroNecesarios) {
       if (codigoRegistroCache.has(codigo)) continue
       const datosEjemplo = nuevos.find((n) => n.datos.codigo_de_registro === codigo)!.datos
-      const escalafon = escalafonPorCodRegCache.get(codigo)
-        ?? escalafonCache.get(datosEjemplo.escalafon ?? '')
+      const escalafon =
+        escalafonPorCodRegCache.get(codigo) ?? escalafonCache.get(datosEjemplo.escalafon ?? '')
       if (!escalafon) {
-        console.warn(`[padron] CODIGO DE REGISTRO "${codigo}" sin escalafón resuelto — fila omitida`)
+        console.warn(
+          `[padron] CODIGO DE REGISTRO "${codigo}" sin escalafón resuelto — fila omitida`,
+        )
         continue
       }
       const literal = datosEjemplo.literal_cr || datosEjemplo.escalafon || codigo
@@ -1000,7 +1165,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       })
       codigoRegistroCache.set(codigo, cr)
       escalafonPorCodRegCache.set(codigo, { id: escalafon.id, nombre: escalafon.nombre })
-      console.info(`[padron] Nuevo CODIGO DE REGISTRO "${codigo}" → escalafón "${escalafon.nombre}" creado en codigos_registro`)
+      console.info(
+        `[padron] Nuevo CODIGO DE REGISTRO "${codigo}" → escalafón "${escalafon.nombre}" creado en codigos_registro`,
+      )
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
@@ -1074,8 +1241,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // se disparaba y el fallback por nombre quedaba muerto para cualquier
         // fila sin CODIGO DE REGISTRO (la mayoría de las filas reales sin ese
         // dato quedaban sin escalafón resuelto y su Cargo nunca se creaba).
-        const escalafon = (datos.codigo_de_registro ? escalafonPorCodRegCache.get(datos.codigo_de_registro) : undefined)
-          ?? escalafonCache.get(datos.escalafon ?? '')
+        const escalafon =
+          (datos.codigo_de_registro
+            ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
+            : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
         if (!hospital || !escalafon) continue
         // B-12: antes de crear un cargo nuevo, buscar por clave estructural
         // (hospital, escalafon, codigo_repa, literal_puesto). Si existe, reusar
@@ -1096,10 +1265,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             where: { id: cargoEstructural.id },
             data: {
               idSial: datos.id_sial,
-              ...(cargoEstructural.estado !== 'vigente' ? { estado: 'vigente', estadoDesde: null } : {}),
+              ...(cargoEstructural.estado !== 'vigente'
+                ? { estado: 'vigente', estadoDesde: null }
+                : {}),
             },
           })
-          cargoCache.set(datos.id_sial, { id: cargoEstructural.id, idSial: datos.id_sial, estado: 'vigente' })
+          cargoCache.set(datos.id_sial, {
+            id: cargoEstructural.id,
+            idSial: datos.id_sial,
+            estado: 'vigente',
+          })
           continue
         }
         const puestoResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
@@ -1108,7 +1283,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
         const especialidadResuelta = await resolverEspecialidadPuestoId(
-          tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+          tx,
+          catalogoPuestos,
+          puestoResuelto.id,
+          datos.especialidad ?? null,
         )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
@@ -1153,7 +1331,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       const { _prefijo, ...rest } = c as typeof c & { _prefijo?: string }
       return { ...rest, _prefijo }
     })
-    for (const lote of chunk(cargosParaInsertar.map(({ _prefijo: _, ...rest }) => rest), 2000)) {
+    for (const lote of chunk(
+      cargosParaInsertar.map(({ _prefijo: _, ...rest }) => rest),
+      2000,
+    )) {
       await tx.cargo.createMany({ data: lote, skipDuplicates: true })
     }
     for (const c of cargosACrear.values()) cargoCache.set(c.idSial, c)
@@ -1181,7 +1362,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     for (const [prefijo, lista] of cargosPorPrefijo) {
       let siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       for (const c of lista) {
-        asignacionesCodigo.push({ id: c.id, codigo: `${prefijo}-${String(siguiente).padStart(6, '0')}` })
+        asignacionesCodigo.push({
+          id: c.id,
+          codigo: `${prefijo}-${String(siguiente).padStart(6, '0')}`,
+        })
         siguiente++
       }
     }
@@ -1254,22 +1438,30 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     for (const lote of chunk(ocupacionesACrear, 2000)) {
       await tx.ocupacion.createMany({ data: lote, skipDuplicates: true })
     }
-    for (const o of ocupacionesACrear) ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
+    for (const o of ocupacionesACrear)
+      ocupacionExistenteMap.set(o.idSialRol, { idSialRol: o.idSialRol, cargoId: o.cargoId })
 
     // ── 4. Resolver automáticamente cargos en validacion_vacante:
     //   - Si el cargo aparece en el nuevo padrón (está en nuevosIds por idSial) → rechazar baja (vuelve a vigente)
     //   - Si el cargo NO aparece → confirmar baja (pasa a no_vigente)
     const idSialsNuevos = new Set(todosNuevos.map((n) => n.datos.id_sial).filter(Boolean))
-    const cargosEnValidacion = await tx.cargo.findMany({
+    const cargosEnValidacion = (await tx.cargo.findMany({
       where: { estado: { in: ['validacion_vacante', 'no_vigente'] } },
       select: { id: true, idSial: true },
-    }) as { id: string; idSial: string }[]
+    })) as { id: string; idSial: string }[]
 
-    const aRechazarBaja = cargosEnValidacion.filter((c) => idSialsNuevos.has(c.idSial)).map((c) => c.id)
-    const aConfirmarBaja = cargosEnValidacion.filter((c) => !idSialsNuevos.has(c.idSial)).map((c) => c.id)
+    const aRechazarBaja = cargosEnValidacion
+      .filter((c) => idSialsNuevos.has(c.idSial))
+      .map((c) => c.id)
+    const aConfirmarBaja = cargosEnValidacion
+      .filter((c) => !idSialsNuevos.has(c.idSial))
+      .map((c) => c.id)
 
     for (const lote of chunk(aRechazarBaja, 2000)) {
-      await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'vigente', estadoDesde: null } })
+      await tx.cargo.updateMany({
+        where: { id: { in: lote } },
+        data: { estado: 'vigente', estadoDesde: null },
+      })
     }
     for (const lote of chunk(aConfirmarBaja, 2000)) {
       await tx.cargo.updateMany({ where: { id: { in: lote } }, data: { estado: 'no_vigente' } })
@@ -1281,20 +1473,23 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const fechaPadron = snapshot.fechaAsignada
     for (const lote of chunk(eliminados, 2000)) {
       if (!lote.length) continue
-      await tx.ocupacion.updateMany({ where: { idSialRol: { in: lote } }, data: { hasta: fechaPadron } })
+      await tx.ocupacion.updateMany({
+        where: { idSialRol: { in: lote } },
+        data: { hasta: fechaPadron },
+      })
     }
     if (eliminados.length > 0) {
-      const ocupsEliminadas = await tx.ocupacion.findMany({
+      const ocupsEliminadas = (await tx.ocupacion.findMany({
         where: { idSialRol: { in: eliminados } },
         select: { personaId: true, cargoId: true },
-      }) as { personaId: string; cargoId: string }[]
+      })) as { personaId: string; cargoId: string }[]
 
       // Personas sin ocupación vigente restante → inactivas
       const personaIdsEliminadas = [...new Set(ocupsEliminadas.map((o) => o.personaId))]
-      const conOcupVigente = await tx.ocupacion.findMany({
+      const conOcupVigente = (await tx.ocupacion.findMany({
         where: { personaId: { in: personaIdsEliminadas }, hasta: null },
         select: { personaId: true },
-      }) as { personaId: string }[]
+      })) as { personaId: string }[]
       const conVigenteSet = new Set(conOcupVigente.map((o) => o.personaId))
       const aInactivar = personaIdsEliminadas.filter((pid) => !conVigenteSet.has(pid))
       for (const lote of chunk(aInactivar, 2000)) {
@@ -1303,23 +1498,23 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
 
       // Cargos sin ocupación vigente restante → validacion_vacante + estadoDesde
       const cargoIdsEliminados = [...new Set(ocupsEliminadas.map((o) => o.cargoId))]
-      const cargosConVigente = await tx.ocupacion.findMany({
+      const cargosConVigente = (await tx.ocupacion.findMany({
         where: { cargoId: { in: cargoIdsEliminados }, hasta: null },
         select: { cargoId: true },
-      }) as { cargoId: string }[]
+      })) as { cargoId: string }[]
       const cargosConVigenteSet = new Set(cargosConVigente.map((o) => o.cargoId))
       const cargosAValidacion = cargoIdsEliminados.filter((cid) => !cargosConVigenteSet.has(cid))
       // S17-3: cargos sin ocupación vigente — antes de poner validacion_vacante,
       // buscar bajas confirmadas para esos cargos. Si existe una, vincularla
       // automáticamente y saltear validacion_vacante (el cargo ya está definido).
-      const bajasConfirmadas = await tx.baja.findMany({
+      const bajasConfirmadas = (await tx.baja.findMany({
         where: {
           cargoId: { in: cargosAValidacion },
           estado: 'confirmada',
           snapshotVinculadoId: null,
         },
         select: { id: true, cargoId: true },
-      }) as { id: string; cargoId: string }[]
+      })) as { id: string; cargoId: string }[]
       const cargosBajaConfirmadaSet = new Set(bajasConfirmadas.map((b) => b.cargoId))
 
       // Vincular bajas existentes al snapshot actual
@@ -1331,7 +1526,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
 
       // Solo van a validacion_vacante los cargos SIN baja confirmada previa
-      const cargosRealmenteAValidacion = cargosAValidacion.filter((cid) => !cargosBajaConfirmadaSet.has(cid))
+      const cargosRealmenteAValidacion = cargosAValidacion.filter(
+        (cid) => !cargosBajaConfirmadaSet.has(cid),
+      )
       for (const lote of chunk(cargosRealmenteAValidacion, 2000)) {
         await tx.cargo.updateMany({
           where: { id: { in: lote } },
@@ -1366,8 +1563,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           let cr = codigoRegistroCache.get(crCambio.valorNuevo)
           if (!cr) {
             // Buscar en BD (puede existir de una carga anterior)
-            const found = await tx.codigoRegistro.findUnique({ where: { codigo: crCambio.valorNuevo } }) as { id: string; codigo: string } | null
-            if (found) { codigoRegistroCache.set(found.codigo, found); cr = found }
+            const found = (await tx.codigoRegistro.findUnique({
+              where: { codigo: crCambio.valorNuevo },
+            })) as { id: string; codigo: string } | null
+            if (found) {
+              codigoRegistroCache.set(found.codigo, found)
+              cr = found
+            }
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
@@ -1381,9 +1583,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
 
     // ── 6b. Actualizar especialidad_cph para personas nuevas y existentes
     //        que aparecen en este padrón — desde ref_especialidades_cuil ────
-    const cuilsEnEstePadron = [...new Set(
-      [...nuevos, ...rechazados].map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v))
-    )]
+    const cuilsEnEstePadron = [
+      ...new Set(
+        [...nuevos, ...rechazados]
+          .map((n) => cuilDe(n.datos))
+          .filter((v): v is string => Boolean(v)),
+      ),
+    ]
     if (cuilsEnEstePadron.length > 0) {
       for (const lote of chunk(cuilsEnEstePadron, 1000)) {
         await tx.$executeRaw`
@@ -1480,7 +1686,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         JOIN personas p    ON p.id = o.persona_id
         WHERE o.hasta IS NULL AND p.cuil IS NOT NULL
         GROUP BY e.nombre
-      `
+      `,
     )
     if (kpisRows.length > 0) {
       // Borrar el punto anterior del mismo mes (si existe) y reemplazar con este
@@ -1488,7 +1694,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         Prisma.sql`
           DELETE FROM kpis_dotacion_snapshot
           WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
-        `
+        `,
       )
       await tx.$executeRaw(
         Prisma.sql`
@@ -1496,7 +1702,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           SELECT ${snapshot.fechaAsignada}::date, r.escalafon, r.personas
           FROM json_to_recordset(${JSON.stringify(kpisRows)}::json)
             AS r(escalafon text, personas int)
-        `
+        `,
       )
     }
 
@@ -1579,30 +1785,50 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
     }
   })
 
-  const idSials  = parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v))
-  const cuils    = parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v))
-  const siglas   = [...new Set(parsed.map((p) => p.siglas).filter((v): v is string => Boolean(v)))]
-  const codRegs  = [...new Set(parsed.map((p) => p.codigoDeRegistro).filter((v): v is string => Boolean(v)))]
-  const escNames = [...new Set(parsed.map((p) => p.escalafon).filter((v): v is string => Boolean(v)))]
+  const idSials = parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v))
+  const cuils = parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v))
+  const siglas = [...new Set(parsed.map((p) => p.siglas).filter((v): v is string => Boolean(v)))]
+  const codRegs = [
+    ...new Set(parsed.map((p) => p.codigoDeRegistro).filter((v): v is string => Boolean(v))),
+  ]
+  const escNames = [
+    ...new Set(parsed.map((p) => p.escalafon).filter((v): v is string => Boolean(v))),
+  ]
 
-  const [cargosExistentes, personasExistentes, hospitalesLookup, codRegsLookup, escalafonesLookup] = await Promise.all([
-    prisma.cargo.findMany({ where: { idSial: { in: idSials } }, select: { idSial: true, estado: true, codigo: true } }),
-    prisma.persona.findMany({ where: { cuil: { in: cuils } }, select: { cuil: true } }),
-    prisma.hospital.findMany({ where: { sigla: { in: siglas } }, select: { id: true, sigla: true } }),
-    prisma.codigoRegistro.findMany({ where: { codigo: { in: codRegs } }, select: { codigo: true, escalafonId: true } }),
-    prisma.escalafon.findMany({ where: { nombre: { in: escNames }, activo: true }, select: { id: true, nombre: true } }),
-  ])
+  const [cargosExistentes, personasExistentes, hospitalesLookup, codRegsLookup, escalafonesLookup] =
+    await Promise.all([
+      prisma.cargo.findMany({
+        where: { idSial: { in: idSials } },
+        select: { idSial: true, estado: true, codigo: true },
+      }),
+      prisma.persona.findMany({ where: { cuil: { in: cuils } }, select: { cuil: true } }),
+      prisma.hospital.findMany({
+        where: { sigla: { in: siglas } },
+        select: { id: true, sigla: true },
+      }),
+      prisma.codigoRegistro.findMany({
+        where: { codigo: { in: codRegs } },
+        select: { codigo: true, escalafonId: true },
+      }),
+      prisma.escalafon.findMany({
+        where: { nombre: { in: escNames }, activo: true },
+        select: { id: true, nombre: true },
+      }),
+    ])
 
-  const cargoMap      = new Map(cargosExistentes.map((c) => [c.idSial, c]))
-  const personaSet    = new Set(personasExistentes.map((p) => p.cuil))
-  const hospitalMap   = new Map(hospitalesLookup.map((h) => [h.sigla, h.id]))
-  const codRegEscMap  = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
-  const escNombreMap  = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+  const cargoMap = new Map(cargosExistentes.map((c) => [c.idSial, c]))
+  const personaSet = new Set(personasExistentes.map((p) => p.cuil))
+  const hospitalMap = new Map(hospitalesLookup.map((h) => [h.sigla, h.id]))
+  const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
   // S20-9: catálogo puesto/especialidad — usado para resolver puestoCargoId
   // por escalafón+literal_puesto, solo lectura (diagnóstico, no auto-crea).
   const catalogoPuestosDiag = await cargarCatalogoPuestos(prisma)
 
-  function puestoCargoIdDe(escalafonId: string | undefined, literalPuesto: string | undefined): string | undefined {
+  function puestoCargoIdDe(
+    escalafonId: string | undefined,
+    literalPuesto: string | undefined,
+  ): string | undefined {
     if (!escalafonId || !literalPuesto) return undefined
     return catalogoPuestosDiag.puestos.get(`${escalafonId}:${normPuestoKey(literalPuesto)}`)?.id
   }
@@ -1612,10 +1838,11 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   // Clave: hospitalId:escalafonId:puestoCargoId (FK real, S20-9)
   const clavesConcurso: { hospitalId: string; escalafonId: string; puestoCargoId: string }[] = []
   for (const p of parsed) {
-    const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
+    const hospitalId = p.siglas ? hospitalMap.get(p.siglas) : undefined
     // Ver nota de S20-6 sobre el bug '' && x — mismo fix acá.
-    const escalafonId = (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined)
-      ?? (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
+    const escalafonId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
     const puestoCargoId = puestoCargoIdDe(escalafonId, p.literalPuesto)
     if (hospitalId && escalafonId && puestoCargoId) {
       clavesConcurso.push({ hospitalId, escalafonId, puestoCargoId })
@@ -1623,49 +1850,68 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   }
 
   // Traer todos los cargos vigentes con concurso abierto que matcheen alguna clave
-  const concursosCandidatos = clavesConcurso.length > 0
-    ? await prisma.concursoCph.findMany({
-        where: {
-          estado: { not: 'finalizado' },
-          suspendido: false,
-          cargo: {
-            estado: 'vigente',
-            hospitalId:  { in: [...new Set(clavesConcurso.map((c) => c.hospitalId))] },
-            escalafonId: { in: [...new Set(clavesConcurso.map((c) => c.escalafonId))] },
+  const concursosCandidatos =
+    clavesConcurso.length > 0
+      ? await prisma.concursoCph.findMany({
+          where: {
+            estado: { not: 'finalizado' },
+            suspendido: false,
+            cargo: {
+              estado: 'vigente',
+              hospitalId: { in: [...new Set(clavesConcurso.map((c) => c.hospitalId))] },
+              escalafonId: { in: [...new Set(clavesConcurso.map((c) => c.escalafonId))] },
+            },
           },
-        },
-        select: {
-          id: true,
-          estado: true,
-          cargo: { select: { id: true, hospitalId: true, escalafonId: true, puestoCargoId: true, codigo: true } },
-          concurso: { select: { id: true } },
-        },
-      })
-    : []
+          select: {
+            id: true,
+            estado: true,
+            cargo: {
+              select: {
+                id: true,
+                hospitalId: true,
+                escalafonId: true,
+                puestoCargoId: true,
+                codigo: true,
+              },
+            },
+            concurso: { select: { id: true } },
+          },
+        })
+      : []
 
   // Índice: hospitalId:escalafonId:puestoCargoId → concursoCph
-  type ConcursoInfo = { concursoCphId: string; concursoCodigo: string | null; estadoConcurso: string }
+  type ConcursoInfo = {
+    concursoCphId: string
+    concursoCodigo: string | null
+    estadoConcurso: string
+  }
   const concursoMap = new Map<string, ConcursoInfo>()
   for (const cc of concursosCandidatos) {
     const key = `${cc.cargo.hospitalId}:${cc.cargo.escalafonId}:${cc.cargo.puestoCargoId}`
     if (!concursoMap.has(key)) {
-      concursoMap.set(key, { concursoCphId: cc.id, concursoCodigo: cc.cargo.codigo, estadoConcurso: cc.estado })
+      concursoMap.set(key, {
+        concursoCphId: cc.id,
+        concursoCodigo: cc.cargo.codigo,
+        estadoConcurso: cc.estado,
+      })
     }
   }
 
   const resultado = parsed.map((p) => {
-    const cargo         = p.idSial ? cargoMap.get(p.idSial) : undefined
+    const cargo = p.idSial ? cargoMap.get(p.idSial) : undefined
     const personaExiste = p.cuil ? personaSet.has(p.cuil) : false
-    const clasificacion = cargo
-      ? 'falso_nuevo'
-      : personaExiste ? 'nuevo_rol' : 'nuevo_de_0'
+    const clasificacion = cargo ? 'falso_nuevo' : personaExiste ? 'nuevo_rol' : 'nuevo_de_0'
 
     // Buscar concurso abierto por clave estructural
-    const hospitalId  = p.siglas ? hospitalMap.get(p.siglas) : undefined
-    const escalafonId = (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined)
-      ?? (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
+    const hospitalId = p.siglas ? hospitalMap.get(p.siglas) : undefined
+    const escalafonId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined)
     const puestoCargoId = puestoCargoIdDe(escalafonId, p.literalPuesto)
-    const concursoKey = hospitalId && escalafonId && puestoCargoId ? `${hospitalId}:${escalafonId}:${puestoCargoId}` : null
+    const concursoKey =
+      hospitalId && escalafonId && puestoCargoId
+        ? `${hospitalId}:${escalafonId}:${puestoCargoId}`
+        : null
     const concursoAbierto = concursoKey ? concursoMap.get(concursoKey) : undefined
 
     return {
@@ -1677,23 +1923,28 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
       estadoCargo: cargo?.estado ?? null,
       codigoCargo: cargo?.codigo ?? null,
       // Concurso CPH abierto que matchea estructuralmente con este diff
-      concursoCphId:     concursoAbierto?.concursoCphId ?? null,
-      concursoCodigo:    concursoAbierto?.concursoCodigo ?? null,
-      estadoConcurso:    concursoAbierto?.estadoConcurso ?? null,
+      concursoCphId: concursoAbierto?.concursoCphId ?? null,
+      concursoCodigo: concursoAbierto?.concursoCodigo ?? null,
+      estadoConcurso: concursoAbierto?.estadoConcurso ?? null,
     }
   })
 
   const resumen = {
-    total:        resultado.length,
+    total: resultado.length,
     falsosNuevos: resultado.filter((r) => r.clasificacion === 'falso_nuevo').length,
-    nuevosRol:    resultado.filter((r) => r.clasificacion === 'nuevo_rol').length,
-    nuevosDe0:    resultado.filter((r) => r.clasificacion === 'nuevo_de_0').length,
+    nuevosRol: resultado.filter((r) => r.clasificacion === 'nuevo_rol').length,
+    nuevosDe0: resultado.filter((r) => r.clasificacion === 'nuevo_de_0').length,
     conConcursoAbierto: resultado.filter((r) => r.concursoCphId !== null).length,
     porEstadoCargo: Object.entries(
-      resultado.filter((r) => r.estadoCargo).reduce((acc, r) => {
-        acc[r.estadoCargo!] = (acc[r.estadoCargo!] ?? 0) + 1
-        return acc
-      }, {} as Record<string, number>)
+      resultado
+        .filter((r) => r.estadoCargo)
+        .reduce(
+          (acc, r) => {
+            acc[r.estadoCargo!] = (acc[r.estadoCargo!] ?? 0) + 1
+            return acc
+          },
+          {} as Record<string, number>,
+        ),
     ).map(([estado, cantidad]) => ({ estado, cantidad })),
   }
 
@@ -1881,7 +2132,8 @@ export function getAprobacionProgreso(snapshotId: string): AprobacionProgreso | 
 // aprobación en curso para ese snapshot, no arranca otra.
 export async function aprobarTodosDiffsPendientesService(snapshotId: string, usuarioId: string) {
   const snapshot = await getSnapshotOrThrow(snapshotId)
-  if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
+  if (snapshot.estado !== 'pendiente')
+    throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
   const enCurso = aprobacionEnCurso.get(snapshotId)
   if (enCurso && enCurso.estado === 'procesando') {
@@ -1917,7 +2169,12 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
         progreso.fallidos.push({
           diffId: diff.id,
           cargo: diff.idSialRol,
-          motivo: err instanceof AppError ? err.message : err instanceof Error ? err.message : String(err),
+          motivo:
+            err instanceof AppError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : String(err),
         })
       }
       progreso.procesados++
@@ -1936,7 +2193,12 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
 
 // ─── Aprobar un diff nuevo individual ───────────────────────────────────────
 
-export async function aprobarDiffNuevoService(snapshotId: string, diffId: string, usuarioId: string, vincularConcursoId?: string) {
+export async function aprobarDiffNuevoService(
+  snapshotId: string,
+  diffId: string,
+  usuarioId: string,
+  vincularConcursoId?: string,
+) {
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden aprobar diffs de tipo nuevo')
@@ -1947,23 +2209,25 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
   await prisma.$transaction(async (tx: PrismaTx) => {
     // Resolver hospital y escalafón
     const sigla = datos.siglas ?? ''
-    let hospital = await tx.hospital.findUnique({ where: { sigla } }) as HospitalRow | null
+    let hospital = (await tx.hospital.findUnique({ where: { sigla } })) as HospitalRow | null
     if (!hospital) {
-      hospital = await tx.hospital.create({
+      hospital = (await tx.hospital.create({
         data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla || null },
-      }) as HospitalRow
+      })) as HospitalRow
     }
 
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({
+      const cr = (await tx.codigoRegistro.findUnique({
         where: { codigo: datos.codigo_de_registro },
         include: { escalafon: true },
-      }) as { escalafon: EscalafonRow } | null
+      })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+      escalafon = (await tx.escalafon.findFirst({
+        where: { nombre: datos.escalafon, activo: true },
+      })) as EscalafonRow | null
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -1971,9 +2235,14 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     // escalafón corrupto ('??????????') pero el código sí es válido; usamos el
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
-      escalafon = await tx.escalafon.findFirst({ where: { codigo: datos.codigo_de_registro, activo: true } }) as EscalafonRow | null
+      escalafon = (await tx.escalafon.findFirst({
+        where: { codigo: datos.codigo_de_registro, activo: true },
+      })) as EscalafonRow | null
     }
-    if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
+    if (!escalafon)
+      throw AppError.badRequest(
+        `Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`,
+      )
 
     // Resolver CodigoRegistro
     let codigoRegistroId: string | null = null
@@ -1986,9 +2255,9 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     const cuil = cuilDe(datos)
     let persona: PersonaRow | null = null
     if (cuil) {
-      persona = await tx.persona.findUnique({ where: { cuil } }) as PersonaRow | null
+      persona = (await tx.persona.findUnique({ where: { cuil } })) as PersonaRow | null
       if (!persona) {
-        persona = await tx.persona.create({
+        persona = (await tx.persona.create({
           data: {
             cuil,
             apellidoNombre: datos.ayn ?? '',
@@ -2005,7 +2274,7 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
             localidad: datos.localidad || null,
             provincia: datos.provincia || null,
           },
-        }) as PersonaRow
+        })) as PersonaRow
         // Poblar especialidad_cph desde ref_especialidades_cuil
         await tx.$executeRaw`
           UPDATE personas p
@@ -2030,10 +2299,10 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     // (no crear uno nuevo — el cargo ya existe y tiene código asignado)
     let cargo: CargoRow | null = null
     if (vincularConcursoId) {
-      const concurso = await tx.concursoCph.findUnique({
+      const concurso = (await tx.concursoCph.findUnique({
         where: { id: vincularConcursoId },
         select: { cargo: { select: { id: true, idSial: true, estado: true } } },
-      }) as { cargo: CargoRow } | null
+      })) as { cargo: CargoRow } | null
       if (concurso?.cargo) {
         cargo = concurso.cargo
         // Actualizar idSial del cargo del concurso al id_sial del padrón
@@ -2048,13 +2317,16 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
     // Si no hay concurso, buscar por idSial exacto (fuente de verdad del padrón)
     if (!cargo) {
       cargo = datos.id_sial
-        ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
+        ? ((await tx.cargo.findUnique({ where: { idSial: datos.id_sial } })) as CargoRow | null)
         : null
     }
 
     if (cargo) {
       if (cargo.estado === 'no_vigente' || cargo.estado === 'validacion_vacante') {
-        await tx.cargo.update({ where: { id: cargo.id }, data: { estado: 'vigente', estadoDesde: null } })
+        await tx.cargo.update({
+          where: { id: cargo.id },
+          data: { estado: 'vigente', estadoDesde: null },
+        })
       }
     }
 
@@ -2066,7 +2338,10 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
       const especialidadResuelta = await resolverEspecialidadPuestoId(
-        tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+        tx,
+        catalogoPuestos,
+        puestoResuelto.id,
+        datos.especialidad ?? null,
       )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
@@ -2077,7 +2352,7 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
       const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`
 
-      cargo = await tx.cargo.create({
+      cargo = (await tx.cargo.create({
         data: {
           idSial: datos.id_sial,
           codigo,
@@ -2096,7 +2371,7 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
           agrupamiento: datos.agrupamiento || null,
           createdById: usuarioId,
         },
-      }) as CargoRow
+      })) as CargoRow
     }
 
     // Crear ocupación si no existe
@@ -2197,7 +2472,11 @@ export async function aprobarDiffNuevoService(snapshotId: string, diffId: string
 // Aprueba el cargo igual que aprobarDiffNuevoService pero además crea una
 // SolicitudAlta con esTransferencia=true y estado='aprobada' para que quede
 // registrada en Alta de Cargos > Transferencia.
-export async function marcarTransferenciaService(snapshotId: string, diffId: string, usuarioId: string) {
+export async function marcarTransferenciaService(
+  snapshotId: string,
+  diffId: string,
+  usuarioId: string,
+) {
   // Primero aprobar el diff normalmente (crea Cargo + Persona + Ocupacion)
   await aprobarDiffNuevoService(snapshotId, diffId, usuarioId)
 
@@ -2213,42 +2492,51 @@ export async function marcarTransferenciaService(snapshotId: string, diffId: str
 
   let escalafon: EscalafonRow | null = null
   if (datos.codigo_de_registro) {
-    const cr = await prisma.codigoRegistro.findUnique({
+    const cr = (await prisma.codigoRegistro.findUnique({
       where: { codigo: datos.codigo_de_registro },
       include: { escalafon: true },
-    }) as { escalafon: EscalafonRow } | null
+    })) as { escalafon: EscalafonRow } | null
     escalafon = cr?.escalafon ?? null
   }
   if (!escalafon && datos.escalafon) {
-    escalafon = await prisma.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+    escalafon = (await prisma.escalafon.findFirst({
+      where: { nombre: datos.escalafon, activo: true },
+    })) as EscalafonRow | null
   }
   if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado (${datos.escalafon ?? ''})`)
 
   const catalogoPuestosTransferencia = await cargarCatalogoPuestos(prisma)
-  const puestoResueltoTransferencia = await resolverPuestoCargoId(prisma, catalogoPuestosTransferencia, {
-    escalafonId: escalafon.id,
-    literalPuesto: datos.literal_puesto ?? null,
-    unificadorPuesto: datos.unificador_de_puestos ?? null,
-  })
+  const puestoResueltoTransferencia = await resolverPuestoCargoId(
+    prisma,
+    catalogoPuestosTransferencia,
+    {
+      escalafonId: escalafon.id,
+      literalPuesto: datos.literal_puesto ?? null,
+      unificadorPuesto: datos.unificador_de_puestos ?? null,
+    },
+  )
   const especialidadResueltaTransferencia = await resolverEspecialidadPuestoId(
-    prisma, catalogoPuestosTransferencia, puestoResueltoTransferencia.id, datos.especialidad ?? null,
+    prisma,
+    catalogoPuestosTransferencia,
+    puestoResueltoTransferencia.id,
+    datos.especialidad ?? null,
   )
 
   // Crear SolicitudAlta como transferencia aprobada directamente
   await prisma.solicitudAlta.create({
     data: {
-      hospitalId:      hospital.id,
-      escalafonId:     escalafon.id,
-      puestoCargoId:      puestoResueltoTransferencia.id,
+      hospitalId: hospital.id,
+      escalafonId: escalafon.id,
+      puestoCargoId: puestoResueltoTransferencia.id,
       especialidadPuestoId: especialidadResueltaTransferencia,
-      literalPuesto:   datos.literal_puesto ?? '',
-      especialidad:    datos.especialidad || null,
-      agrupador:       datos.agrupador || null,
+      literalPuesto: datos.literal_puesto ?? '',
+      especialidad: datos.especialidad || null,
+      agrupador: datos.agrupador || null,
       unificadorPuesto: datos.unificador_de_puestos || null,
-      regimen:         datos.regimen || null,
-      cantidad:        1,
+      regimen: datos.regimen || null,
+      cantidad: 1,
       esTransferencia: true,
-      estado:          'aprobada',
+      estado: 'aprobada',
       solicitadoPorId: usuarioId,
     },
   })
@@ -2261,7 +2549,8 @@ export async function marcarTransferenciaService(snapshotId: string, diffId: str
 export async function rechazarDiffNuevoService(snapshotId: string, diffId: string) {
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
-  if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden rechazar diffs de tipo nuevo')
+  if (diff.tipo !== 'nuevo')
+    throw AppError.badRequest('Solo se pueden rechazar diffs de tipo nuevo')
   if (diff.aprobado === false) throw AppError.conflict('Este diff ya fue rechazado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
@@ -2269,24 +2558,26 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
   await prisma.$transaction(async (tx: PrismaTx) => {
     // Resolver hospital
     const sigla = datos.siglas ?? ''
-    let hospital = await tx.hospital.findUnique({ where: { sigla } }) as HospitalRow | null
+    let hospital = (await tx.hospital.findUnique({ where: { sigla } })) as HospitalRow | null
     if (!hospital) {
-      hospital = await tx.hospital.create({
+      hospital = (await tx.hospital.create({
         data: { sigla, nombre: sigla, tipo: datos.tipo_hospital_sigla || null },
-      }) as HospitalRow
+      })) as HospitalRow
     }
 
     // Resolver escalafón
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({
+      const cr = (await tx.codigoRegistro.findUnique({
         where: { codigo: datos.codigo_de_registro },
         include: { escalafon: true },
-      }) as { escalafon: EscalafonRow } | null
+      })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = await tx.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true } }) as EscalafonRow | null
+      escalafon = (await tx.escalafon.findFirst({
+        where: { nombre: datos.escalafon, activo: true },
+      })) as EscalafonRow | null
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -2294,9 +2585,14 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     // escalafón corrupto ('??????????') pero el código sí es válido; usamos el
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
-      escalafon = await tx.escalafon.findFirst({ where: { codigo: datos.codigo_de_registro, activo: true } }) as EscalafonRow | null
+      escalafon = (await tx.escalafon.findFirst({
+        where: { codigo: datos.codigo_de_registro, activo: true },
+      })) as EscalafonRow | null
     }
-    if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`)
+    if (!escalafon)
+      throw AppError.badRequest(
+        `Escalafón no encontrado para este cargo (${datos.escalafon ?? ''})`,
+      )
 
     let codigoRegistroId: string | null = null
     if (datos.codigo_de_registro) {
@@ -2308,9 +2604,9 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     const cuil = cuilDe(datos)
     let persona: PersonaRow | null = null
     if (cuil) {
-      persona = await tx.persona.findUnique({ where: { cuil } }) as PersonaRow | null
+      persona = (await tx.persona.findUnique({ where: { cuil } })) as PersonaRow | null
       if (!persona) {
-        persona = await tx.persona.create({
+        persona = (await tx.persona.create({
           data: {
             cuil,
             apellidoNombre: datos.ayn ?? '',
@@ -2327,13 +2623,13 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             localidad: datos.localidad || null,
             provincia: datos.provincia || null,
           },
-        }) as PersonaRow
+        })) as PersonaRow
       }
     }
 
     // Crear cargo SIN código (rechazado = sin asignar)
     let cargo: CargoRow | null = datos.id_sial
-      ? await tx.cargo.findUnique({ where: { idSial: datos.id_sial } }) as CargoRow | null
+      ? ((await tx.cargo.findUnique({ where: { idSial: datos.id_sial } })) as CargoRow | null)
       : null
 
     if (!cargo && datos.id_sial) {
@@ -2344,12 +2640,15 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
       const especialidadResuelta = await resolverEspecialidadPuestoId(
-        tx, catalogoPuestos, puestoResuelto.id, datos.especialidad ?? null,
+        tx,
+        catalogoPuestos,
+        puestoResuelto.id,
+        datos.especialidad ?? null,
       )
-      cargo = await tx.cargo.create({
+      cargo = (await tx.cargo.create({
         data: {
           idSial: datos.id_sial,
-          codigo: null,  // sin código — aparece como "Sin asignar" en historial
+          codigo: null, // sin código — aparece como "Sin asignar" en historial
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
           puestoCargoId: puestoResuelto.id,
@@ -2364,7 +2663,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
           descripcionRepa: datos.descripcion_repa || null,
           agrupamiento: datos.agrupamiento || null,
         },
-      }) as CargoRow
+      })) as CargoRow
     }
 
     // Crear ocupación si no existe
@@ -2409,7 +2708,13 @@ export async function getConflictosValidacionService(snapshotId: string) {
   })
 
   const idSialsNuevos = nuevos
-    .map((d) => { try { return (JSON.parse(d.valorNuevo ?? '{}')).id_sial as string } catch { return null } })
+    .map((d) => {
+      try {
+        return JSON.parse(d.valorNuevo ?? '{}').id_sial as string
+      } catch {
+        return null
+      }
+    })
     .filter((v): v is string => Boolean(v))
 
   if (idSialsNuevos.length === 0) return { conflictos: [] }
@@ -2452,7 +2757,9 @@ export async function exportarSnapshotService(id: string) {
     throw AppError.notFound('El archivo Excel no está disponible para este snapshot')
   }
   try {
-    const fileStream = await python.get(`/${snapshot.archivoResultadoPath}`, { responseType: 'stream' })
+    const fileStream = await python.get(`/${snapshot.archivoResultadoPath}`, {
+      responseType: 'stream',
+    })
     return { stream: fileStream.data as NodeJS.ReadableStream, snapshotId: id }
   } catch (err) {
     // Dotaneitor devuelve 404 si el Excel no llegó a escribirse en disco (ej.
@@ -2472,7 +2779,9 @@ export async function exportarSnapshotService(id: string) {
 export async function deleteSnapshotService(id: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (!['error', 'rechazado'].includes(snapshot.estado)) {
-    throw AppError.conflict(`Solo se pueden eliminar snapshots en estado error o rechazado (estado actual: ${snapshot.estado})`)
+    throw AppError.conflict(
+      `Solo se pueden eliminar snapshots en estado error o rechazado (estado actual: ${snapshot.estado})`,
+    )
   }
 
   await prisma.$transaction(async (tx: PrismaTx) => {
@@ -2486,7 +2795,11 @@ export async function deleteSnapshotService(id: string) {
 // ─── Buscar concursos CPH para vincular a un diff nuevo ────────────────────
 // Pre-filtra por hospital + escalafón del diff. Acepta búsqueda libre (q)
 // para afinar. Solo devuelve concursos no finalizados y no suspendidos.
-export async function buscarConcursosParaDiffService(snapshotId: string, diffId: string, q?: string) {
+export async function buscarConcursosParaDiffService(
+  snapshotId: string,
+  diffId: string,
+  q?: string,
+) {
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
 
@@ -2506,7 +2819,10 @@ export async function buscarConcursosParaDiffService(snapshotId: string, diffId:
     escalafonId = cr?.escalafonId ?? null
   }
   if (!escalafonId && datos.escalafon) {
-    const esc = await prisma.escalafon.findFirst({ where: { nombre: datos.escalafon, activo: true }, select: { id: true } })
+    const esc = await prisma.escalafon.findFirst({
+      where: { nombre: datos.escalafon, activo: true },
+      select: { id: true },
+    })
     escalafonId = esc?.id ?? null
   }
 
@@ -2541,7 +2857,15 @@ export async function buscarConcursosParaDiffService(snapshotId: string, diffId:
       resolucionDesignacion: true,
       eeConcurso: true,
       personaDesignadaId: true,
-      cargo: { select: { id: true, codigo: true, literalPuesto: true, escalafonId: true, especialidadLegacy: true } },
+      cargo: {
+        select: {
+          id: true,
+          codigo: true,
+          literalPuesto: true,
+          escalafonId: true,
+          especialidadLegacy: true,
+        },
+      },
       hospital: { select: { sigla: true, nombre: true } },
       concurso: { select: { expediente: true } },
     },
@@ -2572,7 +2896,8 @@ export async function buscarConcursosParaDiffService(snapshotId: string, diffId:
 
 export async function rechazarSnapshotService(id: string) {
   const snapshot = await getSnapshotOrThrow(id)
-  if (snapshot.estado !== 'pendiente') throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
+  if (snapshot.estado !== 'pendiente')
+    throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
   await prisma.padronSnapshot.update({
     where: { id },
