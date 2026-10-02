@@ -83,10 +83,22 @@ S21-8 ──► S21-9
 
 ## Criterio de éxito
 
-- [ ] Dos Órdenes de Mérito con la misma especialidad tipeada distinto se detectan como coincidentes (bug de negocio real resuelto, no solo cosmético).
-- [ ] `Persona.especialidadPrincipal` como columna fija-al-alta deja de existir; el valor "especialidad del cargo actual" se resuelve siempre en runtime contra el `Cargo` vigente.
-- [ ] Los 4 documentos legales exportables (Autorización/Validación CPH, Acta de Sorteo de Jurado, Acta de Orden de Mérito) siguen mostrando la especialidad correctamente, ahora leída del catálogo en vez de `especialidadLegacy`.
-- [ ] `MiembroJuradoSorteado`, `Pou`, `PadronHistorico` quedan sin tocar — confirmado que ningún cambio de este sprint los afecta.
+- [x] Dos Órdenes de Mérito con la misma especialidad tipeada distinto se detectan como coincidentes (bug de negocio real resuelto, no solo cosmético).
+- [x] `Persona.especialidadPrincipal` como columna fija-al-alta deja de existir; el valor "especialidad del cargo actual" se resuelve siempre en runtime contra el `Cargo` vigente.
+- [x] Los 4 documentos legales exportables (Autorización/Validación CPH, Acta de Sorteo de Jurado, Acta de Orden de Mérito) siguen mostrando la especialidad correctamente, ahora leída del catálogo en vez de `especialidadLegacy`.
+- [x] `MiembroJuradoSorteado`, `Pou`, `PadronHistorico` quedan sin tocar — confirmado que ningún cambio de este sprint los afecta.
+
+> **Cierre de S21-5 (2026-10-02).** La columna `personas.especialidad_principal` quedó
+> finalmente **eliminada** (migración `20261003000002_drop_persona_especialidad_principal`). En el
+> cierre inicial del sprint el valor ya se derivaba en runtime (`personas.service.ts`,
+> `COALESCE(especialidad_puesto.nombre, especialidad_legacy)` vía `LEFT JOIN LATERAL` al cargo
+> vigente), pero la columna física seguía existiendo y aún se **escribía** en dos `persona.create`
+> del padrón (`padron.service.ts`) y se leía en el organigrama. Al dropearla se quitaron esas dos
+> escrituras y la lectura del organigrama pasó también a derivar del cargo vigente
+> (`especialidad_puesto.nombre ?? especialidad_legacy`). Verificado: typecheck del API y de
+> `@srrhh/types` limpios, `/personas` responde con la especialidad derivada. El campo de respuesta
+> `especialidadPrincipal` del contrato de API se conserva (ahora alimentado por el valor derivado,
+> no por la columna).
 
 ## Notas
 

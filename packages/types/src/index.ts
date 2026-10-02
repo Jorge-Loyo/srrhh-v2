@@ -101,7 +101,6 @@ export interface Persona {
   apellidoNombre: string
   fechaNacimiento: string | null
   sexo: string | null
-  especialidadPrincipal: string | null
   activo: boolean
   createdAt: string
   updatedAt: string
@@ -694,7 +693,6 @@ export interface CreatePersonaRequest {
   apellidoNombre: string
   fechaNacimiento?: string
   sexo?: string
-  especialidadPrincipal?: string
 }
 
 export interface UpdatePersonaRequest {
@@ -703,7 +701,6 @@ export interface UpdatePersonaRequest {
   apellidoNombre?: string
   fechaNacimiento?: string
   sexo?: string
-  especialidadPrincipal?: string
 }
 
 export interface AprobarSnapshotRequest {
@@ -1064,7 +1061,6 @@ export interface PersonaDesignadaDetalle {
   tipoDoc: string | null
   fechaNacimiento: string | null
   sexo: string | null
-  especialidadPrincipal: string | null
   especialidadCph: string | null
   telefono: string | null
   mailLaboral: string | null

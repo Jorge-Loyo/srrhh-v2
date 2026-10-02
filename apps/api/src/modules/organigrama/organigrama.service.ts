@@ -200,6 +200,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       literalPuesto: true,
       unificadorPuesto: true,
       especialidadLegacy: true,
+      especialidadPuesto: { select: { nombre: true } },
       escalafon: { select: { nombre: true } },
       hospital: { select: { nombre: true } },
       codigoRegistro: { select: { codigo: true } },
@@ -217,7 +218,6 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
               apellidoNombre: true,
               cuil: true,
               sexo: true,
-              especialidadPrincipal: true,
               mailLaboral: true,
               telefono: true,
               fechaNacimiento: true,
@@ -255,7 +255,11 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       cargo: cargo.literalPuesto,
       cuil: ocup.persona.cuil,
       sexo: ocup.persona.sexo ?? null,
-      especialidadPersona: ocup.persona.especialidadPrincipal ?? null,
+      // S21-5: la especialidad "de la persona" se deriva del cargo vigente
+      // (catálogo especialidad_puesto, con fallback al snapshot
+      // especialidad_legacy) en vez de la columna especialidad_principal
+      // eliminada, que quedaba stale.
+      especialidadPersona: cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? null,
       mailLaboral: ocup.persona.mailLaboral ?? null,
       telefono: ocup.persona.telefono ?? null,
       fechaNacimiento: ocup.persona.fechaNacimiento?.toISOString() ?? null,
