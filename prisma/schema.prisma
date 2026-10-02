@@ -1456,6 +1456,9 @@ model EspecialidadPuesto {
   puestoCargId String     @map("puesto_cargo_id") @db.Uuid
   nombre       String     @db.VarChar(200)
   activo       Boolean    @default(true)
+  // S22-6: auto-alta revisable del Dotaneitor (especialidad sin match → se crea
+  // con pendiente_curar=true, se cura en la pantalla de mantenimiento).
+  pendienteCurar Boolean  @default(false) @map("pendiente_curar")
 
   puesto PuestoCargo @relation(fields: [puestoCargId], references: [id], onDelete: Cascade)
   cargos              Cargo[]

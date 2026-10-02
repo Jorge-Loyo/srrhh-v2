@@ -55,9 +55,11 @@ def _col_snake(nombre: str) -> str:
     return s.strip('_')
 
 
-# Columnas que NO se bajan a minúscula (identificadores en mayúscula). Las siglas
-# de efector son códigos (HGARM, SSAPAC…), no texto libre.
-_COLUMNAS_NO_MINUSCULA = {'siglas'}
+# Columnas que NO se bajan a minúscula: siglas (código de efector) y los ids
+# resueltos del catálogo (UUIDs). El resto del texto va a minúscula/sin tilde.
+_COLUMNAS_NO_MINUSCULA = {
+    'siglas', 'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
+}
 
 
 @dataclass
@@ -111,8 +113,12 @@ _RENAME = {
 }
 
 # Orden de salida (snake_case). Sin unificador/agrupador/estado.
+# Incluye los campos descompuestos de S22-15 (apellido/nombre) y S22-16
+# (id_sial_legajo/nro_rol/id_sial_rol crudo).
 _ORDEN_SALIDA = [
-    'id_sial', 'cuil', 'cuil_y_rol', 'ayn', 'fecha_nacimiento', 'edad', 'sexo',
+    'id_sial', 'id_sial_legajo', 'nro_rol', 'id_sial_rol',
+    'cuil', 'cuil_y_rol', 'ayn', 'apellido', 'nombre',
+    'fecha_nacimiento', 'edad', 'sexo',
     'tipo_doc', 'numero_doc', 'codigo_repa', 'descripcion_repa', 'siglas',
     'universo_totalizador', 'tipo_de_hospital_sigla', 'monovalencia', 'escalafon',
     'codigo_de_registro', 'literal_cr', 'regimen', 'situacion_de_revista', 'puesto',
@@ -124,10 +130,13 @@ _ORDEN_SALIDA = [
     'localidad', 'provincia', 'fecha_bloqueo', 'bloqueo_comentario', 'bloq_motivo',
     'cargo_desde', 'cargo_hasta', 'documentacion_del_rol', 'documentacion_baja',
     'antiguedad',
+    # Resolución contra catálogo (S22-5/7): ids + texto crudo de origen.
+    'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
+    'literal_puesto_origen', 'especialidad_origen',
 ]
 
 
-def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict]) -> tuple[pd.DataFrame, dict]:
+def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) -> tuple[pd.DataFrame, dict]:
     """Procesamiento de negocio lineal (S22-2). Reutiliza los métodos probados de
     `auto` (DotacionAutomation) para no reinventar el negocio, pero controla el
     flujo y OMITE unificador/agrupador/estado. `auto` ya debe tener siglas_df
@@ -204,6 +213,69 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict]) -> tuple[pd.DataF
         if 'cuil_y_rol' in detalle_sin_puesto.columns else []
     )
 
+    # ── Paso 9.7a: partir el nombre (S22-15) ─────────────────────────────────
+    # ayn = "apellido, nombre" → apellido (todo antes de la 1ª coma) + nombre
+    # (resto). Sin coma: apellido = todo, nombre = None. Se conserva ayn. Se
+    # cuenta cuántos vienen sin coma para informar en el reporte/diff.
+    sin_coma = 0
+    if 'ayn' in df.columns:
+        def _partir_nombre(v):
+            nonlocal sin_coma
+            if not isinstance(v, str) or not v.strip():
+                return (v, None)
+            if ',' in v:
+                ap, _, nom = v.partition(',')
+                return (ap.strip(), nom.strip() or None)
+            sin_coma += 1
+            return (v.strip(), None)
+
+        partido = df['ayn'].map(_partir_nombre)
+        df['apellido'] = partido.map(lambda t: t[0])
+        df['nombre'] = partido.map(lambda t: t[1])
+
+    # ── Paso 9.7b: descomponer id_sial_rol (S22-16) ───────────────────────────
+    # id_sial (viene de CARGO) es el legajo CON rol: 'legajo-rol' (ej.
+    # '001812167-1'). Se separa en id_sial_legajo (legajo sin el nro de rol) y
+    # nro_rol. Se conserva id_sial crudo como identificador natural (auditoría).
+    # El cuil ya está suelto (columna cuil); cuil_y_rol se mantiene por ahora
+    # para el consumo de Node (lo retira S22-9 al switchear el consumo).
+    if 'id_sial' in df.columns:
+        df['id_sial_rol'] = df['id_sial']  # crudo (identificador natural SIAL)
+        partes = df['id_sial'].astype(str).str.rsplit('-', n=1, expand=True)
+        df['id_sial_legajo'] = partes[0]
+        df['nro_rol'] = partes[1] if partes.shape[1] > 1 else None
+
+    # ── Paso 9.7c: resolución contra catálogo (S22-5/6/7) ─────────────────────
+    # Resuelve carrera/puesto/especialidad a sus ids del catálogo. Conserva el
+    # texto crudo de origen (literal_puesto_origen/especialidad_origen) antes de
+    # normalizar. Sin match → auto-alta pendiente_curar (dentro de Catalogo).
+    if catalogo is not None:
+        df['literal_puesto_origen'] = df.get('literal_puesto')
+        df['especialidad_origen'] = df.get('especialidad')
+
+        escalafon_ids, puesto_ids, especialidad_ids = [], [], []
+        for cod_reg, lit_puesto, esp in zip(
+            df.get('codigo_de_registro', pd.Series([None] * len(df))),
+            df.get('literal_puesto', pd.Series([None] * len(df))),
+            df.get('especialidad', pd.Series([None] * len(df))),
+        ):
+            esc_id = catalogo.resolver_escalafon(cod_reg)
+            pue_id = catalogo.resolver_puesto(esc_id, lit_puesto)
+            esp_id = catalogo.resolver_especialidad(pue_id, esp)
+            escalafon_ids.append(esc_id)
+            puesto_ids.append(pue_id)
+            especialidad_ids.append(esp_id)
+
+        df['escalafon_id'] = escalafon_ids
+        df['puesto_cargo_id'] = puesto_ids
+        df['especialidad_puesto_id'] = especialidad_ids
+
+        logs.append({
+            'text': f"✓ Resolución catálogo — puestos auto-alta: {catalogo.puestos_auto_alta}, "
+                    f"especialidades auto-alta: {catalogo.especialidades_auto_alta}",
+            'type': 'info',
+        })
+
     # ── Paso 9.75: normalización TOTAL a minúscula + sin tilde (S22-3) ────────
     # Reemplaza _forzar_mayusculas. Aplica a TODAS las columnas salvo las
     # identificadoras (siglas). No se filtra por dtype: pandas puede cargar
@@ -237,6 +309,9 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict]) -> tuple[pd.DataF
         'duplicados_id_sial_grupos': dup_grupos,
         'duplicados_id_sial_filas_eliminadas': dup_filas,
         'jefaturas_duplicadas': jefaturas_dup_count,
+        'nombres_sin_coma': sin_coma,
+        'puestos_auto_alta': catalogo.puestos_auto_alta if catalogo else 0,
+        'especialidades_auto_alta': catalogo.especialidades_auto_alta if catalogo else 0,
     }
 
     # Logs resumen
@@ -248,6 +323,8 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict]) -> tuple[pd.DataF
         logs.append({'text': f"[!] ID SIAL duplicado: {dup_grupos} cargo(s), {dup_filas} fila(s) eliminada(s)", 'type': 'warning'})
     if jefaturas_dup_count:
         logs.append({'text': f"[!] Jefaturas CPH con rol duplicado: {jefaturas_dup_count} eliminada(s)", 'type': 'warning'})
+    if sin_coma:
+        logs.append({'text': f"[!] Nombres sin coma (apellido=todo, nombre vacío): {sin_coma}", 'type': 'warning'})
 
     return df, reporte
 
@@ -294,6 +371,7 @@ def procesar_padron(
     *,
     automation_factory=None,
     normalizador_factory=None,
+    catalogo=None,
 ) -> ResultadoPipeline:
     """Pipeline lineal de punta a punta sobre el Excel de Cargos."""
     logs: list[dict] = []
@@ -342,7 +420,7 @@ def procesar_padron(
 
     # ── 3. Procesamiento lineal propio (S22-2/3) ──────────────────────────────
     try:
-        df_out, reporte = _procesar_lineal(auto.cargos_df, auto, logs)
+        df_out, reporte = _procesar_lineal(auto.cargos_df, auto, logs, catalogo=catalogo)
     except Exception as e:  # noqa: BLE001
         import traceback
         return ResultadoPipeline(False, f'Error en procesamiento: {e}\n{traceback.format_exc()}', logs=logs)

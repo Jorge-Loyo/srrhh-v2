@@ -632,6 +632,7 @@ async def procesar_padron_lineal(
     No crea sesión ni job: una sola llamada hace todo.
     """
     from pipeline import procesar_padron as _run_pipeline, df_a_excel_bytes
+    from catalogo import Catalogo
 
     # tmp efímero propio de esta corrida (no es una "sesión").
     run_dir = TMP_DIR / f'run-{uuid.uuid4()}'
@@ -640,7 +641,12 @@ async def procesar_padron_lineal(
     dest.write_bytes(await file.read())
 
     try:
-        resultado = _run_pipeline(str(dest), automation_factory=DotacionAutomationBD)
+        # Catálogo fresco por request: ve las auto-altas de corridas previas y
+        # arranca los contadores de esta corrida en 0.
+        catalogo = Catalogo(_engine)
+        resultado = _run_pipeline(
+            str(dest), automation_factory=DotacionAutomationBD, catalogo=catalogo
+        )
 
         if not resultado.ok:
             raise HTTPException(400, resultado.mensaje)
