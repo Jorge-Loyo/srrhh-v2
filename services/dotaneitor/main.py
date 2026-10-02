@@ -606,3 +606,78 @@ def delete_session(body: SessionBody):
     _remove_session(body.session_id)
     return {'ok': True}
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DOTANEITOR v2 — PIPELINE LINEAL (Sprint 22)
+# Endpoint único síncrono que reemplaza /session + /normalizar + /procesar +
+# /cruzar + /preview. Convive en PARALELO con los endpoints viejos hasta que
+# S22-9 corte el consumo de Node. No usa sessions{} ni jobs.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post('/procesar-padron')
+async def procesar_padron_lineal(
+    file: UploadFile = File(...),
+    snapshot_id: str | None = Form(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(500, ge=1, le=5000),
+):
+    """Procesa el Excel de Cargos de punta a punta en un solo flujo síncrono.
+
+    - Recibe el archivo, lo guarda en un tmp efímero (se borra al terminar).
+    - Corre el pipeline lineal (normaliza → procesa, reutilizando el negocio
+      probado) inyectando DotacionAutomationBD (lee catálogos de Postgres).
+    - Devuelve el dataset paginado + reporte + logs. Si viene snapshot_id,
+      además persiste el Excel de dotación en exports/<snapshot_id>/.
+
+    No crea sesión ni job: una sola llamada hace todo.
+    """
+    from pipeline import procesar_padron as _run_pipeline, df_a_excel_bytes
+
+    # tmp efímero propio de esta corrida (no es una "sesión").
+    run_dir = TMP_DIR / f'run-{uuid.uuid4()}'
+    run_dir.mkdir(parents=True, exist_ok=True)
+    dest = run_dir / (file.filename or 'cargos.xlsx')
+    dest.write_bytes(await file.read())
+
+    try:
+        resultado = _run_pipeline(str(dest), automation_factory=DotacionAutomationBD)
+
+        if not resultado.ok:
+            raise HTTPException(400, resultado.mensaje)
+
+        df = resultado.df
+        assert df is not None  # ok=True garantiza df
+
+        # Persistir el Excel de dotación si se pidió (para descarga posterior).
+        if snapshot_id:
+            exports_dir = BASE_DIR / 'exports' / snapshot_id
+            exports_dir.mkdir(parents=True, exist_ok=True)
+            (exports_dir / 'dotacion.xlsx').write_bytes(df_a_excel_bytes(df))
+
+        # Paginación del dataset para la respuesta JSON (Node consume por páginas).
+        import math
+        total = len(df)
+        start = (page - 1) * limit
+        chunk = df.iloc[start:start + limit]
+
+        def _safe(v):
+            if v is None:
+                return None
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return None
+            return v
+
+        rows = [{k: _safe(v) for k, v in r.items()} for r in chunk.to_dict(orient='records')]
+
+        return {
+            'cols': list(df.columns),
+            'rows': rows,
+            'total': total,
+            'page': page,
+            'limit': limit,
+            'reporte': resultado.reporte,
+            'logs': resultado.logs,
+        }
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+

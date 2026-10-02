@@ -1,6 +1,6 @@
 # SPRINT 22 — Dotaneitor v2: reescritura lineal (dotación + tablas, contra catálogo)
 
-**Estado:** 📋 Planificado
+**Estado:** 🚧 En progreso (arranque 2026-09-30 — S22-1 esqueleto lineal en paralelo al flujo viejo; JCAT Opción A primero, B después)
 **Autores:** Jorge (full — backend Node + Python + frontend `/padron`). Agustín trabaja en otra línea, no toma tareas de este sprint.
 **Depende de:** Sprint 20 ✅ (catálogo `puestos_cargo`/`especialidades_puesto` consolidado, `Cargo.puestoCargoId`/`especialidadPuestoId`, `migrate reset`, política de "sin match" definida del lado Node), Sprint 21 ✅ (consumidores secundarios migrados, flag `pendienteCurar` en catálogos, `codigos_registro` poblado, catálogo normalizado)
 
