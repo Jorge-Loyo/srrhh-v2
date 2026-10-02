@@ -1,6 +1,6 @@
 # SPRINT 22 — Dotaneitor v2: reescritura lineal (dotación + tablas, contra catálogo)
 
-**Estado:** 🚧 En progreso (arranque 2026-09-30 — S22-1 esqueleto lineal en paralelo al flujo viejo; JCAT Opción A primero, B después)
+**Estado:** ✅ COMPLETO (cierre 2026-09-22 — pipeline lineal `POST /procesar-padron`, resolución contra catálogo, JCAT→jefatura Opción A texto, Node switcheado, verificado e2e. S22-12 Opción B FK queda para otro sprint)
 **Autores:** Jorge (full — backend Node + Python + frontend `/padron`). Agustín trabaja en otra línea, no toma tareas de este sprint.
 **Depende de:** Sprint 20 ✅ (catálogo `puestos_cargo`/`especialidades_puesto` consolidado, `Cargo.puestoCargoId`/`especialidadPuestoId`, `migrate reset`, política de "sin match" definida del lado Node), Sprint 21 ✅ (consumidores secundarios migrados, flag `pendienteCurar` en catálogos, `codigos_registro` poblado, catálogo normalizado)
 
@@ -67,20 +67,20 @@ contra el catálogo  →  [genera Excel de dotación]  +  [entrega datos para la
 
 | #      | Tarea                                                                                                                                                                                                                                                                                    | Dev   | Est. | Prioridad | Estado |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
-| S22-1  | **Esqueleto del pipeline lineal**: un único endpoint (ej. `POST /procesar-padron`) que recibe el Excel y ejecuta limpieza → resolución → salida en un solo flujo síncrono/tarea. Sin `sessions{}`, sin jobs, sin `/preview`.                                                             | Jorge | 4h   | 🔴        | 📋     |
-| S22-2  | **Portar funciones de negocio probadas** (copiar tal cual, no reinventar): normalización (mojibake/fechas/teléfonos/nombres), limpieza de puesto/especialidad, dedup ID SIAL (versión vectorizada), jefaturas duplicadas.                                                                | Jorge | 4h   | 🔴        | 📋     |
-| S22-3  | **Normalización total minúscula + sin tilde** en todo el texto de salida; nombres de columna en snake_case sin tilde/espacios (arreglar `documentacion_pou`, `antiguedad`). Reemplaza `_forzar_mayusculas`. (ver A22-1)                                                                  | Jorge | 2h   | 🔴        | 📋     |
-| S22-4  | **Cargar catálogo** `puestos_cargo`/`especialidades_puesto` en el arranque (mismo patrón que las `Ref*`).                                                                                                                                                                                | Jorge | 2h   | 🔴        | 📋     |
-| S22-5  | **Resolución contra catálogo**: carrera por código de registro → `escalafonId`; literal puesto → `puestoCargoId`; especialidad → `especialidadPuestoId` (con regla del paréntesis, A22-2). `LOWER(TRIM())` en ambos lados.                                                               | Jorge | 4h   | 🔴        | 📋     |
-| S22-6  | **Política "sin match" con auto-alta revisable** (A22-3): literal/especialidad sin match → alta en catálogo con `revisado=false`, se usa ese id, y el caso se refleja en el diff que ve el usuario. El padrón **no se frena**.                                                           | Jorge | 3h   | 🔴        | 📋     |
-| S22-7  | **Conservar texto crudo de origen** (A22-4): guardar `literal_puesto_origen`/equivalente además del id resuelto, para auditoría/reversibilidad.                                                                                                                                          | Jorge | 1h   | 🟡        | 📋     |
-| S22-8  | **Salida del pipeline**: (a) Excel de dotación; (b) dataset con `puesto_cargo_id`/`especialidad_puesto_id`/`puesto_sin_catalogar`/`cargo_jefatura` + campos para las tablas, que Node consume para el diff y la consolidación.                                                           | Jorge | 3h   | 🔴        | 📋     |
-| S22-9  | **Backend Node** (`padron.service.ts`): adaptar el consumo al nuevo flujo lineal (una llamada, sin polling); consumir los ids resueltos por Python (reemplaza la resolución de S20-6, que queda como fallback de validación).                                                            | Jorge | 4h   | 🔴        | 📋     |
-| S22-10 | **Tabla `jcat_cargo_jefatura`** (`jcat` → nivel/cargo + escalafón) + seed con el mapeo verificado (familias P/G/Z, ver `Doc/Referencias/DOTANEITOR_DECISIONES.md §2.2`). En tabla, no hardcode.                                                                                          | Jorge | 2h   | 🔴        | 📋     |
-| S22-11 | **Paso JCAT → cargo de jefatura** en el pipeline (tras JEFE ESCALAFON); JCAT sin mapeo → nivel `null`, se refleja en el diff, no frena. Agregar la columna a la salida.                                                                                                                  | Jorge | 3h   | 🔴        | 📋     |
-| S22-12 | **Persistir cargo de jefatura** en el cargo (FK a `puestos_cargo` de conducción, o texto — ver Opción A/B en el doc de decisiones §2.2) y reflejarlo en el rol. Migración + consumo en Node. Prerequisito Opción B: seed jefaturas no médicas + `Sub-Director`→conducción.               | Jorge | 4h   | 🟡        | 📋     |
-| S22-13 | **Actualizar `README.md`** del Dotaneitor al flujo lineal real (quitar `/diff`/`/guardar-bd`/sesiones/jobs; documentar el único endpoint y las columnas de salida).                                                                                                                      | Jorge | 1h   | 🟢        | 📋     |
-| S22-14 | **Verificación e2e**: subir un padrón real (o fixture) por `/padron`, confirmar que se genera el Excel de dotación, que el diff muestra las acciones de cada cargo, que se pueden evaluar antes de aprobar, y que un puesto sin catalogar cae con `revisado=false` sin romper el import. | Jorge | 3h   | 🔴        | 📋     |
+| S22-1  | **Esqueleto del pipeline lineal**: un único endpoint (ej. `POST /procesar-padron`) que recibe el Excel y ejecuta limpieza → resolución → salida en un solo flujo síncrono/tarea. Sin `sessions{}`, sin jobs, sin `/preview`.                                                             | Jorge | 4h   | 🔴        | ✅     |
+| S22-2  | **Portar funciones de negocio probadas** (copiar tal cual, no reinventar): normalización (mojibake/fechas/teléfonos/nombres), limpieza de puesto/especialidad, dedup ID SIAL (versión vectorizada), jefaturas duplicadas.                                                                | Jorge | 4h   | 🔴        | ✅     |
+| S22-3  | **Normalización total minúscula + sin tilde** en todo el texto de salida; nombres de columna en snake_case sin tilde/espacios (arreglar `documentacion_pou`, `antiguedad`). Reemplaza `_forzar_mayusculas`. (ver A22-1)                                                                  | Jorge | 2h   | 🔴        | ✅     |
+| S22-4  | **Cargar catálogo** `puestos_cargo`/`especialidades_puesto` en el arranque (mismo patrón que las `Ref*`).                                                                                                                                                                                | Jorge | 2h   | 🔴        | ✅     |
+| S22-5  | **Resolución contra catálogo**: carrera por código de registro → `escalafonId`; literal puesto → `puestoCargoId`; especialidad → `especialidadPuestoId` (con regla del paréntesis, A22-2). `LOWER(TRIM())` en ambos lados.                                                               | Jorge | 4h   | 🔴        | ✅     |
+| S22-6  | **Política "sin match" con auto-alta revisable** (A22-3): literal/especialidad sin match → alta en catálogo con `revisado=false`, se usa ese id, y el caso se refleja en el diff que ve el usuario. El padrón **no se frena**.                                                           | Jorge | 3h   | 🔴        | ✅     |
+| S22-7  | **Conservar texto crudo de origen** (A22-4): guardar `literal_puesto_origen`/equivalente además del id resuelto, para auditoría/reversibilidad.                                                                                                                                          | Jorge | 1h   | 🟡        | ✅     |
+| S22-8  | **Salida del pipeline**: (a) Excel de dotación; (b) dataset con `puesto_cargo_id`/`especialidad_puesto_id`/`puesto_sin_catalogar`/`cargo_jefatura` + campos para las tablas, que Node consume para el diff y la consolidación.                                                           | Jorge | 3h   | 🔴        | ✅     |
+| S22-9  | **Backend Node** (`padron.service.ts`): adaptar el consumo al nuevo flujo lineal (una llamada, sin polling); consumir los ids resueltos por Python (reemplaza la resolución de S20-6, que queda como fallback de validación).                                                            | Jorge | 4h   | 🔴        | ✅     |
+| S22-10 | **Tabla `jcat_cargo_jefatura`** (`jcat` → nivel/cargo + escalafón) + seed con el mapeo verificado (familias P/G/Z, ver `Doc/Referencias/DOTANEITOR_DECISIONES.md §2.2`). En tabla, no hardcode.                                                                                          | Jorge | 2h   | 🔴        | ✅     |
+| S22-11 | **Paso JCAT → cargo de jefatura** en el pipeline (tras JEFE ESCALAFON); JCAT sin mapeo → nivel `null`, se refleja en el diff, no frena. Agregar la columna a la salida.                                                                                                                  | Jorge | 3h   | 🔴        | ✅     |
+| S22-12 | **Persistir cargo de jefatura** en el cargo (FK a `puestos_cargo` de conducción, o texto — ver Opción A/B en el doc de decisiones §2.2) y reflejarlo en el rol. Migración + consumo en Node. Prerequisito Opción B: seed jefaturas no médicas + `Sub-Director`→conducción.               | Jorge | 4h   | 🟡        | ⏸️ dif |
+| S22-13 | **Actualizar `README.md`** del Dotaneitor al flujo lineal real (quitar `/diff`/`/guardar-bd`/sesiones/jobs; documentar el único endpoint y las columnas de salida).                                                                                                                      | Jorge | 1h   | 🟢        | ✅     |
+| S22-14 | **Verificación e2e**: subir un padrón real (o fixture) por `/padron`, confirmar que se genera el Excel de dotación, que el diff muestra las acciones de cada cargo, que se pueden evaluar antes de aprobar, y que un puesto sin catalogar cae con `revisado=false` sin romper el import. | Jorge | 3h   | 🔴        | ✅     |
 
 **Total estimado:** ~40h
 
@@ -97,19 +97,19 @@ S22-13 independiente (doc)
 
 ## Criterio de éxito
 
-- [ ] El Dotaneitor es un **pipeline lineal**: una sola llamada de punta a punta, sin sesiones,
+- [x] El Dotaneitor es un **pipeline lineal**: una sola llamada de punta a punta, sin sesiones,
       jobs ni preview paginado.
-- [ ] Genera **únicamente** el Excel de dotación (no el reporte de calidad ni otros exports).
-- [ ] Resuelve `puestoCargoId`/`especialidadPuestoId` contra el catálogo; carrera por código de registro.
-- [ ] Todo el texto sale en **minúscula y sin tilde**; nombres de columna en snake_case (sin
+- [x] Genera **únicamente** el Excel de dotación (no el reporte de calidad ni otros exports).
+- [x] Resuelve `puestoCargoId`/`especialidadPuestoId` contra el catálogo; carrera por código de registro.
+- [x] Todo el texto sale en **minúscula y sin tilde**; nombres de columna en snake_case (sin
       `documentacion_pou` / diéresis).
-- [ ] Un literal/especialidad sin match cae con `revisado=false` sin frenar el import, y es visible
+- [x] Un literal/especialidad sin match cae con `revisado=false` sin frenar el import, y es visible
       al revisar el diff antes de aprobar.
-- [ ] En `/padron` el usuario **sigue pudiendo evaluar las acciones de cada cargo y ver el diff
+- [x] En `/padron` el usuario **sigue pudiendo evaluar las acciones de cada cargo y ver el diff
       antes de aprobar** (experiencia de revisión conservada).
-- [ ] El JCAT se resuelve a cargo de jefatura (P/G/Z) contra `jcat_cargo_jefatura`, se persiste, y
+- [x] El JCAT se resuelve a cargo de jefatura (P/G/Z) contra `jcat_cargo_jefatura`, se persiste, y
       un JCAT sin mapeo cae sin frenar.
-- [ ] `README.md` refleja el flujo lineal real.
+- [x] `README.md` refleja el flujo lineal real.
 
 ## Notas
 
@@ -152,14 +152,63 @@ como `sexo`, `situacion_revista` — decidir caso por caso). Ya cubierto por la 
 
 | #      | Tarea                                                                                                                                                                                                                                                                                                                  | Dev   | Est. | Prioridad | Estado |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
-| S22-15 | **Partir el nombre al cargar.** El pipeline separa `"Apellido, Nombre"` (AYN) en `apellido` + `nombre` (por la primera coma) y **también** entrega `apellido_nombre` normalizado. Sin coma → `apellido`=todo, `nombre`=null; contar e informar en el diff los casos sin coma. Salida: 3 campos para `personas`. (§9.2) | Jorge | 2h   | 🔴        | 📋     |
-| S22-16 | **Descomponer `id_sial_rol` al cargar.** El pipeline separa `legajoSial-rol-cuil-rol` en `id_sial` (legajo) + `nro_rol`, entrega solo `cuil` (no el `cuil_y_rol` concatenado) y conserva `id_sial_rol` crudo. Salida con los campos descompuestos para que Node arme el histórico de roles. (§9.3)                     | Jorge | 3h   | 🔴        | 📋     |
+| S22-15 | **Partir el nombre al cargar.** El pipeline separa `"Apellido, Nombre"` (AYN) en `apellido` + `nombre` (por la primera coma) y **también** entrega `apellido_nombre` normalizado. Sin coma → `apellido`=todo, `nombre`=null; contar e informar en el diff los casos sin coma. Salida: 3 campos para `personas`. (§9.2) | Jorge | 2h   | 🔴        | ✅     |
+| S22-16 | **Descomponer `id_sial_rol` al cargar.** El pipeline separa `legajoSial-rol-cuil-rol` en `id_sial` (legajo) + `nro_rol`, entrega solo `cuil` (no el `cuil_y_rol` concatenado) y conserva `id_sial_rol` crudo. Salida con los campos descompuestos para que Node arme el histórico de roles. (§9.3)                     | Jorge | 3h   | 🔴        | ✅     |
 
 **Subtotal adiciones:** ~5h (se suma al total del sprint).
 
 ### Criterio de éxito (adiciones)
 
-- [ ] El dataset de salida trae `apellido` + `nombre` separados **y** `apellido_nombre`, todo en
+- [x] El dataset de salida trae `apellido` + `nombre` separados **y** `apellido_nombre`, todo en
       minúscula/sin tilde; los registros sin coma se informan en el diff.
-- [ ] El dataset trae `id_sial` (legajo) + `nro_rol` descompuestos y `cuil` solo (sin la parte de
+- [x] El dataset trae `id_sial` (legajo) + `nro_rol` descompuestos y `cuil` solo (sin la parte de
       rol), conservando `id_sial_rol` crudo para auditoría.
+
+---
+
+## ✅ Cierre del sprint (2026-09-22)
+
+Pipeline lineal del Dotaneitor **completo y verificado e2e**. El flujo viejo
+(`/session`/`/normalizar`/`/procesar`/`/cruzar`/`/preview`/`/reporte-calidad`/
+`/descargar`/`/session/delete`) quedó **en paralelo** (no se borró) por si hace
+falta rollback; Node ya **no** lo consume.
+
+**Commits** (todos en `jorge` / `main` / `deploy` de `origin`):
+
+| Commit    | Tareas                                          |
+| --------- | ----------------------------------------------- |
+| `57b8985` | S22-1                                           |
+| `8190337` | S22-2 / S22-3                                   |
+| `c5e90f4` | S22-4 / S22-5 / S22-6 / S22-7 / S22-15 / S22-16 |
+| `f1574c1` | S22-10 / S22-11                                 |
+| `8dc70ee` | S22-8 / S22-9                                   |
+
+**Entregado:**
+
+- `services/dotaneitor/pipeline.py` — pipeline lineal (`procesar_padron`),
+  normalización minúscula/sin tilde, columnas snake_case v2, partición
+  nombre/id_sial_rol.
+- `services/dotaneitor/catalogo.py` — `Catalogo(engine)`: resuelve
+  escalafón/puesto/especialidad/JCAT, auto-alta `pendiente_curar`.
+- `services/dotaneitor/main.py` — endpoint único `POST /procesar-padron`.
+- `apps/api/.../padron.service.ts` — `runPipeline` (una llamada, en background),
+  `calcularDiff` comparando normalizado (`normCmp`), `COLS_WATCH` sin
+  agrupador/unificador/estado.
+- Migraciones `20261003000000_especialidad_pendiente_curar` y
+  `20261003000001_jcat_cargo_jefatura` + schema Prisma.
+- `README.md` del Dotaneitor reescrito al flujo lineal (S22-13).
+
+**Verificación e2e (S22-14):** padrón real (`Cargos_salud_20260712`, fecha
+ficticia) por `/padron` → 202 → procesando (~200s) → pendiente, 48328 filas. Diff
+con auto-alta `pendiente_curar` sin frenar el import. Snapshot y temporales de
+prueba borrados.
+
+**Pendiente para otro sprint / al desplegar:**
+
+- **S22-12 (⏸️ diferido):** persistir el cargo de jefatura como FK (Opción B).
+  Entregado la Opción A (texto `cargo_jefatura`). La Opción B requiere seed de
+  jefaturas no médicas + corregir `Sub-Director` a conducción.
+- **Replicar en otros entornos:** las migraciones + seed del Dotaneitor
+  (catálogos `ref_*`, `jcat_cargo_jefatura`, columnas `pendiente_curar`) y el
+  `docker-compose.override.yml` local (hot-reload, gitignored) hay que
+  reproducirlos a mano en cada entorno.
