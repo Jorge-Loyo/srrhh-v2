@@ -531,9 +531,11 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
       ${vigentesCte}
       SELECT
         count(*)::bigint AS total,
-        count(*) FILTER (WHERE situacion_revista = 'Activo')::bigint AS activos,
-        count(*) FILTER (WHERE situacion_revista = 'Retencion de Cargo')::bigint AS retencion,
-        count(*) FILTER (WHERE situacion_revista = 'Comisión')::bigint AS comision,
+        -- S22-2/S22-3 (Dotaneitor): normalización total a minúscula sin tilde
+        -- — literales viejos (pre-S22) ya no matchean, hoy son lowercase.
+        count(*) FILTER (WHERE situacion_revista = 'activo')::bigint AS activos,
+        count(*) FILTER (WHERE situacion_revista = 'retencion de cargo')::bigint AS retencion,
+        count(*) FILTER (WHERE situacion_revista = 'comision')::bigint AS comision,
         count(*) FILTER (WHERE sexo = 'F')::bigint AS mujeres,
         count(*) FILTER (WHERE sexo = 'M')::bigint AS varones
       FROM ocupaciones_vigentes

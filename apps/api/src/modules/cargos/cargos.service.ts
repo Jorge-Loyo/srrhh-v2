@@ -201,13 +201,13 @@ export async function getCargoByIdService(id: string) {
 
   // Si la persona retiene el cargo, buscar dónde está activa actualmente
   let cargoActivo: Awaited<ReturnType<typeof prisma.ocupacion.findFirst>> | null = null
-  if (ocupacionActual?.situacionRevista === 'Retencion de Cargo') {
+  if (ocupacionActual?.situacionRevista === 'retencion de cargo') {
     cargoActivo = await prisma.ocupacion.findFirst({
       where: {
         personaId: ocupacionActual.personaId,
         cargoId: { not: id },
         hasta: null,
-        situacionRevista: 'Activo',
+        situacionRevista: 'activo',
       },
       include: {
         cargo: {

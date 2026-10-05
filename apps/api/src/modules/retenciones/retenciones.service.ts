@@ -92,7 +92,7 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
     await tx.ocupacion.update({
       where: { id: ocupacionActiva.id },
       data: {
-        situacionRevista: 'Retencion de Cargo',
+        situacionRevista: 'retencion de cargo',
         srDocRespaldo: body.srDocRespaldo,
         srComentario: body.srComentario ?? null,
       },
@@ -281,7 +281,7 @@ export async function listValidacionRetencionesService() {
       //    ninguno ya está formalizado como retención/comisión.
       const yaFormalizado = cargosUnicos.some(
         (o) =>
-          o.situacionRevista === 'Retencion de Cargo' || o.situacionRevista === 'Comision',
+          o.situacionRevista === 'retencion de cargo' || o.situacionRevista === 'comision',
       )
       if (cargosUnicos.length < 2 || yaFormalizado) return null
 
@@ -363,7 +363,7 @@ function fechaVencimiento(args: {
   return null
 }
 
-// ─── Listado de cargos RETENIDOS (situacionRevista = 'Retencion de Cargo') ──
+// ─── Listado de cargos RETENIDOS (situacionRevista = 'retencion de cargo') ──
 // Una fila por ocupación activa en retención — el cargo que la persona retiene,
 // con su remplazante (R/TTR) vigente si ya se generó.
 export async function listRetenidosService() {
@@ -373,7 +373,7 @@ export async function listRetenidosService() {
   const rows = await prisma.$queryRaw<{ persona_id: string }[]>`
     SELECT DISTINCT persona_id
     FROM ocupaciones
-    WHERE hasta IS NULL AND situacion_revista = 'Retencion de Cargo'
+    WHERE hasta IS NULL AND situacion_revista = 'retencion de cargo'
   `
   const personaIds = rows.map((r) => r.persona_id)
   if (personaIds.length === 0) return []
@@ -414,7 +414,7 @@ export async function listRetenidosService() {
 
   return personas.map((p) => {
     const retenidos = p.ocupaciones
-      .filter((o) => o.situacionRevista === 'Retencion de Cargo')
+      .filter((o) => o.situacionRevista === 'retencion de cargo')
       .map((o) => ({
         ocupacionId: o.id,
         id: o.cargo.id,
@@ -427,7 +427,7 @@ export async function listRetenidosService() {
       }))
     // Cargo(s) actual(es): ocupaciones activas que NO están en retención.
     const cargosActuales = p.ocupaciones
-      .filter((o) => o.situacionRevista !== 'Retencion de Cargo')
+      .filter((o) => o.situacionRevista !== 'retencion de cargo')
       .map((o) => {
         // Para la regla de vencimiento (jefatura → inicio + 4 años) se detecta
         // conducción por prefijo del código O por el literal del puesto — un
@@ -526,7 +526,7 @@ export async function titularCesaService(body: TitularCesaBody) {
         idSialRol: `SISTEMA-${randomUUID().slice(0, 8)}`,
         desde: hoy,
         hasta: null,
-        situacionRevista: 'Activo',
+        situacionRevista: 'activo',
       },
     })
 

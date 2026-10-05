@@ -36,7 +36,7 @@ export async function retencionesRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
-  // GET /retenidos — cargos ya retenidos (situacionRevista = 'Retencion de Cargo')
+  // GET /retenidos — cargos ya retenidos (situacionRevista = 'retencion de cargo')
   app.get('/retenidos', { preHandler: requirePermiso(READ_PERMISO) }, async (_request, reply) => {
     const data = await listRetenidosService()
     return reply.send({ data })

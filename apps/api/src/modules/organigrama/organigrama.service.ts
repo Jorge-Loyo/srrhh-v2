@@ -191,7 +191,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     where: {
       codigoRepa: { in: codigosReparticion },
       codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
-      ocupaciones: { some: { hasta: null, situacionRevista: 'Activo' } },
+      ocupaciones: { some: { hasta: null, situacionRevista: 'activo' } },
     },
     select: {
       codigoRepa: true,
