@@ -29,6 +29,42 @@ async function listarPersonalPor(filtro: Prisma.Sql) {
   `)
 }
 
+export interface Jefe {
+  nombre: string
+  cuil: string
+  cargo: string | null
+}
+
+// S23-10: jefe de un CeSAC/unidad fija — resuelto en runtime (no es dato del
+// decreto), reutilizando el MISMO patrón ya existente en
+// cadena-mando.service.ts (LEFT JOIN LATERAL contra cargos/ocupaciones por
+// codigo_repa, priorizando escalafón de conducción (25/60) y si no cargo con
+// codigo_jefaturas activo) en vez de reimplementarlo. Requiere que el
+// CeSAC/unidad tenga su propio codigoReparticion (null en algún caso — ver
+// seed S23-3 — devuelve null, no es un error).
+async function getJefeService(codigoRepa: string | null): Promise<Jefe | null> {
+  if (!codigoRepa) return null
+  const rows = await prisma.$queryRaw<Jefe[]>(Prisma.sql`
+    SELECT p.apellido_nombre AS nombre, p.cuil, c2.literal_puesto AS cargo
+    FROM cargos c2
+    JOIN codigos_registro cr ON cr.id = c2.codigo_registro_id
+      AND cr.codigo IN ('25','60','37','83','85','87')
+    JOIN ocupaciones o2 ON o2.cargo_id = c2.id
+      AND o2.hasta IS NULL
+      AND o2.situacion_revista = 'activo'
+      AND (
+        cr.codigo IN ('25','60')
+        OR (o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
+      )
+    JOIN personas p ON p.id = o2.persona_id
+    WHERE c2.codigo_repa = ${codigoRepa}
+      AND c2.deleted_at IS NULL
+    ORDER BY cr.codigo ASC
+    LIMIT 1
+  `)
+  return rows[0] ?? null
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Áreas Programáticas
 // ─────────────────────────────────────────────────────────────────────────
@@ -102,7 +138,10 @@ export async function getCesacByIdService(id: string) {
   })
   if (!cesac) throw AppError.notFound('CeSAC no encontrado')
 
-  const personal = await listarPersonalPor(Prisma.sql`c.cesac_id = ${id}::uuid`)
+  const [personal, jefe] = await Promise.all([
+    listarPersonalPor(Prisma.sql`c.cesac_id = ${id}::uuid`),
+    getJefeService(cesac.codigoReparticion),
+  ])
 
   return {
     id: cesac.id,
@@ -120,6 +159,7 @@ export async function getCesacByIdService(id: string) {
       },
     },
     cargosVigentes: personal.length,
+    jefe,
     personal,
   }
 }
@@ -150,7 +190,10 @@ export async function getUnidadFijaByIdService(id: string) {
   const unidad = await prisma.unidadFijaApayC.findUnique({ where: { id } })
   if (!unidad) throw AppError.notFound('Unidad fija no encontrada')
 
-  const personal = await listarPersonalPor(Prisma.sql`c.unidad_fija_id = ${id}::uuid`)
+  const [personal, jefe] = await Promise.all([
+    listarPersonalPor(Prisma.sql`c.unidad_fija_id = ${id}::uuid`),
+    getJefeService(unidad.codigoReparticion),
+  ])
 
   return {
     id: unidad.id,
@@ -158,6 +201,7 @@ export async function getUnidadFijaByIdService(id: string) {
     tipo: unidad.tipo,
     nivelOrganico: unidad.nivelOrganico,
     cargosVigentes: personal.length,
+    jefe,
     personal,
   }
 }

@@ -70,7 +70,11 @@ export async function getCadenaMandoService(
         AND cr.codigo IN ('25','60','37','83','85','87')
       JOIN ocupaciones o2 ON o2.cargo_id = c2.id
         AND o2.hasta IS NULL
-        AND o2.situacion_revista = 'Activo'
+        -- S22-2/S22-3 (Dotaneitor): normalización total a minúscula sin
+        -- tilde — 'Activo' (literal viejo, pre-S22) ya no matchea nada; hoy
+        -- es 'activo'. Hallazgo 2026-10-05 armando S23-10 (resolución de
+        -- jefe), que reusa este mismo patrón.
+        AND o2.situacion_revista = 'activo'
         AND (
           cr.codigo IN ('25','60')
           OR (o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
