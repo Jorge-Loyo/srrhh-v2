@@ -423,10 +423,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   }
 
   // === 5. Identificar SDHOS ===
+  // normalizarTexto en ambos lados (no un literal con tilde/mayúscula fijo):
+  // sigue funcionando después de normalizar desc_rep a minúscula/sin tilde
+  // (ver script normalizar_organigrama.ts) sin volver a romperse en el futuro
+  // si el Excel trae variantes de capitalización.
   let sdhosCod: string | null = null
   if (sigla) {
     for (const r of rows) {
-      if (r.tipo === 'SDHOS' && r.descRep?.includes('Subdirección Médica'))
+      if (r.tipo === 'SDHOS' && normalizarTexto(r.descRep).includes('subdireccion medica'))
         sdhosCod = r.codigoReparticion
     }
   }
@@ -705,6 +709,14 @@ export function inferirUniversoTotalizador(
   return 'NIVEL CENTRAL'
 }
 
+// desc_rep es texto libre de display (nombre del nodo) — se normaliza acá;
+// a diferencia de tipo/codigo_reparticion/sigla/padre/universo_totalizador/
+// regimen_empleo, que son códigos/claves usadas en comparaciones exactas en
+// otras partes del código y quedan tal cual vienen del Excel.
+function normalizarDescRep(v: string | null): string | null {
+  return v === null ? null : normalizarTexto(v)
+}
+
 function normalizarFilaExcel(
   norm: Record<string, unknown>,
   numeroFila: number,
@@ -741,7 +753,12 @@ function normalizarFilaExcel(
     codigoReparticion: codigoReparticion!,
     universoTotalizador: celda(norm, 'universo_totalizador'),
     regimenEmpleo: celda(norm, 'regimen_empleo'),
-    descRep: celda(norm, 'desc_rep'),
+    // Regla del proyecto (§9.1): minúscula + sin tilde (mantiene ñ) también acá
+    // — el Excel legacy trae desc_rep en Title Case/mixto, igual que el resto
+    // de los flujos que ya pasan por @srrhh/normalizacion (cargos/personas vía
+    // Dotaneitor, bajas-SIAL, POU). Hallazgo 2026-10-05 (ver script
+    // normalizar_organigrama.ts para el backfill de las filas ya cargadas).
+    descRep: normalizarDescRep(celda(norm, 'desc_rep')),
     sigla: sigla!,
     padre: celda(norm, 'padre'),
     path: path!,

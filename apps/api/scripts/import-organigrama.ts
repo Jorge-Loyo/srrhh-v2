@@ -24,6 +24,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { PrismaClient, type Prisma } from '@prisma/client'
+import { normalizarTexto } from '@srrhh/normalizacion'
 
 const MARCADOR = 'INSERT INTO `organigramas` VALUES '
 const LOTE = 500 // filas por createMany — conservador frente al límite de bind variables de Postgres
@@ -147,7 +148,10 @@ function filaAOrganigrama(fila: unknown[]): Prisma.OrganigramaCreateManyInput {
     codigoReparticion: String(codigoReparticion),
     universoTotalizador: universoTotalizador == null ? null : String(universoTotalizador),
     regimenEmpleo: regimenEmpleo == null ? null : String(regimenEmpleo),
-    descRep: descRep == null ? null : String(descRep),
+    // Regla del proyecto (§9.1): minúscula + sin tilde (mantiene ñ) — el dump
+    // MySQL legacy trae desc_rep en Title Case/mixto, igual que
+    // reemplazarOrganigramaService (organigrama.service.ts, mismo hallazgo).
+    descRep: descRep == null ? null : normalizarTexto(String(descRep)),
     sigla: String(sigla),
     padre: padre == null ? null : String(padre),
     path: String(path),
