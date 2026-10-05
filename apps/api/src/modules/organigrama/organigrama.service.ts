@@ -84,42 +84,84 @@ interface OrganigramaNodo {
 // jefaturas). Filtrado en memoria en vez de en el WHERE de Prisma: son pocas
 // decenas de cargos por árbol (los que matchean codigoRepa de esta jerarquía
 // puntual), no vale la pena un where anidado con 4 ramas de OR distintas.
-const UNIFICADOR_60 = new Set(['gerente', 'subgerente'])
-// Director/Subdirector médico son conducción por definición — no requieren codigoJefaturas.
-const UNIFICADOR_37_SIN_JEFATURA = new Set(['director/a medico/a', 'subdirector/a medico/a'])
-const UNIFICADOR_37 = new Set([
-  'cph de planta',
-  'cph de guardia',
-  'jefe/a de departamento',
-  'jefe/a de division',
-  'jefe/a de unidad',
-  'jefe/a de seccion',
-])
-const UNIFICADOR_JEFATURAS_OPERATIVAS = new Set([
-  'administrativo/a',
-  'enfermero/a',
-  'servicios generales',
-  'tecnico/a de la salud',
-])
+//
+// ── Identificación de jefatura por JCAT (reemplaza unificador_puesto) ────────
+// El pipeline v2 del Dotaneitor (Sprint 22) ELIMINÓ `unificador_puesto`, que es
+// lo que esta función usaba antes para decidir si un cargo es de conducción.
+// Ahora se usa el JCAT (`ocupaciones.codigo_jefaturas`), que es el identificador
+// real de la jefatura y el que el pipeline v2 sí conserva (lo mapea a
+// `cargo_jefatura` vía la tabla `jcat_cargo_jefatura`). Las familias:
+//   P = Carrera Profesional de la Salud (cod_reg 37)
+//   G = Régimen Gerencial sobre carrera profesional (cod_reg 37)
+//   Z = Jefaturas operativas: enfermería/administrativo/técnicos (cod_reg 83/85/87)
+// Dentro de cada familia el segundo dígito es el nivel (00/01 dirección,
+// 02 depto, 03 subdir, 04 división, 05 unidad, 06 sección). Un JCAT con valor
+// (distinto de '0'/vacío) ya implica que el cargo encabeza una unidad.
 const CODIGOS_JEFATURAS_OPERATIVAS = new Set(['83', '85', '87'])
+
+function tieneJcatDeJefatura(codigoJefaturas: string | null): boolean {
+  if (!codigoJefaturas) return false
+  const j = codigoJefaturas.trim().toUpperCase()
+  if (j === '' || j === '0') return false
+  // Familias de jefatura conocidas (coinciden con la tabla jcat_cargo_jefatura).
+  return /^[PGZ]\d{2}$/.test(j)
+}
 
 function esCargoDeConduccion(
   codigoRegistro: string | undefined,
-  unificadorPuesto: string | null,
   codigoJefaturas: string | null,
+  escalafon: string | null,
 ): boolean {
-  if (!codigoRegistro || !unificadorPuesto) return false
-  const up = unificadorPuesto.toLowerCase().trim()
-  const tieneCategoriaJefatura = !!codigoJefaturas && codigoJefaturas !== '0'
+  // Carrera Gerencial: gerentes/subgerentes operativos. NO traen código de
+  // registro ni JCAT (verificado: cod_reg y jcat vacíos), pero son conducción
+  // por definición — ocupan los nodos GO/SGO del organigrama. Se identifican
+  // por escalafón. (Sin esto, p. ej. "GO Planificación y Control de RRHH"
+  // salía Vacante aunque tuviera un Gerente Operativo asignado.)
+  if (escalafon && escalafon.toLowerCase().includes('gerencial')) return true
 
-  if (codigoRegistro === '25') return up === 'autoridades superiores'
-  if (codigoRegistro === '60') return UNIFICADOR_60.has(up)
-  if (codigoRegistro === '37')
-    return UNIFICADOR_37_SIN_JEFATURA.has(up) || (UNIFICADOR_37.has(up) && tieneCategoriaJefatura)
-  if (CODIGOS_JEFATURAS_OPERATIVAS.has(codigoRegistro)) {
-    return UNIFICADOR_JEFATURAS_OPERATIVAS.has(up) && tieneCategoriaJefatura
+  if (!codigoRegistro) return false
+
+  // Autoridades Superiores (25) y Gerencias (60) son conducción por definición
+  // y NO usan JCAT (verificado: 0 de sus ocupaciones vigentes lo traen).
+  if (codigoRegistro === '25') return true
+  if (codigoRegistro === '60') return true
+
+  // Carrera Profesional de la Salud (37) y jefaturas operativas (83/85/87):
+  // son conducción cuando la ocupación vigente trae un JCAT de jefatura.
+  if (codigoRegistro === '37' || CODIGOS_JEFATURAS_OPERATIVAS.has(codigoRegistro)) {
+    return tieneJcatDeJefatura(codigoJefaturas)
   }
   return false
+}
+
+// Rango jerárquico de un cargo de conducción: menor = más alto en la pirámide.
+// Cuando una misma repartición tiene VARIOS cargos de conducción (ej. un
+// Subsecretario y un Jefe de División conviviendo en el mismo nodo), gana el de
+// menor rango para que el titular del nodo sea la autoridad, no una jefatura
+// subordinada. Antes se tomaba el primero por orden de query y podía quedar el
+// Jefe de División en vez del Subsecretario.
+function rangoConduccion(
+  codigoRegistro: string | undefined,
+  codigoJefaturas: string | null,
+  escalafon: string | null,
+): number {
+  if (codigoRegistro === '25') return 0 // Autoridades Superiores (ministro/subsecretario/DG)
+  if (codigoRegistro === '60') return 1 // Gerencias
+
+  // El JCAT manda la jerarquía REAL por sobre el escalafón: el 2º dígito es el
+  // nivel (00/01 dirección, 02 depto, 03 subdir, 04 división, 05 unidad, 06
+  // sección). Se evalúa ANTES que la vía gerencial-por-escalafón, porque un
+  // cargo puede ser escalafón "Carrera Gerencial" pero traer un JCAT de nivel
+  // alto (ej. Director P60) que NO debe quedar debajo de un Jefe de Depto, ni
+  // al revés. Base 10 para no pisar a Autoridades/Gerencias.
+  const j = (codigoJefaturas ?? '').trim().toUpperCase()
+  if (/^[PGZ]\d{2}$/.test(j)) return 10 + Number(j.slice(1))
+
+  // Carrera Gerencial SIN JCAT: gerente/subgerente operativo puro (nodos GO/SGO).
+  // Va después de los cargos con JCAT de dirección pero sigue siendo conducción.
+  if (escalafon && escalafon.toLowerCase().includes('gerencial')) return 50
+
+  return 99
 }
 
 // ── Orden jerárquico por tipo de unidad — puerto literal de `ordenTipos` ────
@@ -173,9 +215,53 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   const rows = await prisma.organigrama.findMany({
     where: sigla
       ? { sigla }
-      : { universoTotalizador: { equals: SECCION_UNIVERSOS[seccion!], mode: 'insensitive' } },
+      : {
+          // Una sección puede tener varias etiquetas equivalentes de universo
+          // (ej. APS vive como 'APS' y 'ATENCION PRIMARIA'). Se matchea
+          // cualquiera, case-insensitive.
+          OR: SECCION_UNIVERSOS[seccion!].map((u) => ({
+            universoTotalizador: { equals: u, mode: 'insensitive' as const },
+          })),
+        },
     orderBy: [{ lvl: 'asc' }, { codigoReparticion: 'asc' }],
   })
+
+  // Nivel Central: incluir los hijos DIRECTOS del Ministerio aunque tengan otro
+  // universo (ej. la SS de Atención Primaria vive en universo 'APS', pero
+  // cuelga del Ministerio y debe verse como un cajón más del Nivel Central).
+  // Se trae el SUBÁRBOL COMPLETO de cada hijo faltante (no solo el nodo), para
+  // que al navegar esa subsecretaría en Nivel Central se vean sus DG,
+  // departamentos, etc. — la misma estructura que su propia sección, vista
+  // desde otro punto de entrada. Se identifican por padre = raíz del Nivel Central.
+  if (seccion === 'nivel-central' && rows.length > 0) {
+    const ministerio = rows.find((r) => !r.padre || r.padre.trim() === 'ROOT')
+    if (ministerio) {
+      const yaIncluidos = new Set(rows.map((r) => r.codigoReparticion))
+      // Descendientes de los hijos directos del Ministerio que no estén ya en
+      // el recorte, vía recursión por `padre` (un solo query recursivo).
+      const subarbol = await prisma.$queryRaw<Array<{ codigo_reparticion: string }>>`
+        WITH RECURSIVE desc_tree AS (
+          SELECT codigo_reparticion, padre
+          FROM organigramas
+          WHERE padre = ${ministerio.codigoReparticion}
+          UNION ALL
+          SELECT o.codigo_reparticion, o.padre
+          FROM organigramas o
+          JOIN desc_tree d ON o.padre = d.codigo_reparticion
+        )
+        SELECT codigo_reparticion FROM desc_tree
+      `
+      const codigosFaltantes = subarbol
+        .map((r) => r.codigo_reparticion)
+        .filter((c) => !yaIncluidos.has(c))
+      if (codigosFaltantes.length > 0) {
+        const nodosFaltantes = await prisma.organigrama.findMany({
+          where: { codigoReparticion: { in: codigosFaltantes } },
+        })
+        for (const n of nodosFaltantes) rows.push(n)
+      }
+    }
+  }
 
   if (rows.length === 0) {
     throw AppError.notFound(
@@ -190,7 +276,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   const cargosCandidatos = await prisma.cargo.findMany({
     where: {
       codigoRepa: { in: codigosReparticion },
-      codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
+      // Candidatos a conducción: por código de registro (25/60/37/83/85/87) o
+      // por escalafón Carrera Gerencial (gerente/subgerente operativo, que no
+      // traen código de registro). El filtro fino lo hace esCargoDeConduccion.
+      OR: [
+        { codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } } },
+        { escalafon: { nombre: { contains: 'erencial', mode: 'insensitive' } } },
+      ],
       ocupaciones: { some: { hasta: null, situacionRevista: 'Activo' } },
     },
     select: {
@@ -232,16 +324,33 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     orderBy: [{ codigoRepa: 'asc' }, { unificadorPuesto: 'asc' }],
   })
 
+  // Ordenar por rango jerárquico de conducción: cuando una repartición tiene
+  // varios cargos de conducción, el primero en el loop (que gana el nodo) debe
+  // ser el de mayor jerarquía (ej. Subsecretario sobre Jefe de División).
+  const candidatosOrdenados = [...cargosCandidatos].sort((a, b) => {
+    const ra = rangoConduccion(
+      a.codigoRegistro?.codigo,
+      a.ocupaciones[0]?.codigoJefaturas ?? null,
+      a.escalafon?.nombre ?? null,
+    )
+    const rb = rangoConduccion(
+      b.codigoRegistro?.codigo,
+      b.ocupaciones[0]?.codigoJefaturas ?? null,
+      b.escalafon?.nombre ?? null,
+    )
+    return ra - rb
+  })
+
   const personasMap = new Map<string, PersonaNodo>()
-  for (const cargo of cargosCandidatos) {
+  for (const cargo of candidatosOrdenados) {
     if (!cargo.codigoRepa || personasMap.has(cargo.codigoRepa)) continue
     const ocup = cargo.ocupaciones[0]
     if (!ocup) continue
     if (
       !esCargoDeConduccion(
         cargo.codigoRegistro?.codigo,
-        cargo.unificadorPuesto,
         ocup.codigoJefaturas,
+        cargo.escalafon?.nombre ?? null,
       )
     )
       continue
@@ -275,34 +384,47 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // === 3. Cargos vacantes (nodos sin persona pero con cargo vigente sin ocupar) ===
   const nodosOcupados = new Set(personasMap.keys())
   const nodosLibres = codigosReparticion.filter((c) => !nodosOcupados.has(c))
+  // Cargo de conducción VACANTE: cargo vigente sin ocupante en un nodo libre.
+  // Con el unificador eliminado (v2) ya no se puede distinguir un cargo de
+  // conducción 37/83/85/87 vacante de uno común (el JCAT que lo distingue vive
+  // en la ocupación, que acá no existe). Solo 25 (Autoridades Superiores) y 60
+  // (Gerencias) son conducción por su código de registro, sin depender de JCAT.
+  // Vacante de conducción = cargo vigente sin ocupante que es conducción por
+  // su código de registro (25 Autoridades Superiores / 60 Gerencias) O por su
+  // escalafón (Carrera Gerencial: gerente/subgerente operativo, nodos GO/SGO).
+  // Son los únicos identificables sin ocupante (el JCAT que distingue a los
+  // 37/83/85/87 vive en la ocupación, que acá no existe).
   const cargosVacantesRaw = await prisma.cargo.findMany({
     where: {
       codigoRepa: { in: nodosLibres },
       deletedAt: null,
       estado: 'vigente',
-      codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } },
-      unificadorPuesto: { not: null },
+      OR: [
+        { codigoRegistro: { codigo: { in: ['25', '60'] } } },
+        { escalafon: { nombre: { contains: 'erencial', mode: 'insensitive' } } },
+      ],
     },
     select: {
       id: true,
       codigoRepa: true,
       codigo: true,
-      unificadorPuesto: true,
       codigoRegistro: { select: { codigo: true } },
+      escalafon: { select: { nombre: true } },
     },
     orderBy: { codigoRepa: 'asc' },
   })
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
   for (const cv of cargosVacantesRaw) {
     if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
-    if (!esCargoDeConduccion(cv.codigoRegistro?.codigo, cv.unificadorPuesto, null)) continue
+    if (!esCargoDeConduccion(cv.codigoRegistro?.codigo, null, cv.escalafon?.nombre ?? null))
+      continue
     cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
   }
 
   // === 3b. Clasificar nodos sin cargo de conducción (para mostrar razón en UI) ===
   // Query liviana: solo los nodos que no tienen persona ni cargo vacante mapeado.
-  // Detecta si tienen cargos de guardia/residencia/docente (códigos 23/24/07)
-  // o cargos con unificador_puesto vacío (dato incompleto del padrón).
+  // Detecta si tienen cargos de guardia/residencia/docente (códigos 23/24/07),
+  // que no son de conducción, para distinguirlos de un nodo realmente sin cargo.
   const nodosSinMapeo = nodosLibres.filter((c) => !cargosVacantesMap.has(c))
   const razonSinCargoMap = new Map<string, RazonSinCargo>()
   if (nodosSinMapeo.length > 0) {
@@ -310,19 +432,16 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       where: { codigoRepa: { in: nodosSinMapeo }, deletedAt: null },
       select: {
         codigoRepa: true,
-        unificadorPuesto: true,
         codigoRegistro: { select: { codigo: true } },
       },
     })
     // Agrupar por codigoRepa para clasificar
-    const porRepa = new Map<string, { codigos: Set<string>; tieneUpVacio: boolean }>()
+    const porRepa = new Map<string, { codigos: Set<string> }>()
     for (const c of cargosClasif) {
       if (!c.codigoRepa) continue
-      if (!porRepa.has(c.codigoRepa))
-        porRepa.set(c.codigoRepa, { codigos: new Set(), tieneUpVacio: false })
+      if (!porRepa.has(c.codigoRepa)) porRepa.set(c.codigoRepa, { codigos: new Set() })
       const entry = porRepa.get(c.codigoRepa)!
       if (c.codigoRegistro?.codigo) entry.codigos.add(c.codigoRegistro.codigo)
-      if (!c.unificadorPuesto?.trim()) entry.tieneUpVacio = true
     }
     for (const cod of nodosSinMapeo) {
       const entry = porRepa.get(cod)
@@ -330,11 +449,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         razonSinCargoMap.set(cod, 'sin_cargo')
         continue
       }
-      const { codigos, tieneUpVacio } = entry
+      const { codigos } = entry
       if (codigos.has('23') || codigos.has('24') || codigos.has('07')) {
         razonSinCargoMap.set(cod, 'guardia_residencia_docente')
-      } else if (tieneUpVacio) {
-        razonSinCargoMap.set(cod, 'dato_incompleto')
       } else {
         razonSinCargoMap.set(cod, 'sin_cargo')
       }
@@ -437,7 +554,30 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     padresFuera.length === 1 ? mapa.get(padresFuera[0]!.codigoReparticion) : undefined
 
   let raiz: OrganigramaNodo | null = null
-  if (anclaExterna && anclaExterna.hijos.length > 0) {
+
+  // Prioridad máxima: si el recorte tiene un nodo con padre 'ROOT', ese es la
+  // raíz natural de la sección (ej. el Ministerio de Salud en Nivel Central).
+  // Se evalúa ANTES que el ancla externa para cubrir el dato inconsistente del
+  // Excel semanal donde un nodo de esta sección cuelga de un padre de OTRO
+  // universo (ej. "Unidad Red de Odontología", universo NIVEL CENTRAL, cuyo
+  // padre es la SSAPAC/APS). Sin esto, ese huérfano promovía la SSAPAC como
+  // ancla externa y el Ministerio quedaba colgando debajo (árbol invertido).
+  const raizRoot = raices.find((n) => !n.padre || n.padre === 'ROOT')
+  if (!sigla && raizRoot) {
+    for (const otra of raices) {
+      if (otra !== raizRoot) raizRoot.hijos.push(otra)
+    }
+    // Si además hay un ancla externa con hijos propios en el recorte, se cuelgan
+    // de la raíz natural para no perderlos.
+    if (anclaExterna && anclaExterna.hijos.length > 0) {
+      for (const h of anclaExterna.hijos) {
+        if (h !== raizRoot && !raizRoot.hijos.includes(h)) raizRoot.hijos.push(h)
+      }
+    }
+    raiz = raizRoot
+  }
+
+  if (!raiz && anclaExterna && anclaExterna.hijos.length > 0) {
     const huerfanosReales = raices.filter((r) => !anclaExterna.hijos.includes(r))
     if (anclaExterna.hijos.length === 1 && huerfanosReales.length === 0) {
       raiz = anclaExterna.hijos[0]!
@@ -448,13 +588,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   } else if (raices.length === 1) {
     raiz = raices[0]!
   } else if (raices.length > 1) {
-    // Huérfanos que comparten un mismo padre fuera de este recorte (ej. la SS
-    // de Atención Primaria vive bajo un nodo de Nivel Central) -> se busca ese
-    // nodo ancla en la base para usarlo de raíz visual.
+    // (La raíz natural con padre 'ROOT' ya se resolvió con prioridad más
+    // arriba.) Acá quedan huérfanos que comparten un mismo padre fuera de este
+    // recorte (ej. la SS de Atención Primaria vive bajo un nodo de Nivel
+    // Central) -> se busca ese nodo ancla en la base para usarlo de raíz visual.
     const padres = new Set(
       raices.map((n) => n.padre).filter((p): p is string => !!p && p !== 'ROOT'),
     )
-    if (padres.size === 1) {
+    if (!raiz && padres.size === 1) {
       const anchorCod = [...padres][0]!
       const anchor = await prisma.organigrama.findUnique({
         where: { codigoReparticion: anchorCod },
@@ -651,11 +792,22 @@ export function inferirRegimenEmpleoPorTipo(tipo: string): string | null {
 // se unifican, una repartición nueva con universo "ATENCION PRIMARIA" no matchea
 // las existentes guardadas como "APS" y el régimen no se puede inferir. Solo se
 // usa para construir las claves de inferencia; el valor que se guarda es el que
-// trae/infiere el Excel sin tocar. normalizarTexto quita tildes y pasa a upper.
+// trae/infiere el Excel sin tocar.
+//
+// IMPORTANTE: normalizarTexto (@srrhh/normalizacion, A21-8/A21-11) devuelve el
+// texto en MINÚSCULA y sin tilde. Las variantes equivalentes y el valor
+// canónico que devuelve esta función van en minúscula para coincidir con esa
+// salida — comparar/devolver en MAYÚSCULA dejaba el match muerto y rompía la
+// inferencia de régimen (sigla|universo|tipo) de las reparticiones nuevas.
 export function canonUniverso(universo: string | null | undefined): string {
   const n = normalizarTexto(universo ?? '')
-  if (n === 'APS' || n === 'ATENCION PRIMARIA' || n === 'ATENCION PRIMARIA DE SALUD' || n === 'ATENCION PRIMARIA SALUD')
-    return 'ATENCION PRIMARIA'
+  if (
+    n === 'aps' ||
+    n === 'atencion primaria' ||
+    n === 'atencion primaria de salud' ||
+    n === 'atencion primaria salud'
+  )
+    return 'atencion primaria'
   return n
 }
 
@@ -673,7 +825,11 @@ export function inferirUniversoTotalizador(
     sigla === SIGLA_SUBSECRETARIA_ATENCION_PRIMARIA &&
     tipo.trim().toUpperCase() !== 'SSEC/DIREJE'
   )
-    return 'ATENCION PRIMARIA'
+    // 'APS' es la etiqueta histórica predominante del universo de Atención
+    // Primaria (110 nodos + la tabla hospitales). Se usa esa, no 'ATENCION
+    // PRIMARIA', para que un nodo nuevo herede el valor consistente y no genere
+    // una rama con etiqueta divergente que la vista de sección no agrupe.
+    return 'APS'
   return 'NIVEL CENTRAL'
 }
 
