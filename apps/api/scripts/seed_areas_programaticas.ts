@@ -7,8 +7,13 @@
  * en reportes.schema.ts): vienen de un decreto firmado, no de una tabla que
  * vaya a cambiar con el padrón semanal. codigoReparticion viene de cruzar
  * contra el árbol legacy (organigramas) en la auditoría S23-1 (2026-10-05) —
- * 50 de los 52 CeSACs matchearon (faltan Nº51 y Nº53, no estaban en ese dump);
- * CEMAR IV no tiene nodo en el árbol legacy.
+ * 50 de los 52 CeSACs matchearon ahí; CEMAR IV no tenía nodo en ese dump.
+ * Para los que quedaban sin código (Nº51, Nº53, CEMAR IV) se buscó además en
+ * el padrón real ya cargado (S23-4, mismo día): CeSAC Nº51 y CEMAR IV SÍ
+ * tienen cargos reales hoy con codigo_repa propio (40224905 y 40011230,
+ * simplemente no estaban en el dump legacy de hace meses) — se usan esos.
+ * Solo el CeSAC Nº53 queda sin codigoReparticion: no tiene cargos vigentes
+ * en el padrón actual (dotación 0 hoy, no es un error de matching).
  *
  * Re-ejecutable (upsert por clave natural: nombre en AreaProgramatica, numero
  * en Cesac, nombre en UnidadFijaApayC) — a diferencia de Organigrama/Pou no
@@ -98,7 +103,7 @@ const CESACS: CesacSeed[] = [
   { numero: 2,  direccion: 'Terrada 5850', barrio: 'Villa Pueyrredón', nivel: UNIDAD, ap: 'AP — PIROVANO', codigoReparticion: '40220920' },
   { numero: 12, direccion: 'Av. Olazábal 3960', barrio: 'Villa Urquiza', nivel: UNIDAD, ap: 'AP — PIROVANO', codigoReparticion: '40220930' },
   { numero: 27, direccion: 'Arias 3781', barrio: 'Saavedra', nivel: UNIDAD, ap: 'AP — PIROVANO', codigoReparticion: '40220940' },
-  { numero: 51, direccion: 'Moldes y Zabala (Parque Ferroviario)', barrio: 'Colegiales', nivel: UNIDAD, ap: 'AP — PIROVANO', codigoReparticion: null },
+  { numero: 51, direccion: 'Moldes y Zabala (Parque Ferroviario)', barrio: 'Colegiales', nivel: UNIDAD, ap: 'AP — PIROVANO', codigoReparticion: '40224905' },
   { numero: 11, direccion: 'Agüero 940', barrio: 'Balvanera', nivel: UNIDAD, ap: 'AP — RAMOS MEJÍA', codigoReparticion: '40221020' },
   { numero: 45, direccion: 'Cochabamba 2622', barrio: 'San Cristóbal', nivel: UNIDAD, ap: 'AP — RAMOS MEJÍA', codigoReparticion: '40221030' },
   { numero: 4,  direccion: 'Av. Juan B. Alberdi 6300', barrio: 'Mataderos', nivel: UNIDAD_CON_SECCION, ap: 'AP — SANTOJANNI', codigoReparticion: '40221130' },
@@ -128,7 +133,7 @@ const UNIDADES_FIJAS: UnidadFijaSeed[] = [
   { nombre: 'CEMAR I',   tipo: 'cemar', nivelOrganico: 'division',             codigoReparticion: '40011210' },
   { nombre: 'CEMAR II',  tipo: 'cemar', nivelOrganico: 'division',             codigoReparticion: '40011220' },
   { nombre: 'CEMAR III', tipo: 'cemar', nivelOrganico: 'division_con_seccion', codigoReparticion: '40011211' },
-  { nombre: 'CEMAR IV',  tipo: 'cemar', nivelOrganico: 'division_con_seccion', codigoReparticion: null },
+  { nombre: 'CEMAR IV',  tipo: 'cemar', nivelOrganico: 'division_con_seccion', codigoReparticion: '40011230' },
   { nombre: 'Centro Odontológico Infantil N°1', tipo: 'centro_odontologico_infantil', nivelOrganico: 'unidad', codigoReparticion: '40011013' },
   { nombre: 'Centro Odontológico Infantil N°2', tipo: 'centro_odontologico_infantil', nivelOrganico: 'unidad', codigoReparticion: '40011014' },
   { nombre: 'Red de Odontología', tipo: 'red_odontologia', nivelOrganico: 'fuera_de_nivel', codigoReparticion: '40010900' },
