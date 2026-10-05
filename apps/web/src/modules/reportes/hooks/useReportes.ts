@@ -9,10 +9,8 @@ export const REPORTES_GROUP_BY_OPTIONS = [
   { key: 'tipoHospital', label: 'Tipo Hospital' },
   { key: 'monovalencia', label: 'Monovalencia' },
   { key: 'escalafon', label: 'Escalafón' },
-  { key: 'unificadorPuesto', label: 'Unificador Puesto' },
-  { key: 'especialidad', label: 'Especialidad' },
-  { key: 'agrupador', label: 'Agrupamiento' },
   { key: 'literalPuesto', label: 'Puesto' },
+  { key: 'especialidad', label: 'Especialidad' },
   { key: 'sexo', label: 'Sexo' },
   { key: 'situacionRevista', label: 'Situación de Revista' },
   { key: 'reparticion', label: 'Repartición' },
@@ -27,10 +25,8 @@ export interface ReporteDotacionFilters {
   universoTotalizador?: string[]
   tipoHospital?: string[]
   monovalencia?: string[]
-  unificadorPuesto?: string[]
-  especialidad?: string[]
-  agrupador?: string[]
-  literalPuesto?: string[]
+  puestoNombre?: string[]
+  especialidadNombre?: string[]
   escalafonId?: string[]
   sexo?: string[]
   situacionRevista?: string[]
@@ -66,7 +62,7 @@ export interface ReporteDotacionResponse {
 
 const CSV_KEYS: (keyof ReporteDotacionFilters)[] = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
-  'unificadorPuesto', 'especialidad', 'agrupador', 'literalPuesto',
+  'puestoNombre', 'especialidadNombre',
   'escalafonId', 'sexo', 'situacionRevista', 'reparticion',
 ]
 
