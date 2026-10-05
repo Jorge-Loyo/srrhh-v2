@@ -283,7 +283,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         { codigoRegistro: { codigo: { in: ['25', '60', '37', '83', '85', '87'] } } },
         { escalafon: { nombre: { contains: 'erencial', mode: 'insensitive' } } },
       ],
-      ocupaciones: { some: { hasta: null, situacionRevista: 'Activo' } },
+      // situacion de revista 'activo' case-insensitive: la BD tiene el valor
+      // mezclado (padrones viejos 'Activo' / nuevos 'activo' por la
+      // normalización en curso), así que un literal exacto se perdería la mitad.
+      ocupaciones: { some: { hasta: null, situacionRevista: { equals: 'activo', mode: 'insensitive' } } },
     },
     select: {
       codigoRepa: true,
@@ -458,6 +461,34 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     }
   }
 
+  // === 3c. Nombre real de los nodos "Área Programática" (S23) ===
+  // El árbol legacy trae el desc_rep genérico "DEPT Área Programática de
+  // Salud" para las 13 AP (un texto idéntico que no distingue una de otra) —
+  // se pisa acá con el nombre del hospital real del catálogo nuevo
+  // (AreaProgramatica.codigoReparticion, cargado en S23-2/S23-3), sin tocar
+  // el dato crudo importado. Ej.: "DEPT Área Programática de Salud" (40220613)
+  // -> "Área Programática (Durand)".
+  const areasReales = await prisma.areaProgramatica.findMany({
+    where: { codigoReparticion: { not: null } },
+    select: { codigoReparticion: true, hospital: { select: { nombre: true } } },
+  })
+  const nombreApPorCodigo = new Map(
+    areasReales
+      .filter((a): a is typeof a & { codigoReparticion: string } => !!a.codigoReparticion)
+      .map((a) => [
+        a.codigoReparticion,
+        `Área Programática (${a.hospital.nombre.replace(/^Hospital\s+/i, '')})`,
+      ]),
+  )
+
+  // El legacy también arrastra el mismo dato repetido como sufijo "- AP
+  // {NOMBRE}" en los 55 nodos hijos (CeSACs) de las 13 AP — ahora redundante
+  // porque el padre ya lo muestra. Se recorta solo ese sufijo, dejando el
+  // resto del desc_rep intacto (ej. "CeSAC N° 9 - AP ARGERICH" -> "CeSAC N° 9").
+  const SUFIJO_AP = /\s*-\s*AP\s+.+$/i
+  const limpiarSufijoAp = (desc: string | null): string | null =>
+    desc ? desc.replace(SUFIJO_AP, '') : desc
+
   // === 4. Mapa de nodos ===
   // Pre-cargar padres que no estén en el recorte (ej. SS de APS vive bajo NC)
   const codigosEnRecorte = new Set(rows.map((r) => r.codigoReparticion))
@@ -480,7 +511,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of padresFuera) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? limpiarSufijoAp(r.descRep),
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre?.trim() || null,
@@ -494,7 +525,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? limpiarSufijoAp(r.descRep),
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre,

@@ -34,12 +34,16 @@ import { referenciasRoutes } from './modules/referencias/referencias.routes.js'
 import { organigramaRoutes } from './modules/organigrama/organigrama.routes.js'
 import { pouRoutes } from './modules/pou/pou.routes.js'
 import { dotacionRoutes } from './modules/dotacion/dotacion.routes.js'
+import { reportesRoutes } from './modules/reportes/reportes.routes.js'
 import { tokensRoutes } from './modules/tokens/tokens.routes.js'
 import { auditoriaRoutes } from './modules/auditoria/auditoria.routes.js'
 import { cadenaMandoRoutes } from './modules/cadena-mando/cadena-mando.routes.js'
 import { retencionesRoutes } from './modules/retenciones/retenciones.routes.js'
 import { comisionesRoutes } from './modules/comisiones/comisiones.routes.js'
 import { jornadasSorteoRoutes } from './modules/jornadas-sorteo/jornadas-sorteo.routes.js'
+import { areasProgramaticasRoutes } from './modules/areas-programaticas/areas-programaticas.routes.js'
+import { cesacsRoutes } from './modules/areas-programaticas/cesacs.routes.js'
+import { unidadesFijasRoutes } from './modules/areas-programaticas/unidades-fijas.routes.js'
 
 const app = Fastify({
   logger: {
@@ -111,12 +115,16 @@ await app.register(referenciasRoutes,      { prefix: '/api/v1/referencias' })
 await app.register(organigramaRoutes,      { prefix: '/api/v1/organigrama' })
 await app.register(pouRoutes,              { prefix: '/api/v1/pou' })
 await app.register(dotacionRoutes,         { prefix: '/api/v1/dotacion' })
+await app.register(reportesRoutes,         { prefix: '/api/v1/reportes' })
 await app.register(tokensRoutes,           { prefix: '/api/v1/tokens' })
 await app.register(auditoriaRoutes,        { prefix: '/api/v1/auditoria' })
 await app.register(cadenaMandoRoutes,      { prefix: '/api/v1/cadena-mando' })
 await app.register(retencionesRoutes,      { prefix: '/api/v1/retenciones' })
 await app.register(comisionesRoutes,       { prefix: '/api/v1/comisiones' })
 await app.register(jornadasSorteoRoutes,   { prefix: '/api/v1/jornadas-sorteo' })
+await app.register(areasProgramaticasRoutes, { prefix: '/api/v1/areas-programaticas' })
+await app.register(cesacsRoutes,           { prefix: '/api/v1/cesacs' })
+await app.register(unidadesFijasRoutes,    { prefix: '/api/v1/unidades-fijas' })
 
 // Start
 try {

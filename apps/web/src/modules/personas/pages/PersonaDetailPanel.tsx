@@ -87,6 +87,13 @@ export function PersonaDetailPanel() {
     return orden(a) - orden(b)
   })
 
+  // S21-5: "especialidad principal" ya no es una columna de personas (quedaba
+  // stale) — se deriva en runtime del cargo vigente, mismo criterio que usa
+  // el header de abajo.
+  const cargoVigente = ocupacionesVisibles.find((o) => !o.hasta && !o.situacionRevista?.toLowerCase().includes('retencion'))
+    ?? ocupacionesVisibles.find((o) => !o.hasta)
+  const especialidadPrincipal = cargoVigente ? (cargoVigente.cargo.especialidadLegacy ?? cargoVigente.cargo.especialidad) : null
+
   const idSialPersona = p.ocupaciones[0]?.idSialRol?.split('-')[0] ?? null
 
   const idSialesEnSistema = new Set(p.ocupaciones.map((o) => o.idSialRol?.split('-').slice(0, 2).join('-')))
@@ -112,25 +119,20 @@ export function PersonaDetailPanel() {
           <div>
             <h1 className="text-white text-xl font-bold leading-tight">{p.apellidoNombre}</h1>
             <p className="text-white/70 text-sm mt-0.5">CUIL {p.cuil}</p>
-            {(() => {
-              const puestoVisible = ocupacionesVisibles.find((o) => !o.hasta && !o.situacionRevista?.toLowerCase().includes('retencion'))
-                ?? ocupacionesVisibles.find((o) => !o.hasta)
-              if (!puestoVisible) return null
-              return (
-                <>
-                  {puestoVisible.cargo.literalPuesto && (
-                    <p className="text-white/90 text-sm font-medium mt-1">
-                      <span className="text-white/50 font-normal">Rol actual: </span>{puestoVisible.cargo.literalPuesto}
-                    </p>
-                  )}
-                  {puestoVisible.cargo.especialidadLegacy ?? puestoVisible.cargo.especialidad ? (
-                    <p className="text-white/70 text-xs mt-0.5">
-                      <span className="text-white/40 font-normal">Especialidad: </span>{puestoVisible.cargo.especialidadLegacy ?? puestoVisible.cargo.especialidad}
-                    </p>
-                  ) : null}
-                </>
-              )
-            })()}
+            {cargoVigente && (
+              <>
+                {cargoVigente.cargo.literalPuesto && (
+                  <p className="text-white/90 text-sm font-medium mt-1">
+                    <span className="text-white/50 font-normal">Rol actual: </span>{cargoVigente.cargo.literalPuesto}
+                  </p>
+                )}
+                {especialidadPrincipal ? (
+                  <p className="text-white/70 text-xs mt-0.5">
+                    <span className="text-white/40 font-normal">Especialidad: </span>{especialidadPrincipal}
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
           <span className={`mt-1 shrink-0 px-3 py-1 rounded-full text-xs font-semibold ${p.activo ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
             {p.activo ? 'Activo' : 'Inactivo'}
@@ -148,7 +150,7 @@ export function PersonaDetailPanel() {
               <Dato label="Anos de antiguedad" value={`${calcEdad(p.antiguedadDesde)} anos`} />
             )}
             <Dato label="Sexo" value={p.sexo} />
-            <Dato label="Especialidad principal" value={p.especialidadPrincipal} />
+            <Dato label="Especialidad principal" value={especialidadPrincipal} />
           </Section>
 
           <Section title="Contacto">

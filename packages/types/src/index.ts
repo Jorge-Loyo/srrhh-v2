@@ -117,6 +117,10 @@ export interface Persona {
 export interface PersonaListItem extends Persona {
   puesto: string | null
   idSial: string | null
+  // S21-5: ya no es columna de personas — el backend la deriva en runtime del
+  // cargo vigente (catálogo, con fallback al snapshot legacy).
+  especialidadPrincipal: string | null
+  especialidadCph: string | null
 }
 
 // Devuelto por GET /api/v1/puestos y GET /api/v1/cargos/puestos — S20-7:

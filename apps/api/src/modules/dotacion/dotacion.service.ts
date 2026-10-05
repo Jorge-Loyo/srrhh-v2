@@ -34,7 +34,10 @@ const EXCLUIR_ESPEJO_JEFATURA = Prisma.sql`
 // "Vigente" replicado del criterio ya usado en todo el proyecto (ver
 // personas.service.ts, kpis.service.ts, padron.service.ts): la ocupación no
 // tiene fecha de fin y el cargo que ocupa está vigente.
-const BASE_FROM = Prisma.sql`
+// Exportado para reutilizar desde reportes.service.ts (mismo criterio de
+// "vigente" que /dotacion, sin fecha de corte histórica — los reportes son
+// sobre la foto actual).
+export const BASE_FROM = Prisma.sql`
   FROM ocupaciones o
   JOIN personas p    ON p.id = o.persona_id
   JOIN cargos c      ON c.id = o.cargo_id
@@ -206,6 +209,10 @@ interface DimensionesDotacion {
   modalidad?: 'pof' | 'pou' | 'ambos'
   puestoNombre?: string[]
   especialidadNombre?: string[]
+  // S23-6: catálogo de Áreas Programáticas/CeSACs/estructura fija (S23-2/S23-3).
+  areaProgramaticaId?: string[]
+  cesacId?: string[]
+  unidadFijaId?: string[]
 }
 
 // Compila un conjunto de dimensiones a un array de condiciones SQL (todas con
@@ -268,6 +275,18 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
     )`)
   }
 
+  // ── S23-6: Área Programática / CeSAC / unidad fija (S23-2/S23-3/S23-4) —
+  // FK directa en el cargo (cesac_id/unidad_fija_id), salvo areaProgramaticaId
+  // que no está desnormalizado en cargos: se resuelve vía el CeSAC. ──
+  inUuid(Prisma.sql`c.cesac_id`, f.cesacId)
+  inUuid(Prisma.sql`c.unidad_fija_id`, f.unidadFijaId)
+  if (f.areaProgramaticaId?.length) {
+    conds.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM cesacs csap
+      WHERE csap.id = c.cesac_id AND csap.area_programatica_id IN (${Prisma.join(f.areaProgramaticaId.map((v) => Prisma.sql`${v}::uuid`))})
+    )`)
+  }
+
   return conds
 }
 
@@ -275,7 +294,13 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
 // el facetado de opciones (getDistinctValues) para que cada desplegable calcule
 // sus opciones aplicando todos los filtros MENOS el suyo propio — así se pueden
 // tildar varias opciones de una misma dimensión sin que las demás desaparezcan.
-function buildConditions(query: DotacionQuery, omitir?: keyof DimensionesDotacion): Prisma.Sql[] {
+// Subconjunto de DotacionQuery que efectivamente participa del filtrado (todo
+// menos paginación/orden/fecha de corte) — tipo del parámetro de
+// buildConditions para poder reutilizarla desde reportes.service.ts, que no
+// maneja esos campos. DotacionQuery sigue siendo asignable acá sin cambios.
+export type DotacionFiltersQuery = Omit<DotacionQuery, 'page' | 'limit' | 'sortBy' | 'sortDir' | 'skipDistinct' | 'mesCorte'>
+
+export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof DimensionesDotacion): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = []
 
   // ── UNIONES (OR) ──────────────────────────────────────────────────────────
@@ -301,6 +326,9 @@ function buildConditions(query: DotacionQuery, omitir?: keyof DimensionesDotacio
     modalidad: query.modalidad,
     puestoNombre: query.puestoNombre,
     especialidadNombre: query.especialidadNombre,
+    areaProgramaticaId: query.areaProgramaticaId,
+    cesacId: query.cesacId,
+    unidadFijaId: query.unidadFijaId,
   }
   // Facetado: quita la dimensión propia del grupo en edición para no auto-filtrarse.
   if (omitir) (grupoEnEdicion as Record<string, unknown>)[omitir] = undefined
@@ -503,9 +531,11 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
       ${vigentesCte}
       SELECT
         count(*)::bigint AS total,
-        count(*) FILTER (WHERE situacion_revista = 'Activo')::bigint AS activos,
-        count(*) FILTER (WHERE situacion_revista = 'Retencion de Cargo')::bigint AS retencion,
-        count(*) FILTER (WHERE situacion_revista = 'Comisión')::bigint AS comision,
+        -- S22-2/S22-3 (Dotaneitor): normalización total a minúscula sin tilde
+        -- — literales viejos (pre-S22) ya no matchean, hoy son lowercase.
+        count(*) FILTER (WHERE situacion_revista = 'activo')::bigint AS activos,
+        count(*) FILTER (WHERE situacion_revista = 'retencion de cargo')::bigint AS retencion,
+        count(*) FILTER (WHERE situacion_revista = 'comision')::bigint AS comision,
         count(*) FILTER (WHERE sexo = 'F')::bigint AS mujeres,
         count(*) FILTER (WHERE sexo = 'M')::bigint AS varones
       FROM ocupaciones_vigentes

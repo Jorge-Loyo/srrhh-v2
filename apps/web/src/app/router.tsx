@@ -14,6 +14,7 @@ import { ImportacionLayout } from '../modules/importacion/components/Importacion
 import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
 import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
 import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
+import { OrganigramaLayout } from '../modules/organigrama/components/OrganigramaLayout'
 import { PouHomePage } from '../modules/pou/pages/PouHomePage'
 import { PouDetallePage } from '../modules/pou/pages/PouDetallePage'
 import { PouComparativaPage } from '../modules/pou/pages/PouComparativaPage'
@@ -24,6 +25,7 @@ import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
 import { DotacionPage } from '../modules/dotacion/pages/DotacionPage'
+import { ReportesPage } from '../modules/reportes/pages/ReportesPage'
 import { TokensPage } from '../modules/tokens/pages/TokensPage'
 import { AuditoriaPage } from '../modules/auditoria/pages/AuditoriaPage'
 import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
@@ -48,6 +50,10 @@ import { BajasLayout } from '../modules/bajas/components/BajasLayout'
 import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
+import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/AreasProgramaticasPage'
+import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
+import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
+import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -86,6 +92,10 @@ export const router = createBrowserRouter([
               },
             ],
           },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'reportes', accion: 'ver' }} />,
+            children: [{ path: 'reportes', element: <ReportesPage /> }],
+          },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
@@ -93,9 +103,32 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
             children: [{ path: 'dotacion', element: <DotacionPage /> }],
           },
-          { path: 'organigrama', element: <OrganigramaHomePage /> },
+          // Organigrama con pestañas sincronizadas con la URL (OrganigramaLayout
+          // + Outlet): Estructura / Área Programática. "Área Programática" era
+          // un ítem de nav anidado aparte (S23-7) — ahora es una pestaña más
+          // acá adentro. Las páginas de detalle (sección, hospital, AP/CeSAC/
+          // unidad fija puntual) quedan fuera del layout, sin la barra de
+          // pestañas — mismo patrón que CargoDetailPanel respecto de CargosLayout.
+          {
+            element: <OrganigramaLayout />,
+            children: [
+              { path: 'organigrama', element: <OrganigramaHomePage /> },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
+                children: [{ path: 'organigrama/areas-programaticas', element: <AreasProgramaticasPage /> }],
+              },
+            ],
+          },
           { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
           { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
+            children: [
+              { path: 'organigrama/areas-programaticas/:id', element: <AreaProgramaticaDetailPage /> },
+              { path: 'organigrama/cesacs/:id', element: <CesacDetailPage /> },
+              { path: 'organigrama/unidades-fijas/:id', element: <UnidadFijaDetailPage /> },
+            ],
+          },
           { path: 'pou', element: <PouHomePage /> },
           { path: 'pou/comparativa', element: <PouComparativaPage /> },
           { path: 'pou/triangulacion', element: <PouTriangulacionPage /> },

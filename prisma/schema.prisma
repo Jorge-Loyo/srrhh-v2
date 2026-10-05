@@ -68,6 +68,30 @@ enum EstadoConcursoCeetps {
   desierto
 }
 
+// S23-2: catálogo oficial de Áreas Programáticas/CeSACs (Anexo III) y
+// estructura fija de la Subsecretaría APAyC (Decreto 306-26, Anexo XI/XII).
+// Ver Doc/Planificacion/Sprints/SPRINT_23_areas_programaticas.md.
+enum NivelCesac {
+  unidad
+  unidad_con_seccion
+}
+
+enum TipoUnidadFija {
+  cemar
+  centro_odontologico_infantil
+  red_odontologia
+}
+
+// S23-1 (auditoría con datos reales, 2026-10-05): CEMAR III/IV son
+// "División + Sección" en el decreto (y ya se ve así en el árbol legacy para
+// CEMAR III) — no es un caso de los otros 3 valores, de ahí el 4to.
+enum NivelOrganicoUnidadFija {
+  division
+  division_con_seccion
+  unidad
+  fuera_de_nivel
+}
+
 // RBAC dinámico — reemplaza el enum fijo viejo (ver Role/Permiso/RolePermiso más abajo,
 // junto al modelo Usuario). El enum se elimina; los 6 valores originales viven ahora como
 // filas sembradas en `roles` (Role.esSistema = true).
@@ -104,6 +128,7 @@ model Hospital {
   usuarios         Usuario[]
   bajas            Baja[]
   solicitudesAlta  SolicitudAlta[]
+  areaProgramatica AreaProgramatica?
 
   @@map("hospitales")
 }
@@ -150,6 +175,66 @@ model OrganigramaUpload {
   subidoPor Usuario? @relation("OrganigramaUploadSubidoPor", fields: [subidoPorId], references: [id])
 
   @@map("organigrama_uploads")
+}
+
+// S23-2: catálogo oficial de las 13 Áreas Programáticas del Anexo III
+// (IF-2026-33586335-GCABA-MSGC), cada una nombrada por su hospital de
+// referencia. codigoReparticion es el código del nodo "DEPT Área
+// Programática de Salud" en el árbol legacy (Organigrama) cuando existe —
+// confirmado real para las 13 en la auditoría S23-1, no inferido.
+model AreaProgramatica {
+  id                String   @id @default(uuid()) @db.Uuid
+  nombre            String   @unique @db.VarChar(100)
+  hospitalId        String   @unique @map("hospital_id") @db.Uuid
+  codigoReparticion String?  @unique @map("codigo_reparticion") @db.VarChar(20)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id])
+  cesacs   Cesac[]
+
+  @@map("areas_programaticas")
+}
+
+// S23-2: CeSACs del Anexo III. codigoReparticion es opcional: la auditoría
+// S23-1 encontró que el árbol legacy (Organigrama) solo cubre 52 de los ~90
+// CeSACs del Anexo III — para los que no están ahí, Cargo.cesacId se
+// backfillea por texto (S23-4) y este campo queda null.
+model Cesac {
+  id                 String     @id @default(uuid()) @db.Uuid
+  numero             Int        @unique
+  nombre             String?    @db.VarChar(150)
+  direccion          String?    @db.VarChar(200)
+  barrio             String?    @db.VarChar(100)
+  nivel              NivelCesac
+  areaProgramaticaId String     @map("area_programatica_id") @db.Uuid
+  codigoReparticion  String?    @unique @map("codigo_reparticion") @db.VarChar(20)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  areaProgramatica AreaProgramatica @relation(fields: [areaProgramaticaId], references: [id])
+  cargos           Cargo[]
+
+  @@index([areaProgramaticaId])
+  @@map("cesacs")
+}
+
+// S23-2: estructura fija de la Subsecretaría APAyC (Decreto 306-26) — CEMAR
+// I-IV, Centros Odontológicos Infantiles N°1/N°2, Red de Odontología. Sin FK
+// a AreaProgramatica a propósito: el decreto no les asigna una AP puntual
+// (ver "Precisión sobre el límite de la fuente" en el doc del sprint).
+model UnidadFijaApayC {
+  id                String                   @id @default(uuid()) @db.Uuid
+  nombre            String                   @db.VarChar(150)
+  tipo              TipoUnidadFija
+  nivelOrganico     NivelOrganicoUnidadFija  @map("nivel_organico")
+  codigoReparticion String?                  @unique @map("codigo_reparticion") @db.VarChar(20)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz
+
+  cargos Cargo[]
+
+  @@map("unidades_fijas_apayc")
 }
 
 // Resumen de evolución histórica de dotación por escalafón.
@@ -361,12 +446,20 @@ model Cargo {
   // S19-4: acto administrativo que respalda la última renovación de período.
   docRenovacion   String?   @map("doc_renovacion") @db.Text
 
+  // S23-4: backfill contra el catálogo oficial de AP/CeSACs y estructura fija
+  // (S23-2) — opcionales, la mayoría de los cargos no son de Atención
+  // Primaria ni de la estructura fija de la Subsecretaría.
+  cesacId      String? @map("cesac_id") @db.Uuid
+  unidadFijaId String? @map("unidad_fija_id") @db.Uuid
+
   // Relaciones
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
   codigoRegistro  CodigoRegistro? @relation(fields: [codigoRegistroId], references: [id])
   puestoCargo         PuestoCargo         @relation(fields: [puestoCargoId], references: [id])
   especialidadPuesto  EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
+  cesac               Cesac?              @relation(fields: [cesacId], references: [id])
+  unidadFija          UnidadFijaApayC?    @relation(fields: [unidadFijaId], references: [id])
   createdBy       Usuario?        @relation("CargosCreados", fields: [createdById], references: [id])
   ocupaciones     Ocupacion[]
   rolesPersona    RolesPersona[]
@@ -390,6 +483,8 @@ model Cargo {
   @@index([cargoRetenidoId])
   @@index([puestoCargoId])
   @@index([especialidadPuestoId])
+  @@index([cesacId])
+  @@index([unidadFijaId])
   @@map("cargos")
 }
 

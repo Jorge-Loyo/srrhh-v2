@@ -73,7 +73,11 @@ export async function getCadenaMandoService(
       LEFT JOIN escalafones e2 ON e2.id = c2.escalafon_id
       JOIN ocupaciones o2 ON o2.cargo_id = c2.id
         AND o2.hasta IS NULL
-        AND o2.situacion_revista = 'Activo'
+        -- S22-2/S22-3 (Dotaneitor): normalización a minúscula sin tilde. La BD
+        -- puede tener el valor mezclado durante la migración (padrones viejos
+        -- 'Activo' / nuevos 'activo'), así que se compara case-insensitive para
+        -- no perderse ninguno.
+        AND lower(o2.situacion_revista) = 'activo'
         AND (
           cr.codigo IN ('25','60')
           OR (cr.codigo IN ('37','83','85','87')

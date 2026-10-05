@@ -80,6 +80,10 @@ export interface GrupoDotacion {
   sexo?: string[]
   situacionRevista?: string[]
   reparticion?: string[]
+  // S23-6/S23-8: Área Programática / CeSAC / unidad fija.
+  areaProgramaticaId?: string[]
+  cesacId?: string[]
+  unidadFijaId?: string[]
   // Snapshot de etiquetas legibles para los chips (NO viaja al backend).
   labels?: string[]
 }
@@ -114,6 +118,10 @@ export interface DotacionFilters {
   sexo?: string[]
   situacionRevista?: string[]
   reparticion?: string[]
+  // S23-6/S23-8: Área Programática / CeSAC / unidad fija (CEMAR/COI/Red Odonto).
+  areaProgramaticaId?: string[]
+  cesacId?: string[]
+  unidadFijaId?: string[]
   codigoCargo?: string
   nombreApellido?: string
   cuil?: string
@@ -132,6 +140,7 @@ const CSV_KEYS: (keyof DotacionFilters)[] = [
   'escalafonId', 'puestoNombre', 'especialidadNombre', 'codigoRegistroId',
   'regimen', 'tipoOrigen', 'especialidadCph', 'provincia', 'localidad',
   'sexo', 'situacionRevista', 'reparticion',
+  'areaProgramaticaId', 'cesacId', 'unidadFijaId',
 ]
 
 // Serializa los grupos de unión al JSON que espera el backend: dimensiones con

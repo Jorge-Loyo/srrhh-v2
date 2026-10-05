@@ -102,6 +102,16 @@ export function AppShell() {
             </NavLink>
           )}
 
+          {/* Reportes */}
+          {can(user, 'reportes', 'ver') && (
+            <NavLink to="/reportes"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Reportes' : undefined}>
+              <span className="text-base shrink-0">📈</span>
+              {!collapsed && <span className="truncate">Reportes</span>}
+            </NavLink>
+          )}
+
           <div className="border-t border-gray-200 mt-2 pt-2" />
 
           {/* KPIs */}
@@ -124,9 +134,10 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Organigrama — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
+          {/* Organigrama — lectura abierta a todos los roles, sin permiso especial
+              (igual que en la app vieja). "Área Programática" (S23-7) vive adentro
+              como pestaña del módulo (OrganigramaLayout), no como ítem de nav aparte. */}
           <NavLink to="/organigrama"
-            end
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
             title={collapsed ? 'Organigrama' : undefined}>
             <span className="text-base shrink-0">🏢</span>

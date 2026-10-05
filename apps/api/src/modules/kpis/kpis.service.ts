@@ -483,7 +483,8 @@ export async function getKpisBajasService(query: KpisBajasQuery) {
 // dos servicios leen padron_historico —la "foto" de activos que se sube en
 // cada padrón semanal— porque es la única fuente que tiene puesto y
 // especialidad por persona. Reglas fijadas con el usuario:
-//   • Solo situacion_revista = 'Activo' (el verdadero estado ocupado).
+//   • Solo situacion_revista = 'activo' (el verdadero estado ocupado;
+//     minúscula sin tilde desde la normalización S22 de Dotaneitor).
 //   • Carrera canónica = cargo_id → cargos → escalafones.nombre (el texto de
 //     padron_historico.escalafon tiene variantes legacy).
 //   • Cascada Carrera → Puesto → Especialidad (la especialidad viene vacía en
@@ -494,7 +495,7 @@ export async function getKpisBajasService(query: KpisBajasQuery) {
 //     esporádicas). Contar filas de un snapshot puntual daría el diff, no el
 //     stock. Por eso se reconstruye el stock: para cada persona se toma su
 //     última fila conocida con fecha < fin de mes, y se cuentan las que quedan
-//     'Activo'. Da la dotación real vigente al cierre de cada mes.
+//     'activo'. Da la dotación real vigente al cierre de cada mes.
 //   • Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia
 //     (misma persona, misma repartición codigo_repa, mismo literal_puesto) para
 //     colgarle más dotación; es el MISMO cargo. En padron_historico no existe
@@ -645,7 +646,7 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     FROM padron_historico ph
     JOIN cargos c ON c.id = ph.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE ph.situacion_revista = 'Activo'
+    WHERE ph.situacion_revista = 'activo'
       AND ph.hospital_sigla IS NOT NULL AND trim(ph.hospital_sigla) <> ''
   `
 
@@ -779,7 +780,7 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
     FROM ult
     JOIN cargos c ON c.id = ult.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE ult.situacion_revista = 'Activo'
+    WHERE ult.situacion_revista = 'activo'
       ${construirFiltros('ult', filtros)}
     GROUP BY ult.mes
     ORDER BY ult.mes
@@ -851,7 +852,7 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
           ORDER BY ult.id_sial_rol
         ) AS drn
       FROM ult
-      WHERE ult.situacion_revista = 'Activo'
+      WHERE ult.situacion_revista = 'activo'
     )
     SELECT
       d.cuil,

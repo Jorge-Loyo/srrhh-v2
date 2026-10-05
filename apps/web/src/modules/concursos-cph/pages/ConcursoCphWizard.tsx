@@ -4747,14 +4747,6 @@ export function ConcursoCphWizard() {
                                     </span>
                                   </p>
                                 )}
-                                {v.persona.especialidadPrincipal && (
-                                  <p>
-                                    Especialidad principal:{' '}
-                                    <span className="text-gray-800">
-                                      {v.persona.especialidadPrincipal}
-                                    </span>
-                                  </p>
-                                )}
                                 {v.persona.mailLaboral && (
                                   <p>
                                     Mail laboral:{' '}
