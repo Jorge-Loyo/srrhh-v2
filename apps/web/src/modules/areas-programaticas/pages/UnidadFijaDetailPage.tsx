@@ -14,7 +14,7 @@ export function UnidadFijaDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 text-xs text-gray-500">
-        <Link to="/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
+        <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
         <span className="font-semibold text-gray-700">{unidad.nombre}</span>
       </div>

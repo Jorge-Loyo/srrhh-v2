@@ -134,27 +134,15 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Organigrama — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
+          {/* Organigrama — lectura abierta a todos los roles, sin permiso especial
+              (igual que en la app vieja). "Área Programática" (S23-7) vive adentro
+              como pestaña del módulo (OrganigramaLayout), no como ítem de nav aparte. */}
           <NavLink to="/organigrama"
-            end
             className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
             title={collapsed ? 'Organigrama' : undefined}>
             <span className="text-base shrink-0">🏢</span>
             {!collapsed && <span className="truncate">Organigrama</span>}
           </NavLink>
-
-          {/* Área Programática (S23-7) — catálogo oficial AP/CeSACs del Anexo
-              III + estructura fija del Decreto 306-26. Anidada bajo
-              Organigrama en el boceto del sprint; mismo permiso que Dotación
-              (expone nombre/CUIL/puesto del personal vigente). */}
-          {can(user, 'dotacion', 'ver') && (
-            <NavLink to="/areas-programaticas"
-              className={({ isActive }) => `flex items-center gap-3 pl-9 pr-3 py-2 text-[13px] font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-600 hover:bg-gray-100'}`}
-              title={collapsed ? 'Área Programática' : undefined}>
-              <span className="text-sm shrink-0">▸</span>
-              {!collapsed && <span className="truncate">Área Programática</span>}
-            </NavLink>
-          )}
 
           {/* POU — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/pou"

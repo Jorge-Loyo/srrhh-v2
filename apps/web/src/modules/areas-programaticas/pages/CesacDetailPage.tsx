@@ -15,9 +15,9 @@ export function CesacDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 text-xs text-gray-500 flex-wrap">
-        <Link to="/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
+        <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
-        <Link to={`/areas-programaticas/${cesac.areaProgramatica.id}`} className="hover:underline hover:text-secondary">
+        <Link to={`/organigrama/areas-programaticas/${cesac.areaProgramatica.id}`} className="hover:underline hover:text-secondary">
           {cesac.areaProgramatica.nombre}
         </Link>
         <span className="text-gray-300">›</span>

@@ -75,7 +75,7 @@ export function AreasProgramaticasPage() {
                   {areas?.map((a) => (
                     <tr key={a.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <Link to={`/areas-programaticas/${a.id}`} className="font-semibold text-secondary hover:underline">
+                        <Link to={`/organigrama/areas-programaticas/${a.id}`} className="font-semibold text-secondary hover:underline">
                           {a.nombre}
                         </Link>
                       </td>
@@ -83,7 +83,7 @@ export function AreasProgramaticasPage() {
                       <td className="px-4 py-3 text-right">{a.cesacs}</td>
                       <td className="px-4 py-3 text-right font-semibold">{a.cargosVigentes.toLocaleString('es-AR')}</td>
                       <td className="px-4 py-3 text-right">
-                        <Link to={`/areas-programaticas/${a.id}`} className="text-gray-300 hover:text-secondary">›</Link>
+                        <Link to={`/organigrama/areas-programaticas/${a.id}`} className="text-gray-300 hover:text-secondary">›</Link>
                       </td>
                     </tr>
                   ))}
@@ -109,7 +109,7 @@ export function AreasProgramaticasPage() {
             {unidades?.map((u) => (
               <Link
                 key={u.id}
-                to={`/unidades-fijas/${u.id}`}
+                to={`/organigrama/unidades-fijas/${u.id}`}
                 className="block bg-white rounded-lg border border-gray-200 p-4 hover:border-secondary hover:shadow-sm transition-colors"
               >
                 <div className="flex items-center justify-between mb-2">

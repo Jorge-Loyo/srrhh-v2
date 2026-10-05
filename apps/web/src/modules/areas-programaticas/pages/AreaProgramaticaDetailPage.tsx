@@ -13,7 +13,7 @@ export function AreaProgramaticaDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 text-xs text-gray-500">
-        <Link to="/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
+        <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
         <span className="font-semibold text-gray-700">{ap.nombre}</span>
       </div>
@@ -65,7 +65,7 @@ export function AreaProgramaticaDetailPage() {
             {ap.cesacs.map((c) => (
               <tr key={c.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
-                  <Link to={`/cesacs/${c.id}`} className="font-semibold text-secondary hover:underline">Nº {c.numero}</Link>
+                  <Link to={`/organigrama/cesacs/${c.id}`} className="font-semibold text-secondary hover:underline">Nº {c.numero}</Link>
                 </td>
                 <td className="px-4 py-3 text-gray-600">{c.barrio ?? '—'}</td>
                 <td className="px-4 py-3">
@@ -78,7 +78,7 @@ export function AreaProgramaticaDetailPage() {
                 <td className="px-4 py-3 text-gray-700">{c.jefe?.nombre ?? '—'}</td>
                 <td className="px-4 py-3 text-right font-semibold">{c.cargosVigentes}</td>
                 <td className="px-4 py-3 text-right">
-                  <Link to={`/cesacs/${c.id}`} className="text-gray-300 hover:text-secondary">›</Link>
+                  <Link to={`/organigrama/cesacs/${c.id}`} className="text-gray-300 hover:text-secondary">›</Link>
                 </td>
               </tr>
             ))}
