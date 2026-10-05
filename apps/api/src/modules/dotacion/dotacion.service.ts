@@ -209,6 +209,10 @@ interface DimensionesDotacion {
   modalidad?: 'pof' | 'pou' | 'ambos'
   puestoNombre?: string[]
   especialidadNombre?: string[]
+  // S23-6: catálogo de Áreas Programáticas/CeSACs/estructura fija (S23-2/S23-3).
+  areaProgramaticaId?: string[]
+  cesacId?: string[]
+  unidadFijaId?: string[]
 }
 
 // Compila un conjunto de dimensiones a un array de condiciones SQL (todas con
@@ -271,6 +275,18 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
     )`)
   }
 
+  // ── S23-6: Área Programática / CeSAC / unidad fija (S23-2/S23-3/S23-4) —
+  // FK directa en el cargo (cesac_id/unidad_fija_id), salvo areaProgramaticaId
+  // que no está desnormalizado en cargos: se resuelve vía el CeSAC. ──
+  inUuid(Prisma.sql`c.cesac_id`, f.cesacId)
+  inUuid(Prisma.sql`c.unidad_fija_id`, f.unidadFijaId)
+  if (f.areaProgramaticaId?.length) {
+    conds.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM cesacs csap
+      WHERE csap.id = c.cesac_id AND csap.area_programatica_id IN (${Prisma.join(f.areaProgramaticaId.map((v) => Prisma.sql`${v}::uuid`))})
+    )`)
+  }
+
   return conds
 }
 
@@ -310,6 +326,9 @@ export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof Dime
     modalidad: query.modalidad,
     puestoNombre: query.puestoNombre,
     especialidadNombre: query.especialidadNombre,
+    areaProgramaticaId: query.areaProgramaticaId,
+    cesacId: query.cesacId,
+    unidadFijaId: query.unidadFijaId,
   }
   // Facetado: quita la dimensión propia del grupo en edición para no auto-filtrarse.
   if (omitir) (grupoEnEdicion as Record<string, unknown>)[omitir] = undefined

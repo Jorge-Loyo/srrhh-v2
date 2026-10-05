@@ -41,6 +41,10 @@ export const grupoDotacionSchema = z.object({
   especialidadCph: z.array(z.string()).optional(),
   provincia: z.array(z.string()).optional(),
   localidad: z.array(z.string()).optional(),
+  // S23-6: Área Programática / CeSAC / unidad fija (catálogo de S23-2/S23-3).
+  areaProgramaticaId: z.array(z.string().uuid()).optional(),
+  cesacId: z.array(z.string().uuid()).optional(),
+  unidadFijaId: z.array(z.string().uuid()).optional(),
 })
 
 export type GrupoDotacion = z.infer<typeof grupoDotacionSchema>
@@ -100,6 +104,13 @@ export const dotacionQuerySchema = z.object({
   especialidadCph: csv(),
   provincia: csv(),
   localidad: csv(),
+  // S23-6: Área Programática / CeSAC / unidad fija (CEMAR/COI/Red de
+  // Odontología) — mismo patrón que escalafonId/codigoRegistroId, el
+  // catálogo lo alimentan GET /areas-programaticas, /cesacs, /unidades-fijas
+  // (S23-5), no un facet de getDistinctValues acá.
+  areaProgramaticaId: csv(),
+  cesacId: csv(),
+  unidadFijaId: csv(),
   // Solo personas con ocupación vigente de jefatura
   soloJefes: z
     .enum(['true', 'false'])
