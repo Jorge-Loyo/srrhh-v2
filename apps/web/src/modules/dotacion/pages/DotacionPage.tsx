@@ -673,12 +673,14 @@ export function DotacionPage() {
                     value={areaProgramaticaId.map(apIdToNombre)}
                     options={(areasProgramaticas ?? []).map((a) => a.nombre)}
                     onChange={(nombres) => setCsvParam('areaProgramaticaId', nombres.map(apNombreToId).filter(Boolean))}
+                    formatOption={capitalizarEtiqueta}
                   />
                   <MultiSelectDropdown
                     label="CeSAC"
                     value={cesacId.map(cesacIdToLabel)}
                     options={cesacOptions}
                     onChange={(labels) => setCsvParam('cesacId', labels.map(cesacLabelToId).filter(Boolean))}
+                    formatOption={capitalizarEtiqueta}
                   />
                   <p className="text-[11px] text-gray-400">CeSAC se acota a la primera Área Programática elegida.</p>
                   <MultiSelectDropdown
@@ -686,6 +688,7 @@ export function DotacionPage() {
                     value={unidadFijaId.map(unidadFijaIdToNombre)}
                     options={(unidadesFijas ?? []).map((u) => u.nombre)}
                     onChange={(nombres) => setCsvParam('unidadFijaId', nombres.map(unidadFijaNombreToId).filter(Boolean))}
+                    formatOption={capitalizarEtiqueta}
                   />
                 </div>
               </section>

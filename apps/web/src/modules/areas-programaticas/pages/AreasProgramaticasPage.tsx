@@ -4,6 +4,7 @@ import {
   useAreasProgramaticas, useUnidadesFijas,
   TIPO_UNIDAD_FIJA_LABEL, NIVEL_ORGANICO_LABEL,
 } from '../hooks/useAreasProgramaticas'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
 const TABS = [
   { key: 'ap', label: 'Áreas Programáticas' },
@@ -76,7 +77,7 @@ export function AreasProgramaticasPage() {
                     <tr key={a.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <Link to={`/organigrama/areas-programaticas/${a.id}`} className="font-semibold text-secondary hover:underline">
-                          {a.nombre}
+                          {capitalizarEtiqueta(a.nombre)}
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-gray-600">{a.hospitalNombre} <span className="text-gray-400">({a.hospitalSigla})</span></td>
@@ -113,7 +114,7 @@ export function AreasProgramaticasPage() {
                 className="block bg-white rounded-lg border border-gray-200 p-4 hover:border-secondary hover:shadow-sm transition-colors"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-gray-900 text-sm">{u.nombre}</span>
+                  <span className="font-semibold text-gray-900 text-sm">{capitalizarEtiqueta(u.nombre)}</span>
                   <span className="text-[10.5px] font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
                     {NIVEL_ORGANICO_LABEL[u.nivelOrganico]}
                   </span>

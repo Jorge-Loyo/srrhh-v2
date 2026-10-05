@@ -3,6 +3,7 @@ import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { CadenaRetencionPanel } from '@/modules/retenciones/components/CadenaRetencionPanel'
 import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
 function fechaCorta(v: string | null | undefined) {
   if (!v) return '—'
@@ -76,7 +77,7 @@ export function CargoDetailPanel() {
             <Dato label="ID SIAL"           value={cargo.idSial} />
             <Dato label="Régimen"           value={cargo.regimen} />
             <Dato label="Código de Registro"
-              value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${cargo.codigoRegistro.literal}` : null}
+              value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${capitalizarEtiqueta(cargo.codigoRegistro.literal)}` : null}
             />
           </Section>
 

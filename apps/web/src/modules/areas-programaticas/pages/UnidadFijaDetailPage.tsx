@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useUnidadFija, TIPO_UNIDAD_FIJA_LABEL, NIVEL_ORGANICO_LABEL } from '../hooks/useAreasProgramaticas'
 import { PersonalTable } from '../components/PersonalTable'
+import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 
 // S23-7/S23-11: detalle de una unidad fija (CEMAR/COI/Red de Odontología) —
 // mismo patrón que CesacDetailPage, incluido el callout del Jefe.
@@ -16,14 +17,14 @@ export function UnidadFijaDetailPage() {
       <div className="flex items-center gap-1 text-xs text-gray-500">
         <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
-        <span className="font-semibold text-gray-700">{unidad.nombre}</span>
+        <span className="font-semibold text-gray-700">{capitalizarEtiqueta(unidad.nombre)}</span>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="bg-navy px-6 py-5 flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-white text-xl font-bold leading-tight">{unidad.nombre}</h1>
+              <h1 className="text-white text-xl font-bold leading-tight">{capitalizarEtiqueta(unidad.nombre)}</h1>
               <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded bg-white/15 text-white">
                 {NIVEL_ORGANICO_LABEL[unidad.nivelOrganico]}
               </span>
@@ -42,7 +43,7 @@ export function UnidadFijaDetailPage() {
           <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Jefe</p>
           {unidad.jefe ? (
             <p className="text-sm">
-              <span className="font-bold text-gray-900">{unidad.jefe.nombre}</span>
+              <span className="font-bold text-gray-900">{capitalizar(unidad.jefe.nombre)}</span>
               {unidad.jefe.cargo && <span className="text-gray-500"> — {unidad.jefe.cargo}</span>}
             </p>
           ) : (
@@ -53,7 +54,7 @@ export function UnidadFijaDetailPage() {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-700">Personal en {unidad.nombre}</p>
+          <p className="text-sm font-semibold text-gray-700">Personal en {capitalizarEtiqueta(unidad.nombre)}</p>
           <p className="text-xs text-gray-400">{unidad.cargosVigentes} cargos vigentes</p>
         </div>
         <PersonalTable personal={unidad.personal} />

@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useCesac, NIVEL_CESAC_LABEL } from '../hooks/useAreasProgramaticas'
 import { PersonalTable } from '../components/PersonalTable'
+import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 
 // S23-7/S23-11: detalle de un CeSAC puntual — dirección/barrio/nivel,
 // AP/hospital de referencia, personal vigente y callout del Jefe (resuelto
@@ -18,7 +19,7 @@ export function CesacDetailPage() {
         <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
         <Link to={`/organigrama/areas-programaticas/${cesac.areaProgramatica.id}`} className="hover:underline hover:text-secondary">
-          {cesac.areaProgramatica.nombre}
+          {capitalizarEtiqueta(cesac.areaProgramatica.nombre)}
         </Link>
         <span className="text-gray-300">›</span>
         <span className="font-semibold text-gray-700">CeSAC Nº {cesac.numero}</span>
@@ -36,10 +37,11 @@ export function CesacDetailPage() {
               </span>
             </div>
             <p className="text-white/70 text-sm mt-1">
-              {cesac.direccion ?? 'Sin dirección'}{cesac.barrio ? ` · ${cesac.barrio}` : ''}
+              {cesac.direccion ? capitalizarEtiqueta(cesac.direccion) : 'Sin dirección'}
+              {cesac.barrio ? ` · ${capitalizarEtiqueta(cesac.barrio)}` : ''}
             </p>
             <p className="text-white/50 text-xs mt-0.5">
-              AP de referencia: {cesac.areaProgramatica.nombre} ({cesac.areaProgramatica.hospital.sigla})
+              AP de referencia: {capitalizarEtiqueta(cesac.areaProgramatica.nombre)} ({cesac.areaProgramatica.hospital.sigla})
             </p>
           </div>
           <Link
@@ -53,7 +55,7 @@ export function CesacDetailPage() {
           <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Jefe</p>
           {cesac.jefe ? (
             <p className="text-sm">
-              <span className="font-bold text-gray-900">{cesac.jefe.nombre}</span>
+              <span className="font-bold text-gray-900">{capitalizar(cesac.jefe.nombre)}</span>
               {cesac.jefe.cargo && <span className="text-gray-500"> — {cesac.jefe.cargo}</span>}
             </p>
           ) : (

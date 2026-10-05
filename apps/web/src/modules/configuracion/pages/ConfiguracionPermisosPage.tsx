@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Permiso, Role } from '@srrhh/types'
-import { getApiErrorMessage } from '@/shared/lib/utils'
+import { getApiErrorMessage, capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 import {
   useRoles,
   useCreateRole,
@@ -154,7 +154,7 @@ export function ConfiguracionPermisosPage() {
 
   async function onEliminarRol(role: Role) {
     setError('')
-    if (!confirm(`¿Eliminar el rol "${role.nombre}"? Esta acción no se puede deshacer.`)) return
+    if (!confirm(`¿Eliminar el rol "${capitalizarEtiqueta(role.nombre)}"? Esta acción no se puede deshacer.`)) return
     try {
       await deleteRole.mutateAsync(role.id)
       setSelectedId(null)
@@ -269,7 +269,7 @@ export function ConfiguracionPermisosPage() {
               >
                 {roles?.map((role) => (
                   <option key={role.id} value={role.id}>
-                    {role.nombre}
+                    {capitalizarEtiqueta(role.nombre)}
                     {!role.activo ? ' (inactivo)' : ''}
                   </option>
                 ))}
@@ -289,7 +289,7 @@ export function ConfiguracionPermisosPage() {
                   </span>
                 )}
                 {selected.descripcion && (
-                  <span className="text-sm text-gray-500 truncate">{selected.descripcion}</span>
+                  <span className="text-sm text-gray-500 truncate">{capitalizar(selected.descripcion)}</span>
                 )}
 
                 <span className="text-sm text-gray-400 ml-auto">
@@ -351,7 +351,7 @@ export function ConfiguracionPermisosPage() {
                       <td className="px-4 py-3 text-gray-800 font-medium">
                         {accionLabel(permiso.accion)}
                       </td>
-                      <td className="px-4 py-3 text-gray-500">{permiso.descripcion}</td>
+                      <td className="px-4 py-3 text-gray-500">{capitalizar(permiso.descripcion)}</td>
                       <td className="px-4 py-3 text-center">
                         <input
                           type="checkbox"

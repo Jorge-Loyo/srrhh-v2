@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useAreaProgramatica, NIVEL_CESAC_LABEL } from '../hooks/useAreasProgramaticas'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
 // S23-7: detalle de AP — hospital de referencia + tabla de CeSACs, con link
 // directo a Dotación ya filtrada por esta AP (S23-8).
@@ -15,13 +16,13 @@ export function AreaProgramaticaDetailPage() {
       <div className="flex items-center gap-1 text-xs text-gray-500">
         <Link to="/organigrama/areas-programaticas" className="hover:underline hover:text-secondary">Área Programática</Link>
         <span className="text-gray-300">›</span>
-        <span className="font-semibold text-gray-700">{ap.nombre}</span>
+        <span className="font-semibold text-gray-700">{capitalizarEtiqueta(ap.nombre)}</span>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="bg-navy px-6 py-5 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-white text-xl font-bold leading-tight">{ap.nombre}</h1>
+            <h1 className="text-white text-xl font-bold leading-tight">{capitalizarEtiqueta(ap.nombre)}</h1>
             <p className="text-white/70 text-sm mt-1">
               Hospital de referencia: <span className="font-semibold text-white">{ap.hospital.nombre}</span> ({ap.hospital.sigla})
             </p>
@@ -67,7 +68,7 @@ export function AreaProgramaticaDetailPage() {
                 <td className="px-4 py-3">
                   <Link to={`/organigrama/cesacs/${c.id}`} className="font-semibold text-secondary hover:underline">Nº {c.numero}</Link>
                 </td>
-                <td className="px-4 py-3 text-gray-600">{c.barrio ?? '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{c.barrio ? capitalizarEtiqueta(c.barrio) : '—'}</td>
                 <td className="px-4 py-3">
                   <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded ${
                     c.nivel === 'unidad_con_seccion' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'

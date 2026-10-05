@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Role } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
-import { getApiErrorMessage } from '@/shared/lib/utils'
+import { getApiErrorMessage, capitalizarEtiqueta } from '@/shared/lib/utils'
 import { useRoles, useJerarquia, useSetJerarquia } from '../hooks/useRoles'
 
 // S13-E — Jerarquía de roles: cimientos para asignación de tareas en cascada
@@ -40,7 +40,7 @@ function NodoArbolView({ nodo, nivel }: { nodo: NodoArbol; nivel: number }) {
     <div style={{ marginLeft: nivel * 20 }}>
       <div className="flex items-center gap-2 py-1.5">
         {nivel > 0 && <span className="text-gray-300">└─</span>}
-        <span className="text-sm font-semibold text-gray-800">{nodo.role.nombre}</span>
+        <span className="text-sm font-semibold text-gray-800">{capitalizarEtiqueta(nodo.role.nombre)}</span>
         <span className="text-xs text-gray-400 font-mono">{nodo.role.slug}</span>
         {!nodo.role.activo && <span className="badge-default text-[10px]">inactivo</span>}
       </div>
@@ -131,7 +131,7 @@ export function ConfiguracionJerarquiaPage() {
                   const padreActual = padrePorSlug.get(role.slug) ?? ''
                   return (
                     <tr key={role.id}>
-                      <td className="px-4 py-2.5 font-medium text-gray-800">{role.nombre}</td>
+                      <td className="px-4 py-2.5 font-medium text-gray-800">{capitalizarEtiqueta(role.nombre)}</td>
                       <td className="px-4 py-2.5">
                         <select
                           value={padreActual}
@@ -143,7 +143,7 @@ export function ConfiguracionJerarquiaPage() {
                           {roles
                             .filter((r) => r.slug !== role.slug)
                             .map((r) => (
-                              <option key={r.slug} value={r.slug}>{r.nombre}</option>
+                              <option key={r.slug} value={r.slug}>{capitalizarEtiqueta(r.nombre)}</option>
                             ))}
                         </select>
                       </td>

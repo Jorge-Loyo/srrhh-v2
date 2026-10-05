@@ -7,6 +7,7 @@ import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '../../../shared/lib/can'
 import { ComisionModal } from '../../comisiones/components/ComisionModal'
 import { useFinComision } from '../../comisiones/hooks/useComisiones'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
 function formatFecha(iso: string | null | undefined): string | null {
   if (!iso) return null
@@ -292,7 +293,7 @@ export function PersonaDetailPanel() {
                       <Dato label="Cod. Cargo" value={o.cargo.codigo} />
                       <Dato label="ID SIAL" value={idSialBase} />
                       <Dato label="Escalafon" value={o.cargo.escalafon?.nombre} />
-                      <Dato label="Cod. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} - ${o.cargo.codigoRegistro.literal}` : null} />
+                      <Dato label="Cod. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} - ${capitalizarEtiqueta(o.cargo.codigoRegistro.literal)}` : null} />
                     </dl>
                     <dl className="space-y-3">
                       <Dato label="Sigla" value={o.cargo.hospital ? `${o.cargo.hospital.sigla} - ${o.cargo.hospital.nombre}` : null} />

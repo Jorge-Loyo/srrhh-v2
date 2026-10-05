@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useRoles } from '../../configuracion/hooks/useRoles'
-import { getApiErrorMessage } from '@/shared/lib/utils'
+import { getApiErrorMessage, capitalizarEtiqueta } from '@/shared/lib/utils'
 import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios, useChangePassword } from '../hooks/useUsuarios'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 
@@ -135,7 +135,7 @@ export function AdminUsuariosPage() {
               </option>
               {roles?.filter((r) => r.activo).map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.nombre}
+                  {capitalizarEtiqueta(r.nombre)}
                 </option>
               ))}
             </select>
