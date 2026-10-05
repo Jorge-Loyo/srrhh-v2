@@ -403,7 +403,7 @@ export async function revertirPresentadosService(concursoCphId: string) {
 export async function confirmarOrdenMeritoService(concursoCphId: string) {
   const c = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
-    include: { concurso: { include: { cargo: true } } },
+    include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
   })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.presentadosConfirmados)
@@ -432,7 +432,10 @@ export async function confirmarOrdenMeritoService(concursoCphId: string) {
   fechaVencimiento.setMonth(fechaVencimiento.getMonth() + 6)
 
   const especialidadOm =
-    c.especialidadSolicitada ?? c.concurso?.cargo?.especialidadLegacy ?? 'SIN ESPECIALIDAD'
+    c.especialidadSolicitada ??
+    c.concurso?.cargo?.especialidadPuesto?.nombre ??
+    c.concurso?.cargo?.especialidadLegacy ??
+    'SIN ESPECIALIDAD'
   const puestoOm = c.puestoSolicitado ?? c.concurso?.cargo?.literalPuesto ?? null
 
   const merged = { ...c, ordenMeritoConfirmado: true, fechaOrdenMerito: new Date() } as ConcursoCph
@@ -537,6 +540,7 @@ export async function listOrdenesMeritoVigentesService() {
                   codigo: true,
                   literalPuesto: true,
                   especialidadLegacy: true,
+                  especialidadPuesto: { select: { id: true, nombre: true } },
                   escalafonId: true,
                   hospital: { select: { sigla: true, nombre: true } },
                 },
@@ -573,7 +577,7 @@ export async function reservarIntegranteOmService(
 ) {
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoDestinoId },
-    include: { concurso: { include: { cargo: true } } },
+    include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
   })
   if (!destino) throw AppError.notFound('Concurso CPH no encontrado')
   if (destino.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
@@ -598,7 +602,8 @@ export async function reservarIntegranteOmService(
 
   // Compatibilidad: mismo puesto + especialidad + escalafón que el destino.
   const cargo = destino.concurso?.cargo
-  const especialidadDestino = destino.especialidadSolicitada ?? cargo?.especialidadLegacy ?? null
+  const especialidadDestino =
+    destino.especialidadSolicitada ?? cargo?.especialidadPuesto?.nombre ?? cargo?.especialidadLegacy ?? null
   const puestoDestino = destino.puestoSolicitado ?? cargo?.literalPuesto ?? null
   const norm = (s: string | null | undefined) =>
     (s ?? '')
@@ -727,12 +732,13 @@ export async function rechazarIntegranteOmService(integranteId: string, motivo?:
 export async function listOmCompatiblesService(concursoDestinoId: string) {
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoDestinoId },
-    include: { concurso: { include: { cargo: true } } },
+    include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
   })
   if (!destino) throw AppError.notFound('Concurso CPH no encontrado')
 
   const cargo = destino.concurso?.cargo
-  const especialidadDestino = destino.especialidadSolicitada ?? cargo?.especialidadLegacy ?? null
+  const especialidadDestino =
+    destino.especialidadSolicitada ?? cargo?.especialidadPuesto?.nombre ?? cargo?.especialidadLegacy ?? null
   const puestoDestino = destino.puestoSolicitado ?? cargo?.literalPuesto ?? null
   const norm = (s: string | null | undefined) =>
     (s ?? '')

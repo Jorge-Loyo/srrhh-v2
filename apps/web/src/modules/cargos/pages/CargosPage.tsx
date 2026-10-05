@@ -205,7 +205,7 @@ export function CargosPage() {
         cargos.map((c) => ({
           'Código Cargo': c.codigo ?? '',
           Puesto: capitalizar(c.literalPuesto),
-          Especialidad: capitalizar(c.especialidadLegacy ?? c.especialidad),
+          Especialidad: capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? c.especialidad),
           Agrupador: c.agrupador ?? '',
           'Unificador de Puesto': c.unificadorPuesto ?? '',
           Repartición: c.hospital?.sigla ?? '',
@@ -399,7 +399,7 @@ export function CargosPage() {
                       <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{capitalizar(c.literalPuesto) || '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{capitalizar(c.especialidadLegacy) || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy) || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={
                           c.estado === EstadoCargo.VIGENTE ? 'badge-success' :

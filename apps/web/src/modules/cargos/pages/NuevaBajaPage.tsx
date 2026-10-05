@@ -107,7 +107,7 @@ function ModalBuscarCargo({
                       <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[140px]">
-                      {c.especialidadLegacy ?? c.especialidad ?? <span className="text-gray-300">—</span>}
+                      {c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? c.especialidad ?? <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[160px]">
                       {c.personaOcupante ? c.personaOcupante.apellidoNombre : <span className="text-gray-300">—</span>}
@@ -186,7 +186,7 @@ function derivarDesdeCargo(det: CargoDetail) {
     escalafon,
     pouPof,
     puesto: det.literalPuesto ?? '',
-    especialidad: det.especialidadLegacy ?? det.especialidad ?? '',
+    especialidad: det.especialidadPuesto?.nombre ?? det.especialidadLegacy ?? det.especialidad ?? '',
   }
 }
 

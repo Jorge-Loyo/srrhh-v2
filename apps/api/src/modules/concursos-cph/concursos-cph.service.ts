@@ -632,7 +632,6 @@ export async function getPersonaDesignadaService(id: string) {
     cuil: true,
     apellidoNombre: true,
     numeroDoc: true,
-    especialidadPrincipal: true,
     telefono: true,
     mailLaboral: true,
   } as const
@@ -1177,7 +1176,6 @@ export async function getDesignacionEstadoService(id: string) {
     tipoDoc: true,
     fechaNacimiento: true,
     sexo: true,
-    especialidadPrincipal: true,
     especialidadCph: true,
     telefono: true,
     mailLaboral: true,
@@ -1218,7 +1216,10 @@ export async function getDesignacionEstadoService(id: string) {
         tipoDoc: personaRow.tipoDoc,
         fechaNacimiento: personaRow.fechaNacimiento?.toISOString() ?? null,
         sexo: personaRow.sexo,
-        especialidadPrincipal: personaRow.especialidadPrincipal,
+        // S21-5: especialidad_principal se eliminó como columna. Se completa más
+        // abajo (especialidadPrincipalDerivada) con la especialidad del cargo
+        // vigente, una vez calculadas las ocupaciones.
+        especialidadPrincipal: null as string | null,
         especialidadCph: personaRow.especialidadCph,
         telefono: personaRow.telefono,
         mailLaboral: personaRow.mailLaboral,
@@ -1246,6 +1247,10 @@ export async function getDesignacionEstadoService(id: string) {
     literalPuesto: string | null
     escalafonId: string
     escalafonNombre: string | null
+    // especialidad resuelta del catálogo (especialidades_puesto.nombre) con
+    // fallback al snapshot especialidad_legacy. especialidadLegacy se conserva
+    // aparte solo para auditoría/compatibilidad.
+    especialidad: string | null
     especialidadLegacy: string | null
     cargoEstado: string
     hospitalSigla: string | null
@@ -1265,12 +1270,14 @@ export async function getDesignacionEstadoService(id: string) {
         c.literal_puesto    AS "literalPuesto",
         c.escalafon_id      AS "escalafonId",
         e.nombre            AS "escalafonNombre",
+        COALESCE(ep.nombre, c.especialidad_legacy) AS "especialidad",
         c.especialidad_legacy AS "especialidadLegacy",
         c.estado::text      AS "cargoEstado",
         h.sigla             AS "hospitalSigla"
       FROM ocupaciones o
       JOIN cargos c      ON c.id = o.cargo_id
       LEFT JOIN escalafones e ON e.id = c.escalafon_id
+      LEFT JOIN especialidades_puesto ep ON ep.id = c.especialidad_puesto_id
       LEFT JOIN hospitales h  ON h.id = c.hospital_id
       WHERE o.persona_id = ${persona.id}::uuid
       ORDER BY (o.hasta IS NULL) DESC, o.desde DESC NULLS LAST, o.hasta DESC NULLS LAST
@@ -1281,7 +1288,7 @@ export async function getDesignacionEstadoService(id: string) {
     if (!espConcurso) return false
     const eNorm = normEsp(espConcurso)
     return (
-      (!!o.especialidadLegacy && normEsp(o.especialidadLegacy) === eNorm) ||
+      (!!o.especialidad && normEsp(o.especialidad) === eNorm) ||
       (!!persona?.especialidadCph && normEsp(persona.especialidadCph) === eNorm)
     )
   }
@@ -1295,6 +1302,8 @@ export async function getDesignacionEstadoService(id: string) {
     literalPuesto: o.literalPuesto,
     escalafonId: o.escalafonId,
     escalafonNombre: o.escalafonNombre,
+    // Valor resuelto del catálogo (con fallback a legacy) + el legacy crudo.
+    especialidad: o.especialidad,
     especialidadLegacy: o.especialidadLegacy,
     situacionRevista: o.situacionRevista,
     estadoPersona: o.estadoPersona,
@@ -1310,6 +1319,15 @@ export async function getDesignacionEstadoService(id: string) {
   const cerradas = ocupaciones.filter((o) => o.hasta !== null)
   const ocupacionVigente = vigentes[0] ? toResumen(vigentes[0]) : null
   const ultimaOcupacion = !ocupacionVigente && cerradas[0] ? toResumen(cerradas[0]) : null
+
+  // S21-5: completar la "especialidad principal" (del cargo actual) derivándola
+  // del cargo vigente —o la última ocupación si no hay vigente— en vez de la
+  // columna especialidad_principal eliminada. Mantiene el valor en el shape que
+  // consumen los documentos de concurso.
+  if (persona) {
+    persona.especialidadPrincipal =
+      vigentes[0]?.especialidad ?? cerradas[0]?.especialidad ?? null
+  }
 
   // 3) Validación / triangulación. El "Cargo SIAL (alta)" que cargó el usuario
   //    (concurso.cargoSial) es el valor esperado del padrón: no es obligatorio

@@ -4828,11 +4828,11 @@ export function ConcursoCphWizard() {
                                         </span>
                                       </p>
                                     )}
-                                    {ocup.especialidadLegacy && (
+                                    {(ocup.especialidad ?? ocup.especialidadLegacy) && (
                                       <p>
                                         Especialidad:{' '}
                                         <span className="text-gray-800">
-                                          {ocup.especialidadLegacy}
+                                          {ocup.especialidad ?? ocup.especialidadLegacy}
                                         </span>
                                       </p>
                                     )}
