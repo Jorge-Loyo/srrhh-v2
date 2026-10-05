@@ -1,4 +1,4 @@
-# SPRINT 23 — Cargos de conducción vacantes derivados del organigrama (mapeo de vacantes reales)
+# SPRINT 24 — Cargos de conducción vacantes derivados del organigrama (mapeo de vacantes reales)
 
 **Estado:** 📋 Planificado
 **Autores:** Jorge (full — backend Node + frontend `/organigrama` + `/cargos`).
@@ -45,7 +45,7 @@ su cargo de conducción asociado — exista o no alguien ocupándolo — de modo
 
 ---
 
-## Decisiones a tomar en el diseño (S23-1) — abiertas, resolver antes de implementar
+## Decisiones a tomar en el diseño (S24-1) — abiertas, resolver antes de implementar
 
 1. **Regla tipo-de-nodo → cargo de conducción.** Mapear cada `tipo` de nodo del organigrama al
    cargo de jefatura que le corresponde y su literal:
@@ -79,27 +79,27 @@ su cargo de conducción asociado — exista o no alguien ocupándolo — de modo
 
 | #     | Tarea                                                                                                                                                                                                                                                                                            | Dev   | Est. | Prioridad | Estado |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
-| S23-1 | **Documento de diseño**: resolver las 7 decisiones de arriba (regla tipo→cargo, escalafón, JCAT, código, nodos aplicables, reconciliación con padrón, idempotencia). Dejar la tabla de mapeo tipo-de-nodo → {cargo, escalafón, JCAT, prefijo} cerrada y validada con RRHH. Sin código todavía. | Jorge | 4h   | 🔴        | 📋     |
-| S23-2 | **Análisis de datos**: medir cuántos nodos del organigrama (por tipo y régimen) quedan sin cargo de conducción hoy, cuántos tienen personal (falso vacante) y cuántos están realmente vacíos. Dimensiona el backfill y detecta casos raros antes de generar.                                   | Jorge | 2h   | 🔴        | 📋     |
-| S23-3 | **Schema/migración**: marcar los cargos de conducción generados (ej. flag `origen = 'organigrama'` en `Cargo`, o `id_sial` sintético distinguible) para separarlos de los que vienen del padrón y poder re-sincronizarlos sin tocar los reales. Migración.                                     | Jorge | 2h   | 🔴        | 📋     |
-| S23-4 | **Servicio de derivación**: función que recorre el organigrama y, por cada nodo aplicable sin cargo de conducción, genera el `Cargo` vacante (escalafón, puesto, JCAT, código via `codigoCargo.ts`, `codigo_repa`, `estado='vigente'` sin ocupación). Idempotente (no duplica).                | Jorge | 5h   | 🔴        | 📋     |
-| S23-5 | **Backfill inicial**: correr la derivación una vez contra el organigrama actual. Verificar con el caso CEMAR IV (debe quedar un cargo "Director/Jefe" vacante real) y una muestra por cada tipo de nodo.                                                                                         | Jorge | 2h   | 🔴        | 📋     |
-| S23-6 | **Reconciliación en aprobar-snapshot** (`padron.service.ts`): cuando un padrón trae una ocupación cuya repartición+nivel matchea un cargo de conducción generado vacante, vincular la ocupación a ese cargo en vez de crear uno nuevo. Evita duplicados. Tests.                                 | Jorge | 4h   | 🔴        | 📋     |
-| S23-7 | **Re-sincronización al cargar organigrama** (hook en `reemplazarOrganigramaService`): al subir un árbol nuevo, altas de cargos de conducción para nodos nuevos; no duplicar; decidir qué hacer con los de nodos que desaparecen.                                                                 | Jorge | 3h   | 🟡        | 📋     |
-| S23-8 | **Organigrama — distinguir estados**: en el nodo, diferenciar "vacante de conducción real" (hay cargo generado sin ocupante) de "unidad con personal sin jefatura" de "vacía". Ajustar `esCargoDeConduccion`/`cargosVacantesMap` para reconocer los cargos generados.                           | Jorge | 3h   | 🔴        | 📋     |
-| S23-9 | **Vista/KPI de vacantes de conducción**: listar y contar las vacantes de conducción (por efector/sección/nivel). Reusa el modal de Vacantes del organigrama + un contador. Permite a RRHH ver "qué jefaturas faltan cubrir".                                                                    | Jorge | 3h   | 🟡        | 📋     |
-| S23-10 | **Verificación e2e**: subir un padrón, confirmar que las ocupaciones de jefatura se vinculan al cargo generado (no duplican), que CEMAR IV muestra su vacante real, y que el conteo de vacantes es coherente. Documentar.                                                                        | Jorge | 3h   | 🔴        | 📋     |
+| S24-1 | **Documento de diseño**: resolver las 7 decisiones de arriba (regla tipo→cargo, escalafón, JCAT, código, nodos aplicables, reconciliación con padrón, idempotencia). Dejar la tabla de mapeo tipo-de-nodo → {cargo, escalafón, JCAT, prefijo} cerrada y validada con RRHH. Sin código todavía. | Jorge | 4h   | 🔴        | 📋     |
+| S24-2 | **Análisis de datos**: medir cuántos nodos del organigrama (por tipo y régimen) quedan sin cargo de conducción hoy, cuántos tienen personal (falso vacante) y cuántos están realmente vacíos. Dimensiona el backfill y detecta casos raros antes de generar.                                   | Jorge | 2h   | 🔴        | 📋     |
+| S24-3 | **Schema/migración**: marcar los cargos de conducción generados (ej. flag `origen = 'organigrama'` en `Cargo`, o `id_sial` sintético distinguible) para separarlos de los que vienen del padrón y poder re-sincronizarlos sin tocar los reales. Migración.                                     | Jorge | 2h   | 🔴        | 📋     |
+| S24-4 | **Servicio de derivación**: función que recorre el organigrama y, por cada nodo aplicable sin cargo de conducción, genera el `Cargo` vacante (escalafón, puesto, JCAT, código via `codigoCargo.ts`, `codigo_repa`, `estado='vigente'` sin ocupación). Idempotente (no duplica).                | Jorge | 5h   | 🔴        | 📋     |
+| S24-5 | **Backfill inicial**: correr la derivación una vez contra el organigrama actual. Verificar con el caso CEMAR IV (debe quedar un cargo "Director/Jefe" vacante real) y una muestra por cada tipo de nodo.                                                                                         | Jorge | 2h   | 🔴        | 📋     |
+| S24-6 | **Reconciliación en aprobar-snapshot** (`padron.service.ts`): cuando un padrón trae una ocupación cuya repartición+nivel matchea un cargo de conducción generado vacante, vincular la ocupación a ese cargo en vez de crear uno nuevo. Evita duplicados. Tests.                                 | Jorge | 4h   | 🔴        | 📋     |
+| S24-7 | **Re-sincronización al cargar organigrama** (hook en `reemplazarOrganigramaService`): al subir un árbol nuevo, altas de cargos de conducción para nodos nuevos; no duplicar; decidir qué hacer con los de nodos que desaparecen.                                                                 | Jorge | 3h   | 🟡        | 📋     |
+| S24-8 | **Organigrama — distinguir estados**: en el nodo, diferenciar "vacante de conducción real" (hay cargo generado sin ocupante) de "unidad con personal sin jefatura" de "vacía". Ajustar `esCargoDeConduccion`/`cargosVacantesMap` para reconocer los cargos generados.                           | Jorge | 3h   | 🔴        | 📋     |
+| S24-9 | **Vista/KPI de vacantes de conducción**: listar y contar las vacantes de conducción (por efector/sección/nivel). Reusa el modal de Vacantes del organigrama + un contador. Permite a RRHH ver "qué jefaturas faltan cubrir".                                                                    | Jorge | 3h   | 🟡        | 📋     |
+| S24-10 | **Verificación e2e**: subir un padrón, confirmar que las ocupaciones de jefatura se vinculan al cargo generado (no duplican), que CEMAR IV muestra su vacante real, y que el conteo de vacantes es coherente. Documentar.                                                                        | Jorge | 3h   | 🔴        | 📋     |
 
 **Total estimado:** ~31h
 
 ## Dependencias entre tareas
 
 ```
-S23-1 (diseño) ──► S23-2 (análisis) ──► S23-3 (schema) ──► S23-4 (derivación) ──► S23-5 (backfill)
-S23-4 ──► S23-6 (reconciliación padrón)
-S23-4 ──► S23-7 (re-sync organigrama)
-(S23-5 + S23-6) ──► S23-8 (organigrama estados) ──► S23-9 (KPI vacantes)
-(S23-6 + S23-8) ──► S23-10 (e2e)
+S24-1 (diseño) ──► S24-2 (análisis) ──► S24-3 (schema) ──► S24-4 (derivación) ──► S24-5 (backfill)
+S24-4 ──► S24-6 (reconciliación padrón)
+S24-4 ──► S24-7 (re-sync organigrama)
+(S24-5 + S24-6) ──► S24-8 (organigrama estados) ──► S24-9 (KPI vacantes)
+(S24-6 + S24-8) ──► S24-10 (e2e)
 ```
 
 ## Criterio de éxito
@@ -127,9 +127,9 @@ S23-4 ──► S23-7 (re-sync organigrama)
   la tabla `jcat_cargo_jefatura` (Sprint 22) para el mapeo nivel↔JCAT, y la detección de conducción
   del organigrama ya afinada en la sesión 2026-10 (`esCargoDeConduccion` por JCAT + escalafón
   gerencial, `rangoConduccion`).
-- **Riesgo principal:** la reconciliación con el padrón (S23-6). Si se hace mal, se duplican cargos
+- **Riesgo principal:** la reconciliación con el padrón (S24-6). Si se hace mal, se duplican cargos
   o se pierde el vínculo ocupación↔cargo. Es la tarea que más test necesita.
-- **Decisión de producto pendiente (S23-1):** si los nodos GO/SGO (gerencias operativas suprimidas
+- **Decisión de producto pendiente (S24-1):** si los nodos GO/SGO (gerencias operativas suprimidas
   por Dto 259/26) deben generar cargo o se omiten por estar en extinción.
 - Referencia del caso testigo y del modelo de conducción actual: fixes de organigrama de la sesión
   2026-10 (identificación por JCAT, orden jerárquico, Carrera Gerencial sin JCAT).
