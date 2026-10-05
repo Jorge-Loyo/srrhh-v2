@@ -29,17 +29,17 @@ compatibles, reutilización).
 
 ## Dónde viven las especialidades (columnas de texto)
 
-| Tabla                                                       | Columna                                      | Notas                                                          |
-| ----------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------- |
-| `cargos`                                                    | `especialidad_legacy`                        | Cargo. Suele traer paréntesis y mayúsculas.                    |
-| `personas`                                                  | `especialidad_cph`, `especialidad_principal` | Padrón. Forma base con acentos.                                |
-| `concursos_cph`                                             | `especialidad_solicitada`                    | Concurso (puede ser null → cae a `cargo.especialidad_legacy`). |
-| `inscriptos_concurso`                                       | `especialidad`                               | Inscriptos a examen.                                           |
-| `orden_merito_integrantes`                                  | `especialidad`                               | Integrantes de OM.                                             |
-| `ordenes_merito`                                            | `especialidad`                               | Clave de compatibilidad de OM.                                 |
-| `miembros_jurado_sorteados`                                 | `especialidad`                               | Snapshot del jurado.                                           |
-| `padron_historico`                                          | `especialidad`                               | Padrón semanal.                                                |
-| `postulantes`, `solicitudes_alta`, `pou`, `baja_sial_diffs` | `especialidad`                               | Otros orígenes.                                                |
+| Tabla                                                       | Columna                   | Notas                                                                                                                                    |
+| ----------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargos`                                                    | `especialidad_legacy`     | Cargo. Suele traer paréntesis y mayúsculas.                                                                                              |
+| `personas`                                                  | `especialidad_cph`        | Padrón. Forma base con acentos. (La vieja `especialidad_principal` se eliminó en S21-5; la especialidad del cargo se deriva en runtime.) |
+| `concursos_cph`                                             | `especialidad_solicitada` | Concurso (puede ser null → cae a `cargo.especialidad_legacy`).                                                                           |
+| `inscriptos_concurso`                                       | `especialidad`            | Inscriptos a examen.                                                                                                                     |
+| `orden_merito_integrantes`                                  | `especialidad`            | Integrantes de OM.                                                                                                                       |
+| `ordenes_merito`                                            | `especialidad`            | Clave de compatibilidad de OM.                                                                                                           |
+| `miembros_jurado_sorteados`                                 | `especialidad`            | Snapshot del jurado.                                                                                                                     |
+| `padron_historico`                                          | `especialidad`            | Padrón semanal.                                                                                                                          |
+| `postulantes`, `solicitudes_alta`, `pou`, `baja_sial_diffs` | `especialidad`            | Otros orígenes.                                                                                                                          |
 
 ## Tablas de referencia existentes
 

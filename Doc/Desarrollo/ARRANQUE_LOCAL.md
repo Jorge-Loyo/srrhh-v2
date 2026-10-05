@@ -29,6 +29,47 @@ pnpm --filter web dev --port 5180
 http://localhost:5180
 ```
 
+### Seed de Áreas Programáticas / CeSACs (pestaña "Área Programática" del Organigrama)
+
+> Si la pestaña **Área Programática** (dentro de Organigrama) aparece **vacía**, es porque este
+> catálogo (Sprint 23) **no entra en `db:seed` ni en `migrate deploy`** — es un paso aparte que hay
+> que correr una vez (tras un `migrate reset`, una BD nueva, o traer el merge de Agustín por
+> primera vez). Las tablas `areas_programaticas`/`cesacs`/`unidades_fijas_apayc` se crean vacías
+> con la migración; el contenido del Anexo III y el vínculo con los cargos se cargan con estos dos
+> scripts, **en orden**:
+
+```bash
+# 1. Seed del catálogo (13 AP + 52 CeSACs + 7 unidades fijas). Idempotente (upsert).
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/seed_areas_programaticas.ts
+
+# 2. Backfill: vincula los cargos del padrón ya cargado a su CeSAC/unidad fija.
+#    Correr primero con --dry-run para ver qué va a tocar, después sin el flag.
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/backfill_areas_programaticas.ts --dry-run
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/backfill_areas_programaticas.ts
+```
+
+> ⚠️ **Correr los scripts DENTRO del contenedor (`docker exec ... srrhh_api`), NO desde WSL con
+> `pnpm exec tsx` directo.** Si los corrés desde WSL, `tsx` revienta con
+> `You installed esbuild for another platform...` (`@esbuild/win32-x64` presente, Linux necesita
+> `@esbuild/linux-x64`): los `node_modules` del repo se instalaron desde Windows y WSL ve el mismo
+> disco. El contenedor `srrhh_api` tiene su propio `node_modules` de Linux correcto y el
+> `DATABASE_URL` ya apunta a `postgres:5432` (no hay que pasarlo).
+>
+> **El backfill necesita el padrón ya cargado.** Vincula cargos reales → sin padrón procesado, el
+> seed carga igual la estructura (la pestaña ya muestra las 13 AP/52 CeSACs), pero los conteos de
+> "cargos vigentes" y los jefes salen en 0 hasta que proceses un padrón.
+>
+> **Verificar que quedó cargado:**
+>
+> ```bash
+> docker exec srrhh_postgres psql -U srrhh_user -d srrhh_db -t -c "SELECT 'areas_programaticas' AS t, count(*) FROM areas_programaticas UNION ALL SELECT 'cesacs', count(*) FROM cesacs UNION ALL SELECT 'unidades_fijas', count(*) FROM unidades_fijas_apayc UNION ALL SELECT 'cargos_con_cesac', count(*) FROM cargos WHERE cesac_id IS NOT NULL UNION ALL SELECT 'cargos_con_unidad_fija', count(*) FROM cargos WHERE unidad_fija_id IS NOT NULL;"
+> ```
+>
+> Esperado: 13 AP / 52 CeSACs / 7 unidades fijas / N cargos vinculados (N depende del padrón
+> cargado — ~1.500 cargos→CeSAC con el padrón de 52.839 cargos del 2026-10). Los pocos cargos
+> "sin vincular" que reporta el backfill (roles `SECC Coordinación CESACs A/B`, códigos satélite)
+> son casos de borde esperados, no un error.
+
 ---
 
 ## 🆕 Arranque con BD nueva desde cero (post-consolidación S21, 2026-09-22)
@@ -61,6 +102,14 @@ pnpm run db:seed
 
 # 6. Regenerar el cliente Prisma (por si el reset lo salteó con --skip-generate)
 pnpm exec prisma generate
+
+# 7. Cargar un padrón (módulo Dotaneitor por la UI, o el flujo habitual) para tener cargos reales.
+
+# 8. Seed + backfill de Áreas Programáticas (Sprint 23) — NO lo cubre db:seed.
+#    Requiere la API dockerizada arriba (usa el node_modules de Linux del contenedor).
+#    Ver la sección "Seed de Áreas Programáticas / CeSACs" arriba para el detalle.
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/seed_areas_programaticas.ts
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/backfill_areas_programaticas.ts
 ```
 
 **Resultado esperado del seed** (verificado 2026-09-22):
@@ -252,14 +301,16 @@ pnpm db:studio                                 # Prisma Studio (explorar la BD c
 
 ## 8. Troubleshooting — problemas reales que ya aparecieron
 
-| Síntoma                                                                                               | Causa                                                      | Solución                                                                                                                                                       |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docker: command not found`                                                                           | Estás en Git Bash/PowerShell, no en WSL                    | Escribí `wsl` primero                                                                                                                                          |
-| Vite arranca pero la app no carga nada raro, o un `curl` a 5173 da contenido inesperado ("TorneoApp") | Puerto 5173 ocupado por otra app en esta máquina           | Usar `--port 5180` (ver sección 4)                                                                                                                             |
-| Error de CORS en la consola del browser (`No 'Access-Control-Allow-Origin'...`)                       | El origin del frontend no está en `CORS_ORIGINS` de la API | Si usás Docker: agregar el puerto a `docker-compose.override.yml` y `docker compose up -d --build api`. Si es API nativa: agregar a `apps/api/.env`            |
-| Un endpoint nuevo (agregado a `apps/api/src`) da 404 pese a que el código está bien                   | El container `api` no se reconstruyó tras el cambio        | `docker compose up -d --build api` (no alcanza sin `--build`)                                                                                                  |
-| `prisma migrate dev` tira `environment is non-interactive`                                            | Se corrió en un script/pipe, no en terminal interactiva    | Usar `prisma migrate deploy` para aplicar migraciones existentes; para crear una nueva a mano, ver `Doc/Planificacion/PLAN_SCRUM_2026.md` (hallazgos Sprint 2) |
-| Prisma tira un error no-JSON raro al conectar (dentro de un container)                                | Falta `libssl` en la imagen `node:20-alpine`               | Ya resuelto en `apps/api/Dockerfile` (`apk add openssl`) — si reaparece, revisar que ese Dockerfile no se haya tocado                                          |
+| Síntoma                                                                                                           | Causa                                                                                             | Solución                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docker: command not found`                                                                                       | Estás en Git Bash/PowerShell, no en WSL                                                           | Escribí `wsl` primero                                                                                                                                                                      |
+| Vite arranca pero la app no carga nada raro, o un `curl` a 5173 da contenido inesperado ("TorneoApp")             | Puerto 5173 ocupado por otra app en esta máquina                                                  | Usar `--port 5180` (ver sección 4)                                                                                                                                                         |
+| Error de CORS en la consola del browser (`No 'Access-Control-Allow-Origin'...`)                                   | El origin del frontend no está en `CORS_ORIGINS` de la API                                        | Si usás Docker: agregar el puerto a `docker-compose.override.yml` y `docker compose up -d --build api`. Si es API nativa: agregar a `apps/api/.env`                                        |
+| Un endpoint nuevo (agregado a `apps/api/src`) da 404 pese a que el código está bien                               | El container `api` no se reconstruyó tras el cambio                                               | `docker compose up -d --build api` (no alcanza sin `--build`)                                                                                                                              |
+| `prisma migrate dev` tira `environment is non-interactive`                                                        | Se corrió en un script/pipe, no en terminal interactiva                                           | Usar `prisma migrate deploy` para aplicar migraciones existentes; para crear una nueva a mano, ver `Doc/Planificacion/PLAN_SCRUM_2026.md` (hallazgos Sprint 2)                             |
+| Prisma tira un error no-JSON raro al conectar (dentro de un container)                                            | Falta `libssl` en la imagen `node:20-alpine`                                                      | Ya resuelto en `apps/api/Dockerfile` (`apk add openssl`) — si reaparece, revisar que ese Dockerfile no se haya tocado                                                                      |
+| `tsx`/`vite` tira `You installed esbuild for another platform... @esbuild/win32-x64 ... needs @esbuild/linux-x64` | Corriste un script `tsx` desde WSL contra el `node_modules` instalado desde Windows (mismo disco) | Correr el script dentro del contenedor: `docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/<script>.ts` (tiene el esbuild de Linux). Ver sección "Seed de Áreas Programáticas" |
+| Pestaña "Área Programática" (Organigrama) vacía                                                                   | Falta correr el seed/backfill del Sprint 23 (no lo cubre `db:seed`)                               | Ver sección "Seed de Áreas Programáticas / CeSACs"                                                                                                                                         |
 
 ---
 
