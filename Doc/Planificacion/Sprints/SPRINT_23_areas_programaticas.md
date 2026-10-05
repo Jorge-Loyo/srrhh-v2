@@ -55,6 +55,21 @@ Antes de escribir tareas se audita el estado real del código (no supuestos):
 
 **Total estimado:** ~43.5h
 
+## Post-verificación en local tras el merge (2026-10 / Jorge)
+
+Al levantar la feature en el entorno local de Jorge (tras `merge origin/deploy` + seed/backfill del catálogo) la pestaña **Área Programática** cargaba la estructura (13 AP / 52 CeSACs) pero la **columna "Jefe" salía toda en "—"**. Diagnóstico contra datos reales:
+
+- **Causa raíz: `situacion_revista` con casing mezclado en la BD local.** El padrón real tiene el 99% en `'Activo'`/`'Retencion de Cargo'`/`'Comisión'` (mayúscula, con tilde) y solo ~175 registros nuevos del Dotaneitor v2 en minúscula sin tilde. Varias queries comparaban contra el literal minúscula (`= 'activo'`), descartando el 99% — **el mismo bug que S23-10 decía haber corregido en 7 archivos, pero que en la rama que llegó a `deploy` seguía presente** (el merge revirtió esos fixes, o no se habían aplicado en todos los archivos de esa rama).
+- **Alcance real medido (BD local):** `getJefeService` → jefes vacíos; KPIs de dotación → **175 activos en vez de 47.646**, **10 retenciones en vez de 1.780**; `padron_historico` (KPIs) y listado de retenidos igualmente subcontados.
+- **Fix aplicado (2026-10):** `lower(unaccent(situacion_revista)) = '...'` (case-insensitive y sin tilde, usando `unaccent` de `public`, confirmado en el `search_path` del rol de la app) en:
+  - `areas-programaticas.service.ts` (`getJefeService`)
+  - `dotacion.service.ts` (KPIs activos/retención/comisión + filtro por estado de las KPI cards)
+  - `kpis.service.ts` (3 queries sobre `padron_historico`)
+  - `retenciones.service.ts` (listado de retenidos)
+- **Verificado:** CeSAC Nº9 (`40220520`) → jefe `Giuliodibani, Nora Lia — Jefe de Unidad (05)`. `tsc` del backend limpio. `unaccent` resoluble sin calificar (extensión en `public`, search_path `"$user", public`).
+- **Nota de setup:** el seed/backfill del catálogo (S23-3/S23-4) es un paso manual que no entra en `db:seed`/`migrate deploy` — documentado en `Doc/Desarrollo/ARRANQUE_LOCAL.md` (sección "Seed de Áreas Programáticas / CeSACs") para que la pestaña no salga vacía en una BD nueva.
+- **Deuda menor (no corregida, fuera de alcance):** el `GROUP BY situacion_revista` del desglose de KPIs en `dotacion.service.ts` agrupa por el valor crudo, así que muestra `Activo` y `activo` como filas separadas — cosmético, no afecta los totales; se deja para una normalización del dato en origen.
+
 ## Dependencias entre tareas
 
 ```
