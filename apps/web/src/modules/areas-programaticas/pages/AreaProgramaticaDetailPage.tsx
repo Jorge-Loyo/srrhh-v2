@@ -56,6 +56,7 @@ export function AreaProgramaticaDetailPage() {
               <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">CeSAC</th>
               <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Barrio</th>
               <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Nivel</th>
+              <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Jefe</th>
               <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide text-right">Cargos vigentes</th>
               <th className="px-4 py-2"></th>
             </tr>
@@ -74,6 +75,7 @@ export function AreaProgramaticaDetailPage() {
                     {NIVEL_CESAC_LABEL[c.nivel]}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-gray-700">{c.jefe?.nombre ?? '—'}</td>
                 <td className="px-4 py-3 text-right font-semibold">{c.cargosVigentes}</td>
                 <td className="px-4 py-3 text-right">
                   <Link to={`/cesacs/${c.id}`} className="text-gray-300 hover:text-secondary">›</Link>

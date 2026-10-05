@@ -2,9 +2,9 @@ import { Link, useParams } from 'react-router-dom'
 import { useCesac, NIVEL_CESAC_LABEL } from '../hooks/useAreasProgramaticas'
 import { PersonalTable } from '../components/PersonalTable'
 
-// S23-7: detalle de un CeSAC puntual — dirección/barrio/nivel, AP/hospital
-// de referencia, personal vigente. El callout de "Jefe" (S23-11) queda para
-// cuando S23-10 resuelva el jefe en runtime — todavía no está hecho.
+// S23-7/S23-11: detalle de un CeSAC puntual — dirección/barrio/nivel,
+// AP/hospital de referencia, personal vigente y callout del Jefe (resuelto
+// en runtime por getJefeService, S23-10).
 export function CesacDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: cesac, isLoading, isError } = useCesac(id)
@@ -48,6 +48,17 @@ export function CesacDetailPage() {
           >
             Ver cargos en Dotación ›
           </Link>
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 bg-secondary/5 flex items-center gap-2.5">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Jefe</p>
+          {cesac.jefe ? (
+            <p className="text-sm">
+              <span className="font-bold text-gray-900">{cesac.jefe.nombre}</span>
+              {cesac.jefe.cargo && <span className="text-gray-500"> — {cesac.jefe.cargo}</span>}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-400">Sin jefe resuelto</p>
+          )}
         </div>
       </div>
 

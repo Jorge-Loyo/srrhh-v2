@@ -104,26 +104,40 @@ export async function getAreaProgramaticaByIdService(id: string) {
     direccion: string | null
     barrio: string | null
     nivel: string
+    codigoReparticion: string | null
     cargosVigentes: bigint
   }[]>(Prisma.sql`
     SELECT cs.id, cs.numero, cs.direccion, cs.barrio, cs.nivel,
+           cs.codigo_reparticion AS "codigoReparticion",
            count(*) FILTER (WHERE ${OCUPACION_VIGENTE})::bigint AS "cargosVigentes"
     FROM cesacs cs
     LEFT JOIN cargos c ON c.cesac_id = cs.id
     LEFT JOIN ocupaciones o ON o.cargo_id = c.id
     WHERE cs.area_programatica_id = ${id}::uuid
-    GROUP BY cs.id, cs.numero, cs.direccion, cs.barrio, cs.nivel
+    GROUP BY cs.id, cs.numero, cs.direccion, cs.barrio, cs.nivel, cs.codigo_reparticion
     ORDER BY cs.numero
   `)
 
   const cargosVigentes = cesacs.reduce((acc, c) => acc + Number(c.cargosVigentes), 0)
+
+  // S23-11: columna "Jefe" en la tabla de CeSACs de la AP — mismo
+  // getJefeService que el detalle de CeSAC, resuelto en paralelo por fila.
+  const jefes = await Promise.all(cesacs.map((c) => getJefeService(c.codigoReparticion)))
 
   return {
     id: ap.id,
     nombre: ap.nombre,
     hospital: { id: ap.hospital.id, sigla: ap.hospital.sigla, nombre: ap.hospital.nombre },
     cargosVigentes,
-    cesacs: cesacs.map((c) => ({ ...c, cargosVigentes: Number(c.cargosVigentes) })),
+    cesacs: cesacs.map((c, i) => ({
+      id: c.id,
+      numero: c.numero,
+      direccion: c.direccion,
+      barrio: c.barrio,
+      nivel: c.nivel,
+      cargosVigentes: Number(c.cargosVigentes),
+      jefe: jefes[i],
+    })),
   }
 }
 

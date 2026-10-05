@@ -10,6 +10,12 @@ export interface AreaProgramaticaListItem {
   cargosVigentes: number
 }
 
+export interface Jefe {
+  nombre: string
+  cuil: string
+  cargo: string | null
+}
+
 export interface CesacEnAp {
   id: string
   numero: number
@@ -17,6 +23,7 @@ export interface CesacEnAp {
   barrio: string | null
   nivel: 'unidad' | 'unidad_con_seccion'
   cargosVigentes: number
+  jefe: Jefe | null
 }
 
 export interface AreaProgramaticaDetail {
@@ -47,6 +54,7 @@ export interface CesacDetail {
     hospital: { id: string; sigla: string; nombre: string }
   }
   cargosVigentes: number
+  jefe: Jefe | null
   personal: PersonalRow[]
 }
 
@@ -62,6 +70,7 @@ export interface UnidadFijaListItem {
 }
 
 export interface UnidadFijaDetail extends UnidadFijaListItem {
+  jefe: Jefe | null
   personal: PersonalRow[]
 }
 

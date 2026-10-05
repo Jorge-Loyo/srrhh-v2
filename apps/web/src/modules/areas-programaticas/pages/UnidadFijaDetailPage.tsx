@@ -2,9 +2,8 @@ import { Link, useParams } from 'react-router-dom'
 import { useUnidadFija, TIPO_UNIDAD_FIJA_LABEL, NIVEL_ORGANICO_LABEL } from '../hooks/useAreasProgramaticas'
 import { PersonalTable } from '../components/PersonalTable'
 
-// S23-7: detalle de una unidad fija (CEMAR/COI/Red de Odontología) — mismo
-// patrón que CesacDetailPage. El callout de "Jefe" (S23-11) queda pendiente
-// de S23-10 (resolución en runtime), todavía no hecho.
+// S23-7/S23-11: detalle de una unidad fija (CEMAR/COI/Red de Odontología) —
+// mismo patrón que CesacDetailPage, incluido el callout del Jefe.
 export function UnidadFijaDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: unidad, isLoading, isError } = useUnidadFija(id)
@@ -38,6 +37,17 @@ export function UnidadFijaDetailPage() {
           >
             Ver cargos en Dotación ›
           </Link>
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 bg-secondary/5 flex items-center gap-2.5">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Jefe</p>
+          {unidad.jefe ? (
+            <p className="text-sm">
+              <span className="font-bold text-gray-900">{unidad.jefe.nombre}</span>
+              {unidad.jefe.cargo && <span className="text-gray-500"> — {unidad.jefe.cargo}</span>}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-400">Sin jefe resuelto</p>
+          )}
         </div>
       </div>
 
