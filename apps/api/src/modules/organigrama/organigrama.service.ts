@@ -341,6 +341,26 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     }
   }
 
+  // === 3c. Nombre real de los nodos "Área Programática" (S23) ===
+  // El árbol legacy trae el desc_rep genérico "DEPT Área Programática de
+  // Salud" para las 13 AP (un texto idéntico que no distingue una de otra) —
+  // se pisa acá con el nombre del hospital real del catálogo nuevo
+  // (AreaProgramatica.codigoReparticion, cargado en S23-2/S23-3), sin tocar
+  // el dato crudo importado. Ej.: "DEPT Área Programática de Salud" (40220613)
+  // -> "Área Programática (Durand)".
+  const areasReales = await prisma.areaProgramatica.findMany({
+    where: { codigoReparticion: { not: null } },
+    select: { codigoReparticion: true, hospital: { select: { nombre: true } } },
+  })
+  const nombreApPorCodigo = new Map(
+    areasReales
+      .filter((a): a is typeof a & { codigoReparticion: string } => !!a.codigoReparticion)
+      .map((a) => [
+        a.codigoReparticion,
+        `Área Programática (${a.hospital.nombre.replace(/^Hospital\s+/i, '')})`,
+      ]),
+  )
+
   // === 4. Mapa de nodos ===
   // Pre-cargar padres que no estén en el recorte (ej. SS de APS vive bajo NC)
   const codigosEnRecorte = new Set(rows.map((r) => r.codigoReparticion))
@@ -363,7 +383,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of padresFuera) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? r.descRep,
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre?.trim() || null,
@@ -377,7 +397,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? r.descRep,
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre,
