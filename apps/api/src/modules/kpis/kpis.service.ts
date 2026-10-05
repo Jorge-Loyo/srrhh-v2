@@ -646,7 +646,10 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     FROM padron_historico ph
     JOIN cargos c ON c.id = ph.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE ph.situacion_revista = 'activo'
+    -- Casing mezclado en la BD: el grueso del padrón quedó en 'Activo'
+    -- (mayúscula) y solo los registros nuevos del Dotaneitor v2 en minúscula.
+    -- lower(unaccent(...)) para no perder el 99%.
+    WHERE lower(unaccent(ph.situacion_revista)) = 'activo'
       AND ph.hospital_sigla IS NOT NULL AND trim(ph.hospital_sigla) <> ''
   `
 
@@ -780,7 +783,7 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
     FROM ult
     JOIN cargos c ON c.id = ult.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE ult.situacion_revista = 'activo'
+    WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
       ${construirFiltros('ult', filtros)}
     GROUP BY ult.mes
     ORDER BY ult.mes
@@ -852,7 +855,7 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
           ORDER BY ult.id_sial_rol
         ) AS drn
       FROM ult
-      WHERE ult.situacion_revista = 'activo'
+      WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
     )
     SELECT
       d.cuil,

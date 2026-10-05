@@ -373,7 +373,10 @@ export async function listRetenidosService() {
   const rows = await prisma.$queryRaw<{ persona_id: string }[]>`
     SELECT DISTINCT persona_id
     FROM ocupaciones
-    WHERE hasta IS NULL AND situacion_revista = 'retencion de cargo'
+    -- Casing mezclado en la BD: el grueso del padrón quedó en 'Retencion de
+    -- Cargo' (mayúscula) y solo los registros nuevos del Dotaneitor v2 en
+    -- minúscula. lower(unaccent(...)) para no perder el 99% ni los acentos.
+    WHERE hasta IS NULL AND lower(unaccent(situacion_revista)) = 'retencion de cargo'
   `
   const personaIds = rows.map((r) => r.persona_id)
   if (personaIds.length === 0) return []
