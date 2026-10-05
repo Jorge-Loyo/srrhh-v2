@@ -49,6 +49,10 @@ import { BajasLayout } from '../modules/bajas/components/BajasLayout'
 import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
+import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/AreasProgramaticasPage'
+import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
+import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
+import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -96,7 +100,16 @@ export const router = createBrowserRouter([
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
-            children: [{ path: 'dotacion', element: <DotacionPage /> }],
+            children: [
+              { path: 'dotacion', element: <DotacionPage /> },
+              // S23-7: catálogo oficial de Áreas Programáticas/CeSACs — misma
+              // base de datos (cargos/personas vigentes) que Dotación, mismo
+              // permiso.
+              { path: 'areas-programaticas', element: <AreasProgramaticasPage /> },
+              { path: 'areas-programaticas/:id', element: <AreaProgramaticaDetailPage /> },
+              { path: 'cesacs/:id', element: <CesacDetailPage /> },
+              { path: 'unidades-fijas/:id', element: <UnidadFijaDetailPage /> },
+            ],
           },
           { path: 'organigrama', element: <OrganigramaHomePage /> },
           { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
+import { useAreasProgramaticas, useAreaProgramatica, useUnidadesFijas } from '@/modules/areas-programaticas/hooks/useAreasProgramaticas'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
@@ -28,6 +29,7 @@ const DIMENSIONES_UNION = [
   'escalafonId', 'modalidad', 'puestoNombre', 'especialidadNombre',
   'codigoRegistroId', 'regimen', 'tipoOrigen',
   'sexo', 'situacionRevista', 'reparticion', 'especialidadCph', 'provincia', 'localidad',
+  'areaProgramaticaId', 'cesacId', 'unidadFijaId',
 ] as const
 
 const LIMIT = 50
@@ -130,6 +132,12 @@ export function DotacionPage() {
   const nombreApellido = searchParams.get('nombreApellido') ?? ''
   const cuil = searchParams.get('cuil') ?? ''
   const codigoRol = searchParams.get('codigoRol') ?? ''
+  // S23-8: Área Programática / CeSAC / unidad fija. El combo de CeSAC se
+  // acota a la AP elegida (cascada, igual que el boceto) — un solo id de AP
+  // a la vez maneja esa cascada aunque el filtro en sí sea multi-select.
+  const areaProgramaticaId = getCsv(searchParams, 'areaProgramaticaId')
+  const cesacId = getCsv(searchParams, 'cesacId')
+  const unidadFijaId = getCsv(searchParams, 'unidadFijaId')
 
   const nombreApellidoDeb = useDebounce(nombreApellido, 300)
   const cuilDeb = useDebounce(cuil, 300)
@@ -209,6 +217,9 @@ export function DotacionPage() {
     ...(getCsv(searchParams, 'especialidadCph').length && { especialidadCph: getCsv(searchParams, 'especialidadCph') }),
     ...(getCsv(searchParams, 'provincia').length && { provincia: getCsv(searchParams, 'provincia') }),
     ...(getCsv(searchParams, 'localidad').length && { localidad: getCsv(searchParams, 'localidad') }),
+    ...(areaProgramaticaId.length && { areaProgramaticaId }),
+    ...(cesacId.length && { cesacId }),
+    ...(unidadFijaId.length && { unidadFijaId }),
     ...(codigoCargoDeb && { codigoCargo: codigoCargoDeb }),
     ...(nombreApellidoDeb && { nombreApellido: nombreApellidoDeb }),
     ...(cuilDeb && { cuil: cuilDeb }),
@@ -224,6 +235,22 @@ export function DotacionPage() {
   const { data, isLoading, isFetching, isError } = useDotacion(filters)
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones(true)
+  // S23-8: catálogo de Área Programática / CeSAC / unidad fija (S23-5).
+  const { data: areasProgramaticas } = useAreasProgramaticas()
+  const { data: unidadesFijas } = useUnidadesFijas()
+  // Cascada: el combo de CeSAC muestra solo los de la 1ª AP elegida.
+  const { data: apSeleccionada } = useAreaProgramatica(areaProgramaticaId[0])
+  const apNombreToId = (nombre: string) => areasProgramaticas?.find((a) => a.nombre === nombre)?.id ?? ''
+  const apIdToNombre = (id: string) => areasProgramaticas?.find((a) => a.id === id)?.nombre ?? id
+  const cesacLabel = (c: { numero: number; barrio: string | null }) => `Nº ${c.numero}${c.barrio ? ` — ${c.barrio}` : ''}`
+  const cesacOptions = apSeleccionada?.cesacs.map(cesacLabel) ?? []
+  const cesacLabelToId = (label: string) => apSeleccionada?.cesacs.find((c) => cesacLabel(c) === label)?.id ?? ''
+  const cesacIdToLabel = (id: string) => {
+    const c = apSeleccionada?.cesacs.find((x) => x.id === id)
+    return c ? cesacLabel(c) : id
+  }
+  const unidadFijaNombreToId = (nombre: string) => unidadesFijas?.find((u) => u.nombre === nombre)?.id ?? ''
+  const unidadFijaIdToNombre = (id: string) => unidadesFijas?.find((u) => u.id === id)?.nombre ?? id
   const escalafonesOrdenados = [...(escalafones ?? [])].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es')
   )
@@ -298,6 +325,9 @@ export function DotacionPage() {
     addArr('especialidadCph', getCsv(searchParams, 'especialidadCph'))
     addArr('provincia', getCsv(searchParams, 'provincia'))
     addArr('localidad', getCsv(searchParams, 'localidad'))
+    addArr('areaProgramaticaId', areaProgramaticaId, apIdToNombre)
+    addArr('cesacId', cesacId, cesacIdToLabel)
+    addArr('unidadFijaId', unidadFijaId, unidadFijaIdToNombre)
     g.labels = labels
 
     // Agrega el grupo y limpia las dimensiones sueltas en una sola actualización.
@@ -631,6 +661,32 @@ export function DotacionPage() {
                       onChange={(v) => setCsvParam(key, v)}
                     />
                   ))}
+                </div>
+              </section>
+
+              {/* S23-8: Área Programática / CeSAC / estructura fija (S23-5/S23-6) */}
+              <section className="border border-secondary/30 rounded-lg p-3 bg-secondary/5">
+                <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Área Programática / CeSAC</p>
+                <div className="space-y-2">
+                  <MultiSelectDropdown
+                    label="Área Programática"
+                    value={areaProgramaticaId.map(apIdToNombre)}
+                    options={(areasProgramaticas ?? []).map((a) => a.nombre)}
+                    onChange={(nombres) => setCsvParam('areaProgramaticaId', nombres.map(apNombreToId).filter(Boolean))}
+                  />
+                  <MultiSelectDropdown
+                    label="CeSAC"
+                    value={cesacId.map(cesacIdToLabel)}
+                    options={cesacOptions}
+                    onChange={(labels) => setCsvParam('cesacId', labels.map(cesacLabelToId).filter(Boolean))}
+                  />
+                  <p className="text-[11px] text-gray-400">CeSAC se acota a la primera Área Programática elegida.</p>
+                  <MultiSelectDropdown
+                    label="Unidad fija (CEMAR / COI / Red Odonto)"
+                    value={unidadFijaId.map(unidadFijaIdToNombre)}
+                    options={(unidadesFijas ?? []).map((u) => u.nombre)}
+                    onChange={(nombres) => setCsvParam('unidadFijaId', nombres.map(unidadFijaNombreToId).filter(Boolean))}
+                  />
                 </div>
               </section>
 

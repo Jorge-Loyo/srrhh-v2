@@ -143,6 +143,19 @@ export function AppShell() {
             {!collapsed && <span className="truncate">Organigrama</span>}
           </NavLink>
 
+          {/* Área Programática (S23-7) — catálogo oficial AP/CeSACs del Anexo
+              III + estructura fija del Decreto 306-26. Anidada bajo
+              Organigrama en el boceto del sprint; mismo permiso que Dotación
+              (expone nombre/CUIL/puesto del personal vigente). */}
+          {can(user, 'dotacion', 'ver') && (
+            <NavLink to="/areas-programaticas"
+              className={({ isActive }) => `flex items-center gap-3 pl-9 pr-3 py-2 text-[13px] font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-600 hover:bg-gray-100'}`}
+              title={collapsed ? 'Área Programática' : undefined}>
+              <span className="text-sm shrink-0">▸</span>
+              {!collapsed && <span className="truncate">Área Programática</span>}
+            </NavLink>
+          )}
+
           {/* POU — lectura abierta a todos los roles, sin permiso especial (igual que en la app vieja) */}
           <NavLink to="/pou"
             end
