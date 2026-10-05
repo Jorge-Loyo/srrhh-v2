@@ -215,7 +215,12 @@ async function calcularDiff(registros: RegistroPython[]) {
     if (idSial) nuevosMap.set(idSial, r)
   }
 
-  // Estado actual en Postgres: Cargo + Ocupacion activa (hasta IS NULL)
+  // Estado actual en Postgres: Cargo + su ocupación más relevante. Se trae la
+  // VIGENTE (hasta IS NULL) si existe; si no, la última CERRADA (hasta más
+  // reciente). Esto permite detectar el caso "cargo presente en el padrón pero
+  // su ocupación quedó cerrada" para reabrirla (ver uso de `ocupCerrada` abajo).
+  // El orderBy pone las vigentes primero (hasta NULL) y, entre cerradas, la más
+  // reciente; take:1 deja exactamente la ocupación relevante.
   const cargosActuales = await prisma.cargo.findMany({
     where: { estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] } },
     select: {
@@ -231,9 +236,10 @@ async function calcularDiff(registros: RegistroPython[]) {
       hospital: { select: { sigla: true } },
       escalafon: { select: { nombre: true } },
       ocupaciones: {
-        where: { hasta: null },
+        orderBy: [{ hasta: { sort: 'asc', nulls: 'first' } }],
         select: {
           idSialRol: true,
+          hasta: true,
           situacionRevista: true,
           estadoPersona: true,
           cuil: true,
@@ -391,6 +397,23 @@ async function calcularDiff(registros: RegistroPython[]) {
     const ocup = actual.ocupaciones[0]
     const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
     const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
+
+    // Reapertura: el cargo está en el padrón nuevo pero su ocupación quedó
+    // CERRADA (hasta != null) y no hay vigente. Es el bug que inactivaba
+    // personas cuyo rol seguía apareciendo (ver aprobarSnapshotService). Se
+    // emite un diff 'modificado' con el campo marcador `__reabrir_ocupacion__`
+    // que el aprobar interpreta para reabrir la ocupación y reactivar la
+    // persona. Se usa 'modificado' (no un tipo nuevo) para no migrar el enum
+    // TipoDiff ni tocar la UI del diff.
+    if (ocup && ocup.hasta != null) {
+      diffs.push({
+        tipo: 'modificado',
+        idSialRol,
+        campo: '__reabrir_ocupacion__',
+        valorAnterior: ocup.hasta.toISOString().slice(0, 10),
+        valorNuevo: null,
+      })
+    }
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
       const colUpper =
@@ -1179,7 +1202,6 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         apellidoNombre: string
         numeroDoc: string | null
         tipoDoc: string | null
-        especialidadPrincipal: string | null
         sexo: string | null
         fechaNacimiento: Date | null
         antiguedadDesde: Date | null
@@ -1220,7 +1242,6 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           apellidoNombre: datos.ayn ?? '',
           numeroDoc: datos.numero_doc || null,
           tipoDoc: datos.tipo_doc || null,
-          especialidadPrincipal: datos.especialidad || null,
           sexo: datos.sexo || null,
           fechaNacimiento: parseFechaDDMMYYYY(datos.fecha_nacimiento),
           antiguedadDesde: parseFechaDDMMYYYY(datos.antiguedad),
@@ -1578,6 +1599,32 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
       if (Object.keys(updateOcupacion).length > 0) {
         await tx.ocupacion.updateMany({ where: { idSialRol }, data: updateOcupacion })
+      }
+
+      // Reapertura (fix del bug de inactivación errónea): el cargo aparece en el
+      // padrón pero su ocupación estaba cerrada. Se reabre (hasta=NULL), se
+      // reactiva a la persona y el cargo vuelve a 'vigente'. Sin esto, un rol
+      // que reaparece quedaba cerrado para siempre y su persona inactiva.
+      const reabrir = cambios.some((c) => c.campo === '__reabrir_ocupacion__')
+      if (reabrir && ocupExistente) {
+        await tx.ocupacion.updateMany({
+          where: { idSialRol, hasta: { not: null } },
+          data: { hasta: null },
+        })
+        await tx.cargo.update({
+          where: { id: ocupExistente.cargoId },
+          data: { estado: 'vigente', estadoDesde: null },
+        })
+        const ocupPersona = (await tx.ocupacion.findFirst({
+          where: { idSialRol },
+          select: { personaId: true },
+        })) as { personaId: string } | null
+        if (ocupPersona) {
+          await tx.persona.update({
+            where: { id: ocupPersona.personaId },
+            data: { activo: true },
+          })
+        }
       }
     }
 
