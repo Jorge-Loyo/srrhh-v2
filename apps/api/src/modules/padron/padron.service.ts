@@ -1308,6 +1308,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           catalogoPuestos,
           puestoResuelto.id,
           datos.especialidad ?? null,
+          puestoResuelto.nombre,
         )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
@@ -2388,6 +2389,7 @@ export async function aprobarDiffNuevoService(
         catalogoPuestos,
         puestoResuelto.id,
         datos.especialidad ?? null,
+        puestoResuelto.nombre,
       )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
@@ -2566,6 +2568,7 @@ export async function marcarTransferenciaService(
     catalogoPuestosTransferencia,
     puestoResueltoTransferencia.id,
     datos.especialidad ?? null,
+    puestoResueltoTransferencia.nombre,
   )
 
   // Crear SolicitudAlta como transferencia aprobada directamente
@@ -2689,6 +2692,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
         catalogoPuestos,
         puestoResuelto.id,
         datos.especialidad ?? null,
+        puestoResuelto.nombre,
       )
       cargo = (await tx.cargo.create({
         data: {

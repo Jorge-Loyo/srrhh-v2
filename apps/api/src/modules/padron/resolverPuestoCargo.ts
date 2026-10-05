@@ -1,5 +1,6 @@
 import { esConduccionPorLiteral } from '../../shared/codigoCargo.js'
 import { normalizarTexto } from '@srrhh/normalizacion'
+import { derivarEspecialidadDesdePuesto } from './derivarEspecialidadPuesto.js'
 import type { ModalidadPuesto, TipoPuesto } from '@prisma/client'
 
 // S20-6: el catálogo PuestoCargo/EspecialidadPuesto pasa a ser la fuente real
@@ -142,13 +143,33 @@ export async function resolverPuestoCargoId(
 // (minúscula + sin tilde), así el mapeo se va limpiando y completando import a
 // import. El matcheo usa la misma normalización, por lo que "Cardiología" del
 // padrón matchea "cardiologia" del catálogo y NO duplica.
+//
+// 2026-10 (Alcance B): el padrón NO trae especialidad para los puestos no
+// médicos (enfermeros, técnicos, administrativos...), así que `especialidad`
+// llega vacía y antes el cargo quedaba sin especialidad. Para esos puestos la
+// especialidad está DETERMINADA por el puesto mismo, así que si el padrón no la
+// trae se DERIVA del nombre del puesto (misma regla que el backfill, módulo
+// compartido). Para médicos genéricos y conducción la derivación devuelve null
+// y el cargo queda sin especialidad (correcto: no es derivable). Así cada
+// padrón futuro ya trae la especialidad poblada sin correr el backfill a mano.
 export async function resolverEspecialidadPuestoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
   puestoCargoId: string,
   especialidad: string | null,
+  nombrePuesto?: string | null,
 ): Promise<string | null> {
-  const nombreCurado = normalizarTexto(especialidad).slice(0, 200)
+  // 1. Especialidad del padrón (médicos). Si vino, manda.
+  let nombreCurado = normalizarTexto(especialidad).slice(0, 200)
+
+  // 2. Fallback (no médicos): si el padrón no trajo especialidad, derivarla del
+  //    nombre del puesto. derivarEspecialidadDesdePuesto ya devuelve minúscula
+  //    sin tilde; se vuelve a curar por las dudas para unificar el formato.
+  if (!nombreCurado && nombrePuesto) {
+    const derivada = derivarEspecialidadDesdePuesto(nombrePuesto)
+    if (derivada) nombreCurado = normalizarTexto(derivada).slice(0, 200)
+  }
+
   if (!nombreCurado) return null
 
   const key = `${puestoCargoId}:${normPuestoKey(nombreCurado)}`
