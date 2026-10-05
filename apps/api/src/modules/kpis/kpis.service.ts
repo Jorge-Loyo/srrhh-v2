@@ -152,6 +152,13 @@ export async function getKpisDotacionService(query: KpisDotacionQuery) {
         ) AS ocupado
       FROM cargos c
       WHERE c.estado = 'vigente' ${hospitalFilter}
+        -- Excluir carreras que este sector NO gestiona: Residencias y Docentes
+        -- (incl. "Docentes Históricos"). No entran en ningún KPI de dotación.
+        AND NOT EXISTS (
+          SELECT 1 FROM escalafones eex
+          WHERE eex.id = c.escalafon_id
+            AND (eex.nombre ILIKE '%residencia%' OR eex.nombre ILIKE '%docente%')
+        )
         -- Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia
         -- (mismo puesto+repartición, mismo ocupante) SIN código de jefatura para
         -- colgarle más dotación. Es el MISMO cargo → se excluye el espejo (cuya

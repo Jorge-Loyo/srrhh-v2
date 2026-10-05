@@ -64,3 +64,11 @@ o_ret.persona_id
 
 # Normas/PDFs de referencia ajenos (no versionados a propósito)
 Doc/Normas/
+
+# Doc/Referencias: insumos binarios (PDFs de normas, Excel/CSV de padrones y
+# planillas de referencia) no se versionan — son datos operativos pesados que
+# se pasan a mano. La documentación .md de la carpeta SÍ se versiona.
+Doc/Referencias/*.pdf
+Doc/Referencias/*.xlsx
+Doc/Referencias/*.xls
+Doc/Referencias/*.csv

@@ -6,14 +6,14 @@ import { z } from 'zod'
 export const SECCIONES = ['nivel-central', 'atencion-primaria'] as const
 export type Seccion = (typeof SECCIONES)[number]
 
-export const SECCION_UNIVERSOS: Record<Seccion, string> = {
-  // La comparación en organigrama.service.ts usa mode:'insensitive', así
-  // que la mayúscula/minúscula acá no importa en la práctica.
-  'nivel-central': 'Nivel Central',
-  // Antes decía 'APS' — no matcheaba ningún valor real de
-  // organigramas.universo_totalizador (que es "ATENCION PRIMARIA", 103
-  // filas en el Excel), así que esta sección siempre tiraba 404.
-  'atencion-primaria': 'ATENCION PRIMARIA',
+// Variantes de universo_totalizador aceptadas por cada sección. Se usa `in`
+// (case-insensitive) en organigrama.service.ts, así que una sección puede
+// matchear más de una etiqueta equivalente. Atención Primaria convive hoy como
+// 'APS' (110 nodos históricos) y 'ATENCION PRIMARIA' (nodos nuevos inferidos);
+// se aceptan ambas para no dejar afuera ninguna rama.
+export const SECCION_UNIVERSOS: Record<Seccion, string[]> = {
+  'nivel-central': ['Nivel Central'],
+  'atencion-primaria': ['APS', 'ATENCION PRIMARIA'],
 }
 
 export const organigramaQuerySchema = z

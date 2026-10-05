@@ -8,7 +8,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { toPng } from 'html-to-image'
 import { ChevronDownIcon, ChevronRightIcon, UserIcon, ArrowDownTrayIcon, BuildingOfficeIcon, ArrowLeftIcon } from '@heroicons/react/24/outline'
-import { tipoColor, stripRedundantPrefix, agruparDept, UMBRAL_DEPT } from '../lib/organigramaHelpers'
+import { tipoColor, stripRedundantPrefix, agruparDept, esDireccionAdjuntaGestion, UMBRAL_DEPT } from '../lib/organigramaHelpers'
 import type { OrganigramaNodo } from '../hooks/useOrganigrama'
 import type { PersonaSeleccionada } from './OrganigramaTreeNode'
 import type { SearchMatch } from '../lib/organigramaHelpers'
@@ -43,9 +43,27 @@ function countWrappedLines(text: string, availableWidth: number): number {
   return lines
 }
 
-function estimateNodeHeight(name: string | null): number {
-  const lines = countWrappedLines(stripRedundantPrefix(name), NODE_W - NAME_PADDING_X)
-  return Math.max(NODE_H_MIN, HEADER_FOOTER_H + lines * NAME_LINE_H)
+// Altura estimada del card: encabezado/pie fijos + las líneas que ocupa el
+// nombre de la unidad + las que ocupa el nombre de la persona (que ya no se
+// trunca, hace wrap). Sin contar la persona, un nombre largo como
+// "Gonzalez Bernaldo de Quiros, Fernan" quedaba cortado o se solapaba con el
+// código de abajo. El código de cargo (si lo hay) suma ancho en la misma línea
+// de la persona, se aproxima con ~8 caracteres extra.
+const PERSONA_LINE_H = 13
+function estimateNodeHeight(name: string | null, persona: OrganigramaNodo['persona']): number {
+  const unidadLines = countWrappedLines(stripRedundantPrefix(name), NODE_W - NAME_PADDING_X)
+  let personaLines = 0
+  if (persona?.nombre) {
+    const sufijo = persona.codigoCargo ? ` ${'x'.repeat(persona.codigoCargo.length + 2)}` : ''
+    // -16px extra: el icono de usuario ocupa ancho a la izquierda del texto.
+    personaLines = countWrappedLines(persona.nombre + sufijo, NODE_W - NAME_PADDING_X - 16)
+  } else {
+    personaLines = 1 // "Vacante"
+  }
+  return Math.max(
+    NODE_H_MIN,
+    HEADER_FOOTER_H + unidadLines * NAME_LINE_H + personaLines * PERSONA_LINE_H,
+  )
 }
 
 interface NodoAnotado extends Omit<OrganigramaNodo, 'hijos'> {
@@ -133,7 +151,7 @@ function buildGraph(
         tipo: n.tipo, nombre: n.nombre, persona: n.persona, codigo: n.id,
         hasChildren: n.hijos.length > 0, childCount: n.hijos.length,
         isActive: true, isGroup: false,
-        height: estimateNodeHeight(n.nombre),
+        height: estimateNodeHeight(n.nombre, n.persona),
         onPersonaClick,
         isHighlighted: highlightId != null && n.id === highlightId,
       },
@@ -146,8 +164,15 @@ function buildGraph(
   const childDepth = nav.focusPath.length
   const childY = rowY[childDepth] ?? accY
 
+  const rawHijosAll = lastNode === root && nav.focusPath.length === 0 ? [] : lastNode.hijos
+
+  // Agrupador "DGA": las Direcciones Adjuntas de Gestión Administrativa (una por
+  // hospital) se juntan en un único ravioli virtual, en vez de ~15 cajas sueltas.
+  // Es un agrupador, no un puesto real (sin conductor).
+  const hijosDGA = rawHijosAll.filter((h) => esDireccionAdjuntaGestion(h))
+  const rawHijos = hijosDGA.length >= 2 ? rawHijosAll.filter((h) => !esDireccionAdjuntaGestion(h)) : rawHijosAll
+
   // Separar hijos DEPT en grupos si superan umbral
-  const rawHijos = lastNode === root && nav.focusPath.length === 0 ? [] : lastNode.hijos
   const hijosDept = rawHijos.filter((h) => h.tipo === 'DEPT')
   const hijosNormales = hijosDept.length >= UMBRAL_DEPT ? rawHijos.filter((h) => h.tipo !== 'DEPT') : rawHijos
   const grupos = hijosDept.length >= UMBRAL_DEPT ? agruparDept(hijosDept) : []
@@ -164,6 +189,17 @@ function buildGraph(
       label: g.label,
       miembros: g.nodos.map((n) => lastNode.hijos.find((h) => h.id === n.id)!).filter(Boolean),
     })),
+    // Ravioli DGA (si hay 2+ direcciones adjuntas colgando de este nodo).
+    ...(hijosDGA.length >= 2
+      ? [
+          {
+            tipo: 'grupo' as const,
+            groupId: `${lastNode._id}-dga`,
+            label: `DGA — Direcciones Adjuntas de Gestión (${hijosDGA.length})`,
+            miembros: hijosDGA,
+          },
+        ]
+      : []),
   ]
 
   // Si no hay camino aún, mostrar solo la raíz
@@ -176,7 +212,7 @@ function buildGraph(
         tipo: root.tipo, nombre: root.nombre, persona: root.persona, codigo: root.id,
         hasChildren: root.hijos.length > 0, childCount: root.hijos.length,
         isActive: true, isGroup: false,
-        height: estimateNodeHeight(root.nombre),
+        height: estimateNodeHeight(root.nombre, root.persona),
         onPersonaClick,
         isHighlighted: highlightId != null && root.id === highlightId,
       },
@@ -217,7 +253,7 @@ function buildGraph(
           tipo: m.tipo, nombre: m.nombre, persona: m.persona, codigo: m.id,
           hasChildren: m.hijos.length > 0, childCount: m.hijos.length,
           isActive: false, isGroup: false,
-          height: estimateNodeHeight(m.nombre), onPersonaClick,
+          height: estimateNodeHeight(m.nombre, m.persona), onPersonaClick,
           isHighlighted: highlightId != null && m.id === highlightId,
         },
       })
@@ -241,7 +277,7 @@ function buildGraph(
           tipo: n.tipo, nombre: n.nombre, persona: n.persona, codigo: n.id,
           hasChildren: n.hijos.length > 0, childCount: n.hijos.length,
           isActive: false, isGroup: false,
-          height: estimateNodeHeight(n.nombre),
+          height: estimateNodeHeight(n.nombre, n.persona),
           onPersonaClick,
           isHighlighted: highlightId != null && n.id === highlightId,
         },
@@ -319,20 +355,22 @@ function OrgNode({ data }: NodeProps<Node<OrgNodeData>>) {
             </span>
           )}
         </div>
-        <p className="text-xs font-semibold text-gray-900 leading-snug">{stripRedundantPrefix(nombre)}</p>
+        <p className="text-xs font-semibold text-gray-900 leading-snug break-words">{stripRedundantPrefix(nombre)}</p>
         {persona ? (
           <p
-            className="text-[10px] text-primary-700 mt-0.5 truncate flex items-center gap-0.5 hover:underline cursor-pointer"
+            className="text-[10px] text-primary-700 mt-0.5 flex items-start gap-0.5 hover:underline cursor-pointer"
             onClick={(e) => { e.stopPropagation(); onPersonaClick({ persona, nodeName: stripRedundantPrefix(nombre), nodeTitle: tipo }) }}
           >
-            <UserIcon className="w-2.5 h-2.5 flex-shrink-0" />
-            {persona.nombre}
-            {persona.codigoCargo && <span className="font-mono text-[9px] bg-gray-100 text-gray-400 px-1 rounded ml-0.5">{persona.codigoCargo}</span>}
+            <UserIcon className="w-2.5 h-2.5 flex-shrink-0 mt-0.5" />
+            <span className="break-words min-w-0">
+              {persona.nombre}
+              {persona.codigoCargo && <span className="font-mono text-[9px] bg-gray-100 text-gray-400 px-1 rounded ml-0.5 whitespace-nowrap">{persona.codigoCargo}</span>}
+            </span>
           </p>
         ) : (
           <p className="text-[10px] text-amber-600 font-medium italic mt-0.5">Vacante</p>
         )}
-        {codigo && tipo !== 'REGIMEN' && <p className="text-[9px] font-mono text-gray-400 mt-1 truncate">{codigo}</p>}
+        {codigo && tipo !== 'REGIMEN' && <p className="text-[9px] font-mono text-gray-400 mt-1 break-all">{codigo}</p>}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </>

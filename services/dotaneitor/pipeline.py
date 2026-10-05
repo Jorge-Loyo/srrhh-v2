@@ -61,6 +61,22 @@ _COLUMNAS_NO_MINUSCULA = {
     'siglas', 'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
 }
 
+# Columnas internas de procesamiento que NO deben salir en el Excel descargable
+# (sí se devuelven a Node para el diff y la carga a BD). Son: la descomposición
+# del legajo/rol y del nombre, los ids resueltos del catálogo y los textos de
+# origen previos a la normalización. Pedido del usuario (Dota - sacar columnas).
+_COLUMNAS_INTERNAS_EXPORT = {
+    'id_sial_legajo',
+    'nro_rol',
+    'apellido',
+    'nombre',
+    'escalafon_id',
+    'puesto_cargo_id',
+    'especialidad_puesto_id',
+    'literal_puesto_origen',
+    'especialidad_origen',
+}
+
 
 @dataclass
 class ResultadoPipeline:
@@ -453,8 +469,14 @@ def procesar_padron(
 
 
 def df_a_excel_bytes(df: pd.DataFrame, sheet_name: str = 'Dotacion') -> bytes:
-    """Serializa el DataFrame de dotación a bytes xlsx (único Excel que genera v2)."""
+    """Serializa el DataFrame de dotación a bytes xlsx (único Excel que genera v2).
+
+    Excluye del Excel DESCARGABLE las columnas internas de procesamiento (ids del
+    catálogo, descomposiciones de legajo/nombre y textos de origen): no aportan al
+    usuario final. OJO: solo se quitan del Excel; el DataFrame completo se sigue
+    devolviendo a Node para el diff y la carga a BD (que sí usa esos ids)."""
+    df_export = df.drop(columns=[c for c in _COLUMNAS_INTERNAS_EXPORT if c in df.columns])
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as w:
-        df.to_excel(w, index=False, sheet_name=sheet_name)
+        df_export.to_excel(w, index=False, sheet_name=sheet_name)
     return buf.getvalue()

@@ -54,8 +54,8 @@ export function CargoDetailPanel() {
               <p className="text-white/60 text-xs font-mono mb-1">{cargo.idSial}</p>
               <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? cargo.idSial}</h1>
               <p className="text-white/80 text-sm mt-1">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
-              {(cargo.especialidadLegacy ?? cargo.especialidad) && (
-                <p className="text-white/55 text-xs mt-0.5">{cargo.especialidadLegacy ?? cargo.especialidad}</p>
+              {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
+                <p className="text-white/55 text-xs mt-0.5">{cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad}</p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2 shrink-0 mt-1">
@@ -90,9 +90,9 @@ export function CargoDetailPanel() {
           </Section>
 
           {/* Solo mostrar Clasificación si hay al menos un campo con dato */}
-          {((cargo.especialidadLegacy ?? cargo.especialidad) || cargo.agrupador || cargo.unificadorPuesto || cargo.agrupamiento) && (
+          {((cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) || cargo.agrupador || cargo.unificadorPuesto || cargo.agrupamiento) && (
             <Section title="Clasificación">
-              <Dato label="Especialidad"        value={cargo.especialidadLegacy ?? cargo.especialidad} />
+              <Dato label="Especialidad"        value={cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad} />
               <Dato label="Agrupador"           value={cargo.agrupador} />
               <Dato label="Unificador de puesto" value={cargo.unificadorPuesto} />
               <Dato label="Agrupamiento"

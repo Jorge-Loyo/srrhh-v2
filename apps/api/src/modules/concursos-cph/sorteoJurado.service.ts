@@ -846,6 +846,7 @@ export async function listJuradosVigentesService() {
                   codigo: true,
                   literalPuesto: true,
                   especialidadLegacy: true,
+                  especialidadPuesto: { select: { id: true, nombre: true } },
                   escalafonId: true,
                   hospital: { select: { sigla: true, nombre: true } },
                 },

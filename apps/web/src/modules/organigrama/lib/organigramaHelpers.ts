@@ -8,8 +8,13 @@ const TIPO_COLOR: Record<string, string> = {
   Ministerio: 'bg-slate-700 text-white',
   AREA: 'bg-orange-600 text-white',
   'SSEC/DIREJE': 'bg-lime-700 text-white',
-  GO: 'bg-primary-700 text-white',
-  SGO: 'bg-blue-600 text-white',
+  // GO: se usa un color de la ESCALA ESTÁNDAR de Tailwind (blue-700), no
+  // `primary`/`secondary` del tema — `primary` es el amarillo GCBA sin escala
+  // numérica (bg-primary-700 no existía → fondo transparente → texto blanco
+  // sobre blanco, badge invisible). blue-700 es sólido, legible con texto
+  // blanco, y distinto del blue-500 de SGO.
+  GO: 'bg-blue-700 text-white',
+  SGO: 'bg-blue-400 text-white',
   DG: 'bg-fuchsia-600 text-white',
   'F/N DG': 'bg-violet-600 text-white',
   'F/N DEJE': 'bg-teal-600 text-white',
@@ -35,6 +40,15 @@ export const UMBRAL_DEPT = 8
 export interface GrupoDept {
   label: string
   nodos: OrganigramaNodo[]
+}
+
+// Las "Direcciones Adjuntas de Gestión Administrativa" (una por hospital)
+// cuelgan todas de la SS de Administración del Sistema de Salud y son ~15 cajas
+// idénticas que saturan la vista. Se agrupan bajo un ravioli virtual "DGA"
+// (agrupador, no un puesto real). Se detectan por el prefijo del nombre.
+export function esDireccionAdjuntaGestion(nodo: OrganigramaNodo): boolean {
+  const n = normalizeText(nodo.nombre ?? '')
+  return n.includes('adjunta de gestion administrativa')
 }
 
 export function tipoColor(tipo: string): string {

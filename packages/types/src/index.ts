@@ -101,6 +101,11 @@ export interface Persona {
   apellidoNombre: string
   fechaNacimiento: string | null
   sexo: string | null
+  // Especialidad del cargo vigente de la persona. S21-5: ya NO es una columna
+  // de `personas` (se eliminó), la API la deriva en runtime desde el Cargo
+  // vigente (especialidad_puesto del catálogo, con fallback a especialidad_legacy).
+  // Se mantiene en el contrato de respuesta porque la consumen varias vistas.
+  especialidadPrincipal: string | null
   activo: boolean
   createdAt: string
   updatedAt: string
@@ -1065,6 +1070,8 @@ export interface PersonaDesignadaDetalle {
   tipoDoc: string | null
   fechaNacimiento: string | null
   sexo: string | null
+  // Derivada en runtime del cargo vigente (S21-5, ver nota en Persona).
+  especialidadPrincipal: string | null
   especialidadCph: string | null
   telefono: string | null
   mailLaboral: string | null
@@ -1084,6 +1091,10 @@ export interface OcupacionResumen {
   literalPuesto: string | null
   escalafonId: string
   escalafonNombre: string | null
+  // Especialidad resuelta del catálogo (especialidades_puesto.nombre) con
+  // fallback al snapshot. El front debe preferir `especialidad`; `especialidadLegacy`
+  // queda solo por compatibilidad/auditoría.
+  especialidad: string | null
   especialidadLegacy: string | null
   situacionRevista: string | null // incluye 'Retencion de Cargo'
   estadoPersona: string | null

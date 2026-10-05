@@ -142,6 +142,9 @@ export async function listCargosService(query: CargosQuery) {
       include: {
         hospital: true,
         escalafon: true,
+        // Especialidad del catálogo (fuente de verdad); el front la prefiere
+        // sobre especialidadLegacy.
+        especialidadPuesto: { select: { id: true, nombre: true } },
         ocupaciones: {
           where: { hasta: null },
           include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
@@ -180,6 +183,7 @@ export async function getCargoByIdService(id: string) {
       hospital: true,
       escalafon: true,
       codigoRegistro: true,
+      especialidadPuesto: { select: { id: true, nombre: true } },
       ocupaciones: {
         include: { persona: true },
         orderBy: { hasta: 'desc' }, // vigente (null) primero, luego más reciente

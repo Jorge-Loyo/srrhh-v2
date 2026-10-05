@@ -9,10 +9,22 @@ const SECCIONES = [
 ]
 
 // Orden preferido de categorías (Hospital.tipo) — el resto se agrega
-// alfabéticamente al final. Puerto del CATEGORY_ORDER de la app vieja,
-// adaptado a los valores reales que carga la migración 20260908000000_hospitales_enriquecer
-// (Title Case, no mayúsculas como en dotacion-rrhh).
-const CATEGORIA_ORDEN = ['Hospitales de Agudos', 'Hospitales de Niños', 'Hospitales de Salud Mental', 'Hospitales Monovalentes']
+// alfabéticamente al final. Se compara en MAYÚSCULA/sin tilde porque la BD
+// guarda tipo/universo normalizados a mayúscula (ej. 'HOSPITALES DE AGUDOS',
+// universo 'HOSPITALES'); antes se comparaba contra Title Case y no matcheaba
+// ningún hospital, dejando el listado vacío.
+const CATEGORIA_ORDEN = [
+  'HOSPITALES DE AGUDOS',
+  'HOSPITALES DE NIÑOS',
+  'HOSPITALES DE SALUD MENTAL',
+  'HOSPITALES MONOVALENTES',
+]
+const norm = (s: string | null | undefined) =>
+  (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim()
 
 export function OrganigramaHomePage() {
   const navigate = useNavigate()
@@ -22,7 +34,7 @@ export function OrganigramaHomePage() {
   // Solo efectores reales (no dependencias de Nivel Central/APS/SAME — esas
   // se navegan desde las dos "Secciones" de arriba, no desde este buscador).
   const hospitalesPorCategoria = useMemo(() => {
-    const efectores = (hospitales ?? []).filter((h) => h.activo && h.universoTotalizador === 'Hospitales')
+    const efectores = (hospitales ?? []).filter((h) => h.activo && norm(h.universoTotalizador) === 'HOSPITALES')
     const grupos = new Map<string, typeof efectores>()
     efectores.forEach((h) => {
       const cat = h.tipo || 'Otros'
@@ -30,8 +42,8 @@ export function OrganigramaHomePage() {
       grupos.get(cat)!.push(h)
     })
     const categorias = [...grupos.keys()].sort((a, b) => {
-      const ia = CATEGORIA_ORDEN.indexOf(a)
-      const ib = CATEGORIA_ORDEN.indexOf(b)
+      const ia = CATEGORIA_ORDEN.indexOf(norm(a))
+      const ib = CATEGORIA_ORDEN.indexOf(norm(b))
       if (ia !== -1 && ib !== -1) return ia - ib
       if (ia !== -1) return -1
       if (ib !== -1) return 1

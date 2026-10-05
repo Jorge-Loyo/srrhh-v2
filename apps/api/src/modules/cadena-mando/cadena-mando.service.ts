@@ -66,22 +66,27 @@ export async function getCadenaMandoService(
     LEFT JOIN LATERAL (
       SELECT c2.id, c2.literal_puesto, c2.codigo, c2.codigo_repa
       FROM cargos c2
-      JOIN codigos_registro cr ON cr.id = c2.codigo_registro_id
-        AND cr.codigo IN ('25','60','37','83','85','87')
+      -- Join opcional al código de registro: la Carrera Gerencial (gerente/
+      -- subgerente operativo) NO tiene código de registro ni JCAT pero es
+      -- conducción (ocupa los nodos GO/SGO) — se identifica por escalafón.
+      LEFT JOIN codigos_registro cr ON cr.id = c2.codigo_registro_id
+      LEFT JOIN escalafones e2 ON e2.id = c2.escalafon_id
       JOIN ocupaciones o2 ON o2.cargo_id = c2.id
         AND o2.hasta IS NULL
-        -- S22-2/S22-3 (Dotaneitor): normalización total a minúscula sin
-        -- tilde — 'Activo' (literal viejo, pre-S22) ya no matchea nada; hoy
-        -- es 'activo'. Hallazgo 2026-10-05 armando S23-10 (resolución de
-        -- jefe), que reusa este mismo patrón.
-        AND o2.situacion_revista = 'activo'
+        -- S22-2/S22-3 (Dotaneitor): normalización a minúscula sin tilde. La BD
+        -- puede tener el valor mezclado durante la migración (padrones viejos
+        -- 'Activo' / nuevos 'activo'), así que se compara case-insensitive para
+        -- no perderse ninguno.
+        AND lower(o2.situacion_revista) = 'activo'
         AND (
           cr.codigo IN ('25','60')
-          OR (o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
+          OR (cr.codigo IN ('37','83','85','87')
+              AND o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
+          OR e2.nombre ILIKE '%gerencial%'
         )
       WHERE c2.codigo_repa = cadena.codigo_reparticion
         AND c2.deleted_at IS NULL
-      ORDER BY cr.codigo ASC
+      ORDER BY cr.codigo ASC NULLS LAST
       LIMIT 1
     ) c2 ON true
     LEFT JOIN ocupaciones o2 ON o2.cargo_id = c2.id AND o2.hasta IS NULL

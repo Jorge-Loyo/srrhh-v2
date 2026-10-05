@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, memo, useMemo, useState } from 'react'
 import { ChevronRightIcon, ChevronDownIcon, UserIcon, BriefcaseIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
-import { tipoColor, stripRedundantPrefix, agruparDept, UMBRAL_DEPT } from '../lib/organigramaHelpers'
+import { tipoColor, stripRedundantPrefix, agruparDept, esDireccionAdjuntaGestion, UMBRAL_DEPT } from '../lib/organigramaHelpers'
 import type { OrganigramaNodo, OrganigramaPersona } from '../hooks/useOrganigrama'
 import type { GrupoDept } from '../lib/organigramaHelpers'
 
@@ -145,9 +145,24 @@ export const TreeNode = memo(function TreeNode({
   }, [])
 
   const { hijosNormales, gruposDept } = useMemo(() => {
-    const hijosDept = node.hijos.filter((h) => h.tipo === 'DEPT')
-    if (hijosDept.length < UMBRAL_DEPT) return { hijosNormales: node.hijos, gruposDept: [] as GrupoDept[] }
-    return { hijosNormales: node.hijos.filter((h) => h.tipo !== 'DEPT'), gruposDept: agruparDept(hijosDept) }
+    // Ravioli "DGA": agrupar las Direcciones Adjuntas de Gestión Administrativa
+    // (una por hospital) en un acordeón, en vez de ~15 filas sueltas. Es un
+    // agrupador, no un puesto real.
+    const hijosDGA = node.hijos.filter((h) => esDireccionAdjuntaGestion(h))
+    const agrupaDGA = hijosDGA.length >= 2
+    const grupoDGA: GrupoDept[] = agrupaDGA
+      ? [{ label: `DGA — Direcciones Adjuntas de Gestión (${hijosDGA.length})`, nodos: hijosDGA }]
+      : []
+
+    const base = agrupaDGA ? node.hijos.filter((h) => !esDireccionAdjuntaGestion(h)) : node.hijos
+    const hijosDept = base.filter((h) => h.tipo === 'DEPT')
+    if (hijosDept.length < UMBRAL_DEPT) {
+      return { hijosNormales: base, gruposDept: grupoDGA }
+    }
+    return {
+      hijosNormales: base.filter((h) => h.tipo !== 'DEPT'),
+      gruposDept: [...agruparDept(hijosDept), ...grupoDGA],
+    }
   }, [node.hijos])
 
   return (
