@@ -361,6 +361,14 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       ]),
   )
 
+  // El legacy también arrastra el mismo dato repetido como sufijo "- AP
+  // {NOMBRE}" en los 55 nodos hijos (CeSACs) de las 13 AP — ahora redundante
+  // porque el padre ya lo muestra. Se recorta solo ese sufijo, dejando el
+  // resto del desc_rep intacto (ej. "CeSAC N° 9 - AP ARGERICH" -> "CeSAC N° 9").
+  const SUFIJO_AP = /\s*-\s*AP\s+.+$/i
+  const limpiarSufijoAp = (desc: string | null): string | null =>
+    desc ? desc.replace(SUFIJO_AP, '') : desc
+
   // === 4. Mapa de nodos ===
   // Pre-cargar padres que no estén en el recorte (ej. SS de APS vive bajo NC)
   const codigosEnRecorte = new Set(rows.map((r) => r.codigoReparticion))
@@ -383,7 +391,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of padresFuera) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? limpiarSufijoAp(r.descRep),
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre?.trim() || null,
@@ -397,7 +405,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   for (const r of rows) {
     mapa.set(r.codigoReparticion, {
       id: r.codigoReparticion,
-      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? r.descRep,
+      nombre: nombreApPorCodigo.get(r.codigoReparticion) ?? limpiarSufijoAp(r.descRep),
       tipo: r.tipo,
       nivel: r.lvl,
       padre: r.padre,
