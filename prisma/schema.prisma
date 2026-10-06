@@ -382,7 +382,12 @@ model Persona {
 
 model Cargo {
   id                String       @id @default(uuid()) @db.Uuid
-  idSial            String       @unique @map("id_sial") @db.VarChar(50)
+  // id_sial = identificador del SIAL del gobierno. Es dato EXTERNO: el sistema
+  // NO lo inventa, lo trae del padrón. Nullable (S24): un cargo de conducción
+  // vacante generado desde el organigrama no tiene id_sial porque nadie lo
+  // ocupa — cuando una persona lo ocupe, el padrón le asigna el id_sial real.
+  // El identificador que SÍ genera el sistema es `codigo` (CPH-D-xxx).
+  idSial            String?      @unique @map("id_sial") @db.VarChar(50)
   // Código interno del sistema (distinto del id_sial, que es del SIAL del
   // gobierno) — nomenclatura heredada del sistema legacy dotacion-rrhh
   // (Doc/REGLAS_NEGOCIO.MD ahí, sección 3): {CARRERA}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos},

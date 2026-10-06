@@ -13,12 +13,13 @@
  *   puesto    → del tipo del nodo (DHOS→Director, DEPT→Jefe de Depto, etc.)
  *   JCAT      → del nivel + familia (jcat_cargo_jefatura al revés)
  *   código    → prefijoDeCargo() + siguienteCodigoCargo() (cadena existente)
- *   id_sial   → VAC-{codigo_repa} (sintético, no choca con los del padrón)
+ *   id_sial   → NULL (dato externo del SIAL; el sistema no lo inventa, lo trae
+ *               el padrón cuando una persona ocupe el cargo — S24-6)
  *   origen    → 'organigrama'
  *   estado    → 'vigente', sin ocupación
  *
  * Idempotente: solo crea cargo para nodos que NO tengan ya un cargo con
- * id_sial='VAC-{codigo_repa}'. Re-ejecutable sin duplicar.
+ * origen='organigrama' para esa repartición. Re-ejecutable sin duplicar.
  *
  * Uso:
  *   cd apps/api
@@ -97,10 +98,11 @@ async function main() {
           AND (cr.codigo IN ('25','60') OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas IS NOT NULL AND o.codigo_jefaturas <> '' AND o.codigo_jefaturas <> '0'))
         WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL
       )
-      -- Idempotencia: excluir nodos que ya tienen un cargo generado VAC-{codigo_repa}
+      -- Idempotencia: excluir nodos que ya tienen un cargo generado desde el
+      -- organigrama (origen='organigrama') para esa repartición.
       AND NOT EXISTS (
         SELECT 1 FROM cargos cg
-        WHERE cg.id_sial = 'VAC-' || og.codigo_reparticion AND cg.deleted_at IS NULL
+        WHERE cg.origen = 'organigrama' AND cg.codigo_repa = og.codigo_reparticion AND cg.deleted_at IS NULL
       )
     ORDER BY og.tipo, og.desc_rep
   `)
@@ -164,7 +166,6 @@ async function main() {
   const errores: string[] = []
 
   for (const nodo of nodos) {
-    const idSial = `VAC-${nodo.codigo_reparticion}`
     const tipoInfo = TIPO_A_PUESTO[nodo.tipo]
     if (!tipoInfo) {
       errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: tipo '${nodo.tipo}' sin mapeo a puesto`)
@@ -223,7 +224,9 @@ async function main() {
       const codigo = await siguienteCodigoCargo(prefijo, tx)
       await tx.cargo.create({
         data: {
-          idSial: idSial,
+          // id_sial NULL: dato externo del SIAL, el sistema no lo inventa. Lo
+          // asigna el padrón cuando una persona ocupe el cargo (S24-6).
+          idSial: null,
           codigo,
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
