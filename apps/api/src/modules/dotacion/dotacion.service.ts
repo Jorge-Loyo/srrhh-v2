@@ -361,8 +361,10 @@ export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof Dime
   if (query.antiguedadMax !== undefined) conditions.push(Prisma.sql`date_part('year', age(p.antiguedad_desde)) <= ${query.antiguedadMax}`)
   // Disparado desde el click en las KPI cards del panel — los valores posibles
   // son los mismos literales de o.situacion_revista (Activo / Retención de
-  // Cargo / Comisión), ver getDotacionKpisService más abajo.
-  if (query.estado) conditions.push(Prisma.sql`o.situacion_revista = ${query.estado}`)
+  // Cargo / Comisión), ver getDotacionKpisService más abajo. Case-insensitive
+  // y sin tilde porque la BD tiene casing mezclado (grueso del padrón en
+  // mayúscula, registros nuevos del Dotaneitor v2 en minúscula sin tilde).
+  if (query.estado) conditions.push(Prisma.sql`lower(unaccent(o.situacion_revista)) = lower(unaccent(${query.estado}))`)
 
   return conditions
 }
@@ -531,11 +533,13 @@ export async function getDotacionKpisService(query: DotacionKpisQuery) {
       ${vigentesCte}
       SELECT
         count(*)::bigint AS total,
-        -- S22-2/S22-3 (Dotaneitor): normalización total a minúscula sin tilde
-        -- — literales viejos (pre-S22) ya no matchean, hoy son lowercase.
-        count(*) FILTER (WHERE situacion_revista = 'activo')::bigint AS activos,
-        count(*) FILTER (WHERE situacion_revista = 'retencion de cargo')::bigint AS retencion,
-        count(*) FILTER (WHERE situacion_revista = 'comision')::bigint AS comision,
+        -- La BD tiene situacion_revista con casing mezclado: el grueso del padrón
+        -- quedó en 'Activo'/'Retencion de Cargo'/'Comisión' (mayúscula, con tilde)
+        -- y solo los registros nuevos del Dotaneitor v2 están en minúscula sin
+        -- tilde. Se compara case-insensitive y sin tilde para no perder el 99%.
+        count(*) FILTER (WHERE lower(unaccent(situacion_revista)) = 'activo')::bigint AS activos,
+        count(*) FILTER (WHERE lower(unaccent(situacion_revista)) = 'retencion de cargo')::bigint AS retencion,
+        count(*) FILTER (WHERE lower(unaccent(situacion_revista)) = 'comision')::bigint AS comision,
         count(*) FILTER (WHERE sexo = 'F')::bigint AS mujeres,
         count(*) FILTER (WHERE sexo = 'M')::bigint AS varones
       FROM ocupaciones_vigentes

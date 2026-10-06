@@ -270,7 +270,17 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         df['literal_puesto_origen'] = df.get('literal_puesto')
         df['especialidad_origen'] = df.get('especialidad')
 
+        # Derivación de especialidad para NO médicos (2026-10): el padrón solo
+        # trae especialidad para médicos; para el resto (enfermeros, técnicos,
+        # administrativos...) la especialidad la determina el puesto y se deriva
+        # acá. Médicos genéricos y conducción quedan sin especialidad (None). Se
+        # escribe la columna `especialidad` del df (para el Excel) y se usa para
+        # resolver el especialidad_puesto_id (para la BD). Misma regla que
+        # apps/api/src/modules/padron/derivarEspecialidadPuesto.ts.
+        from derivar_especialidad import derivar_especialidad_desde_puesto
+
         escalafon_ids, puesto_ids, especialidad_ids = [], [], []
+        especialidades_resueltas = []
         for cod_reg, lit_puesto, esp in zip(
             df.get('codigo_de_registro', pd.Series([None] * len(df))),
             df.get('literal_puesto', pd.Series([None] * len(df))),
@@ -278,14 +288,25 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         ):
             esc_id = catalogo.resolver_escalafon(cod_reg)
             pue_id = catalogo.resolver_puesto(esc_id, lit_puesto)
-            esp_id = catalogo.resolver_especialidad(pue_id, esp)
+            # Si el padrón no trajo especialidad, derivarla del puesto (no médicos).
+            # OJO: pandas trae las celdas vacías como NaN (float), no como '' — por
+            # eso se chequea pd.isna además del string vacío (str(NaN)=='nan', que
+            # NO es ''), si no la derivación nunca se dispara.
+            esp_vacia = esp is None or (isinstance(esp, float) and pd.isna(esp)) or str(esp).strip() == ''
+            esp_val = esp
+            if esp_vacia:
+                esp_val = derivar_especialidad_desde_puesto(lit_puesto)
+            esp_id = catalogo.resolver_especialidad(pue_id, esp_val)
             escalafon_ids.append(esc_id)
             puesto_ids.append(pue_id)
             especialidad_ids.append(esp_id)
+            especialidades_resueltas.append(esp_val)
 
         df['escalafon_id'] = escalafon_ids
         df['puesto_cargo_id'] = puesto_ids
         df['especialidad_puesto_id'] = especialidad_ids
+        # Reflejar la especialidad derivada en la columna visible del Excel.
+        df['especialidad'] = especialidades_resueltas
 
         # ── JCAT → cargo de jefatura (S22-10/11, Opción A texto) ──────────────
         # Mapea el JCAT (codigo_jefaturas) al cargo de conducción. JCAT con valor

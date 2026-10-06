@@ -32,32 +32,32 @@ Cuando `con_may == total`, **el 100% de las filas está en mayúscula**.
 
 ### Tablas maestras (impacto alto)
 
-| Columna                           |  Total |   Con mayúsc. | Con tilde | Nota                            |
-| --------------------------------- | -----: | ------------: | --------: | ------------------------------- |
-| `cargos.literal_puesto`           | 53.346 | 53.346 (100%) |     9.786 | Puesto — clave para el catálogo |
-| `cargos.descripcion_repa`         | 52.687 |          100% |    21.519 | Repartición                     |
-| `cargos.agrupamiento`             | 21.783 |          100% |    15.154 |                                 |
-| `cargos.agrupador`                | 50.231 |          100% |     3.089 |                                 |
-| `cargos.unificador_puesto`        | 50.231 |          100% |     3.089 |                                 |
-| `cargos.especialidad_legacy`      | 29.651 |          100% |       666 |                                 |
-| `cargos.regimen`                  | 52.686 |          100% |         0 | Solo mayúscula (sin tilde)      |
-| `cargos.lit_familia`              |      0 |             0 |         0 | **Columna vacía** — ver §4      |
-| `personas.apellido_nombre`        | 49.161 |          100% |     1.455 | También no atómica (§2)         |
-| `personas.domicilio`              | 35.298 |          100% |    22.365 | ~63% con tilde                  |
-| `personas.localidad`              | 35.281 |          100% |    21.461 |                                 |
-| `personas.especialidad_principal` | 23.664 |          100% |    12.873 |                                 |
-| `personas.especialidad_cph`       | 16.226 |          100% |    12.412 | ~76% con tilde                  |
-| `personas.provincia`              | 35.293 |          100% |         0 | Solo mayúscula                  |
-| `personas.sexo`                   | 49.153 |          100% |         0 | Enum de hecho (M/F)             |
-| `ocupaciones.situacion_revista`   | 53.408 |          100% |        25 | Enum de hecho                   |
-| `ocupaciones.estado_persona`      | 53.408 |          100% |     1.804 |                                 |
-| `ocupaciones.jefe_escalafon`      |  4.139 |          100% |         0 |                                 |
-| `ocupaciones.repa_comision`       |     25 |          100% |        15 |                                 |
-| `hospitales.nombre`               |     77 |          100% |         3 |                                 |
-| `hospitales.tipo`                 |     76 |          100% |        31 |                                 |
-| `escalafones.nombre`              |     20 |            19 |         5 |                                 |
-| `especialidades_puesto.nombre`    |    336 |          100% |         0 |                                 |
-| `puestos_cargo.nombre`            |    470 |          100% |        68 |                                 |
+| Columna                           |  Total |   Con mayúsc. | Con tilde | Nota                                                                 |
+| --------------------------------- | -----: | ------------: | --------: | -------------------------------------------------------------------- |
+| `cargos.literal_puesto`           | 53.346 | 53.346 (100%) |     9.786 | Puesto — clave para el catálogo                                      |
+| `cargos.descripcion_repa`         | 52.687 |          100% |    21.519 | Repartición                                                          |
+| `cargos.agrupamiento`             | 21.783 |          100% |    15.154 |                                                                      |
+| `cargos.agrupador`                | 50.231 |          100% |     3.089 |                                                                      |
+| `cargos.unificador_puesto`        | 50.231 |          100% |     3.089 |                                                                      |
+| `cargos.especialidad_legacy`      | 29.651 |          100% |       666 |                                                                      |
+| `cargos.regimen`                  | 52.686 |          100% |         0 | Solo mayúscula (sin tilde)                                           |
+| `cargos.lit_familia`              |      0 |             0 |         0 | **Columna vacía** — ver §4                                           |
+| `personas.apellido_nombre`        | 49.161 |          100% |     1.455 | También no atómica (§2)                                              |
+| `personas.domicilio`              | 35.298 |          100% |    22.365 | ~63% con tilde                                                       |
+| `personas.localidad`              | 35.281 |          100% |    21.461 |                                                                      |
+| `personas.especialidad_principal` | 23.664 |          100% |    12.873 | **Eliminada en S21-5** — métrica histórica; hoy se deriva en runtime |
+| `personas.especialidad_cph`       | 16.226 |          100% |    12.412 | ~76% con tilde                                                       |
+| `personas.provincia`              | 35.293 |          100% |         0 | Solo mayúscula                                                       |
+| `personas.sexo`                   | 49.153 |          100% |         0 | Enum de hecho (M/F)                                                  |
+| `ocupaciones.situacion_revista`   | 53.408 |          100% |        25 | Enum de hecho                                                        |
+| `ocupaciones.estado_persona`      | 53.408 |          100% |     1.804 |                                                                      |
+| `ocupaciones.jefe_escalafon`      |  4.139 |          100% |         0 |                                                                      |
+| `ocupaciones.repa_comision`       |     25 |          100% |        15 |                                                                      |
+| `hospitales.nombre`               |     77 |          100% |         3 |                                                                      |
+| `hospitales.tipo`                 |     76 |          100% |        31 |                                                                      |
+| `escalafones.nombre`              |     20 |            19 |         5 |                                                                      |
+| `especialidades_puesto.nombre`    |    336 |          100% |         0 |                                                                      |
+| `puestos_cargo.nombre`            |    470 |          100% |        68 |                                                                      |
 
 ### Histórico y bajas SIAL (impacto muy alto por volumen)
 

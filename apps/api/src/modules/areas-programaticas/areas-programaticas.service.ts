@@ -51,10 +51,16 @@ async function getJefeService(codigoRepa: string | null): Promise<Jefe | null> {
       AND cr.codigo IN ('25','60','37','83','85','87')
     JOIN ocupaciones o2 ON o2.cargo_id = c2.id
       AND o2.hasta IS NULL
-      AND o2.situacion_revista = 'activo'
+      -- Mismo criterio que cadena-mando.service.ts: la BD tiene situacion_revista
+      -- con casing mezclado ('Activo' en el 99% del padrón real, 'activo' en los
+      -- registros nuevos del Dotaneitor v2), así que se compara case-insensitive.
+      AND lower(o2.situacion_revista) = 'activo'
       AND (
+        -- 25/60: escalafón de conducción puro, es jefe por el solo cargo.
         cr.codigo IN ('25','60')
-        OR (o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
+        -- 37/83/85/87: solo cuenta como jefe si además tiene codigo_jefaturas.
+        OR (cr.codigo IN ('37','83','85','87')
+            AND o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas != '' AND o2.codigo_jefaturas != '0')
       )
     JOIN personas p ON p.id = o2.persona_id
     WHERE c2.codigo_repa = ${codigoRepa}

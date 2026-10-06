@@ -1,10 +1,10 @@
 # Contrato de Datos — SRRHH v2
 
 > Fuente de verdad del modelo de datos. Ninguna tabla se crea sin estar definida aquí primero.
-> Última actualización: 2026-09-22 — Sincronizado contra `prisma/schema.prisma`: agregadas tablas de Árbol/Organigrama (`organigramas`, `organigrama_uploads`), POU (`pou`), KPI de dotación (`kpis_dotacion_snapshot`), Autorizaciones (`autorizaciones`), Solicitudes de alta (`solicitudes_alta`), Jerarquía de roles (`role_jerarquias`), Notificaciones (`notificaciones`), Jornadas de sorteo (`jornadas_sorteo`), Inscriptos a concurso (`inscriptos_concurso`), Postulantes (`postulantes`, `postulantes_concurso`) y campos faltantes de `cargos` (retención/cadena), `personas` (`especialidad_cph`), `concursos_cph` (validación padrón + INSAL), `bajas` (vínculo padrón) y `audit_logs` (método/ruta). Corregidos 2 desfases: `cantidad_cargos` no existe en `concursos_cph`/`concursos_ceetps` y `desierto` no pertenece al enum de estado de CPH.
+> Última actualización: 2026-10 — Cerrada la reescritura puesto/especialidad (Sprints 20/21/22 ✅). S21-5 eliminó la columna `personas.especialidad_principal` (ahora derivada en runtime). Base previa (2026-09-22): sincronizado contra `prisma/schema.prisma` — tablas de Árbol/Organigrama (`organigramas`, `organigrama_uploads`), POU (`pou`), KPI de dotación (`kpis_dotacion_snapshot`), Autorizaciones (`autorizaciones`), Solicitudes de alta (`solicitudes_alta`), Jerarquía de roles (`role_jerarquias`), Notificaciones (`notificaciones`), Jornadas de sorteo (`jornadas_sorteo`), Inscriptos a concurso (`inscriptos_concurso`), Postulantes (`postulantes`, `postulantes_concurso`) y campos faltantes de `cargos` (retención/cadena), `personas` (`especialidad_cph`), `concursos_cph` (validación padrón + INSAL), `bajas` (vínculo padrón) y `audit_logs` (método/ruta). Corregidos 2 desfases: `cantidad_cargos` no existe en `concursos_cph`/`concursos_ceetps` y `desierto` no pertenece al enum de estado de CPH.
 > Estado: VIGENTE
 >
-> ⚠️ **En reescritura (Sprints 20-22):** el esquema de **puesto/especialidad** (catálogo `puestos_cargo`/`especialidades_puesto`, campos `literal_puesto`/`especialidad_legacy`/`especialidad_id` en `cargos`, tablas `ref_*` del Dotaneitor) y la **normalización a minúscula/sin tilde** de toda la BD se están rediseñando con el Dotaneitor v2. Esas secciones documentan el estado ACTUAL y van a cambiar. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md` y `Doc/Planificacion/Sprints/SPRINT_22_dotaneitor_catalogo.md`.
+> ✅ **Reescritura puesto/especialidad cerrada (Sprints 20/21/22):** el catálogo `puestos_cargo`/`especialidades_puesto` y la resolución contra catálogo del Dotaneitor v2 ya están implementados y mergeados. La **normalización a minúscula/sin tilde** quedó resuelta vía búsqueda `spanish_unaccent` (sin reescribir los datos crudos). Las especialidades se resuelven con el patrón `especialidadSolicitada ?? especialidadPuesto.nombre ?? especialidad_legacy`. Ver `Doc/Referencias/DOTANEITOR_DECISIONES.md`, `Doc/Referencias/AUDITORIA_ESPECIALIDAD.md` y `Doc/Planificacion/Sprints/SPRINT_22_dotaneitor_catalogo.md`.
 
 ---
 
@@ -62,29 +62,30 @@ Catálogos independientes: organigramas (Árbol) · pou (Ocupación)
 
 Una fila por persona única. Existe aunque ya no trabaje.
 
-| Columna                  | Tipo               | Descripción                                                                                                                                                                    |
-| ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`                     | UUID PK            | Identificador interno                                                                                                                                                          |
-| `cuil`                   | VARCHAR(11) UNIQUE | CUIL sin guiones                                                                                                                                                               |
-| `numero_doc`             | VARCHAR(20)        | Número de documento                                                                                                                                                            |
-| `tipo_doc`               | VARCHAR(10)        | DNI, LC, LE, etc.                                                                                                                                                              |
-| `apellido_nombre`        | VARCHAR(200)       | Apellido y nombre completo                                                                                                                                                     |
-| `fecha_nacimiento`       | DATE               | —                                                                                                                                                                              |
-| `sexo`                   | VARCHAR(10)        | —                                                                                                                                                                              |
-| `especialidad_principal` | VARCHAR(200)       | Especialidad médica del cargo actual del padrón, si aplica                                                                                                                     |
-| `especialidad_cph`       | VARCHAR(200) null  | Especialidad CPH canónica (de `ref_especialidades_cuil` tipo=cph). Distinta de `especialidad_principal`; se popula al aprobar cada snapshot y no cambia con el cargo. Indexada |
-| `telefono`               | VARCHAR(20)        | —                                                                                                                                                                              |
-| `mail_personal`          | VARCHAR(255)       | —                                                                                                                                                                              |
-| `mail_laboral`           | VARCHAR(255)       | —                                                                                                                                                                              |
-| `domicilio`              | VARCHAR(255)       | —                                                                                                                                                                              |
-| `localidad`              | VARCHAR(150)       | —                                                                                                                                                                              |
-| `provincia`              | VARCHAR(100)       | —                                                                                                                                                                              |
-| `antiguedad_desde`       | DATE               | Fecha del primer cargo en el sistema                                                                                                                                           |
-| `activo`                 | BOOLEAN            | True si tiene al menos una ocupación activa                                                                                                                                    |
-| `created_at`             | TIMESTAMPTZ        | —                                                                                                                                                                              |
-| `updated_at`             | TIMESTAMPTZ        | —                                                                                                                                                                              |
+| Columna            | Tipo               | Descripción                                                                                                                              |
+| ------------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | UUID PK            | Identificador interno                                                                                                                    |
+| `cuil`             | VARCHAR(11) UNIQUE | CUIL sin guiones                                                                                                                         |
+| `numero_doc`       | VARCHAR(20)        | Número de documento                                                                                                                      |
+| `tipo_doc`         | VARCHAR(10)        | DNI, LC, LE, etc.                                                                                                                        |
+| `apellido_nombre`  | VARCHAR(200)       | Apellido y nombre completo                                                                                                               |
+| `fecha_nacimiento` | DATE               | —                                                                                                                                        |
+| `sexo`             | VARCHAR(10)        | —                                                                                                                                        |
+| `especialidad_cph` | VARCHAR(200) null  | Especialidad CPH canónica (de `ref_especialidades_cuil` tipo=cph); se popula al aprobar cada snapshot y no cambia con el cargo. Indexada |
+| `telefono`         | VARCHAR(20)        | —                                                                                                                                        |
+| `mail_personal`    | VARCHAR(255)       | —                                                                                                                                        |
+| `mail_laboral`     | VARCHAR(255)       | —                                                                                                                                        |
+| `domicilio`        | VARCHAR(255)       | —                                                                                                                                        |
+| `localidad`        | VARCHAR(150)       | —                                                                                                                                        |
+| `provincia`        | VARCHAR(100)       | —                                                                                                                                        |
+| `antiguedad_desde` | DATE               | Fecha del primer cargo en el sistema                                                                                                     |
+| `activo`           | BOOLEAN            | True si tiene al menos una ocupación activa                                                                                              |
+| `created_at`       | TIMESTAMPTZ        | —                                                                                                                                        |
+| `updated_at`       | TIMESTAMPTZ        | —                                                                                                                                        |
 
 **Índices:** `cuil` (UNIQUE), `numero_doc`, `apellido_nombre` (GIN tsvector con config `spanish_unaccent` para búsqueda full-text sin acentos)
+
+> ⚠️ **Columna eliminada en Sprint 21 (S21-5):** `personas.especialidad_principal` ya no existe como columna. La especialidad del cargo actual se **deriva en runtime** desde el cargo ocupado vía `especialidadSolicitada ?? especialidadPuesto.nombre ?? especialidad_legacy` (catálogo primero). No se persiste en `personas`.
 
 ---
 

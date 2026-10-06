@@ -42,6 +42,10 @@ prisma/*.db-journal
 __pycache__/
 *.pyc
 
+# Dotaneitor: artefactos de runtime (corridas temporales y Excel generados)
+services/dotaneitor/tmp/
+services/dotaneitor/exports/
+
 # Misc
 *.tsbuildinfo
 

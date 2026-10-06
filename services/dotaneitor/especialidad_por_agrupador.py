@@ -168,6 +168,13 @@ def sin_tilde(texto):
     return texto.translate(TABLA_SIN_TILDE)
 
 
+def sin_tilde_minuscula(texto):
+    """Minúscula completa + sin tilde (á/é/í/ó/ú). No toca 'ñ'. Regla de la aplicación
+    (2026-10): TODO el archivo de salida del Dotaneitor va en minúscula sin tilde, igual que
+    la BD — anula las reglas previas de MAYÚSCULA forzada y de conservar capitalización/tildes."""
+    return texto.translate(TABLA_SIN_TILDE).lower()
+
+
 # Version normalizada (sin tilde + mayuscula) de MAPEO_ESPECIALIDAD_POR_PUESTO para matchear
 # sin importar el casing ni las tildes de LITERAL PUESTO en el momento en que corra esto:
 # Dotaneitor.py fuerza esa columna a MAYUSCULA COMPLETA como parte de procesar() (ver

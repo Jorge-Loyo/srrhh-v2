@@ -9,7 +9,7 @@ import numpy as np
 import traceback
 
 from especialidades import limpiar_especialidad_indebida, filas_especialidad_sin_puesto
-from especialidad_por_agrupador import sin_tilde_mayuscula, sin_tilde
+from especialidad_por_agrupador import sin_tilde_mayuscula, sin_tilde, sin_tilde_minuscula
 
 # Columnas "nucleo" para la hoja 'Completitud por fila' del reporte de calidad: definidas a mano
 # con el usuario, porque el resto de las columnas (COMISION, BLOQ MOTIVO, ESCRITORIO, etc.) son
@@ -444,21 +444,19 @@ class DotacionAutomation:
         return np.select(condiciones, valores, default='Activo')
     
     def _forzar_mayusculas(self, df):
-        """Fuerza a MAYUSCULA COMPLETA y SIN TILDE el contenido de COLUMNAS_MAYUSCULA_FORZADA (ver
-        el porque en el comentario de esa constante), y SIN TILDE (conservando mayuscula/minuscula
-        tal cual esten) en el resto de las columnas de texto — a pedido explicito del usuario,
-        2026-08-06: sin tilde en todo el archivo generado, incluidos nombres de personas
-        (AYN), domicilios, localidades, comentarios, etc. Idempotente: se puede llamar de nuevo
-        despues de "Cruzar" para que los huecos que se completen ahi tambien queden sin tilde,
-        igual que el resto de cada columna."""
+        """Normaliza TODO el contenido de texto a MINÚSCULA SIN TILDE — regla de la aplicación
+        (2026-10): el archivo de salida del Dotaneitor, el Excel y la BD van siempre en minúscula
+        sin tilde, para que búsquedas y comparaciones no fallen por casing/acentos. Esto ANULA las
+        reglas previas (2026-08-06) de forzar MAYÚSCULA en COLUMNAS_MAYUSCULA_FORZADA y de conservar
+        la capitalización/tildes de nombres de personas/domicilios (COLUMNAS_CON_TILDE) — ya no hay
+        excepciones por columna, todo el texto se trata igual. No toca 'ñ' (no es tilde). Idempotente:
+        se puede llamar de nuevo tras "Cruzar" para que los huecos completados también queden
+        minúscula sin tilde."""
         df = df.copy()
         for col in df.columns:
             if df[col].dtype != object:
                 continue
-            if col in COLUMNAS_MAYUSCULA_FORZADA:
-                df[col] = df[col].apply(lambda v: sin_tilde_mayuscula(v) if isinstance(v, str) else v)
-            elif col not in COLUMNAS_CON_TILDE:
-                df[col] = df[col].apply(lambda v: sin_tilde(v) if isinstance(v, str) else v)
+            df[col] = df[col].apply(lambda v: sin_tilde_minuscula(v) if isinstance(v, str) else v)
         return df
 
     def _eliminar_duplicados_id_sial(self, df, columna_id='ID SIAL'):
