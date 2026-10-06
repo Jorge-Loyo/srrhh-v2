@@ -1334,3 +1334,55 @@ export async function getVacantesConduccionService(opts: { sigla?: string } = {}
     vacantes: lista,
   }
 }
+
+// ── S24-7 (complemento): cargos de conducción huérfanos ─────────────────────
+//
+// Cargos generados desde el organigrama (origen='organigrama') cuyo codigo_repa
+// YA NO existe como nodo en el árbol actual — típicamente porque un re-upload
+// del organigrama eliminó ese nodo. Por decisión de producto NO se dan de baja
+// automáticamente (un cargo puede tener historial/ocupaciones; su baja la decide
+// RRHH). Este reporte les da visibilidad para que RRHH decida qué hacer con cada
+// uno (darlo de baja, o conservarlo si el nodo volverá).
+export async function getCargosConduccionHuerfanosService() {
+  const huerfanos = await prisma.$queryRaw<Array<{
+    id: string
+    codigo: string | null
+    codigo_repa: string | null
+    descripcion_repa: string | null
+    estado: string
+    revision_dato: boolean
+    hospital_sigla: string
+    hospital_nombre: string
+    ocup_vigentes: number
+  }>>`
+    SELECT c.id, c.codigo, c.codigo_repa, c.descripcion_repa, c.estado::text AS estado,
+           c.revision_dato, h.sigla AS hospital_sigla, h.nombre AS hospital_nombre,
+           (SELECT count(*)::int FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) AS ocup_vigentes
+    FROM cargos c
+    JOIN hospitales h ON h.id = c.hospital_id
+    WHERE c.origen = 'organigrama'
+      AND c.deleted_at IS NULL
+      AND c.codigo_repa IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM organigramas og WHERE og.codigo_reparticion = c.codigo_repa
+      )
+    ORDER BY h.sigla, c.codigo
+  `
+
+  return {
+    total: huerfanos.length,
+    cargos: huerfanos.map((h) => ({
+      cargoId: h.id,
+      codigo: h.codigo,
+      codigoRepa: h.codigo_repa,
+      descripcionRepa: h.descripcion_repa,
+      estado: h.estado,
+      frio: h.revision_dato,
+      hospitalSigla: h.hospital_sigla,
+      hospitalNombre: h.hospital_nombre,
+      // Si tiene ocupaciones vigentes, dar de baja el cargo tiene más impacto —
+      // RRHH debería mirarlo con más cuidado.
+      tieneOcupacionesVigentes: h.ocup_vigentes > 0,
+    })),
+  }
+}

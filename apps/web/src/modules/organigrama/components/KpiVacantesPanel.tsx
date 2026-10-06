@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
-import { BriefcaseIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
-import { useVacantesConduccion } from '../hooks/useOrganigrama'
+import { BriefcaseIcon, ArrowRightIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { useVacantesConduccion, useCargosConduccionHuerfanos } from '../hooks/useOrganigrama'
 
 // S24-9: panel de KPI de vacantes de conducción (jefaturas sin ocupante activo).
 // Total global + desglose por nivel jerárquico + top efectores con más vacantes.
@@ -17,6 +17,7 @@ const NIVEL_COLOR: Record<string, string> = {
 export default function KpiVacantesPanel() {
   const navigate = useNavigate()
   const { data, isLoading, isError } = useVacantesConduccion()
+  const { data: huerfanos } = useCargosConduccionHuerfanos()
 
   if (isLoading) {
     return (
@@ -80,6 +81,20 @@ export default function KpiVacantesPanel() {
                 <ArrowRightIcon className="w-3 h-3 text-gray-300 flex-shrink-0" />
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* S24-7: aviso de cargos huérfanos (nodo eliminado del árbol) para RRHH */}
+      {huerfanos && huerfanos.total > 0 && (
+        <div className="mt-3 pt-3 border-t border-amber-100">
+          <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+            <ExclamationTriangleIcon className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700">
+              <span className="font-semibold">{huerfanos.total} cargo(s) de conducción huérfano(s):</span>{' '}
+              generados desde el organigrama cuya repartición ya no existe en el árbol actual (nodo
+              eliminado en un re-upload). Revisar con RRHH si corresponde darlos de baja.
+            </p>
           </div>
         </div>
       )}

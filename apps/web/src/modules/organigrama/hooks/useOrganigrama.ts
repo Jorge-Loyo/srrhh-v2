@@ -129,3 +129,31 @@ export function useVacantesConduccion(sigla?: string) {
     },
   })
 }
+
+// S24-7 (complemento): cargos de conducción huérfanos (nodo eliminado del árbol).
+export interface CargoHuerfano {
+  cargoId: string
+  codigo: string | null
+  codigoRepa: string | null
+  descripcionRepa: string | null
+  estado: string
+  frio: boolean
+  hospitalSigla: string
+  hospitalNombre: string
+  tieneOcupacionesVigentes: boolean
+}
+
+export interface CargosHuerfanos {
+  total: number
+  cargos: CargoHuerfano[]
+}
+
+export function useCargosConduccionHuerfanos() {
+  return useQuery({
+    queryKey: ['cargos-conduccion-huerfanos'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CargosHuerfanos }>('/api/v1/organigrama/cargos-huerfanos')
+      return res.data.data
+    },
+  })
+}
