@@ -15,6 +15,7 @@ import {
   normPuestoKey,
 } from './resolverPuestoCargo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import type { DiffQuery } from './padron.schema.js'
 
 // Prefijos que se aprueban automáticamente al subir el padrón:
@@ -1269,44 +1270,24 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         if (!hospital || !escalafon) continue
 
         // S24-6: reconciliación con los cargos de conducción VACANTES generados
-        // desde el organigrama (origen='organigrama', id_sial='VAC-{codigo_repa}',
-        // sin ocupación). Si entra una ocupación de JEFATURA (codigo_jefaturas/JCAT
-        // con valor) en una repartición que tiene uno de esos cargos vacantes, se
-        // vincula a ÉL en vez de crear un cargo nuevo — es el puesto que el sprint
-        // modeló como vacante y que ahora se cubre. Match por codigo_repa (el
-        // escalafón puede diferir del que derivamos — manda el real del padrón).
-        const esJefatura = !!datos.codigo_jefaturas && datos.codigo_jefaturas !== '0'
-        if (esJefatura && datos.codigo_repa) {
-          const cargoVacanteOrg = await tx.cargo.findFirst({
-            where: {
-              origen: 'organigrama',
-              codigoRepa: datos.codigo_repa,
-              deletedAt: null,
-              ocupaciones: { none: { hasta: null } },
-            },
-            select: { id: true },
+        // desde el organigrama. Si entra una ocupación de JEFATURA en una
+        // repartición con un cargo origen='organigrama' sin ocupante, se cubre
+        // ese cargo en vez de crear uno nuevo. Helper compartido con los demás
+        // flujos del padrón — ver reconciliarConduccion.ts.
+        if (datos.id_sial) {
+          const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
+            codigoRepa: datos.codigo_repa,
+            codigoJefaturas: datos.codigo_jefaturas,
+            idSial: datos.id_sial,
+            escalafonId: escalafon.id,
+            literalPuesto: datos.literal_puesto,
+            especialidadLegacy: datos.especialidad,
+            codigoRegistroId: datos.codigo_de_registro
+              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
+              : null,
           })
-          if (cargoVacanteOrg) {
-            // Cubrir la vacante generada: pasa a ser un cargo real del padrón.
-            await tx.cargo.update({
-              where: { id: cargoVacanteOrg.id },
-              data: {
-                idSial: datos.id_sial,
-                origen: 'padron',
-                escalafonId: escalafon.id,
-                literalPuesto: datos.literal_puesto ?? null,
-                especialidadLegacy: datos.especialidad ?? null,
-                codigoRegistroId: datos.codigo_de_registro
-                  ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-                  : null,
-                estado: 'vigente',
-              },
-            })
-            cargoCache.set(datos.id_sial, {
-              id: cargoVacanteOrg.id,
-              idSial: datos.id_sial,
-              estado: 'vigente',
-            })
+          if (cargoVinculado) {
+            cargoCache.set(datos.id_sial, { id: cargoVinculado, idSial: datos.id_sial, estado: 'vigente' })
             continue
           }
         }
@@ -2418,6 +2399,24 @@ export async function aprobarDiffNuevoService(
           where: { id: cargo.id },
           data: { estado: 'vigente', estadoDesde: null },
         })
+      }
+    }
+
+    // S24-6: antes de crear un cargo nuevo, si la ocupación es de jefatura y hay
+    // un cargo de conducción VACANTE del organigrama en ese codigo_repa, cubrirlo
+    // en vez de duplicar (mismo helper que aprobarSnapshotService).
+    if (!cargo && datos.id_sial) {
+      const cargoVinculadoId = await reconciliarCargoConduccionVacante(tx, {
+        codigoRepa: datos.codigo_repa,
+        codigoJefaturas: datos.codigo_jefaturas,
+        idSial: datos.id_sial,
+        escalafonId: escalafon.id,
+        literalPuesto: datos.literal_puesto,
+        especialidadLegacy: datos.especialidad,
+        codigoRegistroId,
+      })
+      if (cargoVinculadoId) {
+        cargo = (await tx.cargo.findUnique({ where: { id: cargoVinculadoId } })) as CargoRow | null
       }
     }
 
