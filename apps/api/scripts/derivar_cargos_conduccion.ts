@@ -1,0 +1,251 @@
+/**
+ * S24-4/5: genera cargos de conducción VACANTES derivados del organigrama.
+ *
+ * Universo (cerrado con el usuario, 2026-10): exactamente los nodos de conducción
+ * que tienen personal activo bajo su mismo codigo_repa pero SIN jefatura activa
+ * modelada (ni 25/60 ni 37/83/85/87 con codigo_jefaturas). Son 101 nodos
+ * validados uno por uno por el usuario. Los nodos sin dotación, GO/SGO, y los
+ * "inconsistentes" (que resultaron ser un falso problema — ver SPRINT_24_S1_diseno.md)
+ * quedan fuera.
+ *
+ * Por cada nodo candidato, genera un Cargo con:
+ *   escalafón → del regimen_empleo del nodo (mapeo fijo)
+ *   puesto    → del tipo del nodo (DHOS→Director, DEPT→Jefe de Depto, etc.)
+ *   JCAT      → del nivel + familia (jcat_cargo_jefatura al revés)
+ *   código    → prefijoDeCargo() + siguienteCodigoCargo() (cadena existente)
+ *   id_sial   → VAC-{codigo_repa} (sintético, no choca con los del padrón)
+ *   origen    → 'organigrama'
+ *   estado    → 'vigente', sin ocupación
+ *
+ * Idempotente: solo crea cargo para nodos que NO tengan ya un cargo con
+ * id_sial='VAC-{codigo_repa}'. Re-ejecutable sin duplicar.
+ *
+ * Uso:
+ *   cd apps/api
+ *   pnpm exec tsx scripts/derivar_cargos_conduccion.ts [--dry-run]
+ */
+import { Prisma, PrismaClient } from '@prisma/client'
+import { prefijoDeCargo, siguienteCodigoCargo } from '../src/shared/codigoCargo.js'
+
+const prisma = new PrismaClient()
+const dryRun = process.argv.includes('--dry-run')
+
+// ── Mapeo régimen_empleo del organigrama → escalafón (código canónico) ──
+const REGIMEN_A_ESCALAFON: Record<string, string> = {
+  'Carrera de Profesionales de la Salud': '22',
+  'Direccion Medica': '22',
+  'Carrera de Enfermeria': '87',
+  'Escalafon General / Carrera Administrativa': '83',
+  'Carrera de Técnicos de la Salud': '85',
+  'Autoridades Superiores': '25',
+}
+
+// ── Mapeo tipo del nodo → nivel de conducción + literal del puesto ──
+// El literal se usa para resolver el puesto en el catálogo y para prefijoDeCargo.
+const TIPO_A_PUESTO: Record<string, { literal: string; nivelJcat: string }> = {
+  'SSEC/DIREJE': { literal: 'subsecretario', nivelJcat: 'subsecretario' },
+  'DG':          { literal: 'director general', nivelJcat: 'director general' },
+  'F/N DG':      { literal: 'director general', nivelJcat: 'director general' },
+  'UAI DG':      { literal: 'director general', nivelJcat: 'director general' },
+  'DHOS':        { literal: 'director', nivelJcat: 'director' },
+  'SDHOS':       { literal: 'sub-director', nivelJcat: 'sub-director' },
+  'DEPT':        { literal: 'jefe de departamento', nivelJcat: 'jefe de departamento' },
+  'DEPT CA':     { literal: 'jefe de departamento', nivelJcat: 'jefe de departamento' },
+  'DIV':         { literal: 'jefe de division', nivelJcat: 'jefe de division' },
+  'DIV CA':      { literal: 'jefe de division', nivelJcat: 'jefe de division' },
+  'UNID':        { literal: 'jefe de unidad', nivelJcat: 'jefe de unidad' },
+  'SECCION':     { literal: 'jefe de seccion', nivelJcat: 'jefe de seccion' },
+  'SECCION CA':  { literal: 'jefe de seccion', nivelJcat: 'jefe de seccion' },
+  'F/N DEJE':    { literal: 'director', nivelJcat: 'director' },
+}
+
+// Los tipos con sufijo CA fuerzan escalafón Escalafón General (83)
+const ES_CA = new Set(['DEPT CA', 'DIV CA', 'SECCION CA'])
+
+// Familia del JCAT según escalafón: P=profesional, G=general/administrativo, Z=enfermería
+function familiaJcat(codigoEscalafon: string): string {
+  if (codigoEscalafon === '83') return 'G'
+  if (codigoEscalafon === '87') return 'Z'
+  return 'P' // 22, 85, 25 → profesional
+}
+
+interface NodoCandidato {
+  codigo_reparticion: string
+  tipo: string
+  desc_rep: string
+  regimen_empleo: string
+  sigla: string
+}
+
+async function main() {
+  console.log(`🏗️  Derivación de cargos de conducción vacantes (S24-4/5)${dryRun ? ' [DRY RUN]' : ''}...\n`)
+
+  // ── 1. Obtener los 101 nodos candidatos (misma query del análisis S24-2) ──
+  const nodos = await prisma.$queryRaw<NodoCandidato[]>(Prisma.sql`
+    SELECT og.codigo_reparticion, og.tipo, og.desc_rep, og.regimen_empleo, og.sigla
+    FROM organigramas og
+    WHERE og.tipo NOT IN ('GO','SGO','F/N MSTR - GO','Ministerio','PLTA TRANS. DOCENTE')
+      AND lower(og.regimen_empleo) NOT LIKE '%fuera de norma%'
+      AND lower(og.regimen_empleo) NOT LIKE '%director docente%'
+      AND (SELECT count(*) FROM cargos cg JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL
+             AND lower(unaccent(o.situacion_revista))='activo'
+           WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL) > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM cargos cg
+        JOIN codigos_registro cr ON cr.id=cg.codigo_registro_id AND cr.codigo IN ('25','60','37','83','85','87')
+        JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL AND lower(unaccent(o.situacion_revista))='activo'
+          AND (cr.codigo IN ('25','60') OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas IS NOT NULL AND o.codigo_jefaturas <> '' AND o.codigo_jefaturas <> '0'))
+        WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL
+      )
+      -- Idempotencia: excluir nodos que ya tienen un cargo generado VAC-{codigo_repa}
+      AND NOT EXISTS (
+        SELECT 1 FROM cargos cg
+        WHERE cg.id_sial = 'VAC-' || og.codigo_reparticion AND cg.deleted_at IS NULL
+      )
+    ORDER BY og.tipo, og.desc_rep
+  `)
+
+  console.log(`   Nodos candidatos: ${nodos.length}\n`)
+  if (nodos.length === 0) {
+    console.log('🎉 Sin nodos a procesar (todos ya tienen cargo generado o jefatura activa).')
+    return
+  }
+
+  // ── 2. Cargar catálogos necesarios ──
+  const escalafones = await prisma.escalafon.findMany({ where: { activo: true } })
+  const escalafonPorCodigo = new Map(escalafones.map((e) => [e.codigo, e]))
+
+  const hospitales = await prisma.hospital.findMany()
+  const hospitalPorSigla = new Map(hospitales.map((h) => [h.sigla, h]))
+
+  const jcats = await prisma.$queryRaw<{ jcat: string; cargo_jefatura: string; familia: string }[]>(
+    Prisma.sql`SELECT jcat, cargo_jefatura, familia FROM jcat_cargo_jefatura`
+  )
+  // Índice: "familia:cargo_jefatura" → jcat (para buscar al revés)
+  const jcatPorNivelFamilia = new Map<string, string>()
+  for (const j of jcats) {
+    jcatPorNivelFamilia.set(`${j.familia}:${j.cargo_jefatura}`, j.jcat)
+  }
+
+  // Puesto del catálogo para cada (escalafón, literal) — para obtener puestoCargoId
+  const puestos = await prisma.puestoCargo.findMany({
+    where: { activo: true },
+    select: { id: true, escalafonId: true, nombre: true, modalidad: true },
+  })
+  const puestoPorEscNombre = new Map<string, { id: string; modalidad: string }>()
+  for (const p of puestos) {
+    puestoPorEscNombre.set(`${p.escalafonId}:${p.nombre}`, { id: p.id, modalidad: p.modalidad })
+  }
+
+  // ── 3. Generar cargos ──
+  let creados = 0
+  let saltados = 0
+  const errores: string[] = []
+
+  for (const nodo of nodos) {
+    const idSial = `VAC-${nodo.codigo_reparticion}`
+    const tipoInfo = TIPO_A_PUESTO[nodo.tipo]
+    if (!tipoInfo) {
+      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: tipo '${nodo.tipo}' sin mapeo a puesto`)
+      saltados++
+      continue
+    }
+
+    // Escalafón: CA fuerza 83; resto por régimen
+    const codigoEsc = ES_CA.has(nodo.tipo) ? '83' : REGIMEN_A_ESCALAFON[nodo.regimen_empleo]
+    if (!codigoEsc) {
+      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: régimen '${nodo.regimen_empleo}' sin mapeo a escalafón`)
+      saltados++
+      continue
+    }
+    const escalafon = escalafonPorCodigo.get(codigoEsc)
+    if (!escalafon) {
+      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: escalafón código '${codigoEsc}' no encontrado en BD`)
+      saltados++
+      continue
+    }
+
+    // Hospital
+    const hospital = hospitalPorSigla.get(nodo.sigla)
+    if (!hospital) {
+      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: sigla '${nodo.sigla}' sin hospital en BD`)
+      saltados++
+      continue
+    }
+
+    // JCAT (al revés: familia + nivel → jcat)
+    const familia = familiaJcat(codigoEsc)
+    const jcatKey = `${familia}:${tipoInfo.nivelJcat}`
+    const jcat = jcatPorNivelFamilia.get(jcatKey) ?? null
+    // JCAT puede ser null para niveles que no están en la tabla (ej. subsecretario,
+    // director general) — no es un error, simplemente no aplica para AS/DG.
+
+    // Puesto del catálogo
+    const puestoKey = `${escalafon.id}:${tipoInfo.literal}`
+    let puesto = puestoPorEscNombre.get(puestoKey)
+    // Fallback: buscar en modalidad 'ambos' si no encontró en el específico
+    if (!puesto) {
+      // Buscar por nombre sin importar escalafón (el puesto de conducción puede
+      // estar registrado una sola vez para todos los escalafones)
+      for (const [k, v] of puestoPorEscNombre) {
+        if (k.endsWith(`:${tipoInfo.literal}`)) { puesto = v; break }
+      }
+    }
+    if (!puesto) {
+      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: puesto '${tipoInfo.literal}' no encontrado en catálogo para escalafón ${escalafon.nombre}`)
+      saltados++
+      continue
+    }
+
+    // Código de cargo
+    const prefijo = prefijoDeCargo({
+      escalafon: escalafon.nombre,
+      unificadorPuesto: 'jefatura',
+      agrupador: tipoInfo.literal,
+      puestoCargo: { nombre: tipoInfo.literal, tipoPuesto: 'conduccion', modalidad: 'pof' },
+    })
+
+    if (dryRun) {
+      console.log(`   ✅ ${nodo.tipo.padEnd(10)} ${nodo.codigo_reparticion} ${nodo.desc_rep.substring(0, 45).padEnd(45)} → ${prefijo}-XXXXXX | ${escalafon.nombre} | JCAT=${jcat ?? '—'} | ${hospital.sigla}`)
+      creados++
+      continue
+    }
+
+    // Crear el cargo en transacción (secuencial atómico)
+    await prisma.$transaction(async (tx) => {
+      const codigo = await siguienteCodigoCargo(prefijo, tx)
+      await tx.cargo.create({
+        data: {
+          idSial: idSial,
+          codigo,
+          hospitalId: hospital.id,
+          escalafonId: escalafon.id,
+          puestoCargoId: puesto!.id,
+          literalPuesto: tipoInfo.literal,
+          codigoRepa: nodo.codigo_reparticion,
+          descripcionRepa: nodo.desc_rep,
+          regimen: escalafon.nombre.toLowerCase(),
+          estado: 'vigente',
+          origen: 'organigrama',
+          // JCAT no va en Cargo (vive en la Ocupación), pero lo registro
+          // en el agrupador como referencia para cuando se cree la ocupación.
+          agrupador: jcat ? `jcat:${jcat}` : null,
+        },
+      })
+    })
+    creados++
+  }
+
+  console.log(`\n📊 Resultado:`)
+  console.log(`   Cargos ${dryRun ? 'a generar' : 'generados'}:  ${creados}`)
+  console.log(`   Saltados (error de mapeo): ${saltados}`)
+  if (errores.length > 0) {
+    console.log(`\n⚠️  Errores de mapeo:`)
+    for (const e of errores) console.log(`   · ${e}`)
+  }
+  console.log(`\n🎉 ${dryRun ? 'Dry-run completado.' : 'Derivación completada.'}`)
+}
+
+main()
+  .catch((e) => { console.error(e); process.exit(1) })
+  .finally(() => prisma.$disconnect())

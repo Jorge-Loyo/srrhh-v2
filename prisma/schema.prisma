@@ -452,6 +452,19 @@ model Cargo {
   cesacId      String? @map("cesac_id") @db.Uuid
   unidadFijaId String? @map("unidad_fija_id") @db.Uuid
 
+  // S24-3: origen del cargo, para distinguir los cargos de conducción generados
+  // a partir del organigrama (S24-4) de los que vienen del padrón o del alta
+  // manual, y poder re-sincronizarlos sin tocar los reales.
+  //   'padron'      = creado/actualizado por el import del padrón (default)
+  //   'organigrama' = cargo de conducción vacante derivado del organigrama (S24)
+  //   'manual'      = alta manual de cargo
+  origen          String  @default("padron") @db.VarChar(15)
+  // S24: señalización de calidad de dato para los cargos derivados del
+  // organigrama que RRHH debe revisar (régimen inconsistente con el escalafón
+  // del personal, o nodo sin dotación). No bloquea la generación.
+  revisionDato    Boolean @default(false) @map("revision_dato")
+  revisionMotivo  String? @map("revision_motivo") @db.VarChar(200)
+
   // Relaciones
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
   escalafon       Escalafon       @relation(fields: [escalafonId], references: [id])
