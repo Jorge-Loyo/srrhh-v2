@@ -127,14 +127,35 @@ async function main() {
     jcatPorNivelFamilia.set(`${j.familia}:${j.cargo_jefatura}`, j.jcat)
   }
 
-  // Puesto del catálogo para cada (escalafón, literal) — para obtener puestoCargoId
+  // Puesto del catálogo para cada (escalafón, literal). El catálogo guarda los
+  // puestos de jefatura con el sufijo de nivel entre paréntesis (ej. "jefe de
+  // seccion (06)"), así que se indexa por el nombre NORMALIZADO sin ese sufijo
+  // para poder matchear contra el literal genérico ("jefe de seccion").
   const puestos = await prisma.puestoCargo.findMany({
     where: { activo: true },
     select: { id: true, escalafonId: true, nombre: true, modalidad: true },
   })
-  const puestoPorEscNombre = new Map<string, { id: string; modalidad: string }>()
+  // quita " (NN)" final para comparar: "jefe de seccion (06)" → "jefe de seccion"
+  const sinNivel = (s: string) => s.replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase()
+  const puestoPorEscLiteral = new Map<string, { id: string }>()
   for (const p of puestos) {
-    puestoPorEscNombre.set(`${p.escalafonId}:${p.nombre}`, { id: p.id, modalidad: p.modalidad })
+    puestoPorEscLiteral.set(`${p.escalafonId}:${sinNivel(p.nombre)}`, { id: p.id })
+  }
+
+  // Resuelve el puestoCargoId para (escalafón, literal de jefatura). Si no existe
+  // en el catálogo para ese escalafón (ej. Enfermería/CEETPS/Administrativa no
+  // tienen el puesto genérico de jefatura), lo auto-crea con pendienteCurar=true
+  // — mismo criterio que el import del padrón ante un puesto nuevo.
+  async function resolverPuestoConduccion(escalafonId: string, literal: string): Promise<string> {
+    const hit = puestoPorEscLiteral.get(`${escalafonId}:${literal}`)
+    if (hit) return hit.id
+    if (dryRun) return '(se crearía)'
+    const creado = await prisma.puestoCargo.create({
+      data: { escalafonId, nombre: literal, modalidad: 'ambos', tipoPuesto: 'conduccion', pendienteCurar: true },
+      select: { id: true },
+    })
+    puestoPorEscLiteral.set(`${escalafonId}:${literal}`, { id: creado.id })
+    return creado.id
   }
 
   // ── 3. Generar cargos ──
@@ -180,22 +201,8 @@ async function main() {
     // JCAT puede ser null para niveles que no están en la tabla (ej. subsecretario,
     // director general) — no es un error, simplemente no aplica para AS/DG.
 
-    // Puesto del catálogo
-    const puestoKey = `${escalafon.id}:${tipoInfo.literal}`
-    let puesto = puestoPorEscNombre.get(puestoKey)
-    // Fallback: buscar en modalidad 'ambos' si no encontró en el específico
-    if (!puesto) {
-      // Buscar por nombre sin importar escalafón (el puesto de conducción puede
-      // estar registrado una sola vez para todos los escalafones)
-      for (const [k, v] of puestoPorEscNombre) {
-        if (k.endsWith(`:${tipoInfo.literal}`)) { puesto = v; break }
-      }
-    }
-    if (!puesto) {
-      errores.push(`${nodo.codigo_reparticion} ${nodo.desc_rep}: puesto '${tipoInfo.literal}' no encontrado en catálogo para escalafón ${escalafon.nombre}`)
-      saltados++
-      continue
-    }
+    // Puesto del catálogo — se resuelve o auto-crea para el escalafón.
+    const puestoId = await resolverPuestoConduccion(escalafon.id, tipoInfo.literal)
 
     // Código de cargo
     const prefijo = prefijoDeCargo({
@@ -220,7 +227,7 @@ async function main() {
           codigo,
           hospitalId: hospital.id,
           escalafonId: escalafon.id,
-          puestoCargoId: puesto!.id,
+          puestoCargoId: puestoId,
           literalPuesto: tipoInfo.literal,
           codigoRepa: nodo.codigo_reparticion,
           descripcionRepa: nodo.desc_rep,
