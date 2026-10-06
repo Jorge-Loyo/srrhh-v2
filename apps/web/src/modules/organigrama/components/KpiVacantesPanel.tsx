@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BriefcaseIcon, ArrowRightIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { BriefcaseIcon, ArrowRightIcon, ExclamationTriangleIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { useVacantesConduccion, useCargosConduccionHuerfanos } from '../hooks/useOrganigrama'
 
 // S24-9: panel de KPI de vacantes de conducción (jefaturas sin ocupante activo).
@@ -18,6 +19,7 @@ export default function KpiVacantesPanel() {
   const navigate = useNavigate()
   const { data, isLoading, isError } = useVacantesConduccion()
   const { data: huerfanos } = useCargosConduccionHuerfanos()
+  const [verFrias, setVerFrias] = useState(false)
 
   if (isLoading) {
     return (
@@ -41,7 +43,19 @@ export default function KpiVacantesPanel() {
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-tight">{data.total}</p>
             <p className="text-xs text-gray-500">
-              {data.conPersonalActivo} con personal · {data.frias} sin personal (frías)
+              {data.conPersonalActivo} con personal ·{' '}
+              {data.frias > 0 ? (
+                <button
+                  onClick={() => setVerFrias((v) => !v)}
+                  className="inline-flex items-center gap-0.5 text-amber-700 hover:text-amber-800 font-semibold hover:underline"
+                  title="Ver las vacantes frías para revisión de RRHH"
+                >
+                  {data.frias} sin personal (frías)
+                  <ChevronDownIcon className={`w-3 h-3 transition-transform ${verFrias ? 'rotate-180' : ''}`} />
+                </button>
+              ) : (
+                <span>{data.frias} sin personal (frías)</span>
+              )}
             </p>
           </div>
         </div>
@@ -60,6 +74,33 @@ export default function KpiVacantesPanel() {
           ))}
         </div>
       </div>
+
+      {/* S24-3: lista de vacantes "frías" (nodo sin personal activo) para que
+          RRHH las revise/valide. Se despliega al clickear el contador. */}
+      {verFrias && (
+        <div className="mt-3 pt-3 border-t border-amber-100">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+            Vacantes frías para revisión de RRHH ({data.frias})
+          </p>
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {data.vacantes
+              .filter((v) => v.frio)
+              .map((v) => (
+                <button
+                  key={v.cargoId}
+                  onClick={() => navigate(`/cargos/${v.cargoId}`)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-amber-50 hover:border-amber-200 transition-colors text-left"
+                  title={v.revisionMotivo ?? 'Ver cargo'}
+                >
+                  <span className="font-mono text-[11px] font-bold text-amber-700 w-28 flex-shrink-0 truncate">{v.codigo}</span>
+                  <span className="font-mono text-[10px] text-gray-400 w-12 flex-shrink-0">{v.hospitalSigla}</span>
+                  <span className="text-xs text-gray-700 flex-1 truncate">{v.descripcionRepa ?? v.codigoRepa ?? '—'}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${NIVEL_COLOR[v.nivel] ?? 'bg-gray-100 text-gray-600'}`}>{v.nivel}</span>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Top efectores con más vacantes */}
       {data.porHospital.length > 0 && (

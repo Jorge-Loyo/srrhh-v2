@@ -1249,6 +1249,7 @@ interface VacanteConduccion {
   escalafon: string | null
   nivel: string
   frio: boolean // nodo sin personal activo (revisionDato)
+  revisionMotivo: string | null // S24-3: motivo por el que RRHH debe revisarlo
 }
 
 // Nivel legible a partir del prefijo del código de conducción.
@@ -1287,6 +1288,7 @@ export async function getVacantesConduccionService(opts: { sigla?: string } = {}
       descripcionRepa: true,
       origen: true,
       revisionDato: true,
+      revisionMotivo: true,
       escalafon: { select: { nombre: true } },
       hospital: { select: { sigla: true, nombre: true } },
     },
@@ -1312,6 +1314,7 @@ export async function getVacantesConduccionService(opts: { sigla?: string } = {}
       escalafon: c.escalafon?.nombre ?? null,
       nivel: nivelDeCodigo(c.codigo),
       frio: c.revisionDato,
+      revisionMotivo: c.revisionMotivo ?? null,
     })
   }
 

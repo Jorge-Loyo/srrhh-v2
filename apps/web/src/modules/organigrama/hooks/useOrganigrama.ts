@@ -107,6 +107,7 @@ export interface VacanteConduccion {
   escalafon: string | null
   nivel: string
   frio: boolean
+  revisionMotivo: string | null
 }
 
 export interface VacantesConduccion {
