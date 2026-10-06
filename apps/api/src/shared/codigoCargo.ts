@@ -98,6 +98,11 @@ export function prefijoDeCargo(params: {
 
   // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
   if (esc.includes('CEETPS') || esc.includes('TEC')) {
+    // Jefatura de un área/depto técnico → prefijo distinguible (como CPH-J-*),
+    // para que el filtro "Solo jefes" la reconozca por el código aunque esté
+    // vacante (el JCAT que la distinguiría vive en la ocupación, que no existe
+    // en un cargo vacante). Agregado en S24 al derivar jefaturas técnicas.
+    if (esConduccion) return esPou ? 'TEC-J-POU' : 'TEC-J-POF'
     return esPou ? 'TEC-POU' : 'TEC-POF'
   }
 
@@ -187,6 +192,7 @@ export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise
 
 export const PREFIJOS_CONDUCCION = new Set([
   'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
+  'TEC-J-POF', 'TEC-J-POU',
   'EG-J', 'EG-D', 'EG-G', 'RG-CG',
   'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
 ])
