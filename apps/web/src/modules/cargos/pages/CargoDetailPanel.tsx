@@ -59,7 +59,12 @@ export function CargoDetailPanel() {
               {/* El identificador del cargo es su `codigo` (lo genera el sistema).
                   El id_sial es dato del SIAL y solo existe cuando una persona
                   ocupa el cargo — no se muestra en el título si no aplica. */}
-              <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? '—'}</h1>
+              <h1 className="text-white text-xl font-bold leading-tight">
+                {cargo.codigo ?? '—'}
+                {cargo.codigoRepa && (
+                  <span className="text-white/50 font-mono text-base font-normal ml-2">· {cargo.codigoRepa}</span>
+                )}
+              </h1>
               <p className="text-white/80 text-sm mt-1">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
               {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
                 <p className="text-white/55 text-xs mt-0.5">{cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad}</p>
