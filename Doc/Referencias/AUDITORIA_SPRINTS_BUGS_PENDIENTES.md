@@ -5,6 +5,8 @@
 
 Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en conversación o en commits. Marcar `[x]` cuando esté arreglado y verificado.
 
+**Actualización 2026-10-06:** tras descartar BUG-01 como falso positivo del agente auditor, se re-verificaron manualmente BUG-02 a BUG-10 (lectura directa de código + consultas contra la BD local viva, sin confiar en los reportes de los agentes). Los 9 se confirman reales — cada uno tiene ahora una nota "✅ re-verificado manualmente" con la evidencia concreta.
+
 ---
 
 ## 🔴 Críticos — bugs funcionales reales
@@ -25,6 +27,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Archivos:** `prisma/schema.prisma` (línea ~823-827, comentario que referencia una migración inexistente), `apps/api/src/modules/concursos-cph/concursos-cph.service.ts:856`
 - **Qué pasa hoy:** el doc de Sprint 04 dice haber agregado un índice único parcial en Postgres (`CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado','desierto')`) como respaldo atómico contra el guard de aplicación (`findFirst` + `create`, no atómico). La migración referenciada (`prisma/migrations/concurso_cph_unique_abierto/`) **no existe** en el repo — ninguna de las 10 carpetas reales se llama así. El DDL real de `concursos_cph.cargo_id` solo tiene el `FOREIGN KEY`, ningún índice único.
 - **Impacto:** dos requests concurrentes todavía pueden crear dos concursos CPH abiertos para el mismo cargo — exactamente la regla de negocio central que el guard de aplicación (no atómico) no garantiza por sí solo.
+- **✅ Re-verificado manualmente (2026-10-06):** `\di concursos_cph*` contra la BD local viva confirma solo `concursos_cph_concurso_id_key` (FK 1:1 a `Concurso`), `_estado_idx`, `_hospital_id_idx`, `_sub_estado_idx` y la PK — ningún índice único parcial sobre `cargo_id`. Grep de `UNIQUE` en los 10 `migration.sql` reales solo encuentra ese mismo FK 1:1 en `0_init`, nada relacionado a `cargo_id`/`estado`.
 - **Fix propuesto:** crear la migración real con el índice único parcial descrito.
 
 ### BUG-03 — Alta de cargo: el selector "¿Reemplaza una baja?" se perdió en un rewrite posterior
@@ -33,6 +36,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Archivos:** `apps/web/src/modules/cargos/pages/AltaCargosPage.tsx`, `apps/web/src/modules/cargos/pages/BajaCargosPage.tsx`, campo `bajaOrigenId` ya existe en `prisma/schema.prisma:1217` y en `solicitudes-alta.service.ts:62` (backend intacto)
 - **Qué pasa hoy:** el selector se implementó en el commit `bb8cc0e` (confirmado con `git show`), pero se eliminó del frontend en un commit posterior durante el rewrite de catálogo de Sprint 20/21 (confirmado con `git log -p --follow` sobre `AltaCargosPage.tsx`, las líneas aparecen borradas). `grep "bajaOrigenId"` sobre todo `apps/web` da cero resultados.
 - **Impacto:** el backend sigue aceptando y persistiendo `bajaOrigenId`, pero ninguna UI lo puede enviar — queda `null` siempre en altas nuevas. El vínculo alta↔baja que el sprint resolvió quedó roto de nuevo, sin que nadie lo note (no rompe nada visiblemente, solo no vincula).
+- **✅ Re-verificado manualmente (2026-10-06):** `bajaOrigenId` confirmado en `prisma/schema.prisma:1217/1231` y en `solicitudes-alta.schema.ts:21`/`solicitudes-alta.service.ts:62` (backend lo acepta y persiste). Grep de `bajaOrigenId` sobre **todo** `apps/web/src` da cero resultados — ni un solo archivo lo referencia. Tampoco hay rastro de una UI equivalente con otro nombre ("reemplaza", "bajaId", "selectBaja" en `AltaCargosPage.tsx`/`BajaCargosPage.tsx` también dan cero).
 - **Fix propuesto:** reconstruir el selector en `AltaCargosPage.tsx` (combo de bajas confirmadas sin alta vinculada) y el link recíproco en `BajaCargosPage.tsx`, reutilizando el campo backend ya existente.
 
 ### BUG-04 — Autorización de `baja_cargo`: flujo completo es código muerto
@@ -41,6 +45,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Archivos:** `apps/api/src/modules/autorizaciones/autorizaciones.service.ts` (rama `baja_cargo`, líneas ~371-408 y ~136-149), `apps/web/src/modules/autorizaciones/pages/AutorizacionesPage.tsx` (`<ReferenciaBaja>`), `apps/web/src/modules/cargos/pages/BajaCargosPage.tsx:201` (filtro "Pendiente")
 - **Qué pasa hoy:** Sprint 17 rediseñó el modelo — "SGRASV ya tiene la potestad, no necesita autorización del director" (comentario explícito en el código) — y las bajas nacen sin pasar por `crearAutorizacion`. La rama entera de aprobar/rechazar `baja_cargo` en `autorizaciones.service.ts`, el componente `ReferenciaBaja`, y el filtro "Pendiente" en `BajaCargosPage.tsx` siguen en el código, compilan, pero son inalcanzables — nunca se genera una `Autorizacion` de ese tipo.
 - **Impacto:** no rompe nada activamente (es el modelo viejo, ya reemplazado correctamente), pero es código muerto que confunde a cualquiera que lo lea, y el filtro "Pendiente" en la UI de bajas nunca va a devolver resultados (parece un bug visible aunque no lo sea funcionalmente).
+- **✅ Re-verificado manualmente (2026-10-06):** grep de `crearAutorizacion`/`'baja_cargo'` en `bajas.service.ts` y de `baja_cargo` en todo `apps/api/src` (fuera de `autorizaciones.service.ts`) da cero resultados — nada crea una `Autorizacion` de ese tipo. Confirmado además que `EstadoBaja` incluye `pendiente` como valor legítimo del enum (`schema.prisma:1088/1135`) y que `BajaCargosPage.tsx:201` ofrece esa opción en el filtro — pero como ningún código la deja en `pendiente` al confirmar (ver BUG-01, descartado: el flujo real siempre resuelve a `confirmada` o `resolucion_a_la_firma`), ese filtro nunca va a traer una fila.
 - **Fix propuesto:** decisión de limpieza — borrar la rama `baja_cargo` de `autorizaciones.service.ts`/`AutorizacionesPage.tsx` y el filtro "Pendiente" de `BajaCargosPage.tsx`, o documentar explícitamente por qué se deja (ej. por si se revierte la decisión de Sprint 17). Pedir decisión antes de tocar.
 
 ### BUG-05 — Alta de cargo: validación de duplicados (RF-15) inalcanzable + link roto
@@ -52,6 +57,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
   2. El modal "Crear de todos modos / Cancelar" (S7-7) nunca se construyó en el frontend real — ni rastro en `apps/web/src` de ese texto ni de lógica equivalente.
   3. `BajaCargosPage.tsx:95` tiene `<Link to="/cargos/altas">Ver alta →</Link>` pero el router solo define `cargos/alta` (singular) — navega a una ruta inexistente.
 - **Impacto:** hoy se puede aprobar una solicitud de alta y generar un cargo duplicado (misma estructura: hospital+escalafón+puesto+especialidad) sin ninguna advertencia — exactamente lo que RF-15 decía resolver.
+- **✅ Re-verificado manualmente (2026-10-06):** `createCargoService` solo tiene un caller real: la ruta `POST /api/v1/cargos` (`cargos.routes.ts:34`). Grep de esa ruta en todo `apps/web/src` da cero resultados — nada la invoca. `_aprobarAltaCargo` (líneas 267-320 de `autorizaciones.service.ts`) no tiene ningún `findFirst`/chequeo de duplicado en su cuerpo. El link roto se confirmó letra por letra: `BajaCargosPage.tsx:95` usa `/cargos/altas` (plural), el router solo define `cargos/alta` (singular, línea 143) y `cargos/alta-por-baja` — y no hay ninguna ruta catch-all (`path: '*'`) en `router.tsx`, así que el click deja la pantalla en blanco, no un 404 amigable.
 - **Fix propuesto:** mover la validación de duplicados (o una versión equivalente) a `_aprobarAltaCargo` en `autorizaciones.service.ts`, con su propia UI de confirmación en el modal de aprobación de `AutorizacionesPage.tsx`. Arreglar el link roto (singular `cargos/alta`).
 
 ---
@@ -63,6 +69,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Sprint:** 18 (Designación CPH: búsqueda + especialidad + ID SIAL Rol)
 - **Archivo:** `apps/web/src/modules/concursos-cph/pages/ConcursoCphWizard.tsx` (estado `designarSearch`, línea 513, nunca conectado a ningún `<input>`)
 - **Qué pasa hoy:** el modal "Registrar designación" solo resuelve la persona automáticamente contra el orden de mérito del concurso (por CUIL exacto, línea ~746). Si el candidato no tiene CUIL o no matchea, no hay ningún fallback de búsqueda manual por nombre/DNI/ID SIAL, aunque el backend sí soporta `idSial` como filtro (`personas.service.ts:92-97`).
+- **✅ Re-verificado manualmente (2026-10-06):** `designarSearch` se declara en la línea 513 y solo se escribe (`setDesignarSearch`) desde `seleccionarCandidatoOM`/resolución automática (líneas 725, 759, y 3 resets) — nunca desde un `onChange` de input. Leí el JSX completo del modal (líneas 1680-1760): cuando hay candidatos de orden de mérito, solo se listan como botones clicables; cuando no hay ninguno (`elegiblesOM.length === 0`), se muestra un cartel pidiendo calcular el orden de mérito primero — no hay ningún `<input>` de búsqueda libre en ningún estado del modal.
 - **Fix propuesto:** agregar un input de búsqueda libre al modal, conectado a `GET /personas` con los filtros que ya soporta el backend.
 
 ### BUG-07 — Designación CPH: falta aviso de ID SIAL provisional
@@ -70,6 +77,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Sprint:** 18 (idem anterior)
 - **Archivo:** `apps/web/src/modules/concursos-cph/pages/ConcursoCphWizard.tsx` (Etapa 5)
 - **Qué pasa hoy:** el backend genera un id sintético `MANUAL-{cargoId}-{fecha}` (`concursos-cph.service.ts:752`) cuando no hay ID SIAL real todavía, pero el frontend nunca detecta ese prefijo ni avisa al usuario que es provisional.
+- **✅ Re-verificado manualmente (2026-10-06):** confirmado el literal `idSialRol = body.idSialRol ?? \`MANUAL-${cargoId.slice(0,8)}-${body.fechaDesde}\`` en `concursos-cph.service.ts:752`. Grep de `MANUAL-` sobre `ConcursoCphWizard.tsx` (todo el archivo) da cero resultados.
 - **Fix propuesto:** mostrar un badge/aviso "⏳ ID SIAL provisional — pendiente de padrón" cuando `cargoSial?.startsWith('MANUAL-')`.
 
 ### BUG-08 — `roles_persona` es una tabla fantasma
@@ -78,6 +86,7 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - **Archivos:** `prisma/schema.prisma:555-568` (modelo existe), `apps/api/src/modules/padron/padron.service.ts` (nunca escribe ahí)
 - **Qué pasa hoy:** la tabla está migrada, el pipeline Python del Dotaneitor ya calcula los datos necesarios (`id_sial_legajo`, `nro_rol`) en su salida — pero ningún código Node hace `tx.rolesPersona.create(...)`. Permanece vacía en cualquier entorno, siempre.
 - **Impacto:** bajo hoy (nada lee de esta tabla todavía), pero cualquier feature futura que prometa "histórico de roles en la vista de Personas" (como dice el propio doc de Sprint 21) no va a tener datos.
+- **✅ Re-verificado manualmente (2026-10-06):** grep de `rolesPersona`/`roles_persona` en todo `apps/api/src` da cero resultados (fuera del propio schema). `SELECT count(*) FROM roles_persona` contra la BD local viva devuelve `0`.
 - **Fix propuesto:** decidir si se implementa el consumidor Node ahora o se documenta como deuda técnica explícita, dado que nada depende de esto todavía.
 
 ---
@@ -88,11 +97,13 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 - [ ] Pendiente / decisión
 - **Sprint:** 00 (S0-11, marcada ✅)
 - No hay carpeta `.github/` en ningún commit del historial. Lint/build en PR nunca se automatizó.
+- **✅ Re-verificado manualmente (2026-10-06):** `ls .github` → "No such file or directory".
 
 ### BUG-10 — Índice GIN para búsqueda de personas nunca se creó
 - [ ] Pendiente
 - **Sprint:** 03 (S3-11, marcada ✅)
 - **Impacto:** la búsqueda funciona (`to_tsvector('spanish_unaccent', ...) @@ to_tsquery(...)`), pero sin índice hace sequential scan sobre las ~45k personas en cada búsqueda. Problema de performance, no de corrección.
+- **✅ Re-verificado manualmente (2026-10-06):** `\di personas*` contra la BD local viva solo lista `personas_cuil_key`, `personas_especialidad_cph_idx`, `personas_numero_doc_idx` y la PK — todos btree normales, ningún GIN. Grep de `GIN`/`USING GIN`/`to_tsvector` en los 10 `migration.sql` reales no encuentra ningún `CREATE INDEX` de ese tipo (el único "match" de texto era un falso positivo de "BEGIN").
 - **Fix propuesto:** `CREATE INDEX ... USING GIN (to_tsvector('spanish_unaccent', apellido_nombre))` en una migración nueva.
 
 ### BUG-11 — Docs desactualizados sin impacto funcional
