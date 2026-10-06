@@ -405,12 +405,18 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       OR: [
         { codigoRegistro: { codigo: { in: ['25', '60'] } } },
         { escalafon: { nombre: { contains: 'erencial', mode: 'insensitive' } } },
+        // S24: cargos de conducción generados desde el organigrama. Son
+        // vacantes de jefatura por definición (origen='organigrama'), con su
+        // código de carrera real (CPH-D, CPH-J-POF, EG-J, TEC-J...). Se muestran
+        // como "la vacante que espera ocupante" en el nodo del organigrama.
+        { origen: 'organigrama' },
       ],
     },
     select: {
       id: true,
       codigoRepa: true,
       codigo: true,
+      origen: true,
       codigoRegistro: { select: { codigo: true } },
       escalafon: { select: { nombre: true } },
     },
@@ -419,7 +425,10 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
   for (const cv of cargosVacantesRaw) {
     if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
-    if (!esCargoDeConduccion(cv.codigoRegistro?.codigo, null, cv.escalafon?.nombre ?? null))
+    // Los generados por el organigrama (S24) ya son conducción por definición;
+    // el resto se valida por código de registro / escalafón como antes.
+    if (cv.origen !== 'organigrama' &&
+        !esCargoDeConduccion(cv.codigoRegistro?.codigo, null, cv.escalafon?.nombre ?? null))
       continue
     cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
   }
