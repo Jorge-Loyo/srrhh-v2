@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { tipoColor, stripRedundantPrefix, agruparDept, esDireccionAdjuntaGestion, UMBRAL_DEPT } from '../lib/organigramaHelpers'
 import type { OrganigramaNodo, OrganigramaPersona } from '../hooks/useOrganigrama'
 import type { GrupoDept } from '../lib/organigramaHelpers'
+import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 
 export interface PersonaSeleccionada {
   persona: OrganigramaPersona
@@ -204,8 +205,8 @@ export const TreeNode = memo(function TreeNode({
               onClick={() => onPersonaClick({ persona: node.persona!, nodeName: stripRedundantPrefix(node.nombre), nodeTitle: node.tipo })}
             >
               <UserIcon className="w-3 h-3 flex-shrink-0" />
-              {node.persona.nombre}
-              {node.persona.cargo && <span className="text-gray-500 ml-1">· {node.persona.cargo}</span>}
+              {capitalizar(node.persona.nombre)}
+              {node.persona.cargo && <span className="text-gray-500 ml-1">· {capitalizarEtiqueta(node.persona.cargo)}</span>}
               {node.persona.codigoCargo && (
                 <span className="font-mono text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded ml-1">{node.persona.codigoCargo}</span>
               )}

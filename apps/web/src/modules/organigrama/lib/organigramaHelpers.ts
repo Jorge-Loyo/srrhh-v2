@@ -1,4 +1,5 @@
 import type { OrganigramaNodo } from '../hooks/useOrganigrama'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
 // Paleta de color por tipo de unidad organizativa, compartida entre la vista
 // Árbol y la vista Diagrama. Puerto literal de la app vieja
@@ -67,8 +68,18 @@ const REDUNDANT_NAME_PREFIXES = [
 
 export function stripRedundantPrefix(name: string | null): string {
   if (!name) return ''
-  const prefix = REDUNDANT_NAME_PREFIXES.find((p) => name.startsWith(`${p} `))
-  return prefix ? name.slice(prefix.length + 1) : name
+  // Comparación case-insensitive: organigramas.desc_rep se normalizó a
+  // minúscula (regla §9.1, S22-2/S22-3) pero esta lista de prefijos quedó en
+  // mayúscula — sin esto, `name.startsWith('DEPT ')` nunca matchea contra
+  // "dept atencion..." y el prefijo deja de recortarse. Hallazgo 2026-10-06.
+  const upper = name.toUpperCase()
+  const prefix = REDUNDANT_NAME_PREFIXES.find((p) => upper.startsWith(`${p} `))
+  const recortado = prefix ? name.slice(prefix.length + 1) : name
+  // capitalizarEtiqueta acá (no en cada call site): todos los usos de esta
+  // función son de display puro (nodo del árbol/diagrama, breadcrumb de
+  // búsqueda) — mismo motivo que el hallazgo anterior, desc_rep en minúscula
+  // sin esto se mostraba tal cual en vez de "Título Capitalizado".
+  return capitalizarEtiqueta(recortado)
 }
 
 // Agrupa hijos DEPT por su nodo cabecera "AREA PROGRAMATICA" o "HOSPITAL GENERAL".
