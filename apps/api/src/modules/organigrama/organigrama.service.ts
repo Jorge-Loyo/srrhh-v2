@@ -113,7 +113,17 @@ function esCargoDeConduccion(
   codigoRegistro: string | undefined,
   codigoJefaturas: string | null,
   escalafon: string | null,
+  codigoCargo?: string | null,
 ): boolean {
+  // El CÓDIGO del cargo manda cuando ya es un prefijo de conducción (CPH-D,
+  // CPH-J-*, CPH-SD, TEC-J, EG-J/D/G, RG-CG, AS). El padrón a veces trae a un
+  // jefe en un cargo de jefatura (código CPH-J-*) pero SIN JCAT en la ocupación
+  // (dato incompleto del SIAL) — ese cargo es jefatura igual, lo dice su código.
+  // (Caso testigo: Martínez Montes, CPH-J-POF-001577 sin JCAT en 40221196, única
+  // jefa del nodo — sin esto el nodo salía Vacante pese a estar ocupado.) Esta
+  // vía es coherente con el filtro "Solo jefes" de cargos.service.ts.
+  if (esConduccionPorPrefijo(codigoCargo)) return true
+
   // Carrera Gerencial: gerentes/subgerentes operativos. NO traen código de
   // registro ni JCAT (verificado: cod_reg y jcat vacíos), pero son conducción
   // por definición — ocupan los nodos GO/SGO del organigrama. Se identifican
@@ -146,6 +156,7 @@ function rangoConduccion(
   codigoRegistro: string | undefined,
   codigoJefaturas: string | null,
   escalafon: string | null,
+  codigoCargo?: string | null,
 ): number {
   if (codigoRegistro === '25') return 0 // Autoridades Superiores (ministro/subsecretario/DG)
   if (codigoRegistro === '60') return 1 // Gerencias
@@ -159,11 +170,35 @@ function rangoConduccion(
   const j = (codigoJefaturas ?? '').trim().toUpperCase()
   if (/^[PGZ]\d{2}$/.test(j)) return 10 + Number(j.slice(1))
 
+  // Sin JCAT pero con CÓDIGO de conducción: derivar el nivel del prefijo del
+  // código (mismo criterio que el JCAT: dirección < depto < subdir < división <
+  // unidad < sección). Alinea el rango con la escala del JCAT (base 10) para que
+  // un Director sin JCAT no quede debajo de un Jefe de Unidad con JCAT.
+  const rangoPrefijo = rangoPorPrefijoCodigo(codigoCargo)
+  if (rangoPrefijo !== null) return rangoPrefijo
+
   // Carrera Gerencial SIN JCAT: gerente/subgerente operativo puro (nodos GO/SGO).
   // Va después de los cargos con JCAT de dirección pero sigue siendo conducción.
   if (escalafon && escalafon.toLowerCase().includes('gerencial')) return 50
 
   return 99
+}
+
+// Nivel jerárquico derivado del prefijo del código de cargo, en la MISMA escala
+// que el JCAT (base 10: 10=dirección … 16=sección), para cargos de conducción
+// sin JCAT. Devuelve null si el código no es de conducción.
+function rangoPorPrefijoCodigo(codigoCargo: string | null | undefined): number | null {
+  if (!esConduccionPorPrefijo(codigoCargo)) return null
+  const c = codigoCargo!
+  if (c.startsWith('AS-')) return 0
+  if (c.startsWith('RG-CG')) return 1
+  if (c.startsWith('CPH-D') || c.startsWith('EG-D')) return 10 // dirección
+  if (c.startsWith('CPH-SD')) return 13                        // subdirección
+  if (c.startsWith('EG-G')) return 10                          // gerencial ≈ dirección
+  // Jefaturas (depto/división/unidad/sección) — el código no distingue el
+  // sub-nivel, así que se usa el de jefe de unidad (05) como representativo.
+  if (c.startsWith('CPH-J') || c.startsWith('TEC-J') || c.startsWith('EG-J')) return 15
+  return 20
 }
 
 // ── Orden jerárquico por tipo de unidad — puerto literal de `ordenTipos` ────
@@ -346,11 +381,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       a.codigoRegistro?.codigo,
       a.ocupaciones[0]?.codigoJefaturas ?? null,
       a.escalafon?.nombre ?? null,
+      a.codigo,
     )
     const rb = rangoConduccion(
       b.codigoRegistro?.codigo,
       b.ocupaciones[0]?.codigoJefaturas ?? null,
       b.escalafon?.nombre ?? null,
+      b.codigo,
     )
     return ra - rb
   })
@@ -365,6 +402,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         cargo.codigoRegistro?.codigo,
         ocup.codigoJefaturas,
         cargo.escalafon?.nombre ?? null,
+        cargo.codigo,
       )
     )
       continue
