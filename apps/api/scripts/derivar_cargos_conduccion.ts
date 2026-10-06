@@ -88,16 +88,12 @@ async function main() {
     WHERE og.tipo NOT IN ('GO','SGO','F/N MSTR - GO','Ministerio','PLTA TRANS. DOCENTE')
       AND lower(og.regimen_empleo) NOT LIKE '%fuera de norma%'
       AND lower(og.regimen_empleo) NOT LIKE '%director docente%'
+      -- Solo nodos con personal activo bajo su codigo_repa (falsos vacantes
+      -- reales: hay gente trabajando pero sin jefatura modelada). Los nodos sin
+      -- personal o fantasma del árbol no se generan acá.
       AND (SELECT count(*) FROM cargos cg JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL
              AND lower(unaccent(o.situacion_revista))='activo'
            WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL) > 0
-      AND NOT EXISTS (
-        SELECT 1 FROM cargos cg
-        JOIN codigos_registro cr ON cr.id=cg.codigo_registro_id AND cr.codigo IN ('25','60','37','83','85','87')
-        JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL AND lower(unaccent(o.situacion_revista))='activo'
-          AND (cr.codigo IN ('25','60') OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas IS NOT NULL AND o.codigo_jefaturas <> '' AND o.codigo_jefaturas <> '0'))
-        WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL
-      )
       -- NO duplicar: excluir nodos que YA tienen un cargo de conducción en esa
       -- repartición, sin importar si está ocupado, vacante o en validación. Un
       -- cargo de conducción se reconoce por su CÓDIGO (prefijos de conducción) o

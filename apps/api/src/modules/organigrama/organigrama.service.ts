@@ -4,6 +4,7 @@ import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.js'
+import { PREFIJOS_CONDUCCION, esConduccionPorPrefijo } from '../../shared/codigoCargo.js'
 
 // xlsx es CJS — mismo patrón que bajas-sial.service.ts (createRequire porque
 // este proyecto es ESM).
@@ -401,15 +402,24 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     where: {
       codigoRepa: { in: nodosLibres },
       deletedAt: null,
-      estado: 'vigente',
+      // Un nodo vacante muestra el código del cargo que espera ocupante. Ese
+      // cargo puede estar 'vigente' sin ocupante O en 'validacion_vacante'
+      // (cargo de jefatura real que vino del padrón sin ocupante activo, ej. el
+      // director del Sardá CPH-D-000010). Antes solo 'vigente', por eso esos
+      // nodos salían "Vacante" sin código pese a tener un cargo real detrás.
+      estado: { in: ['vigente', 'validacion_vacante'] },
       OR: [
         { codigoRegistro: { codigo: { in: ['25', '60'] } } },
         { escalafon: { nombre: { contains: 'erencial', mode: 'insensitive' } } },
-        // S24: cargos de conducción generados desde el organigrama. Son
-        // vacantes de jefatura por definición (origen='organigrama'), con su
-        // código de carrera real (CPH-D, CPH-J-POF, EG-J, TEC-J...). Se muestran
-        // como "la vacante que espera ocupante" en el nodo del organigrama.
+        // S24: cargos de conducción generados desde el organigrama (vacantes de
+        // jefatura por definición).
         { origen: 'organigrama' },
+        // Conducción por el PREFIJO del código de cargo (CPH-D, CPH-J-*, EG-J,
+        // TEC-J, etc.) — cubre los cargos de jefatura que ya vinieron del padrón,
+        // sin importar su código de registro (ej. el director del Sardá
+        // CPH-D-000010, cod_reg 37, en validacion_vacante). Regla: si tiene
+        // código de cargo de conducción, es jefatura y se muestra.
+        { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
       ],
     },
     select: {
@@ -422,14 +432,35 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     },
     orderBy: { codigoRepa: 'asc' },
   })
+  // Rango jerárquico por prefijo de código: cuando un nodo tiene varios cargos
+  // de conducción con el mismo codigo_repa (ej. el raíz de un hospital con
+  // director + jefes), el nodo muestra el de MAYOR rango (Director antes que
+  // Jefe de Unidad). Menor número = más jerárquico.
+  const rangoPrefijo = (codigo: string | null): number => {
+    if (!codigo) return 99
+    if (codigo.startsWith('AS-')) return 0
+    if (codigo.startsWith('CPH-D-')) return 1
+    if (codigo.startsWith('CPH-SD-')) return 2
+    if (codigo.startsWith('RG-CG-')) return 3
+    if (codigo.startsWith('EG-D-')) return 3
+    if (codigo.startsWith('CPH-J-') || codigo.startsWith('TEC-J-') || codigo.startsWith('EG-J-') || codigo.startsWith('EG-G-')) return 4
+    return 50
+  }
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
   for (const cv of cargosVacantesRaw) {
-    if (!cv.codigoRepa || cargosVacantesMap.has(cv.codigoRepa)) continue
-    // Los generados por el organigrama (S24) ya son conducción por definición;
-    // el resto se valida por código de registro / escalafón como antes.
-    if (cv.origen !== 'organigrama' &&
-        !esCargoDeConduccion(cv.codigoRegistro?.codigo, null, cv.escalafon?.nombre ?? null))
-      continue
+    if (!cv.codigoRepa) continue
+    // Es conducción si: lo generó el organigrama (S24), O su CÓDIGO tiene
+    // prefijo de conducción (CPH-D, CPH-J-*, EG-J, TEC-J... — cubre los cargos
+    // de jefatura del padrón como el director del Sardá), O lo valida el
+    // criterio clásico por código de registro / escalafón.
+    const esConduccion =
+      cv.origen === 'organigrama' ||
+      esConduccionPorPrefijo(cv.codigo) ||
+      esCargoDeConduccion(cv.codigoRegistro?.codigo, null, cv.escalafon?.nombre ?? null)
+    if (!esConduccion) continue
+    // Si el nodo ya tiene un cargo mapeado, quedarse con el de mayor rango.
+    const existente = cargosVacantesMap.get(cv.codigoRepa)
+    if (existente && rangoPrefijo(existente.codigoCargo) <= rangoPrefijo(cv.codigo)) continue
     cargosVacantesMap.set(cv.codigoRepa, { cargoId: cv.id, codigoCargo: cv.codigo ?? null })
   }
 
