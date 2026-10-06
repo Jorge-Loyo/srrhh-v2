@@ -98,6 +98,23 @@ async function main() {
           AND (cr.codigo IN ('25','60') OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas IS NOT NULL AND o.codigo_jefaturas <> '' AND o.codigo_jefaturas <> '0'))
         WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL
       )
+      -- NO duplicar: excluir nodos que YA tienen un cargo de conducción en esa
+      -- repartición, sin importar si está ocupado, vacante o en validación. Un
+      -- cargo de conducción se reconoce por su CÓDIGO (prefijos de conducción) o
+      -- por una ocupación con JCAT. Esto cubre los cargos de jefatura que ya
+      -- vinieron del padrón (ej. un director en 'validacion_vacante' sin ocupante
+      -- activo) — ahí el puesto ya existe, no hay que generar otro.
+      AND NOT EXISTS (
+        SELECT 1 FROM cargos cg
+        WHERE cg.codigo_repa = og.codigo_reparticion AND cg.deleted_at IS NULL
+          AND (
+            cg.codigo LIKE 'CPH-J-%' OR cg.codigo LIKE 'CPH-D-%' OR cg.codigo LIKE 'CPH-SD-%'
+            OR cg.codigo LIKE 'TEC-J-%' OR cg.codigo LIKE 'EG-J-%' OR cg.codigo LIKE 'EG-D-%'
+            OR cg.codigo LIKE 'EG-G-%' OR cg.codigo LIKE 'RG-CG-%' OR cg.codigo LIKE 'AS-%'
+            OR EXISTS (SELECT 1 FROM ocupaciones o2 WHERE o2.cargo_id=cg.id AND o2.hasta IS NULL
+                       AND o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas <> '' AND o2.codigo_jefaturas <> '0')
+          )
+      )
       -- Idempotencia: excluir nodos que ya tienen un cargo generado desde el
       -- organigrama (origen='organigrama') para esa repartición.
       AND NOT EXISTS (
