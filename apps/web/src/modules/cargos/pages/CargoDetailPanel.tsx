@@ -4,6 +4,12 @@ import { CadenaRetencionPanel } from '@/modules/retenciones/components/CadenaRet
 import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 
+const ESTADO_LABEL: Record<EstadoCargo, string> = {
+  [EstadoCargo.VIGENTE]: 'Vigente',
+  [EstadoCargo.NO_VIGENTE]: 'No vigente',
+  [EstadoCargo.VALIDACION_VACANTE]: 'En validación',
+}
+
 function fechaCorta(v: string | null | undefined) {
   if (!v) return '—'
   return v.slice(0, 10)
@@ -50,16 +56,22 @@ export function CargoDetailPanel() {
         <div className="bg-navy px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-white/60 text-xs font-mono mb-1">{cargo.idSial}</p>
-              <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? cargo.idSial}</h1>
+              {/* El identificador del cargo es su `codigo` (lo genera el sistema).
+                  El id_sial es dato del SIAL y solo existe cuando una persona
+                  ocupa el cargo — no se muestra en el título si no aplica. */}
+              <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? '—'}</h1>
               <p className="text-white/80 text-sm mt-1">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
               {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
                 <p className="text-white/55 text-xs mt-0.5">{cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad}</p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2 shrink-0 mt-1">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${vigente ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
-                {vigente ? 'Vigente' : 'No vigente'}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                cargo.estado === EstadoCargo.VIGENTE ? 'bg-green-100 text-green-800' :
+                cargo.estado === EstadoCargo.VALIDACION_VACANTE ? 'bg-orange-100 text-orange-800' :
+                'bg-gray-200 text-gray-600'
+              }`}>
+                {ESTADO_LABEL[cargo.estado]}
               </span>
               {vigente && (
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
