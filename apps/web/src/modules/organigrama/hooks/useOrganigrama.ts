@@ -95,3 +95,37 @@ export function useOrganigramaUploads() {
     },
   })
 }
+
+// S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante activo).
+export interface VacanteConduccion {
+  cargoId: string
+  codigo: string
+  codigoRepa: string | null
+  descripcionRepa: string | null
+  hospitalSigla: string
+  hospitalNombre: string
+  escalafon: string | null
+  nivel: string
+  frio: boolean
+}
+
+export interface VacantesConduccion {
+  total: number
+  conPersonalActivo: number
+  frias: number
+  porHospital: { sigla: string; nombre: string; total: number }[]
+  porNivel: { nivel: string; total: number }[]
+  vacantes: VacanteConduccion[]
+}
+
+export function useVacantesConduccion(sigla?: string) {
+  return useQuery({
+    queryKey: ['vacantes-conduccion', sigla ?? null],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: VacantesConduccion }>('/api/v1/organigrama/vacantes', {
+        params: sigla ? { sigla } : undefined,
+      })
+      return res.data.data
+    },
+  })
+}
