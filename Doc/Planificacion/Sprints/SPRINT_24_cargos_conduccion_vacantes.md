@@ -135,21 +135,31 @@ S24-4 ──► S24-7 (re-sync organigrama)
 - [x] El organigrama distingue los tres estados: vacante de conducción / con personal sin jefatura /
       vacía. _(`revisionDato` + `razonSinCargo`; KPI separa `conPersonalActivo` de `frias`.)_
 - [x] Se puede listar y contar las vacantes de conducción por efector/sección. _(`GET
-    /organigrama/vacantes`, 736 vacantes con desglose por hospital/nivel.)_
+  /organigrama/vacantes`, 736 vacantes con desglose por hospital/nivel.)_
 - [x] Re-cargar el organigrama no duplica cargos de conducción. _(S24-7 idempotente; verificado 0
       candidatos nuevos al re-correr.)_
 
-## Pendientes / deuda conocida (no bloquean el cierre)
+## Deuda saldada (post-cierre, 2026-10)
 
-- **Frontend del KPI (S24-9):** el endpoint `GET /organigrama/vacantes` está listo y verificado,
-  pero la vista/contador en la UI de `/organigrama` queda para una iteración de UX (hoy se consume
-  por API). El modal de Vacantes existente ya muestra el código de cada nodo vacante.
-- **Baja de cargos de nodos eliminados (S24-7):** por decisión conservadora no se dan de baja
-  automáticamente al re-subir el árbol. Si RRHH confirma que un nodo eliminado debe cerrar su cargo,
-  se hace manualmente. Revisar si conviene un reporte de "cargos `origen='organigrama'` cuyo
-  `codigo_repa` ya no está en el árbol".
-- **Validación con RRHH de los 245 cargos "fríos"** (nodos sin personal activo): generados con
-  `revisionDato=true` para que RRHH los revise.
+- ✅ **Frontend del KPI (S24-9):** `KpiVacantesPanel` en la home de `/organigrama` — total,
+  desglose por nivel, top efectores (navegables), consumiendo `GET /organigrama/vacantes`.
+- ✅ **Reporte de cargos huérfanos (S24-7):** `GET /organigrama/cargos-huerfanos` lista los cargos
+  `origen='organigrama'` cuyo `codigo_repa` ya no está en el árbol (nodo eliminado en un re-upload);
+  se muestra como aviso en el KPI para que RRHH decida la baja. La baja sigue siendo manual
+  (decisión conservadora: pueden tener historial).
+- ✅ **Listado de vacantes "frías" (S24-3):** el KPI despliega las 245 vacantes frías
+  (`revisionDato=true`) con su `revisionMotivo`, navegables al detalle, para que RRHH las revise.
+  La validación en sí es trabajo de RRHH; el sistema ya expone la lista revisable.
+- ✅ **Reconciliación en TODOS los flujos del padrón (S24-6):** extraída a
+  `padron/reconciliarConduccion.ts` y aplicada en `aprobarSnapshotService`, `aprobarDiffNuevoService`
+  (que cubre `aprobarTodosDiffsPendientesService` y `marcarTransferenciaService`). El rechazo de diff
+  queda excluido a propósito (cargo rechazado = sin código, no debe cubrir una vacante). Verificado
+  con los 3 casos (vincula / no-jefatura / repa-sin-vacante).
+
+## Pendiente que queda abierto (trabajo de negocio, no de sistema)
+
+- **Validación con RRHH de los 245 cargos "fríos"**: la herramienta ya existe (listado en el KPI);
+  la revisión caso por caso la hace RRHH.
 
 ## Notas
 
