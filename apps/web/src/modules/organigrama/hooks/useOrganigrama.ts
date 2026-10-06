@@ -96,35 +96,42 @@ export function useOrganigramaUploads() {
   })
 }
 
-// S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante activo).
+// S24-9: vacantes de conducción = los nodos que el organigrama muestra como
+// "Vacante" (mismo criterio que el contador del árbol).
 export interface VacanteConduccion {
-  cargoId: string
-  codigo: string
-  codigoRepa: string | null
+  cargoId: string | null
+  codigo: string | null
+  codigoRepa: string
   descripcionRepa: string | null
   hospitalSigla: string
   hospitalNombre: string
-  escalafon: string | null
   nivel: string
-  frio: boolean
+  carrera: string
+  frio: boolean // nodo sin cargo real detrás todavía
   revisionMotivo: string | null
 }
 
 export interface VacantesConduccion {
   total: number
-  conPersonalActivo: number
+  conCodigo: number
   frias: number
   porHospital: { sigla: string; nombre: string; total: number }[]
   porNivel: { nivel: string; total: number }[]
+  porCarrera: { carrera: string; total: number }[]
+  carreraFiltrada: string | null
   vacantes: VacanteConduccion[]
 }
 
-export function useVacantesConduccion(sigla?: string) {
+export function useVacantesConduccion(opts: { sigla?: string; carrera?: string } = {}) {
+  const { sigla, carrera } = opts
   return useQuery({
-    queryKey: ['vacantes-conduccion', sigla ?? null],
+    queryKey: ['vacantes-conduccion', sigla ?? null, carrera ?? null],
     queryFn: async () => {
+      const params: Record<string, string> = {}
+      if (sigla) params.sigla = sigla
+      if (carrera) params.carrera = carrera
       const res = await apiClient.get<{ data: VacantesConduccion }>('/api/v1/organigrama/vacantes', {
-        params: sigla ? { sigla } : undefined,
+        params: Object.keys(params).length ? params : undefined,
       })
       return res.data.data
     },

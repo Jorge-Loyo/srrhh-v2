@@ -1210,6 +1210,9 @@ export async function reemplazarOrganigramaService(
     console.error('[organigrama] re-sync de cargos de conducción falló (el árbol ya se guardó):', msg)
   }
 
+  // El KPI de vacantes cachea el universo; al cambiar el árbol hay que recalcular.
+  invalidarCacheVacantes()
+
   return { filas: filas.length, cargosConduccion }
 }
 
@@ -1240,85 +1243,164 @@ export async function listOrganigramaUploadsService() {
 // RRHH ver "qué jefaturas faltan cubrir".
 
 interface VacanteConduccion {
-  cargoId: string
-  codigo: string
-  codigoRepa: string | null
+  cargoId: string | null
+  codigo: string | null
+  codigoRepa: string
   descripcionRepa: string | null
   hospitalSigla: string
   hospitalNombre: string
-  escalafon: string | null
   nivel: string
-  frio: boolean // nodo sin personal activo (revisionDato)
-  revisionMotivo: string | null // S24-3: motivo por el que RRHH debe revisarlo
+  carrera: string // régimen de empleo del nodo (= carrera/escalafón) para filtrar
+  frio: boolean // nodo sin cargo o cargo marcado para revisión
+  revisionMotivo: string | null
 }
 
-// Nivel legible a partir del prefijo del código de conducción.
-function nivelDeCodigo(codigo: string): string {
-  if (codigo.startsWith('AS-')) return 'Autoridad Superior'
-  if (codigo.startsWith('RG-CG')) return 'Gerencia'
-  if (codigo.startsWith('CPH-D') || codigo.startsWith('EG-D')) return 'Dirección'
-  if (codigo.startsWith('CPH-SD')) return 'Subdirección'
-  if (codigo.startsWith('EG-G')) return 'Gerencia'
-  if (codigo.startsWith('CPH-J') || codigo.startsWith('TEC-J') || codigo.startsWith('EG-J')) return 'Jefatura'
+// Nivel legible a partir del TIPO del nodo del organigrama (misma jerarquía que
+// muestra el árbol). Es la fuente coherente con lo que ve el usuario.
+function nivelDeTipoNodo(tipo: string): string {
+  if (tipo.startsWith('SSEC') || tipo === 'AS') return 'Autoridad Superior'
+  if (tipo === 'DG' || tipo.startsWith('F/N DG') || tipo.startsWith('UAI')) return 'Dirección General'
+  if (tipo === 'GO' || tipo === 'SGO') return 'Gerencia'
+  if (tipo === 'DHOS' || tipo.startsWith('F/N DEJE')) return 'Dirección'
+  if (tipo === 'SDHOS') return 'Subdirección'
+  if (tipo === 'DEPT' || tipo === 'DEPT CA') return 'Jefatura de Departamento'
+  if (tipo === 'DIV' || tipo === 'DIV CA') return 'Jefatura de División'
+  if (tipo === 'UNID') return 'Jefatura de Unidad'
+  if (tipo === 'SECCION' || tipo === 'SECC' || tipo === 'SECCION CA') return 'Jefatura de Sección'
   return 'Otro'
 }
 
-export async function getVacantesConduccionService(opts: { sigla?: string } = {}) {
+// S24-9: vacantes del organigrama = EXACTAMENTE los nodos que el árbol muestra
+// como "Vacante" (nodo sin jefe de conducción activo y tipo != REGIMEN). Se
+// calcula con UNA sola query SQL que replica el criterio de ocupación del
+// organigrama, en vez de reconstruir los 77 árboles en memoria (que tardaba
+// varios segundos). Así el total/desglose coinciden con el contador del árbol
+// y la consulta es O(1) queries.
+//
+// Un nodo está OCUPADO (no vacante) si existe en su codigo_repa una ocupación
+// VIGENTE y ACTIVA cuyo cargo es de conducción — mismo criterio que
+// esCargoDeConduccion: conducción por CÓDIGO (prefijos) O cod_registro 25/60 O
+// (cod_registro 37/83/85/87 CON JCAT) O escalafón "gerencial" — excluyendo los
+// cargos ocultos (rol redundante sin JCAT).
+interface VacanteRow {
+  codigo_repa: string
+  desc_rep: string | null
+  tipo: string
+  regimen_empleo: string | null
+  sigla: string
+  hospital_nombre: string | null
+  cargo_id: string | null
+  cargo_codigo: string | null
+  es_frio: boolean
+}
+
+// Cache en memoria del universo completo de vacantes (es costoso de calcular y
+// cambia solo cuando cambia el padrón/organigrama). TTL corto; se invalida
+// explícitamente al recargar el organigrama (ver reemplazarOrganigramaService).
+let vacantesCache: { data: VacanteConduccion[]; expira: number } | null = null
+const VACANTES_TTL_MS = 5 * 60_000
+
+export function invalidarCacheVacantes() {
+  vacantesCache = null
+}
+
+async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
+  if (vacantesCache && vacantesCache.expira > Date.now()) return vacantesCache.data
+
   const idsOcultos = await cargoIdsOcultosPorRolRedundante(prisma)
+  // Postgres no permite un array vacío con = ANY de forma simple; se usa un
+  // sentinela que no colisiona con ningún uuid real.
+  const ocultosArr = idsOcultos.length > 0 ? idsOcultos : ['00000000-0000-0000-0000-000000000000']
 
-  const PREFIJO_REGEX = '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)'
+  const rows = await prisma.$queryRaw<VacanteRow[]>`
+    WITH nodo_ocupado AS (
+      -- codigo_repa que tiene al menos un jefe de conducción ACTIVO (nodo ocupado)
+      SELECT DISTINCT c.codigo_repa
+      FROM cargos c
+      JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
+        AND lower(unaccent(o.situacion_revista)) = 'activo'
+      LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+      JOIN escalafones e ON e.id = c.escalafon_id
+      WHERE c.deleted_at IS NULL
+        AND c.codigo_repa IS NOT NULL
+        AND c.id <> ALL(${ocultosArr}::uuid[])
+        AND (
+          c.codigo ~ '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)'
+          OR cr.codigo IN ('25','60')
+          OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas ~ '^[PGZ][0-9]{2}$')
+          OR lower(e.nombre) LIKE '%gerencial%'
+        )
+    ),
+    cargo_vacante AS (
+      -- Para cada codigo_repa, un cargo de conducción vigente/validacion sin
+      -- ocupante activo (el código que el nodo mostraría). Se elige el de mayor
+      -- jerarquía por prefijo (menor rango).
+      SELECT DISTINCT ON (c.codigo_repa) c.codigo_repa, c.id AS cargo_id, c.codigo AS cargo_codigo
+      FROM cargos c
+      WHERE c.deleted_at IS NULL
+        AND c.estado IN ('vigente','validacion_vacante')
+        AND c.codigo_repa IS NOT NULL
+        AND c.id <> ALL(${ocultosArr}::uuid[])
+        AND (c.origen = 'organigrama' OR c.codigo ~ '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)')
+        AND NOT EXISTS (
+          SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL
+            AND lower(unaccent(o.situacion_revista)) = 'activo'
+        )
+      ORDER BY c.codigo_repa,
+        CASE
+          WHEN c.codigo LIKE 'AS-%' THEN 0
+          WHEN c.codigo LIKE 'RG-CG%' THEN 1
+          WHEN c.codigo LIKE 'CPH-D%' OR c.codigo LIKE 'EG-D%' THEN 2
+          WHEN c.codigo LIKE 'CPH-SD%' THEN 3
+          ELSE 4
+        END
+    )
+    SELECT og.codigo_reparticion AS codigo_repa, og.desc_rep, og.tipo,
+           og.regimen_empleo, og.sigla,
+           h.nombre AS hospital_nombre,
+           cv.cargo_id, cv.cargo_codigo,
+           (cv.cargo_id IS NULL) AS es_frio
+    FROM organigramas og
+    LEFT JOIN hospitales h ON h.sigla = og.sigla
+    LEFT JOIN cargo_vacante cv ON cv.codigo_repa = og.codigo_reparticion
+    WHERE og.tipo <> 'REGIMEN'
+      AND og.codigo_reparticion NOT IN (SELECT codigo_repa FROM nodo_ocupado)
+    ORDER BY og.sigla, og.codigo_reparticion
+  `
 
-  const cargos = await prisma.cargo.findMany({
-    where: {
-      deletedAt: null,
-      estado: { in: ['vigente', 'validacion_vacante'] },
-      ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
-      ...(opts.sigla && { hospital: { sigla: opts.sigla } }),
-      // Conducción: generado desde el organigrama O prefijo de conducción.
-      OR: [{ origen: 'organigrama' }, { codigo: { not: null } }],
-      // Sin ocupante activo = vacante.
-      ocupaciones: {
-        none: { hasta: null, situacionRevista: { equals: 'activo', mode: 'insensitive' } },
-      },
-    },
-    select: {
-      id: true,
-      codigo: true,
-      codigoRepa: true,
-      descripcionRepa: true,
-      origen: true,
-      revisionDato: true,
-      revisionMotivo: true,
-      escalafon: { select: { nombre: true } },
-      hospital: { select: { sigla: true, nombre: true } },
-    },
-    orderBy: [{ hospital: { sigla: 'asc' } }, { codigo: 'asc' }],
-  })
+  const listaCompleta: VacanteConduccion[] = rows.map((r) => ({
+    cargoId: r.cargo_id,
+    codigo: r.cargo_codigo,
+    codigoRepa: r.codigo_repa,
+    descripcionRepa: r.desc_rep,
+    hospitalSigla: r.sigla,
+    hospitalNombre: r.hospital_nombre ?? r.sigla,
+    nivel: nivelDeTipoNodo(r.tipo),
+    carrera: r.regimen_empleo || 'Sin carrera',
+    frio: r.es_frio,
+    revisionMotivo: null,
+  }))
 
-  // Filtro fino en memoria: dejar solo los que son conducción por código
-  // (el OR del where trae también cargos con código no-conducción; acá se
-  // acota con el prefijo real) O los generados desde el organigrama.
-  const prefijoRe = new RegExp(PREFIJO_REGEX)
-  const lista: VacanteConduccion[] = []
-  for (const c of cargos) {
-    if (!c.codigo) continue
-    const esConduccion = c.origen === 'organigrama' || prefijoRe.test(c.codigo)
-    if (!esConduccion) continue
-    lista.push({
-      cargoId: c.id,
-      codigo: c.codigo,
-      codigoRepa: c.codigoRepa,
-      descripcionRepa: c.descripcionRepa,
-      hospitalSigla: c.hospital.sigla,
-      hospitalNombre: c.hospital.nombre,
-      escalafon: c.escalafon?.nombre ?? null,
-      nivel: nivelDeCodigo(c.codigo),
-      frio: c.revisionDato,
-      revisionMotivo: c.revisionMotivo ?? null,
-    })
-  }
+  vacantesCache = { data: listaCompleta, expira: Date.now() + VACANTES_TTL_MS }
+  return listaCompleta
+}
 
-  // Desgloses
+export async function getVacantesConduccionService(opts: { sigla?: string; carrera?: string } = {}) {
+  const listaCompleta = await computarUniversoVacantes()
+
+  // Filtro por efector (sigla), si se pidió — acota el universo antes de todo.
+  const universo = opts.sigla
+    ? listaCompleta.filter((v) => v.hospitalSigla === opts.sigla)
+    : listaCompleta
+
+  // El desglose por carrera se calcula sobre el universo (ya acotado por sigla
+  // si aplica) para que el filtro muestre todas las carreras disponibles; el
+  // resto de los indicadores y el listado respetan además el filtro `carrera`.
+  const porCarreraMap = new Map<string, number>()
+  for (const v of universo) porCarreraMap.set(v.carrera, (porCarreraMap.get(v.carrera) ?? 0) + 1)
+
+  const lista = opts.carrera ? universo.filter((v) => v.carrera === opts.carrera) : universo
+
   const porHospital = new Map<string, { sigla: string; nombre: string; total: number }>()
   const porNivel = new Map<string, number>()
   for (const v of lista) {
@@ -1330,10 +1412,12 @@ export async function getVacantesConduccionService(opts: { sigla?: string } = {}
 
   return {
     total: lista.length,
-    conPersonalActivo: lista.filter((v) => !v.frio).length, // unidad con gente, sin jefatura
-    frias: lista.filter((v) => v.frio).length, // nodo sin personal activo
+    conCodigo: lista.filter((v) => v.codigo).length, // nodo con cargo real detrás
+    frias: lista.filter((v) => v.frio).length, // nodo sin cargo todavía
     porHospital: [...porHospital.values()].sort((a, b) => b.total - a.total),
     porNivel: [...porNivel.entries()].map(([nivel, total]) => ({ nivel, total })).sort((a, b) => b.total - a.total),
+    porCarrera: [...porCarreraMap.entries()].map(([carrera, total]) => ({ carrera, total })).sort((a, b) => b.total - a.total),
+    carreraFiltrada: opts.carrera ?? null,
     vacantes: lista,
   }
 }

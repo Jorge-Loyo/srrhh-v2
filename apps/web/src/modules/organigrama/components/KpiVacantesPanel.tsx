@@ -9,17 +9,24 @@ import { useVacantesConduccion, useCargosConduccionHuerfanos } from '../hooks/us
 
 const NIVEL_COLOR: Record<string, string> = {
   'Autoridad Superior': 'bg-purple-100 text-purple-700',
+  'Dirección General': 'bg-fuchsia-100 text-fuchsia-700',
+  'Gerencia': 'bg-sky-100 text-sky-700',
   'Dirección': 'bg-red-100 text-red-700',
   'Subdirección': 'bg-orange-100 text-orange-700',
-  'Jefatura': 'bg-amber-100 text-amber-700',
-  'Gerencia': 'bg-sky-100 text-sky-700',
+  'Jefatura de Departamento': 'bg-indigo-100 text-indigo-700',
+  'Jefatura de División': 'bg-violet-100 text-violet-700',
+  'Jefatura de Unidad': 'bg-amber-100 text-amber-700',
+  'Jefatura de Sección': 'bg-teal-100 text-teal-700',
+  'Otro': 'bg-gray-100 text-gray-600',
 }
 
 export default function KpiVacantesPanel() {
   const navigate = useNavigate()
-  const { data, isLoading, isError } = useVacantesConduccion()
+  const [carreraSel, setCarreraSel] = useState<string>('')
+  const { data, isLoading, isError } = useVacantesConduccion({ carrera: carreraSel || undefined })
   const { data: huerfanos } = useCargosConduccionHuerfanos()
   const [verFrias, setVerFrias] = useState(false)
+  const [nivelSel, setNivelSel] = useState<string | null>(null)
 
   if (isLoading) {
     return (
@@ -39,62 +46,112 @@ export default function KpiVacantesPanel() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/80">
-              Vacantes de conducción
+              Vacantes en el organigrama
+              {data.carreraFiltrada && <span className="normal-case text-gray-500 font-normal"> · {data.carreraFiltrada}</span>}
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-tight">{data.total}</p>
             <p className="text-xs text-gray-500">
-              {data.conPersonalActivo} con personal ·{' '}
+              {data.conCodigo} con código de cargo ·{' '}
               {data.frias > 0 ? (
                 <button
-                  onClick={() => setVerFrias((v) => !v)}
+                  onClick={() => { setVerFrias((v) => !v); setNivelSel(null) }}
                   className="inline-flex items-center gap-0.5 text-amber-700 hover:text-amber-800 font-semibold hover:underline"
-                  title="Ver las vacantes frías para revisión de RRHH"
+                  title="Ver las vacantes sin cargo todavía (revisión de RRHH)"
                 >
-                  {data.frias} sin personal (frías)
+                  {data.frias} sin cargo todavía
                   <ChevronDownIcon className={`w-3 h-3 transition-transform ${verFrias ? 'rotate-180' : ''}`} />
                 </button>
               ) : (
-                <span>{data.frias} sin personal (frías)</span>
+                <span>{data.frias} sin cargo todavía</span>
               )}
             </p>
           </div>
         </div>
 
-        {/* Desglose por nivel */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {data.porNivel.map((n) => (
-            <span
-              key={n.nivel}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold ${NIVEL_COLOR[n.nivel] ?? 'bg-gray-100 text-gray-600'}`}
-              title={`${n.total} vacante(s) de ${n.nivel}`}
-            >
-              {n.nivel}
-              <span className="font-bold">{n.total}</span>
-            </span>
+        <div className="flex flex-col items-end gap-2">
+        {/* Filtro por carrera (régimen de empleo) */}
+        <select
+          value={carreraSel}
+          onChange={(e) => { setCarreraSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
+          className="text-xs rounded-md border border-amber-200 bg-white px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          title="Filtrar vacantes por carrera"
+        >
+          <option value="">Todas las carreras</option>
+          {data.porCarrera.map((c) => (
+            <option key={c.carrera} value={c.carrera}>
+              {c.carrera} ({c.total})
+            </option>
           ))}
+        </select>
+
+        {/* Desglose por nivel — clickeable: muestra el detalle de ese nivel */}
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {data.porNivel.map((n) => {
+            const activo = nivelSel === n.nivel
+            return (
+              <button
+                key={n.nivel}
+                onClick={() => { setNivelSel((prev) => (prev === n.nivel ? null : n.nivel)); setVerFrias(false) }}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all ${NIVEL_COLOR[n.nivel] ?? 'bg-gray-100 text-gray-600'} ${activo ? 'ring-2 ring-offset-1 ring-amber-500' : 'hover:brightness-95'}`}
+                title={`Ver las ${n.total} vacante(s) de ${n.nivel}`}
+              >
+                {n.nivel}
+                <span className="font-bold">{n.total}</span>
+                <ChevronDownIcon className={`w-3 h-3 transition-transform ${activo ? 'rotate-180' : ''}`} />
+              </button>
+            )
+          })}
+        </div>
         </div>
       </div>
+
+      {/* Detalle de las vacantes del nivel seleccionado */}
+      {nivelSel && (
+        <div className="mt-3 pt-3 border-t border-amber-100">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+            {nivelSel} — {data.vacantes.filter((v) => v.nivel === nivelSel).length} vacante(s)
+          </p>
+          <div className="max-h-72 overflow-y-auto space-y-1">
+            {data.vacantes
+              .filter((v) => v.nivel === nivelSel)
+              .sort((a, b) => a.hospitalSigla.localeCompare(b.hospitalSigla))
+              .map((v) => (
+                <button
+                  key={v.codigoRepa}
+                  onClick={() => (v.cargoId ? navigate(`/cargos/${v.cargoId}`) : navigate(`/organigrama/${v.hospitalSigla.toUpperCase()}`))}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-amber-50 hover:border-amber-200 transition-colors text-left"
+                  title={v.cargoId ? 'Ver cargo' : 'Ver en organigrama (nodo sin cargo todavía)'}
+                >
+                  <span className="font-mono text-[11px] font-bold text-amber-700 w-28 flex-shrink-0 truncate">{v.codigo ?? v.codigoRepa}</span>
+                  <span className="font-mono text-[10px] text-gray-400 w-12 flex-shrink-0">{v.hospitalSigla}</span>
+                  <span className="text-xs text-gray-700 flex-1 truncate">{v.descripcionRepa ?? v.codigoRepa}</span>
+                  {!v.codigo && <span className="text-[9px] text-amber-600 italic flex-shrink-0">sin cargo</span>}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* S24-3: lista de vacantes "frías" (nodo sin personal activo) para que
           RRHH las revise/valide. Se despliega al clickear el contador. */}
       {verFrias && (
         <div className="mt-3 pt-3 border-t border-amber-100">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-            Vacantes frías para revisión de RRHH ({data.frias})
+            Vacantes sin cargo todavía — revisión de RRHH ({data.frias})
           </p>
           <div className="max-h-64 overflow-y-auto space-y-1">
             {data.vacantes
               .filter((v) => v.frio)
               .map((v) => (
                 <button
-                  key={v.cargoId}
-                  onClick={() => navigate(`/cargos/${v.cargoId}`)}
+                  key={v.codigoRepa}
+                  onClick={() => (v.cargoId ? navigate(`/cargos/${v.cargoId}`) : navigate(`/organigrama/${v.hospitalSigla.toUpperCase()}`))}
                   className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-amber-50 hover:border-amber-200 transition-colors text-left"
-                  title={v.revisionMotivo ?? 'Ver cargo'}
+                  title={v.revisionMotivo ?? 'Ver en organigrama'}
                 >
-                  <span className="font-mono text-[11px] font-bold text-amber-700 w-28 flex-shrink-0 truncate">{v.codigo}</span>
+                  <span className="font-mono text-[11px] font-bold text-amber-700 w-28 flex-shrink-0 truncate">{v.codigo ?? v.codigoRepa}</span>
                   <span className="font-mono text-[10px] text-gray-400 w-12 flex-shrink-0">{v.hospitalSigla}</span>
-                  <span className="text-xs text-gray-700 flex-1 truncate">{v.descripcionRepa ?? v.codigoRepa ?? '—'}</span>
+                  <span className="text-xs text-gray-700 flex-1 truncate">{v.descripcionRepa ?? v.codigoRepa}</span>
                   <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${NIVEL_COLOR[v.nivel] ?? 'bg-gray-100 text-gray-600'}`}>{v.nivel}</span>
                 </button>
               ))}
