@@ -396,7 +396,12 @@ export function CargosPage() {
                   {data.data.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-medium text-gray-800">{c.codigo ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        <span className="font-medium">{c.hospital?.sigla ?? '—'}</span>
+                        {c.descripcionRepa && (
+                          <span className="block text-xs text-gray-400 leading-tight">{c.descripcionRepa}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{capitalizar(c.literalPuesto) || '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy) || '—'}</td>
