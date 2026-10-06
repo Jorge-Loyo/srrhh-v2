@@ -9,17 +9,15 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 
 ## 🔴 Críticos — bugs funcionales reales
 
-### BUG-01 — Bajas: el flujo normal no fuerza `estado: 'confirmada'`
-- [ ] Pendiente
+### ~~BUG-01 — Bajas: el flujo normal no fuerza `estado: 'confirmada'`~~ — FALSO POSITIVO, descartado 2026-10-06
+- [x] Revisado — no es un bug, la lógica es correcta
 - **Sprint:** 17 (Bajas SGRASV / vinculación padrón)
-- **Archivos:** `apps/api/src/modules/bajas/bajas.service.ts` (`createBajaService`, ~línea 645), `apps/web/src/modules/cargos/pages/NuevaBajaPage.tsx` (`buildBody()`, líneas 339-357)
-- **Regla de negocio confirmada con el usuario (2026-10-06):** SGRASV es quien confirma la baja. Si completa y registra la baja (flujo normal, botón "Registrar baja"), debe quedar `confirmada`. Si en cambio guarda un borrador incompleto para terminarlo después, está bien que quede `pendiente` — **ese caso hay que preservarlo tal cual está**, no tocarlo.
-- **Qué pasa hoy:** `buildBody()` (la función que arma el payload del botón real "Registrar baja", pasos 1→2→3 completos) **nunca incluye el campo `estado`**. El modelo Prisma `Baja.estado` tiene `@default(pendiente)`, así que cualquier baja registrada por el flujo normal (no-borrador) cae en `pendiente` por el default, no porque alguien lo haya pedido. Solo el camino alternativo "Guardar borrador → editar después" sí setea `estado: 'confirmada'` explícitamente (vía PATCH, cuando `modoEdicion` es `true`) — es decir, el comportamiento está invertido respecto a la intención real.
-- **Impacto:** rompe en cascada dos piezas que el propio Sprint 17 construyó:
-  - `aprobarSnapshotService` (`padron.service.ts:1532-1557`) solo vincula automáticamente bajas con `estado: 'confirmada'` contra el padrón semanal — las bajas del flujo normal nunca se vinculan solas.
-  - La vista "Estado de vinculación de bajas" (`listVinculacionService`) filtra `where: { estado: 'confirmada' }` — las bajas del flujo normal nunca aparecen ahí.
-  - Es silencioso: la baja se crea igual, el concurso asociado se genera igual, nada truena a la vista — pero la baja queda mal clasificada para siempre.
-- **Fix propuesto:** en el submit del botón "Registrar baja" (paso 3, completo, no-borrador), setear explícitamente `estado: 'confirmada'` en el body. Dejar intacto el camino de "Guardar borrador" tal como está hoy.
+- **Por qué se descartó:** el hallazgo original del agente auditor miraba solo el `tx.baja.create()` (`bajas.service.ts:628-648`, que en efecto no fuerza `estado` ahí) y concluía que todo caía en el `@default(pendiente)` de Prisma. Se le escapó que la misma función **termina** con un `tx.baja.update({ where: { id: baja.id }, data: { estado: 'confirmada' } })` incondicional (líneas 700-703), salvo un único `return` temprano en la línea 651 cuando `body.estado === 'resolucion_a_la_firma'` (el marcador explícito de borrador).
+- **Verificado contra el frontend real** (`apps/web/src/modules/cargos/pages/NuevaBajaPage.tsx`):
+  - `mutCrear` (botón real "Registrar baja", flujo completo) → `buildBody()` no manda `estado` → no dispara el `return` temprano → cae en el update final → **confirmada**. Correcto.
+  - `mutBorrador` ("Guardar borrador") → manda `estado: 'resolucion_a_la_firma'` explícito → dispara el `return` temprano → queda como borrador, sin tocar el cargo. Correcto.
+  - Terminar de editar un borrador (`modoEdicion` + `mutCrear`) → el PATCH manda `estado: 'confirmada'` explícito. Correcto.
+- **Conclusión:** la regla de negocio real (SGRASV confirma al registrar; un borrador incompleto queda pendiente) ya está implementada tal cual en los tres caminos. El doc de Sprint 17 estaba bien, el agente auditor leyó la función a medias.
 
 ### BUG-02 — Concursos CPH: falta el backstop en BD contra la condición de carrera de duplicados
 - [ ] Pendiente
@@ -106,4 +104,4 @@ Cada bug tiene un número fijo (`BUG-01`, `BUG-02`, ...) para referenciarlo en c
 
 ## Sprints verificados sólidos (sin gaps)
 
-00 (auth), 01, 05, 06, 08, 09, 10, 12/13, 18-retenciones (cadena R/TTR), 19-designación (estado completo), 19-retenciones (vencimientos/comisión), 20, 21 (con la salvedad de BUG-08), 23 (auditado y cerrado en vivo esta sesión, ver `SPRINT_23_areas_programaticas.md` y la nota de Sprint 14 sobre S14 cerrado el 2026-10-06).
+00 (auth), 01, 05, 06, 08, 09, 10, 12/13, **17** (gap original descartado, ver nota en BUG-01 — la lógica de confirmación de bajas es correcta), 18-retenciones (cadena R/TTR), 19-designación (estado completo), 19-retenciones (vencimientos/comisión), 20, 21 (con la salvedad de BUG-08), 23 (auditado y cerrado en vivo esta sesión, ver `SPRINT_23_areas_programaticas.md` y la nota de Sprint 14 sobre S14 cerrado el 2026-10-06).
