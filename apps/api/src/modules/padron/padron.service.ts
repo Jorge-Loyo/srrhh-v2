@@ -1267,6 +1267,50 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
             : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
         if (!hospital || !escalafon) continue
+
+        // S24-6: reconciliación con los cargos de conducción VACANTES generados
+        // desde el organigrama (origen='organigrama', id_sial='VAC-{codigo_repa}',
+        // sin ocupación). Si entra una ocupación de JEFATURA (codigo_jefaturas/JCAT
+        // con valor) en una repartición que tiene uno de esos cargos vacantes, se
+        // vincula a ÉL en vez de crear un cargo nuevo — es el puesto que el sprint
+        // modeló como vacante y que ahora se cubre. Match por codigo_repa (el
+        // escalafón puede diferir del que derivamos — manda el real del padrón).
+        const esJefatura = !!datos.codigo_jefaturas && datos.codigo_jefaturas !== '0'
+        if (esJefatura && datos.codigo_repa) {
+          const cargoVacanteOrg = await tx.cargo.findFirst({
+            where: {
+              origen: 'organigrama',
+              codigoRepa: datos.codigo_repa,
+              deletedAt: null,
+              ocupaciones: { none: { hasta: null } },
+            },
+            select: { id: true },
+          })
+          if (cargoVacanteOrg) {
+            // Cubrir la vacante generada: pasa a ser un cargo real del padrón.
+            await tx.cargo.update({
+              where: { id: cargoVacanteOrg.id },
+              data: {
+                idSial: datos.id_sial,
+                origen: 'padron',
+                escalafonId: escalafon.id,
+                literalPuesto: datos.literal_puesto ?? null,
+                especialidadLegacy: datos.especialidad ?? null,
+                codigoRegistroId: datos.codigo_de_registro
+                  ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
+                  : null,
+                estado: 'vigente',
+              },
+            })
+            cargoCache.set(datos.id_sial, {
+              id: cargoVacanteOrg.id,
+              idSial: datos.id_sial,
+              estado: 'vigente',
+            })
+            continue
+          }
+        }
+
         // B-12: antes de crear un cargo nuevo, buscar por clave estructural
         // (hospital, escalafon, codigo_repa, literal_puesto). Si existe, reusar
         // ese cargo y actualizar su idSial al nuevo — no crear un duplicado.
