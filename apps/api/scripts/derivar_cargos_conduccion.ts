@@ -1,12 +1,22 @@
 /**
  * S24-4/5: genera cargos de conducción VACANTES derivados del organigrama.
  *
- * Universo (cerrado con el usuario, 2026-10): exactamente los nodos de conducción
- * que tienen personal activo bajo su mismo codigo_repa pero SIN jefatura activa
- * modelada (ni 25/60 ni 37/83/85/87 con codigo_jefaturas). Son 101 nodos
- * validados uno por uno por el usuario. Los nodos sin dotación, GO/SGO, y los
- * "inconsistentes" (que resultaron ser un falso problema — ver SPRINT_24_S1_diseno.md)
- * quedan fuera.
+ * Universo (ampliado con el usuario, 2026-10 — "en el organigrama todos los
+ * cargos tienen que tener un código de cargo, incluidas las vacantes"):
+ * TODO nodo de conducción del organigrama que NO tenga ya un cargo de
+ * conducción modelado, SIN importar si tiene o no personal activo. En esta
+ * fase de armado de datos (sin concursos ni bajas SIAL validadas) ningún nodo
+ * debe quedar "Sin cargo en sistema". Un nodo sin personal activo se genera
+ * igual, marcado con revisionDato=true (vacante "fría": nodo del árbol sin
+ * dotación hoy) para que RRHH lo distinga del vacante con gente trabajando.
+ *
+ * Quedan fuera solo: GO/SGO/Ministerio/PLTA TRANS. DOCENTE, régimen "fuera de
+ * norma"/"director docente", y los nodos que YA tienen un cargo de conducción
+ * (del padrón o de una corrida previa de este script — no se duplica).
+ *
+ * Evolución: 101 (solo con personal activo) → 68 (excluyendo los que ya tenían
+ * jefatura del padrón) → universo completo (se quita el filtro de personal
+ * activo). Los 68 ya generados no se regeneran (idempotente por origen).
  *
  * Por cada nodo candidato, genera un Cargo con:
  *   escalafón → del regimen_empleo del nodo (mapeo fijo)
@@ -48,6 +58,7 @@ const TIPO_A_PUESTO: Record<string, { literal: string; nivelJcat: string }> = {
   'DG':          { literal: 'director general', nivelJcat: 'director general' },
   'F/N DG':      { literal: 'director general', nivelJcat: 'director general' },
   'UAI DG':      { literal: 'director general', nivelJcat: 'director general' },
+  'UAI MSTR':    { literal: 'director general', nivelJcat: 'director general' },
   'DHOS':        { literal: 'director', nivelJcat: 'director' },
   'SDHOS':       { literal: 'sub-director', nivelJcat: 'sub-director' },
   'DEPT':        { literal: 'jefe de departamento', nivelJcat: 'jefe de departamento' },
@@ -76,24 +87,26 @@ interface NodoCandidato {
   desc_rep: string
   regimen_empleo: string
   sigla: string
+  tiene_personal_activo: boolean
 }
 
 async function main() {
   console.log(`🏗️  Derivación de cargos de conducción vacantes (S24-4/5)${dryRun ? ' [DRY RUN]' : ''}...\n`)
 
-  // ── 1. Obtener los 101 nodos candidatos (misma query del análisis S24-2) ──
+  // ── 1. Obtener los nodos candidatos (universo completo del organigrama) ──
+  // Ya NO se exige personal activo: todo nodo de conducción sin jefatura
+  // modelada entra. `tiene_personal_activo` se calcula para marcar revisionDato
+  // en los que no tienen gente trabajando (vacante "fría").
   const nodos = await prisma.$queryRaw<NodoCandidato[]>(Prisma.sql`
-    SELECT og.codigo_reparticion, og.tipo, og.desc_rep, og.regimen_empleo, og.sigla
+    SELECT og.codigo_reparticion, og.tipo, og.desc_rep, og.regimen_empleo, og.sigla,
+           (SELECT count(*) FROM cargos cg JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL
+              AND lower(unaccent(o.situacion_revista))='activo'
+            WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL) > 0
+             AS tiene_personal_activo
     FROM organigramas og
     WHERE og.tipo NOT IN ('GO','SGO','F/N MSTR - GO','Ministerio','PLTA TRANS. DOCENTE')
       AND lower(og.regimen_empleo) NOT LIKE '%fuera de norma%'
       AND lower(og.regimen_empleo) NOT LIKE '%director docente%'
-      -- Solo nodos con personal activo bajo su codigo_repa (falsos vacantes
-      -- reales: hay gente trabajando pero sin jefatura modelada). Los nodos sin
-      -- personal o fantasma del árbol no se generan acá.
-      AND (SELECT count(*) FROM cargos cg JOIN ocupaciones o ON o.cargo_id=cg.id AND o.hasta IS NULL
-             AND lower(unaccent(o.situacion_revista))='activo'
-           WHERE cg.codigo_repa=og.codigo_reparticion AND cg.deleted_at IS NULL) > 0
       -- NO duplicar: excluir nodos que YA tienen un cargo de conducción en esa
       -- repartición, sin importar si está ocupado, vacante o en validación. Un
       -- cargo de conducción se reconoce por su CÓDIGO (prefijos de conducción) o
@@ -226,8 +239,14 @@ async function main() {
       puestoCargo: { nombre: tipoInfo.literal, tipoPuesto: 'conduccion', modalidad: 'pof' },
     })
 
+    // Vacante "fría": nodo sin personal activo hoy. Se genera igual (el usuario
+    // quiere TODO nodo con código) pero marcado para que RRHH lo distinga.
+    const revisionDato = !nodo.tiene_personal_activo
+    const revisionMotivo = revisionDato ? 'Nodo del organigrama sin personal activo (vacante fría)' : null
+
     if (dryRun) {
-      console.log(`   ✅ ${nodo.tipo.padEnd(10)} ${nodo.codigo_reparticion} ${nodo.desc_rep.substring(0, 45).padEnd(45)} → ${prefijo}-XXXXXX | ${escalafon.nombre} | JCAT=${jcat ?? '—'} | ${hospital.sigla}`)
+      const marca = revisionDato ? ' ⚠️ fría' : ''
+      console.log(`   ✅ ${nodo.tipo.padEnd(10)} ${nodo.codigo_reparticion} ${nodo.desc_rep.substring(0, 45).padEnd(45)} → ${prefijo}-XXXXXX | ${escalafon.nombre} | JCAT=${jcat ?? '—'} | ${hospital.sigla}${marca}`)
       creados++
       continue
     }
@@ -250,6 +269,8 @@ async function main() {
           regimen: escalafon.nombre.toLowerCase(),
           estado: 'vigente',
           origen: 'organigrama',
+          revisionDato,
+          revisionMotivo,
           // JCAT no va en Cargo (vive en la Ocupación), pero lo registro
           // en el agrupador como referencia para cuando se cree la ocupación.
           agrupador: jcat ? `jcat:${jcat}` : null,
