@@ -5,6 +5,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.js'
 import { PREFIJOS_CONDUCCION, esConduccionPorPrefijo } from '../../shared/codigoCargo.js'
+import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 
 // xlsx es CJS — mismo patrón que bajas-sial.service.ts (createRequire porque
 // este proyecto es ESM).
@@ -274,9 +275,18 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
 
   // === 2. Personas asignadas HOY a los nodos de este árbol ===
   const codigosReparticion = rows.map((r) => r.codigoReparticion)
+
+  // S24: cargos de conducción con rol redundante del SIAL (sin JCAT pero con
+  // gemelo-con-JCAT de la misma persona en el mismo codigo_repa). Se ocultan
+  // del organigrama para que un nodo no muestre a la persona por su cargo
+  // redundante en vez de por el que tiene la jefatura real (JCAT). Filtrado
+  // dinámico — ver shared/cargosOcultos.ts y SPRINT_24_S2_analisis.md §5.
+  const idsOcultos = await cargoIdsOcultosPorRolRedundante(prisma)
+
   const cargosCandidatos = await prisma.cargo.findMany({
     where: {
       codigoRepa: { in: codigosReparticion },
+      ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
       // Candidatos a conducción: por código de registro (25/60/37/83/85/87) o
       // por escalafón Carrera Gerencial (gerente/subgerente operativo, que no
       // traen código de registro). El filtro fino lo hace esCargoDeConduccion.
@@ -401,6 +411,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   const cargosVacantesRaw = await prisma.cargo.findMany({
     where: {
       codigoRepa: { in: nodosLibres },
+      ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
       deletedAt: null,
       // Un nodo vacante muestra el código del cargo que espera ocupante. Ese
       // cargo puede estar 'vigente' sin ocupante O en 'validacion_vacante'
