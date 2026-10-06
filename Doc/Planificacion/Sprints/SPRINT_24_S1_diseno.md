@@ -49,6 +49,64 @@ Organigrama local: **4.306 nodos**, **todos con `regimen_empleo`** (0 nulos — 
 
 ---
 
+## Universo final a generar (cerrado con el usuario, 2026-10)
+
+Tras el análisis caso por caso (abajo) y la **validación manual del usuario de los 101 nodos uno
+por uno**, el universo del backfill queda en **exactamente 101 cargos de conducción vacantes** — el
+Grupo "con personal activo bajo el mismo `codigo_repa` pero sin jefatura activa modelada". Todos
+confirmados como vacantes reales por el usuario. Los otros grupos quedan fuera de la generación
+automática (ver hallazgos abajo):
+
+| Grupo                                                  | Nodos   | Decisión                                                           |
+| ------------------------------------------------------ | ------- | ------------------------------------------------------------------ |
+| Falsos vacantes reales (personal activo, sin jefatura) | **101** | ✅ **se generan** — validados uno por uno                          |
+| Sin dotación (nodos fantasma del árbol)                | 178     | ❌ informe de depuración del árbol, no se generan                  |
+| Escalafón "inconsistente" régimen≠personal             | ~192    | ❌ falso problema (el JCAT marca la jefatura) — 166 ya tienen jefe |
+| GO/SGO (en extinción Dto 259/26)                       | 184     | ❌ no se generan                                                   |
+
+**Clave:** los 101 tienen `codigo_repa` **real** (hay personal activo bajo ese mismo código), así
+que la reconciliación con el padrón (S24-6) va a funcionar — cuando aparezca el jefe en un padrón
+futuro con ese código, se vincula al cargo generado en vez de duplicar.
+
+---
+
+## Hallazgo del análisis (2026-10) — el Grupo "sin dotación" son nodos fantasma del árbol, NO vacantes
+
+Al revisar caso por caso los 178 nodos de conducción "sin dotación" (los que el cruce
+`organigramas.codigo_reparticion = cargos.codigo_repa` no encuentra), con el usuario:
+
+- **El código de repartición del organigrama NO coincide 1:1 con el del padrón.** El árbol (Excel)
+  tiene nodos paralelos para el mismo rol conceptual, con un `codigo_reparticion` distinto del código
+  bajo el que realmente cuelga la gente. Ejemplos verificados:
+  - **Hospital Ferrer (HRRMF):** el director real (Lombardi, `CPH-D-000037`) está en `40221600`
+    (nodo "Hospital…"), pero el árbol además tiene `40221617` "Dirección Asist. Atención Medica" —
+    vacío. No falta el director: está en el otro código.
+  - **HNJTB:** la subdirectora real (Montanari, `CPH-POF-000461`) está en `40230028` "Subdirección
+    Médica"; el árbol además lista `40297400` "SDHOS Atención Médica" — vacío.
+- **Los 178 nodos sin dotación pertenecen, el 100%, a hospitales que SÍ tienen dotación** en otros
+  códigos (ninguno es un efector entero vacío). Es la firma de "nodo paralelo/fantasma del árbol",
+  no de "jefatura real sin cubrir".
+
+**Conclusión / cambio de estrategia:** generar un cargo vacante para los 178 crearía **vacantes
+fantasma** de puestos que en realidad ya están ocupados bajo otro código — y además nunca
+reconciliarían con el padrón (código distinto), produciendo justo el duplicado que el sprint quiere
+evitar. Por lo tanto:
+
+- **El Grupo "sin dotación" NO se genera automáticamente.** Deja de ser un caso de `revisionDato`
+  masivo; pasa a ser un **informe de depuración del árbol** para RRHH/estructura (nodos del Excel que
+  no mapean a ningún código real del padrón — candidatos a corregir o eliminar del árbol, no a
+  convertir en cargo).
+- **El sprint genera cargo vacante SOLO para el Grupo "con personal activo, sin jefatura activa"**
+  (los 101 falsos vacantes reales: hay gente trabajando bajo ese mismo `codigo_repa` pero sin
+  jefatura modelada — ahí el código SÍ es real y el puesto SÍ falta). Ese es el núcleo seguro.
+- Pendiente de confirmar con RRHH: si quieren además una pasada manual sobre el informe de nodos
+  fantasma para depurar el árbol (fuera del alcance de la generación automática).
+
+> Esto reduce el universo a generar de ~4.116 a los **101 falsos vacantes reales** + eventualmente
+> algún caso puntual que RRHH valide del informe de fantasmas. Mucho más chico y seguro.
+
+---
+
 ## Decisión 1 — Regla tipo-de-nodo → cargo de conducción + literal
 
 Mapeo `tipo` del organigrama → nivel de jefatura y literal del puesto. El **escalafón** sale de
@@ -69,25 +127,40 @@ Mapeo `tipo` del organigrama → nivel de jefatura y literal del puesto. El **es
 **Sufijo `CA`** (DEPT CA, DIV CA, SECCION CA) = rama Carrera Administrativa → fuerza escalafón
 Escalafón General aunque el régimen diga otra cosa (ver Decisión 2).
 
-## Decisión 2 — Escalafón del cargo generado: triangulación régimen ↔ dotación
+## Decisión 2 — Escalafón del cargo generado: por régimen del nodo, el JCAT marca la jefatura
 
-**Fuente primaria: `regimen_empleo` del nodo del organigrama** (nunca es nulo — 4.306/4.306).
+**Fuente del escalafón: `regimen_empleo` del nodo del organigrama** (nunca es nulo — 4.306/4.306).
 Se mapea a escalafón con la tabla de arriba y se obtiene el prefijo via `prefijoDeCargo()` de
 `shared/codigoCargo.ts` (reutilizar, no reimplementar).
 
-**Triangulación obligatoria contra la dotación (requisito del usuario):** por cada nodo con
-dotación, comparar el escalafón derivado del `regimen_empleo` contra el escalafón mayoritario del
-personal real de esa repartición (`cargos` → `escalafones.nombre`). Tres resultados:
+> **Revisión 2026-10 (análisis con el usuario) — el Grupo 3 "escalafón inconsistente" se disolvió.**
+> La idea original era comparar el régimen del nodo contra el escalafón del personal y marcar las
+> diferencias para que RRHH decidiera el escalafón del jefe. El análisis mostró que **esa
+> comparación no es el criterio correcto**: lo que define una jefatura NO es un escalafón "de jefe"
+> aparte, sino el **JCAT** (ver Decisión 3). Aporte clave del usuario: en **Enfermería no existe el
+> cargo de jefe como escalafón propio** — el jefe es un enfermero con un **plus salarial marcado por
+> el JCAT**; la única forma de saber quién es jefe en enfermería es el valor del JCAT. Verificado:
+> de 907 nodos de enfermería, 789 tienen alguien con JCAT (jefe real) y 118 no.
+>
+> Consecuencia: las ~192 "inconsistencias régimen≠personal" se explican y **no requieren decisión de
+> RRHH**:
+>
+> - **166 de 192 YA tienen jefe** (JCAT presente) → no son vacantes, no se genera nada. Ej.: los
+>   "DEPT Técnico" de hospital tienen jefe `P62` (profesional) — un departamento de personal técnico
+>   conducido por un jefe médico es la estructura real correcta del GCBA, no un error.
+> - **Solo 26 quedan sin jefe** como candidatos a vacante. Para ellos el escalafón del cargo generado
+>   sale del régimen del nodo + el JCAT del nivel (Decisión 3), no de una comparación con el personal.
+>
+> **Regla final:** el escalafón del cargo de conducción se toma del `regimen_empleo` del nodo; el
+> JCAT (por nivel, Decisión 3) es lo que lo marca como jefatura. No se compara contra el personal de
+> planta ni se marca `revisionDato` por "inconsistencia de escalafón" (ese caso no existe como tal).
 
-1. **Consistente** (régimen del organigrama ≈ escalafón del personal) → generar normal.
-2. **Inconsistente** (régimen dice CPH pero el personal es mayormente ENF, p.ej.) → generar con el
-   régimen del organigrama **pero marcar `revisionDato = true`** para que RRHH lo revise. No se
-   descarta el dato: se señala.
-3. **Sin dotación** (254 nodos, ver tabla §0) → no se puede triangular. Es el caso que el usuario
-   pidió detectar explícitamente. **Se genera igual** (el régimen alcanza), pero con
-   `revisionDato = true` + motivo `"sin presencia en dotación"`. Un nodo de conducción sin dotación
-   es el candidato más fuerte a vacante real, pero también puede ser un error de carga del árbol —
-   por eso se señala en vez de asumir.
+**Único caso que sigue marcándose `revisionDato = true`:** nodos **sin dotación** (ver Grupo 2 / §0)
+— no es por escalafón, es porque no hay personal que confirme que la unidad existe hoy. Motivo:
+`"sin presencia en dotación"`.
+
+**Sufijo `CA`** (DEPT CA, DIV CA, SECCION CA) = Carrera Administrativa → escalafón Escalafón General
+(Nueva Carrera Administrativa) con JCAT de familia G.
 
 > El `CA` (Carrera Administrativa) en el `tipo` **pisa** el régimen hacia Escalafón General:
 > una `SECCION CA` es administrativa aunque cuelgue de una rama de salud.
