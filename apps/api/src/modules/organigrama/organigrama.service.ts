@@ -6,6 +6,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import { SECCION_UNIVERSOS, type OrganigramaQuery } from './organigrama.schema.js'
 import { PREFIJOS_CONDUCCION, esConduccionPorPrefijo } from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
+import { derivarCargosConduccionService } from '../../shared/derivarCargosConduccion.js'
 
 // xlsx es CJS — mismo patrón que bajas-sial.service.ts (createRequire porque
 // este proyecto es ESM).
@@ -1001,7 +1002,7 @@ export async function reemplazarOrganigramaService(
   buffer: Buffer,
   usuarioId?: string,
   filename?: string,
-): Promise<{ filas: number }> {
+): Promise<{ filas: number; cargosConduccion?: { creados: number; errores: number } }> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw AppError.badRequest('El archivo no tiene ninguna hoja')
   const hoja = wb.Sheets[wb.SheetNames[0]]
@@ -1186,7 +1187,30 @@ export async function reemplazarOrganigramaService(
     },
   })
 
-  return { filas: filas.length }
+  // S24-7: re-sincronizar los cargos de conducción vacantes con el árbol nuevo.
+  // Da de alta cargos para los nodos de conducción nuevos que no tengan jefatura
+  // modelada; es idempotente (no duplica los existentes). Se corre FUERA de la
+  // transacción del swap y de forma tolerante a fallos: el árbol ya quedó
+  // guardado, y si la derivación fallara no debe tumbar la carga (RRHH puede
+  // re-correr el backfill manual). Los cargos de nodos que desaparecen del árbol
+  // NO se dan de baja automáticamente (decisión conservadora: un cargo puede
+  // tener historial/ocupaciones; su baja la decide RRHH, no un re-upload).
+  let cargosConduccion: { creados: number; errores: number } | undefined
+  try {
+    const r = await derivarCargosConduccionService(prisma)
+    cargosConduccion = { creados: r.creados, errores: r.errores.length }
+    console.info(
+      `[organigrama] re-sync cargos conducción: candidatos=${r.candidatos} creados=${r.creados} saltados=${r.saltados}`,
+    )
+    if (r.errores.length > 0) {
+      console.warn(`[organigrama] re-sync con ${r.errores.length} nodo(s) sin mapeo:`, r.errores.slice(0, 10))
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[organigrama] re-sync de cargos de conducción falló (el árbol ya se guardó):', msg)
+  }
+
+  return { filas: filas.length, cargosConduccion }
 }
 
 export async function listOrganigramaUploadsService() {
@@ -1201,4 +1225,112 @@ export async function listOrganigramaUploadsService() {
       subidoPor: { select: { username: true } },
     },
   })
+}
+
+// ── S24-9: KPI y listado de vacantes de conducción ──────────────────────────
+//
+// Una "vacante de conducción" es un cargo de conducción SIN ocupante activo que
+// el organigrama muestra como nodo vacante: cargo de conducción por código
+// (prefijos CPH-D/CPH-J/.../AS) o generado desde el organigrama
+// (origen='organigrama'), en estado vigente/validacion_vacante, sin ocupación
+// vigente activa, y que NO esté en el set de ocultos (rol redundante sin JCAT).
+//
+// Devuelve el total, un desglose por hospital y por nivel jerárquico (derivado
+// del prefijo del código), y el listado para el modal de Vacantes. Permite a
+// RRHH ver "qué jefaturas faltan cubrir".
+
+interface VacanteConduccion {
+  cargoId: string
+  codigo: string
+  codigoRepa: string | null
+  descripcionRepa: string | null
+  hospitalSigla: string
+  hospitalNombre: string
+  escalafon: string | null
+  nivel: string
+  frio: boolean // nodo sin personal activo (revisionDato)
+}
+
+// Nivel legible a partir del prefijo del código de conducción.
+function nivelDeCodigo(codigo: string): string {
+  if (codigo.startsWith('AS-')) return 'Autoridad Superior'
+  if (codigo.startsWith('RG-CG')) return 'Gerencia'
+  if (codigo.startsWith('CPH-D') || codigo.startsWith('EG-D')) return 'Dirección'
+  if (codigo.startsWith('CPH-SD')) return 'Subdirección'
+  if (codigo.startsWith('EG-G')) return 'Gerencia'
+  if (codigo.startsWith('CPH-J') || codigo.startsWith('TEC-J') || codigo.startsWith('EG-J')) return 'Jefatura'
+  return 'Otro'
+}
+
+export async function getVacantesConduccionService(opts: { sigla?: string } = {}) {
+  const idsOcultos = await cargoIdsOcultosPorRolRedundante(prisma)
+
+  const PREFIJO_REGEX = '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)'
+
+  const cargos = await prisma.cargo.findMany({
+    where: {
+      deletedAt: null,
+      estado: { in: ['vigente', 'validacion_vacante'] },
+      ...(idsOcultos.length > 0 && { id: { notIn: idsOcultos } }),
+      ...(opts.sigla && { hospital: { sigla: opts.sigla } }),
+      // Conducción: generado desde el organigrama O prefijo de conducción.
+      OR: [{ origen: 'organigrama' }, { codigo: { not: null } }],
+      // Sin ocupante activo = vacante.
+      ocupaciones: {
+        none: { hasta: null, situacionRevista: { equals: 'activo', mode: 'insensitive' } },
+      },
+    },
+    select: {
+      id: true,
+      codigo: true,
+      codigoRepa: true,
+      descripcionRepa: true,
+      origen: true,
+      revisionDato: true,
+      escalafon: { select: { nombre: true } },
+      hospital: { select: { sigla: true, nombre: true } },
+    },
+    orderBy: [{ hospital: { sigla: 'asc' } }, { codigo: 'asc' }],
+  })
+
+  // Filtro fino en memoria: dejar solo los que son conducción por código
+  // (el OR del where trae también cargos con código no-conducción; acá se
+  // acota con el prefijo real) O los generados desde el organigrama.
+  const prefijoRe = new RegExp(PREFIJO_REGEX)
+  const lista: VacanteConduccion[] = []
+  for (const c of cargos) {
+    if (!c.codigo) continue
+    const esConduccion = c.origen === 'organigrama' || prefijoRe.test(c.codigo)
+    if (!esConduccion) continue
+    lista.push({
+      cargoId: c.id,
+      codigo: c.codigo,
+      codigoRepa: c.codigoRepa,
+      descripcionRepa: c.descripcionRepa,
+      hospitalSigla: c.hospital.sigla,
+      hospitalNombre: c.hospital.nombre,
+      escalafon: c.escalafon?.nombre ?? null,
+      nivel: nivelDeCodigo(c.codigo),
+      frio: c.revisionDato,
+    })
+  }
+
+  // Desgloses
+  const porHospital = new Map<string, { sigla: string; nombre: string; total: number }>()
+  const porNivel = new Map<string, number>()
+  for (const v of lista) {
+    const h = porHospital.get(v.hospitalSigla) ?? { sigla: v.hospitalSigla, nombre: v.hospitalNombre, total: 0 }
+    h.total++
+    porHospital.set(v.hospitalSigla, h)
+    porNivel.set(v.nivel, (porNivel.get(v.nivel) ?? 0) + 1)
+  }
+
+  return {
+    total: lista.length,
+    conPersonalActivo: lista.filter((v) => !v.frio).length, // unidad con gente, sin jefatura
+    frias: lista.filter((v) => v.frio).length, // nodo sin personal activo
+    porHospital: [...porHospital.values()].sort((a, b) => b.total - a.total),
+    porNivel: [...porNivel.entries()].map(([nivel, total]) => ({ nivel, total })).sort((a, b) => b.total - a.total),
+    vacantes: lista,
+  }
 }

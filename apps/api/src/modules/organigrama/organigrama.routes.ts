@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { organigramaQuerySchema } from './organigrama.schema.js'
-import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService } from './organigrama.service.js'
+import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, getVacantesConduccionService } from './organigrama.service.js'
 
 export async function organigramaRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -14,6 +14,14 @@ export async function organigramaRoutes(app: FastifyInstance) {
     const query = organigramaQuerySchema.parse(request.query)
     const result = await getOrganigramaService(query)
     return reply.send(result)
+  })
+
+  // S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante
+  // activo). Query opcional `sigla` para acotar a un efector.
+  app.get('/vacantes', async (request, reply) => {
+    const sigla = (request.query as { sigla?: string } | undefined)?.sigla
+    const result = await getVacantesConduccionService({ sigla })
+    return reply.send({ data: result })
   })
 
   app.post(
