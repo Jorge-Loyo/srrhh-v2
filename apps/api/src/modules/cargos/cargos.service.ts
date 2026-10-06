@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo } from './cargos.schema.js'
-import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { prefijoDeCargo, siguienteCodigoCargo, PREFIJOS_CONDUCCION } from '../../shared/codigoCargo.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
 // sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
@@ -125,14 +125,28 @@ export async function listCargosService(query: CargosQuery) {
     // tirando abajo el listado entero con cualquier combinación de filtros.
     ...(ocupado === true  && { ocupaciones: { some: { hasta: null } } }),
     ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
-    // Solo jefes: ocupación vigente con codigoJefaturas no vacío/no '0'.
+    // Solo jefes: filtro POR EL CARGO, no por la persona. Un cargo es de
+    // jefatura si (A) su CÓDIGO es de conducción (CPH-D, CPH-J-*, EG-J, etc.) —
+    // y entonces es jefatura esté ocupado o VACANTE —, O (B) tiene una ocupación
+    // vigente con JCAT (caso Enfermería y afines: el cargo no define la jefatura,
+    // se la da el JCAT a la persona que lo ocupa). Antes solo cubría (B), por eso
+    // "Solo jefes + Solo vacantes" no traía nada (un vacante no tiene ocupación).
+    // Va dentro de AND (no como OR a nivel raíz) para no pisar el OR del catálogo.
     ...(soloJefes === true && {
-      ocupaciones: {
-        some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } },
-      },
+      AND: [
+        ...idFilters,
+        {
+          OR: [
+            // (A) jefatura por el código del cargo (ocupado o vacante)
+            { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
+            // (B) jefatura por JCAT de la ocupación vigente (enfermería, etc.)
+            { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+          ],
+        },
+      ],
     }),
-    ...(idFilters.length === 1 && { id: idFilters[0]!.id }),
-    ...(idFilters.length  > 1 && { AND: idFilters }),
+    ...(soloJefes !== true && idFilters.length === 1 && { id: idFilters[0]!.id }),
+    ...(soloJefes !== true && idFilters.length  > 1 && { AND: idFilters }),
   }
 
   const [total, cargos] = await Promise.all([

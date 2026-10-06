@@ -185,7 +185,7 @@ export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise
 
 // ─── S18-3: detección ejecución vs conducción + prefijo de remplazante ──────
 
-const PREFIJOS_CONDUCCION = new Set([
+export const PREFIJOS_CONDUCCION = new Set([
   'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
   'EG-J', 'EG-D', 'EG-G', 'RG-CG',
   'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
