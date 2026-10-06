@@ -107,12 +107,19 @@ async function main() {
     WHERE og.tipo NOT IN ('GO','SGO','F/N MSTR - GO','Ministerio','PLTA TRANS. DOCENTE')
       AND lower(og.regimen_empleo) NOT LIKE '%fuera de norma%'
       AND lower(og.regimen_empleo) NOT LIKE '%director docente%'
-      -- NO duplicar: excluir nodos que YA tienen un cargo de conducción en esa
-      -- repartición, sin importar si está ocupado, vacante o en validación. Un
-      -- cargo de conducción se reconoce por su CÓDIGO (prefijos de conducción) o
-      -- por una ocupación con JCAT. Esto cubre los cargos de jefatura que ya
-      -- vinieron del padrón (ej. un director en 'validacion_vacante' sin ocupante
-      -- activo) — ahí el puesto ya existe, no hay que generar otro.
+      -- NO duplicar: excluir nodos que YA tienen una jefatura que el organigrama
+      -- VA A MOSTRAR. Son dos vías, alineadas con la lógica del organigrama:
+      --   (1) un cargo de conducción reconocido por su CÓDIGO (prefijos de
+      --       conducción): el organigrama lo muestra esté ocupado o vacante
+      --       (ej. un director en 'validacion_vacante' sin ocupante activo).
+      --   (2) una ocupación con JCAT que esté ACTIVA. La situación de revista
+      --       importa: un jefe en 'Retención de Cargo'/'Comisión' NO cuenta
+      --       como jefatura presente (se fue a ejercer otro cargo), igual que
+      --       en el organigrama (SPRINT_24_S2_analisis.md §1). Sin el filtro de
+      --       'activo', un nodo cuyo único jefe con JCAT está retenido (y cuyo
+      --       cargo NO es de conducción por código, ej. ENF-xxx con JCAT Z24)
+      --       quedaba sin cargo generado Y vacante en el organigrama — sin
+      --       código (caso testigo: 40233110 DIV Turno Mañana A, HEPTA).
       AND NOT EXISTS (
         SELECT 1 FROM cargos cg
         WHERE cg.codigo_repa = og.codigo_reparticion AND cg.deleted_at IS NULL
@@ -121,6 +128,7 @@ async function main() {
             OR cg.codigo LIKE 'TEC-J-%' OR cg.codigo LIKE 'EG-J-%' OR cg.codigo LIKE 'EG-D-%'
             OR cg.codigo LIKE 'EG-G-%' OR cg.codigo LIKE 'RG-CG-%' OR cg.codigo LIKE 'AS-%'
             OR EXISTS (SELECT 1 FROM ocupaciones o2 WHERE o2.cargo_id=cg.id AND o2.hasta IS NULL
+                       AND lower(unaccent(o2.situacion_revista)) = 'activo'
                        AND o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas <> '' AND o2.codigo_jefaturas <> '0')
           )
       )
