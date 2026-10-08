@@ -99,7 +99,9 @@ export function CargoDetailPanel() {
 
           <Section title="Ubicación">
             <Dato label="Hospital"    value={`${cargo.hospital.sigla} — ${cargo.hospital.nombre}`} />
-            <Dato label="Escalafón"   value={cargo.escalafon.nombre} />
+            {/* El "escalafón" no se muestra: la app agrupa por Código de Registro
+                (ver sección Identificación) y Literal de Puesto, no por el nombre
+                del escalafón —que engloba varios cod_registro y confunde. */}
             <Dato label="Repartición"
               value={cargo.codigoRepa ? `${cargo.codigoRepa} — ${cargo.descripcionRepa}` : cargo.descripcionRepa}
             />
