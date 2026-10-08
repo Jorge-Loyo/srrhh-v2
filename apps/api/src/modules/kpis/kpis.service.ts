@@ -506,18 +506,41 @@ const ESPECIALIDAD_VACIA = '(sin especialidad)'
 
 const PUESTO_VACIO = '(SIN PUESTO)'
 
-// Normaliza especialidad a una clave canónica. '' y 'SIN ESPECIALIDAD' → una
-// única etiqueta. Se aplica unaccent + upper + trim para que variantes que solo
-// difieren en acentos o capitalización colapsen en una sola opción del selector
-// (ej. "ENFERMERÍA" vs "ENFERMERIA"). Requiere la extensión unaccent.
+// Normaliza especialidad a una clave canónica. FUENTE: el CATÁLOGO
+// (especialidades_puesto, vía el cargo), que es la MISMA que usa el resto de la
+// app (filtros de Personas/Cargos) — así una fusión/renombre del catálogo (ej.
+// "Pediatria (Clinica Pediatrica)" → "Pediatria") se refleja también acá, en vez
+// de quedar el texto viejo que el padrón dejó en padron_historico.especialidad.
+// Fallback al texto del padrón solo cuando el cargo no tiene especialidad en el
+// catálogo (filas marginales). '' y 'SIN ESPECIALIDAD' → una única etiqueta.
+// unaccent + upper + trim para que variantes de acento/capitalización colapsen.
 function especialidadNormalizadaSql(alias: string) {
-  const col = Prisma.raw(`${alias}.especialidad`)
+  const cargoId = Prisma.raw(`${alias}.cargo_id`)
+  const texto = Prisma.raw(`${alias}.especialidad`)
+  // Nombre del catálogo resuelto desde el cargo (fuente de verdad).
+  const catalogo = Prisma.sql`(
+    SELECT ep.nombre FROM cargos cesp
+    JOIN especialidades_puesto ep ON ep.id = cesp.especialidad_puesto_id
+    WHERE cesp.id = ${cargoId}
+  )`
+  // Equivalencias de nombres viejos del texto del padrón → nombre canónico del
+  // catálogo, para los cargos que caen al fallback (sin especialidad en el
+  // catálogo todavía) y así no reintroducir en el selector un nombre que ya se
+  // unificó (ej. la fusión "PEDIATRIA (CLINICA PEDIATRICA)" → "PEDIATRIA").
+  const textoNorm = Prisma.sql`unaccent(upper(trim(${texto})))`
+  const textoCanonico = Prisma.sql`
+    CASE ${textoNorm}
+      WHEN 'PEDIATRIA (CLINICA PEDIATRICA)' THEN 'PEDIATRIA'
+      ELSE ${textoNorm}
+    END
+  `
   return Prisma.sql`
     CASE
-      WHEN ${col} IS NULL OR trim(${col}) = ''
-        OR upper(trim(${col})) = 'SIN ESPECIALIDAD'
+      WHEN ${catalogo} IS NOT NULL THEN unaccent(upper(trim(${catalogo})))
+      WHEN ${texto} IS NULL OR trim(${texto}) = ''
+        OR upper(trim(${texto})) = 'SIN ESPECIALIDAD'
       THEN ${ESPECIALIDAD_VACIA}
-      ELSE unaccent(upper(trim(${col})))
+      ELSE ${textoCanonico}
     END
   `
 }
