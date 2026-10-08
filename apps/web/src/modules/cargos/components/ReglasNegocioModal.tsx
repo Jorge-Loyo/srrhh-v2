@@ -505,12 +505,12 @@ function ComoCrearCargos() {
     {
       id: 'padron', titulo: 'Padrón SIAL', subtitulo: 'Importación automática semanal', color: 'green' as Color,
       ruta: null, boton: null,
-      escalafones: ['Todos los escalafones (automático)'],
+      escalafones: ['Todas las carreras (automático)'],
       codigos: ['Código generado por prefijoDeCargo()'],
       flujo: [
         'El sistema procesa el Excel semanal del SIAL (Dotaneitor)',
         'Detecta id_sial_rol nuevos que no existen en la BD',
-        'Busca cargo por (hospital, escalafón, codigo_repa, literal_puesto)',
+        'Busca cargo por (hospital, carrera, codigo_repa, literal_puesto)',
         'Si no existe el cargo: lo crea con estado=vigente y crea la ocupación',
         'Si existe el cargo sin ocupación activa: crea la ocupación',
         'Si existe con ocupación activa: actualiza datos de la persona',
