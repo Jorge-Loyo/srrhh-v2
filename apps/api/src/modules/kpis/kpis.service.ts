@@ -730,24 +730,42 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
       WHERE d.tipo = 'eliminado'
     ),
     -- Última fila conocida de cada rol a cada corte (la foto vigente del rol
-    -- en ese mes). DISTINCT ON toma la fecha_asignada más alta <= corte.
+    -- en ese mes). En vez de cruzar cada corte con TODO el histórico anterior y
+    -- hacer DISTINCT ON (producto cartesiano cortes × padron_historico — O(10 ×
+    -- 140k) con sort externo, tardaba minutos), se calcula para cada fila su
+    -- intervalo de vigencia con LEAD: la fila rige desde su fecha_asignada hasta
+    -- la fecha de la SIGUIENTE fila del mismo rol. Luego se une con cortes por
+    -- rango (una sola pasada, ~1s). Resultado idéntico a tomar la fila más
+    -- reciente <= corte. Requiere el índice (id_sial_rol, fecha_asignada).
     -- id_sial = las 2 primeras partes de id_sial_rol ('{idSial}-{cuil}-{seq}'),
     -- que es el formato corto que usa padron_diff para las bajas.
-    vigente AS (
-      SELECT DISTINCT ON (c.corte, ph.id_sial_rol)
-        c.corte,
-        c.mes,
+    hist AS (
+      SELECT
         ph.id_sial_rol,
-        split_part(ph.id_sial_rol, '-', 1) || '-' || split_part(ph.id_sial_rol, '-', 2) AS id_sial,
         ph.persona_id,
         ph.cargo_id,
         ph.literal_puesto,
         ph.especialidad,
         ph.hospital_sigla,
-        ph.situacion_revista
+        ph.situacion_revista,
+        ph.fecha_asignada,
+        lead(ph.fecha_asignada) OVER (PARTITION BY ph.id_sial_rol ORDER BY ph.fecha_asignada) AS prox_fecha
+      FROM padron_historico ph
+    ),
+    vigente AS (
+      SELECT
+        c.corte,
+        c.mes,
+        h.id_sial_rol,
+        split_part(h.id_sial_rol, '-', 1) || '-' || split_part(h.id_sial_rol, '-', 2) AS id_sial,
+        h.persona_id,
+        h.cargo_id,
+        h.literal_puesto,
+        h.especialidad,
+        h.hospital_sigla,
+        h.situacion_revista
       FROM cortes c
-      JOIN padron_historico ph ON ph.fecha_asignada <= c.corte
-      ORDER BY c.corte, ph.id_sial_rol, ph.fecha_asignada DESC
+      JOIN hist h ON h.fecha_asignada <= c.corte AND (h.prox_fecha IS NULL OR h.prox_fecha > c.corte)
     )
     SELECT v.*
     FROM vigente v

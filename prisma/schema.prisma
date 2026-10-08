@@ -673,6 +673,9 @@ model PadronHistorico {
   @@index([personaId])
   @@index([cargoId])
   @@index([cuil])
+  // S24: evolución de dotación — intervalo de vigencia por rol (LEAD sobre
+  // id_sial_rol ordenado por fecha). Sin este índice la serie tardaba minutos.
+  @@index([idSialRol, fechaAsignada])
   @@map("padron_historico")
 }
 
