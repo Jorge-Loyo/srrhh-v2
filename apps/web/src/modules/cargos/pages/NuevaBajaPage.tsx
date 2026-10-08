@@ -605,7 +605,7 @@ export function NuevaBajaPage() {
                   <Field label="Código de registro">
                     <ReadonlyInput value={codigoRegistro} />
                   </Field>
-                  <Field label="Escalafón">
+                  <Field label="Carrera">
                     <ReadonlyInput value={escalafon} />
                   </Field>
                   <Field label="POU/POF">
@@ -815,7 +815,7 @@ export function NuevaBajaPage() {
                 <Row label="Agente"           value={nombreApellido} />
                 <Row label="CUIL"             value={cuil} />
                 <Row label="Código registro"  value={codigoRegistro} />
-                <Row label="Escalafón"        value={escalafon} />
+                <Row label="Carrera"          value={escalafon} />
                 <Row label="POU/POF"          value={pouPof} />
                 <Row label="Puesto"           value={puesto} />
                 <Row label="Especialidad"     value={especialidad} />

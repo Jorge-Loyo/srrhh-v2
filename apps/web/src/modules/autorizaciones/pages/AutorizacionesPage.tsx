@@ -40,7 +40,7 @@ function ReferenciaCph({ id, onEsInformativa }: { id: string; onEsInformativa?: 
 
   const cambios: { campo: string; de: string; a: string }[] = []
   if (data.siglaSolicitada)          cambios.push({ campo: 'Sigla',       de: cargo?.hospital?.sigla ?? '—',                             a: data.siglaSolicitada })
-  if (data.codigoRegistroSolicitado) cambios.push({ campo: 'Escalafón',   de: cargo?.codigoRegistro?.literal ?? '—',                   a: data.codigoRegistroSolicitado.literal ?? '—' })
+  if (data.codigoRegistroSolicitado) cambios.push({ campo: 'Carrera',     de: cargo?.codigoRegistro?.literal ?? '—',                   a: data.codigoRegistroSolicitado.literal ?? '—' })
   if (data.especialidadSolicitada)   cambios.push({ campo: 'Especialidad', de: cargo?.especialidadLegacy ?? cargo?.especialidad ?? '—', a: data.especialidadSolicitada })
   if (data.puestoSolicitado)         cambios.push({ campo: 'Puesto',       de: cargo?.literalPuesto ?? '—',                             a: data.puestoSolicitado })
 

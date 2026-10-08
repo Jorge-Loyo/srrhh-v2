@@ -76,7 +76,7 @@ export function ConcursosCeetpsPage() {
             onChange={(e) => resetPage(setEscalafonId)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
-            <option value="">Todos los escalafones</option>
+            <option value="">Todas las carreras</option>
             {escalafonesOrdenados.map((e) => (
               <option key={e.id} value={e.id}>
                 {escalafonLabel(e.nombre)}
@@ -116,7 +116,7 @@ export function ConcursosCeetpsPage() {
                   <thead className="bg-navy text-white text-left">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Hospital</th>
-                      <th className="px-4 py-3 font-semibold">Escalafón</th>
+                      <th className="px-4 py-3 font-semibold">Carrera</th>
                       <th className="px-4 py-3 font-semibold">Puesto solicitado</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>

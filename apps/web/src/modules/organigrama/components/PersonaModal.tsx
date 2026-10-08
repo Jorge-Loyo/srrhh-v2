@@ -148,7 +148,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
             <div className="bg-gray-50 rounded-xl px-4 py-1">
               <Row label="Puesto" value={persona.cargo} />
               <Row label="Especialidad" value={toTitleCase(persona.especialidadCargo)} />
-              <Row label="Escalafón" value={persona.escalafon} />
+              <Row label="Carrera" value={persona.escalafon} />
               <Row label="En el cargo desde" value={formatFecha(persona.cargoDesde)} />
               <Row label="En el cargo hasta" value={persona.cargoHasta ? formatFecha(persona.cargoHasta) : 'Actual'} />
               {persona.codigoCargo && <Row label="Código de cargo" value={persona.codigoCargo} />}

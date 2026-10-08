@@ -119,7 +119,7 @@ export function BajasSialDiffPage() {
                 <th className="px-4 py-3 font-semibold">CARGO</th>
                 <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
                 <th className="px-4 py-3 font-semibold">CUIL</th>
-                <th className="px-4 py-3 font-semibold">Escalafón</th>
+                <th className="px-4 py-3 font-semibold">Carrera</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
                 <th className="px-4 py-3 font-semibold">Motivo baja</th>
                 <th className="px-4 py-3 font-semibold">Hasta</th>

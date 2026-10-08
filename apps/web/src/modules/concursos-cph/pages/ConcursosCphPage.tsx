@@ -1001,7 +1001,7 @@ function DetalleConcursoModal({
   const r = respaldatoria(c)
   const dias = diasSinMovimiento(c.updatedAt)
   const filas: { label: string; valor: string }[] = [
-    { label: 'Escalafón', valor: 'CPH' },
+    { label: 'Carrera', valor: 'CPH' },
     {
       label: 'Cargo (código)',
       valor: c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—',

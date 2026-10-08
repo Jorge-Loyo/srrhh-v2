@@ -79,7 +79,7 @@ const COLUMNS: { key: keyof DotacionRow; label: string; sortKey?: string; cap?: 
   { key: 'cuil', label: 'CUIL', sortKey: 'cuil' },
   { key: 'nombreApellido', label: 'Apellido y Nombre', sortKey: 'nombreApellido' },
   { key: 'sigla', label: 'Repartición', sortKey: 'sigla' },
-  { key: 'escalafon', label: 'Escalafón', sortKey: 'escalafon' },
+  { key: 'escalafon', label: 'Carrera', sortKey: 'escalafon' },
   { key: 'codigoRegistro', label: 'Cód. Registro' },
   { key: 'codigoCargo', label: 'Cód. Cargo', sortKey: 'codigoCargo' },
   { key: 'literalPuesto', label: 'Puesto', sortKey: 'literalPuesto', cap: true },
@@ -598,9 +598,9 @@ export function DotacionPage() {
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
                 <div className="space-y-2">
-                  {/* Escalafón (multi, por id mostrando nombre) */}
+                  {/* Carrera (multi, por id mostrando nombre) */}
                   <MultiSelectDropdown
-                    label="Escalafón"
+                    label="Carrera"
                     value={escalafonId.map(escalafonIdToNombre)}
                     options={escalafonOptions}
                     onChange={(nombres) => setCsvParam('escalafonId', nombres.map(escalafonNombreToId).filter(Boolean))}

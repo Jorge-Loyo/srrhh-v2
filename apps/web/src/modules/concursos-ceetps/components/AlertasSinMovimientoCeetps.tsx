@@ -67,7 +67,7 @@ export function AlertasSinMovimientoCeetps() {
             <thead className="text-gray-500 text-left">
               <tr>
                 <th className="pb-2 font-semibold">Hospital</th>
-                <th className="pb-2 font-semibold">Escalafón</th>
+                <th className="pb-2 font-semibold">Carrera</th>
                 <th className="pb-2 font-semibold">Estado</th>
                 <th className="pb-2 font-semibold">Días</th>
                 <th className="pb-2 font-semibold" />

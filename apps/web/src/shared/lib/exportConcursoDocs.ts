@@ -133,7 +133,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
     ['CUIL', persona?.cuil],
     ['Puesto', puesto],
     ['Especialidad', especBaja],
-    ['Escalafón', ESCALAFON_CPH],
+    ['Carrera', ESCALAFON_CPH],
     ['Tipo', baja?.tipoBaja],
     ['Código de Registro', codigoRegistro],
     ['Fecha de Baja', vFecha(data.fechaBaja)],
@@ -171,7 +171,7 @@ export function getCasoCph(data: ConcursoCph): Caso {
       [eeLabel, data.eeBaja],
       ['Puesto', puestoBaja],
       ['Especialidad', especBaja],
-      ['Escalafón', ESCALAFON_CPH],
+      ['Carrera', ESCALAFON_CPH],
       ['Tipo', baja?.tipoBaja],
       ['Código de Registro', codigoRegistro],
       ['Fecha de Baja', vFecha(data.fechaBaja)],
@@ -264,7 +264,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
     ['CUIL', persona?.cuil],
     ['Puesto', puesto],
     ['Especialidad', especBaja],
-    ['Escalafón', escalafonTexto],
+    ['Carrera', escalafonTexto],
     ['Tipo', baja?.tipoBaja],
     ['Código de Registro', codigo],
     ['Fecha de Baja', vFecha(baja?.fechaBaja)],
@@ -374,7 +374,7 @@ export function getCasoCeetps(data: ConcursoCeetps): Caso {
             ['EE de Ampliación', baja?.eeBaja],
             ['Puesto', puestoBaja],
             ['Especialidad', especBaja],
-            ['Escalafón', escalafonTexto],
+            ['Carrera', escalafonTexto],
             ['Tipo', 'Ampliación'],
             ['Código de Registro', codigo],
             ['Fecha de Ampliación', vFecha(baja?.fechaBaja)],
@@ -745,8 +745,8 @@ export function exportJuradoPdf(data: ConcursoCph, jurado: SorteoJuradoActa) {
     const antiguedadMin = jurado.criterios?.antiguedadMinimaAnios ?? 15
     const reglas = textoReglas(tipoGestion, modalidad, antiguedadMin)
     const intro = esCentralizado
-      ? `Tipo de gestión: centralizado. Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: se aplicó una única regla en toda la base de datos (exige además la misma profesión/escalafón que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
-      : `Tipo de gestión: descentralizado. Cargo a concursar: ${modalidad === 'pou' ? 'guardia (POU)' : 'planta (POF)'}. Cada titular y suplente fue seleccionado aplicando, en cascada y en este orden, las siguientes reglas de elegibilidad (todas exigen además la misma profesión/escalafón que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
+      ? `Tipo de gestión: centralizado. Al ser centralizado, no hay cascada de reglas ni prioridad de hospital: se aplicó una única regla en toda la base de datos (exige además la misma profesión/carrera que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
+      : `Tipo de gestión: descentralizado. Cargo a concursar: ${modalidad === 'pou' ? 'guardia (POU)' : 'planta (POF)'}. Cada titular y suplente fue seleccionado aplicando, en cascada y en este orden, las siguientes reglas de elegibilidad (todas exigen además la misma profesión/carrera que el cargo a concursar y ocupación activa; Director y Subdirector quedan excluidos de cualquier jurado):`
     y = pdfParrafo(
       doc,
       y,

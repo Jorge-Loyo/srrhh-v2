@@ -8,7 +8,7 @@ export const REPORTES_GROUP_BY_OPTIONS = [
   { key: 'universoTotalizador', label: 'Universo' },
   { key: 'tipoHospital', label: 'Tipo Hospital' },
   { key: 'monovalencia', label: 'Monovalencia' },
-  { key: 'escalafon', label: 'Escalafón' },
+  { key: 'escalafon', label: 'Carrera' },
   { key: 'literalPuesto', label: 'Puesto' },
   { key: 'especialidad', label: 'Especialidad' },
   { key: 'sexo', label: 'Sexo' },

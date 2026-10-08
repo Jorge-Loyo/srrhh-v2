@@ -202,7 +202,7 @@ export function ValidacionRetencionesPage() {
             onChange={(e) => { setEscalafon(e.target.value); setPage(1) }}
             className="h-9 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy/30 text-gray-700 bg-white"
           >
-            <option value="">Todos los escalafones</option>
+            <option value="">Todas las carreras</option>
             <option value="CEETPS">CEETPS</option>
             <option value="Nueva Carrera Administrativa">Nueva Carrera Administrativa</option>
             <option value="Nueva Carrera Enfermería">Nueva Carrera Enfermería</option>

@@ -221,7 +221,7 @@ export function CargosPage() {
           Agrupador: c.agrupador ?? '',
           'Unificador de Puesto': c.unificadorPuesto ?? '',
           Repartición: c.hospital?.sigla ?? '',
-          Escalafón: c.escalafon?.nombre ?? '',
+          Carrera: c.escalafon?.nombre ?? '',
           Régimen: c.regimen ?? '',
           Estado: ESTADO_LABEL[c.estado],
           Ocupación: c.ocupado ? 'Ocupado' : 'Vacante',
@@ -398,7 +398,7 @@ export function CargosPage() {
                   <tr>
                     <th className="px-4 py-3 font-semibold rounded-tl-lg">Código Cargo</th>
                     <th className="px-4 py-3 font-semibold">Repartición</th>
-                    <th className="px-4 py-3 font-semibold">Escalafón</th>
+                    <th className="px-4 py-3 font-semibold">Carrera</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>

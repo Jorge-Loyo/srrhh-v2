@@ -91,7 +91,7 @@ export function KpisPage() {
         <SeccionSkeleton />
       ) : (bajas?.porEscalafon.length ?? 0) > 0 ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Bajas a validar por escalafón</h2>
+          <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Bajas a validar por carrera</h2>
           <p className="text-xs text-gray-400 mb-4">
             Cargos detectados como vacantes por el padrón, pendientes de confirmación administrativa
           </p>

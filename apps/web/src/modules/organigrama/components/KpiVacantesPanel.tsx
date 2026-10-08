@@ -80,9 +80,9 @@ export default function KpiVacantesPanel() {
           value={escalafonSel}
           onChange={(e) => { setEscalafonSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
           className="text-xs rounded-md border border-amber-200 bg-white px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400 max-w-[16rem]"
-          title="Filtrar vacantes por escalafón"
+          title="Filtrar vacantes por carrera"
         >
-          <option value="">Todos los escalafones</option>
+          <option value="">Todas las carreras</option>
           {[...(escalafones ?? [])]
             .map((e) => escalafonLabel(e.nombre))
             .sort((a, b) => a.localeCompare(b, 'es'))

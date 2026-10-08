@@ -70,7 +70,7 @@ const TABLAS: TablaConfig[] = [
     hooks: agrupadoresHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'cruce', label: 'Cruce', tipo: 'text', requerido: true, maxLength: 300 },
-      { key: 'escalafon', label: 'Escalafón', tipo: 'text', requerido: true, maxLength: 150 },
+      { key: 'escalafon', label: 'Carrera', tipo: 'text', requerido: true, maxLength: 150 },
       { key: 'litPuesto', label: 'Literal de puesto', tipo: 'text', requerido: true, maxLength: 200 },
       { key: 'agrupador', label: 'Agrupador', tipo: 'text', requerido: true, maxLength: 150 },
       { key: 'activo', label: 'Activo', tipo: 'boolean' },

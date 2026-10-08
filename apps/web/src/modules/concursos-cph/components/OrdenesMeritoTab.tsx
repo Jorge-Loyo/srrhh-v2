@@ -88,7 +88,7 @@ export function OrdenesMeritoTab() {
         <h2 className="font-primary text-lg font-bold text-gray-900">Órdenes de mérito vigentes</h2>
         <p className="text-sm text-gray-500">
           Órdenes de mérito confirmadas y vigentes, con los integrantes disponibles para reutilizar
-          en concursos del mismo puesto, especialidad y escalafón.
+          en concursos del mismo puesto, especialidad y carrera.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-3">

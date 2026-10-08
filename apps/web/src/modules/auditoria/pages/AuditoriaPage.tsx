@@ -64,7 +64,7 @@ const ENTIDAD_LABEL: Record<string, string> = {
   'concursos-ceetps': 'Concursos CEETPS',
   hospitales: 'Hospitales',
   'codigos-registro': 'Códigos de registro',
-  escalafones: 'Escalafones',
+  escalafones: 'Carreras',
   puestos: 'Puestos',
   usuarios: 'Usuarios',
   kpis: 'KPIs',
