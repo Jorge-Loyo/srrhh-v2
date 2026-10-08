@@ -68,7 +68,14 @@ export function prefijoDeCargo(params: {
   const unif = normStr(params.unificadorPuesto)
   const agr  = normStr(params.agrupador)
   const pc   = params.puestoCargo
-  const esPou = pc ? pc.modalidad === 'pou' : (unif.includes('POU') || unif.includes('GUARDIA'))
+  // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
+  // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
+  // como modalidad 'pof' (bug histórico del import: muchos puestos "...de
+  // guardia" quedaron pof → su código salía CPH-POF-* en vez de CPH-POU-*).
+  // Una guardia es POU por definición, así que el literal del puesto prevalece.
+  const nombrePc = normStr(pc?.nombre)
+  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
+  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
   // Nombre canónico del catálogo cuando está disponible — más confiable que
   // el agrupador de texto libre del Excel para distinguir Director/Jefe.
   const nombrePuesto = pc ? normStr(pc.nombre) : agr
