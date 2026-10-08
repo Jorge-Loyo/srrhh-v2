@@ -1587,7 +1587,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 6. Modificados: sigue siendo por fila (cada una cambia campos
     //       distintos), pero sin el find extra — usa la precarga del paso 1 ─
     for (const { idSialRol, cambios } of modificados) {
-      const updateCargo: Record<string, string> = {}
+      const updateCargo: Record<string, string | null> = {}
       const updateOcupacion: Record<string, string | Date | null> = {}
       for (const cambio of cambios) {
         if (!cambio.campo) continue
@@ -1620,6 +1620,33 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
+        }
+        // Si el padrón cambió la especialidad (especialidad_legacy), re-resolver
+        // también la FK estructurada especialidad_puesto_id contra el catálogo
+        // del puesto. Regla de negocio: la ÚLTIMA especialidad del SIAL manda, y
+        // la vista/filtros usan la FK, no el texto legacy. Sin esto, el legacy
+        // cambiaba pero la FK quedaba congelada en la especialidad vieja (bug
+        // detectado en oct-2026, caso Psicopedagogo/Vilariño). La resolución
+        // aplica las equivalencias de fusión (ver resolverEspecialidadPuestoId),
+        // así no reintroduce variantes ya fusionadas (Pediatria/Psicologia).
+        if (Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy')) {
+          const cargoActual = (await tx.cargo.findUnique({
+            where: { id: ocupExistente.cargoId },
+            select: { puestoCargoId: true },
+          })) as { puestoCargoId: string | null } | null
+          if (cargoActual?.puestoCargoId) {
+            const puestoInfo = [...catalogoPuestos.puestos.values()].find(
+              (p) => p.id === cargoActual.puestoCargoId,
+            )
+            const espResuelta = await resolverEspecialidadPuestoId(
+              tx,
+              catalogoPuestos,
+              cargoActual.puestoCargoId,
+              updateCargo['especialidadLegacy'] || null,
+              puestoInfo?.nombre ?? null,
+            )
+            updateCargo['especialidadPuestoId'] = espResuelta
+          }
         }
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }

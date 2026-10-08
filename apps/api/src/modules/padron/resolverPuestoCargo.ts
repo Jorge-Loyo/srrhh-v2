@@ -152,6 +152,32 @@ export async function resolverPuestoCargoId(
 // compartido). Para médicos genéricos y conducción la derivación devuelve null
 // y el cargo queda sin especialidad (correcto: no es derivable). Así cada
 // padrón futuro ya trae la especialidad poblada sin correr el backfill a mano.
+// Equivalencias de FUSIÓN de especialidades (decisión de negocio): el SIAL
+// sigue trayendo nombres de variantes que ya se fusionaron a una canónica, y
+// NO debe deshacerse esa fusión import a import. Se mapea la variante (clave
+// normalizada minúscula sin tilde) a la canónica (también normalizada). El
+// catálogo tiene la canónica con mayúscula ('Pediatria', 'Psicologia'); el
+// match por normalización la encuentra, así que acá va en minúscula.
+//   - "pediatria (clinica pediatrica)" → "pediatria"
+//   - variantes de psicología clínica/médica/infantil → "psicologia"
+// OJO: NO incluye las especialidades pediátricas legítimamente distintas
+// (anestesiología pediátrica, cirugía infantil pediátrica, etc.) — esas se
+// conservan. Solo la variante exacta que se fusionó.
+export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
+  'pediatria (clinica pediatrica)': 'pediatria',
+  'psicologia clinica': 'psicologia',
+  'psicologia medica': 'psicologia',
+  'psicologia infantil': 'psicologia',
+  'psicologia clinica infanto juvenil': 'psicologia',
+  'psicologia infanto juvenil': 'psicologia',
+}
+
+// Aplica el mapeo de fusión sobre un nombre ya normalizado (minúscula sin
+// tilde). Si no es una variante fusionada, devuelve el nombre tal cual.
+export function canonicalizarEspecialidad(nombreNorm: string): string {
+  return EQUIVALENCIAS_ESPECIALIDAD[nombreNorm] ?? nombreNorm
+}
+
 export async function resolverEspecialidadPuestoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
@@ -159,8 +185,9 @@ export async function resolverEspecialidadPuestoId(
   especialidad: string | null,
   nombrePuesto?: string | null,
 ): Promise<string | null> {
-  // 1. Especialidad del padrón (médicos). Si vino, manda.
-  let nombreCurado = normalizarTexto(especialidad).slice(0, 200)
+  // 1. Especialidad del padrón (médicos). Si vino, manda. Se canonicaliza para
+  //    no reintroducir variantes ya fusionadas (ver EQUIVALENCIAS_ESPECIALIDAD).
+  let nombreCurado = canonicalizarEspecialidad(normalizarTexto(especialidad).slice(0, 200))
 
   // 2. Fallback (no médicos): si el padrón no trajo especialidad, derivarla del
   //    nombre del puesto. derivarEspecialidadDesdePuesto ya devuelve minúscula
