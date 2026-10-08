@@ -22,8 +22,8 @@ const NIVEL_COLOR: Record<string, string> = {
 
 export default function KpiVacantesPanel() {
   const navigate = useNavigate()
-  const [carreraSel, setCarreraSel] = useState<string>('')
-  const { data, isLoading, isError } = useVacantesConduccion({ carrera: carreraSel || undefined })
+  const [puestoSel, setPuestoSel] = useState<string>('')
+  const { data, isLoading, isError } = useVacantesConduccion({ puesto: puestoSel || undefined })
   const { data: huerfanos } = useCargosConduccionHuerfanos()
   const [verFrias, setVerFrias] = useState(false)
   const [nivelSel, setNivelSel] = useState<string | null>(null)
@@ -47,7 +47,7 @@ export default function KpiVacantesPanel() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/80">
               Vacantes en el organigrama
-              {data.carreraFiltrada && <span className="normal-case text-gray-500 font-normal"> · {data.carreraFiltrada}</span>}
+              {data.puestoFiltrado && <span className="normal-case text-gray-500 font-normal"> · {data.puestoFiltrado}</span>}
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-tight">{data.total}</p>
             <p className="text-xs text-gray-500">
@@ -69,17 +69,17 @@ export default function KpiVacantesPanel() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-        {/* Filtro por carrera (régimen de empleo) */}
+        {/* Filtro por puesto (literal de puesto del catálogo, el que usa toda la app) */}
         <select
-          value={carreraSel}
-          onChange={(e) => { setCarreraSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
-          className="text-xs rounded-md border border-amber-200 bg-white px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
-          title="Filtrar vacantes por carrera"
+          value={puestoSel}
+          onChange={(e) => { setPuestoSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
+          className="text-xs rounded-md border border-amber-200 bg-white px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400 max-w-[16rem]"
+          title="Filtrar vacantes por puesto"
         >
-          <option value="">Todas las carreras</option>
-          {data.porCarrera.map((c) => (
-            <option key={c.carrera} value={c.carrera}>
-              {c.carrera} ({c.total})
+          <option value="">Todos los puestos</option>
+          {data.porPuesto.map((p) => (
+            <option key={p.puesto} value={p.puesto}>
+              {p.puesto} ({p.total})
             </option>
           ))}
         </select>

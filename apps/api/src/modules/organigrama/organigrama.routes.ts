@@ -19,8 +19,8 @@ export async function organigramaRoutes(app: FastifyInstance) {
   // S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante
   // activo). Query opcional `sigla` para acotar a un efector.
   app.get('/vacantes', async (request, reply) => {
-    const q = request.query as { sigla?: string; carrera?: string } | undefined
-    const result = await getVacantesConduccionService({ sigla: q?.sigla, carrera: q?.carrera })
+    const q = request.query as { sigla?: string; puesto?: string } | undefined
+    const result = await getVacantesConduccionService({ sigla: q?.sigla, puesto: q?.puesto })
     return reply.send({ data: result })
   })
 
