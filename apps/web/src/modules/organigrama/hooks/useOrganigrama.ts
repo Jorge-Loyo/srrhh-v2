@@ -107,7 +107,7 @@ export interface VacanteConduccion {
   hospitalNombre: string
   nivel: string
   carrera: string
-  puestoLiteral: string
+  escalafon: string
   frio: boolean // nodo sin cargo real detrás todavía
   revisionMotivo: string | null
 }
@@ -118,19 +118,19 @@ export interface VacantesConduccion {
   frias: number
   porHospital: { sigla: string; nombre: string; total: number }[]
   porNivel: { nivel: string; total: number }[]
-  porPuesto: { puesto: string; total: number }[]
-  puestoFiltrado: string | null
+  porEscalafon: { escalafon: string; total: number }[]
+  escalafonFiltrado: string | null
   vacantes: VacanteConduccion[]
 }
 
-export function useVacantesConduccion(opts: { sigla?: string; puesto?: string } = {}) {
-  const { sigla, puesto } = opts
+export function useVacantesConduccion(opts: { sigla?: string; escalafon?: string } = {}) {
+  const { sigla, escalafon } = opts
   return useQuery({
-    queryKey: ['vacantes-conduccion', sigla ?? null, puesto ?? null],
+    queryKey: ['vacantes-conduccion', sigla ?? null, escalafon ?? null],
     queryFn: async () => {
       const params: Record<string, string> = {}
       if (sigla) params.sigla = sigla
-      if (puesto) params.puesto = puesto
+      if (escalafon) params.escalafon = escalafon
       const res = await apiClient.get<{ data: VacantesConduccion }>('/api/v1/organigrama/vacantes', {
         params: Object.keys(params).length ? params : undefined,
       })

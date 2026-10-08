@@ -1251,7 +1251,7 @@ interface VacanteConduccion {
   hospitalNombre: string
   nivel: string
   carrera: string // régimen de empleo del nodo — usado en los indicadores generales
-  puestoLiteral: string // literal de puesto del catálogo — dimensión del filtro desplegable
+  escalafon: string // escalafón del cargo (catálogo) — dimensión del filtro desplegable
   frio: boolean // nodo sin cargo o cargo marcado para revisión
   revisionMotivo: string | null
 }
@@ -1269,34 +1269,6 @@ function nivelDeTipoNodo(tipo: string): string {
   if (tipo === 'UNID') return 'Jefatura de Unidad'
   if (tipo === 'SECCION' || tipo === 'SECC' || tipo === 'SECCION CA') return 'Jefatura de Sección'
   return 'Otro'
-}
-
-// Literal de puesto para nodos SIN cargo todavía (fríos): se deriva del tipo del
-// nodo con la MISMA nomenclatura "Jefe de ..." que los cargos del catálogo, para
-// que no aparezca duplicado en el filtro frente a su equivalente con cargo.
-function puestoLiteralDeTipoNodo(tipo: string): string {
-  if (tipo.startsWith('SSEC') || tipo === 'AS') return 'Subsecretario'
-  if (tipo === 'DG' || tipo.startsWith('F/N DG') || tipo.startsWith('UAI')) return 'Director general'
-  if (tipo === 'GO') return 'Gerente operativo'
-  if (tipo === 'SGO') return 'Subgerente operativo'
-  if (tipo === 'DHOS' || tipo.startsWith('F/N DEJE')) return 'Director'
-  if (tipo === 'SDHOS') return 'Sub-director'
-  if (tipo === 'DEPT' || tipo === 'DEPT CA') return 'Jefe de departamento'
-  if (tipo === 'DIV' || tipo === 'DIV CA') return 'Jefe de division'
-  if (tipo === 'UNID') return 'Jefe de unidad'
-  if (tipo === 'SECCION' || tipo === 'SECC' || tipo === 'SECCION CA') return 'Jefe de seccion'
-  return 'Otro'
-}
-
-// Normaliza el literal de puesto para agruparlo en el filtro: quita el sufijo
-// de nivel " (NN)" (ej. "jefe de seccion (06)" → "jefe de seccion") y capitaliza
-// la primera letra, de modo que las variantes del padrón y del backfill (misma
-// jefatura escrita distinto) se cuenten como un solo puesto.
-function normalizarPuestoLiteral(literal: string | null): string | null {
-  if (!literal) return null
-  const base = literal.replace(/\s*\(\d+\)\s*$/, '').trim()
-  if (!base) return null
-  return base.charAt(0).toUpperCase() + base.slice(1)
 }
 
 // S24-9: vacantes del organigrama = EXACTAMENTE los nodos que el árbol muestra
@@ -1320,7 +1292,7 @@ interface VacanteRow {
   hospital_nombre: string | null
   cargo_id: string | null
   cargo_codigo: string | null
-  puesto_literal: string | null
+  escalafon_nombre: string | null
   es_frio: boolean
 }
 
@@ -1368,9 +1340,9 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
       -- (PuestoCargo.nombre) — el "literal de puesto" canónico que usa toda la
       -- app — con fallback al snapshot literal_puesto del cargo.
       SELECT DISTINCT ON (c.codigo_repa) c.codigo_repa, c.id AS cargo_id, c.codigo AS cargo_codigo,
-             COALESCE(pc.nombre, c.literal_puesto) AS puesto_literal
+             e.nombre AS escalafon_nombre
       FROM cargos c
-      LEFT JOIN puestos_cargo pc ON pc.id = c.puesto_cargo_id
+      JOIN escalafones e ON e.id = c.escalafon_id
       WHERE c.deleted_at IS NULL
         AND c.estado IN ('vigente','validacion_vacante')
         AND c.codigo_repa IS NOT NULL
@@ -1392,7 +1364,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
     SELECT og.codigo_reparticion AS codigo_repa, og.desc_rep, og.tipo,
            og.regimen_empleo, og.sigla,
            h.nombre AS hospital_nombre,
-           cv.cargo_id, cv.cargo_codigo, cv.puesto_literal,
+           cv.cargo_id, cv.cargo_codigo, cv.escalafon_nombre,
            (cv.cargo_id IS NULL) AS es_frio
     FROM organigramas og
     LEFT JOIN hospitales h ON h.sigla = og.sigla
@@ -1411,11 +1383,10 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
     hospitalNombre: r.hospital_nombre ?? r.sigla,
     nivel: nivelDeTipoNodo(r.tipo),
     carrera: r.regimen_empleo || 'Sin carrera',
-    // Literal de puesto del catálogo (el que usa toda la app), normalizado para
-    // el filtro: sin el sufijo de nivel " (NN)" y con capitalización pareja, de
-    // modo que "jefe de seccion (06)" / "jefe de seccion" se agrupen en uno.
-    // Si el nodo no tiene cargo todavía (frío), se deriva del tipo del nodo.
-    puestoLiteral: normalizarPuestoLiteral(r.puesto_literal) || puestoLiteralDeTipoNodo(r.tipo),
+    // Escalafón del cargo (del catálogo) — la MISMA lista que el selector
+    // "Todos los escalafones" del resto de la app. Si el nodo no tiene cargo
+    // todavía (frío), se usa el régimen del nodo como etiqueta de fallback.
+    escalafon: r.escalafon_nombre || r.regimen_empleo || 'Sin escalafón',
     frio: r.es_frio,
     revisionMotivo: null,
   }))
@@ -1424,7 +1395,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
   return listaCompleta
 }
 
-export async function getVacantesConduccionService(opts: { sigla?: string; puesto?: string } = {}) {
+export async function getVacantesConduccionService(opts: { sigla?: string; escalafon?: string } = {}) {
   const listaCompleta = await computarUniversoVacantes()
 
   // Filtro por efector (sigla), si se pidió — acota el universo antes de todo.
@@ -1432,14 +1403,14 @@ export async function getVacantesConduccionService(opts: { sigla?: string; puest
     ? listaCompleta.filter((v) => v.hospitalSigla === opts.sigla)
     : listaCompleta
 
-  // El desglose del DESPLEGABLE usa el LITERAL DE PUESTO del catálogo (el que
-  // usa toda la app), calculado sobre el universo (acotado por sigla si aplica)
-  // para mostrar todas las opciones; el resto de los indicadores siguen por
-  // régimen/nivel. El filtro `puesto` acota el listado y los indicadores.
-  const porPuestoMap = new Map<string, number>()
-  for (const v of universo) porPuestoMap.set(v.puestoLiteral, (porPuestoMap.get(v.puestoLiteral) ?? 0) + 1)
+  // El desglose del DESPLEGABLE usa el ESCALAFÓN del cargo (la misma lista que el
+  // selector "Todos los escalafones" del resto de la app), sobre el universo
+  // (acotado por sigla si aplica); el resto de los indicadores siguen por
+  // régimen/nivel. El filtro `escalafon` acota el listado y los indicadores.
+  const porEscalafonMap = new Map<string, number>()
+  for (const v of universo) porEscalafonMap.set(v.escalafon, (porEscalafonMap.get(v.escalafon) ?? 0) + 1)
 
-  const lista = opts.puesto ? universo.filter((v) => v.puestoLiteral === opts.puesto) : universo
+  const lista = opts.escalafon ? universo.filter((v) => v.escalafon === opts.escalafon) : universo
 
   const porHospital = new Map<string, { sigla: string; nombre: string; total: number }>()
   const porNivel = new Map<string, number>()
@@ -1456,8 +1427,8 @@ export async function getVacantesConduccionService(opts: { sigla?: string; puest
     frias: lista.filter((v) => v.frio).length, // nodo sin cargo todavía
     porHospital: [...porHospital.values()].sort((a, b) => b.total - a.total),
     porNivel: [...porNivel.entries()].map(([nivel, total]) => ({ nivel, total })).sort((a, b) => b.total - a.total),
-    porPuesto: [...porPuestoMap.entries()].map(([puesto, total]) => ({ puesto, total })).sort((a, b) => b.total - a.total),
-    puestoFiltrado: opts.puesto ?? null,
+    porEscalafon: [...porEscalafonMap.entries()].map(([escalafon, total]) => ({ escalafon, total })).sort((a, b) => b.total - a.total),
+    escalafonFiltrado: opts.escalafon ?? null,
     vacantes: lista,
   }
 }

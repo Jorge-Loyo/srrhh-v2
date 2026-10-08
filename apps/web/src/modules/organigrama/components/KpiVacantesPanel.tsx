@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BriefcaseIcon, ArrowRightIcon, ExclamationTriangleIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { useVacantesConduccion, useCargosConduccionHuerfanos } from '../hooks/useOrganigrama'
+import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 
 // S24-9: panel de KPI de vacantes de conducción (jefaturas sin ocupante activo).
 // Total global + desglose por nivel jerárquico + top efectores con más vacantes.
@@ -22,8 +24,10 @@ const NIVEL_COLOR: Record<string, string> = {
 
 export default function KpiVacantesPanel() {
   const navigate = useNavigate()
-  const [puestoSel, setPuestoSel] = useState<string>('')
-  const { data, isLoading, isError } = useVacantesConduccion({ puesto: puestoSel || undefined })
+  const [escalafonSel, setEscalafonSel] = useState<string>('')
+  const { data, isLoading, isError } = useVacantesConduccion({ escalafon: escalafonSel || undefined })
+  // Misma lista que el selector "Todos los escalafones" del resto de la app.
+  const { data: escalafones } = useEscalafones(true)
   const { data: huerfanos } = useCargosConduccionHuerfanos()
   const [verFrias, setVerFrias] = useState(false)
   const [nivelSel, setNivelSel] = useState<string | null>(null)
@@ -47,7 +51,7 @@ export default function KpiVacantesPanel() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/80">
               Vacantes en el organigrama
-              {data.puestoFiltrado && <span className="normal-case text-gray-500 font-normal"> · {data.puestoFiltrado}</span>}
+              {data.escalafonFiltrado && <span className="normal-case text-gray-500 font-normal"> · {data.escalafonFiltrado}</span>}
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-tight">{data.total}</p>
             <p className="text-xs text-gray-500">
@@ -69,19 +73,27 @@ export default function KpiVacantesPanel() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-        {/* Filtro por puesto (literal de puesto del catálogo, el que usa toda la app) */}
+        {/* Filtro por escalafón — MISMA lista que el selector "Todos los
+            escalafones" del resto de la app (useEscalafones). El conteo de
+            vacantes por escalafón viene en data.porEscalafon. */}
         <select
-          value={puestoSel}
-          onChange={(e) => { setPuestoSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
+          value={escalafonSel}
+          onChange={(e) => { setEscalafonSel(e.target.value); setNivelSel(null); setVerFrias(false) }}
           className="text-xs rounded-md border border-amber-200 bg-white px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400 max-w-[16rem]"
-          title="Filtrar vacantes por puesto"
+          title="Filtrar vacantes por escalafón"
         >
-          <option value="">Todos los puestos</option>
-          {data.porPuesto.map((p) => (
-            <option key={p.puesto} value={p.puesto}>
-              {p.puesto} ({p.total})
-            </option>
-          ))}
+          <option value="">Todos los escalafones</option>
+          {[...(escalafones ?? [])]
+            .map((e) => escalafonLabel(e.nombre))
+            .sort((a, b) => a.localeCompare(b, 'es'))
+            .map((nombre) => {
+              const cuenta = data.porEscalafon.find((x) => x.escalafon === nombre)?.total ?? 0
+              return (
+                <option key={nombre} value={nombre}>
+                  {nombre}{cuenta ? ` (${cuenta})` : ''}
+                </option>
+              )
+            })}
         </select>
 
         {/* Desglose por nivel — clickeable: muestra el detalle de ese nivel */}
