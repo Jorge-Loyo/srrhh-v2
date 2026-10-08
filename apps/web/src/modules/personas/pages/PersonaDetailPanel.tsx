@@ -92,7 +92,11 @@ export function PersonaDetailPanel() {
   // el header de abajo.
   const cargoVigente = ocupacionesVisibles.find((o) => !o.hasta && !o.situacionRevista?.toLowerCase().includes('retencion'))
     ?? ocupacionesVisibles.find((o) => !o.hasta)
-  const especialidadPrincipal = cargoVigente ? (cargoVigente.cargo.especialidadLegacy ?? cargoVigente.cargo.especialidad) : null
+  // Preferir la especialidad del catálogo (FK especialidadPuesto, fuente de
+  // verdad) sobre el snapshot legacy — que quedó stale y vacío en muchos cargos.
+  const especialidadPrincipal = cargoVigente
+    ? (cargoVigente.cargo.especialidadPuesto?.nombre ?? cargoVigente.cargo.especialidadLegacy ?? cargoVigente.cargo.especialidad)
+    : null
 
   const idSialPersona = p.ocupaciones[0]?.idSialRol?.split('-')[0] ?? null
 
@@ -302,7 +306,7 @@ export function PersonaDetailPanel() {
                     </dl>
                     <dl className="space-y-3">
                       <Dato label="Reparticion" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} - ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
-                      <Dato label="Especialidad" value={o.cargo.especialidadLegacy ?? o.cargo.especialidad} />
+                      <Dato label="Especialidad" value={o.cargo.especialidadPuesto?.nombre ?? o.cargo.especialidadLegacy ?? o.cargo.especialidad} />
                       <Dato label="Desde" value={formatFecha(o.cargoDesdeFecha)} />
                       {!esBaja && <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />}
                     </dl>
@@ -382,7 +386,7 @@ export function PersonaDetailPanel() {
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.literalPuesto ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.hospital?.sigla ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidadLegacy ?? o.cargo.especialidad ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidadPuesto?.nombre ?? o.cargo.especialidadLegacy ?? o.cargo.especialidad ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoDesdeFecha) ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoHastaFecha) ?? '—'}</td>
                       <td className="px-4 py-3">

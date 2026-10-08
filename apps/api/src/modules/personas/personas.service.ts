@@ -161,7 +161,7 @@ export async function getPersonaByIdService(id: string) {
     include: {
       ocupaciones: {
         orderBy: [{ hasta: 'asc' }, { desde: 'desc' }],
-        include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } } },
+        include: { cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true, especialidadPuesto: { select: { id: true, nombre: true } } } } },
       },
       padronHistorico: {
         include: { snapshot: { select: { id: true, fechaAsignada: true, filename: true } } },
