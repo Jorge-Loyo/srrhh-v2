@@ -760,8 +760,6 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
     -- la fecha de la SIGUIENTE fila del mismo rol. Luego se une con cortes por
     -- rango (una sola pasada, ~1s). Resultado idéntico a tomar la fila más
     -- reciente <= corte. Requiere el índice (id_sial_rol, fecha_asignada).
-    -- id_sial = las 2 primeras partes de id_sial_rol ('{idSial}-{cuil}-{seq}'),
-    -- que es el formato corto que usa padron_diff para las bajas.
     hist AS (
       SELECT
         ph.id_sial_rol,
@@ -780,7 +778,6 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
         c.corte,
         c.mes,
         h.id_sial_rol,
-        split_part(h.id_sial_rol, '-', 1) || '-' || split_part(h.id_sial_rol, '-', 2) AS id_sial,
         h.persona_id,
         h.cargo_id,
         h.literal_puesto,
@@ -792,9 +789,17 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
     )
     SELECT v.*
     FROM vigente v
+    -- Excluye roles dados de baja (padron_diff tipo 'eliminado') hasta el corte,
+    -- salvo que reaparezcan en una foto POSTERIOR a la baja (reactivación).
+    -- padron_diff.id_sial_rol usa el MISMO formato largo que padron_historico
+    -- ('{idSial}-{seq}-{cuil}-{rol}'); antes se comparaba contra un id_sial
+    -- truncado a las 2 primeras partes y NUNCA matcheaba, por lo que las bajas
+    -- no se aplicaban y la persona contaba como activa para siempre (bug: una
+    -- baja y la foto del MISMO snapshot dejaban el rol activo — ver Psicopedagogo
+    -- de Planta, oct-2026).
     WHERE NOT EXISTS (
       SELECT 1 FROM bajas b
-      WHERE b.id_sial_rol = v.id_sial
+      WHERE b.id_sial_rol = v.id_sial_rol
         AND b.fecha_baja <= v.corte
         AND NOT EXISTS (
           SELECT 1 FROM padron_historico ph3
