@@ -3,23 +3,36 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { PersonasQuery, GrupoCatalogo } from './personas.schema.js'
 
-// S21: compila un grupo de la cascada de catálogo a un AND de condiciones SQL
-// sobre el cargo vigente (alias `c`). Devuelve null si el grupo no aporta nada.
-// Varios grupos se combinan con OR (uniones) — ver listPersonasService.
+// S21: compila un grupo de la cascada de catálogo a un EXISTS sobre los cargos
+// de la persona. La persona matchea si tiene AL MENOS UN cargo (vía una
+// ocupación) que cumple todas las dimensiones del grupo — NO solo su cargo
+// "vigente principal". Antes se filtraba sobre el alias `c` del LEFT JOIN
+// LATERAL (el cargo principal): eso (a) perdía a quien cumple el filtro en un
+// rol secundario — ej. pediatra en un rol pero con otro rol principal — y
+// (b) hacía un plan patológico (recorría las ~50k personas evaluando el LATERAL
+// antes de filtrar por una especialidad poco común → la consulta se colgaba
+// varios minutos). El EXISTS usa los índices de ocupaciones/cargos y acota
+// primero por los pocos cargos que matchean. Varios grupos se combinan con OR.
 function condicionesCatalogo(g: GrupoCatalogo): Prisma.Sql | null {
   const conds: Prisma.Sql[] = []
-  if (g.hospitalId) conds.push(Prisma.sql`c.hospital_id = ${g.hospitalId}::uuid`)
-  if (g.escalafonId) conds.push(Prisma.sql`c.escalafon_id = ${g.escalafonId}::uuid`)
+  if (g.hospitalId) conds.push(Prisma.sql`cc.hospital_id = ${g.hospitalId}::uuid`)
+  if (g.escalafonId) conds.push(Prisma.sql`cc.escalafon_id = ${g.escalafonId}::uuid`)
   if (g.modalidad)
     conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM puestos_cargo pcm
-      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${g.modalidad}::"ModalidadPuesto"
+      WHERE pcm.id = cc.puesto_cargo_id AND pcm.modalidad = ${g.modalidad}::"ModalidadPuesto"
     )`)
-  if (g.puestoCargoId) conds.push(Prisma.sql`c.puesto_cargo_id = ${g.puestoCargoId}::uuid`)
+  if (g.puestoCargoId) conds.push(Prisma.sql`cc.puesto_cargo_id = ${g.puestoCargoId}::uuid`)
   if (g.especialidadPuestoId)
-    conds.push(Prisma.sql`c.especialidad_puesto_id = ${g.especialidadPuestoId}::uuid`)
+    conds.push(Prisma.sql`cc.especialidad_puesto_id = ${g.especialidadPuestoId}::uuid`)
   if (conds.length === 0) return null
-  return Prisma.sql`(${Prisma.join(conds, ' AND ')})`
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM ocupaciones oc2
+    JOIN cargos cc ON cc.id = oc2.cargo_id
+    WHERE oc2.persona_id = p.id
+      AND cc.deleted_at IS NULL
+      AND ${Prisma.join(conds, ' AND ')}
+  )`
 }
 
 interface PersonaRow {
