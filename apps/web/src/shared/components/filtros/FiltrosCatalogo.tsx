@@ -2,6 +2,7 @@ import type { PuestoCatalogoEspecialidad } from '@srrhh/types'
 import {
   useHospitales,
   useEscalafones,
+  useCodigosRegistro,
   usePuestosCargoNormalizados,
   useEspecialidadesDePuestoId,
 } from '@/shared/hooks/useCatalogos'
@@ -15,6 +16,8 @@ import { capitalizar } from '@/shared/lib/utils'
 export interface FiltrosCatalogoValores {
   reparticionId: string // (efector/hospital — se muestra como "Repartición")
   escalafonId: string
+  // S25: código de registro puntual dentro del escalafón (ej. CPH → 22 ó 37).
+  codigoRegistroId: string
   modalidad: '' | 'pof' | 'pou'
   puestoCargoId: string
   especialidadPuestoId: string
@@ -48,11 +51,19 @@ export function FiltrosCatalogo({
   mostrarEspecialidad = true,
   className,
 }: FiltrosCatalogoProps) {
-  const { reparticionId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId } = valores
+  const { reparticionId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId } = valores
 
   const { data: hospitales } = useHospitales()
   // paraNuevaAlta=true → escalafones del catálogo (se llenan sin padrón).
   const { data: escalafones } = useEscalafones(true)
+  // S25: códigos de registro del escalafón elegido (ej. CPH → 22 y 37). Un
+  // escalafón canónico engloba varios códigos de registro; este nivel deja
+  // acotar a uno puntual. El catálogo completo se filtra en memoria por
+  // escalafonId (no cambia seguido, cache de TanStack alcanza).
+  const { data: codigosRegistro } = useCodigosRegistro()
+  const codigosDelEscalafon = (codigosRegistro ?? [])
+    .filter((cr) => cr.escalafonId === escalafonId)
+    .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }))
   const { data: puestos } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     modalidad || undefined,
@@ -69,7 +80,9 @@ export function FiltrosCatalogo({
 
   // Cambios que resetean la cascada inferior:
   const cambiarEscalafon = (id: string) =>
-    onChange({ escalafonId: id, modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+    onChange({ escalafonId: id, codigoRegistroId: '', modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+  const cambiarCodigoRegistro = (id: string) =>
+    onChange({ codigoRegistroId: id })
   const cambiarModalidad = (m: string) =>
     onChange({ modalidad: (m as '' | 'pof' | 'pou'), puestoCargoId: '', especialidadPuestoId: '' })
   const cambiarPuesto = (id: string) =>
@@ -96,13 +109,31 @@ export function FiltrosCatalogo({
       )}
 
       <select value={escalafonId} onChange={(e) => cambiarEscalafon(e.target.value)} className={selectCls}>
-        <option value="">Todos los escalafones</option>
+        <option value="">Todas las carreras</option>
         {escalafonesOrdenados.map((e) => (
           <option key={e.id} value={e.id}>
             {escalafonLabel(e.nombre)}
           </option>
         ))}
       </select>
+
+      {/* S25: código de registro dentro de la carrera. Solo se muestra si la
+          carrera elegida tiene códigos de registro cargados (puede tener 1 o
+          varios; p.ej. CPH tiene 22 y 37). */}
+      {escalafonId && codigosDelEscalafon.length > 0 && (
+        <select
+          value={codigoRegistroId}
+          onChange={(e) => cambiarCodigoRegistro(e.target.value)}
+          className={selectCls}
+        >
+          <option value="">Todos los cód. de registro</option>
+          {codigosDelEscalafon.map((cr) => (
+            <option key={cr.id} value={cr.id}>
+              {cr.codigo} — {cr.literal}
+            </option>
+          ))}
+        </select>
+      )}
 
       {escalafonId && (
         <select value={modalidad} onChange={(e) => cambiarModalidad(e.target.value)} className={selectCls}>

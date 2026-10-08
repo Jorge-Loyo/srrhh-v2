@@ -4,7 +4,7 @@ import type { PaginatedResponse, PersonaListItem, PersonaFilters } from '@srrhh/
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, useCodigosRegistro, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import type { FiltrosCatalogoValores } from '@/shared/components/filtros/FiltrosCatalogo'
 import {
   FiltrosCatalogoUniones,
@@ -23,6 +23,7 @@ export function PersonasPage() {
   const search       = searchParams.get('search') ?? ''
   const hospitalId   = searchParams.get('hospitalId') ?? ''
   const escalafonId  = searchParams.get('escalafonId') ?? ''
+  const codigoRegistroId = searchParams.get('codigoRegistroId') ?? ''
   const modalidad    = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
   const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
@@ -71,6 +72,7 @@ export function PersonasPage() {
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(codigoRegistroId && { codigoRegistroId }),
     ...(modalidad && { modalidad }),
     ...(activo && { activo: activo === 'true' }),
     ...(puestoCargoId && { puestoCargoId }),
@@ -86,6 +88,7 @@ export function PersonasPage() {
   // para resolver los labels de los chips de filtros activos.
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones(true)
+  const { data: codigosRegistro } = useCodigosRegistro()
   const { data: puestosCatalogo } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     modalidad || undefined,
@@ -104,6 +107,7 @@ export function PersonasPage() {
       const mapa: Record<keyof FiltrosCatalogoValores, string> = {
         reparticionId: 'hospitalId',
         escalafonId: 'escalafonId',
+        codigoRegistroId: 'codigoRegistroId',
         modalidad: 'modalidad',
         puestoCargoId: 'puestoCargoId',
         especialidadPuestoId: 'especialidadPuestoId',
@@ -120,6 +124,7 @@ export function PersonasPage() {
   const valoresFiltros: FiltrosCatalogoValores = {
     reparticionId: hospitalId,
     escalafonId,
+    codigoRegistroId,
     modalidad: modalidad as '' | 'pof' | 'pou',
     puestoCargoId,
     especialidadPuestoId,
@@ -131,6 +136,7 @@ export function PersonasPage() {
     const nuevo: GrupoCatalogo = {
       reparticionId: hospitalId,
       escalafonId,
+      codigoRegistroId,
       modalidad: modalidad as '' | 'pof' | 'pou',
       puestoCargoId,
       especialidadPuestoId,
@@ -140,6 +146,12 @@ export function PersonasPage() {
           ? (() => {
               const e = escalafones?.find((e) => e.id === escalafonId)
               return e ? escalafonLabel(e.nombre) : undefined
+            })()
+          : undefined,
+        codigoRegistro: codigoRegistroId
+          ? (() => {
+              const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
+              return cr ? `${cr.codigo} — ${cr.literal}` : undefined
             })()
           : undefined,
         modalidad: modalidad ? (modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)') : undefined,
@@ -153,7 +165,7 @@ export function PersonasPage() {
       const next = new URLSearchParams(prev)
       next.set('grupos', JSON.stringify([...grupos, nuevo]))
       // Limpia la cascada en edición.
-      for (const k of ['hospitalId', 'escalafonId', 'modalidad', 'puestoCargoId', 'especialidadPuestoId']) {
+      for (const k of ['hospitalId', 'escalafonId', 'codigoRegistroId', 'modalidad', 'puestoCargoId', 'especialidadPuestoId']) {
         next.delete(k)
       }
       next.delete('page')
@@ -297,6 +309,10 @@ export function PersonasPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
+          if (codigoRegistroId) {
+            const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
+            chips.push({ label: cr ? `${cr.codigo} — ${cr.literal}` : codigoRegistroId, key: 'codigoRegistroId' })
+          }
           if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
           if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
@@ -316,7 +332,8 @@ export function PersonasPage() {
                       // La cascada del catálogo se limpia vía onChangeFiltros
                       // (que resetea los niveles inferiores). El chip de
                       // repartición mapea a hospitalId.
-                      if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '' })
+                      if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', codigoRegistroId: '' })
+                      else if (chip.key === 'codigoRegistroId') onChangeFiltros({ codigoRegistroId: '' })
                       else if (chip.key === 'modalidad') onChangeFiltros({ modalidad: '' })
                       else if (chip.key === 'puestoCargoId') onChangeFiltros({ puestoCargoId: '' })
                       else if (chip.key === 'especialidadPuestoId') onChangeFiltros({ especialidadPuestoId: '' })

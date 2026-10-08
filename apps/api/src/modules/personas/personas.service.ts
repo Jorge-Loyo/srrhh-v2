@@ -17,6 +17,7 @@ function condicionesCatalogo(g: GrupoCatalogo): Prisma.Sql | null {
   const conds: Prisma.Sql[] = []
   if (g.hospitalId) conds.push(Prisma.sql`cc.hospital_id = ${g.hospitalId}::uuid`)
   if (g.escalafonId) conds.push(Prisma.sql`cc.escalafon_id = ${g.escalafonId}::uuid`)
+  if (g.codigoRegistroId) conds.push(Prisma.sql`cc.codigo_registro_id = ${g.codigoRegistroId}::uuid`)
   if (g.modalidad)
     conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM puestos_cargo pcm
@@ -60,6 +61,7 @@ export async function listPersonasService(query: PersonasQuery) {
     activo,
     hospitalId,
     escalafonId,
+    codigoRegistroId,
     modalidad,
     puestoCargoId,
     especialidadPuestoId,
@@ -93,7 +95,7 @@ export async function listPersonasService(query: PersonasQuery) {
   // idSial, soloJefes) se aplican con AND sobre la unión.
   const gruposCatalogo: GrupoCatalogo[] = [
     ...(grupos ?? []),
-    { hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId },
+    { hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId },
   ]
   const orClauses = gruposCatalogo
     .map(condicionesCatalogo)

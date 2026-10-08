@@ -12,6 +12,7 @@ function whereGrupoCatalogo(g: GrupoCatalogo): Prisma.CargoWhereInput | null {
   const w: Prisma.CargoWhereInput = {
     ...(g.hospitalId && { hospitalId: g.hospitalId }),
     ...(g.escalafonId && { escalafonId: g.escalafonId }),
+    ...(g.codigoRegistroId && { codigoRegistroId: g.codigoRegistroId }),
     ...(g.modalidad && { puestoCargo: { modalidad: g.modalidad } }),
     ...(g.puestoCargoId && { puestoCargoId: g.puestoCargoId }),
     ...(g.especialidadPuestoId && { especialidadPuestoId: g.especialidadPuestoId }),
@@ -42,7 +43,7 @@ export async function listPuestosCargosService(escalafonId?: string) {
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -108,7 +109,7 @@ export async function listCargosService(query: CargosQuery) {
   // pisar claves como `puestoCargo`/`ocupaciones`.
   const gruposCatalogo: GrupoCatalogo[] = [
     ...(grupos ?? []),
-    { hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId },
+    { hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId },
   ]
   const orClauses = gruposCatalogo
     .map(whereGrupoCatalogo)

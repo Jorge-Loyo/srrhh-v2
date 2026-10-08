@@ -982,6 +982,8 @@ export interface PersonaFilters {
   activo?: boolean
   hospitalId?: string
   escalafonId?: string
+  // S25: código de registro puntual dentro del escalafón (ej. CPH → 22 ó 37).
+  codigoRegistroId?: string
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/puestos.
@@ -1003,6 +1005,8 @@ export interface CargoFilters {
   personaSearch?: string
   hospitalId?: string
   escalafonId?: string
+  // S25: código de registro puntual dentro del escalafón (ej. CPH → 22 ó 37).
+  codigoRegistroId?: string
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/cargos/puestos.
