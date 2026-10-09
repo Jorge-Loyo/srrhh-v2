@@ -1870,6 +1870,54 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
     }
 
+    // ── 6d. Normalización de cargos FANTASMA de jefatura ───────────────────
+    // El SIAL crea un cargo fantasma de jefatura: mismo ocupante, mismo puesto
+    // de CONDUCCIÓN (literal_puesto), que llega ACTIVO pero SIN código de
+    // jefatura (J Cat vacío), duplicando al cargo REAL (que sí tiene J Cat).
+    // El import normal lo crea/reabre como vigente (no mira J Cat), así que sin
+    // esta pasada el fantasma reaparecería vigente en cada import (caso
+    // Charabora/Hernandez/Merino, oct-2026). Se corre AL FINAL del aprobar,
+    // dentro de la misma transacción e idempotente: cualquier cargo de
+    // conducción vigente con J Cat vacío cuyo ocupante tiene un cargo hermano
+    // vigente del mismo literal CON J Cat se marca no_vigente y se cierra su
+    // ocupación. Así el histórico (paso 7) y el KPI (paso 8) ya no lo cuentan.
+    // La exclusión en las vistas (dotacion/kpis EXCLUIR_ESPEJO_JEFATURA) es la
+    // segunda línea de defensa; esto limpia el dato en origen.
+    await tx.$executeRaw`
+      WITH fantasmas AS (
+        SELECT c.id AS cargo_id, o.id AS ocupacion_id
+        FROM cargos c
+        JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
+        JOIN puestos_cargo pc ON pc.id = c.puesto_cargo_id
+        WHERE c.estado = 'vigente'
+          AND pc.tipo_puesto = 'conduccion'
+          AND (o.codigo_jefaturas IS NULL OR TRIM(o.codigo_jefaturas) IN ('', '0'))
+          AND EXISTS (
+            SELECT 1
+            FROM ocupaciones oj
+            JOIN cargos cj ON cj.id = oj.cargo_id
+            WHERE oj.persona_id = o.persona_id
+              AND oj.hasta IS NULL
+              AND cj.estado = 'vigente'
+              AND cj.id <> c.id
+              AND coalesce(cj.literal_puesto,'') = coalesce(c.literal_puesto,'')
+              AND oj.codigo_jefaturas IS NOT NULL
+              AND TRIM(oj.codigo_jefaturas) NOT IN ('', '0')
+          )
+      ),
+      cerrar_ocup AS (
+        UPDATE ocupaciones o
+        SET hasta = ${snapshot.fechaAsignada}, updated_at = now()
+        FROM fantasmas f
+        WHERE o.id = f.ocupacion_id
+        RETURNING o.cargo_id
+      )
+      UPDATE cargos c
+      SET estado = 'no_vigente', estado_desde = ${snapshot.fechaAsignada}, updated_at = now()
+      FROM fantasmas f
+      WHERE c.id = f.cargo_id
+    `
+
     // ── 7. Histórico: una sola lectura en bloque del estado final de todas
     //       las ocupaciones tocadas, y un createMany en vez de un create por
     //       fila ────────────────────────────────────────────────────────────
