@@ -36,9 +36,21 @@ export function normPuestoKey(s: string | null | undefined): string {
 
 // S21: modalidad derivada del unificador del padrón (misma regla que usa el
 // auto-alta). POU/guardia → 'pou', el resto → 'pof'.
-function modalidadDeUnificador(unificadorPuesto: string | null | undefined): ModalidadPuesto {
+//
+// oct-2026: además del unificador se mira el LITERAL del puesto. El SIAL a veces
+// trae el unificador VACÍO para cargos de guardia (ej. "Especialista en la
+// Guardia Medico" con unificador en blanco), y entonces caían a 'pof' creando/
+// resolviendo un puesto POF duplicado — una guardia es POU por definición. Esta
+// es la misma regla que ya aplica codigoCargo.prefijoDeCargo ("el literal del
+// puesto prevalece"): si el nombre del puesto dice "guardia", es POU.
+function modalidadDeUnificador(
+  unificadorPuesto: string | null | undefined,
+  literalPuesto?: string | null | undefined,
+): ModalidadPuesto {
   const unif = (unificadorPuesto ?? '').toUpperCase()
-  return unif.includes('POU') || unif.includes('GUARDIA') ? 'pou' : 'pof'
+  const lit = (literalPuesto ?? '').toUpperCase()
+  if (unif.includes('POU') || unif.includes('GUARDIA') || lit.includes('GUARDIA')) return 'pou'
+  return 'pof'
 }
 
 // S21: clave del cache de puestos. INCLUYE la modalidad — antes era solo
@@ -112,7 +124,7 @@ export async function resolverPuestoCargoId(
   // modalidad, nombre) con FALLBACK a 'ambos': un cargo POF/POU puede
   // corresponder a un puesto catalogado como 'ambos' (Residencias,
   // Administrativa, etc.). Prioriza el match de modalidad exacta.
-  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto)
+  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto, literal)
 
   const existente =
     cache.puestos.get(clavePuesto(params.escalafonId, modalidad, literal)) ??
