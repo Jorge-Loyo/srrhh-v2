@@ -837,19 +837,37 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
   const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura, grupos }
 
   const rows = await prisma.$queryRaw<{ mes: string; cantidad: bigint }[]>(Prisma.sql`
-    WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)})
+    WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)}),
+    -- Dedup espejo jefatura: UNA fila representante por (mes, persona,
+    -- repartición, puesto), igual criterio que el export (row_number ordenado
+    -- por id_sial_rol). Antes se contaba DISTINCT sin elegir representante y se
+    -- filtraba fila por fila: una persona con 2 cargos vigentes del mismo
+    -- puesto en reparticiones distintas (o 2 roles con especialidad distinta)
+    -- podía contarse en una categoría que su fila representante del export NO
+    -- tenía → conteo fantasma (ej. un "1" en "(sin especialidad)" que el Excel
+    -- no traía — Marocchi, asistente social de planta, oct-2026). Ahora la serie
+    -- y el export cuentan exactamente el mismo conjunto.
+    dedup AS (
+      SELECT ult.*,
+        row_number() OVER (
+          PARTITION BY ult.mes, ult.persona_id,
+            coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
+            ${puestoNormalizadoSql('ult')}
+          ORDER BY ult.id_sial_rol
+        ) AS drn
+      FROM ult
+      WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
+    )
     SELECT
-      to_char(ult.mes, 'YYYY-MM') AS mes,
-      -- Dedup espejo jefatura: personas distintas por repartición + puesto
-      -- (puesto normalizado para no separar variantes de capitalización).
-      count(DISTINCT (ult.persona_id, coalesce(c.codigo_repa, ''), ${puestoNormalizadoSql('ult')}))::bigint AS cantidad
-    FROM ult
-    JOIN cargos c ON c.id = ult.cargo_id
+      to_char(dedup.mes, 'YYYY-MM') AS mes,
+      count(*)::bigint AS cantidad
+    FROM dedup
+    JOIN cargos c ON c.id = dedup.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
-      ${construirFiltros('ult', filtros)}
-    GROUP BY ult.mes
-    ORDER BY ult.mes
+    WHERE dedup.drn = 1
+      ${construirFiltros('dedup', filtros)}
+    GROUP BY dedup.mes
+    ORDER BY dedup.mes
   `)
 
   return {
