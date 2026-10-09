@@ -857,17 +857,26 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
         ) AS drn
       FROM ult
       WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
+    ),
+    conteo AS (
+      SELECT dedup.mes, count(*)::bigint AS cantidad
+      FROM dedup
+      JOIN cargos c ON c.id = dedup.cargo_id
+      JOIN escalafones e ON e.id = c.escalafon_id
+      WHERE dedup.drn = 1
+        ${construirFiltros('dedup', filtros)}
+      GROUP BY dedup.mes
     )
-    SELECT
-      to_char(dedup.mes, 'YYYY-MM') AS mes,
-      count(*)::bigint AS cantidad
-    FROM dedup
-    JOIN cargos c ON c.id = dedup.cargo_id
-    JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE dedup.drn = 1
-      ${construirFiltros('dedup', filtros)}
-    GROUP BY dedup.mes
-    ORDER BY dedup.mes
+    -- Eje temporal completo: TODOS los meses del rango, con 0 donde el filtro no
+    -- deja a nadie. Antes el GROUP BY omitía los meses con conteo 0, por lo que
+    -- una categoría que llega a 0 en el último mes (ej. "sin especialidad" tras
+    -- completar las asignaciones) hacía que la serie terminara en un mes
+    -- anterior y el "corte" no coincidiera con el total → parecía incoherente
+    -- (el total mostraba octubre y la categoría septiembre).
+    SELECT to_char(m.mes, 'YYYY-MM') AS mes, COALESCE(ct.cantidad, 0)::bigint AS cantidad
+    FROM (SELECT DISTINCT mes FROM ult) m
+    LEFT JOIN conteo ct ON ct.mes = m.mes
+    ORDER BY m.mes
   `)
 
   return {
