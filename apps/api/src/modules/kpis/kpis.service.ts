@@ -746,6 +746,13 @@ function cortesMensualesSql(mesDesde?: string, mesHasta?: string) {
 function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
   return Prisma.sql`
     WITH cortes AS (${cortesMensualesSql(mesDesde, mesHasta)}),
+    -- El corte más reciente es el "mes en curso": debe reflejar el estado REAL
+    -- actual, no la foto congelada del último padrón. Para ese mes se exige
+    -- además que el rol tenga ocupación VIGENTE hoy (ocupaciones.hasta IS NULL);
+    -- así una baja posterior a la fecha del padrón (ej. ocupación cerrada el
+    -- 05/10 cuando el padrón es del 04/10) no cuenta como activa en vivo. Los
+    -- meses anteriores quedan como su foto histórica de cierre.
+    corte_actual AS (SELECT max(corte) AS corte FROM cortes),
     bajas AS (
       SELECT d.id_sial_rol, ps.fecha_asignada AS fecha_baja
       FROM padron_diff d
@@ -807,6 +814,16 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
             AND ph3.fecha_asignada > b.fecha_baja
             AND ph3.fecha_asignada <= v.corte
         )
+    )
+    -- Mes en curso "en vivo": en el corte más reciente, excluir roles cuya
+    -- ocupación ya está cerrada en la BD (hasta IS NOT NULL). Para los meses
+    -- anteriores no aplica (su foto de cierre es histórica e inmutable).
+    AND (
+      v.corte <> (SELECT corte FROM corte_actual)
+      OR EXISTS (
+        SELECT 1 FROM ocupaciones o
+        WHERE o.id_sial_rol = v.id_sial_rol AND o.hasta IS NULL
+      )
     )
   `
 }
