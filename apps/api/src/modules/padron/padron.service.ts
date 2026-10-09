@@ -7,14 +7,16 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
+import { prefijoDeCargo, maxSecuencialCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import {
   cargarCatalogoPuestos,
   resolverPuestoCargoId,
   resolverEspecialidadPuestoId,
+  especialidadSialReal,
   normPuestoKey,
 } from './resolverPuestoCargo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import type { DiffQuery } from './padron.schema.js'
 
 // Prefijos que se aprueban automáticamente al subir el padrón:
@@ -1267,6 +1269,30 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
             : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
         if (!hospital || !escalafon) continue
+
+        // S24-6: reconciliación con los cargos de conducción VACANTES generados
+        // desde el organigrama. Si entra una ocupación de JEFATURA en una
+        // repartición con un cargo origen='organigrama' sin ocupante, se cubre
+        // ese cargo en vez de crear uno nuevo. Helper compartido con los demás
+        // flujos del padrón — ver reconciliarConduccion.ts.
+        if (datos.id_sial) {
+          const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
+            codigoRepa: datos.codigo_repa,
+            codigoJefaturas: datos.codigo_jefaturas,
+            idSial: datos.id_sial,
+            escalafonId: escalafon.id,
+            literalPuesto: datos.literal_puesto,
+            especialidadLegacy: datos.especialidad,
+            codigoRegistroId: datos.codigo_de_registro
+              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
+              : null,
+          })
+          if (cargoVinculado) {
+            cargoCache.set(datos.id_sial, { id: cargoVinculado, idSial: datos.id_sial, estado: 'vigente' })
+            continue
+          }
+        }
+
         // B-12: antes de crear un cargo nuevo, buscar por clave estructural
         // (hospital, escalafon, codigo_repa, literal_puesto). Si existe, reusar
         // ese cargo y actualizar su idSial al nuevo — no crear un duplicado.
@@ -1562,7 +1588,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 6. Modificados: sigue siendo por fila (cada una cambia campos
     //       distintos), pero sin el find extra — usa la precarga del paso 1 ─
     for (const { idSialRol, cambios } of modificados) {
-      const updateCargo: Record<string, string> = {}
+      const updateCargo: Record<string, string | null> = {}
       const updateOcupacion: Record<string, string | Date | null> = {}
       for (const cambio of cambios) {
         if (!cambio.campo) continue
@@ -1595,7 +1621,158 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
+
+          // RECLASIFICACIÓN DE CARRERA: el código de registro MANDA sobre la
+          // carrera (escalafón). Si el nuevo cod. registro pertenece a un
+          // escalafón distinto del que tiene el cargo, el cargo cambió de
+          // carrera (ej. suplente de guardia que pasa a CPH — caso Giordano,
+          // oct-2026). Hay que re-resolver escalafón + puesto + especialidad en
+          // la carrera nueva y regenerar el código con el prefijo correcto; si
+          // no, el cargo queda clasificado en la carrera vieja y no aparece en
+          // los filtros/listados de su carrera real.
+          const escDestino = escalafonPorCodRegCache.get(crCambio.valorNuevo)
+          if (escDestino) {
+            const cargoActual = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { escalafonId: true, literalPuesto: true, unificadorPuesto: true, especialidadLegacy: true },
+            })) as { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null; especialidadLegacy: string | null } | null
+            if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
+              const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
+              const unifNuevo = (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
+              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+                escalafonId: escDestino.id,
+                literalPuesto: litNuevo,
+                unificadorPuesto: unifNuevo,
+              })
+              const espId = await resolverEspecialidadPuestoId(
+                tx, catalogoPuestos, puesto.id, espNuevo, puesto.nombre,
+              )
+              const prefijoNuevo = prefijoDeCargo({
+                escalafon: escDestino.nombre,
+                unificadorPuesto: unifNuevo,
+                agrupador: null,
+                puestoCargo: puesto,
+              })
+              const codigoNuevo = await siguienteCodigoCargo(prefijoNuevo, tx)
+              updateCargo['escalafonId'] = escDestino.id
+              updateCargo['puestoCargoId'] = puesto.id
+              updateCargo['especialidadPuestoId'] = espId
+              updateCargo['codigo'] = codigoNuevo
+            }
+          }
         }
+        // Si el padrón cambió la especialidad (especialidad_legacy), re-resolver
+        // también la FK estructurada especialidad_puesto_id contra el catálogo
+        // del puesto. Regla de negocio: la ÚLTIMA especialidad del SIAL manda, y
+        // la vista/filtros usan la FK, no el texto legacy. Sin esto, el legacy
+        // cambiaba pero la FK quedaba congelada en la especialidad vieja (bug
+        // detectado en oct-2026, caso Psicopedagogo/Vilariño). La resolución
+        // aplica las equivalencias de fusión (ver resolverEspecialidadPuestoId),
+        // así no reintroduce variantes ya fusionadas (Pediatria/Psicologia).
+        // Nota: si hubo reclasificación de carrera arriba, ya se resolvió
+        // especialidadPuestoId en la carrera nueva — no re-resolver acá (lo
+        // haría con el puesto viejo). Solo corre cuando NO se reclasificó.
+        if (
+          Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId')
+        ) {
+          // "vacío = conservar". El placeholder "SIN ESPECIALIDAD" del SIAL se
+          // trata igual que vacío (especialidadSialReal -> null), así no dispara
+          // el re-resolve ni pisa la especialidad vigente con basura.
+          const espLegacyNueva = especialidadSialReal(
+            (updateCargo['especialidadLegacy'] ?? '').trim(),
+          )
+          // Regla de negocio (Jorge, oct-2026): "vacío = conservar". Si el
+          // padrón trae la especialidad VACÍA para un cargo que ya tenía una, NO
+          // se re-resuelve (se conserva la anterior). Así CPH no pierde su
+          // especialidad cuando una carga del SIAL viene sin ese dato (típico en
+          // jefaturas y en cargas parciales) — el objetivo es cada vez MENOS
+          // especialidades vacías. Solo se re-resuelve cuando el SIAL trae una
+          // especialidad no vacía (esa manda).
+          if (espLegacyNueva) {
+            const cargoActual = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { puestoCargoId: true },
+            })) as { puestoCargoId: string | null } | null
+            if (cargoActual?.puestoCargoId) {
+              const puestoInfo = [...catalogoPuestos.puestos.values()].find(
+                (p) => p.id === cargoActual.puestoCargoId,
+              )
+              const espResuelta = await resolverEspecialidadPuestoId(
+                tx,
+                catalogoPuestos,
+                cargoActual.puestoCargoId,
+                espLegacyNueva,
+                puestoInfo?.nombre ?? null,
+              )
+              // Si resolvió a algo, actualizar la FK; si por lo que sea no
+              // resolvió (null), NO pisar la especialidad vigente con null.
+              if (espResuelta) updateCargo['especialidadPuestoId'] = espResuelta
+            }
+          }
+          // Nota: aunque especialidad_legacy se actualice a vacío (snapshot del
+          // SIAL tal cual llegó), la FK especialidad_puesto_id NO se toca cuando
+          // viene vacía — se conserva.
+        }
+
+        // Re-resolver el PUESTO cuando el literal del SIAL cambió DENTRO de la
+        // misma carrera (sin reclasificación de escalafón). Regla de negocio
+        // (Jorge, oct-2026): si el literal_puesto cambia (ej. "Psicologo de
+        // Planta" -> "Bioquimico de Planta", caso Lombardo), la FK
+        // puesto_cargo_id quedaba congelada en el puesto viejo mientras el texto
+        // sí se actualizaba — los filtros/vista usan la FK, así que el cargo
+        // aparecía en el puesto equivocado. Acá se re-apunta la FK al puesto que
+        // corresponde al nuevo literal, y se re-resuelve la especialidad bajo
+        // ese puesto. Si hubo reclasificación de carrera arriba, NO corre (ya se
+        // resolvió puestoCargoId con el escalafón destino).
+        if (
+          Object.prototype.hasOwnProperty.call(updateCargo, 'literalPuesto') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'puestoCargoId')
+        ) {
+          const litNuevo = ((updateCargo['literalPuesto'] as string | null) ?? '').trim()
+          if (litNuevo) {
+            const cargoActualP = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { escalafonId: true, puestoCargoId: true, unificadorPuesto: true },
+            })) as {
+              escalafonId: string
+              puestoCargoId: string | null
+              unificadorPuesto: string | null
+            } | null
+            if (cargoActualP) {
+              const unif =
+                ((updateCargo['unificadorPuesto'] as string | null) ?? cargoActualP.unificadorPuesto) || null
+              const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+                escalafonId: cargoActualP.escalafonId,
+                literalPuesto: litNuevo,
+                unificadorPuesto: unif,
+              })
+              // Solo si el puesto REALMENTE cambió (evita reasignar entre
+              // duplicados homónimos y escribir de más).
+              if (puestoReResuelto.id !== cargoActualP.puestoCargoId) {
+                updateCargo['puestoCargoId'] = puestoReResuelto.id
+                // Re-resolver la especialidad bajo el nuevo puesto, con la misma
+                // cascada: SIAL si trae valor real, si no se conserva/deriva.
+                const espSial = especialidadSialReal(
+                  (updateCargo['especialidadLegacy'] as string | null) ?? null,
+                )
+                const espReResuelta = await resolverEspecialidadPuestoId(
+                  tx,
+                  catalogoPuestos,
+                  puestoReResuelto.id,
+                  espSial,
+                  puestoReResuelto.nombre,
+                )
+                // Si no resolvió (null), queda sin especialidad en el nuevo
+                // puesto — es correcto (no hay dónde reubicar la anterior).
+                updateCargo['especialidadPuestoId'] = espReResuelta
+              }
+            }
+          }
+        }
+
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }
       if (Object.keys(updateOcupacion).length > 0) {
@@ -1692,6 +1869,54 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         `
       }
     }
+
+    // ── 6d. Normalización de cargos FANTASMA de jefatura ───────────────────
+    // El SIAL crea un cargo fantasma de jefatura: mismo ocupante, mismo puesto
+    // de CONDUCCIÓN (literal_puesto), que llega ACTIVO pero SIN código de
+    // jefatura (J Cat vacío), duplicando al cargo REAL (que sí tiene J Cat).
+    // El import normal lo crea/reabre como vigente (no mira J Cat), así que sin
+    // esta pasada el fantasma reaparecería vigente en cada import (caso
+    // Charabora/Hernandez/Merino, oct-2026). Se corre AL FINAL del aprobar,
+    // dentro de la misma transacción e idempotente: cualquier cargo de
+    // conducción vigente con J Cat vacío cuyo ocupante tiene un cargo hermano
+    // vigente del mismo literal CON J Cat se marca no_vigente y se cierra su
+    // ocupación. Así el histórico (paso 7) y el KPI (paso 8) ya no lo cuentan.
+    // La exclusión en las vistas (dotacion/kpis EXCLUIR_ESPEJO_JEFATURA) es la
+    // segunda línea de defensa; esto limpia el dato en origen.
+    await tx.$executeRaw`
+      WITH fantasmas AS (
+        SELECT c.id AS cargo_id, o.id AS ocupacion_id
+        FROM cargos c
+        JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
+        JOIN puestos_cargo pc ON pc.id = c.puesto_cargo_id
+        WHERE c.estado = 'vigente'
+          AND pc.tipo_puesto = 'conduccion'
+          AND (o.codigo_jefaturas IS NULL OR TRIM(o.codigo_jefaturas) IN ('', '0'))
+          AND EXISTS (
+            SELECT 1
+            FROM ocupaciones oj
+            JOIN cargos cj ON cj.id = oj.cargo_id
+            WHERE oj.persona_id = o.persona_id
+              AND oj.hasta IS NULL
+              AND cj.estado = 'vigente'
+              AND cj.id <> c.id
+              AND coalesce(cj.literal_puesto,'') = coalesce(c.literal_puesto,'')
+              AND oj.codigo_jefaturas IS NOT NULL
+              AND TRIM(oj.codigo_jefaturas) NOT IN ('', '0')
+          )
+      ),
+      cerrar_ocup AS (
+        UPDATE ocupaciones o
+        SET hasta = ${snapshot.fechaAsignada}, updated_at = now()
+        FROM fantasmas f
+        WHERE o.id = f.ocupacion_id
+        RETURNING o.cargo_id
+      )
+      UPDATE cargos c
+      SET estado = 'no_vigente', estado_desde = ${snapshot.fechaAsignada}, updated_at = now()
+      FROM fantasmas f
+      WHERE c.id = f.cargo_id
+    `
 
     // ── 7. Histórico: una sola lectura en bloque del estado final de todas
     //       las ocupaciones tocadas, y un createMany en vez de un create por
@@ -2374,6 +2599,24 @@ export async function aprobarDiffNuevoService(
           where: { id: cargo.id },
           data: { estado: 'vigente', estadoDesde: null },
         })
+      }
+    }
+
+    // S24-6: antes de crear un cargo nuevo, si la ocupación es de jefatura y hay
+    // un cargo de conducción VACANTE del organigrama en ese codigo_repa, cubrirlo
+    // en vez de duplicar (mismo helper que aprobarSnapshotService).
+    if (!cargo && datos.id_sial) {
+      const cargoVinculadoId = await reconciliarCargoConduccionVacante(tx, {
+        codigoRepa: datos.codigo_repa,
+        codigoJefaturas: datos.codigo_jefaturas,
+        idSial: datos.id_sial,
+        escalafonId: escalafon.id,
+        literalPuesto: datos.literal_puesto,
+        especialidadLegacy: datos.especialidad,
+        codigoRegistroId,
+      })
+      if (cargoVinculadoId) {
+        cargo = (await tx.cargo.findUnique({ where: { id: cargoVinculadoId } })) as CargoRow | null
       }
     }
 

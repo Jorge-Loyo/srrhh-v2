@@ -135,7 +135,7 @@ const PIPELINE_STEPS = [
       { label: 'Reaparición', desc: 'Cargo en validacion_vacante que vuelve a aparecer en el padrón → vuelve a vigente automáticamente.' },
       { label: 'Bloqueo', desc: 'No se puede aprobar el snapshot si quedan diffs nuevos con aprobado=null (pendientes de decisión).' },
     ],
-    nota: 'El código de cargo tiene formato PREFIJO-XXXXXX (ej: CPH-000042). El prefijo se calcula a partir de escalafón + unificador + agrupador.',
+    nota: 'El código de cargo tiene formato PREFIJO-XXXXXX (ej: CPH-000042). El prefijo se calcula a partir de carrera + unificador + agrupador.',
   },
 ]
 

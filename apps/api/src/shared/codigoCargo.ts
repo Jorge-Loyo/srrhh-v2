@@ -68,7 +68,14 @@ export function prefijoDeCargo(params: {
   const unif = normStr(params.unificadorPuesto)
   const agr  = normStr(params.agrupador)
   const pc   = params.puestoCargo
-  const esPou = pc ? pc.modalidad === 'pou' : (unif.includes('POU') || unif.includes('GUARDIA'))
+  // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
+  // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
+  // como modalidad 'pof' (bug histórico del import: muchos puestos "...de
+  // guardia" quedaron pof → su código salía CPH-POF-* en vez de CPH-POU-*).
+  // Una guardia es POU por definición, así que el literal del puesto prevalece.
+  const nombrePc = normStr(pc?.nombre)
+  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
+  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
   // Nombre canónico del catálogo cuando está disponible — más confiable que
   // el agrupador de texto libre del Excel para distinguir Director/Jefe.
   const nombrePuesto = pc ? normStr(pc.nombre) : agr
@@ -98,6 +105,11 @@ export function prefijoDeCargo(params: {
 
   // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
   if (esc.includes('CEETPS') || esc.includes('TEC')) {
+    // Jefatura de un área/depto técnico → prefijo distinguible (como CPH-J-*),
+    // para que el filtro "Solo jefes" la reconozca por el código aunque esté
+    // vacante (el JCAT que la distinguiría vive en la ocupación, que no existe
+    // en un cargo vacante). Agregado en S24 al derivar jefaturas técnicas.
+    if (esConduccion) return esPou ? 'TEC-J-POU' : 'TEC-J-POF'
     return esPou ? 'TEC-POU' : 'TEC-POF'
   }
 
@@ -185,8 +197,9 @@ export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise
 
 // ─── S18-3: detección ejecución vs conducción + prefijo de remplazante ──────
 
-const PREFIJOS_CONDUCCION = new Set([
+export const PREFIJOS_CONDUCCION = new Set([
   'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
+  'TEC-J-POF', 'TEC-J-POU',
   'EG-J', 'EG-D', 'EG-G', 'RG-CG',
   'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
 ])

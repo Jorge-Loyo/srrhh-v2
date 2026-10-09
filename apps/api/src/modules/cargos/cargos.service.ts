@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo } from './cargos.schema.js'
-import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { prefijoDeCargo, siguienteCodigoCargo, PREFIJOS_CONDUCCION } from '../../shared/codigoCargo.js'
+import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
 // sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
@@ -11,6 +12,7 @@ function whereGrupoCatalogo(g: GrupoCatalogo): Prisma.CargoWhereInput | null {
   const w: Prisma.CargoWhereInput = {
     ...(g.hospitalId && { hospitalId: g.hospitalId }),
     ...(g.escalafonId && { escalafonId: g.escalafonId }),
+    ...(g.codigoRegistroId && { codigoRegistroId: g.codigoRegistroId }),
     ...(g.modalidad && { puestoCargo: { modalidad: g.modalidad } }),
     ...(g.puestoCargoId && { puestoCargoId: g.puestoCargoId }),
     ...(g.especialidadPuestoId && { especialidadPuestoId: g.especialidadPuestoId }),
@@ -41,7 +43,7 @@ export async function listPuestosCargosService(escalafonId?: string) {
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -107,13 +109,45 @@ export async function listCargosService(query: CargosQuery) {
   // pisar claves como `puestoCargo`/`ocupaciones`.
   const gruposCatalogo: GrupoCatalogo[] = [
     ...(grupos ?? []),
-    { hospitalId, escalafonId, modalidad, puestoCargoId, especialidadPuestoId },
+    { hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId },
   ]
   const orClauses = gruposCatalogo
     .map(whereGrupoCatalogo)
     .filter((w): w is Prisma.CargoWhereInput => w !== null)
   const catalogoWhere: Prisma.CargoWhereInput | undefined =
     orClauses.length > 0 ? { OR: orClauses } : undefined
+
+  // S24: cargos de conducción con rol redundante del SIAL (sin JCAT pero con
+  // gemelo-con-JCAT de la misma persona en el mismo codigo_repa). Se ocultan
+  // dinámicamente — ver shared/cargosOcultos.ts y SPRINT_24_S2_analisis.md §5.
+  const idsOcultos = await cargoIdsOcultosPorRolRedundante(prisma)
+
+  // Todas las condiciones a nivel raíz se combinan con AND. Se arma una lista
+  // explícita para que el ocultamiento (`id notIn`), el filtro `soloJefes`
+  // (que usa su propia clave AND) y los `idFilters` (que también pueden usar
+  // AND) coexistan sin pisarse entre sí.
+  const andClauses: Prisma.CargoWhereInput[] = [
+    ...(idsOcultos.length > 0 ? [{ id: { notIn: idsOcultos } }] : []),
+    // Solo jefes: filtro POR EL CARGO, no por la persona. Un cargo es de
+    // jefatura si (A) su CÓDIGO es de conducción (CPH-D, CPH-J-*, EG-J, etc.) —
+    // y entonces es jefatura esté ocupado o VACANTE —, O (B) tiene una ocupación
+    // vigente con JCAT (caso Enfermería y afines: el cargo no define la jefatura,
+    // se la da el JCAT a la persona que lo ocupa). Antes solo cubría (B), por eso
+    // "Solo jefes + Solo vacantes" no traía nada (un vacante no tiene ocupación).
+    ...(soloJefes === true
+      ? [
+          ...idFilters,
+          {
+            OR: [
+              // (A) jefatura por el código del cargo (ocupado o vacante)
+              { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
+              // (B) jefatura por JCAT de la ocupación vigente (enfermería, etc.)
+              { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+            ],
+          },
+        ]
+      : idFilters),
+  ]
 
   const where: Prisma.CargoWhereInput = {
     ...(catalogoWhere && catalogoWhere),
@@ -125,14 +159,7 @@ export async function listCargosService(query: CargosQuery) {
     // tirando abajo el listado entero con cualquier combinación de filtros.
     ...(ocupado === true  && { ocupaciones: { some: { hasta: null } } }),
     ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
-    // Solo jefes: ocupación vigente con codigoJefaturas no vacío/no '0'.
-    ...(soloJefes === true && {
-      ocupaciones: {
-        some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } },
-      },
-    }),
-    ...(idFilters.length === 1 && { id: idFilters[0]!.id }),
-    ...(idFilters.length  > 1 && { AND: idFilters }),
+    ...(andClauses.length > 0 && { AND: andClauses }),
   }
 
   const [total, cargos] = await Promise.all([

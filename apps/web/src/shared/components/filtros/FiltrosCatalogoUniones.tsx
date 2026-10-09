@@ -8,6 +8,8 @@ import { capitalizar } from '@/shared/lib/utils'
 export interface GrupoCatalogo {
   reparticionId: string
   escalafonId: string
+  // S25: código de registro puntual dentro de la carrera (ej. CPH → 22 ó 37).
+  codigoRegistroId: string
   modalidad: '' | 'pof' | 'pou'
   puestoCargoId: string
   especialidadPuestoId: string
@@ -15,6 +17,7 @@ export interface GrupoCatalogo {
   labels?: {
     reparticion?: string
     escalafon?: string
+    codigoRegistro?: string
     modalidad?: string
     puesto?: string
     especialidad?: string
@@ -24,7 +27,7 @@ export interface GrupoCatalogo {
 // ¿El grupo aporta alguna condición? (algún id de catálogo seteado)
 export function grupoTieneFiltro(g: FiltrosCatalogoValores): boolean {
   return Boolean(
-    g.reparticionId || g.escalafonId || g.modalidad || g.puestoCargoId || g.especialidadPuestoId,
+    g.reparticionId || g.escalafonId || g.codigoRegistroId || g.modalidad || g.puestoCargoId || g.especialidadPuestoId,
   )
 }
 
@@ -35,6 +38,7 @@ export function serializarGrupos(grupos: GrupoCatalogo[]): string {
     const o: Record<string, string> = {}
     if (g.reparticionId) o.hospitalId = g.reparticionId
     if (g.escalafonId) o.escalafonId = g.escalafonId
+    if (g.codigoRegistroId) o.codigoRegistroId = g.codigoRegistroId
     if (g.modalidad) o.modalidad = g.modalidad
     if (g.puestoCargoId) o.puestoCargoId = g.puestoCargoId
     if (g.especialidadPuestoId) o.especialidadPuestoId = g.especialidadPuestoId
@@ -48,6 +52,7 @@ function textoGrupo(g: GrupoCatalogo): string {
   const partes = [
     l.reparticion,
     l.escalafon,
+    l.codigoRegistro,
     l.modalidad,
     l.puesto && capitalizar(l.puesto),
     l.especialidad && capitalizar(l.especialidad),

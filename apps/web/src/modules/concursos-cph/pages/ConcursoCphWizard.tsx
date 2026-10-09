@@ -1021,7 +1021,7 @@ export function ConcursoCphWizard() {
         })
       if (escalafonId !== originales.escalafonId)
         cambiosConAutorizacion.push({
-          campo: 'Escalafón',
+          campo: 'Carrera',
           de: escalafonLabel(labelEsc(originales.escalafonId)),
           a: escalafonLabel(labelEsc(escalafonId)),
         })
@@ -1407,7 +1407,7 @@ export function ConcursoCphWizard() {
                     )
                   })()}
                   <p className="text-xs text-gray-500 mt-2">
-                    En todos los casos se exige la misma profesión (escalafón) que el cargo a
+                    En todos los casos se exige la misma profesión (carrera) que el cargo a
                     concursar y ocupación activa. Director y Subdirector quedan excluidos de
                     cualquier jurado.{' '}
                     {usaReglaUnicaSistema ? (
@@ -2242,7 +2242,7 @@ export function ConcursoCphWizard() {
               <div>
                 <h3 className="font-primary font-bold text-gray-900">Confirmar modificación</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {modalCambios?.some((c) => c.campo === 'Sigla' || c.campo === 'Escalafón')
+                  {modalCambios?.some((c) => c.campo === 'Sigla' || c.campo === 'Carrera')
                     ? 'Requiere autorización del Director y luego de SGRASV.'
                     : 'Requiere autorización de SGRASV.'}
                 </p>
@@ -2375,7 +2375,7 @@ export function ConcursoCphWizard() {
                         label="Especialidad"
                         value={cargo?.especialidadLegacy ?? cargo?.especialidad ?? ''}
                       />
-                      <Row label="Escalafón" value={cargo?.escalafon?.nombre ?? ''} />
+                      <Row label="Carrera" value={cargo?.escalafon?.nombre ?? ''} />
                       <Row
                         label="Código de registro"
                         value={
@@ -3097,7 +3097,7 @@ export function ConcursoCphWizard() {
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Escalafón
+                            Carrera
                           </label>
                           <input
                             type="text"
@@ -3219,7 +3219,7 @@ export function ConcursoCphWizard() {
                         {/* Escalafón */}
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Escalafón
+                            Carrera
                           </label>
                           <SearchableSelect
                             value={escalafonId}
@@ -3229,7 +3229,7 @@ export function ConcursoCphWizard() {
                               setEspecialidadConcurso('')
                             }}
                             options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
-                            placeholder="Buscar escalafón..."
+                            placeholder="Buscar carrera..."
                             disabled={
                               pendienteAutorizacion ||
                               etapa.estado === 'pendiente' ||
@@ -3258,7 +3258,7 @@ export function ConcursoCphWizard() {
                             }}
                             options={puestosDisponibles}
                             placeholder={
-                              escalafonId ? 'Buscar puesto...' : 'Elegí un escalafón primero'
+                              escalafonId ? 'Buscar puesto...' : 'Elegí una carrera primero'
                             }
                             disabled={
                               pendienteAutorizacion ||
@@ -5336,7 +5336,7 @@ export function ConcursoCphWizard() {
                     <>
                       {etapaActiva === 'baja' && !etapaBajaCompleta && (
                         <span className="text-xs text-gray-400">
-                          Completá expediente, sigla, escalafón, puesto
+                          Completá expediente, sigla, carrera, puesto
                           {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
                         </span>
                       )}

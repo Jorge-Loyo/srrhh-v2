@@ -71,7 +71,7 @@ const ESTADO_TREE = {
           reglas: [
             'Condición: cargo.estado = vigente AND NOT EXISTS (ocupacion WHERE hasta IS NULL).',
             'Puede generar un concurso (genera_concurso = true en la baja que lo originó).',
-            'El tipo de concurso depende del escalafón (ver detalle por escalafón abajo).',
+            'El tipo de concurso depende de la carrera (ver detalle por carrera abajo).',
             'Puede quedar vacante sin generar concurso (genera_concurso = false) o puede seguir Vacante si el concurso no prosperó.',
           ],
           hijos: [
@@ -83,7 +83,7 @@ const ESTADO_TREE = {
             {
               label: 'Con concurso abierto',
               color: 'yellow' as Color,
-              desc: 'Se inició un proceso de selección. El tipo de concurso depende del escalafón.',
+              desc: 'Se inició un proceso de selección. El tipo de concurso depende de la carrera.',
             },
           ],
         },
@@ -330,7 +330,7 @@ export function ReglasNegocioModal({ onClose }: Props) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <div>
             <h2 className="font-primary text-lg font-bold text-gray-900">Ciclo de vida de un cargo</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Reglas de negocio por escalafón y tipo de cargo</p>
+            <p className="text-xs text-gray-500 mt-0.5">Reglas de negocio por carrera y tipo de cargo</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -358,7 +358,7 @@ export function ReglasNegocioModal({ onClose }: Props) {
           {/* ── SECCIÓN 1: Árbol universal ── */}
           <div className="px-6 pt-5 pb-4 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-4">
-              Estructura de estados — aplica a todos los escalafones
+              Estructura de estados — aplica a todas las carreras
             </h3>
             <EstadoTree />
           </div>
@@ -374,7 +374,7 @@ export function ReglasNegocioModal({ onClose }: Props) {
           {/* ── SECCIÓN 3: Detalle por escalafón ── */}
           <div className="px-6 pt-5 pb-6">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
-              Detalle por escalafón — cómo se llega a cada estado
+              Detalle por carrera — cómo se llega a cada estado
             </h3>
 
             {/* Tabs escalafones */}
@@ -461,7 +461,7 @@ function ComoCrearCargos() {
       flujo: [
         'Ir a /cargos/alta y clickear “+ Ejecución POF”',
         'Ingresar el número de expediente y confirmar',
-        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Hospital y Carrera',
         'Seleccionar Puesto (combobox con búsqueda en tiempo real)',
         'Seleccionar Especialidad si el puesto la requiere',
         'Ingresar fecha Desde y cantidad (máx. 50)',
@@ -469,7 +469,7 @@ function ComoCrearCargos() {
         'Repetir para más cargos del mismo expediente',
         'Clickear “Registrar (N)” para enviar todos a la API',
       ],
-      nota: 'El formulario permanece abierto tras agregar. Hospital, escalafón y fecha se mantienen para agilizar la carga múltiple.',
+      nota: 'El formulario permanece abierto tras agregar. Hospital, carrera y fecha se mantienen para agilizar la carga múltiple.',
     },
     {
       id: 'pou', titulo: 'Ejecución POU', subtitulo: 'Planta Orgánica de Urgencia', color: 'orange' as Color,
@@ -479,7 +479,7 @@ function ComoCrearCargos() {
       flujo: [
         'Ir a /cargos/alta y clickear “+ Ejecución POU”',
         'Ingresar expediente y confirmar',
-        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Hospital y Carrera',
         'Seleccionar Puesto de guardia',
         'Seleccionar Especialidad si aplica',
         'Ingresar fecha Desde y cantidad',
@@ -495,7 +495,7 @@ function ComoCrearCargos() {
       flujo: [
         'Ir a /cargos/alta y clickear “+ Estructura”',
         'Ingresar número de decreto y confirmar (campo dice “Decreto”)',
-        'Seleccionar Hospital y Escalafón',
+        'Seleccionar Hospital y Carrera',
         'Seleccionar Puesto de conducción (solo muestra modalidad=ambos)',
         'Ingresar fecha Desde y cantidad',
         'Agregar al panel y registrar',
@@ -505,12 +505,12 @@ function ComoCrearCargos() {
     {
       id: 'padron', titulo: 'Padrón SIAL', subtitulo: 'Importación automática semanal', color: 'green' as Color,
       ruta: null, boton: null,
-      escalafones: ['Todos los escalafones (automático)'],
+      escalafones: ['Todas las carreras (automático)'],
       codigos: ['Código generado por prefijoDeCargo()'],
       flujo: [
         'El sistema procesa el Excel semanal del SIAL (Dotaneitor)',
         'Detecta id_sial_rol nuevos que no existen en la BD',
-        'Busca cargo por (hospital, escalafón, codigo_repa, literal_puesto)',
+        'Busca cargo por (hospital, carrera, codigo_repa, literal_puesto)',
         'Si no existe el cargo: lo crea con estado=vigente y crea la ocupación',
         'Si existe el cargo sin ocupación activa: crea la ocupación',
         'Si existe con ocupación activa: actualiza datos de la persona',
@@ -575,7 +575,7 @@ function ComoCrearCargos() {
 
         <div className="space-y-3">
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Escalafones disponibles</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Carreras disponibles</p>
             <div className="space-y-1">
               {op.escalafones.map((e, i) => (
                 <div key={i} className="flex gap-1.5 text-xs text-gray-600">
@@ -599,7 +599,7 @@ function ComoCrearCargos() {
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Reglas del formulario</p>
             <ul className="space-y-1">
               {[
-                'El select de Escalafón solo muestra los que tienen puestos en la BD.',
+                'El select de Carrera solo muestra las que tienen puestos en la BD.',
                 'POF y POU no muestran cargos de conducción (modalidad=ambos).',
                 'Estructura solo muestra cargos de conducción.',
                 'La Especialidad es obligatoria cuando el puesto la tiene en BD.',

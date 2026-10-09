@@ -216,29 +216,87 @@ function MultiCombobox({
 
 const listaVacia: string[] = []
 
+// Estado de las dimensiones del filtro (lo que el usuario está editando).
+interface EstadoFiltros {
+  siglas: string[]
+  carreras: string[]
+  puestos: string[]
+  especialidades: string[]
+  gruposEspecialidad: string[]
+  mesDesde: string
+  mesHasta: string
+  grupos: GrupoDotacionEvolucion[]
+}
+
+const ESTADO_INICIAL: EstadoFiltros = {
+  siglas: [], carreras: [], puestos: [], especialidades: [], gruposEspecialidad: [],
+  mesDesde: '', mesHasta: '', grupos: [],
+}
+
 export function EvolucionEspecialidadChart() {
+  // ── Estado EN EDICIÓN: lo que el usuario toca en los combos. NO dispara
+  //    consultas al backend por sí solo (Opción A: todo congelado hasta Aplicar).
   const [siglas, setSiglas] = useState<string[]>([])
   const [carreras, setCarreras] = useState<string[]>([])
   const [puestos, setPuestos] = useState<string[]>([])
   const [especialidades, setEspecialidades] = useState<string[]>([])
+  const [gruposEspecialidad, setGruposEspecialidad] = useState<string[]>([])
   const [mesDesde, setMesDesde] = useState('')
   const [mesHasta, setMesHasta] = useState('')
   // Uniones (OR): grupos fijados con "+ Unión". Cada grupo = AND de dimensiones.
   const [grupos, setGrupos] = useState<GrupoDotacionEvolucion[]>([])
 
+  // ── Estado APLICADO: la "foto" que se mandó al backend. Opciones, serie y
+  //    export leen SOLO de acá. Cambia únicamente al tocar "Aplicar" o al fijar
+  //    una unión. Evita re-consultar en cada tecla/selección.
+  const [aplicado, setAplicado] = useState<EstadoFiltros>(ESTADO_INICIAL)
+
+  // Filtros en edición (para armar el próximo "Aplicar"/Unión).
+  const edicion: EstadoFiltros = {
+    siglas, carreras, puestos, especialidades, gruposEspecialidad, mesDesde, mesHasta, grupos,
+  }
+
+  // GRÁFICO + EXPORT: usan el estado APLICADO (la consulta pesada corre solo al
+  // tocar "Aplicar").
   const filtros = {
+    siglas: aplicado.siglas,
+    carreras: aplicado.carreras,
+    puestos: aplicado.puestos,
+    especialidades: aplicado.especialidades,
+    gruposEspecialidad: aplicado.gruposEspecialidad.length ? aplicado.gruposEspecialidad : undefined,
+    mesDesde: aplicado.mesDesde || undefined,
+    mesHasta: aplicado.mesHasta || undefined,
+    grupos: aplicado.grupos.length ? aplicado.grupos : undefined,
+  }
+
+  // DESPLEGABLES (facetado): usan el estado EN EDICIÓN, para que al elegir en un
+  // combo los demás se re-filtren en vivo con lo que queda compatible. Es una
+  // consulta liviana; la pesada (serie) espera al "Aplicar".
+  const filtrosEdicion = {
     siglas,
     carreras,
     puestos,
     especialidades,
-    mesDesde: mesDesde || undefined,
-    mesHasta: mesHasta || undefined,
+    gruposEspecialidad: gruposEspecialidad.length ? gruposEspecialidad : undefined,
+    // El rango de meses no acota el facetado de dimensiones; se omite acá.
     grupos: grupos.length ? grupos : undefined,
   }
 
+  // ¿El estado en edición difiere del aplicado? (habilita el botón Aplicar)
+  const hayCambiosSinAplicar = useMemo(
+    () => JSON.stringify(edicion) !== JSON.stringify(aplicado),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [siglas, carreras, puestos, especialidades, gruposEspecialidad, mesDesde, mesHasta, grupos, aplicado]
+  )
+
+  function aplicarFiltros() {
+    setAplicado({ ...edicion })
+  }
+
   const { data: hospitales } = useHospitales()
-  // Opciones facetadas: se recalculan en backend según la selección actual.
-  const { data: opciones, isLoading: loadingOpciones } = useDotacionEvolucionOpciones(filtros)
+  // Opciones facetadas: sobre el estado EN EDICIÓN (dinámicas en vivo).
+  const { data: opciones, isLoading: loadingOpciones } = useDotacionEvolucionOpciones(filtrosEdicion)
+  // Serie: sobre el estado APLICADO (solo cambia al Aplicar).
   const { data: serie, isFetching } = useDotacionEvolucion(filtros)
   const exportar = useExportDotacionEvolucion()
 
@@ -274,6 +332,14 @@ export function EvolucionEspecialidadChart() {
       })),
     [opciones]
   )
+  // S25: grupos de especialidad disponibles. El combo "Grupos" solo se muestra
+  // si hay alguno (si la selección actual no tiene especialidades agrupadas,
+  // la lista viene vacía y el campo desaparece).
+  const grupoOpts = useMemo<ComboOption[]>(
+    () => (opciones?.gruposEspecialidad ?? listaVacia).map((g) => ({ value: g, label: g })),
+    [opciones]
+  )
+  const hayGrupos = grupoOpts.length > 0
   const meses = opciones?.meses ?? listaVacia
 
   // Rango válido: "hasta" no puede ser menor que "desde".
@@ -286,26 +352,26 @@ export function EvolucionEspecialidadChart() {
     [meses, mesHasta]
   )
 
+  // El gráfico, su título y el export dependen de lo APLICADO (lo que se graficó).
   const haySeleccion =
-    siglas.length + carreras.length + puestos.length + especialidades.length > 0 || grupos.length > 0
-  const hayFiltroActivo = haySeleccion || Boolean(mesDesde || mesHasta)
+    aplicado.siglas.length + aplicado.carreras.length + aplicado.puestos.length +
+    aplicado.especialidades.length + aplicado.gruposEspecialidad.length > 0 || aplicado.grupos.length > 0
+  const hayFiltroActivo =
+    haySeleccion || Boolean(aplicado.mesDesde || aplicado.mesHasta) || hayCambiosSinAplicar
   const puntos = serie?.puntos ?? []
 
   function limpiar() {
-    setSiglas([])
-    setCarreras([])
-    setPuestos([])
-    setEspecialidades([])
-    setMesDesde('')
-    setMesHasta('')
-    setGrupos([])
+    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([]); setGruposEspecialidad([])
+    setMesDesde(''); setMesHasta(''); setGrupos([])
+    setAplicado(ESTADO_INICIAL)
   }
 
-  // ¿Hay dimensiones sueltas que fijar como unión?
-  const hayDimensionEnEdicion = siglas.length + carreras.length + puestos.length + especialidades.length > 0
+  // ¿Hay dimensiones sueltas (en edición) que fijar como unión?
+  const hayDimensionEnEdicion =
+    siglas.length + carreras.length + puestos.length + especialidades.length + gruposEspecialidad.length > 0
 
   // Fija las dimensiones sueltas actuales como un grupo de la unión (con labels
-  // legibles para los chips) y limpia la cascada para armar el siguiente.
+  // legibles para los chips), limpia la cascada y APLICA (congela y consulta).
   function agregarUnion() {
     if (!hayDimensionEnEdicion) return
     const labels: string[] = []
@@ -314,13 +380,24 @@ export function EvolucionEspecialidadChart() {
     if (carreras.length) { g.carreras = carreras; labels.push(carreras.join(' / ')) }
     if (puestos.length) { g.puestos = puestos; labels.push(puestos.map(titleCase).join(' / ')) }
     if (especialidades.length) { g.especialidades = especialidades; labels.push(especialidades.map(titleCase).join(' / ')) }
+    if (gruposEspecialidad.length) { g.gruposEspecialidad = gruposEspecialidad; labels.push(gruposEspecialidad.join(' / ')) }
     g.labels = labels
-    setGrupos((prev) => [...prev, g])
-    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([])
+    const nuevosGrupos = [...grupos, g]
+    setGrupos(nuevosGrupos)
+    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([]); setGruposEspecialidad([])
+    // Fijar la unión aplica de inmediato (como pediste): se consulta con la
+    // unión ya incorporada y la cascada en edición vacía.
+    setAplicado({
+      siglas: [], carreras: [], puestos: [], especialidades: [], gruposEspecialidad: [],
+      mesDesde, mesHasta, grupos: nuevosGrupos,
+    })
   }
 
   function quitarGrupo(index: number) {
-    setGrupos((prev) => prev.filter((_, i) => i !== index))
+    const restantes = grupos.filter((_, i) => i !== index)
+    setGrupos(restantes)
+    // Quitar una unión también re-aplica (el gráfico debe reflejarlo).
+    setAplicado((prev) => ({ ...prev, grupos: restantes }))
   }
 
   return (
@@ -359,6 +436,18 @@ export function EvolucionEspecialidadChart() {
           placeholder="Buscar especialidad…"
           onChange={setEspecialidades}
         />
+        {/* S25: "Grupos" solo aparece si la selección actual tiene
+            especialidades agrupadas (grupoOpts no vacío). */}
+        {hayGrupos && (
+          <MultiCombobox
+            label="Grupos"
+            options={grupoOpts}
+            selected={gruposEspecialidad}
+            disabled={loadingOpciones}
+            placeholder="Buscar grupo…"
+            onChange={setGruposEspecialidad}
+          />
+        )}
       </div>
 
       {/* ── Uniones (OR): fijar el perfil actual y sumar otro ──────────── */}
@@ -429,6 +518,18 @@ export function EvolucionEspecialidadChart() {
           </select>
         </div>
 
+        {/* Aplicar: manda la consulta al backend. Hasta tocarlo, los combos solo
+            editan en memoria (no se re-consulta en cada selección). */}
+        <button
+          type="button"
+          onClick={aplicarFiltros}
+          disabled={!hayCambiosSinAplicar}
+          title="Aplicar los filtros seleccionados y actualizar el gráfico"
+          className="h-9 px-4 rounded bg-secondary text-white text-sm font-semibold hover:bg-secondary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Aplicar filtros
+        </button>
+
         {hayFiltroActivo && (
           <button
             type="button"
@@ -451,10 +552,18 @@ export function EvolucionEspecialidadChart() {
         )}
       </div>
 
+      {hayCambiosSinAplicar && (
+        <p className="text-xs text-amber-600">
+          Hay cambios sin aplicar. Tocá <span className="font-semibold">Aplicar filtros</span> para actualizar el gráfico.
+        </p>
+      )}
+
       {/* ── Gráfico ───────────────────────────────────────────────────── */}
       {!haySeleccion ? (
         <p className="text-sm text-gray-400">
-          Elegí al menos un filtro (efector, carrera, puesto o especialidad) para ver la evolución mensual de la dotación.
+          {hayDimensionEnEdicion
+            ? 'Tocá «Aplicar filtros» para calcular la evolución con la selección actual.'
+            : 'Elegí al menos un filtro (efector, carrera, puesto o especialidad) y tocá «Aplicar filtros» para ver la evolución mensual de la dotación.'}
         </p>
       ) : isFetching ? (
         <div className="h-64 bg-gray-100 rounded animate-pulse" />

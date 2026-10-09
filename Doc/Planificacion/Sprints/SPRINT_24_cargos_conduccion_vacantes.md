@@ -1,6 +1,6 @@
 # SPRINT 24 — Cargos de conducción vacantes derivados del organigrama (mapeo de vacantes reales)
 
-**Estado:** 📋 Planificado
+**Estado:** ✅ Completado (2026-10)
 **Autores:** Jorge (full — backend Node + frontend `/organigrama` + `/cargos`).
 **Depende de:** Sprint 20 ✅ (catálogo `puestos_cargo`/`especialidades_puesto`, `Cargo.puestoCargoId`), Sprint 22 ✅ (pipeline lineal, `jcat_cargo_jefatura`), y los fixes de organigrama de la sesión 2026-10 (identificación de conducción por JCAT + escalafón gerencial, orden jerárquico de conductores, SSAPAC en Nivel Central).
 
@@ -102,14 +102,14 @@ su cargo de conducción asociado — exista o no alguien ocupándolo — de modo
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---- | --------- | ------ |
 | S24-1  | ~~Documento de diseño~~ — **cerrado 2026-10** en `SPRINT_24_S1_diseno.md`. Las 7 decisiones resueltas y validadas contra datos reales (organigrama 4.306 nodos, todos con `regimen_empleo`; ~254 nodos de conducción sin dotación detectados y tratados con flag de revisión; GO/SGO excluidos; reuso de `codigoCargo.ts`; `id_sial=VAC-{codigo_repa}` + `origen='organigrama'`). Falta validación final con RRHH antes de implementar.                                                                                                                                       | Jorge | 4h   | 🔴        | ✅     |
 | S24-2  | ~~Análisis de datos~~ — **hecho 2026-10** en `SPRINT_24_S2_analisis.md` (con el fix de casing aplicado, si no los números salen sesgados). Resultado: **4.116 cargos a generar** = 3.678 con jefatura activa (se reconcilian) + **101 falsos vacantes reales** (personal activo sin jefatura activa, tipo CEMAR IV/Sardá) + 159 con cargos pero 0 activos (categoría aparte) + 178 sin dotación. Criterio corregido con RRHH: retención/comisión NO cuenta como jefatura activa. ~500 nodos quedan para revisión. Hallazgo: escalafón de técnicos se llama "CEETPS" no "TEC". | Jorge | 2h   | 🔴        | ✅     |
-| S24-3  | **Schema/migración**: marcar los cargos de conducción generados (ej. flag `origen = 'organigrama'` en `Cargo`, o `id_sial` sintético distinguible) para separarlos de los que vienen del padrón y poder re-sincronizarlos sin tocar los reales. Migración.                                                                                                                                                                                                                                                                                                                    | Jorge | 2h   | 🔴        | 📋     |
-| S24-4  | **Servicio de derivación**: función que recorre el organigrama y, por cada nodo aplicable sin cargo de conducción, genera el `Cargo` vacante (escalafón, puesto, JCAT, código via `codigoCargo.ts`, `codigo_repa`, `estado='vigente'` sin ocupación). Idempotente (no duplica).                                                                                                                                                                                                                                                                                               | Jorge | 5h   | 🔴        | 📋     |
-| S24-5  | **Backfill inicial**: correr la derivación una vez contra el organigrama actual. Verificar con el caso CEMAR IV (debe quedar un cargo "Director/Jefe" vacante real) y una muestra por cada tipo de nodo.                                                                                                                                                                                                                                                                                                                                                                      | Jorge | 2h   | 🔴        | 📋     |
-| S24-6  | **Reconciliación en aprobar-snapshot** (`padron.service.ts`): cuando un padrón trae una ocupación cuya repartición+nivel matchea un cargo de conducción generado vacante, vincular la ocupación a ese cargo en vez de crear uno nuevo. Evita duplicados. Tests.                                                                                                                                                                                                                                                                                                               | Jorge | 4h   | 🔴        | 📋     |
-| S24-7  | **Re-sincronización al cargar organigrama** (hook en `reemplazarOrganigramaService`): al subir un árbol nuevo, altas de cargos de conducción para nodos nuevos; no duplicar; decidir qué hacer con los de nodos que desaparecen.                                                                                                                                                                                                                                                                                                                                              | Jorge | 3h   | 🟡        | 📋     |
-| S24-8  | **Organigrama — distinguir estados**: en el nodo, diferenciar "vacante de conducción real" (hay cargo generado sin ocupante) de "unidad con personal sin jefatura" de "vacía". Ajustar `esCargoDeConduccion`/`cargosVacantesMap` para reconocer los cargos generados.                                                                                                                                                                                                                                                                                                         | Jorge | 3h   | 🔴        | 📋     |
-| S24-9  | **Vista/KPI de vacantes de conducción**: listar y contar las vacantes de conducción (por efector/sección/nivel). Reusa el modal de Vacantes del organigrama + un contador. Permite a RRHH ver "qué jefaturas faltan cubrir".                                                                                                                                                                                                                                                                                                                                                  | Jorge | 3h   | 🟡        | 📋     |
-| S24-10 | **Verificación e2e**: subir un padrón, confirmar que las ocupaciones de jefatura se vinculan al cargo generado (no duplican), que CEMAR IV muestra su vacante real, y que el conteo de vacantes es coherente. Documentar.                                                                                                                                                                                                                                                                                                                                                     | Jorge | 3h   | 🔴        | 📋     |
+| S24-3  | ~~**Schema/migración**~~ — **hecho**. Migraciones `20261006000000_sprint24_cargo_origen_revision` (campos `origen` default `'padron'`, `revisionDato`, `revisionMotivo` en `Cargo`) y `20261006000001_cargo_id_sial_nullable` (`id_sial` nullable). Rechazado el `id_sial` sintético `VAC-<codigo_repa>`: un cargo vacante va con `id_sial=null` (el SIAL es dato externo). Se distingue por `origen='organigrama'`.                                                                                                                                                          | Jorge | 2h   | 🔴        | ✅     |
+| S24-4  | ~~**Servicio de derivación**~~ — **hecho** en `shared/derivarCargosConduccion.ts` (`derivarCargosConduccionService`). Mapea régimen→escalafón, tipo→puesto/nivel, nivel+familia→JCAT (vía `jcat_cargo_jefatura` al revés), código vía `codigoCargo.ts`. Auto-crea el puesto de conducción con `pendienteCurar=true` si falta en el catálogo. Idempotente (excluye `origen='organigrama'` ya existente). Reutilizado por el CLI y por S24-7.                                                                                                                                   | Jorge | 5h   | 🔴        | ✅     |
+| S24-5  | ~~**Backfill inicial**~~ — **hecho** (`scripts/derivar_cargos_conduccion.ts`, CLI fino sobre el servicio). Universo ampliado con el usuario: TODO nodo de conducción sin jefatura ACTIVA modelada (no solo los con personal), incluidas las vacantes "frías" marcadas `revisionDato=true`. 313 cargos `origen='organigrama'` generados (245 fríos + 68 con personal). 0 errores de mapeo (mapeo `UAI MSTR` agregado).                                                                                                                                                         | Jorge | 2h   | 🔴        | ✅     |
+| S24-6  | ~~**Reconciliación en aprobar-snapshot**~~ — **hecho** (`padron.service.ts`): al entrar una ocupación de jefatura (con `codigo_jefaturas`) se matchea contra el cargo `origen='organigrama'` del mismo `codigoRepa` y se vincula, en vez de crear duplicado.                                                                                                                                                                                                                                                                                                                  | Jorge | 4h   | 🔴        | ✅     |
+| S24-7  | ~~**Re-sincronización al cargar organigrama**~~ — **hecho** (hook en `reemplazarOrganigramaService`): tras el swap del árbol invoca `derivarCargosConduccionService` (fuera de la transacción, tolerante a fallos — el árbol ya quedó guardado). Da de alta cargos para nodos nuevos sin duplicar. Decisión: los cargos de nodos que desaparecen NO se dan de baja automáticamente (pueden tener historial/ocupaciones; su baja la decide RRHH).                                                                                                                              | Jorge | 3h   | 🟡        | ✅     |
+| S24-8  | ~~**Organigrama — distinguir estados**~~ — **hecho**. `esCargoDeConduccion`/`rangoConduccion` reconocen conducción por el prefijo del CÓDIGO (no solo JCAT), para que un jefe en cargo `CPH-J/CPH-D` sin JCAT en la ocupación no salga vacante. La query de vacantes incluye `origen='organigrama'` + `validacion_vacante`. Ocultamiento de roles redundantes sin JCAT (`shared/cargosOcultos.ts`). Backfill alineado con el organigrama (retención/comisión no cuenta como jefatura activa). `revisionDato` marca "vacante fría" vs "con personal sin jefatura".             | Jorge | 3h   | 🔴        | ✅     |
+| S24-9  | ~~**Vista/KPI de vacantes de conducción**~~ — **hecho** (`getVacantesConduccionService` + `GET /organigrama/vacantes`). Devuelve total, desglose por hospital y por nivel (Dirección/Subdirección/Jefatura/Gerencia/Autoridad), y separa "con personal activo (sin jefatura)" de "frías". Medición actual: 736 vacantes de conducción. Query opcional `?sigla=` para acotar a un efector.                                                                                                                                                                                     | Jorge | 3h   | 🟡        | ✅     |
+| S24-10 | ~~**Verificación e2e**~~ — **hecho**. Auditoría completa (las 77 siglas): 0 falsos vacantes (ningún nodo "Vacante" esconde un jefe activo). Derivación idempotente verificada (0 candidatos nuevos al re-correr). Desgloses del KPI coherentes (suma por hospital = suma por nivel = total). Casos testigo resueltos y verificados: Martínez Montes (40221196, jefe sin JCAT), Turno Mañana A (40233110, jefe retenido), Hemoterabia/Guardia VII HMIRS (vacantes frías con código).                                                                                           | Jorge | 3h   | 🔴        | ✅     |
 
 **Total estimado:** ~31h
 
@@ -125,16 +125,41 @@ S24-4 ──► S24-7 (re-sync organigrama)
 
 ## Criterio de éxito
 
-- [ ] Cada nodo de conducción del organigrama tiene un `Cargo` de jefatura asociado (ocupado o
-      vacante), con su código generado por `codigoCargo.ts`.
-- [ ] El CEMAR IV (y casos análogos) muestra una **vacante de conducción real** (cargo sin ocupante),
+- [x] Cada nodo de conducción del organigrama tiene un `Cargo` de jefatura asociado (ocupado o
+      vacante), con su código generado por `codigoCargo.ts`. _(313 cargos `origen='organigrama'` +
+      los de conducción del padrón; auditoría de las 77 siglas sin falsos vacantes.)_
+- [x] El CEMAR IV (y casos análogos) muestra una **vacante de conducción real** (cargo sin ocupante),
       no un "Vacante" por ausencia de dato.
-- [ ] Un padrón que trae a alguien ocupando una jefatura **vincula** la ocupación al cargo generado,
-      sin crear duplicados.
-- [ ] El organigrama distingue los tres estados: vacante de conducción / con personal sin jefatura /
-      vacía.
-- [ ] Se puede listar y contar las vacantes de conducción por efector/sección.
-- [ ] Re-cargar el organigrama no duplica cargos de conducción.
+- [x] Un padrón que trae a alguien ocupando una jefatura **vincula** la ocupación al cargo generado,
+      sin crear duplicados. _(S24-6 en `padron.service.ts`.)_
+- [x] El organigrama distingue los tres estados: vacante de conducción / con personal sin jefatura /
+      vacía. _(`revisionDato` + `razonSinCargo`; KPI separa `conPersonalActivo` de `frias`.)_
+- [x] Se puede listar y contar las vacantes de conducción por efector/sección. _(`GET
+  /organigrama/vacantes`, 736 vacantes con desglose por hospital/nivel.)_
+- [x] Re-cargar el organigrama no duplica cargos de conducción. _(S24-7 idempotente; verificado 0
+      candidatos nuevos al re-correr.)_
+
+## Deuda saldada (post-cierre, 2026-10)
+
+- ✅ **Frontend del KPI (S24-9):** `KpiVacantesPanel` en la home de `/organigrama` — total,
+  desglose por nivel, top efectores (navegables), consumiendo `GET /organigrama/vacantes`.
+- ✅ **Reporte de cargos huérfanos (S24-7):** `GET /organigrama/cargos-huerfanos` lista los cargos
+  `origen='organigrama'` cuyo `codigo_repa` ya no está en el árbol (nodo eliminado en un re-upload);
+  se muestra como aviso en el KPI para que RRHH decida la baja. La baja sigue siendo manual
+  (decisión conservadora: pueden tener historial).
+- ✅ **Listado de vacantes "frías" (S24-3):** el KPI despliega las 245 vacantes frías
+  (`revisionDato=true`) con su `revisionMotivo`, navegables al detalle, para que RRHH las revise.
+  La validación en sí es trabajo de RRHH; el sistema ya expone la lista revisable.
+- ✅ **Reconciliación en TODOS los flujos del padrón (S24-6):** extraída a
+  `padron/reconciliarConduccion.ts` y aplicada en `aprobarSnapshotService`, `aprobarDiffNuevoService`
+  (que cubre `aprobarTodosDiffsPendientesService` y `marcarTransferenciaService`). El rechazo de diff
+  queda excluido a propósito (cargo rechazado = sin código, no debe cubrir una vacante). Verificado
+  con los 3 casos (vincula / no-jefatura / repa-sin-vacante).
+
+## Pendiente que queda abierto (trabajo de negocio, no de sistema)
+
+- **Validación con RRHH de los 245 cargos "fríos"**: la herramienta ya existe (listado en el KPI);
+  la revisión caso por caso la hace RRHH.
 
 ## Notas
 

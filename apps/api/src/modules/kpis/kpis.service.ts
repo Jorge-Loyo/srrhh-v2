@@ -172,7 +172,10 @@ export async function getKpisDotacionService(query: KpisDotacionQuery) {
           WHERE oesp.cargo_id = c.id
             AND oesp.hasta IS NULL
             AND (oesp.codigo_jefaturas IS NULL OR TRIM(oesp.codigo_jefaturas) IN ('', '0'))
-            AND coalesce(cjef.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+            -- Mismo literal de puesto; NO se exige codigo_repa idéntico (el SIAL
+            -- crea el fantasma con repa que difiere en 1-2 dígitos del real —
+            -- casos Charabora/Hernandez/Merino oct-2026). Una persona no ocupa
+            -- dos puestos del mismo literal de conducción a la vez.
             AND coalesce(cjef.literal_puesto, '') = coalesce(c.literal_puesto, '')
             AND ojef.codigo_jefaturas IS NOT NULL
             AND TRIM(ojef.codigo_jefaturas) NOT IN ('', '0')
@@ -506,18 +509,41 @@ const ESPECIALIDAD_VACIA = '(sin especialidad)'
 
 const PUESTO_VACIO = '(SIN PUESTO)'
 
-// Normaliza especialidad a una clave canónica. '' y 'SIN ESPECIALIDAD' → una
-// única etiqueta. Se aplica unaccent + upper + trim para que variantes que solo
-// difieren en acentos o capitalización colapsen en una sola opción del selector
-// (ej. "ENFERMERÍA" vs "ENFERMERIA"). Requiere la extensión unaccent.
+// Normaliza especialidad a una clave canónica. FUENTE: el CATÁLOGO
+// (especialidades_puesto, vía el cargo), que es la MISMA que usa el resto de la
+// app (filtros de Personas/Cargos) — así una fusión/renombre del catálogo (ej.
+// "Pediatria (Clinica Pediatrica)" → "Pediatria") se refleja también acá, en vez
+// de quedar el texto viejo que el padrón dejó en padron_historico.especialidad.
+// Fallback al texto del padrón solo cuando el cargo no tiene especialidad en el
+// catálogo (filas marginales). '' y 'SIN ESPECIALIDAD' → una única etiqueta.
+// unaccent + upper + trim para que variantes de acento/capitalización colapsen.
 function especialidadNormalizadaSql(alias: string) {
-  const col = Prisma.raw(`${alias}.especialidad`)
+  const cargoId = Prisma.raw(`${alias}.cargo_id`)
+  const texto = Prisma.raw(`${alias}.especialidad`)
+  // Nombre del catálogo resuelto desde el cargo (fuente de verdad).
+  const catalogo = Prisma.sql`(
+    SELECT ep.nombre FROM cargos cesp
+    JOIN especialidades_puesto ep ON ep.id = cesp.especialidad_puesto_id
+    WHERE cesp.id = ${cargoId}
+  )`
+  // Equivalencias de nombres viejos del texto del padrón → nombre canónico del
+  // catálogo, para los cargos que caen al fallback (sin especialidad en el
+  // catálogo todavía) y así no reintroducir en el selector un nombre que ya se
+  // unificó (ej. la fusión "PEDIATRIA (CLINICA PEDIATRICA)" → "PEDIATRIA").
+  const textoNorm = Prisma.sql`unaccent(upper(trim(${texto})))`
+  const textoCanonico = Prisma.sql`
+    CASE ${textoNorm}
+      WHEN 'PEDIATRIA (CLINICA PEDIATRICA)' THEN 'PEDIATRIA'
+      ELSE ${textoNorm}
+    END
+  `
   return Prisma.sql`
     CASE
-      WHEN ${col} IS NULL OR trim(${col}) = ''
-        OR upper(trim(${col})) = 'SIN ESPECIALIDAD'
+      WHEN ${catalogo} IS NOT NULL THEN unaccent(upper(trim(${catalogo})))
+      WHEN ${texto} IS NULL OR trim(${texto}) = ''
+        OR upper(trim(${texto})) = 'SIN ESPECIALIDAD'
       THEN ${ESPECIALIDAD_VACIA}
-      ELSE unaccent(upper(trim(${col})))
+      ELSE ${textoCanonico}
     END
   `
 }
@@ -561,6 +587,20 @@ type DimensionesEvolucion = {
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
+  gruposEspecialidad?: string[]
+}
+
+// S25: grupo/especialidad "padre" de la especialidad del cargo
+// (especialidades_puesto.grupo). Se resuelve desde el cargo de la fila. NULL si
+// la especialidad del cargo no tiene grupo asignado. Genérico: sirve para
+// cualquier conjunto de grupos que se agregue a futuro, no solo bioquímica.
+function grupoEspecialidadSql(alias: string) {
+  const cargoId = Prisma.raw(`${alias}.cargo_id`)
+  return Prisma.sql`(
+    SELECT ep.grupo FROM cargos cg
+    JOIN especialidades_puesto ep ON ep.id = cg.especialidad_puesto_id
+    WHERE cg.id = ${cargoId}
+  )`
 }
 
 // Condiciones de UN grupo: AND entre dimensiones (OR interno por dimensión vía
@@ -582,6 +622,9 @@ function condicionesGrupoEvolucion(alias: string, g: DimensionesEvolucion): Pris
   if (g.especialidades?.length) {
     conds.push(Prisma.sql`(${especialidadNormalizadaSql(alias)}) IN (${Prisma.join(g.especialidades)})`)
   }
+  if (g.gruposEspecialidad?.length) {
+    conds.push(Prisma.sql`(${grupoEspecialidadSql(alias)}) IN (${Prisma.join(g.gruposEspecialidad)})`)
+  }
   return conds
 }
 
@@ -597,6 +640,7 @@ function construirFiltros(
     carreras?: string[]
     puestos?: string[]
     especialidades?: string[]
+    gruposEspecialidad?: string[]
     jefatura?: FiltroJefaturaVal
     grupos?: DimensionesEvolucion[]
   },
@@ -607,6 +651,7 @@ function construirFiltros(
     carreras: f.carreras,
     puestos: f.puestos,
     especialidades: f.especialidades,
+    gruposEspecialidad: f.gruposEspecialidad,
   }
   if (omitirDimension) grupoEnEdicion[omitirDimension] = undefined
 
@@ -633,6 +678,7 @@ type FiltrosEvolucion = {
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
+  gruposEspecialidad?: string[]
   jefatura?: FiltroJefaturaVal
   grupos?: DimensionesEvolucion[]
 }
@@ -666,11 +712,22 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
       ORDER BY 1
     `)
 
-  const [siglas, carreras, puestos, especialidades, meses] = await Promise.all([
+  // S25: grupos de especialidad disponibles. Se descartan los NULL (especialidad
+  // sin grupo). Si queda vacío, el front oculta el combo "Grupos".
+  const distinctGrupos = () =>
+    prisma.$queryRaw<{ valor: string }[]>(Prisma.sql`
+      SELECT DISTINCT (${grupoEspecialidadSql('ph')}) AS valor
+      ${BASE}
+      ${construirFiltros('ph', filtros, 'gruposEspecialidad')}
+      ORDER BY 1
+    `)
+
+  const [siglas, carreras, puestos, especialidades, gruposEspecialidad, meses] = await Promise.all([
     distinct<{ valor: string }>(siglaNormalizadaSql('ph'), 'siglas'),
     distinct<{ valor: string }>(Prisma.sql`e.nombre`, 'carreras'),
     distinct<{ valor: string }>(puestoNormalizadoSql('ph'), 'puestos'),
     distinct<{ valor: string }>(especialidadNormalizadaSql('ph'), 'especialidades'),
+    distinctGrupos(),
     // Meses disponibles (no dependen de los filtros; es el eje temporal completo).
     prisma.$queryRaw<{ valor: string }[]>(Prisma.sql`
       SELECT DISTINCT to_char(date_trunc('month', fecha_asignada), 'YYYY-MM') AS valor
@@ -684,6 +741,8 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     carreras: carreras.map((r) => r.valor),
     puestos: puestos.map((r) => r.valor),
     especialidades: especialidades.map((r) => r.valor),
+    // Filtra NULL/vacío: solo grupos reales.
+    gruposEspecialidad: gruposEspecialidad.map((r) => r.valor).filter((v) => v != null && v !== ''),
     meses: meses.map((r) => r.valor),
   }
 }
@@ -723,6 +782,13 @@ function cortesMensualesSql(mesDesde?: string, mesHasta?: string) {
 function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
   return Prisma.sql`
     WITH cortes AS (${cortesMensualesSql(mesDesde, mesHasta)}),
+    -- El corte más reciente es el "mes en curso": debe reflejar el estado REAL
+    -- actual, no la foto congelada del último padrón. Para ese mes se exige
+    -- además que el rol tenga ocupación VIGENTE hoy (ocupaciones.hasta IS NULL);
+    -- así una baja posterior a la fecha del padrón (ej. ocupación cerrada el
+    -- 05/10 cuando el padrón es del 04/10) no cuenta como activa en vivo. Los
+    -- meses anteriores quedan como su foto histórica de cierre.
+    corte_actual AS (SELECT max(corte) AS corte FROM cortes),
     bajas AS (
       SELECT d.id_sial_rol, ps.fecha_asignada AS fecha_baja
       FROM padron_diff d
@@ -730,30 +796,53 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
       WHERE d.tipo = 'eliminado'
     ),
     -- Última fila conocida de cada rol a cada corte (la foto vigente del rol
-    -- en ese mes). DISTINCT ON toma la fecha_asignada más alta <= corte.
-    -- id_sial = las 2 primeras partes de id_sial_rol ('{idSial}-{cuil}-{seq}'),
-    -- que es el formato corto que usa padron_diff para las bajas.
-    vigente AS (
-      SELECT DISTINCT ON (c.corte, ph.id_sial_rol)
-        c.corte,
-        c.mes,
+    -- en ese mes). En vez de cruzar cada corte con TODO el histórico anterior y
+    -- hacer DISTINCT ON (producto cartesiano cortes × padron_historico — O(10 ×
+    -- 140k) con sort externo, tardaba minutos), se calcula para cada fila su
+    -- intervalo de vigencia con LEAD: la fila rige desde su fecha_asignada hasta
+    -- la fecha de la SIGUIENTE fila del mismo rol. Luego se une con cortes por
+    -- rango (una sola pasada, ~1s). Resultado idéntico a tomar la fila más
+    -- reciente <= corte. Requiere el índice (id_sial_rol, fecha_asignada).
+    hist AS (
+      SELECT
         ph.id_sial_rol,
-        split_part(ph.id_sial_rol, '-', 1) || '-' || split_part(ph.id_sial_rol, '-', 2) AS id_sial,
         ph.persona_id,
         ph.cargo_id,
         ph.literal_puesto,
         ph.especialidad,
         ph.hospital_sigla,
-        ph.situacion_revista
+        ph.situacion_revista,
+        ph.fecha_asignada,
+        lead(ph.fecha_asignada) OVER (PARTITION BY ph.id_sial_rol ORDER BY ph.fecha_asignada) AS prox_fecha
+      FROM padron_historico ph
+    ),
+    vigente AS (
+      SELECT
+        c.corte,
+        c.mes,
+        h.id_sial_rol,
+        h.persona_id,
+        h.cargo_id,
+        h.literal_puesto,
+        h.especialidad,
+        h.hospital_sigla,
+        h.situacion_revista
       FROM cortes c
-      JOIN padron_historico ph ON ph.fecha_asignada <= c.corte
-      ORDER BY c.corte, ph.id_sial_rol, ph.fecha_asignada DESC
+      JOIN hist h ON h.fecha_asignada <= c.corte AND (h.prox_fecha IS NULL OR h.prox_fecha > c.corte)
     )
     SELECT v.*
     FROM vigente v
+    -- Excluye roles dados de baja (padron_diff tipo 'eliminado') hasta el corte,
+    -- salvo que reaparezcan en una foto POSTERIOR a la baja (reactivación).
+    -- padron_diff.id_sial_rol usa el MISMO formato largo que padron_historico
+    -- ('{idSial}-{seq}-{cuil}-{rol}'); antes se comparaba contra un id_sial
+    -- truncado a las 2 primeras partes y NUNCA matcheaba, por lo que las bajas
+    -- no se aplicaban y la persona contaba como activa para siempre (bug: una
+    -- baja y la foto del MISMO snapshot dejaban el rol activo — ver Psicopedagogo
+    -- de Planta, oct-2026).
     WHERE NOT EXISTS (
       SELECT 1 FROM bajas b
-      WHERE b.id_sial_rol = v.id_sial
+      WHERE b.id_sial_rol = v.id_sial_rol
         AND b.fecha_baja <= v.corte
         AND NOT EXISTS (
           SELECT 1 FROM padron_historico ph3
@@ -761,6 +850,16 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
             AND ph3.fecha_asignada > b.fecha_baja
             AND ph3.fecha_asignada <= v.corte
         )
+    )
+    -- Mes en curso "en vivo": en el corte más reciente, excluir roles cuya
+    -- ocupación ya está cerrada en la BD (hasta IS NOT NULL). Para los meses
+    -- anteriores no aplica (su foto de cierre es histórica e inmutable).
+    AND (
+      v.corte <> (SELECT corte FROM corte_actual)
+      OR EXISTS (
+        SELECT 1 FROM ocupaciones o
+        WHERE o.id_sial_rol = v.id_sial_rol AND o.hasta IS NULL
+      )
     )
   `
 }
@@ -770,23 +869,59 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
 // personas activas deduplicadas en el snapshot COMPLETO de ese mes (Opción A:
 // la foto real del padrón; los meses sin foto completa no se grafican).
 export async function getDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta, grupos } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura, grupos }
+  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos } = query
+  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, grupos }
 
   const rows = await prisma.$queryRaw<{ mes: string; cantidad: bigint }[]>(Prisma.sql`
-    WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)})
-    SELECT
-      to_char(ult.mes, 'YYYY-MM') AS mes,
-      -- Dedup espejo jefatura: personas distintas por repartición + puesto
-      -- (puesto normalizado para no separar variantes de capitalización).
-      count(DISTINCT (ult.persona_id, coalesce(c.codigo_repa, ''), ${puestoNormalizadoSql('ult')}))::bigint AS cantidad
-    FROM ult
-    JOIN cargos c ON c.id = ult.cargo_id
-    JOIN escalafones e ON e.id = c.escalafon_id
-    WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
-      ${construirFiltros('ult', filtros)}
-    GROUP BY ult.mes
-    ORDER BY ult.mes
+    WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)}),
+    -- Dedup espejo jefatura: UNA fila representante por (mes, persona,
+    -- repartición, puesto), igual criterio que el export (row_number ordenado
+    -- por id_sial_rol). Antes se contaba DISTINCT sin elegir representante y se
+    -- filtraba fila por fila: una persona con 2 cargos vigentes del mismo
+    -- puesto en reparticiones distintas (o 2 roles con especialidad distinta)
+    -- podía contarse en una categoría que su fila representante del export NO
+    -- tenía → conteo fantasma (ej. un "1" en "(sin especialidad)" que el Excel
+    -- no traía — Marocchi, asistente social de planta, oct-2026). Ahora la serie
+    -- y el export cuentan exactamente el mismo conjunto.
+    dedup AS (
+      SELECT ult.*,
+        row_number() OVER (
+          PARTITION BY ult.mes, ult.persona_id,
+            coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
+            ${puestoNormalizadoSql('ult')}
+          -- El representante NUNCA debe ser una suplencia de guardia (código
+          -- SG-*): esa no es el cargo de la persona, es una habilitación para
+          -- cubrir guardias ADEMÁS de su cargo fijo. Si en la misma partición
+          -- conviven el cargo fijo (ej. CPH-POU) y la suplencia (SG), antes el
+          -- ORDER BY id_sial_rol podía elegir el SG (menor sufijo) y entonces el
+          -- filtro por carrera CPH descartaba a la persona → faltaba en el
+          -- conteo (caso Pratto/Kirsch, oct-2026). Se ordena primero por "no es
+          -- SG" para que gane el cargo fijo; a igualdad, por id_sial_rol.
+          ORDER BY (coalesce((SELECT codigo FROM cargos WHERE id = ult.cargo_id), '') LIKE 'SG-%') ASC,
+                   ult.id_sial_rol
+        ) AS drn
+      FROM ult
+      WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
+    ),
+    conteo AS (
+      SELECT dedup.mes, count(*)::bigint AS cantidad
+      FROM dedup
+      JOIN cargos c ON c.id = dedup.cargo_id
+      JOIN escalafones e ON e.id = c.escalafon_id
+      WHERE dedup.drn = 1
+        ${construirFiltros('dedup', filtros)}
+      GROUP BY dedup.mes
+    )
+    -- Eje temporal completo: TODOS los meses del rango, con 0 donde el filtro no
+    -- deja a nadie. Antes el GROUP BY omitía los meses con conteo 0, por lo que
+    -- una categoría que llega a 0 en el último mes (ej. "sin especialidad" tras
+    -- completar las asignaciones) hacía que la serie terminara en un mes
+    -- anterior y el "corte" no coincidiera con el total → parecía incoherente
+    -- (el total mostraba octubre y la categoría septiembre).
+    SELECT to_char(m.mes, 'YYYY-MM') AS mes, COALESCE(ct.cantidad, 0)::bigint AS cantidad
+    FROM (SELECT DISTINCT mes FROM ult) m
+    LEFT JOIN conteo ct ON ct.mes = m.mes
+    ORDER BY m.mes
   `)
 
   return {
@@ -813,8 +948,8 @@ const requireXlsx = createRequire(import.meta.url)
 const XLSX = requireXlsx('xlsx') as any
 
 export async function exportDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, jefatura, mesDesde, mesHasta, grupos } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, jefatura, grupos }
+  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos } = query
+  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, grupos }
 
   const rows = await prisma.$queryRaw<
     {
@@ -846,13 +981,17 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
       LEFT JOIN personas pe ON pe.id = a.persona_id
     ),
     -- Dedup espejo jefatura: un registro por persona + repartición + puesto.
+    -- Mismo criterio de orden que la serie: el representante NUNCA es una
+    -- suplencia de guardia (SG-*) si hay un cargo fijo en la misma partición,
+    -- para que serie y export cuenten el mismo conjunto (ver nota en la serie).
     dedup AS (
       SELECT
         ult.*,
         row_number() OVER (
           PARTITION BY ult.persona_id, coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
                        ${puestoNormalizadoSql('ult')}
-          ORDER BY ult.id_sial_rol
+          ORDER BY (coalesce((SELECT codigo FROM cargos WHERE id = ult.cargo_id), '') LIKE 'SG-%') ASC,
+                   ult.id_sial_rol
         ) AS drn
       FROM ult
       WHERE lower(unaccent(ult.situacion_revista)) = 'activo'

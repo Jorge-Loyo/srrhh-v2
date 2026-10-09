@@ -121,7 +121,7 @@ export function DotacionKpisPanel({ sigla, onFilterSigla, estado, onFilterEstado
               </div>
 
               <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Por escalafón</p>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Por carrera</p>
                 <div className="space-y-1.5">
                   {(data?.porEscalafon ?? []).map((r) => (
                     <div key={r.escalafonId}>

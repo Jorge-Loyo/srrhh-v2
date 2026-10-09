@@ -78,7 +78,7 @@ export function JuradosTab() {
         <h2 className="font-primary text-lg font-bold text-gray-900">Jurados vigentes</h2>
         <p className="text-sm text-gray-500">
           Jurados confirmados dentro de los últimos 6 meses, disponibles para reutilizar en
-          concursos compatibles (mismo escalafón, especialidad y las reglas del sorteo).
+          concursos compatibles (misma carrera, especialidad y las reglas del sorteo).
         </p>
 
         <div className="mt-4 flex flex-wrap gap-3">

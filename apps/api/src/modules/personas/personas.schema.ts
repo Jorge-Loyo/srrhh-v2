@@ -10,6 +10,9 @@ import { z } from 'zod'
 export const grupoCatalogoSchema = z.object({
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S25: código de registro puntual del escalafón (ej. CPH → 22 ó 37). Acota
+  // dentro del escalafón ya elegido.
+  codigoRegistroId: z.string().uuid().optional(),
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   puestoCargoId: z.string().uuid().optional(),
   especialidadPuestoId: z.string().uuid().optional(),
@@ -50,6 +53,8 @@ export const personasQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S25: código de registro puntual del escalafón (cascada escalafón→cod. registro).
+  codigoRegistroId: z.string().uuid().optional(),
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   // S20-7: puesto/especialidad filtran por FK real al catálogo.

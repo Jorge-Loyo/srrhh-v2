@@ -47,7 +47,7 @@ function ModalDetalleBaja({ baja, onClose }: { baja: Baja & { enSial?: boolean; 
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
             <RowDetalle label="Código" value={<span className="font-mono text-xs">{baja.cargo?.codigo}</span>} />
             <RowDetalle label="Puesto" value={baja.cargo?.literalPuesto} />
-            <RowDetalle label="Escalafón" value={baja.cargo?.escalafon?.nombre} />
+            <RowDetalle label="Carrera" value={baja.cargo?.escalafon?.nombre} />
             <RowDetalle label="Hospital" value={
               baja.cargo?.hospital
                 ? `${baja.cargo.hospital.sigla} — ${baja.cargo.hospital.nombre}`

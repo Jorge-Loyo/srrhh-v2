@@ -5,6 +5,12 @@ import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/typ
 import { useCargo } from '../hooks/useCargos'
 import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
+const ESTADO_LABEL: Record<EstadoCargo, string> = {
+  [EstadoCargo.VIGENTE]: 'Vigente',
+  [EstadoCargo.NO_VIGENTE]: 'No vigente',
+  [EstadoCargo.VALIDACION_VACANTE]: 'En validación',
+}
+
 function fechaCorta(v: string | null | undefined) {
   if (!v) return '—'
   return v.slice(0, 10)
@@ -51,16 +57,27 @@ export function CargoDetailPanel() {
         <div className="bg-navy px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-white/60 text-xs font-mono mb-1">{cargo.idSial}</p>
-              <h1 className="text-white text-xl font-bold leading-tight">{cargo.codigo ?? cargo.idSial}</h1>
+              {/* El identificador del cargo es su `codigo` (lo genera el sistema).
+                  El id_sial es dato del SIAL y solo existe cuando una persona
+                  ocupa el cargo — no se muestra en el título si no aplica. */}
+              <h1 className="text-white text-xl font-bold leading-tight">
+                {cargo.codigo ?? '—'}
+                {cargo.codigoRepa && (
+                  <span className="text-white/50 font-mono text-base font-normal ml-2">· {cargo.codigoRepa}</span>
+                )}
+              </h1>
               <p className="text-white/80 text-sm mt-1">{cargo.literalPuesto ?? 'Sin puesto asignado'}</p>
               {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
                 <p className="text-white/55 text-xs mt-0.5">{cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad}</p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2 shrink-0 mt-1">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${vigente ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
-                {vigente ? 'Vigente' : 'No vigente'}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                cargo.estado === EstadoCargo.VIGENTE ? 'bg-green-100 text-green-800' :
+                cargo.estado === EstadoCargo.VALIDACION_VACANTE ? 'bg-orange-100 text-orange-800' :
+                'bg-gray-200 text-gray-600'
+              }`}>
+                {ESTADO_LABEL[cargo.estado]}
               </span>
               {vigente && (
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
@@ -83,7 +100,9 @@ export function CargoDetailPanel() {
 
           <Section title="Ubicación">
             <Dato label="Hospital"    value={`${cargo.hospital.sigla} — ${cargo.hospital.nombre}`} />
-            <Dato label="Escalafón"   value={cargo.escalafon.nombre} />
+            {/* El "escalafón" no se muestra: la app agrupa por Código de Registro
+                (ver sección Identificación) y Literal de Puesto, no por el nombre
+                del escalafón —que engloba varios cod_registro y confunde. */}
             <Dato label="Repartición"
               value={cargo.codigoRepa ? `${cargo.codigoRepa} — ${cargo.descripcionRepa}` : cargo.descripcionRepa}
             />
@@ -278,7 +297,7 @@ export function CargoDetailPanel() {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Escalafón</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Carrera</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Puesto solicitado</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona designada</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Inicio</th>

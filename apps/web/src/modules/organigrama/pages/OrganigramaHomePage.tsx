@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChartBarSquareIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
+import KpiVacantesPanel from '../components/KpiVacantesPanel'
 
 const SECCIONES = [
   { id: 'nivel-central', name: 'Nivel Central', path: '/organigrama/seccion/nivel-central' },
@@ -107,6 +108,9 @@ export function OrganigramaHomePage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* S24-9: KPI de vacantes de conducción del Ministerio */}
+            <KpiVacantesPanel />
+
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Administración Central</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

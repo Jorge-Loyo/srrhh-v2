@@ -152,9 +152,9 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
               </button>
             )}
             {filtered.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">Sin resultados</p>}
-            {filtered.map((opt) => (
+            {filtered.map((opt, i) => (
               <button
-                key={opt}
+                key={`${opt}-${i}`}
                 type="button"
                 onClick={() => selectOption(opt)}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${

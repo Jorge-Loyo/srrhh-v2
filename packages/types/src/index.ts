@@ -901,6 +901,10 @@ export interface FiltrosDotacionEvolucion {
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
+  // S25: grupo/especialidad "padre" (especialidades_puesto.grupo). Agrupa
+  // sub-especialidades (ej. "Bioquímica Clínica" engloba todas sus variantes).
+  // El combo solo aparece cuando hay grupos disponibles en la selección actual.
+  gruposEspecialidad?: string[]
   jefatura?: FiltroJefatura
   mesDesde?: string
   mesHasta?: string
@@ -915,6 +919,7 @@ export interface GrupoDotacionEvolucion {
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
+  gruposEspecialidad?: string[]
   labels?: string[]
 }
 
@@ -926,6 +931,10 @@ export interface KpiDotacionEvolucionOpciones {
   carreras: string[]
   puestos: string[]
   especialidades: string[]
+  // S25: grupos de especialidad disponibles dada la selección actual. Vacío si
+  // ninguna especialidad del universo filtrado tiene grupo → el front oculta el
+  // combo "Grupos".
+  gruposEspecialidad: string[]
   meses: string[] // 'YYYY-MM' disponibles, para el rango temporal
 }
 
@@ -982,6 +991,8 @@ export interface PersonaFilters {
   activo?: boolean
   hospitalId?: string
   escalafonId?: string
+  // S25: código de registro puntual dentro del escalafón (ej. CPH → 22 ó 37).
+  codigoRegistroId?: string
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/puestos.
@@ -1003,6 +1014,8 @@ export interface CargoFilters {
   personaSearch?: string
   hospitalId?: string
   escalafonId?: string
+  // S25: código de registro puntual dentro del escalafón (ej. CPH → 22 ó 37).
+  codigoRegistroId?: string
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad?: 'pof' | 'pou' | 'ambos'
   // S20-7: FK real al catálogo — ver GET /api/v1/cargos/puestos.

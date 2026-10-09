@@ -6,6 +6,9 @@ import { EstadoCargo } from '@srrhh/types'
 export const grupoCatalogoSchema = z.object({
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S25: código de registro puntual del escalafón (ej. CPH → 22 ó 37). Acota
+  // dentro del escalafón ya elegido.
+  codigoRegistroId: z.string().uuid().optional(),
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   puestoCargoId: z.string().uuid().optional(),
   especialidadPuestoId: z.string().uuid().optional(),
@@ -20,6 +23,8 @@ export const cargosQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
+  // S25: código de registro puntual del escalafón (cascada escalafón→cod. registro).
+  codigoRegistroId: z.string().uuid().optional(),
   // S21: modalidad del cargo (POF/POU) — cascada escalafón→modalidad→puesto.
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   // S20-7: filtro por FK real al catálogo — reemplaza los viejos `puesto`/

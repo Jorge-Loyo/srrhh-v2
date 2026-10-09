@@ -95,3 +95,74 @@ export function useOrganigramaUploads() {
     },
   })
 }
+
+// S24-9: vacantes de conducción = los nodos que el organigrama muestra como
+// "Vacante" (mismo criterio que el contador del árbol).
+export interface VacanteConduccion {
+  cargoId: string | null
+  codigo: string | null
+  codigoRepa: string
+  descripcionRepa: string | null
+  hospitalSigla: string
+  hospitalNombre: string
+  nivel: string
+  carrera: string
+  escalafon: string
+  frio: boolean // nodo sin cargo real detrás todavía
+  revisionMotivo: string | null
+}
+
+export interface VacantesConduccion {
+  total: number
+  conCodigo: number
+  frias: number
+  porHospital: { sigla: string; nombre: string; total: number }[]
+  porNivel: { nivel: string; total: number }[]
+  porEscalafon: { escalafon: string; total: number }[]
+  escalafonFiltrado: string | null
+  vacantes: VacanteConduccion[]
+}
+
+export function useVacantesConduccion(opts: { sigla?: string; escalafon?: string } = {}) {
+  const { sigla, escalafon } = opts
+  return useQuery({
+    queryKey: ['vacantes-conduccion', sigla ?? null, escalafon ?? null],
+    queryFn: async () => {
+      const params: Record<string, string> = {}
+      if (sigla) params.sigla = sigla
+      if (escalafon) params.escalafon = escalafon
+      const res = await apiClient.get<{ data: VacantesConduccion }>('/api/v1/organigrama/vacantes', {
+        params: Object.keys(params).length ? params : undefined,
+      })
+      return res.data.data
+    },
+  })
+}
+
+// S24-7 (complemento): cargos de conducción huérfanos (nodo eliminado del árbol).
+export interface CargoHuerfano {
+  cargoId: string
+  codigo: string | null
+  codigoRepa: string | null
+  descripcionRepa: string | null
+  estado: string
+  frio: boolean
+  hospitalSigla: string
+  hospitalNombre: string
+  tieneOcupacionesVigentes: boolean
+}
+
+export interface CargosHuerfanos {
+  total: number
+  cargos: CargoHuerfano[]
+}
+
+export function useCargosConduccionHuerfanos() {
+  return useQuery({
+    queryKey: ['cargos-conduccion-huerfanos'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CargosHuerfanos }>('/api/v1/organigrama/cargos-huerfanos')
+      return res.data.data
+    },
+  })
+}

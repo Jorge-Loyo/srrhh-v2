@@ -89,6 +89,7 @@ function filtrosToParams(f: FiltrosDotacionEvolucion): URLSearchParams {
   for (const c of f.carreras ?? []) sp.append('carreras', c)
   for (const p of f.puestos ?? []) sp.append('puestos', p)
   for (const e of f.especialidades ?? []) sp.append('especialidades', e)
+  for (const g of f.gruposEspecialidad ?? []) sp.append('gruposEspecialidad', g)
   if (f.jefatura && f.jefatura !== 'todos') sp.set('jefatura', f.jefatura)
   if (f.mesDesde) sp.set('mesDesde', f.mesDesde)
   if (f.mesHasta) sp.set('mesHasta', f.mesHasta)
@@ -100,6 +101,7 @@ function filtrosToParams(f: FiltrosDotacionEvolucion): URLSearchParams {
       if (g.carreras?.length) o.carreras = g.carreras
       if (g.puestos?.length) o.puestos = g.puestos
       if (g.especialidades?.length) o.especialidades = g.especialidades
+      if (g.gruposEspecialidad?.length) o.gruposEspecialidad = g.gruposEspecialidad
       return o
     })
     sp.set('grupos', JSON.stringify(limpios))
@@ -114,6 +116,7 @@ function filtrosKey(f: FiltrosDotacionEvolucion) {
     [...(f.carreras ?? [])].sort(),
     [...(f.puestos ?? [])].sort(),
     [...(f.especialidades ?? [])].sort(),
+    [...(f.gruposEspecialidad ?? [])].sort(),
     f.jefatura ?? 'todos',
     f.mesDesde ?? '',
     f.mesHasta ?? '',
@@ -164,6 +167,7 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
       (filtros.carreras?.length ?? 0) +
       (filtros.puestos?.length ?? 0) +
       (filtros.especialidades?.length ?? 0) +
+      (filtros.gruposEspecialidad?.length ?? 0) +
       (filtros.grupos?.length ?? 0) >
     0
   return useQuery({

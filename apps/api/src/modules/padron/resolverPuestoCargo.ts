@@ -36,9 +36,21 @@ export function normPuestoKey(s: string | null | undefined): string {
 
 // S21: modalidad derivada del unificador del padrón (misma regla que usa el
 // auto-alta). POU/guardia → 'pou', el resto → 'pof'.
-function modalidadDeUnificador(unificadorPuesto: string | null | undefined): ModalidadPuesto {
+//
+// oct-2026: además del unificador se mira el LITERAL del puesto. El SIAL a veces
+// trae el unificador VACÍO para cargos de guardia (ej. "Especialista en la
+// Guardia Medico" con unificador en blanco), y entonces caían a 'pof' creando/
+// resolviendo un puesto POF duplicado — una guardia es POU por definición. Esta
+// es la misma regla que ya aplica codigoCargo.prefijoDeCargo ("el literal del
+// puesto prevalece"): si el nombre del puesto dice "guardia", es POU.
+function modalidadDeUnificador(
+  unificadorPuesto: string | null | undefined,
+  literalPuesto?: string | null | undefined,
+): ModalidadPuesto {
   const unif = (unificadorPuesto ?? '').toUpperCase()
-  return unif.includes('POU') || unif.includes('GUARDIA') ? 'pou' : 'pof'
+  const lit = (literalPuesto ?? '').toUpperCase()
+  if (unif.includes('POU') || unif.includes('GUARDIA') || lit.includes('GUARDIA')) return 'pou'
+  return 'pof'
 }
 
 // S21: clave del cache de puestos. INCLUYE la modalidad — antes era solo
@@ -92,6 +104,21 @@ export async function cargarCatalogoPuestos(tx: TxCatalogo): Promise<CatalogoPue
 // podemos dejar el cargo sin crear por esto, se pierde la fila del SIAL).
 const SIN_ESPECIFICAR = '(sin especificar)'
 
+// Canonización del LITERAL del puesto (decisión de negocio, oct-2026): el SIAL
+// a veces trae un literal GENÉRICO que no debe existir como puesto propio porque
+// siempre es, en realidad, su variante de planta o de guardia. El puesto
+// genérico "farmaceutico" (sin "de planta"/"de guardia") es uno de esos: se
+// resuelve a "farmaceutico de guardia" cuando la modalidad es POU, y a
+// "farmaceutico de planta" cuando es POF. Así el import no vuelve a crear el
+// puesto genérico (que se desactivó) ni cuelga cargos de él.
+// Recibe el literal normalizado (minúscula sin tilde) y la modalidad ya resuelta.
+function canonicalizarLiteralPuesto(literalNorm: string, modalidad: ModalidadPuesto): string {
+  if (literalNorm === 'farmaceutico') {
+    return modalidad === 'pou' ? 'farmaceutico de guardia' : 'farmaceutico de planta'
+  }
+  return literalNorm
+}
+
 // Resuelve (o auto-crea) el PuestoCargo para un literal_puesto del padrón.
 // Nunca devuelve null: un literal_puesto vacío/null resuelve al puesto
 // placeholder "(sin especificar)" de ese escalafón, igual marcado
@@ -101,18 +128,24 @@ export async function resolverPuestoCargoId(
   cache: CatalogoPuestosCache,
   params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null },
 ): Promise<PuestoCargoInfo> {
-  const literal = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
-  // S21: el nombre se guarda CURADO (minúscula + sin tilde), igual que el
-  // catálogo del seed — la curación es exactamente eso. Así el puesto
-  // auto-creado por el padrón queda en el mismo formato y no aparece
-  // "Médico" y "medico" como dos puestos.
-  const nombreCurado = normalizarTexto(literal).slice(0, 200) || SIN_ESPECIFICAR
+  const literalRaw = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
 
   // Modalidad derivada del padrón. La búsqueda en el cache es por (escalafón,
   // modalidad, nombre) con FALLBACK a 'ambos': un cargo POF/POU puede
   // corresponder a un puesto catalogado como 'ambos' (Residencias,
   // Administrativa, etc.). Prioriza el match de modalidad exacta.
-  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto)
+  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto, literalRaw)
+
+  // Canoniza el literal genérico a su variante planta/guardia según modalidad
+  // (ej. "farmaceutico" -> "farmaceutico de planta"|"...de guardia"), para no
+  // recrear el puesto genérico desactivado. Se aplica sobre el literal
+  // normalizado y se usa de acá en adelante para buscar/crear/guardar el puesto.
+  const literal = canonicalizarLiteralPuesto(normalizarTexto(literalRaw), modalidad) || literalRaw
+  // S21: el nombre se guarda CURADO (minúscula + sin tilde), igual que el
+  // catálogo del seed — la curación es exactamente eso. Así el puesto
+  // auto-creado por el padrón queda en el mismo formato y no aparece
+  // "Médico" y "medico" como dos puestos.
+  const nombreCurado = normalizarTexto(literal).slice(0, 200) || SIN_ESPECIFICAR
 
   const existente =
     cache.puestos.get(clavePuesto(params.escalafonId, modalidad, literal)) ??
@@ -152,6 +185,73 @@ export async function resolverPuestoCargoId(
 // compartido). Para médicos genéricos y conducción la derivación devuelve null
 // y el cargo queda sin especialidad (correcto: no es derivable). Así cada
 // padrón futuro ya trae la especialidad poblada sin correr el backfill a mano.
+// Equivalencias de FUSIÓN de especialidades (decisión de negocio): el SIAL
+// sigue trayendo nombres de variantes que ya se fusionaron a una canónica, y
+// NO debe deshacerse esa fusión import a import. Se mapea la variante (clave
+// normalizada minúscula sin tilde) a la canónica (también normalizada). El
+// catálogo tiene la canónica con mayúscula ('Pediatria', 'Psicologia'); el
+// match por normalización la encuentra, así que acá va en minúscula.
+//   - "pediatria (clinica pediatrica)" → "pediatria"
+//   - variantes de psicología clínica/médica/infantil → "psicologia"
+// OJO: NO incluye las especialidades pediátricas legítimamente distintas
+// (anestesiología pediátrica, cirugía infantil pediátrica, etc.) — esas se
+// conservan. Solo la variante exacta que se fusionó.
+export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
+  // Fusiones de negocio (pediatría / psicología).
+  'pediatria (clinica pediatrica)': 'pediatria',
+  'psicologia clinica': 'psicologia',
+  'psicologia medica': 'psicologia',
+  'psicologia infantil': 'psicologia',
+  'psicologia clinica infanto juvenil': 'psicologia',
+  'psicologia infanto juvenil': 'psicologia',
+  'psicologo': 'psicologia',
+  // Variantes de nombre (profesión vs sustantivo / formato) que YA existen en el
+  // catálogo con otro nombre — mapear para no crear duplicados import a import.
+  'antropologia': 'antropologo',
+  'biologia': 'biologo',
+  'cirugia toraxica': 'cirugia toracica',
+  'estomatologia': 'clinica estomatologica',
+  'interdisciplinaria cuidados paliativos': 'interdisciplinaria cuidados paliativos medicos',
+  'bioquimica clinica (area inmunologia)': 'bioquimica clinica-area inmunologia',
+  'bioquimica clinica (endocrinologia)': 'bioquimica clinica-area endocrinologia',
+  'bioquimica clinica (hematologia)': 'bioquimica clinica-area hematologia',
+  'bioquimica clinica (emergentologia)': 'bioquimica clinica- area emergentologia',
+  'bioquimica clinica sin especialidad': 'bioquimica clinica',
+  // Fusión obstétrica (decisión de negocio, oct-2026): "obstetrica" (la
+  // profesional) y "obstetricia" (la disciplina) son la misma especialidad en
+  // los puestos de obstétrica. Se unifican a "obstetricia" para no duplicarla.
+  'obstetrica': 'obstetricia',
+}
+
+// Aplica el mapeo de fusión sobre un nombre ya normalizado (minúscula sin
+// tilde). Si no es una variante fusionada, devuelve el nombre tal cual.
+export function canonicalizarEspecialidad(nombreNorm: string): string {
+  return EQUIVALENCIAS_ESPECIALIDAD[nombreNorm] ?? nombreNorm
+}
+
+// Valores que el SIAL trae en la columna especialidad pero que NO son una
+// especialidad real: placeholders de "sin dato". Decisión de negocio (Jorge,
+// oct-2026): "SIN ESPECIALIDAD" NO debe crearse como especialidad del catálogo
+// ni pisar la especialidad vigente — se trata EXACTAMENTE igual que un valor
+// vacío, para que aplique la cascada (fallback por puesto -> conservar anterior).
+// Sin esto el import creaba una especialidad basura "sin especialidad" por
+// puesto y la asignaba a los cargos de guardia médica (bug detectado oct-2026).
+const ESPECIALIDAD_NO_REAL = new Set<string>([
+  'sin especialidad',
+  '(sin especificar)',
+  's/e',
+  's / e',
+])
+
+// Normaliza el valor de especialidad del SIAL a null cuando es un placeholder de
+// "sin dato" (ver ESPECIALIDAD_NO_REAL), o lo devuelve tal cual si es real.
+export function especialidadSialReal(especialidad: string | null | undefined): string | null {
+  if (especialidad == null) return null
+  const norm = normalizarTexto(especialidad)
+  if (!norm || ESPECIALIDAD_NO_REAL.has(norm)) return null
+  return especialidad
+}
+
 export async function resolverEspecialidadPuestoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
@@ -159,8 +259,13 @@ export async function resolverEspecialidadPuestoId(
   especialidad: string | null,
   nombrePuesto?: string | null,
 ): Promise<string | null> {
-  // 1. Especialidad del padrón (médicos). Si vino, manda.
-  let nombreCurado = normalizarTexto(especialidad).slice(0, 200)
+  // 1. Especialidad del padrón (médicos). Si vino, manda. Se canonicaliza para
+  //    no reintroducir variantes ya fusionadas (ver EQUIVALENCIAS_ESPECIALIDAD).
+  //    Antes se descarta "SIN ESPECIALIDAD" y placeholders equivalentes: no son
+  //    una especialidad real, se tratan como vacío para que aplique el fallback
+  //    por puesto y, si no es derivable, el caller conserve la anterior.
+  const especialidadReal = especialidadSialReal(especialidad)
+  let nombreCurado = canonicalizarEspecialidad(normalizarTexto(especialidadReal).slice(0, 200))
 
   // 2. Fallback (no médicos): si el padrón no trajo especialidad, derivarla del
   //    nombre del puesto. derivarEspecialidadDesdePuesto ya devuelve minúscula

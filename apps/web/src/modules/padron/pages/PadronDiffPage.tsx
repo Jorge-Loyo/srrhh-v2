@@ -601,7 +601,7 @@ export function PadronDiffPage() {
                   <th className="px-4 py-3 font-semibold rounded-tl-lg">ID SIAL</th>
                   <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
                   <th className="px-4 py-3 font-semibold">Hospital</th>
-                  <th className="px-4 py-3 font-semibold">Escalafón</th>
+                  <th className="px-4 py-3 font-semibold">Carrera</th>
                   <th className="px-4 py-3 font-semibold">Puesto</th>
                   <th className="px-4 py-3 font-semibold">Especialidad</th>
                   {tab === 'eliminado' && <th className="px-4 py-3 font-semibold">Código cargo</th>}

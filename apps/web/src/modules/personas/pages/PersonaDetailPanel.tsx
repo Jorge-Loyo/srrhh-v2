@@ -93,7 +93,11 @@ export function PersonaDetailPanel() {
   // el header de abajo.
   const cargoVigente = ocupacionesVisibles.find((o) => !o.hasta && !o.situacionRevista?.toLowerCase().includes('retencion'))
     ?? ocupacionesVisibles.find((o) => !o.hasta)
-  const especialidadPrincipal = cargoVigente ? (cargoVigente.cargo.especialidadLegacy ?? cargoVigente.cargo.especialidad) : null
+  // Preferir la especialidad del catálogo (FK especialidadPuesto, fuente de
+  // verdad) sobre el snapshot legacy — que quedó stale y vacío en muchos cargos.
+  const especialidadPrincipal = cargoVigente
+    ? (cargoVigente.cargo.especialidadPuesto?.nombre ?? cargoVigente.cargo.especialidadLegacy ?? cargoVigente.cargo.especialidad)
+    : null
 
   const idSialPersona = p.ocupaciones[0]?.idSialRol?.split('-')[0] ?? null
 
@@ -292,7 +296,6 @@ export function PersonaDetailPanel() {
                     <dl className="space-y-3">
                       <Dato label="Cod. Cargo" value={o.cargo.codigo} />
                       <Dato label="ID SIAL" value={idSialBase} />
-                      <Dato label="Escalafon" value={o.cargo.escalafon?.nombre} />
                       <Dato label="Cod. Registro" value={o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} - ${capitalizarEtiqueta(o.cargo.codigoRegistro.literal)}` : null} />
                     </dl>
                     <dl className="space-y-3">
@@ -303,7 +306,7 @@ export function PersonaDetailPanel() {
                     </dl>
                     <dl className="space-y-3">
                       <Dato label="Reparticion" value={o.cargo.codigoRepa ? `${o.cargo.codigoRepa} - ${o.cargo.descripcionRepa}` : o.cargo.descripcionRepa} />
-                      <Dato label="Especialidad" value={o.cargo.especialidadLegacy ?? o.cargo.especialidad} />
+                      <Dato label="Especialidad" value={o.cargo.especialidadPuesto?.nombre ?? o.cargo.especialidadLegacy ?? o.cargo.especialidad} />
                       <Dato label="Desde" value={formatFecha(o.cargoDesdeFecha)} />
                       {!esBaja && <Dato label="Hasta" value={formatFecha(o.cargoHastaFecha)} />}
                     </dl>
@@ -356,7 +359,7 @@ export function PersonaDetailPanel() {
                 <th className="px-4 py-3 font-semibold">Id SIAL Rol</th>
                 <th className="px-4 py-3 font-semibold">Cod. Cargo</th>
                 <th className="px-4 py-3 font-semibold">Puesto</th>
-                <th className="px-4 py-3 font-semibold">Escalafon</th>
+                <th className="px-4 py-3 font-semibold">Cod. Registro</th>
                 <th className="px-4 py-3 font-semibold">Hospital</th>
                 <th className="px-4 py-3 font-semibold">Especialidad</th>
                 <th className="px-4 py-3 font-semibold">Desde</th>
@@ -381,9 +384,9 @@ export function PersonaDetailPanel() {
                         }
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.literalPuesto ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.escalafon?.nombre ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.codigoRegistro ? `${o.cargo.codigoRegistro.codigo} - ${o.cargo.codigoRegistro.literal}` : '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.hospital?.sigla ?? '—'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidadLegacy ?? o.cargo.especialidad ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{o.cargo.especialidadPuesto?.nombre ?? o.cargo.especialidadLegacy ?? o.cargo.especialidad ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoDesdeFecha) ?? '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(o.cargoHastaFecha) ?? '—'}</td>
                       <td className="px-4 py-3">
@@ -495,7 +498,6 @@ export function PersonaDetailPanel() {
                   <th className="px-4 py-3 font-semibold">Fecha</th>
                   <th className="px-4 py-3 font-semibold">ID SIAL Rol</th>
                   <th className="px-4 py-3 font-semibold">Hospital</th>
-                  <th className="px-4 py-3 font-semibold">Escalafón</th>
                   <th className="px-4 py-3 font-semibold">Puesto</th>
                   <th className="px-4 py-3 font-semibold">Especialidad</th>
                   <th className="px-4 py-3 font-semibold">Situación</th>
@@ -510,7 +512,6 @@ export function PersonaDetailPanel() {
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{h.idSialRol}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.hospitalSigla ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-xs text-gray-600">{h.escalafon ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.literalPuesto ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.especialidad ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{h.situacionRevista ?? '—'}</td>

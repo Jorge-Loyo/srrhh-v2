@@ -32,6 +32,7 @@ export const grupoDotacionSchema = z.object({
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   puestoNombre: z.array(z.string()).optional(),
   especialidadNombre: z.array(z.string()).optional(),
+  grupoEspecialidad: z.array(z.string()).optional(),
   codigoRegistroId: z.array(z.string().uuid()).optional(),
   regimen: z.array(z.string()).optional(),
   tipoOrigen: z.array(z.string()).optional(),
@@ -97,6 +98,7 @@ export const dotacionQuerySchema = z.object({
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
   puestoNombre: csv(),
   especialidadNombre: csv(),
+  grupoEspecialidad: csv(),
   codigoRegistroId: csv(),
   regimen: csv(),
   tipoOrigen: csv(), // 'R' | 'TTR' | 'normal'

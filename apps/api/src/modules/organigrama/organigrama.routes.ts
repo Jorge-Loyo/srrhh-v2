@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { organigramaQuerySchema } from './organigrama.schema.js'
-import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService } from './organigrama.service.js'
+import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, getVacantesConduccionService, getCargosConduccionHuerfanosService } from './organigrama.service.js'
 
 export async function organigramaRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -15,6 +15,25 @@ export async function organigramaRoutes(app: FastifyInstance) {
     const result = await getOrganigramaService(query)
     return reply.send(result)
   })
+
+  // S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante
+  // activo). Query opcional `sigla` para acotar a un efector.
+  app.get('/vacantes', async (request, reply) => {
+    const q = request.query as { sigla?: string; escalafon?: string } | undefined
+    const result = await getVacantesConduccionService({ sigla: q?.sigla, escalafon: q?.escalafon })
+    return reply.send({ data: result })
+  })
+
+  // S24-7 (complemento): cargos de conducción huérfanos (nodo eliminado del
+  // árbol). Para que RRHH decida darlos de baja o conservarlos. Solo gestión.
+  app.get(
+    '/cargos-huerfanos',
+    { preHandler: requirePermiso({ modulo: 'configuracion', accion: 'gestionar_organigrama' }) },
+    async (_request, reply) => {
+      const result = await getCargosConduccionHuerfanosService()
+      return reply.send({ data: result })
+    }
+  )
 
   app.post(
     '/upload',

@@ -382,7 +382,12 @@ model Persona {
 
 model Cargo {
   id                String       @id @default(uuid()) @db.Uuid
-  idSial            String       @unique @map("id_sial") @db.VarChar(50)
+  // id_sial = identificador del SIAL del gobierno. Es dato EXTERNO: el sistema
+  // NO lo inventa, lo trae del padrón. Nullable (S24): un cargo de conducción
+  // vacante generado desde el organigrama no tiene id_sial porque nadie lo
+  // ocupa — cuando una persona lo ocupe, el padrón le asigna el id_sial real.
+  // El identificador que SÍ genera el sistema es `codigo` (CPH-D-xxx).
+  idSial            String?      @unique @map("id_sial") @db.VarChar(50)
   // Código interno del sistema (distinto del id_sial, que es del SIAL del
   // gobierno) — nomenclatura heredada del sistema legacy dotacion-rrhh
   // (Doc/REGLAS_NEGOCIO.MD ahí, sección 3): {CARRERA}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos},
@@ -451,6 +456,19 @@ model Cargo {
   // Primaria ni de la estructura fija de la Subsecretaría.
   cesacId      String? @map("cesac_id") @db.Uuid
   unidadFijaId String? @map("unidad_fija_id") @db.Uuid
+
+  // S24-3: origen del cargo, para distinguir los cargos de conducción generados
+  // a partir del organigrama (S24-4) de los que vienen del padrón o del alta
+  // manual, y poder re-sincronizarlos sin tocar los reales.
+  //   'padron'      = creado/actualizado por el import del padrón (default)
+  //   'organigrama' = cargo de conducción vacante derivado del organigrama (S24)
+  //   'manual'      = alta manual de cargo
+  origen          String  @default("padron") @db.VarChar(15)
+  // S24: señalización de calidad de dato para los cargos derivados del
+  // organigrama que RRHH debe revisar (régimen inconsistente con el escalafón
+  // del personal, o nodo sin dotación). No bloquea la generación.
+  revisionDato    Boolean @default(false) @map("revision_dato")
+  revisionMotivo  String? @map("revision_motivo") @db.VarChar(200)
 
   // Relaciones
   hospital        Hospital        @relation(fields: [hospitalId], references: [id])
@@ -655,6 +673,9 @@ model PadronHistorico {
   @@index([personaId])
   @@index([cargoId])
   @@index([cuil])
+  // S24: evolución de dotación — intervalo de vigencia por rol (LEAD sobre
+  // id_sial_rol ordenado por fecha). Sin este índice la serie tardaba minutos.
+  @@index([idSialRol, fechaAsignada])
   @@map("padron_historico")
 }
 
@@ -1556,6 +1577,12 @@ model EspecialidadPuesto {
   // S22-6: auto-alta revisable del Dotaneitor (especialidad sin match → se crea
   // con pendiente_curar=true, se cura en la pantalla de mantenimiento).
   pendienteCurar Boolean  @default(false) @map("pendiente_curar")
+  // S25: grupo/especialidad "padre" para agrupar sub-especialidades sin tener
+  // que reescribir las especialidades existentes. La especialidad del cargo es
+  // la sub-especialidad (el detalle); `grupo` es el agrupador que se muestra
+  // arriba (ej. las decenas de variantes de bioquímica se agrupan en
+  // "Bioquímica", "Bioquímica Clínica" y "Hemoterapia"). NULL = sin agrupar.
+  grupo        String?    @db.VarChar(120)
 
   puesto PuestoCargo @relation(fields: [puestoCargId], references: [id], onDelete: Cascade)
   cargos              Cargo[]

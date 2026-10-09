@@ -1,7 +1,19 @@
 import { useEffect, useRef, useCallback, memo, useMemo, useState } from 'react'
-import { ChevronRightIcon, ChevronDownIcon, UserIcon, BriefcaseIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline'
+import {
+  ChevronRightIcon,
+  ChevronDownIcon,
+  UserIcon,
+  BriefcaseIcon,
+  BuildingOfficeIcon,
+} from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
-import { tipoColor, stripRedundantPrefix, agruparDept, esDireccionAdjuntaGestion, UMBRAL_DEPT } from '../lib/organigramaHelpers'
+import {
+  tipoColor,
+  stripRedundantPrefix,
+  agruparDept,
+  esDireccionAdjuntaGestion,
+  UMBRAL_DEPT,
+} from '../lib/organigramaHelpers'
 import type { OrganigramaNodo, OrganigramaPersona } from '../hooks/useOrganigrama'
 import type { GrupoDept } from '../lib/organigramaHelpers'
 
@@ -24,8 +36,13 @@ interface Props {
 
 // Nodo hoja de acordeón para grupos DEPT
 const GrupoDeptAcordeon = memo(function GrupoDeptAcordeon({
-  grupo, depth, onPersonaClick, forceOpenIds, highlightId,
-  isOpen, onToggle,
+  grupo,
+  depth,
+  onPersonaClick,
+  forceOpenIds,
+  highlightId,
+  isOpen,
+  onToggle,
 }: {
   grupo: GrupoDept
   depth: number
@@ -60,7 +77,11 @@ const GrupoDeptAcordeon = memo(function GrupoDeptAcordeon({
         onClick={() => onToggle(grupo.label)}
       >
         <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-gray-400">
-          {isOpen ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />}
+          {isOpen ? (
+            <ChevronDownIcon className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronRightIcon className="w-3.5 h-3.5" />
+          )}
         </span>
         <BuildingOfficeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
         <span className="text-sm font-semibold text-blue-700">{grupo.label}</span>
@@ -86,8 +107,13 @@ const GrupoDeptAcordeon = memo(function GrupoDeptAcordeon({
 })
 
 export const TreeNode = memo(function TreeNode({
-  node, depth = 0, onPersonaClick, forceOpenIds, highlightId,
-  isOpen: isOpenProp, onToggle,
+  node,
+  depth = 0,
+  onPersonaClick,
+  forceOpenIds,
+  highlightId,
+  isOpen: isOpenProp,
+  onToggle,
 }: Props) {
   // Nodo raíz (depth=0) maneja su propio estado; el resto es controlado por el padre
   const [rootOpen, setRootOpen] = useState(true)
@@ -182,7 +208,11 @@ export const TreeNode = memo(function TreeNode({
           }`}
         >
           {hasChildren ? (
-            isOpen ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />
+            isOpen ? (
+              <ChevronDownIcon className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRightIcon className="w-3.5 h-3.5" />
+            )
           ) : (
             // Marcador de nodo hoja — antes acá no se renderizaba nada y la
             // única forma de notar "esto no se puede desplegar" era fijarse
@@ -192,22 +222,36 @@ export const TreeNode = memo(function TreeNode({
           )}
         </button>
 
-        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 mt-0.5 ${tipoColor(node.tipo)}`}>
+        <span
+          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 mt-0.5 ${tipoColor(node.tipo)}`}
+        >
           {node.tipo}
         </span>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 leading-tight">{stripRedundantPrefix(node.nombre)}</p>
+          <p className="text-sm font-medium text-gray-900 leading-tight">
+            {stripRedundantPrefix(node.nombre)}
+          </p>
           {node.persona ? (
             <p
               className="text-xs text-secondary flex items-center gap-1 mt-0.5 cursor-pointer hover:underline"
-              onClick={() => onPersonaClick({ persona: node.persona!, nodeName: stripRedundantPrefix(node.nombre), nodeTitle: node.tipo })}
+              onClick={() =>
+                onPersonaClick({
+                  persona: node.persona!,
+                  nodeName: stripRedundantPrefix(node.nombre),
+                  nodeTitle: node.tipo,
+                })
+              }
             >
               <UserIcon className="w-3 h-3 flex-shrink-0" />
               {node.persona.nombre}
-              {node.persona.cargo && <span className="text-gray-500 ml-1">· {node.persona.cargo}</span>}
+              {node.persona.cargo && (
+                <span className="text-gray-500 ml-1">· {node.persona.cargo}</span>
+              )}
               {node.persona.codigoCargo && (
-                <span className="font-mono text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded ml-1">{node.persona.codigoCargo}</span>
+                <span className="font-mono text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded ml-1">
+                  {node.persona.codigoCargo}
+                </span>
               )}
             </p>
           ) : node.cargoVacante ? (
@@ -225,11 +269,14 @@ export const TreeNode = memo(function TreeNode({
             <p className="text-xs text-gray-400 mt-0.5 italic">Guardia / Residencia</p>
           ) : node.razonSinCargo === 'dato_incompleto' ? (
             <p className="text-xs text-gray-400 mt-0.5 italic">Dato incompleto en padrón</p>
-          ) : (
+          ) : node.tipo ===
+            'REGIMEN' ? null /* Los nodos REGIMEN son agrupadores de escalafón, no cargos — no pueden estar "vacantes" */ : (
             <p className="text-xs text-amber-600 font-medium mt-0.5 italic">Vacante</p>
           )}
           {node.id && node.tipo !== 'REGIMEN' && (
-            <span className="inline-block text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded mt-1">{node.id}</span>
+            <span className="inline-block text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded mt-1">
+              {node.id}
+            </span>
           )}
         </div>
       </div>

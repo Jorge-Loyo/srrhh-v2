@@ -5,7 +5,7 @@ import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales, useEscalafones, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useEscalafones, useCodigosRegistro, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import type { FiltrosCatalogoValores } from '@/shared/components/filtros/FiltrosCatalogo'
 import {
   FiltrosCatalogoUniones,
@@ -41,6 +41,7 @@ export function CargosPage() {
   const personaSearch = searchParams.get('personaSearch') ?? ''
   const hospitalId    = searchParams.get('hospitalId') ?? ''
   const escalafonId   = searchParams.get('escalafonId') ?? ''
+  const codigoRegistroId = searchParams.get('codigoRegistroId') ?? ''
   const modalidad     = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
@@ -89,6 +90,7 @@ export function CargosPage() {
     ...(personaSearchDebounced && { personaSearch: personaSearchDebounced }),
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
+    ...(codigoRegistroId && { codigoRegistroId }),
     ...(modalidad && { modalidad }),
     ...(puestoCargoId      && { puestoCargoId }),
     ...(especialidadPuestoId && { especialidadPuestoId }),
@@ -103,6 +105,7 @@ export function CargosPage() {
   // acá se leen (misma cache de TanStack) solo para los labels de los chips.
   const { data: hospitales } = useHospitales()
   const { data: escalafones } = useEscalafones(true)
+  const { data: codigosRegistro } = useCodigosRegistro()
   const { data: puestos } = usePuestosCargoNormalizados(
     escalafonId || undefined,
     modalidad || undefined,
@@ -119,6 +122,7 @@ export function CargosPage() {
       const mapa: Record<keyof FiltrosCatalogoValores, string> = {
         reparticionId: 'hospitalId',
         escalafonId: 'escalafonId',
+        codigoRegistroId: 'codigoRegistroId',
         modalidad: 'modalidad',
         puestoCargoId: 'puestoCargoId',
         especialidadPuestoId: 'especialidadPuestoId',
@@ -135,6 +139,7 @@ export function CargosPage() {
   const valoresFiltros: FiltrosCatalogoValores = {
     reparticionId: hospitalId,
     escalafonId,
+    codigoRegistroId,
     modalidad,
     puestoCargoId,
     especialidadPuestoId,
@@ -146,6 +151,7 @@ export function CargosPage() {
     const nuevo: GrupoCatalogo = {
       reparticionId: hospitalId,
       escalafonId,
+      codigoRegistroId,
       modalidad,
       puestoCargoId,
       especialidadPuestoId,
@@ -155,6 +161,12 @@ export function CargosPage() {
           ? (() => {
               const e = escalafones?.find((e) => e.id === escalafonId)
               return e ? escalafonLabel(e.nombre) : undefined
+            })()
+          : undefined,
+        codigoRegistro: codigoRegistroId
+          ? (() => {
+              const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
+              return cr ? `${cr.codigo} — ${cr.literal}` : undefined
             })()
           : undefined,
         modalidad: modalidad ? (modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)') : undefined,
@@ -167,7 +179,7 @@ export function CargosPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.set('grupos', JSON.stringify([...grupos, nuevo]))
-      for (const k of ['hospitalId', 'escalafonId', 'modalidad', 'puestoCargoId', 'especialidadPuestoId']) {
+      for (const k of ['hospitalId', 'escalafonId', 'codigoRegistroId', 'modalidad', 'puestoCargoId', 'especialidadPuestoId']) {
         next.delete(k)
       }
       next.delete('page')
@@ -209,7 +221,7 @@ export function CargosPage() {
           Agrupador: c.agrupador ?? '',
           'Unificador de Puesto': c.unificadorPuesto ?? '',
           Repartición: c.hospital?.sigla ?? '',
-          Escalafón: c.escalafon?.nombre ?? '',
+          Carrera: c.escalafon?.nombre ?? '',
           Régimen: c.regimen ?? '',
           Estado: ESTADO_LABEL[c.estado],
           Ocupación: c.ocupado ? 'Ocupado' : 'Vacante',
@@ -319,6 +331,10 @@ export function CargosPage() {
             const e = escalafones?.find((e) => e.id === escalafonId)
             chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
           }
+          if (codigoRegistroId) {
+            const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
+            chips.push({ label: cr ? `${cr.codigo} — ${cr.literal}` : codigoRegistroId, key: 'codigoRegistroId' })
+          }
           if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
@@ -336,7 +352,8 @@ export function CargosPage() {
                   {chip.label}
                   <button
                     onClick={() => {
-                      if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+                      if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', codigoRegistroId: '', modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
+                      else if (chip.key === 'codigoRegistroId') onChangeFiltros({ codigoRegistroId: '' })
                       else if (chip.key === 'modalidad') onChangeFiltros({ modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
                       else if (chip.key === 'hospitalId') onChangeFiltros({ reparticionId: '' })
                       else if (chip.key === 'puestoCargoId') onChangeFiltros({ puestoCargoId: '', especialidadPuestoId: '' })
@@ -381,7 +398,7 @@ export function CargosPage() {
                   <tr>
                     <th className="px-4 py-3 font-semibold rounded-tl-lg">Código Cargo</th>
                     <th className="px-4 py-3 font-semibold">Repartición</th>
-                    <th className="px-4 py-3 font-semibold">Escalafón</th>
+                    <th className="px-4 py-3 font-semibold">Carrera</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
                     <th className="px-4 py-3 font-semibold">Estado</th>
@@ -396,7 +413,12 @@ export function CargosPage() {
                   {data.data.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-medium text-gray-800">{c.codigo ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        <span className="font-medium">{c.hospital?.sigla ?? '—'}</span>
+                        {c.descripcionRepa && (
+                          <span className="block text-xs text-gray-400 leading-tight">{c.descripcionRepa}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{capitalizar(c.literalPuesto) || '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy) || '—'}</td>

@@ -306,7 +306,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
       {/* Campos — se habilitan tras confirmar expediente */}
       <div className={`space-y-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
 
-        {/* Hospital + Escalafón */}
+        {/* Hospital + Carrera */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Repartición <span className="text-danger">*</span></label>
@@ -316,7 +316,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Escalafón <span className="text-danger">*</span></label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Carrera <span className="text-danger">*</span></label>
             <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
               <option value="">Seleccionar...</option>
               {escalafonesFiltrados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
@@ -646,7 +646,7 @@ async function generarPDF(solicitud: SolicitudAlta) {
 
   autoTable(doc, {
     startY: 80,
-    head: [['N°', 'Código', 'Hospital', 'Escalafón', 'Puesto']],
+    head: [['N°', 'Código', 'Hospital', 'Carrera', 'Puesto']],
     body: codigos.map((codigo, i) => [
       String(i + 1),
       codigo,
@@ -717,7 +717,7 @@ function HistorialSolicitudes({
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <div><span className="text-gray-500">Puesto:</span> <span className="font-medium text-gray-800">{modalSolicitud.literalPuesto}</span></div>
                 <div><span className="text-gray-500">Hospital:</span> <span className="font-medium text-gray-800">{modalSolicitud.hospital ? `${modalSolicitud.hospital.sigla} — ${modalSolicitud.hospital.nombre}` : '—'}</span></div>
-                <div><span className="text-gray-500">Escalafón:</span> <span className="font-medium text-gray-800">{modalSolicitud.escalafon?.nombre ?? '—'}</span></div>
+                <div><span className="text-gray-500">Carrera:</span> <span className="font-medium text-gray-800">{modalSolicitud.escalafon?.nombre ?? '—'}</span></div>
                 <div><span className="text-gray-500">Cantidad:</span> <span className="font-medium text-gray-800">{modalSolicitud.cantidad}</span></div>
                 <div><span className="text-gray-500">Desde:</span> <span className="font-medium text-gray-800">{modalSolicitud.desde ? modalSolicitud.desde.slice(0, 10) : '—'}</span></div>
                 <div><span className="text-gray-500">Solicitado por:</span> <span className="font-medium text-gray-800">{modalSolicitud.solicitadoPor?.username ?? '—'}</span></div>

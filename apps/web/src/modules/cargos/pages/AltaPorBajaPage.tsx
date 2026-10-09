@@ -74,7 +74,7 @@ function ModalDetalleBaja({
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Cargo</p>
             <Row label="Código" value={<span className="font-mono text-xs">{baja.cargo?.codigo}</span>} />
             <Row label="Puesto" value={baja.cargo?.literalPuesto} />
-            <Row label="Escalafón" value={baja.cargo?.escalafon?.nombre} />
+            <Row label="Carrera" value={baja.cargo?.escalafon?.nombre} />
             <Row label="Hospital" value={
               baja.cargo?.hospital
                 ? `${baja.cargo.hospital.sigla} — ${baja.cargo.hospital.nombre}`

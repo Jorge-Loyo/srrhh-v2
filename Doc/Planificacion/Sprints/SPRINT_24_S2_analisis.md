@@ -109,3 +109,33 @@ el resto, el régimen manda y la inconsistencia se marca con `revisionDato=true`
   sobre la jefatura cierra la vacante; una en retención la deja abierta.
 - **Sin cambios de código respecto del S24-1** salvo la corrección documental TEC→CEETPS.
 - **Siguiente paso (S24-3):** migración para `Cargo.origen` + `Cargo.revisionDato`/`revisionMotivo`.
+
+## 5. Análisis de reparticiones con >1 cargo de conducción (hallazgo 2026-10)
+
+Al verificar el detalle de cargo surgió una inquietud: ¿un `codigo_repa` puede tener más de un
+cargo de conducción vigente? Regla de negocio del usuario: **un `codigo_repa` tiene un solo titular
+de conducción vigente** (la jefatura máxima); los jefes inferiores que cuelgan deberían tener su
+propio código, y los cargos de ejecución sí pueden ser muchos.
+
+Se encontraron **179 `codigo_repa` con >1 cargo de conducción vigente/validación**, TODOS
+`origen='padron'` (ninguno generado por el S24). Desglose tras análisis con datos reales:
+
+| Patrón                                                | Repas | Explicación                                                                                                                                                                                                                           | ¿Problema?              |
+| ----------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Solo jefes inferiores (sin titular máximo)            | 116   | El `codigo_repa` del SIAL agrupa una repartición entera (dirección + sus jefes de unidad que no tienen código propio). Normal del SIAL.                                                                                               | No                      |
+| 1 titular máximo + jefes inferiores                   | 28    | La regla del usuario tal cual: un director + jefes que cuelgan.                                                                                                                                                                       | No                      |
+| 1 titular vigente + salientes en `validacion_vacante` | 23    | Rotación normal: uno se va (queda en validación), otro entra.                                                                                                                                                                         | No                      |
+| **9 directores con doble rol SIAL**                   | 9     | La MISMA persona ocupa 2 cargos `CPH-D` del mismo hospital. Clave: **uno tiene JCAT (la jefatura real), el otro NO** (segundo rol SIAL de la persona). Ej. Elizalde: Indart en `CPH-D-000006` (JCAT P60) + `CPH-D-000007` (sin JCAT). | El sin-JCAT no interesa |
+
+**Conclusión — el JCAT define la jefatura.** Tal como la regla de Enfermería (el jefe se identifica
+por el JCAT, no por el escalafón), la **jefatura máxima de un `codigo_repa` es el cargo de conducción
+con JCAT**. Un cargo de conducción ocupado SIN JCAT que tiene un gemelo (misma persona, mismo
+`codigo_repa`) CON JCAT es un **rol redundante** del SIAL — no es una segunda dirección.
+
+**Decisión (usuario):** esos cargos de conducción sin JCAT con gemelo-con-JCAT **se ocultan del
+sistema** (listado de cargos, organigrama) — no interesan. Son 9 hoy. Se filtran dinámicamente (no
+se persiste marca ni se borran): un cargo de conducción ocupado sin JCAT que tenga otro cargo de
+conducción de la misma persona en el mismo `codigo_repa` con JCAT, no se muestra.
+
+**El dato del padrón NO tiene basura que limpiar** — los 179 son todos legítimos o roles redundantes
+del SIAL que simplemente no se muestran. El S24 no los causó.

@@ -50,13 +50,15 @@ function countWrappedLines(text: string, availableWidth: number): number {
 // código de abajo. El código de cargo (si lo hay) suma ancho en la misma línea
 // de la persona, se aproxima con ~8 caracteres extra.
 const PERSONA_LINE_H = 13
-function estimateNodeHeight(name: string | null, persona: OrganigramaNodo['persona']): number {
+function estimateNodeHeight(name: string | null, persona: OrganigramaNodo['persona'], tipo?: string): number {
   const unidadLines = countWrappedLines(stripRedundantPrefix(name), NODE_W - NAME_PADDING_X)
   let personaLines = 0
   if (persona?.nombre) {
     const sufijo = persona.codigoCargo ? ` ${'x'.repeat(persona.codigoCargo.length + 2)}` : ''
     // -16px extra: el icono de usuario ocupa ancho a la izquierda del texto.
     personaLines = countWrappedLines(persona.nombre + sufijo, NODE_W - NAME_PADDING_X - 16)
+  } else if (tipo === 'REGIMEN') {
+    personaLines = 0 // los REGIMEN no muestran persona ni "Vacante"
   } else {
     personaLines = 1 // "Vacante"
   }
@@ -151,7 +153,7 @@ function buildGraph(
         tipo: n.tipo, nombre: n.nombre, persona: n.persona, codigo: n.id,
         hasChildren: n.hijos.length > 0, childCount: n.hijos.length,
         isActive: true, isGroup: false,
-        height: estimateNodeHeight(n.nombre, n.persona),
+        height: estimateNodeHeight(n.nombre, n.persona, n.tipo),
         onPersonaClick,
         isHighlighted: highlightId != null && n.id === highlightId,
       },
@@ -212,7 +214,7 @@ function buildGraph(
         tipo: root.tipo, nombre: root.nombre, persona: root.persona, codigo: root.id,
         hasChildren: root.hijos.length > 0, childCount: root.hijos.length,
         isActive: true, isGroup: false,
-        height: estimateNodeHeight(root.nombre, root.persona),
+        height: estimateNodeHeight(root.nombre, root.persona, root.tipo),
         onPersonaClick,
         isHighlighted: highlightId != null && root.id === highlightId,
       },
@@ -253,7 +255,7 @@ function buildGraph(
           tipo: m.tipo, nombre: m.nombre, persona: m.persona, codigo: m.id,
           hasChildren: m.hijos.length > 0, childCount: m.hijos.length,
           isActive: false, isGroup: false,
-          height: estimateNodeHeight(m.nombre, m.persona), onPersonaClick,
+          height: estimateNodeHeight(m.nombre, m.persona, m.tipo), onPersonaClick,
           isHighlighted: highlightId != null && m.id === highlightId,
         },
       })
@@ -277,7 +279,7 @@ function buildGraph(
           tipo: n.tipo, nombre: n.nombre, persona: n.persona, codigo: n.id,
           hasChildren: n.hijos.length > 0, childCount: n.hijos.length,
           isActive: false, isGroup: false,
-          height: estimateNodeHeight(n.nombre, n.persona),
+          height: estimateNodeHeight(n.nombre, n.persona, n.tipo),
           onPersonaClick,
           isHighlighted: highlightId != null && n.id === highlightId,
         },
@@ -367,6 +369,8 @@ function OrgNode({ data }: NodeProps<Node<OrgNodeData>>) {
               {persona.codigoCargo && <span className="font-mono text-[9px] bg-gray-100 text-gray-400 px-1 rounded ml-0.5 whitespace-nowrap">{persona.codigoCargo}</span>}
             </span>
           </p>
+        ) : tipo === 'REGIMEN' ? (
+          null /* Los nodos REGIMEN son agrupadores de escalafón, no cargos — no pueden estar "vacantes" */
         ) : (
           <p className="text-[10px] text-amber-600 font-medium italic mt-0.5">Vacante</p>
         )}
