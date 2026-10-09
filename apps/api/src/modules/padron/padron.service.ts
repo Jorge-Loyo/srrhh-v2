@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
+import { prefijoDeCargo, maxSecuencialCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import {
   cargarCatalogoPuestos,
   resolverPuestoCargoId,
@@ -1620,6 +1620,46 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
+
+          // RECLASIFICACIÓN DE CARRERA: el código de registro MANDA sobre la
+          // carrera (escalafón). Si el nuevo cod. registro pertenece a un
+          // escalafón distinto del que tiene el cargo, el cargo cambió de
+          // carrera (ej. suplente de guardia que pasa a CPH — caso Giordano,
+          // oct-2026). Hay que re-resolver escalafón + puesto + especialidad en
+          // la carrera nueva y regenerar el código con el prefijo correcto; si
+          // no, el cargo queda clasificado en la carrera vieja y no aparece en
+          // los filtros/listados de su carrera real.
+          const escDestino = escalafonPorCodRegCache.get(crCambio.valorNuevo)
+          if (escDestino) {
+            const cargoActual = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { escalafonId: true, literalPuesto: true, unificadorPuesto: true, especialidadLegacy: true },
+            })) as { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null; especialidadLegacy: string | null } | null
+            if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
+              const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
+              const unifNuevo = (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
+              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+                escalafonId: escDestino.id,
+                literalPuesto: litNuevo,
+                unificadorPuesto: unifNuevo,
+              })
+              const espId = await resolverEspecialidadPuestoId(
+                tx, catalogoPuestos, puesto.id, espNuevo, puesto.nombre,
+              )
+              const prefijoNuevo = prefijoDeCargo({
+                escalafon: escDestino.nombre,
+                unificadorPuesto: unifNuevo,
+                agrupador: null,
+                puestoCargo: puesto,
+              })
+              const codigoNuevo = await siguienteCodigoCargo(prefijoNuevo, tx)
+              updateCargo['escalafonId'] = escDestino.id
+              updateCargo['puestoCargoId'] = puesto.id
+              updateCargo['especialidadPuestoId'] = espId
+              updateCargo['codigo'] = codigoNuevo
+            }
+          }
         }
         // Si el padrón cambió la especialidad (especialidad_legacy), re-resolver
         // también la FK estructurada especialidad_puesto_id contra el catálogo
@@ -1629,7 +1669,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // detectado en oct-2026, caso Psicopedagogo/Vilariño). La resolución
         // aplica las equivalencias de fusión (ver resolverEspecialidadPuestoId),
         // así no reintroduce variantes ya fusionadas (Pediatria/Psicologia).
-        if (Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy')) {
+        // Nota: si hubo reclasificación de carrera arriba, ya se resolvió
+        // especialidadPuestoId en la carrera nueva — no re-resolver acá (lo
+        // haría con el puesto viejo). Solo corre cuando NO se reclasificó.
+        if (
+          Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId')
+        ) {
           const cargoActual = (await tx.cargo.findUnique({
             where: { id: ocupExistente.cargoId },
             select: { puestoCargoId: true },
