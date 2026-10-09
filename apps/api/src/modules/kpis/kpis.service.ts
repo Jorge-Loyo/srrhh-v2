@@ -889,7 +889,16 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
           PARTITION BY ult.mes, ult.persona_id,
             coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
             ${puestoNormalizadoSql('ult')}
-          ORDER BY ult.id_sial_rol
+          -- El representante NUNCA debe ser una suplencia de guardia (código
+          -- SG-*): esa no es el cargo de la persona, es una habilitación para
+          -- cubrir guardias ADEMÁS de su cargo fijo. Si en la misma partición
+          -- conviven el cargo fijo (ej. CPH-POU) y la suplencia (SG), antes el
+          -- ORDER BY id_sial_rol podía elegir el SG (menor sufijo) y entonces el
+          -- filtro por carrera CPH descartaba a la persona → faltaba en el
+          -- conteo (caso Pratto/Kirsch, oct-2026). Se ordena primero por "no es
+          -- SG" para que gane el cargo fijo; a igualdad, por id_sial_rol.
+          ORDER BY (coalesce((SELECT codigo FROM cargos WHERE id = ult.cargo_id), '') LIKE 'SG-%') ASC,
+                   ult.id_sial_rol
         ) AS drn
       FROM ult
       WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
@@ -972,13 +981,17 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
       LEFT JOIN personas pe ON pe.id = a.persona_id
     ),
     -- Dedup espejo jefatura: un registro por persona + repartición + puesto.
+    -- Mismo criterio de orden que la serie: el representante NUNCA es una
+    -- suplencia de guardia (SG-*) si hay un cargo fijo en la misma partición,
+    -- para que serie y export cuenten el mismo conjunto (ver nota en la serie).
     dedup AS (
       SELECT
         ult.*,
         row_number() OVER (
           PARTITION BY ult.persona_id, coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
                        ${puestoNormalizadoSql('ult')}
-          ORDER BY ult.id_sial_rol
+          ORDER BY (coalesce((SELECT codigo FROM cargos WHERE id = ult.cargo_id), '') LIKE 'SG-%') ASC,
+                   ult.id_sial_rol
         ) AS drn
       FROM ult
       WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
