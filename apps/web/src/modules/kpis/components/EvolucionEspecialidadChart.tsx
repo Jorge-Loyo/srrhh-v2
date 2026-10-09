@@ -256,7 +256,8 @@ export function EvolucionEspecialidadChart() {
     siglas, carreras, puestos, especialidades, gruposEspecialidad, mesDesde, mesHasta, grupos,
   }
 
-  // Lo que se envía al backend = estado aplicado.
+  // GRÁFICO + EXPORT: usan el estado APLICADO (la consulta pesada corre solo al
+  // tocar "Aplicar").
   const filtros = {
     siglas: aplicado.siglas,
     carreras: aplicado.carreras,
@@ -266,6 +267,19 @@ export function EvolucionEspecialidadChart() {
     mesDesde: aplicado.mesDesde || undefined,
     mesHasta: aplicado.mesHasta || undefined,
     grupos: aplicado.grupos.length ? aplicado.grupos : undefined,
+  }
+
+  // DESPLEGABLES (facetado): usan el estado EN EDICIÓN, para que al elegir en un
+  // combo los demás se re-filtren en vivo con lo que queda compatible. Es una
+  // consulta liviana; la pesada (serie) espera al "Aplicar".
+  const filtrosEdicion = {
+    siglas,
+    carreras,
+    puestos,
+    especialidades,
+    gruposEspecialidad: gruposEspecialidad.length ? gruposEspecialidad : undefined,
+    // El rango de meses no acota el facetado de dimensiones; se omite acá.
+    grupos: grupos.length ? grupos : undefined,
   }
 
   // ¿El estado en edición difiere del aplicado? (habilita el botón Aplicar)
@@ -280,8 +294,9 @@ export function EvolucionEspecialidadChart() {
   }
 
   const { data: hospitales } = useHospitales()
-  // Opciones facetadas y serie: ambas sobre el estado APLICADO (Opción A).
-  const { data: opciones, isLoading: loadingOpciones } = useDotacionEvolucionOpciones(filtros)
+  // Opciones facetadas: sobre el estado EN EDICIÓN (dinámicas en vivo).
+  const { data: opciones, isLoading: loadingOpciones } = useDotacionEvolucionOpciones(filtrosEdicion)
+  // Serie: sobre el estado APLICADO (solo cambia al Aplicar).
   const { data: serie, isFetching } = useDotacionEvolucion(filtros)
   const exportar = useExportDotacionEvolucion()
 
@@ -546,7 +561,9 @@ export function EvolucionEspecialidadChart() {
       {/* ── Gráfico ───────────────────────────────────────────────────── */}
       {!haySeleccion ? (
         <p className="text-sm text-gray-400">
-          Elegí al menos un filtro (efector, carrera, puesto o especialidad) para ver la evolución mensual de la dotación.
+          {hayDimensionEnEdicion
+            ? 'Tocá «Aplicar filtros» para calcular la evolución con la selección actual.'
+            : 'Elegí al menos un filtro (efector, carrera, puesto o especialidad) y tocá «Aplicar filtros» para ver la evolución mensual de la dotación.'}
         </p>
       ) : isFetching ? (
         <div className="h-64 bg-gray-100 rounded animate-pulse" />
