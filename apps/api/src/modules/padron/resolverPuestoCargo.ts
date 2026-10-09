@@ -217,6 +217,10 @@ export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
   'bioquimica clinica (hematologia)': 'bioquimica clinica-area hematologia',
   'bioquimica clinica (emergentologia)': 'bioquimica clinica- area emergentologia',
   'bioquimica clinica sin especialidad': 'bioquimica clinica',
+  // Fusión obstétrica (decisión de negocio, oct-2026): "obstetrica" (la
+  // profesional) y "obstetricia" (la disciplina) son la misma especialidad en
+  // los puestos de obstétrica. Se unifican a "obstetricia" para no duplicarla.
+  'obstetrica': 'obstetricia',
 }
 
 // Aplica el mapeo de fusión sobre un nombre ya normalizado (minúscula sin
