@@ -172,7 +172,10 @@ export async function getKpisDotacionService(query: KpisDotacionQuery) {
           WHERE oesp.cargo_id = c.id
             AND oesp.hasta IS NULL
             AND (oesp.codigo_jefaturas IS NULL OR TRIM(oesp.codigo_jefaturas) IN ('', '0'))
-            AND coalesce(cjef.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+            -- Mismo literal de puesto; NO se exige codigo_repa idéntico (el SIAL
+            -- crea el fantasma con repa que difiere en 1-2 dígitos del real —
+            -- casos Charabora/Hernandez/Merino oct-2026). Una persona no ocupa
+            -- dos puestos del mismo literal de conducción a la vez.
             AND coalesce(cjef.literal_puesto, '') = coalesce(c.literal_puesto, '')
             AND ojef.codigo_jefaturas IS NOT NULL
             AND TRIM(ojef.codigo_jefaturas) NOT IN ('', '0')

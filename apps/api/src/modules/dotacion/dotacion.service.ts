@@ -23,7 +23,14 @@ const EXCLUIR_ESPEJO_JEFATURA = Prisma.sql`
       WHERE oej.persona_id = o.persona_id
         AND oej.hasta IS NULL
         AND cej.estado = 'vigente'
-        AND coalesce(cej.codigo_repa, '')    = coalesce(c.codigo_repa, '')
+        AND cej.id <> c.id
+        -- Mismo literal de puesto. NO se exige codigo_repa idéntico: el SIAL a
+        -- veces crea el cargo fantasma de jefatura con una repa que difiere en
+        -- 1-2 dígitos del real (ej. 40220500 vs 40220510, casos Charabora/
+        -- Hernandez/Merino oct-2026), y la coincidencia estricta de repa lo
+        -- dejaba escapar. Una persona no ocupa dos puestos del MISMO literal de
+        -- conducción en reparticiones distintas a la vez, así que basta
+        -- literal_puesto + hermano con J Cat para identificar el fantasma.
         AND coalesce(cej.literal_puesto, '') = coalesce(c.literal_puesto, '')
         AND oej.codigo_jefaturas IS NOT NULL
         AND TRIM(oej.codigo_jefaturas) NOT IN ('', '0')
