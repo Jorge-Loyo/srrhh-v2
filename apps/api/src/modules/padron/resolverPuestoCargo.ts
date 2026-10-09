@@ -192,6 +192,29 @@ export function canonicalizarEspecialidad(nombreNorm: string): string {
   return EQUIVALENCIAS_ESPECIALIDAD[nombreNorm] ?? nombreNorm
 }
 
+// Valores que el SIAL trae en la columna especialidad pero que NO son una
+// especialidad real: placeholders de "sin dato". Decisión de negocio (Jorge,
+// oct-2026): "SIN ESPECIALIDAD" NO debe crearse como especialidad del catálogo
+// ni pisar la especialidad vigente — se trata EXACTAMENTE igual que un valor
+// vacío, para que aplique la cascada (fallback por puesto -> conservar anterior).
+// Sin esto el import creaba una especialidad basura "sin especialidad" por
+// puesto y la asignaba a los cargos de guardia médica (bug detectado oct-2026).
+const ESPECIALIDAD_NO_REAL = new Set<string>([
+  'sin especialidad',
+  '(sin especificar)',
+  's/e',
+  's / e',
+])
+
+// Normaliza el valor de especialidad del SIAL a null cuando es un placeholder de
+// "sin dato" (ver ESPECIALIDAD_NO_REAL), o lo devuelve tal cual si es real.
+export function especialidadSialReal(especialidad: string | null | undefined): string | null {
+  if (especialidad == null) return null
+  const norm = normalizarTexto(especialidad)
+  if (!norm || ESPECIALIDAD_NO_REAL.has(norm)) return null
+  return especialidad
+}
+
 export async function resolverEspecialidadPuestoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
@@ -201,7 +224,11 @@ export async function resolverEspecialidadPuestoId(
 ): Promise<string | null> {
   // 1. Especialidad del padrón (médicos). Si vino, manda. Se canonicaliza para
   //    no reintroducir variantes ya fusionadas (ver EQUIVALENCIAS_ESPECIALIDAD).
-  let nombreCurado = canonicalizarEspecialidad(normalizarTexto(especialidad).slice(0, 200))
+  //    Antes se descarta "SIN ESPECIALIDAD" y placeholders equivalentes: no son
+  //    una especialidad real, se tratan como vacío para que aplique el fallback
+  //    por puesto y, si no es derivable, el caller conserve la anterior.
+  const especialidadReal = especialidadSialReal(especialidad)
+  let nombreCurado = canonicalizarEspecialidad(normalizarTexto(especialidadReal).slice(0, 200))
 
   // 2. Fallback (no médicos): si el padrón no trajo especialidad, derivarla del
   //    nombre del puesto. derivarEspecialidadDesdePuesto ya devuelve minúscula

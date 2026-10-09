@@ -12,6 +12,7 @@ import {
   cargarCatalogoPuestos,
   resolverPuestoCargoId,
   resolverEspecialidadPuestoId,
+  especialidadSialReal,
   normPuestoKey,
 } from './resolverPuestoCargo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
@@ -1676,7 +1677,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy') &&
           !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId')
         ) {
-          const espLegacyNueva = (updateCargo['especialidadLegacy'] ?? '').trim()
+          // "vacío = conservar". El placeholder "SIN ESPECIALIDAD" del SIAL se
+          // trata igual que vacío (especialidadSialReal -> null), así no dispara
+          // el re-resolve ni pisa la especialidad vigente con basura.
+          const espLegacyNueva = especialidadSialReal(
+            (updateCargo['especialidadLegacy'] ?? '').trim(),
+          )
           // Regla de negocio (Jorge, oct-2026): "vacío = conservar". Si el
           // padrón trae la especialidad VACÍA para un cargo que ya tenía una, NO
           // se re-resuelve (se conserva la anterior). Así CPH no pierde su
@@ -1684,7 +1690,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           // jefaturas y en cargas parciales) — el objetivo es cada vez MENOS
           // especialidades vacías. Solo se re-resuelve cuando el SIAL trae una
           // especialidad no vacía (esa manda).
-          if (espLegacyNueva !== '') {
+          if (espLegacyNueva) {
             const cargoActual = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
               select: { puestoCargoId: true },
@@ -1709,6 +1715,64 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           // SIAL tal cual llegó), la FK especialidad_puesto_id NO se toca cuando
           // viene vacía — se conserva.
         }
+
+        // Re-resolver el PUESTO cuando el literal del SIAL cambió DENTRO de la
+        // misma carrera (sin reclasificación de escalafón). Regla de negocio
+        // (Jorge, oct-2026): si el literal_puesto cambia (ej. "Psicologo de
+        // Planta" -> "Bioquimico de Planta", caso Lombardo), la FK
+        // puesto_cargo_id quedaba congelada en el puesto viejo mientras el texto
+        // sí se actualizaba — los filtros/vista usan la FK, así que el cargo
+        // aparecía en el puesto equivocado. Acá se re-apunta la FK al puesto que
+        // corresponde al nuevo literal, y se re-resuelve la especialidad bajo
+        // ese puesto. Si hubo reclasificación de carrera arriba, NO corre (ya se
+        // resolvió puestoCargoId con el escalafón destino).
+        if (
+          Object.prototype.hasOwnProperty.call(updateCargo, 'literalPuesto') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId') &&
+          !Object.prototype.hasOwnProperty.call(updateCargo, 'puestoCargoId')
+        ) {
+          const litNuevo = ((updateCargo['literalPuesto'] as string | null) ?? '').trim()
+          if (litNuevo) {
+            const cargoActualP = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { escalafonId: true, puestoCargoId: true, unificadorPuesto: true },
+            })) as {
+              escalafonId: string
+              puestoCargoId: string | null
+              unificadorPuesto: string | null
+            } | null
+            if (cargoActualP) {
+              const unif =
+                ((updateCargo['unificadorPuesto'] as string | null) ?? cargoActualP.unificadorPuesto) || null
+              const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+                escalafonId: cargoActualP.escalafonId,
+                literalPuesto: litNuevo,
+                unificadorPuesto: unif,
+              })
+              // Solo si el puesto REALMENTE cambió (evita reasignar entre
+              // duplicados homónimos y escribir de más).
+              if (puestoReResuelto.id !== cargoActualP.puestoCargoId) {
+                updateCargo['puestoCargoId'] = puestoReResuelto.id
+                // Re-resolver la especialidad bajo el nuevo puesto, con la misma
+                // cascada: SIAL si trae valor real, si no se conserva/deriva.
+                const espSial = especialidadSialReal(
+                  (updateCargo['especialidadLegacy'] as string | null) ?? null,
+                )
+                const espReResuelta = await resolverEspecialidadPuestoId(
+                  tx,
+                  catalogoPuestos,
+                  puestoReResuelto.id,
+                  espSial,
+                  puestoReResuelto.nombre,
+                )
+                // Si no resolvió (null), queda sin especialidad en el nuevo
+                // puesto — es correcto (no hay dónde reubicar la anterior).
+                updateCargo['especialidadPuestoId'] = espReResuelta
+              }
+            }
+          }
+        }
+
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }
       if (Object.keys(updateOcupacion).length > 0) {
