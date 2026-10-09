@@ -104,6 +104,21 @@ export async function cargarCatalogoPuestos(tx: TxCatalogo): Promise<CatalogoPue
 // podemos dejar el cargo sin crear por esto, se pierde la fila del SIAL).
 const SIN_ESPECIFICAR = '(sin especificar)'
 
+// Canonización del LITERAL del puesto (decisión de negocio, oct-2026): el SIAL
+// a veces trae un literal GENÉRICO que no debe existir como puesto propio porque
+// siempre es, en realidad, su variante de planta o de guardia. El puesto
+// genérico "farmaceutico" (sin "de planta"/"de guardia") es uno de esos: se
+// resuelve a "farmaceutico de guardia" cuando la modalidad es POU, y a
+// "farmaceutico de planta" cuando es POF. Así el import no vuelve a crear el
+// puesto genérico (que se desactivó) ni cuelga cargos de él.
+// Recibe el literal normalizado (minúscula sin tilde) y la modalidad ya resuelta.
+function canonicalizarLiteralPuesto(literalNorm: string, modalidad: ModalidadPuesto): string {
+  if (literalNorm === 'farmaceutico') {
+    return modalidad === 'pou' ? 'farmaceutico de guardia' : 'farmaceutico de planta'
+  }
+  return literalNorm
+}
+
 // Resuelve (o auto-crea) el PuestoCargo para un literal_puesto del padrón.
 // Nunca devuelve null: un literal_puesto vacío/null resuelve al puesto
 // placeholder "(sin especificar)" de ese escalafón, igual marcado
@@ -113,18 +128,24 @@ export async function resolverPuestoCargoId(
   cache: CatalogoPuestosCache,
   params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null },
 ): Promise<PuestoCargoInfo> {
-  const literal = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
-  // S21: el nombre se guarda CURADO (minúscula + sin tilde), igual que el
-  // catálogo del seed — la curación es exactamente eso. Así el puesto
-  // auto-creado por el padrón queda en el mismo formato y no aparece
-  // "Médico" y "medico" como dos puestos.
-  const nombreCurado = normalizarTexto(literal).slice(0, 200) || SIN_ESPECIFICAR
+  const literalRaw = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
 
   // Modalidad derivada del padrón. La búsqueda en el cache es por (escalafón,
   // modalidad, nombre) con FALLBACK a 'ambos': un cargo POF/POU puede
   // corresponder a un puesto catalogado como 'ambos' (Residencias,
   // Administrativa, etc.). Prioriza el match de modalidad exacta.
-  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto, literal)
+  const modalidad: ModalidadPuesto = modalidadDeUnificador(params.unificadorPuesto, literalRaw)
+
+  // Canoniza el literal genérico a su variante planta/guardia según modalidad
+  // (ej. "farmaceutico" -> "farmaceutico de planta"|"...de guardia"), para no
+  // recrear el puesto genérico desactivado. Se aplica sobre el literal
+  // normalizado y se usa de acá en adelante para buscar/crear/guardar el puesto.
+  const literal = canonicalizarLiteralPuesto(normalizarTexto(literalRaw), modalidad) || literalRaw
+  // S21: el nombre se guarda CURADO (minúscula + sin tilde), igual que el
+  // catálogo del seed — la curación es exactamente eso. Así el puesto
+  // auto-creado por el padrón queda en el mismo formato y no aparece
+  // "Médico" y "medico" como dos puestos.
+  const nombreCurado = normalizarTexto(literal).slice(0, 200) || SIN_ESPECIFICAR
 
   const existente =
     cache.puestos.get(clavePuesto(params.escalafonId, modalidad, literal)) ??
