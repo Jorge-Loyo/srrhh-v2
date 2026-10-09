@@ -216,6 +216,10 @@ interface DimensionesDotacion {
   modalidad?: 'pof' | 'pou' | 'ambos'
   puestoNombre?: string[]
   especialidadNombre?: string[]
+  // Grupo de especialidad (especialidades_puesto.grupo). Mismo criterio que la
+  // dimensión homónima de Evolución: agrupa especialidades afines transversal a
+  // los puestos (Cirugía, Salud Mental, etc.). Multi-select ⇒ IN.
+  grupoEspecialidad?: string[]
   // S23-6: catálogo de Áreas Programáticas/CeSACs/estructura fija (S23-2/S23-3).
   areaProgramaticaId?: string[]
   cesacId?: string[]
@@ -281,6 +285,12 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
       WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(f.especialidadNombre)})
     )`)
   }
+  if (f.grupoEspecialidad?.length) {
+    conds.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM especialidades_puesto epg
+      WHERE epg.id = c.especialidad_puesto_id AND epg.grupo IN (${Prisma.join(f.grupoEspecialidad)})
+    )`)
+  }
 
   // ── S23-6: Área Programática / CeSAC / unidad fija (S23-2/S23-3/S23-4) —
   // FK directa en el cargo (cesac_id/unidad_fija_id), salvo areaProgramaticaId
@@ -333,6 +343,7 @@ export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof Dime
     modalidad: query.modalidad,
     puestoNombre: query.puestoNombre,
     especialidadNombre: query.especialidadNombre,
+    grupoEspecialidad: query.grupoEspecialidad,
     areaProgramaticaId: query.areaProgramaticaId,
     cesacId: query.cesacId,
     unidadFijaId: query.unidadFijaId,
@@ -400,7 +411,7 @@ async function getDistinctValues(query: DotacionQuery) {
   // Cada dimensión excluye su propio filtro (2º arg) para el facetado.
   const [
     sexo, situacionRevista, reparticion, regimen, tipoOrigen,
-    especialidadCph, provincia, localidad, puesto, especialidad,
+    especialidadCph, provincia, localidad, puesto, especialidad, grupoEspecialidad,
   ] = await Promise.all([
     distinctCol(Prisma.sql`p.sexo`, 'sexo'),
     distinctCol(Prisma.sql`o.situacion_revista`, 'situacionRevista'),
@@ -412,6 +423,7 @@ async function getDistinctValues(query: DotacionQuery) {
     distinctCol(Prisma.sql`p.localidad`, 'localidad'),
     distinctCol(Prisma.sql`pcd.nombre`, 'puestoNombre'),
     distinctCol(Prisma.sql`epd.nombre`, 'especialidadNombre'),
+    distinctCol(Prisma.sql`epd.grupo`, 'grupoEspecialidad'),
   ])
 
   // Universo / Tipo / Monovalencia salen del CATÁLOGO completo de hospitales
@@ -460,7 +472,7 @@ async function getDistinctValues(query: DotacionQuery) {
   return {
     distinctValues: {
       sexo, situacionRevista, reparticion, regimen, tipoOrigen,
-      especialidadCph, provincia, localidad, puesto, especialidad,
+      especialidadCph, provincia, localidad, puesto, especialidad, grupoEspecialidad,
     },
     codigoRegistro,
     siglasDistinctValues: { sigla, universoTotalizador, tipoHospital, monovalencia },

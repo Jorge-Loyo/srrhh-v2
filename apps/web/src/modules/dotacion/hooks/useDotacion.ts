@@ -37,6 +37,7 @@ export interface DotacionDistinctValues {
   localidad: string[]
   puesto: string[]
   especialidad: string[]
+  grupoEspecialidad: string[]
 }
 
 export interface DotacionSiglasDistinctValues {
@@ -71,6 +72,7 @@ export interface GrupoDotacion {
   modalidad?: 'pof' | 'pou' | 'ambos'
   puestoNombre?: string[]
   especialidadNombre?: string[]
+  grupoEspecialidad?: string[]
   codigoRegistroId?: string[]
   regimen?: string[]
   tipoOrigen?: string[]
@@ -108,6 +110,7 @@ export interface DotacionFilters {
   modalidad?: 'pof' | 'pou' | 'ambos'
   puestoNombre?: string[]
   especialidadNombre?: string[]
+  grupoEspecialidad?: string[]
   codigoRegistroId?: string[]
   regimen?: string[]
   tipoOrigen?: string[]
@@ -137,7 +140,7 @@ export interface DotacionFilters {
 
 const CSV_KEYS: (keyof DotacionFilters)[] = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
-  'escalafonId', 'puestoNombre', 'especialidadNombre', 'codigoRegistroId',
+  'escalafonId', 'puestoNombre', 'especialidadNombre', 'grupoEspecialidad', 'codigoRegistroId',
   'regimen', 'tipoOrigen', 'especialidadCph', 'provincia', 'localidad',
   'sexo', 'situacionRevista', 'reparticion',
   'areaProgramaticaId', 'cesacId', 'unidadFijaId',

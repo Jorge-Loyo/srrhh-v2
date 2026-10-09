@@ -26,7 +26,7 @@ function formatMesLargo(mes: string): string {
 // jefes y estado NO entran al grupo: se aplican como filtros globales (AND).
 const DIMENSIONES_UNION = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
-  'escalafonId', 'modalidad', 'puestoNombre', 'especialidadNombre',
+  'escalafonId', 'modalidad', 'puestoNombre', 'especialidadNombre', 'grupoEspecialidad',
   'codigoRegistroId', 'regimen', 'tipoOrigen',
   'sexo', 'situacionRevista', 'reparticion', 'especialidadCph', 'provincia', 'localidad',
   'areaProgramaticaId', 'cesacId', 'unidadFijaId',
@@ -43,6 +43,7 @@ const LIMIT = 50
 const CARGO_MULTI: { key: keyof DotacionFilters; distinctKey: keyof NonNullable<DotacionListResponse['distinctValues']>; label: string }[] = [
   { key: 'puestoNombre', distinctKey: 'puesto', label: 'Puesto' },
   { key: 'especialidadNombre', distinctKey: 'especialidad', label: 'Especialidad' },
+  { key: 'grupoEspecialidad', distinctKey: 'grupoEspecialidad', label: 'Grupo de especialidad' },
   { key: 'regimen', distinctKey: 'regimen', label: 'Régimen' },
   { key: 'tipoOrigen', distinctKey: 'tipoOrigen', label: 'Tipo de origen' },
 ]
@@ -206,6 +207,7 @@ export function DotacionPage() {
     ...(modalidad && { modalidad }),
     ...(getCsv(searchParams, 'puestoNombre').length && { puestoNombre: getCsv(searchParams, 'puestoNombre') }),
     ...(getCsv(searchParams, 'especialidadNombre').length && { especialidadNombre: getCsv(searchParams, 'especialidadNombre') }),
+    ...(getCsv(searchParams, 'grupoEspecialidad').length && { grupoEspecialidad: getCsv(searchParams, 'grupoEspecialidad') }),
     ...(codigoRegistroId.length && { codigoRegistroId }),
     ...(getCsv(searchParams, 'regimen').length && { regimen: getCsv(searchParams, 'regimen') }),
     ...(getCsv(searchParams, 'tipoOrigen').length && { tipoOrigen: getCsv(searchParams, 'tipoOrigen') }),
@@ -316,6 +318,7 @@ export function DotacionPage() {
     if (modalidad) { g.modalidad = modalidad; labels.push(modalidad === 'pof' ? 'POF' : 'POU') }
     addArr('puestoNombre', getCsv(searchParams, 'puestoNombre'), capitalizar)
     addArr('especialidadNombre', getCsv(searchParams, 'especialidadNombre'), capitalizar)
+    addArr('grupoEspecialidad', getCsv(searchParams, 'grupoEspecialidad'))
     addArr('codigoRegistroId', getCsv(searchParams, 'codigoRegistroId'), codigoRegistroIdToNombre)
     addArr('regimen', getCsv(searchParams, 'regimen'))
     addArr('tipoOrigen', getCsv(searchParams, 'tipoOrigen'), tipoOrigenLabel)
