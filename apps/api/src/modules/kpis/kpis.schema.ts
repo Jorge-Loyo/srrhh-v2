@@ -64,6 +64,7 @@ const grupoEvolucionSchema = z.object({
   carreras: z.array(z.string()).optional(),
   puestos: z.array(z.string()).optional(),
   especialidades: z.array(z.string()).optional(),
+  gruposEspecialidad: z.array(z.string()).optional(),
 })
 
 export type GrupoEvolucion = z.infer<typeof grupoEvolucionSchema>
@@ -89,6 +90,7 @@ const filtrosEvolucionBase = {
   carreras: multiFiltro,
   puestos: multiFiltro,
   especialidades: multiFiltro,
+  gruposEspecialidad: multiFiltro,
   grupos: gruposEvolucion,
 }
 
