@@ -1577,6 +1577,12 @@ model EspecialidadPuesto {
   // S22-6: auto-alta revisable del Dotaneitor (especialidad sin match → se crea
   // con pendiente_curar=true, se cura en la pantalla de mantenimiento).
   pendienteCurar Boolean  @default(false) @map("pendiente_curar")
+  // S25: grupo/especialidad "padre" para agrupar sub-especialidades sin tener
+  // que reescribir las especialidades existentes. La especialidad del cargo es
+  // la sub-especialidad (el detalle); `grupo` es el agrupador que se muestra
+  // arriba (ej. las decenas de variantes de bioquímica se agrupan en
+  // "Bioquímica", "Bioquímica Clínica" y "Hemoterapia"). NULL = sin agrupar.
+  grupo        String?    @db.VarChar(120)
 
   puesto PuestoCargo @relation(fields: [puestoCargId], references: [id], onDelete: Cascade)
   cargos              Cargo[]
