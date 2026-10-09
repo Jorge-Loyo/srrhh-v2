@@ -1676,23 +1676,38 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           Object.prototype.hasOwnProperty.call(updateCargo, 'especialidadLegacy') &&
           !Object.prototype.hasOwnProperty.call(updateCargo, 'escalafonId')
         ) {
-          const cargoActual = (await tx.cargo.findUnique({
-            where: { id: ocupExistente.cargoId },
-            select: { puestoCargoId: true },
-          })) as { puestoCargoId: string | null } | null
-          if (cargoActual?.puestoCargoId) {
-            const puestoInfo = [...catalogoPuestos.puestos.values()].find(
-              (p) => p.id === cargoActual.puestoCargoId,
-            )
-            const espResuelta = await resolverEspecialidadPuestoId(
-              tx,
-              catalogoPuestos,
-              cargoActual.puestoCargoId,
-              updateCargo['especialidadLegacy'] || null,
-              puestoInfo?.nombre ?? null,
-            )
-            updateCargo['especialidadPuestoId'] = espResuelta
+          const espLegacyNueva = (updateCargo['especialidadLegacy'] ?? '').trim()
+          // Regla de negocio (Jorge, oct-2026): "vacío = conservar". Si el
+          // padrón trae la especialidad VACÍA para un cargo que ya tenía una, NO
+          // se re-resuelve (se conserva la anterior). Así CPH no pierde su
+          // especialidad cuando una carga del SIAL viene sin ese dato (típico en
+          // jefaturas y en cargas parciales) — el objetivo es cada vez MENOS
+          // especialidades vacías. Solo se re-resuelve cuando el SIAL trae una
+          // especialidad no vacía (esa manda).
+          if (espLegacyNueva !== '') {
+            const cargoActual = (await tx.cargo.findUnique({
+              where: { id: ocupExistente.cargoId },
+              select: { puestoCargoId: true },
+            })) as { puestoCargoId: string | null } | null
+            if (cargoActual?.puestoCargoId) {
+              const puestoInfo = [...catalogoPuestos.puestos.values()].find(
+                (p) => p.id === cargoActual.puestoCargoId,
+              )
+              const espResuelta = await resolverEspecialidadPuestoId(
+                tx,
+                catalogoPuestos,
+                cargoActual.puestoCargoId,
+                espLegacyNueva,
+                puestoInfo?.nombre ?? null,
+              )
+              // Si resolvió a algo, actualizar la FK; si por lo que sea no
+              // resolvió (null), NO pisar la especialidad vigente con null.
+              if (espResuelta) updateCargo['especialidadPuestoId'] = espResuelta
+            }
           }
+          // Nota: aunque especialidad_legacy se actualice a vacío (snapshot del
+          // SIAL tal cual llegó), la FK especialidad_puesto_id NO se toca cuando
+          // viene vacía — se conserva.
         }
         await tx.cargo.update({ where: { id: ocupExistente.cargoId }, data: updateCargo })
       }

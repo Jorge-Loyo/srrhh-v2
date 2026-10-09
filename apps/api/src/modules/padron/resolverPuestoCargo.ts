@@ -164,12 +164,26 @@ export async function resolverPuestoCargoId(
 // (anestesiología pediátrica, cirugía infantil pediátrica, etc.) — esas se
 // conservan. Solo la variante exacta que se fusionó.
 export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
+  // Fusiones de negocio (pediatría / psicología).
   'pediatria (clinica pediatrica)': 'pediatria',
   'psicologia clinica': 'psicologia',
   'psicologia medica': 'psicologia',
   'psicologia infantil': 'psicologia',
   'psicologia clinica infanto juvenil': 'psicologia',
   'psicologia infanto juvenil': 'psicologia',
+  'psicologo': 'psicologia',
+  // Variantes de nombre (profesión vs sustantivo / formato) que YA existen en el
+  // catálogo con otro nombre — mapear para no crear duplicados import a import.
+  'antropologia': 'antropologo',
+  'biologia': 'biologo',
+  'cirugia toraxica': 'cirugia toracica',
+  'estomatologia': 'clinica estomatologica',
+  'interdisciplinaria cuidados paliativos': 'interdisciplinaria cuidados paliativos medicos',
+  'bioquimica clinica (area inmunologia)': 'bioquimica clinica-area inmunologia',
+  'bioquimica clinica (endocrinologia)': 'bioquimica clinica-area endocrinologia',
+  'bioquimica clinica (hematologia)': 'bioquimica clinica-area hematologia',
+  'bioquimica clinica (emergentologia)': 'bioquimica clinica- area emergentologia',
+  'bioquimica clinica sin especialidad': 'bioquimica clinica',
 }
 
 // Aplica el mapeo de fusión sobre un nombre ya normalizado (minúscula sin
