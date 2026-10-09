@@ -669,3 +669,82 @@ corrigió que **mantenga la ñ** (la versión local la borraba). La regla genera
 en toda la BD" aplica a los **datos de dotación** (puestos, especialidades, nombres de personas,
 bajas SIAL, POU perfil/especialidad) que se cruzan y filtran — el organigrama es la excepción
 documentada.
+
+---
+
+## 10. Decisiones de saneamiento de especialidades y grupos (sesión 2026-10)
+
+Ver detalle de implementación y commits en
+`Doc/Planificacion/Sprints/POST_SPRINT_25_saneamiento_especialidades_grupos.md`.
+
+### 10.1 · Especialidad del cargo = última del SIAL; "vacío = conservar"
+
+La especialidad del cargo debe seguir **siempre** la última del SIAL. Si el SIAL
+trae la especialidad **vacía** (o un placeholder `SIN ESPECIALIDAD` /
+`(sin especificar)` / `s/e`, tratados como vacío por `especialidadSialReal()`),
+se **conserva** la anterior — no se borra ni se pisa con NULL. Objetivo: cada
+import, MENOS especialidades vacías, y los cargos (ej. CPH) no pierden su
+especialidad por una carga parcial del SIAL.
+
+### 10.2 · Equivalencias de fusión de especialidad
+
+`EQUIVALENCIAS_ESPECIALIDAD` (en `resolverPuestoCargo.ts`) mapea variantes que
+el SIAL sigue trayendo a su forma canónica, para no re-crear duplicados import a
+import. Agregadas 2026-10: `obstetrica → obstetricia`. El resto (pediatría,
+psicología, antropología, biología, cirugía toráxica, estomatología,
+bioquímica clínica por área) ya existían.
+
+### 10.3 · Reclasificación de carrera: el código de registro MANDA
+
+Si el `codigo_de_registro` del SIAL cambia a uno de otro escalafón, el cargo
+cambió de **carrera**: se re-resuelve escalafón + puesto + especialidad y se
+regenera el código con el prefijo correcto, in-place. (El código de registro es
+la fuente de verdad de la carrera, por encima del nombre de escalafón.)
+
+### 10.4 · Cargo fantasma de jefatura (J Cat vacío)
+
+Un cargo de **conducción** es válido solo si su ocupación tiene **J Cat**
+(`codigo_jefaturas`) con valor. El SIAL crea un cargo fantasma —mismo ocupante,
+mismo literal de puesto de conducción, llega ACTIVO pero SIN J Cat— que duplica
+al real (que sí tiene J Cat). Ese fantasma **no debe verse**:
+
+- en las **vistas** (`/dotacion`, KPIs) se excluye por `EXCLUIR_ESPEJO_JEFATURA`
+  (mismo ocupante + mismo literal + hermano con J Cat; NO se exige repa idéntica,
+  porque el SIAL cambia la repa 1-2 dígitos);
+- en el **dato**, el import lo marca `no_vigente` en el paso 6d del aprobar.
+
+OJO caso inverso: un jefe REAL al que el SIAL no le cargó J Cat por error (ej.
+Martinez Montes, Porporato) — debería verse. Pendiente de distinguir.
+
+### 10.5 · Modalidad POU/POF: el literal del puesto prevalece
+
+La modalidad se deriva del `unificador_puesto` Y del **literal del puesto**: si
+el literal contiene "guardia", es **POU** aunque el unificador venga vacío (misma
+regla que `codigoCargo.prefijoDeCargo`). Evita crear puestos POF duplicados para
+cargos de guardia.
+
+### 10.6 · Puestos genéricos que no deben existir
+
+Un literal genérico que siempre es, en realidad, su variante planta/guardia se
+canoniza (`canonicalizarLiteralPuesto`): `farmaceutico` → `farmaceutico de
+planta` (POF) | `...de guardia` (POU). "Veterinario de guardia" NO existe en CPH
+(sí en Salud-Guardias como suplencia). Los puestos genéricos vacíos se desactivan
+(`puestos_cargo.activo=false`).
+
+### 10.7 · Suplencia de guardia (SG) no es el cargo de la persona
+
+El escalafón **Salud - Guardias** / prefijo `SG-*` es una **habilitación** para
+cubrir guardias, ADEMÁS del cargo fijo. En el dedup de la serie de Evolución el
+representante NUNCA debe ser un `SG-*` si hay un cargo fijo en la misma partición
+(persona+repa+puesto): el `ORDER BY` prioriza "no es SG" para que gane el fijo.
+
+### 10.8 · GRUPOS de especialidad (agrupador padre)
+
+Columna `especialidades_puesto.grupo` (NULL = sin grupo). Agrupa especialidades
+afines de forma **transversal a los puestos** (misma especialidad por nombre =
+mismo grupo en todos los puestos). NO reescribe las especialidades: es un padre.
+Criterio: solo se agrupa cuando hay **varias especialidades afines**; una
+especialidad única grande (anestesiología, oftalmología) queda suelta. Expuesto
+como dimensión filtrable en Evolución y en `/dotacion` (`grupoEspecialidad`).
+28 grupos definidos (2026-10). **Mantenimiento manual**: una especialidad nueva
+del import entra sin grupo (no hay herencia automática — pendiente).
