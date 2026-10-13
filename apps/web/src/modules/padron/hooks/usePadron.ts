@@ -26,7 +26,7 @@ export function useSnapshots() {
 
 export function useSnapshotDiff(
   snapshotId: string | undefined,
-  params: { page?: number; limit?: number; tipo?: TipoDiff; q?: string; soloPendientes?: boolean; campo?: string; clasificacionEliminado?: string } = {},
+  params: { page?: number; limit?: number; tipo?: TipoDiff; q?: string; soloPendientes?: boolean; campo?: string; soloCompletados?: boolean; soloBajasNuevas?: boolean; clasificacionEliminado?: 'en_validacion' | 'sin_persona' } = {},
   options: { enabled?: boolean } = {}
 ) {
   return useQuery({

@@ -19,10 +19,16 @@ interface AprobacionProgreso {
   finalizadoAt: number | null
 }
 
-const TABS: { tipo: TipoDiff; label: string }[] = [
-  { tipo: TipoDiff.NUEVO, label: 'Nuevos cargos' },
-  { tipo: TipoDiff.MODIFICADO, label: 'Modificados' },
-  { tipo: TipoDiff.ELIMINADO, label: 'Bajas' },
+// La columna `campo` del diff usa prefijos para separar vistas sin tocar el
+// enum TipoDiff: 'completado:<col>' sobre tipo='modificado' y 'baja_previa'
+// sobre tipo='eliminado'. La pestaña Completados reusa tipo='modificado'.
+type TabKey = TipoDiff | 'completado'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: TipoDiff.NUEVO, label: 'Nuevos cargos' },
+  { key: TipoDiff.MODIFICADO, label: 'Modificados' },
+  { key: 'completado', label: 'Completados' },
+  { key: TipoDiff.ELIMINADO, label: 'Bajas' },
 ]
 
 const CAMPO_LABELS: Record<string, string> = {
@@ -38,6 +44,14 @@ const CAMPO_LABELS: Record<string, string> = {
   jefe_escalafon: 'Jefe escalafón',
   cod_situacion: 'Cód. situación',
   literal_puesto: 'Literal puesto',
+  cargo_desde: 'Cargo desde',
+  cargo_hasta: 'Cargo hasta',
+}
+
+// Despoja el prefijo 'completado:' para resolver el label legible del campo.
+function labelCampo(campo: string): string {
+  const base = campo.replace(/^completado:/, '')
+  return CAMPO_LABELS[base] ?? campo
 }
 
 type SubTabNuevos = 'ingreso' | 'cambio_rol'
@@ -68,7 +82,7 @@ export function PadronDiffPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
-  const [tab, setTab] = useState<TipoDiff>(TipoDiff.NUEVO)
+  const [tab, setTab] = useState<TabKey>(TipoDiff.NUEVO)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -80,7 +94,11 @@ export function PadronDiffPage() {
   const [concursoLoading, setConcursoLoading] = useState(false)
   const concursoSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [subTabNuevos, setSubTabNuevos] = useState<SubTabNuevos>('ingreso')
-  const [subTabEliminados, setSubTabEliminados] = useState<'con_persona' | 'en_validacion' | 'sin_persona'>('con_persona')
+  // Encabezado activo dentro de la pestaña Bajas: 'nuevas' = bajas nuevas de la
+  // semana (campo IS NULL); 'previas' = ya estaban en baja (campo='baja_previa',
+  // con dos sub-pestañas en_validacion/sin_persona).
+  const [headerEliminado, setHeaderEliminado] = useState<'nuevas' | 'previas'>('nuevas')
+  const [subTabEliminados, setSubTabEliminados] = useState<'en_validacion' | 'sin_persona'>('en_validacion')
   const [campoFiltro, setCampoFiltro] = useState<string | null>(null)
   const [camposExpanded, setCamposExpanded] = useState(false)
   const limit = 50
@@ -94,14 +112,22 @@ export function PadronDiffPage() {
   const { data: baseData, isError } = useSnapshotDiff(snapshotId, { page: 1, limit: 1 })
 
   // Query de tabla: en modificados espera a tener campoFiltro para no traer todo mezclado
+  // La pestaña determina el tipo y los filtros del diff:
+  //  - Modificados: tipo='modificado', soloCompletados:false, campo=<sub-tab>.
+  //  - Completados: tipo='modificado', soloCompletados:true (reusa el render).
+  //  - Bajas: tipo='eliminado'; soloBajasNuevas=true para "bajas nuevas", o
+  //    campo='baja_previa' + clasificacionEliminado para "ya estaban en baja".
+  const tipoQuery: TipoDiff = tab === 'completado' ? TipoDiff.MODIFICADO : tab
   const { data: diffsData, isLoading: isDiffsLoading } = useSnapshotDiff(snapshotId, {
     page,
     limit,
-    tipo: tab,
+    tipo: tipoQuery,
     q: debouncedSearch || undefined,
     soloPendientes: soloPendientes || undefined,
+    soloCompletados: tab === 'completado' ? true : (tab === TipoDiff.MODIFICADO ? false : undefined),
     campo: (tab === TipoDiff.MODIFICADO && campoFiltro) ? campoFiltro : undefined,
-    clasificacionEliminado: tab === TipoDiff.ELIMINADO ? subTabEliminados : undefined,
+    soloBajasNuevas: tab === TipoDiff.ELIMINADO && headerEliminado === 'nuevas' ? true : undefined,
+    clasificacionEliminado: tab === TipoDiff.ELIMINADO && headerEliminado === 'previas' ? subTabEliminados : undefined,
   }, {
     enabled: tab !== TipoDiff.MODIFICADO || !!campoFiltro,
   })
@@ -249,7 +275,7 @@ export function PadronDiffPage() {
 
   const puedeDecidir = can(user, 'padron', 'aprobar_padron')
 
-  function cambiarTab(nuevoTab: TipoDiff) {
+  function cambiarTab(nuevoTab: TabKey) {
     setTab(nuevoTab)
     setPage(1)
     setSearch('')
@@ -257,7 +283,8 @@ export function PadronDiffPage() {
     setSubTabNuevos('ingreso')
     setCampoFiltro(null)
     setCamposExpanded(false)
-    setSubTabEliminados('con_persona')
+    setHeaderEliminado('nuevas')
+    setSubTabEliminados('en_validacion')
   }
 
   async function handleAprobar() {
@@ -402,8 +429,11 @@ export function PadronDiffPage() {
         {/* Tabs principales */}
         <div className="border-b border-gray-200 flex gap-1">
           {TABS.map((t) => {
-            const count = t.tipo === 'nuevo' ? summary.nuevos : t.tipo === 'modificado' ? summary.modificados : summary.eliminados
-            const badge = t.tipo === 'nuevo' && (nuevosPendientes > 0 || nuevosRechazados > 0)
+            const count = t.key === 'nuevo' ? summary.nuevos
+              : t.key === 'modificado' ? summary.modificados
+              : t.key === 'completado' ? summary.completados
+              : summary.eliminados
+            const badge = t.key === 'nuevo' && (nuevosPendientes > 0 || nuevosRechazados > 0)
               ? (
                 <span className="ml-1 inline-flex items-center gap-1">
                   {nuevosPendientes > 0 && (
@@ -420,10 +450,10 @@ export function PadronDiffPage() {
               ) : null
             return (
               <button
-                key={t.tipo}
-                onClick={() => cambiarTab(t.tipo)}
+                key={t.key}
+                onClick={() => cambiarTab(t.key)}
                 className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                  tab === t.tipo ? 'border-primary text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
+                  tab === t.key ? 'border-primary text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
                 {t.label} <span className="text-gray-400">({count})</span>{badge}
@@ -473,7 +503,7 @@ export function PadronDiffPage() {
                       : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
                   }`}
                 >
-                  {CAMPO_LABELS[c.campo] ?? c.campo}
+                  {labelCampo(c.campo)}
                   <span className={`ml-1.5 text-xs ${campoFiltro === c.campo ? 'text-white/80' : 'text-gray-400'}`}>
                     {c.cantidad}
                   </span>
@@ -491,17 +521,40 @@ export function PadronDiffPage() {
           )
         })()}
 
+        {/* Leyenda: Completados — datos que el padrón completó (antes vacíos) */}
+        {tab === 'completado' && (
+          <div className="mx-4 mt-3 mb-1 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            <span className="mt-0.5 shrink-0">ℹ</span>
+            <span>Datos que el padrón completó (antes vacíos). No son cambios: se escribirán al aprobar.</span>
+          </div>
+        )}
+
         {tab === TipoDiff.ELIMINADO && (() => {
-          const SUBTABS_ELIM = [
+          // Encabezados de nivel superior, derivados solo de `campo` (no de la
+          // antigua clasificación con_persona).
+          const HEADERS = [
             {
-              key: 'con_persona' as const,
-              label: 'Con persona activa',
-              count: summary.eliminadosConPersona,
+              key: 'nuevas' as const,
+              label: 'Bajas nuevas de la semana',
+              count: summary.bajasNuevas,
               color: 'text-red-600',
-              borderColor: 'border-red-200 bg-red-50 text-red-700',
-              icon: '⚠',
-              leyenda: 'El cargo existía en el padrón vigente con una persona asignada y no aparece en el archivo nuevo. Al aprobar se cerrará la ocupación, el cargo pasará a validación vacante y, si la persona no tiene otros cargos vigentes, quedará inactiva.',
             },
+            {
+              key: 'previas' as const,
+              label: 'Ya estaban en baja',
+              count: summary.bajasPrevias,
+              color: 'text-orange-600',
+            },
+          ]
+          // Leyenda del encabezado "Bajas nuevas" (reciclada de la antigua
+          // sub-pestaña con_persona).
+          const LEYENDA_NUEVAS = {
+            borderColor: 'border-red-200 bg-red-50 text-red-700',
+            icon: '⚠',
+            texto: 'El cargo existía en el padrón vigente con una persona asignada y no aparece en el archivo nuevo. Al aprobar se cerrará la ocupación, el cargo pasará a validación vacante y, si la persona no tiene otros cargos vigentes, quedará inactiva.',
+          }
+          // Sub-pestañas internas de "Ya estaban en baja".
+          const SUBTABS_PREVIAS = [
             {
               key: 'en_validacion' as const,
               label: 'En validación vacante',
@@ -521,28 +574,55 @@ export function PadronDiffPage() {
               leyenda: 'El cargo figura en la base de datos sin persona asignada (vacante) o ya marcado como no vigente, y no aparece en el archivo nuevo. No hay impacto sobre personas; al aprobar el cargo pasará a no vigente si aún no lo estaba.'
             },
           ]
-          const activo = SUBTABS_ELIM.find((s) => s.key === subTabEliminados)!
+          const subActivo = SUBTABS_PREVIAS.find((s) => s.key === subTabEliminados)!
           return (
             <>
               <div className="flex gap-1 border-b border-gray-100 bg-gray-50 px-4">
-                {SUBTABS_ELIM.map((st) => (
+                {HEADERS.map((h) => (
                   <button
-                    key={st.key}
-                    onClick={() => { setSubTabEliminados(st.key); setPage(1) }}
+                    key={h.key}
+                    onClick={() => { setHeaderEliminado(h.key); setSubTabEliminados('en_validacion'); setPage(1) }}
                     className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                      subTabEliminados === st.key
-                        ? `border-primary ${st.color} font-semibold`
+                      headerEliminado === h.key
+                        ? `border-primary ${h.color} font-semibold`
                         : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    {st.label} <span className="text-gray-400">({st.count})</span>
+                    {h.label} <span className="text-gray-400">({h.count})</span>
                   </button>
                 ))}
               </div>
-              <div className={`mx-4 mt-3 mb-1 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${activo.borderColor}`}>
-                <span className="mt-0.5 shrink-0">{activo.icon}</span>
-                <span>{activo.leyenda}</span>
-              </div>
+
+              {headerEliminado === 'nuevas' && (
+                <div className={`mx-4 mt-3 mb-1 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${LEYENDA_NUEVAS.borderColor}`}>
+                  <span className="mt-0.5 shrink-0">{LEYENDA_NUEVAS.icon}</span>
+                  <span>{LEYENDA_NUEVAS.texto}</span>
+                </div>
+              )}
+
+              {headerEliminado === 'previas' && (
+                <>
+                  <div className="flex gap-1 border-b border-gray-100 bg-gray-50/60 px-4">
+                    {SUBTABS_PREVIAS.map((st) => (
+                      <button
+                        key={st.key}
+                        onClick={() => { setSubTabEliminados(st.key); setPage(1) }}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                          subTabEliminados === st.key
+                            ? `border-primary ${st.color} font-semibold`
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {st.label} <span className="text-gray-400">({st.count})</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className={`mx-4 mt-3 mb-1 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${subActivo.borderColor}`}>
+                    <span className="mt-0.5 shrink-0">{subActivo.icon}</span>
+                    <span>{subActivo.leyenda}</span>
+                  </div>
+                </>
+              )}
             </>
           )
         })()}
@@ -737,15 +817,23 @@ export function PadronDiffPage() {
             </table>
           )}
 
-          {/* Tabla: Modificados */}
-          {diffs && diffs.data.length > 0 && tab === 'modificado' && campoFiltro && (
+          {/* Tabla: Modificados / Completados (mismo render antes→después).
+              Modificados filtra por un único campo (sub-tab), así que el label
+              va en el encabezado. Completados mezcla varios campos → la columna
+              "Campo" muestra el label por fila (despojando el prefijo). */}
+          {diffs && diffs.data.length > 0 && ((tab === 'modificado' && campoFiltro) || tab === 'completado') && (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-500 text-left">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
                   <th className="px-4 py-3 font-semibold">ID SIAL / Rol</th>
-                  <th className="px-4 py-3 font-semibold">{CAMPO_LABELS[campoFiltro] ?? campoFiltro} — antes</th>
-                  <th className="px-4 py-3 font-semibold">{CAMPO_LABELS[campoFiltro] ?? campoFiltro} — después</th>
+                  {tab === 'completado' && <th className="px-4 py-3 font-semibold">Campo</th>}
+                  <th className="px-4 py-3 font-semibold">
+                    {tab === 'modificado' && campoFiltro ? `${labelCampo(campoFiltro)} — antes` : 'Antes'}
+                  </th>
+                  <th className="px-4 py-3 font-semibold">
+                    {tab === 'modificado' && campoFiltro ? `${labelCampo(campoFiltro)} — después` : 'Después'}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -753,6 +841,9 @@ export function PadronDiffPage() {
                   <tr key={d.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-800">{d.apellidoNombre ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{d.idSialRol}</td>
+                    {tab === 'completado' && (
+                      <td className="px-4 py-3 text-gray-600">{d.campo ? labelCampo(d.campo) : <span className="text-gray-300">—</span>}</td>
+                    )}
                     <td className="px-4 py-3 text-gray-500">{d.valorAnterior || <span className="text-gray-300">vacío</span>}</td>
                     <td className="px-4 py-3 text-gray-900 font-medium">{d.valorNuevo || <span className="text-gray-300">vacío</span>}</td>
                   </tr>
