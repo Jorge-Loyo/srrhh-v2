@@ -7,7 +7,11 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import { prefijoDeCargo, maxSecuencialCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import {
+  prefijoDeCargo,
+  maxSecuencialCargo,
+  siguienteCodigoCargo,
+} from '../../shared/codigoCargo.js'
 import {
   cargarCatalogoPuestos,
   resolverPuestoCargoId,
@@ -127,10 +131,24 @@ const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4 })
 const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4 })
 const python = axios.create({
   baseURL: env.PYTHON_SERVICE_URL,
-  timeout: 300_000,
+  // S22/Opción B: el procesamiento del padrón corre como job async en el
+  // Dotaneitor; cada request API↔Python es corta (arrancar el job y leer el
+  // estado son operaciones de ms). Timeout default 30 s; la descarga del
+  // parquet usa un override por-request de 60 s (DESCARGA_TIMEOUT_MS).
+  timeout: 30_000,
   httpAgent,
   httpsAgent,
 })
+
+// ── Constantes del flujo async del padrón (Opción B) ──────────────────────────
+const JOB_POLL_INTERVAL_MS = 3_000 // cada cuánto Node pollea GET /job/{id}
+const JOB_POLL_TIMEOUT_MS = 15 * 60_000 // tope total de espera del polling (15 min)
+const PAGE_DESCARGA = 5_000 // tamaño de página al descargar el parquet (orden de chunk(diffs,2000))
+const DESCARGA_TIMEOUT_MS = 60_000 // timeout por-request SOLO para la descarga (mueve datos)
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+// Primera línea legible de un error (sin el traceback que el Dotaneitor adjunta).
+const firstLine = (s: string | null | undefined): string => (s ?? '').split('\n')[0]!.trim()
 
 // Errores de red transitorios del contenedor Python que ameritan reintento.
 const ERRORES_RED_TRANSITORIOS = new Set(['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE'])
@@ -492,9 +510,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           vAnterior = strVal(actual.codigoRegistro?.codigo)
         } else {
           const mappedCargo = CAMPOS_CARGO[colPython]
-          vAnterior = strVal(
-            mappedCargo ? (actual as Record<string, unknown>)[mappedCargo] : null,
-          )
+          vAnterior = strVal(mappedCargo ? (actual as Record<string, unknown>)[mappedCargo] : null)
         }
       } else {
         const mappedOcup = CAMPOS_OCUPACION[colPython]
@@ -575,21 +591,84 @@ async function runPipeline(
     const form = new FormData()
     form.append('file', fileBuffer, { filename, contentType: mimetype })
     form.append('snapshot_id', snapshotId)
-    // limit alto: queremos TODO el dataset en una sola respuesta para el diff.
-    const { data } = await python.post<{ rows: RegistroPython[]; total: number }>(
-      '/procesar-padron?page=1&limit=100000',
-      form,
-      { headers: form.getHeaders() },
-    )
-    const registros = data.rows ?? []
+
+    // Arranque del job: SIN conReintentoRed. El POST lanza un thread en el
+    // Dotaneitor; reintentar ante un corte de socket dispararía un SEGUNDO job
+    // que reprocesaría 48k filas en paralelo contra el catálogo (duplicados /
+    // contención). El arranque es barato (devuelve en segundos).
+    const {
+      data: { job_id },
+    } = await python
+      .post<{ job_id: string }>('/procesar-padron', form, { headers: form.getHeaders() })
+      .catch((e: unknown) => {
+        const m = e instanceof Error ? e.message : String(e)
+        throw new Error('No se pudo iniciar el procesamiento: ' + m)
+      })
+
+    // Polling corto a /job/{id} hasta done/error o agotar el tope total.
+    // GET idempotente → CON conReintentoRed (reintentar no crea trabajo nuevo).
+    const result = await (async (): Promise<{ total: number; cols: string[] }> => {
+      const deadline = Date.now() + JOB_POLL_TIMEOUT_MS
+      while (Date.now() < deadline) {
+        let job: { status: string; result: { total: number; cols: string[] } | null; error: string | null }
+        try {
+          ;({ data: job } = await conReintentoRed(() =>
+            python.get<typeof job>(`/job/${job_id}`),
+          ))
+        } catch (e) {
+          if (axios.isAxiosError(e) && e.response?.status === 404)
+            throw new Error('El job del Dotaneitor expiró o no existe')
+          throw e
+        }
+        if (job.status === 'done') return job.result!
+        if (job.status === 'error') throw new Error('Dotaneitor: ' + firstLine(job.error))
+        await sleep(JOB_POLL_INTERVAL_MS)
+      }
+      throw new Error('El procesamiento del padrón superó el tiempo máximo de espera (15 min)')
+    })()
+
+    // Guard de negocio: un job done con total 0 NO es éxito — calcularDiff([])
+    // marcaría todos los cargos actuales como eliminados (bajas masivas).
+    if (!result.total) throw new Error('El padrón procesado no tiene filas')
 
     // El total real recién se conoce al terminar (el 202 fue con total 0).
     await prisma.padronSnapshot
       .update({
         where: { id: snapshotId },
-        data: { totalRegistros: data.total ?? registros.length },
+        data: { totalRegistros: result.total },
       })
       .catch(() => {})
+
+    // Descarga paginada del parquet (GET idempotente → CON conReintentoRed).
+    // Timeout por-request de 60 s, no el default de 30 s: cada página de 5.000
+    // filas mueve datos de verdad y necesita más margen.
+    const registros: RegistroPython[] = []
+    for (let page = 1; (page - 1) * PAGE_DESCARGA < result.total; page++) {
+      const { data } = await conReintentoRed(() =>
+        python
+          .get<{ rows: RegistroPython[] }>(
+            `/procesar-padron/${job_id}/resultado?page=${page}&limit=${PAGE_DESCARGA}`,
+            { timeout: DESCARGA_TIMEOUT_MS },
+          )
+          .catch((e: unknown) => {
+            const m = e instanceof Error ? e.message : String(e)
+            throw new Error('No se pudo recuperar el resultado del padrón: ' + m)
+          }),
+      )
+      registros.push(...(data.rows ?? []))
+    }
+
+    // Limpieza-tras-descarga best-effort: borra el job + parquet en el
+    // Dotaneitor apenas tenemos todo en memoria. Si falla, el JOB_TTL lo recoge;
+    // NUNCA marca el snapshot en error.
+    await python
+      .delete(`/procesar-padron/${job_id}`)
+      .catch((e: unknown) =>
+        console.warn(
+          `[padron] no se pudo limpiar el job ${job_id}:`,
+          e instanceof Error ? e.message : String(e),
+        ),
+      )
 
     await setPaso(snapshotId, 'diff')
     const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
@@ -655,9 +734,11 @@ export async function uploadPadronService(
 
   const fileBuffer = file.buffer
 
-  // S22-9: el pipeline lineal es síncrono (~1-2 min) y corre en background, así
-  // que no se puede obtener totalRegistros antes de responder — arranca en 0 y
-  // runPipeline lo actualiza al terminar. Ya no se crea sesión Python.
+  // S22-9 / Opción B: el tramo API↔Python corre como job async en el Dotaneitor
+  // (runPipeline arranca el job, pollea /job/{id} y descarga el resultado
+  // paginado). Sigue en background: /upload responde 202 y no se puede obtener
+  // totalRegistros antes de responder — arranca en 0 y runPipeline lo actualiza
+  // al terminar. Ya no se crea sesión Python.
   const snapshot = await prisma.padronSnapshot.create({
     data: {
       fechaAsignada: fechaDate,
@@ -883,29 +964,37 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     })
   }
 
-  const [nuevos, modificados, completados, eliminados, bajasNuevas, bajasPrevias, nuevosPendientes, nuevosRechazados] =
-    await Promise.all([
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo' } }),
-      // modificados reales: sin completados ni el marcador __reabrir_ocupacion__
-      prisma.padronDiff.count({
-        where: {
-          snapshotId: id,
-          tipo: 'modificado',
-          AND: [
-            { campo: { not: { startsWith: 'completado:' } } },
-            { campo: { not: '__reabrir_ocupacion__' } },
-          ],
-        },
-      }),
-      prisma.padronDiff.count({
-        where: { snapshotId: id, tipo: 'modificado', campo: { startsWith: 'completado:' } },
-      }),
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado' } }),
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: null } }),
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: 'baja_previa' } }),
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } }),
-      prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
-    ])
+  const [
+    nuevos,
+    modificados,
+    completados,
+    eliminados,
+    bajasNuevas,
+    bajasPrevias,
+    nuevosPendientes,
+    nuevosRechazados,
+  ] = await Promise.all([
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo' } }),
+    // modificados reales: sin completados ni el marcador __reabrir_ocupacion__
+    prisma.padronDiff.count({
+      where: {
+        snapshotId: id,
+        tipo: 'modificado',
+        AND: [
+          { campo: { not: { startsWith: 'completado:' } } },
+          { campo: { not: '__reabrir_ocupacion__' } },
+        ],
+      },
+    }),
+    prisma.padronDiff.count({
+      where: { snapshotId: id, tipo: 'modificado', campo: { startsWith: 'completado:' } },
+    }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado' } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: null } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: 'baja_previa' } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
+  ])
 
   // Sub-leyendas de "ya estaban en baja" (campo='baja_previa'), derivadas del
   // estado del cargo. Las bajas nuevas (campo IS NULL) no se clasifican acá.
@@ -1358,7 +1447,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
               : null,
           })
           if (cargoVinculado) {
-            cargoCache.set(datos.id_sial, { id: cargoVinculado, idSial: datos.id_sial, estado: 'vigente' })
+            cargoCache.set(datos.id_sial, {
+              id: cargoVinculado,
+              idSial: datos.id_sial,
+              estado: 'vigente',
+            })
             continue
           }
         }
@@ -1713,19 +1806,35 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (escDestino) {
             const cargoActual = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
-              select: { escalafonId: true, literalPuesto: true, unificadorPuesto: true, especialidadLegacy: true },
-            })) as { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null; especialidadLegacy: string | null } | null
+              select: {
+                escalafonId: true,
+                literalPuesto: true,
+                unificadorPuesto: true,
+                especialidadLegacy: true,
+              },
+            })) as {
+              escalafonId: string
+              literalPuesto: string | null
+              unificadorPuesto: string | null
+              especialidadLegacy: string | null
+            } | null
             if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
               const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
-              const unifNuevo = (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
-              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const unifNuevo =
+                (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
+              const espNuevo =
+                (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
               const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: escDestino.id,
                 literalPuesto: litNuevo,
                 unificadorPuesto: unifNuevo,
               })
               const espId = await resolverEspecialidadPuestoId(
-                tx, catalogoPuestos, puesto.id, espNuevo, puesto.nombre,
+                tx,
+                catalogoPuestos,
+                puesto.id,
+                espNuevo,
+                puesto.nombre,
               )
               const prefijoNuevo = prefijoDeCargo({
                 escalafon: escDestino.nombre,
@@ -1822,7 +1931,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             } | null
             if (cargoActualP) {
               const unif =
-                ((updateCargo['unificadorPuesto'] as string | null) ?? cargoActualP.unificadorPuesto) || null
+                ((updateCargo['unificadorPuesto'] as string | null) ??
+                  cargoActualP.unificadorPuesto) ||
+                null
               const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: cargoActualP.escalafonId,
                 literalPuesto: litNuevo,

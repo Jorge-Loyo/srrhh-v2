@@ -26,18 +26,22 @@ Usuario sube Excel
       ▼
 POST /api/v1/padron/upload          (Node/Fastify)
   ├─ Valida fecha, detecta duplicado de fecha
-  ├─ POST /session                  → Dotaneitor crea sesión en memoria
-  ├─ POST /upload-cargos            → Dotaneitor guarda el .xlsx en tmp/
   ├─ Crea PadronSnapshot estado=procesando en BD
   └─ Dispara runPipeline() en background (no await) → responde 202
 
 runPipeline() (background)
-  ├─ paso "normalizar"  → POST /normalizar  → pollJob()
-  ├─ paso "procesar"    → POST /procesar    → pollJob()
-  ├─ paso "cruzar"      → POST /cruzar      → pollJob()
+  ├─ paso "procesar"    → POST /procesar-padron        → { job_id }  (arranque async, SIN reintento)
+  │                       polling GET /job/:id cada 3s (tope 15 min) hasta status=done
+  │                       GET /procesar-padron/:id/resultado?page&limit (paginado, lotes de 5000)
+  │                       DELETE /procesar-padron/:id   (limpieza-tras-descarga, best-effort)
   ├─ paso "diff"        → calcularDiff()    (Node, contra Postgres)
-  ├─ paso "guardando"   → $transaction: PadronDiff.createMany + snapshot estado=pendiente
-  └─ finally: POST /session/delete
+  └─ paso "guardando"   → $transaction: PadronDiff.createMany + snapshot estado=pendiente
+
+(S22/Opción B: el tramo API↔Python es un job async. El pipeline pesado — ~48k
+filas, varios minutos — corre en un Thread del Dotaneitor; ninguna request HTTP
+individual espera a que termine, por eso ya no se choca contra el timeout de
+axios ni el proxy de Render. El flujo navegador→API y el polling de /estado NO
+cambian.)
 
 Frontend polling cada 2s
   GET /api/v1/padron/snapshots/:id/estado
@@ -218,18 +222,17 @@ Todas se leen desde Postgres al arrancar Dotaneitor. Se pueden actualizar con SQ
 
 ## Endpoints Dotaneitor (interno)
 
-| Método | Ruta                                 | Descripción                                 |
-| ------ | ------------------------------------ | ------------------------------------------- |
-| `GET`  | `/health`                            | Health check                                |
-| `POST` | `/session`                           | Crea sesión en memoria                      |
-| `POST` | `/upload-cargos`                     | Sube el Excel a la sesión                   |
-| `POST` | `/normalizar`                        | Normaliza columnas (async job)              |
-| `POST` | `/procesar`                          | Procesa el DataFrame (async job)            |
-| `POST` | `/cruzar`                            | Cruza especialidades (async job)            |
-| `GET`  | `/job/:job_id`                       | Polling de estado de un job                 |
-| `GET`  | `/preview`                           | DataFrame paginado (usado por calcularDiff) |
-| `GET`  | `/exports/:snapshotId/dotacion.xlsx` | Descarga Excel persistente                  |
-| `POST` | `/session/delete`                    | Elimina sesión y archivos tmp               |
+| Método   | Ruta                                                               | Descripción                                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/health`                                                          | Health check                                                                                                                                                                           |
+| `POST`   | `/session`                                                         | Crea sesión en memoria                                                                                                                                                                 |
+| `POST`   | `/upload-cargos`                                                   | Sube el Excel a la sesión                                                                                                                                                              |
+| `POST`   | `/procesar-padron`                                                 | **Arranca** el pipeline lineal como job async → `{ job_id }` (UUID). Form: `file`, `snapshot_id` opcional (UUID).                                                                      |
+| `GET`    | `/procesar-padron/:job_id/resultado`                               | DataFrame del job paginado (`page`, `limit` default 5000, `le=1_000_000`). Lo consume Node para el diff. 400 si no hay resultado.                                                      |
+| `DELETE` | `/procesar-padron/:job_id`                                         | Limpieza-tras-descarga (borra job + parquet + xlsx). Idempotente (200 aunque no exista).                                                                                               |
+| `GET`    | `/job/:job_id`                                                     | Polling de estado de un job: `{ status: pending\|done\|error, result, error }`. `result` del padrón = `{ total, cols, reporte, logs }`. 404 si no existe/expiró o `job_id` no es UUID. |
+| `GET`    | `/exports/:snapshotId/dotacion.xlsx`                               | Descarga Excel persistente                                                                                                                                                             |
+| `POST`   | `/normalizar` · `/procesar` · `/cruzar` · `/preview` · `/session*` | Endpoints v1 (flujo por sesión), en desuso para el padrón; se mantienen hasta su limpieza.                                                                                             |
 
 ---
 
@@ -249,8 +252,9 @@ Todas se leen desde Postgres al arrancar Dotaneitor. Se pueden actualizar con SQ
 - **Transacción con timeout extendido:** `TRANSACTION_OPTS = { timeout: 10min, maxWait: 10s }`. La primera aprobación contra una BD vacía puede generar hasta ~48k diffs "nuevo" en una sola transacción.
 - **Batching:** `createMany` y `updateMany` se trocean en lotes de 2000 para no superar el límite de parámetros de Postgres (65535).
 - **Códigos en bloque:** un solo `SELECT MAX` por prefijo distinto (~15 típicamente), no uno por cargo.
-- **Sesiones en memoria:** TTL de 2 horas. Si el contenedor se reinicia durante el pipeline, el snapshot queda en `error` (cleanup al arrancar). El parquet en disco permite recuperar el DataFrame sin reprocesar.
-- **ECONNRESET:** si Dotaneitor cierra la sesión mientras Node intenta leer `/preview`, el snapshot queda en error. Solución: borrar con SQL y volver a subir.
+- **Tramo API↔Python async (S22/Opción B):** el procesamiento del padrón (~48k filas, varios minutos) corre como job en el Dotaneitor. Cada request HTTP es corta: axios default 30s para el arranque y el polling; la descarga del parquet usa un override de 60s por-request. El polling es cada 3s con tope total de 15 min (`JOB_POLL_TIMEOUT_MS`); el resultado viaja en parquet paginado en lotes de 5000 (`PAGE_DESCARGA`). Esto reemplaza el timeout fijo de 300s que cortaba la corrida (y que el proxy de Render podía cortar aún antes).
+- **Latido y barrido de jobs:** el worker emite un latido cada 5 min (`JOB_HEARTBEAT_SECS`) que refresca el `mtime` del `.json` del job. Un loop dedicado (cada 60s) marca `error` un job `pending` sin latir por >20 min (`JOB_STUCK_SECS`, p.ej. reinicio del contenedor) y purga por `JOB_TTL` (1h desde el último cambio de estado) como red de seguridad; el camino feliz limpia antes vía `DELETE`. El parquet conserva columnas internas del catálogo; el Excel de export (`df_a_excel_bytes`) las omite.
+- **Guard total==0:** un job `done` con 0 filas se trata como error de negocio (`"El padrón procesado no tiene filas"`), no corre el diff — evita bajas masivas accidentales.
 
 ---
 
