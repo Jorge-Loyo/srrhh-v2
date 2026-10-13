@@ -224,7 +224,16 @@ async function calcularDiff(registros: RegistroPython[]) {
   // El orderBy pone las vigentes primero (hasta NULL) y, entre cerradas, la más
   // reciente; take:1 deja exactamente la ocupación relevante.
   const cargosActuales = await prisma.cargo.findMany({
-    where: { estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] } },
+    // Solo cargos que provienen del SIAL (tienen id_sial). Los cargos de
+    // conducción vacantes derivados del organigrama (S24, origen='organigrama')
+    // NO tienen id_sial: nadie los ocupa, nunca estuvieron en el padrón. Si se
+    // incluyeran acá, el diff los marcaría como "eliminados" con idSialRol null
+    // y el createMany de padron_diff (id_sial_rol NOT NULL) fallaría con
+    // "Argument `idSialRol` is missing". Se excluyen por id_sial IS NOT NULL.
+    where: {
+      estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] },
+      idSial: { not: null },
+    },
     select: {
       idSial: true,
       literalPuesto: true,
