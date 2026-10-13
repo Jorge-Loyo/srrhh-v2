@@ -11,7 +11,9 @@ export const diffQuerySchema = z.object({
   q:          z.string().trim().optional(),
   soloPendientes: z.coerce.boolean().optional(),
   campo: z.string().trim().optional(),
-  clasificacionEliminado: z.enum(['con_persona', 'en_validacion', 'sin_persona']).optional(),
+  soloCompletados: z.coerce.boolean().optional(),
+  soloBajasNuevas: z.coerce.boolean().optional(),
+  clasificacionEliminado: z.enum(['en_validacion', 'sin_persona']).optional(),
 })
 
 export type UploadPadronBody = z.infer<typeof uploadPadronSchema>
