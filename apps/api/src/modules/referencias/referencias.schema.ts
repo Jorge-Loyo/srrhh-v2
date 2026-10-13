@@ -95,3 +95,14 @@ export const sufijoOrdinalSchema = z.object({
 })
 export const sufijoOrdinalUpdateSchema = sufijoOrdinalSchema.partial()
 export type SufijoOrdinalBody = z.infer<typeof sufijoOrdinalSchema>
+
+// jcat_cargo_jefatura: mapeo JCAT → cargo de jefatura que consume el pipeline v2
+// del Dotaneitor (catalogo.py). PK natural `jcat` (no uuid) y sin columna `activo`.
+export const jcatCargoJefaturaSchema = z.object({
+  jcat: z.string().trim().min(1).max(10),
+  cargoJefatura: z.string().trim().min(1).max(100),
+  codPuesto: z.string().trim().max(5).optional(),
+  familia: z.enum(['P', 'G', 'Z']),
+})
+export const jcatCargoJefaturaUpdateSchema = jcatCargoJefaturaSchema.partial()
+export type JcatCargoJefaturaBody = z.infer<typeof jcatCargoJefaturaSchema>

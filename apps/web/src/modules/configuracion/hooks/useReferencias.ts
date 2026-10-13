@@ -14,6 +14,8 @@ export interface RefCorreccionEspecialidad { id: string; original: string; corre
 export interface RefEspecialidadPorPuesto { id: string; agrupador: string; especialidad: string; purezaPct: number | null; activo: boolean }
 export interface RefConectorMinuscula { id: string; conector: string; activo: boolean }
 export interface RefSufijoOrdinal { id: string; sufijo: string; activo: boolean }
+// jcat_cargo_jefatura no tiene `id` ni `activo`: el service expone `id` = `jcat`.
+export interface RefJcatCargoJefatura { id: string; jcat: string; cargoJefatura: string; codPuesto: string | null; familia: string }
 
 export interface RefListResult<TRow> {
   rows: TRow[]
@@ -93,6 +95,7 @@ export interface CorreccionEspecialidadBody { original: string; correccion: stri
 export interface EspecialidadPorPuestoBody { agrupador: string; especialidad: string; purezaPct?: number; activo?: boolean }
 export interface ConectorMinusculaBody { conector: string; activo?: boolean }
 export interface SufijoOrdinalBody { sufijo: string; activo?: boolean }
+export interface JcatCargoJefaturaBody { jcat: string; cargoJefatura: string; codPuesto?: string; familia: string }
 
 export const agrupadoresHooks = crearHooksReferencia<RefAgrupador, AgrupadorBody>('agrupadores')
 export const unificadoresPuestoHooks = crearHooksReferencia<RefUnificadorPuesto, UnificadorPuestoBody>('unificadores-puesto')
@@ -104,3 +107,4 @@ export const correccionesEspecialidadHooks = crearHooksReferencia<RefCorreccionE
 export const especialidadPorPuestoHooks = crearHooksReferencia<RefEspecialidadPorPuesto, EspecialidadPorPuestoBody>('especialidad-por-puesto')
 export const conectoresMinusculaHooks = crearHooksReferencia<RefConectorMinuscula, ConectorMinusculaBody>('conectores-minuscula')
 export const sufijosOrdinalesHooks = crearHooksReferencia<RefSufijoOrdinal, SufijoOrdinalBody>('sufijos-ordinales')
+export const jcatCargoJefaturaHooks = crearHooksReferencia<RefJcatCargoJefatura, JcatCargoJefaturaBody>('jcat-cargo-jefatura')

@@ -23,6 +23,8 @@ import {
   conectorMinusculaUpdateSchema,
   sufijoOrdinalSchema,
   sufijoOrdinalUpdateSchema,
+  jcatCargoJefaturaSchema,
+  jcatCargoJefaturaUpdateSchema,
 } from './referencias.schema.js'
 import {
   listAgrupadores, createAgrupador, updateAgrupador, deleteAgrupador,
@@ -35,6 +37,7 @@ import {
   listEspecialidadesPorPuesto, createEspecialidadPorPuesto, updateEspecialidadPorPuesto, deleteEspecialidadPorPuesto,
   listConectoresMinuscula, createConectorMinuscula, updateConectorMinuscula, deleteConectorMinuscula,
   listSufijosOrdinales, createSufijoOrdinal, updateSufijoOrdinal, deleteSufijoOrdinal,
+  listJcatCargoJefatura, createJcatCargoJefatura, updateJcatCargoJefatura, deleteJcatCargoJefatura,
 } from './referencias.service.js'
 
 // Admin CRUD sobre las 10 tablas de referencia de Dotaneitor (ver
@@ -226,6 +229,26 @@ export async function referenciasRoutes(app: FastifyInstance) {
   })
   app.delete<{ Params: { id: string } }>('/sufijos-ordinales/:id', async (request, reply) => {
     await deleteSufijoOrdinal(request.params.id)
+    return reply.send({ ok: true })
+  })
+
+  // ── /jcat-cargo-jefatura ────────────────────────────────────────────────
+  // Mapeo JCAT → cargo de jefatura (pipeline v2 del Dotaneitor). El `:id` del
+  // path es el valor `jcat` (PK natural, no uuid).
+  app.get('/jcat-cargo-jefatura', async (request, reply) => {
+    const query = refListQuerySchema.parse(request.query)
+    return reply.send({ data: await listJcatCargoJefatura(query) })
+  })
+  app.post('/jcat-cargo-jefatura', async (request, reply) => {
+    const body = jcatCargoJefaturaSchema.parse(request.body)
+    return reply.status(201).send({ data: await createJcatCargoJefatura(body) })
+  })
+  app.patch<{ Params: { id: string } }>('/jcat-cargo-jefatura/:id', async (request, reply) => {
+    const body = jcatCargoJefaturaUpdateSchema.parse(request.body)
+    return reply.send({ data: await updateJcatCargoJefatura(request.params.id, body) })
+  })
+  app.delete<{ Params: { id: string } }>('/jcat-cargo-jefatura/:id', async (request, reply) => {
+    await deleteJcatCargoJefatura(request.params.id)
     return reply.send({ ok: true })
   })
 }
