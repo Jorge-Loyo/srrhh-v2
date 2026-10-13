@@ -3,7 +3,7 @@
 # Sistema de Recursos Humanos — Gobierno de la Ciudad de Buenos Aires
 
 > Documento de planificación ágil. Fuente de verdad para sprints, tareas y decisiones de alcance.
-> Última actualización: 2026-10 — Sprint 21 ✅ (consumidores secundarios + estructura; S21-5 eliminó `personas.especialidad_principal`, derivada en runtime), Sprint 22 ✅ (Dotaneitor v2 pipeline lineal `POST /procesar-padron` + `jcat_cargo_jefatura`), Sprint 23 ✅ (Áreas Programáticas y CeSACs, Agustín), Sprint 24 📋 (cargos de conducción vacantes, planificado).
+> Última actualización: 2026-10 — Sprint 21 ✅ (consumidores secundarios + estructura; S21-5 eliminó `personas.especialidad_principal`, derivada en runtime), Sprint 22 ✅ (Dotaneitor v2 pipeline lineal `POST /procesar-padron` + `jcat_cargo_jefatura`), Sprint 23 ✅ (Áreas Programáticas y CeSACs, Agustín), Sprint 24 ✅ (cargos de conducción vacantes derivados del organigrama). Sprint 14 ✅ (concurso desde alta — estaba commiteado pero el plan lo marcaba planificado).
 > Fixes de la sesión 2026-10: organigrama (personas por JCAT + escalafón gerencial, conductores jerárquicos, SSAPAC en Nivel Central, selector de hospitales case-insensitive, color del badge GO, agrupador DGA, nombre del conductor sin truncar); toda la app usa la especialidad del catálogo (`especialidadPuesto.nombre`) en vez de `especialidad_legacy` (auditoría en `Doc/Referencias/AUDITORIA_ESPECIALIDAD.md`); padrón: reapertura de ocupaciones de roles que reaparecen (corrige personas inactivadas por error); KPIs excluyen Residencias y Docentes; Dotaneitor saca columnas internas del Excel descargable; migración `spanish_unaccent` recreada (búsqueda de personas).
 > Revisión 2026-09-28: taller de rediseño del Dotaneitor (Sprints 20/21/22) — YA IMPLEMENTADO (20/21/22 cerrados). Ver `Doc/Referencias/` (DOTANEITOR_EVALUACION, DOTANEITOR_DECISIONES, dotaneitor_evaluacion.html, DATA_CLEANING_ESPECIALIDADES — históricos de diseño). Fix `persona.activo` en padrón (commit `85d8267`).
 >
@@ -48,7 +48,7 @@
 | 12·post | Auditoría especialidad_legacy + pg_trgm                      | ✅     | —          | —                     | `Sprints/POST_SPRINT_12_especialidad_legacy.md`                    |
 | 13      | Panel de autorizaciones + jerarquía de roles                 | ✅     | 2026-09-11 | S13-1 a S13-E         | `Sprints/SPRINT_12_13_ux_bajas_autorizaciones.md`                  |
 | 13·post | Validación de Bajas: triangulación SIAL + filtros            | ✅     | 2026-09    | —                     | `Sprints/POST_SPRINT_13_validacion_bajas_sial.md`                  |
-| 14      | Concurso desde Alta de Cargo                                 | 📋     | —          | S14-1 a S14-10        | `Sprints/SPRINT_14_concurso_desde_alta.md`                         |
+| 14      | Concurso desde Alta de Cargo                                 | ✅     | 2026-09    | S14-1 a S14-10        | `Sprints/SPRINT_14_concurso_desde_alta.md`                         |
 | 14·post | Migración legacy: tablas de referencia Dotaneitor            | ⚠️     | —          | —                     | `Sprints/POST_SPRINT_14_migracion_legacy_tablas_referencia.md`     |
 | 14·post | Migración legacy: Organigrama                                | ✅     | 2026-09-08 | —                     | `Sprints/POST_SPRINT_14_migracion_legacy_organigrama.md`           |
 | 15      | Personas en cargos del organigrama + mejoras UX              | ✅     | —          | —                     | `Sprints/SPRINT_03_personas_cargos.md`                             |
@@ -68,21 +68,21 @@
 | 21      | Consumidores secundarios + estructura + correctivas S20      | ✅     | 2026-10    | S21-1..11 + A21-3..17 | `Sprints/SPRINT_21_consumidores_secundarios_especialidad.md`       |
 | 22      | Dotaneitor v2: reescritura lineal (contra catálogo)          | ✅     | 2026-09-22 | S22-1 a S22-16        | `Sprints/SPRINT_22_dotaneitor_catalogo.md`                         |
 | 23      | Catálogo oficial de Áreas Programáticas y CeSACs (Agustín)   | ✅ †   | 2026-10-05 | S23-1 a S23-11        | `Sprints/SPRINT_23_areas_programaticas.md`                         |
-| 24      | Cargos de conducción vacantes derivados del organigrama      | 📋     | —          | S24-1 a S24-10        | `Sprints/SPRINT_24_cargos_conduccion_vacantes.md`                  |
+| 24      | Cargos de conducción vacantes derivados del organigrama      | ✅     | 2026-10    | S24-1 a S24-10        | `Sprints/SPRINT_24_cargos_conduccion_vacantes.md`                  |
 
 **Leyenda:** ✅ Completado · 📋 Planificado (no empezado) · ⚠️ Parcial / con pendientes · `†` completo salvo verificación visual en navegador · `·post` = post-sprint (mejoras/fixes sobre un sprint ya cerrado) · `·ret` = línea Retenciones (numeración propia paralela).
 
 ### Notas por sprint (lo que no entra en la grilla)
 
-- **S14 (📋):** Concurso desde Alta de Cargo — no empezado.
-- **S14·post tablas de referencia (⚠️):** código completo y `tsc` limpio pero **sin commitear**; traspasado a Jorge para destrabar Docker/Postgres local y verificar E2E.
+- **S14 (✅):** Concurso desde Alta de Cargo — implementado y mergeado (commits `06a8b84` concurso desde alta: `motivoConcurso`, modal post-aprobación, columna Motivo, notif sdravs; `815f7f9` S14-9 badge `concurso_iniciado`; `cfb6cd0` fix sgrasv rolSlug + E2E 13/13).
+- **S14·post tablas de referencia (⚠️):** código **ya commiteado y conectado al router/menú** (commits `4e6ab55` creación del módulo `referencias`, `8883d67` conexión a router + menú lateral, 2026-09-09) — la advertencia previa de "sin commitear" quedó obsoleta. Único pendiente real: la verificación E2E manual (login admin + alta/edición/baja en las 10 tablas desde la UI), que no deja rastro en git; mantener ⚠️ hasta confirmarla en navegador.
 - **S14·post Organigrama (✅):** verificado E2E con login real + módulo "Árbol" (carga por Excel). Pendiente histórico: rebuild de Docker para probar "Árbol" por UI; `Cargo.unificadorPuesto` vacío al 100% (origen del "todo Vacante", resuelto después por los fixes de organigrama 2026-10).
 - **S16 (✅):** S16-9 (verificación e2e) quedó pendiente al cierre.
 - **S20 (✅):** deuda detectada al evaluarlo (2026-09-22) — `codigos_registro` casi vacío, catálogo sin normalizar con duplicados, FK faltantes en ConcursoCph/Ceetps → correctivas aplicadas en S21 (A21-12..A21-17).
 - **S21 (✅):** verificado e2e con padrón real (43.572 cargos / 42.023 personas). S21-5 eliminó la columna `personas.especialidad_principal` (se deriva en runtime). S21-3/S21-4 descartadas por cambio de alcance (OM/inscriptos = texto normalizado, no FK).
 - **S22 (✅):** endpoint único `POST /procesar-padron`, resolución contra catálogo, JCAT→cargo de jefatura (Opción A texto, tabla `jcat_cargo_jefatura`). **Deuda diferida:** S22-12 Opción B (FK de jefatura) queda para otro sprint.
 - **S23 (✅ †):** modelos `areaProgramatica`/`cesac`/`unidadFijaApayC`, seed Anexo III (52 CeSACs) + Decreto 306-26, backfill, backend `areas-programaticas/`, UI dentro de Organigrama, "Jefe" en runtime. Falta solo la verificación visual en navegador (S23-7/8/9). Requiere correr seed+backfill en cada entorno (ver `ARRANQUE_LOCAL.md`).
-- **S24 (📋):** deriva los cargos de conducción del organigrama para mapear vacantes reales (caso testigo CEMAR IV). Diseño (S24-1) y análisis (S24-2) cerrados; esperando validación de RRHH antes de implementar S24-3+. Ver `SPRINT_24_S1_diseno.md`, `SPRINT_24_S2_analisis.md`, `SPRINT_24_consultas_RRHH.md`.
+- **S24 (✅):** deriva los cargos de conducción del organigrama para mapear vacantes reales (caso testigo CEMAR IV). Completado 2026-10 (backend `derivarCargosConduccion.ts` + frontend `/organigrama` y `/cargos`); el propio archivo del sprint figura `✅ Completado (2026-10)`. Diseño (S24-1) y análisis (S24-2) cerrados. Ver `SPRINT_24_S1_diseno.md`, `SPRINT_24_S2_analisis.md`, `SPRINT_24_consultas_RRHH.md`.
 
 ---
 
