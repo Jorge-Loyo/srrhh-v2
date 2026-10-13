@@ -59,6 +59,7 @@ def _col_snake(nombre: str) -> str:
 # resueltos del catálogo (UUIDs). El resto del texto va a minúscula/sin tilde.
 _COLUMNAS_NO_MINUSCULA = {
     'siglas', 'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
+    'cargo_jefatura_puesto_id',
 }
 
 # Columnas internas de procesamiento que NO deben salir en el Excel descargable
@@ -73,6 +74,7 @@ _COLUMNAS_INTERNAS_EXPORT = {
     'escalafon_id',
     'puesto_cargo_id',
     'especialidad_puesto_id',
+    'cargo_jefatura_puesto_id',
     'literal_puesto_origen',
     'especialidad_origen',
 }
@@ -148,6 +150,7 @@ _ORDEN_SALIDA = [
     'antiguedad',
     # Resolución contra catálogo (S22-5/7): ids + texto crudo de origen.
     'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
+    'cargo_jefatura_puesto_id',
     'literal_puesto_origen', 'especialidad_origen',
 ]
 
@@ -266,6 +269,7 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
     # texto crudo de origen (literal_puesto_origen/especialidad_origen) antes de
     # normalizar. Sin match → auto-alta pendiente_curar (dentro de Catalogo).
     jcat_sin_mapeo = 0
+    jcat_sin_fk = 0
     if catalogo is not None:
         df['literal_puesto_origen'] = df.get('literal_puesto')
         df['especialidad_origen'] = df.get('especialidad')
@@ -319,6 +323,20 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
             if j is not None and not (isinstance(j, float) and pd.isna(j)) and str(j).strip() and c is None
         )
 
+        # ── JCAT → puesto de jefatura FK (S22-12, Opción B) ───────────────────
+        # Aditivo: convive con cargo_jefatura (texto). Null cuando el puesto de
+        # conducción no existe en el catálogo (familias Z, Sub-Director sin
+        # curar): no frena, se cuenta e informa (análogo a jcat_sin_mapeo).
+        cargo_jef_ids = [
+            catalogo.resolver_cargo_jefatura_id(j, esc_id)
+            for j, esc_id in zip(jcat_series, df['escalafon_id'])
+        ]
+        df['cargo_jefatura_puesto_id'] = cargo_jef_ids
+        jcat_sin_fk = sum(
+            1 for j, c in zip(jcat_series, cargo_jef_ids)
+            if j is not None and not (isinstance(j, float) and pd.isna(j)) and str(j).strip() and c is None
+        )
+
         logs.append({
             'text': f"✓ Resolución catálogo — puestos auto-alta: {catalogo.puestos_auto_alta}, "
                     f"especialidades auto-alta: {catalogo.especialidades_auto_alta}, "
@@ -327,6 +345,8 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         })
         if jcat_sin_mapeo:
             logs.append({'text': f"[!] JCAT con valor pero sin mapeo a cargo de jefatura: {jcat_sin_mapeo}", 'type': 'warning'})
+        if jcat_sin_fk:
+            logs.append({'text': f"[!] JCAT con jefatura pero sin FK a puesto de conducción (puesto no en catálogo): {jcat_sin_fk}", 'type': 'warning'})
 
     # ── Paso 9.75: normalización TOTAL a minúscula + sin tilde (S22-3) ────────
     # Reemplaza _forzar_mayusculas. Aplica a TODAS las columnas salvo las
@@ -365,6 +385,7 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         'puestos_auto_alta': catalogo.puestos_auto_alta if catalogo else 0,
         'especialidades_auto_alta': catalogo.especialidades_auto_alta if catalogo else 0,
         'jcat_sin_mapeo': jcat_sin_mapeo,
+        'jcat_sin_fk': jcat_sin_fk,
     }
 
     # Logs resumen

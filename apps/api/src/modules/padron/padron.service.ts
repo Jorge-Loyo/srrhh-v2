@@ -331,6 +331,12 @@ async function calcularDiff(registros: RegistroPython[]) {
         agrupamiento: strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
         // Campos de Ocupacion faltantes (2026-08-25)
         codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
+        // S22-12 Opción B: FK de jefatura resuelta por el pipeline. Se agrega al
+        // allowlist de valorNuevo para que aprobarSnapshotService/aprobarTodosService/
+        // transferencia puedan leerla vía datos.cargo_jefatura_puesto_id (sin esto
+        // la FK nunca llega a la persistencia aunque viaje en rows). El pipeline la
+        // emite solo en snake_case, igual que los otros ids resueltos.
+        cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
         jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
         documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
         comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
@@ -1444,6 +1450,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       situacionRevista: string | null
       estadoPersona: string | null
       codigoJefaturas: string | null
+      cargoJefaturaPuestoId: string | null
       jefeEscalafon: string | null
       documentacionJefatura: string | null
       comentariosJefaturas: string | null
@@ -1475,6 +1482,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         situacionRevista: datos.situacion_de_revista ?? null,
         estadoPersona: datos.estado ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
+        cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
         jefeEscalafon: datos.jefe_escalafon || null,
         documentacionJefatura: datos.documentacion_jefatura || null,
         comentariosJefaturas: datos.comentarios_jefaturas || null,
@@ -2687,6 +2695,7 @@ export async function aprobarDiffNuevoService(
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
             comision: datos.comision || null,
             repaComision: datos.repa_comision || null,
@@ -2980,6 +2989,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
             comision: datos.comision || null,
             repaComision: datos.repa_comision || null,
