@@ -29,6 +29,15 @@ import { normalizarTexto } from '@srrhh/normalizacion'
 const MARCADOR = 'INSERT INTO `organigramas` VALUES '
 const LOTE = 500 // filas por createMany — conservador frente al límite de bind variables de Postgres
 
+// Canonización de régimen (2026-10-14): el nodo "DEPT Técnico" (presente en los
+// 22 hospitales) viene en el dump legacy bajo "Carrera de Técnicos de la Salud",
+// pero sus integrantes son CPH, así que depende de "Carrera de Profesionales de
+// la Salud". Se fuerza acá para que una recarga del dump NO revierta la
+// corrección. Mismo criterio que organigrama.service.ts::canonizarRegimenEmpleo
+// (match por desc_rep ya normalizado: "DEPT Técnico" -> "dept tecnico").
+const DESC_REP_DEPT_TECNICO = 'dept tecnico'
+const REGIMEN_DEPT_TECNICO = 'Carrera de Profesionales de la Salud'
+
 const prisma = new PrismaClient()
 
 // ── Desescapar strings al estilo mysqldump (\\, \', \", \n, \r, \t, \0, \Z) ──
@@ -159,6 +168,18 @@ function filaAOrganigrama(fila: unknown[]): Prisma.OrganigramaCreateManyInput {
   }
 }
 
+// Aplica la canonización de régimen sobre una fila ya mapeada: "DEPT Técnico"
+// -> Carrera de Profesionales de la Salud (resto sin tocar). descRep ya viene
+// normalizado por filaAOrganigrama.
+function canonizarRegimenFila(
+  f: Prisma.OrganigramaCreateManyInput,
+): Prisma.OrganigramaCreateManyInput {
+  if (f.descRep === DESC_REP_DEPT_TECNICO) {
+    return { ...f, regimenEmpleo: REGIMEN_DEPT_TECNICO }
+  }
+  return f
+}
+
 async function main() {
   const argFlag = process.argv.indexOf('--archivo')
   const archivo = resolve(
@@ -179,7 +200,7 @@ async function main() {
   }
   console.log(`Filas parseadas: ${filasRaw.length}`)
 
-  const filas = filasRaw.map(filaAOrganigrama)
+  const filas = filasRaw.map(filaAOrganigrama).map(canonizarRegimenFila)
 
   // Chequeo de integridad antes de tocar la base: codigoReparticion es UNIQUE.
   const codigos = new Set<string>()

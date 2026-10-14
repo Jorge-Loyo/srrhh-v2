@@ -113,3 +113,44 @@ describe('mensaje de pendientes (tope y aviso de historial vacío)', () => {
     expect(msg).toContain('La tabla "organigramas" está vacía')
   })
 })
+
+// ─── Canonización de régimen: "DEPT Técnico" -> Carrera de Profesionales ──────
+// Réplica de canonizarRegimenEmpleo de organigrama.service.ts (si cambia allá,
+// actualizar acá). El match es por desc_rep YA normalizado (normalizarTexto):
+// "DEPT Técnico" -> "dept tecnico".
+const DESC_REP_DEPT_TECNICO = 'dept tecnico'
+const REGIMEN_DEPT_TECNICO = 'Carrera de Profesionales de la Salud'
+function canonizarRegimenEmpleo(
+  descRepNormalizado: string | null,
+  regimenEmpleo: string | null,
+): string | null {
+  if (descRepNormalizado === DESC_REP_DEPT_TECNICO) return REGIMEN_DEPT_TECNICO
+  return regimenEmpleo
+}
+
+describe('canonizarRegimenEmpleo (DEPT Técnico depende de CPH, no de Técnicos)', () => {
+  it('fuerza "Carrera de Profesionales de la Salud" para DEPT Técnico aunque venga como Técnicos', () => {
+    expect(canonizarRegimenEmpleo('dept tecnico', 'Carrera de Técnicos de la Salud')).toBe(
+      'Carrera de Profesionales de la Salud',
+    )
+  })
+
+  it('fuerza el régimen correcto aunque el régimen venga null/vacío', () => {
+    expect(canonizarRegimenEmpleo('dept tecnico', null)).toBe('Carrera de Profesionales de la Salud')
+    expect(canonizarRegimenEmpleo('dept tecnico', '')).toBe('Carrera de Profesionales de la Salud')
+  })
+
+  it('el criterio coincide con normalizarTexto("DEPT Técnico")', () => {
+    expect(normalizarTexto('DEPT Técnico')).toBe('dept tecnico')
+  })
+
+  it('no toca otros nodos: deja el régimen que traen', () => {
+    expect(canonizarRegimenEmpleo('dept especialidades de asistencia tecnica a la salud', 'Carrera de Técnicos de la Salud')).toBe(
+      'Carrera de Técnicos de la Salud',
+    )
+    expect(canonizarRegimenEmpleo('div cirugia general', 'Carrera de Profesionales de la Salud')).toBe(
+      'Carrera de Profesionales de la Salud',
+    )
+    expect(canonizarRegimenEmpleo(null, 'Carrera de Enfermeria')).toBe('Carrera de Enfermeria')
+  })
+})

@@ -911,6 +911,25 @@ export function inferirRegimenEmpleoPorTipo(tipo: string): string | null {
   return null
 }
 
+// Regla de canonización de régimen (2026-10-14): el nodo "DEPT Técnico" existe
+// en los 22 hospitales y el Excel/dump legacy lo trae bajo "Carrera de Técnicos
+// de la Salud", pero sus integrantes son CPH (Carrera de Profesionales de la
+// Salud) — depende de ese régimen, no del de técnicos. Se fuerza el valor
+// correcto en TODA carga (Excel vía reemplazarOrganigramaService y dump vía
+// import-organigrama.ts) para que la corrección sea permanente y no dependa de
+// que el archivo origen esté bien. El match es por desc_rep ya normalizado
+// (normalizarTexto -> minúscula sin tilde): "DEPT Técnico" -> "dept tecnico".
+const DESC_REP_DEPT_TECNICO = 'dept tecnico'
+const REGIMEN_DEPT_TECNICO = 'Carrera de Profesionales de la Salud'
+
+export function canonizarRegimenEmpleo(
+  descRepNormalizado: string | null,
+  regimenEmpleo: string | null,
+): string | null {
+  if (descRepNormalizado === DESC_REP_DEPT_TECNICO) return REGIMEN_DEPT_TECNICO
+  return regimenEmpleo
+}
+
 // Universo totalizador canónico para la INFERENCIA de régimen: distintas cargas
 // usan nombres equivalentes para el mismo universo —"APS" ⇔ "ATENCION PRIMARIA"
 // ⇔ "ATENCION PRIMARIA DE SALUD" (APS = Atención Primaria de la Salud)—. Si no
@@ -996,18 +1015,22 @@ function normalizarFilaExcel(
   if (!Number.isFinite(lvl))
     throw AppError.badRequest(`Fila ${numeroFila}: "lvl" no es un número (${lvlRaw})`)
 
+  // Regla del proyecto (§9.1): minúscula + sin tilde (mantiene ñ) también acá
+  // — el Excel legacy trae desc_rep en Title Case/mixto, igual que el resto
+  // de los flujos que ya pasan por @srrhh/normalizacion (cargos/personas vía
+  // Dotaneitor, bajas-SIAL, POU). Hallazgo 2026-10-05 (ver script
+  // normalizar_organigrama.ts para el backfill de las filas ya cargadas).
+  const descRep = normalizarDescRep(celda(norm, 'desc_rep'))
+
   return {
     lvl,
     tipo: tipo!,
     codigoReparticion: codigoReparticion!,
     universoTotalizador: celda(norm, 'universo_totalizador'),
-    regimenEmpleo: celda(norm, 'regimen_empleo'),
-    // Regla del proyecto (§9.1): minúscula + sin tilde (mantiene ñ) también acá
-    // — el Excel legacy trae desc_rep en Title Case/mixto, igual que el resto
-    // de los flujos que ya pasan por @srrhh/normalizacion (cargos/personas vía
-    // Dotaneitor, bajas-SIAL, POU). Hallazgo 2026-10-05 (ver script
-    // normalizar_organigrama.ts para el backfill de las filas ya cargadas).
-    descRep: normalizarDescRep(celda(norm, 'desc_rep')),
+    // canonizarRegimenEmpleo fuerza "DEPT Técnico" -> Carrera de Profesionales
+    // de la Salud (ver nota arriba); para el resto deja el valor del Excel.
+    regimenEmpleo: canonizarRegimenEmpleo(descRep, celda(norm, 'regimen_empleo')),
+    descRep,
     sigla: sigla!,
     padre: celda(norm, 'padre'),
     path: path!,
@@ -1179,6 +1202,14 @@ export async function reemplazarOrganigramaService(
         })),
       },
     )
+  }
+
+  // Canonización final de régimen: se re-aplica DESPUÉS de la herencia/inferencia
+  // (arriba) para blindar también esa ruta — si el régimen de "DEPT Técnico" se
+  // completó por historial/inferencia con el valor viejo, acá se corrige igual.
+  // Idempotente con lo ya hecho en normalizarFilaExcel.
+  for (const f of filas) {
+    f.regimenEmpleo = canonizarRegimenEmpleo(f.descRep ?? null, f.regimenEmpleo ?? null)
   }
 
   // Swap atómico via transacción interactiva con timeout extendido:
