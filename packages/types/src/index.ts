@@ -299,7 +299,7 @@ export interface PadronDiff {
   codigoReutilizado?: boolean // true si el cargo proviene de un concurso CPH vinculado
   concursoCodigo?: string | null // código del cargo del concurso (cuando codigoReutilizado=true)
   apellidoNombre?: string | null // modificados y eliminados: nombre de la persona
-  clasificacionEliminado?: 'con_persona' | 'en_validacion' | 'sin_persona' | null // solo eliminados
+  clasificacionEliminado?: 'en_validacion' | 'sin_persona' | null // solo eliminados (baja_previa)
   codigoCargo?: string | null // solo eliminados: código del cargo en la BD
   siglas?: string | null // solo eliminados: sigla del hospital
   escalafon?: string | null // solo eliminados: nombre del escalafón
@@ -812,13 +812,15 @@ export interface PaginatedResponse<T> {
 
 export interface DiffSummary {
   nuevos: number
-  modificados: number
+  modificados: number // tipo='modificado' sin completado:* ni __reabrir_ocupacion__
+  completados: number // tipo='modificado' con campo='completado:*' — alta de dato, no cambio
   eliminados: number
+  bajasNuevas: number // tipo='eliminado' AND campo IS NULL — baja real de la semana
+  bajasPrevias: number // tipo='eliminado' AND campo='baja_previa' — ya estaba en baja
   nuevosPendientes: number
   nuevosRechazados: number
-  eliminadosConPersona: number // cargo vigente con ocupación activa — baja real
-  eliminadosEnValidacion: number // cargo en validacion_vacante — ya en proceso de baja
-  eliminadosSinPersona: number // cargo no_vigente o vacante — ruido histórico
+  eliminadosEnValidacion: number // sub-leyenda baja_previa: cargo en validacion_vacante
+  eliminadosSinPersona: number // sub-leyenda baja_previa: cargo no_vigente o vacante
 }
 
 export interface SnapshotDiffResponse {

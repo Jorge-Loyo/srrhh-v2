@@ -7,7 +7,11 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
-import { prefijoDeCargo, maxSecuencialCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import {
+  prefijoDeCargo,
+  maxSecuencialCargo,
+  siguienteCodigoCargo,
+} from '../../shared/codigoCargo.js'
 import {
   cargarCatalogoPuestos,
   resolverPuestoCargoId,
@@ -18,6 +22,17 @@ import {
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import type { DiffQuery } from './padron.schema.js'
+import {
+  parseFechaDDMMYYYY,
+  toISO,
+  stripCompletado,
+  categoriaBaja,
+  CENTINELA_ISO,
+} from './padron.diff.helpers.js'
+
+// Re-exportados para compatibilidad y para que otros módulos usen la única
+// fuente de los helpers del diff.
+export { parseFechaDDMMYYYY, toISO, stripCompletado, categoriaBaja, CENTINELA_ISO }
 
 // Prefijos que se aprueban automáticamente al subir el padrón:
 // Residentes (RES), Docentes (DOC) y Autoridades Superiores (AS-*)
@@ -116,10 +131,24 @@ const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4 })
 const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4 })
 const python = axios.create({
   baseURL: env.PYTHON_SERVICE_URL,
-  timeout: 300_000,
+  // S22/Opción B: el procesamiento del padrón corre como job async en el
+  // Dotaneitor; cada request API↔Python es corta (arrancar el job y leer el
+  // estado son operaciones de ms). Timeout default 30 s; la descarga del
+  // parquet usa un override por-request de 60 s (DESCARGA_TIMEOUT_MS).
+  timeout: 30_000,
   httpAgent,
   httpsAgent,
 })
+
+// ── Constantes del flujo async del padrón (Opción B) ──────────────────────────
+const JOB_POLL_INTERVAL_MS = 3_000 // cada cuánto Node pollea GET /job/{id}
+const JOB_POLL_TIMEOUT_MS = 15 * 60_000 // tope total de espera del polling (15 min)
+const PAGE_DESCARGA = 5_000 // tamaño de página al descargar el parquet (orden de chunk(diffs,2000))
+const DESCARGA_TIMEOUT_MS = 60_000 // timeout por-request SOLO para la descarga (mueve datos)
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+// Primera línea legible de un error (sin el traceback que el Dotaneitor adjunta).
+const firstLine = (s: string | null | undefined): string => (s ?? '').split('\n')[0]!.trim()
 
 // Errores de red transitorios del contenedor Python que ameritan reintento.
 const ERRORES_RED_TRANSITORIOS = new Set(['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE'])
@@ -196,17 +225,29 @@ function normCmp(v: unknown): string {
     .replace(/[\u0300-\u036f]/g, '')
 }
 
-// Fechas del padrón real vienen como "DD/MM/YYYY" (string) — Dotaneitor no
-// las normaliza a ISO. new Date("DD/MM/YYYY") las interpreta mal (formato
-// ambiguo, Node asume MM/DD para strings así), así que se parsean los
-// componentes a mano.
-function parseFechaDDMMYYYY(v: string | undefined): Date | null {
-  if (!v) return null
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v)
-  if (!m) return null
-  const [, d, mo, y] = m
-  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)))
-  return Number.isNaN(date.getTime()) ? null : date
+// Única fuente de verdad columna Python -> campo Prisma de Cargo, usada por
+// calcularDiff y por el paso 6 de aprobarSnapshotService. codigo_de_registro
+// NO entra acá: se resuelve con una rama dedicada que lee codigoRegistro.codigo.
+const CAMPOS_CARGO: Record<string, string> = {
+  literal_puesto: 'literalPuesto',
+  especialidad: 'especialidadLegacy',
+  agrupador: 'agrupador',
+  unificador_de_puestos: 'unificadorPuesto',
+  codigo_repa: 'codigoRepa',
+  descripcion_repa: 'descripcionRepa',
+  agrupamiento: 'agrupamiento',
+}
+// Única fuente de verdad columna Python -> campo Prisma de Ocupacion.
+const CAMPOS_OCUPACION: Record<string, string> = {
+  situacion_de_revista: 'situacionRevista',
+  estado: 'estadoPersona',
+  codigo_jefaturas: 'codigoJefaturas',
+  jefe_escalafon: 'jefeEscalafon',
+  comision: 'comision',
+  repa_comision: 'repaComision',
+  cod_situacion: 'codSituacion',
+  cargo_desde: 'cargoDesdeFecha',
+  cargo_hasta: 'cargoHastaFecha',
 }
 
 async function calcularDiff(registros: RegistroPython[]) {
@@ -224,9 +265,19 @@ async function calcularDiff(registros: RegistroPython[]) {
   // El orderBy pone las vigentes primero (hasta NULL) y, entre cerradas, la más
   // reciente; take:1 deja exactamente la ocupación relevante.
   const cargosActuales = await prisma.cargo.findMany({
-    where: { estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] } },
+    // Solo cargos que provienen del SIAL (tienen id_sial). Los cargos de
+    // conducción vacantes derivados del organigrama (S24, origen='organigrama')
+    // NO tienen id_sial: nadie los ocupa, nunca estuvieron en el padrón. Si se
+    // incluyeran acá, el diff los marcaría como "eliminados" con idSialRol null
+    // y el createMany de padron_diff (id_sial_rol NOT NULL) fallaría con
+    // "Argument `idSialRol` is missing". Se excluyen por id_sial IS NOT NULL.
+    where: {
+      estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] },
+      idSial: { not: null },
+    },
     select: {
       idSial: true,
+      estado: true, // requerido por el loop de Eliminados y el skip de Nuevos/Modificados
       literalPuesto: true,
       especialidadLegacy: true,
       agrupador: true,
@@ -250,6 +301,9 @@ async function calcularDiff(registros: RegistroPython[]) {
           comision: true,
           repaComision: true,
           codSituacion: true,
+          cargoDesdeFecha: true, // fix bug fechas: el diff nunca las leía
+          cargoHastaFecha: true,
+          persona: { select: { activo: true } }, // criterio de baja nueva (DECISIÓN 2)
         },
         take: 1,
       },
@@ -276,6 +330,8 @@ async function calcularDiff(registros: RegistroPython[]) {
   // Nuevos
   for (const idSial of nuevosIds) {
     if (actualesIds.has(idSial)) continue
+    // (si el id existe en actualesMap ya se saltó arriba; un id ausente de
+    // actualesMap es un nuevo normal, no hay cargo no-vigente que filtrar)
     const r = nuevosMap.get(idSial)!
     const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
     const idSialRol = cuilYRol ? `${idSial}-${cuilYRol}` : idSial
@@ -322,6 +378,12 @@ async function calcularDiff(registros: RegistroPython[]) {
         agrupamiento: strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
         // Campos de Ocupacion faltantes (2026-08-25)
         codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
+        // S22-12 Opción B: FK de jefatura resuelta por el pipeline. Se agrega al
+        // allowlist de valorNuevo para que aprobarSnapshotService/aprobarTodosService/
+        // transferencia puedan leerla vía datos.cargo_jefatura_puesto_id (sin esto
+        // la FK nunca llega a la persistencia aunque viaje en rows). El pipeline la
+        // emite solo en snake_case, igual que los otros ids resueltos.
+        cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
         jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
         documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
         comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
@@ -353,10 +415,13 @@ async function calcularDiff(registros: RegistroPython[]) {
     const actual = actualesMap.get(idSial)!
     const ocup = actual.ocupaciones[0]
     const idSialRol = ocup?.idSialRol ?? idSial
+    // Baja NUEVA de la semana (campo=null) vs ya estaba en baja (campo='baja_previa').
+    // Criterio: cargo vigente + ocupación vigente + persona.activo===true (DECISIÓN 2).
+    const campoBaja = categoriaBaja(actual.estado, ocup)
     diffs.push({
       tipo: 'eliminado',
       idSialRol,
-      campo: null,
+      campo: campoBaja,
       valorAnterior: JSON.stringify({
         id_sial: idSial,
         cuil_y_rol: ocup?.cuil ?? null,
@@ -372,31 +437,21 @@ async function calcularDiff(registros: RegistroPython[]) {
     })
   }
 
-  // Modificados
-  const CAMPO_CARGO_MAP: Record<string, keyof (typeof cargosActuales)[number]> = {
-    literal_puesto: 'literalPuesto',
-    especialidad: 'especialidadLegacy',
-    agrupador: 'agrupador',
-    unificador_de_puestos: 'unificadorPuesto',
-    codigo_repa: 'codigoRepa',
-    descripcion_repa: 'descripcionRepa',
-    agrupamiento: 'agrupamiento',
-  }
-  const CAMPO_OCUP_MAP: Record<string, string> = {
-    situacion_de_revista: 'situacionRevista',
-    estado: 'estadoPersona',
-    codigo_jefaturas: 'codigoJefaturas',
-    jefe_escalafon: 'jefeEscalafon',
-    comision: 'comision',
-    repa_comision: 'repaComision',
-    cod_situacion: 'codSituacion',
-  }
-
+  // Modificados — usa las constantes de módulo CAMPOS_CARGO/CAMPOS_OCUPACION
+  // (única fuente, compartida con aprobarSnapshotService). codigo_de_registro
+  // no entra a CAMPOS_CARGO: se resuelve con la rama dedicada de abajo.
   for (const idSial of nuevosIds) {
     if (!actualesIds.has(idSial)) continue
     const r = nuevosMap.get(idSial)!
     const actual = actualesMap.get(idSial)!
+    // No comparar/crear cambios sobre cargos ya dados de baja.
+    if (actual.estado !== 'vigente') continue
     const ocup = actual.ocupaciones[0]
+    // Solo se comparan campos de ocupación contra una ocupación VIGENTE
+    // (hasta IS NULL). Si la única ocupación está cerrada, el marcador
+    // __reabrir_ocupacion__ cubre la reapertura; comparar sus campos stale
+    // solo genera ruido (Decisión 5).
+    const ocupVigente = ocup && ocup.hasta == null ? ocup : null
     const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
     const idSialRol = ocup?.idSialRol ?? (cuilYRol ? `${idSial}-${cuilYRol}` : idSial)
 
@@ -418,33 +473,60 @@ async function calcularDiff(registros: RegistroPython[]) {
     }
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
+      // No comparar campos de ocupación si no hay ocupación vigente.
+      if (tabla === 'ocupacion' && !ocupVigente) continue
+
       const colUpper =
         colPython === 'codigo_de_registro'
           ? 'CODIGO DE REGISTRO'
           : colPython.toUpperCase().replace(/_/g, ' ')
-      const vNuevo = strVal(r[colUpper] ?? r[colPython])
+      const vNueStr = strVal(r[colUpper] ?? r[colPython])
+
+      const esFecha = colPython === 'cargo_desde' || colPython === 'cargo_hasta'
+      if (esFecha) {
+        // Fechas: comparar en ISO (partes UTC), almacenar strings (DECISIÓN 4).
+        const mappedOcup = CAMPOS_OCUPACION[colPython]
+        const isoAnterior = toISO(
+          ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+        )
+        const iguales = isoAnterior === toISO(vNueStr)
+        if (!iguales) {
+          const esCompletado = isoAnterior === '' && vNueStr !== ''
+          diffs.push({
+            tipo: 'modificado',
+            idSialRol,
+            campo: esCompletado ? `completado:${colPython}` : colPython,
+            valorAnterior: isoAnterior || null, // string ISO, NUNCA el Date crudo
+            valorNuevo: vNueStr || null,
+          })
+        }
+        continue
+      }
+
+      // No-fecha: comparación normalizada (ignora capitalización/tilde).
       let vAnterior = ''
       if (tabla === 'cargo') {
         if (colPython === 'codigo_de_registro') {
           vAnterior = strVal(actual.codigoRegistro?.codigo)
         } else {
-          const key = CAMPO_CARGO_MAP[colPython]
-          vAnterior = strVal(key ? actual[key] : null)
+          const mappedCargo = CAMPOS_CARGO[colPython]
+          vAnterior = strVal(mappedCargo ? (actual as Record<string, unknown>)[mappedCargo] : null)
         }
       } else {
-        const key = CAMPO_OCUP_MAP[colPython]
-        vAnterior = strVal(key && ocup ? (ocup as Record<string, unknown>)[key] : null)
+        const mappedOcup = CAMPOS_OCUPACION[colPython]
+        vAnterior = strVal(
+          mappedOcup && ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+        )
       }
-      // Comparación normalizada: ignora diferencias de solo capitalización/
-      // tilde (el pipeline v2 normaliza a minúscula; la BD tiene datos viejos
-      // en mayúscula). Solo cuenta cambios reales de contenido.
-      if (normCmp(vNuevo) !== normCmp(vAnterior)) {
+      if (normCmp(vNueStr) !== normCmp(vAnterior)) {
+        // empty → value es un alta de dato (completado), no una modificación.
+        const esCompletado = strVal(vAnterior) === '' && vNueStr !== ''
         diffs.push({
           tipo: 'modificado',
           idSialRol,
-          campo: colPython,
+          campo: esCompletado ? `completado:${colPython}` : colPython,
           valorAnterior: vAnterior || null,
-          valorNuevo: vNuevo || null,
+          valorNuevo: vNueStr || null,
         })
       }
     }
@@ -509,21 +591,84 @@ async function runPipeline(
     const form = new FormData()
     form.append('file', fileBuffer, { filename, contentType: mimetype })
     form.append('snapshot_id', snapshotId)
-    // limit alto: queremos TODO el dataset en una sola respuesta para el diff.
-    const { data } = await python.post<{ rows: RegistroPython[]; total: number }>(
-      '/procesar-padron?page=1&limit=100000',
-      form,
-      { headers: form.getHeaders() },
-    )
-    const registros = data.rows ?? []
+
+    // Arranque del job: SIN conReintentoRed. El POST lanza un thread en el
+    // Dotaneitor; reintentar ante un corte de socket dispararía un SEGUNDO job
+    // que reprocesaría 48k filas en paralelo contra el catálogo (duplicados /
+    // contención). El arranque es barato (devuelve en segundos).
+    const {
+      data: { job_id },
+    } = await python
+      .post<{ job_id: string }>('/procesar-padron', form, { headers: form.getHeaders() })
+      .catch((e: unknown) => {
+        const m = e instanceof Error ? e.message : String(e)
+        throw new Error('No se pudo iniciar el procesamiento: ' + m)
+      })
+
+    // Polling corto a /job/{id} hasta done/error o agotar el tope total.
+    // GET idempotente → CON conReintentoRed (reintentar no crea trabajo nuevo).
+    const result = await (async (): Promise<{ total: number; cols: string[] }> => {
+      const deadline = Date.now() + JOB_POLL_TIMEOUT_MS
+      while (Date.now() < deadline) {
+        let job: { status: string; result: { total: number; cols: string[] } | null; error: string | null }
+        try {
+          ;({ data: job } = await conReintentoRed(() =>
+            python.get<typeof job>(`/job/${job_id}`),
+          ))
+        } catch (e) {
+          if (axios.isAxiosError(e) && e.response?.status === 404)
+            throw new Error('El job del Dotaneitor expiró o no existe')
+          throw e
+        }
+        if (job.status === 'done') return job.result!
+        if (job.status === 'error') throw new Error('Dotaneitor: ' + firstLine(job.error))
+        await sleep(JOB_POLL_INTERVAL_MS)
+      }
+      throw new Error('El procesamiento del padrón superó el tiempo máximo de espera (15 min)')
+    })()
+
+    // Guard de negocio: un job done con total 0 NO es éxito — calcularDiff([])
+    // marcaría todos los cargos actuales como eliminados (bajas masivas).
+    if (!result.total) throw new Error('El padrón procesado no tiene filas')
 
     // El total real recién se conoce al terminar (el 202 fue con total 0).
     await prisma.padronSnapshot
       .update({
         where: { id: snapshotId },
-        data: { totalRegistros: data.total ?? registros.length },
+        data: { totalRegistros: result.total },
       })
       .catch(() => {})
+
+    // Descarga paginada del parquet (GET idempotente → CON conReintentoRed).
+    // Timeout por-request de 60 s, no el default de 30 s: cada página de 5.000
+    // filas mueve datos de verdad y necesita más margen.
+    const registros: RegistroPython[] = []
+    for (let page = 1; (page - 1) * PAGE_DESCARGA < result.total; page++) {
+      const { data } = await conReintentoRed(() =>
+        python
+          .get<{ rows: RegistroPython[] }>(
+            `/procesar-padron/${job_id}/resultado?page=${page}&limit=${PAGE_DESCARGA}`,
+            { timeout: DESCARGA_TIMEOUT_MS },
+          )
+          .catch((e: unknown) => {
+            const m = e instanceof Error ? e.message : String(e)
+            throw new Error('No se pudo recuperar el resultado del padrón: ' + m)
+          }),
+      )
+      registros.push(...(data.rows ?? []))
+    }
+
+    // Limpieza-tras-descarga best-effort: borra el job + parquet en el
+    // Dotaneitor apenas tenemos todo en memoria. Si falla, el JOB_TTL lo recoge;
+    // NUNCA marca el snapshot en error.
+    await python
+      .delete(`/procesar-padron/${job_id}`)
+      .catch((e: unknown) =>
+        console.warn(
+          `[padron] no se pudo limpiar el job ${job_id}:`,
+          e instanceof Error ? e.message : String(e),
+        ),
+      )
 
     await setPaso(snapshotId, 'diff')
     const { diffs, totalNuevos, totalEliminados, totalModificados, totalCampos } =
@@ -589,9 +734,11 @@ export async function uploadPadronService(
 
   const fileBuffer = file.buffer
 
-  // S22-9: el pipeline lineal es síncrono (~1-2 min) y corre en background, así
-  // que no se puede obtener totalRegistros antes de responder — arranca en 0 y
-  // runPipeline lo actualiza al terminar. Ya no se crea sesión Python.
+  // S22-9 / Opción B: el tramo API↔Python corre como job async en el Dotaneitor
+  // (runPipeline arranca el job, pollea /job/{id} y descarga el resultado
+  // paginado). Sigue en background: /upload responde 202 y no se puede obtener
+  // totalRegistros antes de responder — arranca en 0 y runPipeline lo actualiza
+  // al terminar. Ya no se crea sesión Python.
   const snapshot = await prisma.padronSnapshot.create({
     data: {
       fechaAsignada: fechaDate,
@@ -644,13 +791,14 @@ export async function listSnapshotsService() {
 export async function getSnapshotDiffService(id: string, query: DiffQuery) {
   const snapshot = await getSnapshotOrThrow(id)
 
-  // Para eliminados con filtro de clasificación: pre-calcular los idSialRol
-  // que pertenecen a esa clasificación y usarlos como filtro en el where de
-  // Prisma — así la paginación y el total son correctos server-side.
+  // Para "ya estaban en baja" (campo='baja_previa') con sub-pestaña: pre-calcular
+  // los idSialRol de esa clasificación (en_validacion/sin_persona, derivada del
+  // estado del cargo) y usarlos como filtro server-side para paginar/contar bien.
+  // "Bajas nuevas" (campo IS NULL) no usa clasificacionEliminado.
   let idSialRolesFiltrados: string[] | null = null
-  if (query.tipo === 'eliminado' && query.clasificacionEliminado) {
+  if (query.tipo === 'eliminado' && !query.soloBajasNuevas && query.clasificacionEliminado) {
     const todosElimPre = await prisma.padronDiff.findMany({
-      where: { snapshotId: id, tipo: 'eliminado' },
+      where: { snapshotId: id, tipo: 'eliminado', campo: 'baja_previa' },
       select: { idSialRol: true, valorAnterior: true },
     })
     const idSialsPre = todosElimPre
@@ -662,22 +810,13 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         }
       })
       .filter((v): v is string => Boolean(v))
-    const rolesPre = todosElimPre.map((d) => d.idSialRol)
-    const [cargosP, ocupsP] = await Promise.all([
-      prisma.cargo.findMany({
-        where: { idSial: { in: idSialsPre } },
-        select: { idSial: true, estado: true },
-      }),
-      prisma.ocupacion.findMany({
-        where: { idSialRol: { in: rolesPre } },
-        select: { idSialRol: true },
-      }),
-    ])
+    const cargosP = await prisma.cargo.findMany({
+      where: { idSial: { in: idSialsPre } },
+      select: { idSial: true, estado: true },
+    })
     const cargoEstadoMapP = new Map(cargosP.map((c) => [c.idSial, c.estado]))
-    const conPersonaSetP = new Set(ocupsP.map((o) => o.idSialRol))
     idSialRolesFiltrados = todosElimPre
       .filter((d) => {
-        const tienePersona = conPersonaSetP.has(d.idSialRol)
         const idSial = (() => {
           try {
             return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
@@ -686,20 +825,40 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
           }
         })()
         const estado = idSial ? cargoEstadoMapP.get(idSial) : null
-        const clasi = tienePersona
-          ? 'con_persona'
-          : estado === 'validacion_vacante'
-            ? 'en_validacion'
-            : 'sin_persona'
+        const clasi = estado === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
         return clasi === query.clasificacionEliminado
       })
       .map((d) => d.idSialRol)
   }
 
+  // Precedencia de filtros por pestaña (ver diseño "Cambios de API"):
+  // - modificado + soloCompletados → campo LIKE 'completado:%'
+  // - modificado (resto) → NOT completado:% AND <> __reabrir_ocupacion__ (+ campo sub-tab)
+  // - eliminado + soloBajasNuevas → campo IS NULL
+  // - eliminado (resto) → campo='baja_previa' (+ clasificacionEliminado)
+  // Prisma no admite dos claves `campo` en el mismo objeto: se usa AND:[...].
+  let campoWhere: Record<string, unknown> = {}
+  if (query.tipo === 'modificado') {
+    if (query.soloCompletados) {
+      campoWhere = { campo: { startsWith: 'completado:' } }
+    } else {
+      const and: Record<string, unknown>[] = [
+        { campo: { not: { startsWith: 'completado:' } } },
+        { campo: { not: '__reabrir_ocupacion__' } },
+      ]
+      if (query.campo) and.push({ campo: query.campo })
+      campoWhere = { AND: and }
+    }
+  } else if (query.tipo === 'eliminado') {
+    campoWhere = query.soloBajasNuevas ? { campo: null } : { campo: 'baja_previa' }
+  } else if (query.campo) {
+    campoWhere = { campo: query.campo }
+  }
+
   const where = {
     snapshotId: id,
     ...(query.tipo ? { tipo: query.tipo } : {}),
-    ...(query.campo ? { campo: query.campo } : {}),
+    ...campoWhere,
     ...(idSialRolesFiltrados ? { idSialRol: { in: idSialRolesFiltrados } } : {}),
     ...(query.q
       ? {
@@ -789,11 +948,14 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       const estadoCargo = idSial ? cargoEstadoMap.get(idSial) : null
       const codigoCargo = idSial ? (cargoCodigoMap.get(idSial) ?? null) : null
       const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
-      const clasificacionEliminado = apellidoNombre
-        ? 'con_persona'
-        : estadoCargo === 'validacion_vacante'
-          ? 'en_validacion'
-          : 'sin_persona'
+      // Clasificación solo informativa dentro de "ya estaban en baja"
+      // (campo='baja_previa'). Las bajas nuevas (campo IS NULL) no se clasifican.
+      const clasificacionEliminado =
+        d.campo === 'baja_previa'
+          ? estadoCargo === 'validacion_vacante'
+            ? 'en_validacion'
+            : 'sin_persona'
+          : null
       // siglas/escalafon: preferir lo guardado en valorAnterior (diffs nuevos),
       // caer al join con cargo para diffs ya existentes sin esos campos
       const siglas = parsed.siglas ?? (idSial ? (cargoSiglaMap.get(idSial) ?? null) : null)
@@ -802,23 +964,47 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     })
   }
 
-  const [nuevos, modificados, eliminados, nuevosPendientes, nuevosRechazados] = await Promise.all([
+  const [
+    nuevos,
+    modificados,
+    completados,
+    eliminados,
+    bajasNuevas,
+    bajasPrevias,
+    nuevosPendientes,
+    nuevosRechazados,
+  ] = await Promise.all([
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo' } }),
-    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'modificado' } }),
+    // modificados reales: sin completados ni el marcador __reabrir_ocupacion__
+    prisma.padronDiff.count({
+      where: {
+        snapshotId: id,
+        tipo: 'modificado',
+        AND: [
+          { campo: { not: { startsWith: 'completado:' } } },
+          { campo: { not: '__reabrir_ocupacion__' } },
+        ],
+      },
+    }),
+    prisma.padronDiff.count({
+      where: { snapshotId: id, tipo: 'modificado', campo: { startsWith: 'completado:' } },
+    }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado' } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: null } }),
+    prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'eliminado', campo: 'baja_previa' } }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: null } }),
     prisma.padronDiff.count({ where: { snapshotId: id, tipo: 'nuevo', aprobado: false } }),
   ])
 
-  let eliminadosConPersona = 0,
-    eliminadosEnValidacion = 0,
+  // Sub-leyendas de "ya estaban en baja" (campo='baja_previa'), derivadas del
+  // estado del cargo. Las bajas nuevas (campo IS NULL) no se clasifican acá.
+  let eliminadosEnValidacion = 0,
     eliminadosSinPersona = 0
   const todosElim = await prisma.padronDiff.findMany({
-    where: { snapshotId: id, tipo: 'eliminado' },
+    where: { snapshotId: id, tipo: 'eliminado', campo: 'baja_previa' },
     select: { idSialRol: true, valorAnterior: true },
   })
   if (todosElim.length > 0) {
-    const roles = todosElim.map((d) => d.idSialRol)
     const idSials = todosElim
       .map((d) => {
         try {
@@ -828,23 +1014,12 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         }
       })
       .filter(Boolean)
-    const [ocups, cargosE] = await Promise.all([
-      prisma.ocupacion.findMany({
-        where: { idSialRol: { in: roles } },
-        select: { idSialRol: true },
-      }),
-      prisma.cargo.findMany({
-        where: { idSial: { in: idSials } },
-        select: { idSial: true, estado: true },
-      }),
-    ])
-    const conPersonaSet = new Set(ocups.map((o) => o.idSialRol))
+    const cargosE = await prisma.cargo.findMany({
+      where: { idSial: { in: idSials } },
+      select: { idSial: true, estado: true },
+    })
     const estadoMap = new Map(cargosE.map((c) => [c.idSial, c.estado]))
     for (const d of todosElim) {
-      if (conPersonaSet.has(d.idSialRol)) {
-        eliminadosConPersona++
-        continue
-      }
       const idSial = (() => {
         try {
           return JSON.parse(d.valorAnterior ?? '{}').id_sial
@@ -945,10 +1120,12 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     summary: {
       nuevos,
       modificados,
+      completados,
       eliminados,
+      bajasNuevas,
+      bajasPrevias,
       nuevosPendientes,
       nuevosRechazados,
-      eliminadosConPersona,
       eliminadosEnValidacion,
       eliminadosSinPersona,
     },
@@ -971,27 +1148,9 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 }
 
 // ─── S2-6 + S2-7: aprobar snapshot ───────────────────────────────────────────
-
-const CAMPOS_CARGO: Record<string, string> = {
-  literal_puesto: 'literalPuesto',
-  especialidad: 'especialidadLegacy',
-  agrupador: 'agrupador',
-  unificador_de_puestos: 'unificadorPuesto',
-  codigo_repa: 'codigoRepa',
-  descripcion_repa: 'descripcionRepa',
-  agrupamiento: 'agrupamiento',
-}
-const CAMPOS_OCUPACION: Record<string, string> = {
-  situacion_de_revista: 'situacionRevista',
-  estado: 'estadoPersona',
-  codigo_jefaturas: 'codigoJefaturas',
-  jefe_escalafon: 'jefeEscalafon',
-  comision: 'comision',
-  repa_comision: 'repaComision',
-  cod_situacion: 'codSituacion',
-  cargo_desde: 'cargoDesdeFecha',
-  cargo_hasta: 'cargoHastaFecha',
-}
+// Nota: CAMPOS_CARGO / CAMPOS_OCUPACION se definieron a nivel de módulo arriba
+// (junto a toISO/stripCompletado) como única fuente compartida por calcularDiff
+// y el paso 6 de aprobarSnapshotService.
 
 // Bug crítico confirmado corriendo contra datos reales (2026-08-25, sin
 // excepción — falla silenciosa): `calcularDiff()` solo guarda `cuil_y_rol`
@@ -1288,7 +1447,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
               : null,
           })
           if (cargoVinculado) {
-            cargoCache.set(datos.id_sial, { id: cargoVinculado, idSial: datos.id_sial, estado: 'vigente' })
+            cargoCache.set(datos.id_sial, {
+              id: cargoVinculado,
+              idSial: datos.id_sial,
+              estado: 'vigente',
+            })
             continue
           }
         }
@@ -1435,6 +1598,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       situacionRevista: string | null
       estadoPersona: string | null
       codigoJefaturas: string | null
+      cargoJefaturaPuestoId: string | null
       jefeEscalafon: string | null
       documentacionJefatura: string | null
       comentariosJefaturas: string | null
@@ -1466,6 +1630,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         situacionRevista: datos.situacion_de_revista ?? null,
         estadoPersona: datos.estado ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
+        cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
         jefeEscalafon: datos.jefe_escalafon || null,
         documentacionJefatura: datos.documentacion_jefatura || null,
         comentariosJefaturas: datos.comentarios_jefaturas || null,
@@ -1592,11 +1757,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       const updateOcupacion: Record<string, string | Date | null> = {}
       for (const cambio of cambios) {
         if (!cambio.campo) continue
-        const mappedCargo = CAMPOS_CARGO[cambio.campo]
-        const mappedOcupacion = CAMPOS_OCUPACION[cambio.campo]
+        if (cambio.campo === 'baja_previa') continue // marcador de lectura; no escribe
+        // Un 'completado:<col>' es una escritura real (completa un campo vacío):
+        // se normaliza al campo real para que fluya igual que un modificado.
+        const campoReal = stripCompletado(cambio.campo)
+        const mappedCargo = CAMPOS_CARGO[campoReal]
+        const mappedOcupacion = CAMPOS_OCUPACION[campoReal]
         if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
         if (mappedOcupacion) {
-          const esFecha = cambio.campo === 'cargo_desde' || cambio.campo === 'cargo_hasta'
+          const esFecha = campoReal === 'cargo_desde' || campoReal === 'cargo_hasta'
           updateOcupacion[mappedOcupacion] = esFecha
             ? (parseFechaDDMMYYYY(cambio.valorNuevo ?? '') ?? null)
             : (cambio.valorNuevo ?? '')
@@ -1606,7 +1775,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       const ocupExistente = ocupacionExistenteMap.get(idSialRol)
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
         // Si cambió el código de registro, resolver el id de la relación
-        const crCambio = cambios.find((c) => c.campo === 'codigo_de_registro')
+        // (normaliza el prefijo 'completado:' igual que el resto, DECISIÓN 1)
+        const crCambio = cambios.find(
+          (c) => c.campo && stripCompletado(c.campo) === 'codigo_de_registro',
+        )
         if (crCambio?.valorNuevo) {
           let cr = codigoRegistroCache.get(crCambio.valorNuevo)
           if (!cr) {
@@ -1634,19 +1806,35 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (escDestino) {
             const cargoActual = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
-              select: { escalafonId: true, literalPuesto: true, unificadorPuesto: true, especialidadLegacy: true },
-            })) as { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null; especialidadLegacy: string | null } | null
+              select: {
+                escalafonId: true,
+                literalPuesto: true,
+                unificadorPuesto: true,
+                especialidadLegacy: true,
+              },
+            })) as {
+              escalafonId: string
+              literalPuesto: string | null
+              unificadorPuesto: string | null
+              especialidadLegacy: string | null
+            } | null
             if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
               const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
-              const unifNuevo = (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
-              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const unifNuevo =
+                (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
+              const espNuevo =
+                (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
               const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: escDestino.id,
                 literalPuesto: litNuevo,
                 unificadorPuesto: unifNuevo,
               })
               const espId = await resolverEspecialidadPuestoId(
-                tx, catalogoPuestos, puesto.id, espNuevo, puesto.nombre,
+                tx,
+                catalogoPuestos,
+                puesto.id,
+                espNuevo,
+                puesto.nombre,
               )
               const prefijoNuevo = prefijoDeCargo({
                 escalafon: escDestino.nombre,
@@ -1743,7 +1931,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             } | null
             if (cargoActualP) {
               const unif =
-                ((updateCargo['unificadorPuesto'] as string | null) ?? cargoActualP.unificadorPuesto) || null
+                ((updateCargo['unificadorPuesto'] as string | null) ??
+                  cargoActualP.unificadorPuesto) ||
+                null
               const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: cargoActualP.escalafonId,
                 literalPuesto: litNuevo,
@@ -2026,7 +2216,17 @@ export async function getCamposModificadosService(snapshotId: string) {
   await getSnapshotOrThrow(snapshotId)
   const rows = await prisma.padronDiff.groupBy({
     by: ['campo'],
-    where: { snapshotId, tipo: 'modificado', campo: { not: null } },
+    where: {
+      snapshotId,
+      tipo: 'modificado',
+      // Excluir completados y el marcador __reabrir_ocupacion__ de las sub-tabs
+      // de Modificados (Prisma rechaza dos claves `campo` en el mismo objeto).
+      AND: [
+        { campo: { not: null } },
+        { campo: { not: { startsWith: 'completado:' } } },
+        { campo: { not: '__reabrir_ocupacion__' } },
+      ],
+    },
     _count: { campo: true },
     orderBy: { _count: { campo: 'desc' } },
   })
@@ -2678,6 +2878,7 @@ export async function aprobarDiffNuevoService(
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
             comision: datos.comision || null,
             repaComision: datos.repa_comision || null,
@@ -2971,6 +3172,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             situacionRevista: datos.situacion_de_revista ?? null,
             estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
             comision: datos.comision || null,
             repaComision: datos.repa_comision || null,

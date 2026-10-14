@@ -42,6 +42,17 @@ def _norm(s) -> str:
 _PARENTESIS_SIGNIFICATIVO = {'bioquimica clinica'}
 
 
+# Sufijo de nivel "(NN)" al final del nombre del puesto de conducción. Mismo
+# criterio que derivarCargosConduccion.ts (sinNivel). S22-12 Opción B / Finding 1.
+_SUFIJO_NIVEL = re.compile(r'\s*\(\d+\)\s*$')
+
+
+def _sin_nivel(s) -> str:
+    """_norm + quita el sufijo (NN) de nivel. Clave para matchear el nombre del
+    puesto de conducción contra el literal de jcat_cargo_jefatura (sin sufijo)."""
+    return _SUFIJO_NIVEL.sub('', _norm(s)).strip()
+
+
 def _norm_especialidad(s) -> str:
     """Normaliza especialidad para matchear contra el catálogo aplicando la regla
     del paréntesis: se queda con lo de fuera del paréntesis, salvo excepción."""
@@ -69,6 +80,12 @@ class Catalogo:
         self.esp_por_puesto: dict[tuple[str, str], str] = {}
         # jcat (upper) → cargo_jefatura (texto) — S22-10
         self.jcat_a_cargo: dict[str, str] = {}
+        # jcat (upper) → familia (P|G|Z) — S22-12 Opción B
+        self.jcat_a_familia: dict[str, str] = {}
+        # (escalafon_id, nombre_sin_nivel) → puesto_cargo_id, SOLO conducción — S22-12
+        self.puesto_conduccion_por_escalafon: dict[tuple[str, str], str] = {}
+        # Escalafón de conducción CPH (familias P/G): código canónico '22' — S22-12
+        self._escalafon_id_22: str | None = None
         # Contadores de auto-altas de la corrida (para el reporte/diff).
         self.puestos_auto_alta = 0
         self.especialidades_auto_alta = 0
@@ -86,7 +103,18 @@ class Catalogo:
                 'SELECT id, puesto_cargo_id, nombre FROM especialidades_puesto WHERE activo = true'
             ), conn)
             jcat = pd.read_sql(text(
-                'SELECT jcat, cargo_jefatura FROM jcat_cargo_jefatura'
+                'SELECT jcat, cargo_jefatura, familia FROM jcat_cargo_jefatura'
+            ), conn)
+            # Puestos de CONDUCCIÓN para la FK de jefatura (S22-12 Opción B).
+            # Finding 3/6: se filtra tipo_puesto='conduccion' — así el
+            # Sub-Director CPH (cargado como ejecucion sin curar) NO entra y la
+            # jefatura resuelve a null limpio en vez de a un enlace incorrecto.
+            puestos_cond = pd.read_sql(text(
+                "SELECT id, escalafon_id, nombre FROM puestos_cargo "
+                "WHERE activo = true AND tipo_puesto = 'conduccion'"
+            ), conn)
+            esc22 = pd.read_sql(text(
+                "SELECT id FROM escalafones WHERE codigo = '22'"
             ), conn)
 
         self.cod_reg_a_escalafon = {
@@ -102,6 +130,18 @@ class Catalogo:
         self.jcat_a_cargo = {
             str(r.jcat).strip().upper(): r.cargo_jefatura for r in jcat.itertuples()
         }
+        self.jcat_a_familia = {
+            str(r.jcat).strip().upper(): str(r.familia).strip().upper()
+            for r in jcat.itertuples()
+        }
+        # (escalafon_id, nombre_sin_nivel) → puesto_cargo_id, SOLO conducción.
+        # modalidad fuera de la clave porque conducción es modalidad='ambos'
+        # (único por (escalafon, nombre sin nivel)).
+        self.puesto_conduccion_por_escalafon = {
+            (str(r.escalafon_id), _sin_nivel(r.nombre)): str(r.id)
+            for r in puestos_cond.itertuples()
+        }
+        self._escalafon_id_22 = str(esc22.iloc[0]['id']) if not esc22.empty else None
 
     # ── Resolución ────────────────────────────────────────────────────────────
     def resolver_escalafon(self, codigo_registro) -> str | None:
@@ -142,6 +182,29 @@ class Catalogo:
         if jcat is None or (isinstance(jcat, float) and pd.isna(jcat)):
             return None
         return self.jcat_a_cargo.get(str(jcat).strip().upper())
+
+    def resolver_cargo_jefatura_id(self, jcat, escalafon_id_fila: str | None) -> str | None:
+        """JCAT → puesto_cargo_id del puesto de CONDUCCIÓN (Opción B, FK).
+
+        Deriva el nombre del puesto de conducción del mismo texto que
+        resolver_cargo_jefatura (cargo_jefatura) y lo busca —con clave sin sufijo
+        de nivel (NN), espejo de derivarCargosConduccion.sinNivel— contra el
+        índice de puestos de CONDUCCIÓN del escalafón de la familia del JCAT
+        (P/G → 22; Z → cod_reg de la fila). Devuelve None (sin frenar, se informa)
+        cuando no hay JCAT/mapeo, o el puesto de conducción no existe en el
+        catálogo (familia Z hoy, Sub-Director CPH sin curar/mis-tipeado). NO hace
+        auto-alta."""
+        if jcat is None or (isinstance(jcat, float) and pd.isna(jcat)):
+            return None
+        jcat_u = str(jcat).strip().upper()
+        nombre = self.jcat_a_cargo.get(jcat_u)
+        familia = self.jcat_a_familia.get(jcat_u)
+        if not nombre or not familia:
+            return None
+        esc_cond = self._escalafon_id_22 if familia in ('P', 'G') else escalafon_id_fila
+        if not esc_cond:
+            return None
+        return self.puesto_conduccion_por_escalafon.get((esc_cond, _sin_nivel(nombre)))
 
     # ── Auto-alta revisable (S22-6) ────────────────────────────────────────────
     def _auto_alta_puesto(self, escalafon_id: str, nombre_norm: str) -> str:

@@ -11,18 +11,25 @@ import {
   especialidadPorPuestoHooks,
   conectoresMinusculaHooks,
   sufijosOrdinalesHooks,
+  jcatCargoJefaturaHooks,
 } from '../hooks/useReferencias'
 
-// Administración de las 10 tablas de referencia que alimentan el cruce de
-// Dotaneitor (Doc/Dotaneitor_Analisis.md). Antes de esta página, la única forma
-// de tocarlas era correr a mano services/dotaneitor/scripts/seed_referencias.py
-// contra el Excel de origen — acá quedan editables sin salir de la app.
+// Administración de las tablas de referencia del Dotaneitor
+// (Doc/Dotaneitor_Analisis.md). Se dividen en dos grupos:
+//  - "activas": las que consume el pipeline lineal POST /procesar-padron
+//    (Dotaneitor v2) — las 5 ref_* del v2 + el mapeo jcat_cargo_jefatura.
+//  - "legacy": las 5 huérfanas del flujo viejo (/procesar, /cruzar) que Node ya
+//    no consume; se conservan editables solo por reversibilidad.
+// Antes de esta página, la única forma de tocarlas era correr a mano
+// services/dotaneitor/scripts/seed_referencias.py contra el Excel de origen.
 //
 // A diferencia de la vieja TablasAdminPage (que pedía el schema en runtime vía
 // GET /erd y armaba columnas dinámicamente), acá las columnas son una
 // configuración fija en el código: el backend (referencias.routes.ts) solo
-// expone estas 10 tablas puntuales, cada una con su propio endpoint tipado —
+// expone estas tablas puntuales, cada una con su propio endpoint tipado —
 // no hay forma de pedir una tabla arbitraria de la base.
+
+type Grupo = 'activas' | 'legacy'
 
 type ColumnaTipo = 'text' | 'number' | 'boolean'
 
@@ -56,6 +63,7 @@ interface HooksReferencia {
 interface TablaConfig {
   key: string
   label: string
+  grupo: Grupo
   columnas: Columna[]
   conBusqueda?: boolean
   hooks: HooksReferencia
@@ -67,6 +75,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'agrupadores',
     label: 'Agrupadores',
+    grupo: 'legacy',
     hooks: agrupadoresHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'cruce', label: 'Cruce', tipo: 'text', requerido: true, maxLength: 300 },
@@ -79,6 +88,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'unificadores-puesto',
     label: 'Unificadores de puesto',
+    grupo: 'legacy',
     hooks: unificadoresPuestoHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'cruce', label: 'Cruce', tipo: 'text', requerido: true, maxLength: 400 },
@@ -91,6 +101,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'especialidades-cuil',
     label: 'Especialidades por CUIL',
+    grupo: 'legacy',
     conBusqueda: true,
     hooks: especialidadesCuilHooks as unknown as HooksReferencia,
     columnas: [
@@ -104,6 +115,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'abreviaturas-tecnicas',
     label: 'Abreviaturas técnicas',
+    grupo: 'activas',
     hooks: abreviaturasTecnicasHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'sigla', label: 'Sigla', tipo: 'text', requerido: true, maxLength: 50 },
@@ -113,6 +125,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'abreviaturas-titulo',
     label: 'Abreviaturas de título',
+    grupo: 'activas',
     hooks: abreviaturasTituloHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'titulo', label: 'Título', tipo: 'text', requerido: true, maxLength: 50 },
@@ -122,6 +135,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'correcciones-lit-puesto',
     label: 'Correcciones de literal de puesto',
+    grupo: 'activas',
     hooks: correccionesLitPuestoHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'codReg', label: 'Cód. registro', tipo: 'text', maxLength: 10 },
@@ -133,6 +147,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'correcciones-especialidad',
     label: 'Correcciones de especialidad',
+    grupo: 'legacy',
     hooks: correccionesEspecialidadHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'original', label: 'Original', tipo: 'text', requerido: true, maxLength: 200 },
@@ -143,6 +158,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'especialidad-por-puesto',
     label: 'Especialidad por puesto',
+    grupo: 'legacy',
     hooks: especialidadPorPuestoHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'agrupador', label: 'Agrupador', tipo: 'text', requerido: true, maxLength: 150 },
@@ -154,6 +170,7 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'conectores-minuscula',
     label: 'Conectores en minúscula',
+    grupo: 'activas',
     hooks: conectoresMinusculaHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'conector', label: 'Conector', tipo: 'text', requerido: true, maxLength: 30 },
@@ -163,10 +180,23 @@ const TABLAS: TablaConfig[] = [
   {
     key: 'sufijos-ordinales',
     label: 'Sufijos ordinales',
+    grupo: 'activas',
     hooks: sufijosOrdinalesHooks as unknown as HooksReferencia,
     columnas: [
       { key: 'sufijo', label: 'Sufijo', tipo: 'text', requerido: true, maxLength: 10 },
       { key: 'activo', label: 'Activo', tipo: 'boolean' },
+    ],
+  },
+  {
+    key: 'jcat-cargo-jefatura',
+    label: 'JCAT → cargo de jefatura',
+    grupo: 'activas',
+    hooks: jcatCargoJefaturaHooks as unknown as HooksReferencia,
+    columnas: [
+      { key: 'jcat', label: 'JCAT', tipo: 'text', requerido: true, maxLength: 10 },
+      { key: 'cargoJefatura', label: 'Cargo de jefatura', tipo: 'text', requerido: true, maxLength: 100 },
+      { key: 'codPuesto', label: 'Cód. puesto', tipo: 'text', maxLength: 5 },
+      { key: 'familia', label: 'Familia (P/G/Z)', tipo: 'text', requerido: true, maxLength: 1 },
     ],
   },
 ]
@@ -429,37 +459,59 @@ function TablaPanel({ tabla }: { tabla: TablaConfig }) {
   )
 }
 
+const ACTIVAS = TABLAS.filter((t) => t.grupo === 'activas')
+const LEGACY = TABLAS.filter((t) => t.grupo === 'legacy')
+
 export function ConfiguracionReferenciasPage() {
-  const [selected, setSelected] = useState<TablaConfig>(TABLAS[0])
+  const [selected, setSelected] = useState<TablaConfig>(ACTIVAS[0])
+
+  function renderGrupo(titulo: string, descripcion: string, tablas: TablaConfig[]) {
+    return (
+      <div>
+        <div className="px-3 pt-3 pb-1">
+          <p className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">{titulo}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">{descripcion}</p>
+        </div>
+        {tablas.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setSelected(t)}
+            className={`w-full flex items-center px-3 py-2 text-xs text-left transition-colors ${
+              selected.key === t.key ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <span className="truncate">{t.label}</span>
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="font-primary text-2xl font-bold text-gray-900">Tablas de referencia — Dotaneitor</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Mapeos que usa el cruce del padrón semanal (agrupadores, unificadores de puesto,
-          especialidades por CUIL, correcciones de texto). Editar acá reemplaza tener que correr
-          el script de carga contra el Excel de origen.
+          Las tablas <strong>activas</strong> las consume el pipeline lineal{' '}
+          <code className="text-xs">POST /procesar-padron</code> del Dotaneitor v2 (abreviaturas,
+          correcciones de literal, conectores, sufijos y el mapeo JCAT → cargo de jefatura). Las
+          tablas <strong>legacy</strong> pertenecen al flujo viejo (<code className="text-xs">/procesar</code>,{' '}
+          <code className="text-xs">/cruzar</code>) que ya no se consume; se mantienen editables solo
+          por reversibilidad. Editar acá reemplaza tener que correr el script de carga contra el
+          Excel de origen.
         </p>
       </div>
       <div className="flex gap-3" style={{ height: 'calc(100vh - 220px)' }}>
         <div className="w-56 shrink-0 flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-3 py-2.5 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-700">Tablas administrables</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{TABLAS.length} tablas</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {ACTIVAS.length} activas · {LEGACY.length} legacy
+            </p>
           </div>
-          <div className="overflow-y-auto flex-1 py-1">
-            {TABLAS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setSelected(t)}
-                className={`w-full flex items-center px-3 py-2 text-xs text-left transition-colors ${
-                  selected.key === t.key ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <span className="truncate">{t.label}</span>
-              </button>
-            ))}
+          <div className="overflow-y-auto flex-1 pb-2 divide-y divide-gray-100">
+            {renderGrupo('Tablas activas (Dotaneitor actual)', 'Las usa el pipeline POST /procesar-padron (v2).', ACTIVAS)}
+            {renderGrupo('Legacy (flujo viejo — no usado por el Dotaneitor actual)', 'Flujo /procesar, /cruzar — ya no consumido.', LEGACY)}
           </div>
         </div>
         <TablaPanel key={selected.key} tabla={selected} />

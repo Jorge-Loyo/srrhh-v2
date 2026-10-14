@@ -13,6 +13,7 @@ import type {
   EspecialidadPorPuestoBody,
   ConectorMinusculaBody,
   SufijoOrdinalBody,
+  JcatCargoJefaturaBody,
 } from './referencias.schema.js'
 
 function paginar(query: RefListQuery, limitPorDefecto: number) {
@@ -352,4 +353,43 @@ export async function updateSufijoOrdinal(id: string, body: Partial<SufijoOrdina
 }
 export async function deleteSufijoOrdinal(id: string) {
   await ejecutar(() => prisma.refSufijoOrdinal.delete({ where: { id } }), 'sufijo ordinal')
+}
+
+// ── JcatCargoJefatura (PK natural `jcat`, sin `activo`) ─────────────────────
+// A diferencia de las 10 tablas ref_*, la PK es el string `jcat` (no un uuid
+// `id`). El front genérico indexa por `row.id`, así que `list` mapea cada fila
+// agregando `id: row.jcat`; `update`/`delete` reciben ese valor como `jcat`.
+export async function listJcatCargoJefatura(query: RefListQuery) {
+  const { skip, take, page, limit } = paginar(query, 500)
+  const [rows, total] = await Promise.all([
+    prisma.jcatCargoJefatura.findMany({ skip, take, orderBy: { jcat: 'asc' } }),
+    prisma.jcatCargoJefatura.count(),
+  ])
+  return { rows: rows.map((r) => ({ ...r, id: r.jcat })), total, page, limit }
+}
+export async function createJcatCargoJefatura(body: JcatCargoJefaturaBody) {
+  return ejecutar(
+    () =>
+      prisma.jcatCargoJefatura.create({
+        data: {
+          jcat: body.jcat,
+          cargoJefatura: body.cargoJefatura,
+          codPuesto: body.codPuesto,
+          familia: body.familia,
+        },
+      }),
+    'mapeo JCAT → cargo de jefatura'
+  )
+}
+export async function updateJcatCargoJefatura(id: string, body: Partial<JcatCargoJefaturaBody>) {
+  return ejecutar(
+    () => prisma.jcatCargoJefatura.update({ where: { jcat: id }, data: body }),
+    'mapeo JCAT → cargo de jefatura'
+  )
+}
+export async function deleteJcatCargoJefatura(id: string) {
+  await ejecutar(
+    () => prisma.jcatCargoJefatura.delete({ where: { jcat: id } }),
+    'mapeo JCAT → cargo de jefatura'
+  )
 }

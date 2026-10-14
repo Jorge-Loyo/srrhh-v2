@@ -76,3 +76,9 @@ Doc/Referencias/*.pdf
 Doc/Referencias/*.xlsx
 Doc/Referencias/*.xls
 Doc/Referencias/*.csv
+
+# Git worktrees locales (nunca se versionan dentro del repo)
+.worktrees/
+
+# Documentación interna de procesos de agentes (registro local, no se versiona)
+.agents/

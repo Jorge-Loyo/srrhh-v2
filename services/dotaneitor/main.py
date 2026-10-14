@@ -106,6 +106,62 @@ def _read_job(job_id: str) -> dict | None:
         return None
 
 
+# ── TTL / barrido / heartbeat de jobs (padrón async, Opción B) ────────────────
+# El estado del job vive en disco (tmp/jobs/<id>.json); su mtime lo refresca
+# _write_job en cada cambio de estado y el heartbeat del worker mientras vive.
+JOB_SWEEP_INTERVAL = 60     # cada 60 s barre tmp/jobs/
+JOB_STUCK_SECS     = 1200   # 20 min sin latido → huérfano (> 4 × heartbeat, > polling de Node)
+JOB_HEARTBEAT_SECS = 300    # el worker refresca el mtime del .json cada 5 min mientras vive
+JOB_TTL            = 3600   # red de seguridad: 1 h desde el último cambio de estado
+
+
+def _barrer_jobs():
+    """Un pase del barrido: purga jobs vencidos (TTL) y marca huérfanos los
+    'pending' sin latido (worker muerto por reinicio del contenedor)."""
+    import time as _time
+    ahora = _time.time()
+    for p in JOBS_DIR.glob('*.json'):
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        job_id = p.stem
+        if ahora - mtime > JOB_TTL:
+            # Borra el .json Y el tmp/<job_id>/ (cargos.xlsx + resultado.parquet).
+            p.unlink(missing_ok=True)
+            shutil.rmtree(TMP_DIR / job_id, ignore_errors=True)
+            continue
+        if ahora - mtime > JOB_STUCK_SECS:
+            job = _read_job(job_id)
+            if job and job.get('status') == 'pending':
+                _write_job(job_id, {
+                    'status': 'error', 'result': None,
+                    'error': 'Job interrumpido (posible reinicio del contenedor)',
+                })
+
+
+def _jobs_sweep_loop():
+    import time as _time
+    while True:
+        _time.sleep(JOB_SWEEP_INTERVAL)
+        try:
+            _barrer_jobs()
+        except Exception:
+            pass  # un pase que falla no debe matar el loop
+
+
+def _job_heartbeat(job_id: str, stop):
+    """Latido periódico: mientras el worker viva, refresca el mtime del .json
+    cada JOB_HEARTBEAT_SECS sin cambiar el estado, para que el barrido NO lo
+    confunda con un huérfano. Se detiene vía `stop` (threading.Event) cuando el
+    worker escribe done/error. Si el job ya no está 'pending', corta solo."""
+    while not stop.wait(JOB_HEARTBEAT_SECS):
+        job = _read_job(job_id)
+        if not job or job.get('status') != 'pending':
+            return
+        _write_job(job_id, job)  # reescribe 'pending' → refresca mtime
+
+
 def get_session(session_id: str) -> dict:
     s = sessions.get(session_id)
     if not s:
@@ -348,6 +404,9 @@ def _load_df(session_id: str) -> pd.DataFrame | None:
 
 
 Thread(target=_cleanup_loop, daemon=True).start()
+# Loop dedicado de jobs (padrón async): cadencia corta e independiente del de
+# sesiones (que duerme 30 min y solo purga sessions{}).
+Thread(target=_jobs_sweep_loop, daemon=True).start()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -422,11 +481,20 @@ def _start_job(fn, *args) -> str:
 
 @app.get('/job/{job_id}')
 def poll_job(job_id: str):
+    # Validación UUID anti path-traversal: _job_path construye JOBS_DIR/<id>.json;
+    # un job_id con '../' escaparía del dir. Se valida ANTES de tocar el FS.
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(404, 'Job no encontrado')
     job = _read_job(job_id)
     if not job:
         raise HTTPException(404, 'Job no encontrado')
     import json as _json
     from fastapi.responses import Response
+    # IMPORTANTE: devolver el Response crudo con json.dumps(default=str) — NO
+    # cambiar a `return job`. jsonable_encoder de FastAPI trata NaN/Inf distinto
+    # y podría romper el parseo en Node del result (reporte/logs del job).
     return Response(
         content=_json.dumps(job, ensure_ascii=True, default=str),
         media_type='application/json',
@@ -614,79 +682,163 @@ def delete_session(body: SessionBody):
 # S22-9 corte el consumo de Node. No usa sessions{} ni jobs.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.post('/procesar-padron')
-async def procesar_padron_lineal(
-    file: UploadFile = File(...),
-    snapshot_id: str | None = Form(None),
-    page: int = Query(1, ge=1),
-    # Sin tope efectivo: Node consume el dataset COMPLETO en una sola respuesta
-    # para armar el diff (un padrón real son ~48k filas). El límite alto solo
-    # protege de un valor negativo/0.
-    limit: int = Query(100000, ge=1, le=1000000),
-):
-    """Procesa el Excel de Cargos de punta a punta en un solo flujo síncrono.
+def _run_padron(job_id: str, file_path: str, snapshot_id: str | None):
+    """Worker del job de padrón (corre en un Thread daemon). Procesa el Excel,
+    guarda el resultado como parquet (tmp/<job_id>/resultado.parquet) y el Excel
+    de dotación (si hay snapshot_id), y escribe el estado final done/error.
 
-    - Recibe el archivo, lo guarda en un tmp efímero (se borra al terminar).
-    - Corre el pipeline lineal (normaliza → procesa, reutilizando el negocio
-      probado) inyectando DotacionAutomationBD (lee catálogos de Postgres).
-    - Devuelve el dataset paginado + reporte + logs. Si viene snapshot_id,
-      además persiste el Excel de dotación en exports/<snapshot_id>/.
-
-    No crea sesión ni job: una sola llamada hace todo.
+    El dataset NO viaja en el result del job (sería un JSON de decenas de MB):
+    Node lo descarga paginado por GET /procesar-padron/<job_id>/resultado.
     """
+    import threading
     from pipeline import procesar_padron as _run_pipeline, df_a_excel_bytes
     from catalogo import Catalogo
 
-    # tmp efímero propio de esta corrida (no es una "sesión").
-    run_dir = TMP_DIR / f'run-{uuid.uuid4()}'
-    run_dir.mkdir(parents=True, exist_ok=True)
-    dest = run_dir / (file.filename or 'cargos.xlsx')
-    dest.write_bytes(await file.read())
+    stop = threading.Event()
+    hb = threading.Thread(target=_job_heartbeat, args=(job_id, stop), daemon=True)
+    hb.start()
 
+    status_final: dict
     try:
-        # Catálogo fresco por request: ve las auto-altas de corridas previas y
-        # arranca los contadores de esta corrida en 0.
+        # Catálogo fresco por job: ve las auto-altas de corridas previas y
+        # arranca los contadores de este job en 0.
         catalogo = Catalogo(_engine)
         resultado = _run_pipeline(
-            str(dest), automation_factory=DotacionAutomationBD, catalogo=catalogo
+            file_path, automation_factory=DotacionAutomationBD, catalogo=catalogo
         )
-
         if not resultado.ok:
-            raise HTTPException(400, resultado.mensaje)
+            # Caso de negocio ok=False → error del job (Decisión 5). str() del
+            # RuntimeError == resultado.mensaje; firstLine() en Node da una línea
+            # legible sea validación limpia o excepción con traceback embebido.
+            raise RuntimeError(resultado.mensaje)
 
         df = resultado.df
         assert df is not None  # ok=True garantiza df
 
-        # Persistir el Excel de dotación si se pidió (para descarga posterior).
+        # Resultado a parquet con clave = job_id → tmp/<job_id>/resultado.parquet,
+        # el MISMO dir donde vive cargos.xlsx (un solo rmtree limpia entrada+salida).
+        _save_df(job_id, df)
+
         if snapshot_id:
             exports_dir = BASE_DIR / 'exports' / snapshot_id
             exports_dir.mkdir(parents=True, exist_ok=True)
             (exports_dir / 'dotacion.xlsx').write_bytes(df_a_excel_bytes(df))
 
-        # Paginación del dataset para la respuesta JSON (Node consume por páginas).
-        import math
-        total = len(df)
-        start = (page - 1) * limit
-        chunk = df.iloc[start:start + limit]
-
-        def _safe(v):
-            if v is None:
-                return None
-            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-                return None
-            return v
-
-        rows = [{k: _safe(v) for k, v in r.items()} for r in chunk.to_dict(orient='records')]
-
-        return {
-            'cols': list(df.columns),
-            'rows': rows,
-            'total': total,
-            'page': page,
-            'limit': limit,
-            'reporte': resultado.reporte,
-            'logs': resultado.logs,
+        status_final = {
+            'status': 'done',
+            'result': {
+                'total': len(df),
+                'cols': list(df.columns),
+                'reporte': resultado.reporte,
+                'logs': resultado.logs,
+            },
+            'error': None,
+        }
+    except Exception as e:
+        import traceback
+        status_final = {
+            'status': 'error', 'result': None,
+            'error': str(e) + '\n' + traceback.format_exc(),
         }
     finally:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        # Fix carrera TOCTOU (MEDIUM-1): detener el latido y ESPERAR a que
+        # termine ANTES de escribir el estado final, para que ningún latido
+        # tardío reescriba 'pending' pisando el done/error.
+        stop.set()
+        hb.join(timeout=5)
+    _write_job(job_id, status_final)
+
+
+@app.post('/procesar-padron')
+async def procesar_padron_lineal(
+    file: UploadFile = File(...),
+    snapshot_id: str | None = Form(None),
+):
+    """Arranca el procesamiento del padrón como JOB ASÍNCRONO y devuelve
+    { job_id } en segundos (Opción B). El worker corre el pipeline en un Thread;
+    Node pollea GET /job/{id} hasta 'done' y descarga el resultado paginado por
+    GET /procesar-padron/{id}/resultado. Reemplaza el flujo síncrono anterior.
+    """
+    # anti path-traversal: snapshot_id entra a exports/<snapshot_id>/ como nombre
+    # de carpeta. Node siempre manda un UUID de Prisma; validar por consistencia.
+    if snapshot_id is not None:
+        try:
+            uuid.UUID(snapshot_id)
+        except ValueError:
+            raise HTTPException(422, 'snapshot_id inválido')
+
+    job_id = str(uuid.uuid4())
+    run_dir = TMP_DIR / job_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    dest = run_dir / 'cargos.xlsx'  # nombre fijo
+    dest.write_bytes(await file.read())  # leer el upload en el handler async
+
+    _write_job(job_id, {'status': 'pending', 'result': None, 'error': None})
+
+    def _worker():
+        # Red de seguridad: _run_padron ya maneja sus propias excepciones y
+        # escribe el estado final; este try solo cubre un fallo imprevisto antes
+        # de que _run_padron tome el control.
+        try:
+            _run_padron(job_id, str(dest), snapshot_id)
+        except Exception as e:
+            import traceback
+            _write_job(job_id, {'status': 'error', 'result': None,
+                                'error': str(e) + '\n' + traceback.format_exc()})
+
+    Thread(target=_worker, daemon=True).start()
+    return {'job_id': job_id}
+
+
+@app.get('/procesar-padron/{job_id}/resultado')
+def resultado_padron(
+    job_id: str,
+    page:  int = Query(1, ge=1),
+    # default = PAGE_DESCARGA de Node; le alto propio, NO el le=500 de /preview
+    # (que rompería los lotes de 5.000 con los que Node pagina).
+    limit: int = Query(5000, ge=1, le=1_000_000),
+):
+    """Devuelve el DataFrame del job paginado (misma forma que /preview),
+    leyendo tmp/<job_id>/resultado.parquet. Node lo consume para el diff."""
+    try:
+        uuid.UUID(job_id)  # anti path-traversal
+    except ValueError:
+        raise HTTPException(404, 'Job no encontrado')
+
+    df = _load_df(job_id)
+    if df is None:
+        raise HTTPException(400, 'Resultado no disponible')
+
+    import math
+    total = len(df)
+    start = (page - 1) * limit
+    chunk = df.iloc[start:start + limit]
+
+    def _safe(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
+    rows = [{k: _safe(v) for k, v in r.items()} for r in chunk.to_dict(orient='records')]
+    return {'cols': list(df.columns), 'rows': rows, 'total': total, 'page': page, 'limit': limit}
+
+
+@app.delete('/procesar-padron/{job_id}')
+def borrar_job_padron(job_id: str):
+    """Limpieza-tras-descarga: Node la llama al terminar de paginar el dataset.
+    Borra el .json del job y tmp/<job_id>/ (cargos.xlsx + resultado.parquet).
+    Idempotente: responde 200 aunque ya no exista.
+
+    Nota: lo consume solo el axios server-to-server de Node (sin preflight), no
+    el navegador; no hace falta agregar 'DELETE' a allow_methods del CORS.
+    """
+    try:
+        uuid.UUID(job_id)  # anti path-traversal
+    except ValueError:
+        raise HTTPException(404, 'Job no encontrado')
+    _job_path(job_id).unlink(missing_ok=True)
+    shutil.rmtree(TMP_DIR / job_id, ignore_errors=True)
+    return {'ok': True}
 
