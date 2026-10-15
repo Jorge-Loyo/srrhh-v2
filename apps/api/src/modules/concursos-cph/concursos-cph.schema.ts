@@ -16,6 +16,10 @@ export const concursosCphQuerySchema = z.object({
   estado: z.nativeEnum(EstadoConcursoCph).optional(),
   subEstado: z.string().trim().min(1).optional(),
   subEstado3: z.string().trim().min(1).optional(),
+  // Filtro por ETAPA del stepper (1..5). Se traduce a un WHERE sub_estado IN
+  // (...) en el service (ver etapasSubEstados). Reemplaza al dropdown que
+  // usaba subEstado3 en el front.
+  etapa: z.coerce.number().int().min(1).max(5).optional(),
   suspendido: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')

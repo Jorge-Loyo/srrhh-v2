@@ -270,3 +270,61 @@ describe('calcConcursoCph — invariantes', () => {
     expect(typeof r.subEstado3).toBe('string')
   })
 })
+
+
+// ─── Filtro por ETAPA (stepper 1..5) ↔ sub_estado ────────────────────────────
+import {
+  etapaDeSubEstado,
+  SUB_ESTADOS_POR_ETAPA,
+} from '../modules/concursos-cph/concursosCph.calc.js'
+import { describe, it, expect } from 'vitest'
+
+describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
+  it('etapa 2: autorización / jurado', () => {
+    for (const s of ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado']) {
+      expect(etapaDeSubEstado(s)).toBe(2)
+    }
+  })
+
+  it('etapa 3: inscripción / examen / OM', () => {
+    for (const s of ['c2-inscripcion ex', 'd-examen publicado', 'e-orden de merito']) {
+      expect(etapaDeSubEstado(s)).toBe(3)
+    }
+  })
+
+  it('etapa 4: IFACS / INSAL', () => {
+    for (const s of ['f-ifacs', 'g-insal']) {
+      expect(etapaDeSubEstado(s)).toBe(4)
+    }
+  })
+
+  it('etapa 5: designación', () => {
+    for (const s of [
+      'h-tad', 'i-carga docu', 'j-apto med', 'k-ite',
+      'l-pycto de reso', 'm-reso a la firma', 'n-designado', 'o-alta sial', 'q-desierto',
+    ]) {
+      expect(etapaDeSubEstado(s)).toBe(5)
+    }
+  })
+
+  it('etapa 1: baja / apertura (complemento, incluye null, a-caratulado, no iniciado, vacante)', () => {
+    for (const s of ['a-caratulado', 'no iniciado', 'vacante', null, '', 'cualquier-cosa']) {
+      expect(etapaDeSubEstado(s)).toBe(1)
+    }
+  })
+
+  it('es case-insensitive (datos legacy en mayúscula)', () => {
+    expect(etapaDeSubEstado('B-SORTEO JUR')).toBe(2)
+    expect(etapaDeSubEstado('G-INSAL')).toBe(4)
+  })
+
+  it('ningún sub_estado está en dos etapas a la vez (particiones disjuntas)', () => {
+    const vistos = new Set<string>()
+    for (const etapa of [2, 3, 4, 5] as const) {
+      for (const s of SUB_ESTADOS_POR_ETAPA[etapa]) {
+        expect(vistos.has(s)).toBe(false)
+        vistos.add(s)
+      }
+    }
+  })
+})

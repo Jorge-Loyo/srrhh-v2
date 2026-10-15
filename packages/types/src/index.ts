@@ -1052,6 +1052,10 @@ export interface ConcursoCphFilters {
   estado?: EstadoConcursoCph
   subEstado?: string
   subEstado3?: string
+  // Filtro por ETAPA del stepper (1..5). Filtra por sub_estado en el back
+  // (ver mapeo en concursos-cph.service.ts). Reemplaza al dropdown que usaba
+  // subEstado3 en el front; subEstado3 sigue existiendo para otros usos.
+  etapa?: 1 | 2 | 3 | 4 | 5
   suspendido?: boolean
   search?: string
   conFaltantes?: boolean

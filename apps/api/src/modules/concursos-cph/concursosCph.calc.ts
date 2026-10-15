@@ -135,6 +135,39 @@ export function calcConcursoCph(row: ConcursoCphCalcInput): ConcursoCphCalcResul
   return { estado, subEstado, subEstado3 }
 }
 
+// ─── Mapeo ETAPA (stepper 1..5) ↔ sub_estado ─────────────────────────────────
+// Única fuente de verdad del mapeo en el back (usada por el filtro "Etapa" de
+// listConcursosCphService). Debe mantenerse en sync con SUB_ESTADOS_POR_ETAPA
+// de ConcursosCphPage.tsx (front, stepper visual) — el test lo verifica.
+// Etapas 2..5 enumeran sus sub_estados; la etapa 1 es el COMPLEMENTO (vacante,
+// no iniciado, a-caratulado y cualquier sub_estado no listado o null).
+export const SUB_ESTADOS_POR_ETAPA: Record<2 | 3 | 4 | 5, string[]> = {
+  2: ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado'],
+  3: ['c2-inscripcion ex', 'd-examen publicado', 'e-orden de merito'],
+  4: ['f-ifacs', 'g-insal'],
+  5: [
+    'h-tad',
+    'i-carga docu',
+    'j-apto med',
+    'k-ite',
+    'l-pycto de reso',
+    'm-reso a la firma',
+    'n-designado',
+    'o-alta sial',
+    'q-desierto',
+  ],
+}
+
+// Devuelve la etapa (1..5) a la que pertenece un sub_estado. Espejo exacto de
+// etapaActual() del front.
+export function etapaDeSubEstado(subEstado: string | null): 1 | 2 | 3 | 4 | 5 {
+  const s = (subEstado ?? '').toLowerCase()
+  for (const etapa of [2, 3, 4, 5] as const) {
+    if (SUB_ESTADOS_POR_ETAPA[etapa].includes(s)) return etapa
+  }
+  return 1
+}
+
 // Réplica en SQL (Postgres) de calcSubEstado3 — usada por listConcursosCphService
 // (S4-1) para filtrar por sub_estado_3 sin confiar en el valor persistido,
 // que puede desactualizarse solo con el paso del tiempo (ramas E-ADJUDI/

@@ -12,6 +12,7 @@ import type {
 import {
   calcConcursoCph,
   SUB_ESTADO_3_SQL_PG,
+  SUB_ESTADOS_POR_ETAPA,
   type ConcursoCphCalcInput,
 } from './concursosCph.calc.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
@@ -96,6 +97,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     estado,
     subEstado,
     subEstado3,
+    etapa,
     suspendido,
     pendienteAutorizacion,
     search,
@@ -247,7 +249,30 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
   const estadoWhere: Prisma.ConcursoCphWhereInput =
     estado === 'suspendido' ? { suspendido: true } : estado ? { estado, suspendido: false } : {}
 
+  // Filtro por ETAPA del stepper (1..5) → sub_estado. El mapeo
+  // (SUB_ESTADOS_POR_ETAPA) vive en concursosCph.calc.ts, en sync con
+  // etapaActual() del front. Etapas 2..5 enumeran sus sub_estados; la etapa 1
+  // es el COMPLEMENTO (vacante, no iniciado, a-caratulado y cualquier
+  // sub_estado no listado o NULL) → se expresa con NOT { in } que, a diferencia
+  // de { notIn }, SÍ incluye las filas con sub_estado NULL en Postgres.
+  let etapaWhere: Prisma.ConcursoCphWhereInput = {}
+  if (etapa === 1) {
+    const todas2a5 = [
+      ...SUB_ESTADOS_POR_ETAPA[2],
+      ...SUB_ESTADOS_POR_ETAPA[3],
+      ...SUB_ESTADOS_POR_ETAPA[4],
+      ...SUB_ESTADOS_POR_ETAPA[5],
+    ]
+    etapaWhere = { NOT: { subEstado: { in: todas2a5 } } }
+  } else if (etapa) {
+    // etapa ya es 2..5 tras el guard anterior → el cast es seguro.
+    etapaWhere = { subEstado: { in: SUB_ESTADOS_POR_ETAPA[etapa as 2 | 3 | 4 | 5] } }
+  }
+
   const where: Prisma.ConcursoCphWhereInput = {
+    // etapaWhere se combina por AND para que su NOT (etapa 1) no colisione con
+    // la clave OR de personaOm (ambos usarían claves de nivel superior).
+    ...(etapa !== undefined && { AND: [etapaWhere] }),
     ...(hospitalId && { hospitalId }),
     ...(cargoId && { cargoId }),
     ...estadoWhere,
