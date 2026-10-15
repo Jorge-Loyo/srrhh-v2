@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { useKpiDotacion, useKpiConcursos, useKpiAlertas, useKpiDotacionHistorica, useKpiBajas } from '../hooks/useKpis'
 import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
 import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
@@ -40,30 +39,18 @@ function BarraProporcion({ vigentes, vacantes }: { vigentes: number; vacantes: n
 }
 
 export function KpisPage() {
-  const [hospitalId, setHospitalId] = useState('')
   const [evolucionAbierta, setEvolucionAbierta] = useState(false)
 
-  const { data: hospitales } = useHospitales()
-  const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion(hospitalId || undefined)
-  const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos(hospitalId || undefined)
-  const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas(hospitalId || undefined)
-  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica(hospitalId || undefined)
-  const { data: bajas, isLoading: loadingBajas } = useKpiBajas(hospitalId || undefined)
+  const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion()
+  const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos()
+  const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas()
+  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica()
+  const { data: bajas, isLoading: loadingBajas } = useKpiBajas()
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h1 className="font-primary text-xl font-bold text-gray-900">Tablero de KPIs</h1>
-        <select
-          value={hospitalId}
-          onChange={(e) => setHospitalId(e.target.value)}
-          className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-        >
-          <option value="">Todos los hospitales</option>
-          {hospitales?.map((h) => (
-            <option key={h.id} value={h.id}>{h.sigla}</option>
-          ))}
-        </select>
       </div>
 
       {(errorDotacion || errorConcursos) && (
