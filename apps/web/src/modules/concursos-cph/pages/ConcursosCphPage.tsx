@@ -698,6 +698,7 @@ function ConcursosListaTab() {
                       <th className="px-4 py-3 font-semibold">Repartición</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
@@ -758,6 +759,14 @@ function ConcursosListaTab() {
                             <EtapaStepper subEstado={c.subEstado} />
                           </td>
                           <td className="px-4 py-3 text-gray-600">{subEstadoLabel(c.subEstado)}</td>
+                          <td className="px-4 py-3">
+                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
+                              <span className="badge-info text-xs">Nuevo cargo</span>
+                            )}
+                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
                               concursoCphId={c.id}

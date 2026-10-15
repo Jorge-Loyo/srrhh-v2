@@ -12,6 +12,7 @@ import { tipoColor, stripRedundantPrefix, agruparDept, esDireccionAdjuntaGestion
 import type { OrganigramaNodo } from '../hooks/useOrganigrama'
 import type { PersonaSeleccionada } from './OrganigramaTreeNode'
 import type { SearchMatch } from '../lib/organigramaHelpers'
+import { capitalizar } from '@/shared/lib/utils'
 
 const EXPORT_SCALE = 2
 const EXPORT_MAX_DIM = 8000
@@ -365,7 +366,7 @@ function OrgNode({ data }: NodeProps<Node<OrgNodeData>>) {
           >
             <UserIcon className="w-2.5 h-2.5 flex-shrink-0 mt-0.5" />
             <span className="break-words min-w-0">
-              {persona.nombre}
+              {capitalizar(persona.nombre)}
               {persona.codigoCargo && <span className="font-mono text-[9px] bg-gray-100 text-gray-400 px-1 rounded ml-0.5 whitespace-nowrap">{persona.codigoCargo}</span>}
             </span>
           </p>

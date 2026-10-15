@@ -68,3 +68,31 @@ export function useRechazarAutorizacion() {
     onSuccess: () => invalidarTodo(queryClient),
   })
 }
+
+// S14-7: crear el concurso sugerido tras aprobar un alta_cargo. No hay un
+// wizard de creación "desde cero" en el frontend — los concursos siempre
+// nacen de un flujo automático (igual que createConcursoTx desde bajas.service.ts
+// en el backend) — así que esto llama directo al mismo POST /concursos
+// genérico (S4-6), no navega a una ruta de wizard que no sabe crear nada.
+export interface CrearConcursoBody {
+  cargoId: string
+  hospitalId: string
+  tipoConcurso: 'cph' | 'ceetps'
+  motivoConcurso: 'nuevo_cargo' | 'alta_por_baja'
+  origen: string
+  fechaVacante: string
+  escalafonId?: string
+}
+export function useCrearConcurso() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: CrearConcursoBody) => {
+      const res = await apiClient.post<{ data: { concurso: { id: string }; concursoCph?: { id: string }; concursoCeetps?: { id: string } } }>(
+        '/api/v1/concursos',
+        body,
+      )
+      return res.data.data
+    },
+    onSuccess: () => invalidarTodo(queryClient),
+  })
+}
