@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { dotacionQuerySchema, dotacionKpisQuerySchema } from './dotacion.schema.js'
-import { listDotacionService, getDotacionKpisService, exportDotacionService, getDotacionCortesService } from './dotacion.service.js'
+import { dotacionQuerySchema, dotacionKpisQuerySchema, dotacionDesgloseQuerySchema } from './dotacion.schema.js'
+import {
+  listDotacionService, getDotacionKpisService, exportDotacionService, getDotacionCortesService,
+  getDotacionDesgloseService,
+} from './dotacion.service.js'
 
 export async function dotacionRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -27,6 +30,14 @@ export async function dotacionRoutes(app: FastifyInstance) {
   app.get('/cortes', async (_request, reply) => {
     const data = await getDotacionCortesService()
     return reply.send({ data })
+  })
+
+  // GET /desglose — conteo por valor de una dimensión ("fichas" del panel de
+  // Dotación), bajo los mismos filtros (uniones incluidas) que el listado.
+  app.get('/desglose', async (request, reply) => {
+    const query = dotacionDesgloseQuerySchema.parse(request.query)
+    const result = await getDotacionDesgloseService(query)
+    return reply.send(result)
   })
 
   // GET /export — Excel con TODO el resultado del filtro actual (sin paginar).

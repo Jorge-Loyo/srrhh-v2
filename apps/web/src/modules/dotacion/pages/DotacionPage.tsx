@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { ChevronDownIcon, ChevronUpIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { useAreasProgramaticas, useAreaProgramatica, useUnidadesFijas } from '@/modules/areas-programaticas/hooks/useAreasProgramaticas'
@@ -9,9 +10,39 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 import { DotacionKpisPanel } from '../components/DotacionKpisPanel'
 import {
-  useDotacion, useExportDotacion, useDotacionCortes,
+  useDotacion, useExportDotacion, useDotacionCortes, useDotacionDesglose,
+  DOTACION_GROUP_BY_OPTIONS, DOTACION_SIN_DATO,
   type DotacionFilters, type DotacionListResponse, type DotacionRow, type GrupoDotacion,
+  type DotacionGroupByKey,
 } from '../hooks/useDotacion'
+
+// La ficha "Sin dato" del panel de Fichas representa un NULL (ver
+// DOTACION_SIN_DATO) — se traduce a ida y vuelta entre lo que se MUESTRA
+// ("Sin dato") y lo que se GUARDA en el filtro (el sentinel), para no andar
+// filtrando por el texto literal "Sin dato" (que no existe en la base).
+function valorParaFiltro(valorFicha: string): string {
+  return valorFicha === 'Sin dato' ? DOTACION_SIN_DATO : valorFicha
+}
+function valorParaMostrar(valorFiltro: string): string {
+  return valorFiltro === DOTACION_SIN_DATO ? 'Sin dato' : valorFiltro
+}
+
+// Traduce cada dimensión del panel "Fichas" al campo de DotacionFilters que ya
+// existe en esta pantalla. 9 de las 10 dimensiones comparten el mismo valor de
+// texto; `escalafon` es la excepción (el desglose agrupa por nombre, Dotación
+// filtra por `escalafonId` — se resuelve con `escalafonNombreToId`, ya
+// definido más abajo en este componente).
+const FICHA_DIM_TO_FILTRO: Partial<Record<DotacionGroupByKey, keyof DotacionFilters>> = {
+  sigla: 'sigla',
+  universoTotalizador: 'universoTotalizador',
+  tipoHospital: 'tipoHospital',
+  monovalencia: 'monovalencia',
+  literalPuesto: 'puestoNombre',
+  especialidad: 'especialidadNombre',
+  sexo: 'sexo',
+  situacionRevista: 'situacionRevista',
+  reparticion: 'reparticion',
+}
 
 // 'YYYY-MM' → 'Agosto 2026' (para el selector de fecha de corte).
 function formatMesLargo(mes: string): string {
@@ -101,6 +132,13 @@ export function DotacionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [kpisOpen, setKpisOpen] = useState(false)
+  const [fichasOpen, setFichasOpen] = useState(false)
+  const [groupByFichas, setGroupByFichas] = useState<DotacionGroupByKey>('sigla')
+  // "Elegir varias" del panel de fichas — igual que el resto de los multi-select
+  // de esta pantalla, se van marcando y se aplican todas juntas al filtro.
+  const [modoMultiFichas, setModoMultiFichas] = useState(false)
+  const [seleccionMultiFichas, setSeleccionMultiFichas] = useState<string[]>([])
+  const [buscarFicha, setBuscarFicha] = useState('')
   const exportar = useExportDotacion()
   const { data: cortes } = useDotacionCortes()
   const mesCorte = searchParams.get('mesCorte') ?? ''
@@ -275,6 +313,74 @@ export function DotacionPage() {
     const e = escalafonesOrdenados.find((x) => x.id === id)
     return e ? escalafonLabel(e.nombre) : id
   }
+
+  // Panel "Fichas" — conteo por valor de la dimensión elegida, bajo los MISMOS
+  // `filters` que ya tiene aplicado el listado de abajo (uniones incluidas).
+  const { data: fichas, isFetching: isFetchingFichas } = useDotacionDesglose(groupByFichas, filters, { enabled: fichasOpen })
+
+  useEffect(() => { setModoMultiFichas(false); setSeleccionMultiFichas([]); setBuscarFicha('') }, [groupByFichas])
+
+  // ¿Este valor ya está aplicado como filtro de esa dimensión? — se usa para
+  // marcar la ficha como "ya aplicada" apenas se toca, confirmación visual de
+  // que el click realmente sumó el filtro (antes no había ninguna).
+  function fichaYaAplicada(dim: DotacionGroupByKey, value: string): boolean {
+    const valorFiltro = valorParaFiltro(value)
+    if (dim === 'escalafon') return escalafonId.includes(escalafonNombreToId(valorFiltro))
+    const campo = FICHA_DIM_TO_FILTRO[dim]
+    if (!campo) return false
+    return getCsv(searchParams, campo as string).includes(valorFiltro)
+  }
+
+  function toggleSeleccionMultiFicha(value: string) {
+    setSeleccionMultiFichas((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
+  }
+
+  // Agrega (no reemplaza) el/los valor(es) elegidos al filtro de esa
+  // dimensión — mismo criterio "multi-select que se combina" que ya usa el
+  // resto de la pantalla.
+  function agregarValoresFicha(dim: DotacionGroupByKey, valoresFicha: string[]) {
+    const valores = valoresFicha.map(valorParaFiltro)
+    if (dim === 'escalafon') {
+      const idsNuevos = valores.map(escalafonNombreToId).filter(Boolean)
+      const siguiente = [...new Set([...escalafonId, ...idsNuevos])]
+      setCsvParam('escalafonId', siguiente)
+      return
+    }
+    const campo = FICHA_DIM_TO_FILTRO[dim]
+    if (!campo) return
+    const actuales = getCsv(searchParams, campo as string)
+    const siguiente = [...new Set([...actuales, ...valores])]
+    setCsvParam(campo as string, siguiente)
+  }
+
+  function quitarValorFicha(dim: DotacionGroupByKey, valorFicha: string) {
+    const value = valorParaFiltro(valorFicha)
+    if (dim === 'escalafon') {
+      const id = escalafonNombreToId(value)
+      setCsvParam('escalafonId', escalafonId.filter((x) => x !== id))
+      return
+    }
+    const campo = FICHA_DIM_TO_FILTRO[dim]
+    if (!campo) return
+    setCsvParam(campo as string, getCsv(searchParams, campo as string).filter((v) => v !== value))
+  }
+
+  function tocarFicha(value: string) {
+    if (modoMultiFichas) { toggleSeleccionMultiFicha(value); return }
+    if (fichaYaAplicada(groupByFichas, value)) {
+      quitarValorFicha(groupByFichas, value)
+    } else {
+      agregarValoresFicha(groupByFichas, [value])
+    }
+  }
+
+  function aplicarSeleccionMultiFichas() {
+    if (seleccionMultiFichas.length === 0) return
+    agregarValoresFicha(groupByFichas, seleccionMultiFichas)
+    setModoMultiFichas(false)
+    setSeleccionMultiFichas([])
+  }
+
   // Etiqueta "codigo — literal" (ej. "24 — Residencias"): el código desambigua
   // literales repetidos (22 y 37 comparten "Nueva Carrera Prof. Hosp").
   const codigoRegistroLabel = (c: { codigo: string; nombre: string }) => `${c.codigo} — ${c.nombre}`
@@ -340,6 +446,54 @@ export function DotacionPage() {
     })
   }
 
+  // Chips de "Filtros activos" para cada dimensión multi-valor — antes solo
+  // mostraba sigla/grupos/estado/solo jefes, así que algo aplicado desde
+  // Fichas (o desde el propio drawer) en cualquier otra dimensión quedaba sin
+  // ninguna confirmación visual acá. labelFn solo cambia el texto mostrado; al
+  // quitar se filtra sobre los valores CRUDOS (ids donde corresponda).
+  function chipsPara(key: string, valores: string[], labelFn: (v: string) => string = (v) => v) {
+    return valores.map((v) => ({
+      key: `${key}:${v}`,
+      label: v === DOTACION_SIN_DATO ? valorParaMostrar(v) : labelFn(v),
+      onQuitar: () => setCsvParam(key, valores.filter((x) => x !== v)),
+    }))
+  }
+
+  const chipsFiltrosMultiValor = [
+    ...chipsPara('universoTotalizador', getCsv(searchParams, 'universoTotalizador'), capitalizarEtiqueta),
+    ...chipsPara('tipoHospital', getCsv(searchParams, 'tipoHospital'), capitalizarEtiqueta),
+    ...chipsPara('monovalencia', getCsv(searchParams, 'monovalencia'), capitalizarEtiqueta),
+    ...chipsPara('escalafonId', escalafonId, escalafonIdToNombre),
+    ...chipsPara('codigoRegistroId', codigoRegistroId, codigoRegistroIdToNombre),
+    ...chipsPara('puestoNombre', getCsv(searchParams, 'puestoNombre'), capitalizar),
+    ...chipsPara('especialidadNombre', getCsv(searchParams, 'especialidadNombre'), capitalizar),
+    ...chipsPara('regimen', getCsv(searchParams, 'regimen')),
+    ...chipsPara('tipoOrigen', getCsv(searchParams, 'tipoOrigen'), tipoOrigenLabel),
+    ...chipsPara('sexo', getCsv(searchParams, 'sexo')),
+    ...chipsPara('situacionRevista', getCsv(searchParams, 'situacionRevista')),
+    ...chipsPara('reparticion', getCsv(searchParams, 'reparticion')),
+    ...chipsPara('especialidadCph', getCsv(searchParams, 'especialidadCph')),
+    ...chipsPara('provincia', getCsv(searchParams, 'provincia')),
+    ...chipsPara('localidad', getCsv(searchParams, 'localidad')),
+    ...chipsPara('areaProgramaticaId', areaProgramaticaId, apIdToNombre),
+    ...chipsPara('cesacId', cesacId, cesacIdToLabel),
+    ...chipsPara('unidadFijaId', unidadFijaId, unidadFijaIdToNombre),
+  ]
+
+  // Filtros escalares (un solo valor, no CSV) — modalidad + búsqueda rápida +
+  // rangos de edad/antigüedad.
+  const chipsFiltrosEscalares = [
+    ...(modalidad ? [{ key: 'modalidad', label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', onQuitar: () => setParam('modalidad', '') }] : []),
+    ...(codigoCargo ? [{ key: 'codigoCargo', label: `Cód. Cargo: ${codigoCargo}`, onQuitar: () => setParam('codigoCargo', '') }] : []),
+    ...(nombreApellido ? [{ key: 'nombreApellido', label: nombreApellido, onQuitar: () => setParam('nombreApellido', '') }] : []),
+    ...(cuil ? [{ key: 'cuil', label: `CUIL: ${cuil}`, onQuitar: () => setParam('cuil', '') }] : []),
+    ...(codigoRol ? [{ key: 'codigoRol', label: `Cód. SIAL: ${codigoRol}`, onQuitar: () => setParam('codigoRol', '') }] : []),
+    ...(searchParams.get('edadMin') ? [{ key: 'edadMin', label: `Edad ≥ ${searchParams.get('edadMin')}`, onQuitar: () => setParam('edadMin', '') }] : []),
+    ...(searchParams.get('edadMax') ? [{ key: 'edadMax', label: `Edad ≤ ${searchParams.get('edadMax')}`, onQuitar: () => setParam('edadMax', '') }] : []),
+    ...(searchParams.get('antiguedadMin') ? [{ key: 'antiguedadMin', label: `Antigüedad ≥ ${searchParams.get('antiguedadMin')}`, onQuitar: () => setParam('antiguedadMin', '') }] : []),
+    ...(searchParams.get('antiguedadMax') ? [{ key: 'antiguedadMax', label: `Antigüedad ≤ ${searchParams.get('antiguedadMax')}`, onQuitar: () => setParam('antiguedadMax', '') }] : []),
+  ]
+
   function renderCell(row: DotacionRow, col: (typeof COLUMNS)[number]) {
     const raw = row[col.key]
     if (raw === null || raw === undefined || raw === '') return '—'
@@ -381,6 +535,16 @@ export function DotacionPage() {
             KPIs
           </button>
           <button
+            onClick={() => setFichasOpen((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded border transition-colors ${
+              fichasOpen ? 'bg-secondary/10 border-secondary text-secondary' : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            <Squares2X2Icon className="w-4 h-4" />
+            Fichas
+            {fichasOpen ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
+          </button>
+          <button
             onClick={() => setDrawerOpen(true)}
             className="inline-flex items-center gap-1.5 bg-navy text-white text-sm font-semibold px-3 py-2 rounded hover:bg-navy/80 transition-colors"
           >
@@ -410,10 +574,116 @@ export function DotacionPage() {
         </div>
       </div>
 
-      {/* Indicador de filtros activos */}
+      {/* Panel "Fichas" — conteo por dimensión bajo los filtros ya aplicados;
+          tocar una ficha la suma al filtro correspondiente (no reemplaza,
+          se combina como el resto de los multi-select de esta pantalla). */}
+      {fichasOpen && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {DOTACION_GROUP_BY_OPTIONS.map((o) => (
+              <button
+                key={o.key}
+                onClick={() => setGroupByFichas(o.key)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  groupByFichas === o.key
+                    ? 'bg-secondary border-secondary text-white'
+                    : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Fichas — {DOTACION_GROUP_BY_OPTIONS.find((o) => o.key === groupByFichas)?.label}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="text"
+                value={buscarFicha}
+                onChange={(e) => setBuscarFicha(e.target.value)}
+                placeholder="Buscar..."
+                className="h-8 px-2.5 w-36 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+              />
+              <button
+                onClick={() => setModoMultiFichas((v) => !v)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
+                  modoMultiFichas
+                    ? 'bg-secondary/10 border-secondary text-secondary'
+                    : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                Elegir varias
+              </button>
+              {modoMultiFichas && (
+                <button
+                  onClick={aplicarSeleccionMultiFichas}
+                  disabled={seleccionMultiFichas.length === 0}
+                  className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
+                >
+                  Aplicar ({seleccionMultiFichas.length})
+                </button>
+              )}
+            </div>
+          </div>
+
+          {(() => {
+            const q = buscarFicha.trim().toLowerCase()
+            const rows = (fichas?.rows ?? []).filter((row) => !q || row.value.toLowerCase().includes(q))
+            if (rows.length === 0) {
+              return (
+                <p className="text-sm text-gray-400">
+                  {q ? 'Ninguna ficha coincide con la búsqueda.' : 'Sin datos para los filtros actuales.'}
+                </p>
+              )
+            }
+            return (
+              <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 max-h-64 overflow-y-auto pr-1 ${isFetchingFichas ? 'opacity-60' : ''}`}>
+                {rows.map((row) => {
+                  // "Sin dato" es una etiqueta que le pone el backend a los
+                  // NULL de esta dimensión (ver getDotacionDesgloseService) —
+                  // no es un valor real de la base, así que no hay forma de
+                  // filtrar por él directo (buildConditions ya lo traduce a
+                  // IS NULL, ver DOTACION_SIN_DATO) — se ve igual que el resto.
+                  const marcada = seleccionMultiFichas.includes(row.value)
+                  const aplicada = fichaYaAplicada(groupByFichas, row.value)
+                  return (
+                    <button
+                      key={row.value}
+                      onClick={() => tocarFicha(row.value)}
+                      title={aplicada ? 'Ya aplicado como filtro — tocá de nuevo para quitarlo' : undefined}
+                      className={`text-left rounded-lg px-4 py-3 border transition-colors ${
+                        marcada
+                          ? 'bg-secondary/10 border-secondary ring-1 ring-secondary'
+                          : aplicada
+                            ? 'bg-green-50 border-green-300'
+                            : 'bg-gray-50 border-gray-200 hover:border-secondary hover:bg-secondary/5'
+                      }`}
+                    >
+                      <p className="text-xs font-medium text-gray-500 truncate flex items-center gap-1.5">
+                        {modoMultiFichas && (
+                          <span className={`inline-block w-3 h-3 rounded-sm border ${marcada ? 'bg-secondary border-secondary' : 'border-gray-300'}`} />
+                        )}
+                        {!modoMultiFichas && aplicada && <span className="text-green-600">✓</span>}
+                        {row.value}
+                      </p>
+                      <p className="text-xl font-bold text-gray-900 tabular-nums">{row.total.toLocaleString('es-AR')}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* Indicador de filtros activos — todas las dimensiones (incluidas las
+          que se aplican desde el panel "Fichas"), no solo sigla/uniones. */}
       {hasActiveFilters && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex items-center gap-3">
-          <span className="text-xs text-gray-500">Filtros activos</span>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500 shrink-0">Filtros activos</span>
           {grupos.length > 0 && (
             <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
               {grupos.length} {grupos.length === 1 ? 'unión' : 'uniones'} (O)
@@ -438,6 +708,12 @@ export function DotacionPage() {
               <button onClick={() => setParam('soloJefes', '')} className="hover:text-danger">×</button>
             </span>
           )}
+          {[...chipsFiltrosMultiValor, ...chipsFiltrosEscalares].map((chip) => (
+            <span key={chip.key} className="inline-flex items-center gap-1 bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
+              {chip.label}
+              <button onClick={chip.onQuitar} className="hover:text-danger">×</button>
+            </span>
+          ))}
           <button onClick={() => setSearchParams({})} className="ml-auto text-xs text-danger hover:underline">
             Limpiar todo
           </button>

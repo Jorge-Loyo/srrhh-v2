@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { createRequire } from 'node:module'
 import { prisma } from '../../shared/prisma.js'
-import type { DotacionQuery, DotacionKpisQuery } from './dotacion.schema.js'
+import { DOTACION_SIN_DATO, type DotacionQuery, type DotacionKpisQuery, type DotacionDesgloseQuery } from './dotacion.schema.js'
 
 // xlsx es CJS — mismo patrón que kpis.service (createRequire en ESM).
 const requireXlsx = createRequire(import.meta.url)
@@ -143,6 +143,7 @@ const SORT_EXPR: Record<string, Prisma.Sql> = {
 // Columnas del listado de dotación — compartidas por el listado paginado y el
 // export a Excel para que ambos devuelvan exactamente los mismos campos.
 const DOTACION_SELECT = Prisma.sql`
+  p.id AS "personaId",
   c.codigo AS "codigoCargo",
   p.apellido_nombre AS "nombreApellido",
   p.cuil,
@@ -168,6 +169,7 @@ const DOTACION_SELECT = Prisma.sql`
 `
 
 interface DotacionRow {
+  personaId: string
   codigoCargo: string | null
   nombreApellido: string
   cuil: string
@@ -222,8 +224,17 @@ interface DimensionesDotacion {
 // con las dimensiones por nombre/sigla propias de /dotacion.
 function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
   const conds: Prisma.Sql[] = []
+  // DOTACION_SIN_DATO adentro de `values` pide "esta columna sin cargar
+  // (NULL)" — lo manda el panel "Fichas" al tocar su ficha "Sin dato" (ver
+  // GROUP_BY_EXPR más abajo, que arma esa misma etiqueta para los NULL del
+  // GROUP BY). No es un valor de texto real, así que no entra en el IN.
   const inList = (col: Prisma.Sql, values?: string[]) => {
-    if (values?.length) conds.push(Prisma.sql`${col} IN (${Prisma.join(values)})`)
+    if (!values?.length) return
+    const reales = values.filter((v) => v !== DOTACION_SIN_DATO)
+    const incluyeNull = reales.length !== values.length
+    if (reales.length && incluyeNull) conds.push(Prisma.sql`(${col} IN (${Prisma.join(reales)}) OR ${col} IS NULL)`)
+    else if (incluyeNull) conds.push(Prisma.sql`${col} IS NULL`)
+    else conds.push(Prisma.sql`${col} IN (${Prisma.join(reales)})`)
   }
   const inUuid = (col: Prisma.Sql, values?: string[]) => {
     if (values?.length) conds.push(Prisma.sql`${col} IN (${Prisma.join(values.map((v) => Prisma.sql`${v}::uuid`))})`)
@@ -269,10 +280,17 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
     )`)
   }
   if (f.especialidadNombre?.length) {
-    conds.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM especialidades_puesto epn
-      WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(f.especialidadNombre)})
-    )`)
+    // especialidad_puesto_id es opcional en el cargo (LEFT JOIN en BASE_FROM,
+    // a diferencia de puesto_cargo_id) — sí puede venir DOTACION_SIN_DATO acá.
+    const reales = f.especialidadNombre.filter((v) => v !== DOTACION_SIN_DATO)
+    const incluyeNull = reales.length !== f.especialidadNombre.length
+    const existsReal = reales.length
+      ? Prisma.sql`EXISTS (SELECT 1 FROM especialidades_puesto epn WHERE epn.id = c.especialidad_puesto_id AND epn.nombre IN (${Prisma.join(reales)}))`
+      : null
+    const esNull = incluyeNull ? Prisma.sql`c.especialidad_puesto_id IS NULL` : null
+    if (existsReal && esNull) conds.push(Prisma.sql`(${existsReal} OR ${esNull})`)
+    else if (existsReal) conds.push(existsReal)
+    else if (esNull) conds.push(esNull)
   }
 
   // ── S23-6: Área Programática / CeSAC / unidad fija (S23-2/S23-3/S23-4) —
@@ -653,4 +671,50 @@ export async function getDotacionCortesService() {
     ORDER BY 1 DESC
   `)
   return rows.map((r) => ({ mes: r.mes, corte: r.corte }))
+}
+
+// Expresión SQL de cada dimensión agrupable del desglose por fichas —
+// whitelist validada ya en el schema (DOTACION_GROUP_BY_COLUMNS). Mismas
+// columnas/joins que BASE_FROM. literalPuesto/especialidad apuntan al
+// catálogo curado (pcd/epd), no al snapshot legacy del cargo — mismo
+// criterio que SORT_EXPR arriba.
+const GROUP_BY_EXPR: Record<string, Prisma.Sql> = {
+  sigla:               Prisma.sql`h.sigla`,
+  universoTotalizador: Prisma.sql`h.universo_totalizador`,
+  tipoHospital:        Prisma.sql`h.tipo`,
+  monovalencia:        Prisma.sql`h.monovalencia`,
+  escalafon:           Prisma.sql`e.nombre`,
+  literalPuesto:       Prisma.sql`pcd.nombre`,
+  especialidad:        Prisma.sql`epd.nombre`,
+  sexo:                Prisma.sql`p.sexo`,
+  situacionRevista:    Prisma.sql`o.situacion_revista`,
+  reparticion:         Prisma.sql`c.descripcion_repa`,
+}
+
+interface DesgloseRow {
+  value: string | null
+  total: bigint
+}
+
+// Desglose por fichas: cuenta por cada valor de una dimensión, bajo los
+// MISMOS filtros (uniones incluidas) que ya aplica el listado — reusa
+// buildConditions tal cual, así nunca se desincroniza de lo que la tabla de
+// Dotación tiene filtrado.
+export async function getDotacionDesgloseService(query: DotacionDesgloseQuery) {
+  const { groupBy, ...resto } = query
+  const conditions = buildConditions(resto)
+  const where = conditions.length ? Prisma.sql`AND ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
+
+  const dimExpr = GROUP_BY_EXPR[groupBy]
+  const rows = await prisma.$queryRaw<DesgloseRow[]>(Prisma.sql`
+    SELECT ${dimExpr} AS value, count(*)::bigint AS total
+    ${BASE_FROM} ${where}
+    GROUP BY ${dimExpr}
+    ORDER BY total DESC
+  `)
+
+  return {
+    groupBy,
+    rows: rows.map((r) => ({ value: r.value ?? 'Sin dato', total: Number(r.total) })),
+  }
 }
