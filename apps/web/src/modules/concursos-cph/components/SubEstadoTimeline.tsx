@@ -6,13 +6,13 @@
 // badge en ConcursoCphDetail para quien necesite el detalle exacto.
 
 const PASOS: { valor: string; label: string }[] = [
-  { valor: 'A-VALID. VCTE', label: 'Vacante validada' },
-  { valor: 'B-AUTORIZADO', label: 'Autorizado' },
-  { valor: 'C-INSCRIPCION', label: 'Inscripción' },
-  { valor: 'D-ETAPA EVAL', label: 'Etapa evaluación' },
-  { valor: 'E-ADJUDI', label: 'Adjudicación' },
-  { valor: 'F-PROX. A DESIG', label: 'Próx. a designación' },
-  { valor: 'G-RESOLUCION', label: 'Resolución' },
+  { valor: 'a-valid. vcte', label: 'Vacante validada' },
+  { valor: 'b-autorizado', label: 'Autorizado' },
+  { valor: 'c-inscripcion', label: 'Inscripción' },
+  { valor: 'd-etapa eval', label: 'Etapa evaluación' },
+  { valor: 'e-adjudi', label: 'Adjudicación' },
+  { valor: 'f-prox. a desig', label: 'Próx. a designación' },
+  { valor: 'g-resolucion', label: 'Resolución' },
 ]
 
 export function SubEstadoTimeline({
@@ -25,7 +25,7 @@ export function SubEstadoTimeline({
   // Desierto es un final por fuera de la progresión lineal (el concurso no
   // "llegó más lejos", se cayó) — se muestra como estado propio, no como un
   // 8º segmento verde al final de la barra.
-  if (subEstado3 === 'H-DESIERTO') {
+  if (subEstado3 === 'h-desierto') {
     return (
       <div className="bg-red-50 border border-red-200 rounded px-4 py-3 text-sm font-semibold text-red-800">
         Concurso desierto

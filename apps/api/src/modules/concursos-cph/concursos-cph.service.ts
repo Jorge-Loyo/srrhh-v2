@@ -131,14 +131,14 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
       SELECT id FROM concursos_cph
       WHERE estado IN ('activo','no_iniciado') AND suspendido = false
         AND (
-          (sub_estado IN ('A-AUTZN','B-SORTEO JUR','C-DISPO DE LLAMADO','D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_autorizacion IS NULL)
-          OR (sub_estado IN ('C-DISPO DE LLAMADO','D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND disposicion IS NULL)
-          OR (sub_estado IN ('D-EXAMEN PUBLICADO','E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND (fecha_insc_desde IS NULL OR fecha_insc_hasta IS NULL))
-          OR (sub_estado IN ('E-ORDEN DE MERITO','F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_orden_merito IS NULL)
-          OR (sub_estado IN ('F-IFACS','G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_ifacs IS NULL)
-          OR (sub_estado IN ('G-INSAL','H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND fecha_insal IS NULL)
-          OR (sub_estado IN ('H-TAD','I-CARGA DOCU','J-APTO MED','K-ITE','L-PYCTO DE RESO','M-RESO A LA FIRMA','N-DESIGNADO','O-ALTA SIAL') AND ee_designacion IS NULL)
-          OR (sub_estado IN ('N-DESIGNADO','O-ALTA SIAL') AND resolucion_designacion IS NULL)
+          (sub_estado IN ('a-autzn','b-sorteo jur','c-dispo de llamado','d-examen publicado','e-orden de merito','f-ifacs','g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND fecha_autorizacion IS NULL)
+          OR (sub_estado IN ('c-dispo de llamado','d-examen publicado','e-orden de merito','f-ifacs','g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND disposicion IS NULL)
+          OR (sub_estado IN ('d-examen publicado','e-orden de merito','f-ifacs','g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND (fecha_insc_desde IS NULL OR fecha_insc_hasta IS NULL))
+          OR (sub_estado IN ('e-orden de merito','f-ifacs','g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND fecha_orden_merito IS NULL)
+          OR (sub_estado IN ('f-ifacs','g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND fecha_ifacs IS NULL)
+          OR (sub_estado IN ('g-insal','h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND fecha_insal IS NULL)
+          OR (sub_estado IN ('h-tad','i-carga docu','j-apto med','k-ite','l-pycto de reso','m-reso a la firma','n-designado','o-alta sial') AND ee_designacion IS NULL)
+          OR (sub_estado IN ('n-designado','o-alta sial') AND resolucion_designacion IS NULL)
         )
     `)
     conFaltantesIds = rows.map((r) => r.id)
@@ -774,9 +774,9 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
       where: { id },
       data: {
         personaDesignadaId: body.personaId,
-        subEstado: 'N-DESIGNADO',
+        subEstado: 'n-designado',
         estado: 'finalizado',
-        subEstado3: 'G-RESOLUCION',
+        subEstado3: 'g-resolucion',
       },
       include,
     })
@@ -1116,8 +1116,8 @@ export async function declararDesiertoService(
         fechaResolucion: null,
         cargoSial: null,
         estado: 'suspendido',
-        subEstado: 'Q-DESIERTO',
-        subEstado3: 'H-DESIERTO',
+        subEstado: 'q-desierto',
+        subEstado3: 'h-desierto',
       },
       include,
     })

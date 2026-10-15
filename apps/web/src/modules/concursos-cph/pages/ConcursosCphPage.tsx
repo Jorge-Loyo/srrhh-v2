@@ -20,6 +20,8 @@ import {
   ESTADO_LABEL,
   SUB_ESTADO_OPTIONS,
   SUB_ESTADO_3_OPTIONS,
+  subEstadoLabel,
+  subEstado3Label,
   diasSinMovimiento,
 } from '../lib/labels'
 
@@ -76,25 +78,27 @@ const ETAPAS = [
 
 // Mapea el subEstado (con su prefijo de letra) al número de etapa 1..5.
 function etapaActual(subEstado: string | null): number {
-  const s = subEstado ?? ''
-  if (['A-AUTZN', 'B-SORTEO JUR', 'C-DISPO DE LLAMADO'].includes(s)) return 2
-  if (['C2-INSCRIPCION EX', 'D-EXAMEN PUBLICADO', 'E-ORDEN DE MERITO'].includes(s)) return 3
-  if (['F-IFACS', 'G-INSAL'].includes(s)) return 4
+  // El sub_estado llega de la BD en minúscula; se normaliza el lado del dato
+  // (defensivo ante datos legacy) y se compara contra literales en minúscula.
+  const s = (subEstado ?? '').toLowerCase()
+  if (['a-autzn', 'b-sorteo jur', 'c-dispo de llamado'].includes(s)) return 2
+  if (['c2-inscripcion ex', 'd-examen publicado', 'e-orden de merito'].includes(s)) return 3
+  if (['f-ifacs', 'g-insal'].includes(s)) return 4
   if (
     [
-      'H-TAD',
-      'I-CARGA DOCU',
-      'J-APTO MED',
-      'K-ITE',
-      'L-PYCTO DE RESO',
-      'M-RESO A LA FIRMA',
-      'N-DESIGNADO',
-      'O-ALTA SIAL',
-      'Q-DESIERTO',
+      'h-tad',
+      'i-carga docu',
+      'j-apto med',
+      'k-ite',
+      'l-pycto de reso',
+      'm-reso a la firma',
+      'n-designado',
+      'o-alta sial',
+      'q-desierto',
     ].includes(s)
   )
     return 5
-  return 1 // VACANTE, NO INICIADO, A-CARATULADO
+  return 1 // vacante, no iniciado, a-caratulado
 }
 
 // Mini-stepper de 5 pasos para la columna "Etapa". El paso actual se resalta,
@@ -559,12 +563,12 @@ function ConcursosListaTab() {
             })
           if (subEstado)
             chips.push({
-              label: `Sub-estado: ${subEstado}`,
+              label: `Sub-estado: ${subEstadoLabel(subEstado)}`,
               onClear: () => resetPage(setSubEstado)(''),
             })
           if (subEstado3)
             chips.push({
-              label: `Etapa: ${subEstado3}`,
+              label: `Etapa: ${subEstado3Label(subEstado3)}`,
               onClear: () => resetPage(setSubEstado3)(''),
             })
           if (origen)
@@ -742,7 +746,7 @@ function ConcursosListaTab() {
                           <td className="px-4 py-3">
                             <EtapaStepper subEstado={c.subEstado} />
                           </td>
-                          <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600">{subEstadoLabel(c.subEstado)}</td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
                               concursoCphId={c.id}
@@ -843,8 +847,8 @@ function ConcursosListaTab() {
                 >
                   <option value="">Todos los sub-estados</option>
                   {SUB_ESTADO_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                    <option key={s.value} value={s.value}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
@@ -861,8 +865,8 @@ function ConcursosListaTab() {
                 >
                   <option value="">Todas las etapas</option>
                   {SUB_ESTADO_3_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                    <option key={s.value} value={s.value}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
@@ -1021,8 +1025,8 @@ function DetalleConcursoModal({
     { label: 'Expediente de concurso', valor: c.eeConcurso ?? '—' },
     { label: 'Disposición', valor: c.disposicion ?? '—' },
     { label: 'Tipo de gestión', valor: c.tipoGestion ?? '—' },
-    { label: 'Sub-estado', valor: c.subEstado ?? '—' },
-    { label: 'Etapa (sub-estado 3)', valor: c.subEstado3 ?? '—' },
+    { label: 'Sub-estado', valor: subEstadoLabel(c.subEstado) },
+    { label: 'Etapa (sub-estado 3)', valor: subEstado3Label(c.subEstado3) },
     { label: 'Últ. movimiento', valor: dias === 0 ? 'Hoy' : `hace ${dias} días` },
   ]
   return (
