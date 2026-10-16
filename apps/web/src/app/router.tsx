@@ -54,6 +54,7 @@ import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/Are
 import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
 import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
 import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
+import { PresentacionPage } from '../modules/presentacion/pages/PresentacionPage'
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -212,4 +213,7 @@ export const router = createBrowserRouter([
     ],
   },
   { path: '/login', element: <LoginPage /> },
+  // Página independiente para el nuevo proyecto de front — pública, sin AppShell
+  // ni guard de auth, para tenerla como lienzo en blanco.
+  { path: '/presentacion', element: <PresentacionPage /> },
 ])
