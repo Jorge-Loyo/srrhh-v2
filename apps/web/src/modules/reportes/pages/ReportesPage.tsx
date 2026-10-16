@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { Presentation } from 'lucide-react'
 import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
 import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
 import { useKpiDotacionHistorica } from '../hooks/useReportes'
 import { SlidesViewer } from '@/modules/presentacion/components/SlidesViewer'
 import { SLIDES_CATALOGO } from '@/modules/presentacion/components/slidesCatalogo'
+import { PresentacionModo } from '@/modules/presentacion/components/PresentacionModo'
 
 export function ReportesPage() {
   // La sección "Evolución de dotación" y sus datos se mudaron desde el Tablero
@@ -11,14 +13,16 @@ export function ReportesPage() {
   const [abierto, setAbierto] = useState(false)
 
   // ── Sección "Presentación — slides" (colapsable, arranca cerrada) ───────────
-  // Permite ver un slide puntual o todos juntos, reutilizando el viewer del
-  // módulo de presentación. `seleccion`: número de slide activo, 'todas' para
-  // apilar los 8, o null cuando todavía no se eligió ninguno.
+  // Permite ver un slide puntual inline o lanzar el modo presentación (pase de
+  // diapositivas fullscreen). `seleccion`: número de slide activo inline, o null
+  // cuando todavía no se eligió ninguno.
   const [abiertoSlides, setAbiertoSlides] = useState(false)
-  const [seleccion, setSeleccion] = useState<number | 'todas' | null>(null)
+  const [seleccion, setSeleccion] = useState<number | null>(null)
 
-  // Números de todos los slides del catálogo (para el modo "Ver todas juntas").
-  const todosLosNumeros = SLIDES_CATALOGO.map((s) => s.numero)
+  // Modo presentación fullscreen (lanzado por "Iniciar presentación").
+  const [presentacionAbierta, setPresentacionAbierta] = useState(false)
+  // Botón que lanza la presentación; recupera el foco al cerrar el overlay.
+  const botonPresentacionRef = useRef<HTMLButtonElement>(null)
 
   // Nota: por las reglas de hooks, `useKpiDotacionHistorica` se invoca siempre
   // en el cuerpo del componente, así que la query de dotación histórica se
@@ -97,7 +101,7 @@ export function ReportesPage() {
         </button>
         {abiertoSlides && (
           <div className="px-6 pb-6 space-y-4">
-            {/* ── Selector: un botón por slide + "Ver todas juntas" ───────── */}
+            {/* ── Selector: un botón por slide (ver inline) ───────────────── */}
             <div className="flex flex-wrap gap-2">
               {SLIDES_CATALOGO.map((s) => {
                 const activo = seleccion === s.numero
@@ -117,32 +121,44 @@ export function ReportesPage() {
                   </button>
                 )
               })}
-              {/* Botón "Ver todas juntas": apila los 8 slides. */}
+            </div>
+
+            {/* ── Acción prominente aparte: lanzar el modo presentación ─────── */}
+            {/* Diferenciada de los chips de slide (relleno primario, icono ▶) */}
+            {/* para que lea como "iniciar presentación", no como un slide más.  */}
+            <div className="pt-1 border-t border-gray-100">
               <button
+                ref={botonPresentacionRef}
                 type="button"
-                onClick={() => setSeleccion('todas')}
-                aria-pressed={seleccion === 'todas'}
-                className={`font-primary text-sm font-semibold px-3 py-1.5 rounded-md border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary ${
-                  seleccion === 'todas'
-                    ? 'bg-secondary text-white border-secondary'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
+                onClick={() => setPresentacionAbierta(true)}
+                aria-label="Ver presentación (todos los slides)"
+                className="mt-3 inline-flex items-center gap-2 font-primary text-sm font-bold px-4 py-2 rounded-md bg-secondary text-white border border-secondary shadow-sm transition-colors hover:bg-secondary-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
               >
-                Ver todas juntas
+                <Presentation className="h-5 w-5" aria-hidden="true" />
+                Ver presentación
               </button>
             </div>
 
-            {/* ── Render del slide elegido (o de todos), escalado al ancho ──── */}
+            {/* ── Render del slide elegido inline, escalado al ancho ───────── */}
             {seleccion === null ? (
               <p className="text-xs text-gray-400">Elegí un slide para verlo.</p>
-            ) : seleccion === 'todas' ? (
-              <SlidesViewer numeros={todosLosNumeros} className="flex flex-col gap-6" />
             ) : (
               <SlidesViewer numeros={[seleccion]} className="flex flex-col" />
             )}
           </div>
         )}
       </div>
+
+      {/* ── Modo presentación fullscreen (overlay) ─────────────────────────── */}
+      {presentacionAbierta && (
+        <PresentacionModo
+          onClose={() => {
+            setPresentacionAbierta(false)
+            // Devuelve el foco al botón que lanzó la presentación (deseable).
+            botonPresentacionRef.current?.focus()
+          }}
+        />
+      )}
     </div>
   )
 }
