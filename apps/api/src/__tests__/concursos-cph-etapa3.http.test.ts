@@ -25,7 +25,8 @@ async function req(method: string, path: string, token?: string, payload?: unkno
     },
     ...(payload !== undefined ? { body: JSON.stringify(payload) } : {}),
   })
-  const body = await res.json().catch(() => ({}))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el body de respuesta HTTP tiene forma variable según el endpoint
+  const body: any = await res.json().catch(() => ({}))
   return { status: res.status, ok: res.ok, body }
 }
 const GET = (p: string, t?: string) => req('GET', p, t)

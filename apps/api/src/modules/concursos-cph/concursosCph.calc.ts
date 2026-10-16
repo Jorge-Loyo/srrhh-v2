@@ -73,32 +73,32 @@ function calcEstadoBase(row: ConcursoCphCalcInput): EstadoConcursoCphCalc {
 }
 
 function calcSubEstado(row: ConcursoCphCalcInput): string {
-  if (row.fechaDispoDesierta && row.dispoDesierta) return 'Q-DESIERTO'
-  if (row.cargoSial) return 'O-ALTA SIAL'
-  if (row.fechaResolucion && row.resolucionDesignacion) return 'N-DESIGNADO'
-  if (row.resoALaFirma) return 'M-RESO A LA FIRMA'
-  if (row.proyectoResolucion) return 'L-PYCTO DE RESO'
-  if (row.fechaIte) return 'K-ITE'
-  if (row.fechaAptoMedico) return 'J-APTO MED'
-  if (row.cargaDocumentacion) return 'I-CARGA DOCU'
-  if (row.eeDesignacion) return 'H-TAD'
-  if (row.fechaInsal) return 'G-INSAL'
-  if (row.fechaIfacs) return 'F-IFACS'
-  if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'E-ORDEN DE MERITO'
-  if (row.fechaExamen) return 'D-EXAMEN PUBLICADO'
+  if (row.fechaDispoDesierta && row.dispoDesierta) return 'q-desierto'
+  if (row.cargoSial) return 'o-alta sial'
+  if (row.fechaResolucion && row.resolucionDesignacion) return 'n-designado'
+  if (row.resoALaFirma) return 'm-reso a la firma'
+  if (row.proyectoResolucion) return 'l-pycto de reso'
+  if (row.fechaIte) return 'k-ite'
+  if (row.fechaAptoMedico) return 'j-apto med'
+  if (row.cargaDocumentacion) return 'i-carga docu'
+  if (row.eeDesignacion) return 'h-tad'
+  if (row.fechaInsal) return 'g-insal'
+  if (row.fechaIfacs) return 'f-ifacs'
+  if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'e-orden de merito'
+  if (row.fechaExamen) return 'd-examen publicado'
   // Inscripción cerrada (pero examen aún no publicado) → esperando publicar
   // el examen (D). El cierre del período de inscripción es lo que hace avanzar
   // desde "C — Inscripción de exámenes".
-  if (row.inscripcionCerrada) return 'D-EXAMEN PUBLICADO'
+  if (row.inscripcionCerrada) return 'd-examen publicado'
   // Período de inscripción a exámenes definido (ambas fechas) pero aún abierto
   // → sub-estado intermedio entre C-Dispo y D-Publicación (inscripción en curso).
-  if (row.fechaInscDesde && row.fechaInscHasta) return 'C2-INSCRIPCION EX'
-  if (row.disposicion) return 'C-DISPO DE LLAMADO'
-  if (row.sorteoJurado) return 'B-SORTEO JUR'
-  if (row.fechaAutorizacion) return 'A-AUTZN'
-  if (row.eeConcurso && row.eeBaja) return 'A-CARATULADO'
-  if (!row.eeBaja && !row.eeConcurso) return 'VACANTE'
-  return 'NO INICIADO'
+  if (row.fechaInscDesde && row.fechaInscHasta) return 'c2-inscripcion ex'
+  if (row.disposicion) return 'c-dispo de llamado'
+  if (row.sorteoJurado) return 'b-sorteo jur'
+  if (row.fechaAutorizacion) return 'a-autzn'
+  if (row.eeConcurso && row.eeBaja) return 'a-caratulado'
+  if (!row.eeBaja && !row.eeConcurso) return 'vacante'
+  return 'no iniciado'
 }
 
 // Igual que calcSubEstado3 del legacy, salvo por dos ramas ("hoy") que se
@@ -108,14 +108,14 @@ function calcSubEstado3(row: ConcursoCphCalcInput): string {
   const hoy = new Date()
   hoy.setHours(0, 0, 0, 0)
 
-  if (row.fechaDispoDesierta) return 'H-DESIERTO'
-  if (row.resolucionDesignacion) return 'G-RESOLUCION'
-  if (row.eeDesignacion) return 'F-PROX. A DESIG'
-  if (row.fechaExamen && hoy >= row.fechaExamen) return 'E-ADJUDI'
-  if (row.fechaInscHasta && hoy >= row.fechaInscHasta) return 'D-ETAPA EVAL'
-  if (row.disposicion) return 'C-INSCRIPCION'
-  if (row.fechaAutorizacion && row.sorteoJurado) return 'B-AUTORIZADO'
-  return 'A-VALID. VCTE'
+  if (row.fechaDispoDesierta) return 'h-desierto'
+  if (row.resolucionDesignacion) return 'g-resolucion'
+  if (row.eeDesignacion) return 'f-prox. a desig'
+  if (row.fechaExamen && hoy >= row.fechaExamen) return 'e-adjudi'
+  if (row.fechaInscHasta && hoy >= row.fechaInscHasta) return 'd-etapa eval'
+  if (row.disposicion) return 'c-inscripcion'
+  if (row.fechaAutorizacion && row.sorteoJurado) return 'b-autorizado'
+  return 'a-valid. vcte'
 }
 
 // PS16D-2: Q-DESIERTO ya no produce estado='desierto' — el concurso sigue
@@ -135,6 +135,39 @@ export function calcConcursoCph(row: ConcursoCphCalcInput): ConcursoCphCalcResul
   return { estado, subEstado, subEstado3 }
 }
 
+// ─── Mapeo ETAPA (stepper 1..5) ↔ sub_estado ─────────────────────────────────
+// Única fuente de verdad del mapeo en el back (usada por el filtro "Etapa" de
+// listConcursosCphService). Debe mantenerse en sync con SUB_ESTADOS_POR_ETAPA
+// de ConcursosCphPage.tsx (front, stepper visual) — el test lo verifica.
+// Etapas 2..5 enumeran sus sub_estados; la etapa 1 es el COMPLEMENTO (vacante,
+// no iniciado, a-caratulado y cualquier sub_estado no listado o null).
+export const SUB_ESTADOS_POR_ETAPA: Record<2 | 3 | 4 | 5, string[]> = {
+  2: ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado'],
+  3: ['c2-inscripcion ex', 'd-examen publicado', 'e-orden de merito'],
+  4: ['f-ifacs', 'g-insal'],
+  5: [
+    'h-tad',
+    'i-carga docu',
+    'j-apto med',
+    'k-ite',
+    'l-pycto de reso',
+    'm-reso a la firma',
+    'n-designado',
+    'o-alta sial',
+    'q-desierto',
+  ],
+}
+
+// Devuelve la etapa (1..5) a la que pertenece un sub_estado. Espejo exacto de
+// etapaActual() del front.
+export function etapaDeSubEstado(subEstado: string | null): 1 | 2 | 3 | 4 | 5 {
+  const s = (subEstado ?? '').toLowerCase()
+  for (const etapa of [2, 3, 4, 5] as const) {
+    if (SUB_ESTADOS_POR_ETAPA[etapa].includes(s)) return etapa
+  }
+  return 1
+}
+
 // Réplica en SQL (Postgres) de calcSubEstado3 — usada por listConcursosCphService
 // (S4-1) para filtrar por sub_estado_3 sin confiar en el valor persistido,
 // que puede desactualizarse solo con el paso del tiempo (ramas E-ADJUDI/
@@ -143,13 +176,13 @@ export function calcConcursoCph(row: ConcursoCphCalcInput): ConcursoCphCalcResul
 // sorteo_jurado pasó de boolean a fecha acá → "IS NOT NULL" en vez de "= 1").
 export const SUB_ESTADO_3_SQL_PG = `
   CASE
-    WHEN fecha_dispo_desierta IS NOT NULL THEN 'H-DESIERTO'
-    WHEN COALESCE(resolucion_designacion, '') <> '' THEN 'G-RESOLUCION'
-    WHEN COALESCE(ee_designacion, '') <> '' THEN 'F-PROX. A DESIG'
-    WHEN fecha_examen IS NOT NULL AND fecha_examen <= CURRENT_DATE THEN 'E-ADJUDI'
-    WHEN fecha_insc_hasta IS NOT NULL AND fecha_insc_hasta <= CURRENT_DATE THEN 'D-ETAPA EVAL'
-    WHEN COALESCE(disposicion, '') <> '' THEN 'C-INSCRIPCION'
-    WHEN fecha_autorizacion IS NOT NULL AND sorteo_jurado IS NOT NULL THEN 'B-AUTORIZADO'
-    ELSE 'A-VALID. VCTE'
+    WHEN fecha_dispo_desierta IS NOT NULL THEN 'h-desierto'
+    WHEN COALESCE(resolucion_designacion, '') <> '' THEN 'g-resolucion'
+    WHEN COALESCE(ee_designacion, '') <> '' THEN 'f-prox. a desig'
+    WHEN fecha_examen IS NOT NULL AND fecha_examen <= CURRENT_DATE THEN 'e-adjudi'
+    WHEN fecha_insc_hasta IS NOT NULL AND fecha_insc_hasta <= CURRENT_DATE THEN 'd-etapa eval'
+    WHEN COALESCE(disposicion, '') <> '' THEN 'c-inscripcion'
+    WHEN fecha_autorizacion IS NOT NULL AND sorteo_jurado IS NOT NULL THEN 'b-autorizado'
+    ELSE 'a-valid. vcte'
   END
 `

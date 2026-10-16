@@ -182,7 +182,7 @@ export function ConcursoCphWizard() {
       personaBaja: c?.persona?.apellidoNombre ?? '—',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
-      subEstado: cphData.subEstado ?? 'VACANTE',
+      subEstado: cphData.subEstado ?? 'vacante',
       subEstado3: cphData.subEstado3 ?? '',
       suspendido: cphData.suspendido,
       observaciones: cphData.observaciones ?? '',
@@ -500,6 +500,9 @@ export function ConcursoCphWizard() {
   const [modalBaja, setModalBaja] = useState(false)
   const [menuAcciones, setMenuAcciones] = useState(false)
   const menuAccionesRef = useRef<HTMLDivElement>(null)
+  // Encabezado descriptivo del concurso colapsable: arranca contraído para dar
+  // más espacio vertical al formulario; el usuario lo expande para ver detalle.
+  const [headerAbierto, setHeaderAbierto] = useState(false)
   const [modalDesignar, setModalDesignar] = useState(false)
   // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
   // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
@@ -996,9 +999,9 @@ export function ConcursoCphWizard() {
   //  - Último sub-estado (O-ALTA SIAL): el proceso terminó → no hay "siguiente".
   //  - Q-DESIERTO no está en la lista lineal → se deja tal cual.
   const currentIdxDinamico = (() => {
-    const sub = concurso?.subEstado ?? 'VACANTE'
+    const sub = (concurso?.subEstado ?? 'vacante').toLowerCase()
     const idx = SUB_ESTADOS.findIndex((s) => s.key === sub)
-    if (idx < 0) return 0 // sub-estado fuera de la lista (ej. Q-DESIERTO)
+    if (idx < 0) return 0 // sub-estado fuera de la lista (ej. q-desierto)
     if (idx === 0) return 0 // Vacante: nada completado todavía
     if (idx >= SUB_ESTADOS.length - 1) return idx // último: proceso completo
     return idx + 1 // amarillo = primer pendiente
@@ -2435,15 +2438,8 @@ export function ConcursoCphWizard() {
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
       <div className="sticky top-0 z-20 mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-        {/* Breadcrumb */}
+        {/* Breadcrumb — siempre visible, con el toggle del encabezado */}
         <nav className="flex items-center gap-1.5 rounded-t-xl border-b border-gray-100 bg-gray-50/60 px-6 py-2 text-xs text-gray-500">
-          <Link
-            to="/cargos/alta-por-baja"
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
-          >
-            ← Alta por Baja
-          </Link>
-          <span className="text-gray-300">/</span>
           <Link
             to="/concursos/cph"
             className="rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
@@ -2452,7 +2448,28 @@ export function ConcursoCphWizard() {
           </Link>
           <span className="text-gray-300">/</span>
           <span className="truncate font-medium text-gray-700">{c.cargo}</span>
+          <button
+            type="button"
+            onClick={() => setHeaderAbierto((v) => !v)}
+            aria-expanded={headerAbierto}
+            aria-label={headerAbierto ? 'Ocultar detalle del concurso' : 'Mostrar detalle del concurso'}
+            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+          >
+            {headerAbierto ? 'Ocultar detalle' : 'Ver detalle'}
+            <svg
+              className={`h-3.5 w-3.5 transition-transform ${headerAbierto ? 'rotate-180' : ''}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+            </svg>
+          </button>
         </nav>
+
+        {headerAbierto && (
+        <>
+        {/* Detalle colapsable del concurso */}
 
         {/* Datos principales */}
         <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
@@ -2625,25 +2642,25 @@ export function ConcursoCphWizard() {
         {/* Banner campos faltantes */}
         {cphData &&
           (() => {
-            const sub = cphData.subEstado ?? ''
+            const sub = (cphData.subEstado ?? '').toLowerCase()
             const SUB_IDX: Record<string, number> = {
-              'A-CARATULADO': 1,
-              'A-AUTZN': 2,
-              'B-SORTEO JUR': 3,
-              'C-DISPO DE LLAMADO': 4,
-              'C2-INSCRIPCION EX': 5,
-              'D-EXAMEN PUBLICADO': 6,
-              'E-ORDEN DE MERITO': 7,
-              'F-IFACS': 8,
-              'G-INSAL': 9,
-              'H-TAD': 10,
-              'I-CARGA DOCU': 11,
-              'J-APTO MED': 12,
-              'K-ITE': 13,
-              'L-PYCTO DE RESO': 14,
-              'M-RESO A LA FIRMA': 15,
-              'N-DESIGNADO': 16,
-              'O-ALTA SIAL': 17,
+              'a-caratulado': 1,
+              'a-autzn': 2,
+              'b-sorteo jur': 3,
+              'c-dispo de llamado': 4,
+              'c2-inscripcion ex': 5,
+              'd-examen publicado': 6,
+              'e-orden de merito': 7,
+              'f-ifacs': 8,
+              'g-insal': 9,
+              'h-tad': 10,
+              'i-carga docu': 11,
+              'j-apto med': 12,
+              'k-ite': 13,
+              'l-pycto de reso': 14,
+              'm-reso a la firma': 15,
+              'n-designado': 16,
+              'o-alta sial': 17,
             }
             const idx = SUB_IDX[sub] ?? 0
             const faltantes: string[] = []
@@ -2681,6 +2698,8 @@ export function ConcursoCphWizard() {
               </div>
             )
           })()}
+        </>
+        )}
       </div>
 
       {/* ── CUERPO: stepper izq + formulario centro + estado derecho ─────── */}
@@ -3776,23 +3795,23 @@ export function ConcursoCphWizard() {
                     // avanzó más allá de la etapa de inscripción (D en adelante).
                     // Cubre datos históricos que nunca setearon inscripcionCerrada.
                     const SUBS_POST_INSCRIPCION = [
-                      'D-EXAMEN PUBLICADO',
-                      'E-ORDEN DE MERITO',
-                      'F-IFACS',
-                      'G-INSAL',
-                      'H-TAD',
-                      'I-CARGA DOCU',
-                      'J-APTO MED',
-                      'K-ITE',
-                      'L-PYCTO DE RESO',
-                      'M-RESO A LA FIRMA',
-                      'N-DESIGNADO',
-                      'O-ALTA SIAL',
+                      'd-examen publicado',
+                      'e-orden de merito',
+                      'f-ifacs',
+                      'g-insal',
+                      'h-tad',
+                      'i-carga docu',
+                      'j-apto med',
+                      'k-ite',
+                      'l-pycto de reso',
+                      'm-reso a la firma',
+                      'n-designado',
+                      'o-alta sial',
                     ]
                     const inscripcionYaCerrada =
                       !!cphData?.inscripcionCerrada ||
                       !!cphData?.fechaExamen ||
-                      SUBS_POST_INSCRIPCION.includes(cphData?.subEstado ?? '')
+                      SUBS_POST_INSCRIPCION.includes((cphData?.subEstado ?? '').toLowerCase())
                     return (
                       <>
                         {/* Fechas de inscripción + publicar */}
@@ -5182,21 +5201,21 @@ export function ConcursoCphWizard() {
                       !campo.valor &&
                       cphData &&
                       [
-                        'C-DISPO DE LLAMADO',
-                        'C2-INSCRIPCION EX',
-                        'D-EXAMEN PUBLICADO',
-                        'E-ORDEN DE MERITO',
-                        'F-IFACS',
-                        'G-INSAL',
-                        'H-TAD',
-                        'I-CARGA DOCU',
-                        'J-APTO MED',
-                        'K-ITE',
-                        'L-PYCTO DE RESO',
-                        'M-RESO A LA FIRMA',
-                        'N-DESIGNADO',
-                        'O-ALTA SIAL',
-                      ].includes(cphData.subEstado ?? '')
+                        'c-dispo de llamado',
+                        'c2-inscripcion ex',
+                        'd-examen publicado',
+                        'e-orden de merito',
+                        'f-ifacs',
+                        'g-insal',
+                        'h-tad',
+                        'i-carga docu',
+                        'j-apto med',
+                        'k-ite',
+                        'l-pycto de reso',
+                        'm-reso a la firma',
+                        'n-designado',
+                        'o-alta sial',
+                      ].includes((cphData.subEstado ?? '').toLowerCase())
 
                     return (
                       <div

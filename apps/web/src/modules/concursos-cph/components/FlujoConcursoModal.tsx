@@ -146,9 +146,9 @@ export function FlujoConcursoModal({ onClose }: Props) {
                     <tbody className="divide-y divide-gray-50">
                       {TRANSICIONES_CPH.map((t, i) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 font-medium text-gray-700">{t.desde}</td>
+                          <td className="px-3 py-2 font-medium text-gray-700">{t.desde.toUpperCase()}</td>
                           <td className={`px-3 py-2 font-medium ${t.dashed ? 'text-orange-600' : 'text-blue-700'}`}>
-                            {t.dashed ? '⇢ ' : '→ '}{t.hacia}
+                            {t.dashed ? '⇢ ' : '→ '}{t.hacia.toUpperCase()}
                           </td>
                           <td className="px-3 py-2 text-gray-500">{t.condicion}</td>
                           <td className="px-3 py-2">
@@ -224,7 +224,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
                     }`}
                   >
                     <span className="block text-[10px] font-semibold">{e.label}</span>
-                    <span className="block font-mono text-[9px] opacity-50">{e.subEstado}</span>
+                    <span className="block font-mono text-[9px] opacity-50">{e.subEstado.toUpperCase()}</span>
                   </button>
                 ))}
               </div>
@@ -237,7 +237,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
                     <>
                       <div className={`rounded-lg border p-4 ${NODE_BG[etapa.color]} ${NODE_BORDER[etapa.color]}`}>
                         <div className="flex items-center gap-2 mb-1">
-                          <code className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${NODE_BG[etapa.color]} border ${NODE_BORDER[etapa.color]} ${TEXT[etapa.color]}`}>{etapa.subEstado}</code>
+                          <code className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${NODE_BG[etapa.color]} border ${NODE_BORDER[etapa.color]} ${TEXT[etapa.color]}`}>{etapa.subEstado.toUpperCase()}</code>
                         </div>
                         <p className={`text-sm font-bold ${TEXT[etapa.color]}`}>{etapa.label}</p>
                         <p className="text-xs text-gray-600 mt-1">{etapa.descripcion}</p>
@@ -325,7 +325,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
                         <td className="px-3 py-2 font-mono text-[10px] text-blue-700">{doc.campo}</td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
-                            {doc.etapa}
+                            {doc.etapa.toUpperCase()}
                           </span>
                         </td>
                         <td className="px-3 py-2">

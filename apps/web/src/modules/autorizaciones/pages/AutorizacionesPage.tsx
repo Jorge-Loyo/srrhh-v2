@@ -3,11 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { capitalizarEtiqueta } from '@/shared/lib/utils'
+import { capitalizarEtiqueta, getApiErrorMessage } from '@/shared/lib/utils'
 import {
   useAutorizaciones,
   useAprobarAutorizacion,
   useRechazarAutorizacion,
+  useCrearConcurso,
 } from '../hooks/useAutorizaciones'
 
 // S13-A — Panel de autorizaciones pendientes, filtrado server-side por el rol
@@ -178,7 +179,9 @@ export function AutorizacionesPage() {
     literalPuesto: string | null; hospitalSigla: string
     tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
   } | null>(null)
+  const [errorConcurso, setErrorConcurso] = useState<string | null>(null)
   const navigate = useNavigate()
+  const crearConcurso = useCrearConcurso()
 
   function marcarInformativa(referenciaId: string) {
     setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
@@ -249,25 +252,38 @@ export function AutorizacionesPage() {
             <div className="px-6 py-4 text-sm text-gray-600">
               ¿Querés iniciar un concurso <span className="font-semibold uppercase">{modalConcurso.tipoConcursoSugerido}</span> para este cargo ahora?
             </div>
+            {errorConcurso && <p className="px-6 pb-2 text-xs text-danger">{errorConcurso}</p>}
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button className="btn-outline" onClick={() => setModalConcurso(null)}>Ahora no</button>
+              <button className="btn-outline" onClick={() => { setModalConcurso(null); setErrorConcurso(null) }} disabled={crearConcurso.isPending}>
+                Ahora no
+              </button>
               <button
-                className="btn-primary"
-                onClick={() => {
-                  const params = new URLSearchParams({
-                    cargoId:       modalConcurso.cargoId,
-                    hospitalId:    modalConcurso.hospitalId,
-                    tipoConcurso:  modalConcurso.tipoConcursoSugerido,
-                    escalafonId:   modalConcurso.escalafonId,
-                    motivoConcurso: 'nuevo_cargo',
-                    origen:        'Alta de cargo',
-                    fechaVacante:  new Date().toISOString().slice(0, 10),
-                  })
-                  setModalConcurso(null)
-                  navigate(`/concursos/${modalConcurso.tipoConcursoSugerido === 'cph' ? 'cph/nuevo/wizard' : `ceetps/nuevo`}?${params}`)
+                className="btn-primary disabled:opacity-40"
+                disabled={crearConcurso.isPending}
+                onClick={async () => {
+                  setErrorConcurso(null)
+                  try {
+                    // No hay wizard de creación "desde cero" — se crea directo
+                    // contra el mismo POST /concursos que usa bajas.service.ts
+                    // para el flujo alta_por_baja, y se navega al concurso real.
+                    const data = await crearConcurso.mutateAsync({
+                      cargoId: modalConcurso.cargoId,
+                      hospitalId: modalConcurso.hospitalId,
+                      tipoConcurso: modalConcurso.tipoConcursoSugerido,
+                      motivoConcurso: 'nuevo_cargo',
+                      origen: 'Alta de cargo',
+                      fechaVacante: new Date().toISOString().slice(0, 10),
+                      ...(modalConcurso.tipoConcursoSugerido === 'ceetps' && { escalafonId: modalConcurso.escalafonId }),
+                    })
+                    setModalConcurso(null)
+                    if (data.concursoCph) navigate(`/concursos/cph/${data.concursoCph.id}/wizard`)
+                    else if (data.concursoCeetps) navigate(`/concursos/ceetps/${data.concursoCeetps.id}`)
+                  } catch (err) {
+                    setErrorConcurso(getApiErrorMessage(err))
+                  }
                 }}
               >
-                Sí, iniciar concurso
+                {crearConcurso.isPending ? 'Creando...' : 'Sí, iniciar concurso'}
               </button>
             </div>
           </div>

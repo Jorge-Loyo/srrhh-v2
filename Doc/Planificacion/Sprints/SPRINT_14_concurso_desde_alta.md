@@ -1,9 +1,49 @@
 # SPRINT 14 — Concurso desde Alta de Cargo
 
-**Estado:** ✅ Completado
+**Estado:** ✅ Completado (cerrado de verdad 2026-10-06 — ver nota abajo)
 **Fecha:** 2026-09
 **Autor:** Jorge (backend) + Agustín (frontend)
 **Rama:** `jorge`
+
+---
+
+## Nota 2026-10-06 — auditoría y cierre real
+
+Este doc decía "✅ Completado" con las 10 tareas tildadas desde septiembre,
+pero una auditoría contra el código real encontró 3 gaps genuinos (no solo
+desactualización del doc):
+
+1. **El flujo cambió de lugar.** El plan original asumía que `/cargos/alta`
+   crea un `Cargo` directo y ahí mismo pregunta por el concurso. Pero
+   Sprint 13-D (posterior) rediseñó el alta como `SolicitudAlta` pendiente
+   → aprobación de un director → recién ahí se crea el `Cargo` real. El
+   modal de S14-7 SÍ estaba hecho, pero nadie lo reubicó: vivía huérfano,
+   sin conectarlo al botón real "Aprobar" de `AutorizacionesPage.tsx`, ese
+   sí fue el gap real de código (ya resuelto, el modal usa el mismo patrón
+   que el resto del archivo).
+2. **El botón "Sí, iniciar concurso" navegaba a una ruta muerta.**
+   `/concursos/cph/nuevo/wizard` y `/concursos/ceetps/nuevo` — ninguna
+   sabe crear un concurso desde cero (`ConcursoCphWizard.tsx` solo edita
+   uno existente por id; la ruta CEETPS ni siquiera existe). **Fix:** el
+   botón ahora llama directo a `POST /api/v1/concursos` (el mismo endpoint
+   que ya usa `bajas.service.ts` para el motivo `alta_por_baja`) y navega
+   al concurso real creado.
+3. **El rol `director` no tenía permiso para crear concursos.** Resuelve
+   las autorizaciones de alta_cargo (`resolverPorRolSlug: 'director'`) y
+   ve el modal, pero solo tenía `concursos-cph:ver/autorizar` — sin
+   `:crear` en ningún módulo, el botón daba 403 siempre. Migración
+   `20261006000000_director_crear_concurso` (idempotente, por slug/
+   módulo/acción) le agrega `concursos-cph:crear` y `concursos-ceetps:crear`.
+4. **S14-8 estaba a medias**: la columna "Motivo" existía en
+   `ConcursosCeetpsPage.tsx` pero no en `ConcursosCphPage.tsx`. Agregada.
+
+**Sin verificar con click real en navegador** (no hay browser tool en esta
+sesión, ni un usuario `director` sembrado en la BD local para simular el
+flujo completo) — sí verificado: `tsc --noEmit` limpio, `POST /concursos`
+responde con la validación esperada (no 404), migración de permisos
+aplicada y confirmada en BD, el resto de la cadena (`createConcursoTx`,
+notificación a `sgrasv`) ya estaba probado por el flujo `alta_por_baja`
+de `bajas.service.ts`, que la comparte.
 
 ---
 

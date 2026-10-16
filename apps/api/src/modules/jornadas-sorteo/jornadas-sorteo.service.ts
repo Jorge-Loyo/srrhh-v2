@@ -9,7 +9,7 @@ import type {
 } from './jornadas-sorteo.schema.js'
 
 // Sub-estado en el que un concurso está listo para sortear jurado (Etapa 2).
-const SUB_ESTADO_SORTEO = 'B-SORTEO JUR'
+const SUB_ESTADO_SORTEO = 'b-sorteo jur'
 
 function normStr(s: string | null | undefined): string {
   return (s ?? '').trim().toUpperCase()

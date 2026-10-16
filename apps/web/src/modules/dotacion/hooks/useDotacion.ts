@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 
 export interface DotacionRow {
+  personaId: string
   codigoCargo: string | null
   nombreApellido: string
   cuil: string
@@ -197,6 +198,58 @@ export function useDotacion(filters: DotacionFilters) {
       return res.data
     },
     placeholderData: (prev) => prev,
+  })
+}
+
+// Sentinel para filtrar por "sin dato cargado" (NULL) en una dimensión del
+// panel "Fichas" — debe coincidir tal cual con DOTACION_SIN_DATO en
+// apps/api/src/modules/dotacion/dotacion.schema.ts (ver ahí el porqué: la
+// ficha "Sin dato" representa un NULL, no se puede filtrar con el valor de
+// texto literal "Sin dato").
+export const DOTACION_SIN_DATO = '__sin_dato__'
+
+// Dimensiones categóricas agrupables del panel "Fichas" — debe reflejar
+// DOTACION_GROUP_BY_COLUMNS en apps/api/src/modules/dotacion/dotacion.schema.ts.
+export const DOTACION_GROUP_BY_OPTIONS = [
+  { key: 'sigla', label: 'Hospital' },
+  { key: 'universoTotalizador', label: 'Universo' },
+  { key: 'tipoHospital', label: 'Tipo Hospital' },
+  { key: 'monovalencia', label: 'Monovalencia' },
+  { key: 'escalafon', label: 'Carrera' },
+  { key: 'literalPuesto', label: 'Puesto' },
+  { key: 'especialidad', label: 'Especialidad' },
+  { key: 'sexo', label: 'Sexo' },
+  { key: 'situacionRevista', label: 'Situación de Revista' },
+  { key: 'reparticion', label: 'Repartición' },
+] as const
+
+export type DotacionGroupByKey = (typeof DOTACION_GROUP_BY_OPTIONS)[number]['key']
+
+export interface DotacionDesgloseRow {
+  value: string
+  total: number
+}
+
+export interface DotacionDesgloseResponse {
+  groupBy: DotacionGroupByKey
+  rows: DotacionDesgloseRow[]
+}
+
+// Panel "Fichas": conteo por valor de una dimensión, bajo los MISMOS filtros
+// (uniones incluidas) que ya tiene aplicado el listado — reusa toDotacionParams
+// tal cual sobre el mismo `filters` que ya arma DotacionPage para la tabla, así
+// nunca se desincroniza de lo que está filtrado.
+export function useDotacionDesglose(groupBy: DotacionGroupByKey, filters: DotacionFilters, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['dotacion-desglose', groupBy, filters],
+    queryFn: async () => {
+      const res = await apiClient.get<DotacionDesgloseResponse>('/api/v1/dotacion/desglose', {
+        params: { ...toDotacionParams(filters), groupBy },
+      })
+      return res.data
+    },
+    placeholderData: (prev) => prev,
+    enabled: options?.enabled,
   })
 }
 

@@ -19,7 +19,8 @@ import { useToast } from '@/shared/components/ui/useToast'
 import {
   ESTADO_LABEL,
   SUB_ESTADO_OPTIONS,
-  SUB_ESTADO_3_OPTIONS,
+  subEstadoLabel,
+  subEstado3Label,
   diasSinMovimiento,
 } from '../lib/labels'
 
@@ -74,27 +75,39 @@ const ETAPAS = [
   'Designación',
 ] as const
 
+// Mapeo etapa (2..5) → sub_estados que la componen. Única fuente de verdad del
+// mapeo etapa↔sub_estado: la usan tanto etapaActual() (stepper visual) como el
+// filtro "Etapa" (que manda `etapa` al back). La etapa 1 NO se enumera: es el
+// complemento (vacante, no iniciado, a-caratulado y cualquier sub_estado no
+// listado o null). Si se agrega un sub_estado nuevo, va acá y filtro+stepper
+// quedan sincronizados. El back replica este mismo mapeo (ver etapasSubEstados
+// en concursos-cph.service.ts) — mantener ambos en sync; el test lo verifica.
+const SUB_ESTADOS_POR_ETAPA: Record<2 | 3 | 4 | 5, string[]> = {
+  2: ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado'],
+  3: ['c2-inscripcion ex', 'd-examen publicado', 'e-orden de merito'],
+  4: ['f-ifacs', 'g-insal'],
+  5: [
+    'h-tad',
+    'i-carga docu',
+    'j-apto med',
+    'k-ite',
+    'l-pycto de reso',
+    'm-reso a la firma',
+    'n-designado',
+    'o-alta sial',
+    'q-desierto',
+  ],
+}
+
 // Mapea el subEstado (con su prefijo de letra) al número de etapa 1..5.
 function etapaActual(subEstado: string | null): number {
-  const s = subEstado ?? ''
-  if (['A-AUTZN', 'B-SORTEO JUR', 'C-DISPO DE LLAMADO'].includes(s)) return 2
-  if (['C2-INSCRIPCION EX', 'D-EXAMEN PUBLICADO', 'E-ORDEN DE MERITO'].includes(s)) return 3
-  if (['F-IFACS', 'G-INSAL'].includes(s)) return 4
-  if (
-    [
-      'H-TAD',
-      'I-CARGA DOCU',
-      'J-APTO MED',
-      'K-ITE',
-      'L-PYCTO DE RESO',
-      'M-RESO A LA FIRMA',
-      'N-DESIGNADO',
-      'O-ALTA SIAL',
-      'Q-DESIERTO',
-    ].includes(s)
-  )
-    return 5
-  return 1 // VACANTE, NO INICIADO, A-CARATULADO
+  // El sub_estado llega de la BD en minúscula; se normaliza el lado del dato
+  // (defensivo ante datos legacy) y se compara contra literales en minúscula.
+  const s = (subEstado ?? '').toLowerCase()
+  for (const etapa of [2, 3, 4, 5] as const) {
+    if (SUB_ESTADOS_POR_ETAPA[etapa].includes(s)) return etapa
+  }
+  return 1 // vacante, no iniciado, a-caratulado y cualquier otro/null
 }
 
 // Mini-stepper de 5 pasos para la columna "Etapa". El paso actual se resalta,
@@ -174,7 +187,9 @@ function ConcursosListaTab() {
   const [hospitalId, setHospitalId] = useState('')
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
-  const [subEstado3, setSubEstado3] = useState('')
+  // Filtro por ETAPA (1..5 del stepper), reemplaza al viejo filtro por
+  // subEstado3. '' = todas. Filtra por sub_estado vía el param `etapa` al back.
+  const [etapa, setEtapa] = useState<'' | 1 | 2 | 3 | 4 | 5>('')
   const [origen, setOrigen] = useState<'' | 'baja' | 'ampliacion' | 'cobertura'>('')
   // Etapa 5: '' = todos, 'true' = con persona / validados, 'false' = sin.
   const [personaOm, setPersonaOm] = useState<'' | 'true' | 'false'>('')
@@ -249,7 +264,7 @@ function ConcursosListaTab() {
     ...(hospitalId && { hospitalId }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
-    ...(subEstado3 && { subEstado3 }),
+    ...(etapa !== '' && { etapa }),
     ...(origen && { origen }),
     ...(conFaltantes && { conFaltantes: true }),
     ...(personaOm && { personaOm: personaOm === 'true' }),
@@ -505,7 +520,7 @@ function ConcursosListaTab() {
             </svg>
             Filtros avanzados
             {(subEstado ||
-              subEstado3 ||
+              etapa !== '' ||
               origen ||
               personaOm ||
               validado ||
@@ -513,7 +528,7 @@ function ConcursosListaTab() {
               conduccion ||
               etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {[subEstado, subEstado3, origen, personaOm, validado, puesto, conduccion].filter(Boolean).length +
+                {[subEstado, etapa !== '', origen, personaOm, validado, puesto, conduccion].filter(Boolean).length +
                   (etiquetasFiltro.length > 0 ? 1 : 0)}
               </span>
             )}
@@ -559,13 +574,13 @@ function ConcursosListaTab() {
             })
           if (subEstado)
             chips.push({
-              label: `Sub-estado: ${subEstado}`,
+              label: `Sub-estado: ${subEstadoLabel(subEstado)}`,
               onClear: () => resetPage(setSubEstado)(''),
             })
-          if (subEstado3)
+          if (etapa !== '')
             chips.push({
-              label: `Etapa: ${subEstado3}`,
-              onClear: () => resetPage(setSubEstado3)(''),
+              label: `Etapa: ${ETAPAS[etapa - 1]}`,
+              onClear: () => resetPage(setEtapa)(''),
             })
           if (origen)
             chips.push({
@@ -626,7 +641,7 @@ function ConcursosListaTab() {
                   setHospitalId('')
                   setEstado('')
                   setSubEstado('')
-                  setSubEstado3('')
+                  setEtapa('')
                   setOrigen('')
                   setConFaltantes(false)
                   setPersonaOm('')
@@ -683,6 +698,7 @@ function ConcursosListaTab() {
                       <th className="px-4 py-3 font-semibold">Repartición</th>
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
+                      <th className="px-4 py-3 font-semibold">Motivo</th>
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
@@ -742,7 +758,15 @@ function ConcursosListaTab() {
                           <td className="px-4 py-3">
                             <EtapaStepper subEstado={c.subEstado} />
                           </td>
-                          <td className="px-4 py-3 text-gray-600">{c.subEstado ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600">{subEstadoLabel(c.subEstado)}</td>
+                          <td className="px-4 py-3">
+                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
+                              <span className="badge-info text-xs">Nuevo cargo</span>
+                            )}
+                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
                               concursoCphId={c.id}
@@ -843,8 +867,8 @@ function ConcursosListaTab() {
                 >
                   <option value="">Todos los sub-estados</option>
                   {SUB_ESTADO_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                    <option key={s.value} value={s.value}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
@@ -855,14 +879,16 @@ function ConcursosListaTab() {
                   Etapa
                 </p>
                 <select
-                  value={subEstado3}
-                  onChange={(e) => resetPage(setSubEstado3)(e.target.value)}
+                  value={etapa}
+                  onChange={(e) =>
+                    resetPage(setEtapa)(e.target.value === '' ? '' : (Number(e.target.value) as 1 | 2 | 3 | 4 | 5))
+                  }
                   className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
                 >
                   <option value="">Todas las etapas</option>
-                  {SUB_ESTADO_3_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                  {ETAPAS.map((nombre, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {i + 1}. {nombre}
                     </option>
                   ))}
                 </select>
@@ -953,7 +979,7 @@ function ConcursosListaTab() {
 
             <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
               {(subEstado ||
-                subEstado3 ||
+                etapa !== '' ||
                 origen ||
                 personaOm ||
                 validado ||
@@ -963,7 +989,7 @@ function ConcursosListaTab() {
                 <button
                   onClick={() => {
                     resetPage(setSubEstado)('')
-                    resetPage(setSubEstado3)('')
+                    resetPage(setEtapa)('')
                     resetPage(setOrigen)('')
                     resetPage(setPersonaOm)('')
                     resetPage(setValidado)('')
@@ -1021,8 +1047,8 @@ function DetalleConcursoModal({
     { label: 'Expediente de concurso', valor: c.eeConcurso ?? '—' },
     { label: 'Disposición', valor: c.disposicion ?? '—' },
     { label: 'Tipo de gestión', valor: c.tipoGestion ?? '—' },
-    { label: 'Sub-estado', valor: c.subEstado ?? '—' },
-    { label: 'Etapa (sub-estado 3)', valor: c.subEstado3 ?? '—' },
+    { label: 'Sub-estado', valor: subEstadoLabel(c.subEstado) },
+    { label: 'Etapa (sub-estado 3)', valor: subEstado3Label(c.subEstado3) },
     { label: 'Últ. movimiento', valor: dias === 0 ? 'Hoy' : `hace ${dias} días` },
   ]
   return (

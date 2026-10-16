@@ -150,6 +150,32 @@ export const dotacionQuerySchema = z.object({
 
 export type DotacionQuery = z.infer<typeof dotacionQuerySchema>
 
+// ─────────────────────────────────────────────────────────────────────────
+// Desglose por dimensión ("fichas" de la pantalla Dotación) — mismos filtros
+// que el listado (uniones incluidas), sin paginación/orden/skipDistinct ni
+// mesCorte (foto histórica; se puede sumar después si hace falta), más la
+// dimensión a agrupar.
+export const DOTACION_GROUP_BY_COLUMNS = [
+  'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
+  'escalafon', 'literalPuesto', 'especialidad',
+  'sexo', 'situacionRevista', 'reparticion',
+] as const
+
+export const dotacionDesgloseQuerySchema = dotacionQuerySchema
+  .omit({ page: true, limit: true, sortBy: true, sortDir: true, skipDistinct: true, mesCorte: true })
+  .extend({ groupBy: z.enum(DOTACION_GROUP_BY_COLUMNS) })
+
+export type DotacionDesgloseQuery = z.infer<typeof dotacionDesgloseQuerySchema>
+
+// Sentinel para "filtrar por valores sin cargar (NULL)" en una dimensión del
+// panel "Fichas" — el backend le muestra al usuario esos casos como ficha
+// "Sin dato" (ver GROUP_BY_EXPR en dotacion.service.ts), pero no es un valor
+// de texto real de la base: no se puede filtrar con un IN de texto normal.
+// Este literal viaja dentro del CSV de la dimensión (ej. `monovalencia=__sin_dato__`)
+// y buildConditions lo traduce a `IS NULL`. Debe coincidir tal cual con el
+// mismo literal del frontend (apps/web/.../useDotacion.ts).
+export const DOTACION_SIN_DATO = '__sin_dato__'
+
 export const dotacionKpisQuerySchema = z.object({
   hospitalId: z.string().uuid().optional(),
 })

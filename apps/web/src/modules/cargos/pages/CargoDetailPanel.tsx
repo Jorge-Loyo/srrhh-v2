@@ -261,11 +261,11 @@ export function CargoDetailPanel() {
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                       c.estado === EstadoConcursoCph.FINALIZADO ? 'bg-green-100 text-green-800'
-                      : c.estado === EstadoConcursoCph.SUSPENDIDO && c.subEstado === 'Q-DESIERTO' ? 'bg-red-100 text-red-700'
+                      : c.estado === EstadoConcursoCph.SUSPENDIDO && c.subEstado === 'q-desierto' ? 'bg-red-100 text-red-700'
                       : c.estado === EstadoConcursoCph.SUSPENDIDO ? 'bg-yellow-100 text-yellow-700'
                       : c.estado === EstadoConcursoCph.ACTIVO ? 'bg-blue-100 text-blue-800'
                       : 'bg-gray-100 text-gray-600'
-                    }`}>{c.estado === EstadoConcursoCph.SUSPENDIDO && c.subEstado === 'Q-DESIERTO' ? 'Desierto' : c.estado}</span>
+                    }`}>{c.estado === EstadoConcursoCph.SUSPENDIDO && c.subEstado === 'q-desierto' ? 'Desierto' : c.estado}</span>
                   </td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{c.subEstado ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{c.eeBaja ?? '—'}</td>

@@ -77,7 +77,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
               <UserCircleIcon className="w-8 h-8 text-white" />
             </div>
             <div className="min-w-0">
-              <p className="text-white font-bold text-lg leading-tight">{persona.nombre}</p>
+              <p className="text-white font-bold text-lg leading-tight">{toTitleCase(persona.nombre)}</p>
               {persona.especialidadPersona && (
                 <p className="text-secondary-light text-sm mt-0.5">{toTitleCase(persona.especialidadPersona)}</p>
               )}
@@ -146,7 +146,7 @@ export default function PersonaModal({ open, onClose, data }: Props) {
           <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-secondary mb-2">Cargo en el organigrama</p>
             <div className="bg-gray-50 rounded-xl px-4 py-1">
-              <Row label="Puesto" value={persona.cargo} />
+              <Row label="Puesto" value={toTitleCase(persona.cargo)} />
               <Row label="Especialidad" value={toTitleCase(persona.especialidadCargo)} />
               <Row label="Carrera" value={persona.escalafon} />
               <Row label="En el cargo desde" value={formatFecha(persona.cargoDesde)} />
