@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Presentation } from 'lucide-react'
 import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
 import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
@@ -6,6 +6,8 @@ import { useKpiDotacionHistorica } from '../hooks/useReportes'
 import { SlidesViewer } from '@/modules/presentacion/components/SlidesViewer'
 import { SLIDES_CATALOGO } from '@/modules/presentacion/components/slidesCatalogo'
 import { PresentacionModo } from '@/modules/presentacion/components/PresentacionModo'
+import { SelectorPeriodos } from '@/modules/presentacion/components/SelectorPeriodos'
+import type { RangoComparativo } from '@/modules/presentacion/data/periodo'
 
 export function ReportesPage() {
   // La sección "Evolución de dotación" y sus datos se mudaron desde el Tablero
@@ -18,6 +20,16 @@ export function ReportesPage() {
   // cuando todavía no se eligió ninguno.
   const [abiertoSlides, setAbiertoSlides] = useState(false)
   const [seleccion, setSeleccion] = useState<number | null>(null)
+
+  // ── Rango comparativo (dos períodos: consulta + comparación) ────────────────
+  // Lo emite el SelectorPeriodos ubicado arriba de los botones de slide. Es
+  // `null` mientras no haya dos períodos válidos → GATING DURO: sin rango válido
+  // los botones de slide y "Ver presentación" quedan deshabilitados.
+  const [rango, setRango] = useState<RangoComparativo | null>(null)
+  // `onChange` estable para que el selector no re-emita en loop (lo llama en un
+  // useEffect dependiente del callback).
+  const handleRangoChange = useCallback((r: RangoComparativo | null) => setRango(r), [])
+  const rangoValido = rango !== null
 
   // Modo presentación fullscreen (lanzado por "Iniciar presentación").
   const [presentacionAbierta, setPresentacionAbierta] = useState(false)
@@ -53,15 +65,23 @@ export function ReportesPage() {
             fill="currentColor"
             aria-hidden="true"
           >
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+              clipRule="evenodd"
+            />
           </svg>
         </button>
         {abierto && (
           <div className="px-6 pb-6 space-y-6">
             {/* ── Evolución de la dotación histórica ────────────────────── */}
             <div>
-              <h3 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución de la dotación</h3>
-              <p className="text-xs text-gray-400 mb-4">Personas únicas por fecha de padrón aprobada</p>
+              <h3 className="font-primary text-base font-bold text-gray-900 mb-1">
+                Evolución de la dotación
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">
+                Personas únicas por fecha de padrón aprobada
+              </p>
               {loadingHistorica ? (
                 <div className="h-64 bg-gray-100 rounded animate-pulse" />
               ) : (
@@ -71,7 +91,9 @@ export function ReportesPage() {
 
             {/* ── Evolución por Carrera → Puesto → Especialidad ─────────── */}
             <div>
-              <h3 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución por carrera y especialidad</h3>
+              <h3 className="font-primary text-base font-bold text-gray-900 mb-1">
+                Evolución por carrera y especialidad
+              </h3>
               <p className="text-xs text-gray-400 mb-4">
                 Personas activas (situación de revista) por mes — último padrón de cada mes
               </p>
@@ -96,11 +118,20 @@ export function ReportesPage() {
             fill="currentColor"
             aria-hidden="true"
           >
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+              clipRule="evenodd"
+            />
           </svg>
         </button>
         {abiertoSlides && (
           <div className="px-6 pb-6 space-y-4">
+            {/* ── Selector de dos períodos (consulta + comparación) ────────── */}
+            {/* Va ARRIBA de los botones de slide. Mientras no haya dos períodos */}
+            {/* válidos, todo lo de abajo queda deshabilitado (gating duro).     */}
+            <SelectorPeriodos onChange={handleRangoChange} />
+
             {/* ── Selector: un botón por slide (ver inline) ───────────────── */}
             <div className="flex flex-wrap gap-2">
               {SLIDES_CATALOGO.map((s) => {
@@ -111,7 +142,8 @@ export function ReportesPage() {
                     type="button"
                     onClick={() => setSeleccion(s.numero)}
                     aria-pressed={activo}
-                    className={`font-primary text-sm font-semibold px-3 py-1.5 rounded-md border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary ${
+                    disabled={!rangoValido}
+                    className={`font-primary text-sm font-semibold px-3 py-1.5 rounded-md border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary disabled:cursor-not-allowed disabled:opacity-40 ${
                       activo
                         ? 'bg-secondary text-white border-secondary'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
@@ -131,8 +163,9 @@ export function ReportesPage() {
                 ref={botonPresentacionRef}
                 type="button"
                 onClick={() => setPresentacionAbierta(true)}
+                disabled={!rangoValido}
                 aria-label="Ver presentación (todos los slides)"
-                className="mt-3 inline-flex items-center gap-2 font-primary text-sm font-bold px-4 py-2 rounded-md bg-secondary text-white border border-secondary shadow-sm transition-colors hover:bg-secondary-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+                className="mt-3 inline-flex items-center gap-2 font-primary text-sm font-bold px-4 py-2 rounded-md bg-secondary text-white border border-secondary shadow-sm transition-colors hover:bg-secondary-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Presentation className="h-5 w-5" aria-hidden="true" />
                 Ver presentación
@@ -140,18 +173,33 @@ export function ReportesPage() {
             </div>
 
             {/* ── Render del slide elegido inline, escalado al ancho ───────── */}
-            {seleccion === null ? (
+            {/* Gating: sin rango válido, hint; con rango, el slide usa el       */}
+            {/* período CONSULTADO y recibe `comparacion` por prop.              */}
+            {!rangoValido ? (
+              <p className="text-xs text-gray-400">
+                Elegí el período a consultar y el de comparación para ver las diapositivas.
+              </p>
+            ) : seleccion === null ? (
               <p className="text-xs text-gray-400">Elegí un slide para verlo.</p>
             ) : (
-              <SlidesViewer numeros={[seleccion]} className="flex flex-col" />
+              <SlidesViewer
+                numeros={[seleccion]}
+                periodo={rango.consulta}
+                comparacion={rango.comparacion}
+                className="flex flex-col"
+              />
             )}
           </div>
         )}
       </div>
 
       {/* ── Modo presentación fullscreen (overlay) ─────────────────────────── */}
-      {presentacionAbierta && (
+      {/* Solo se puede abrir con rango válido (el botón está deshabilitado si  */}
+      {/* no), por eso acá `rango` siempre es no-null; igual se guarda por TS.  */}
+      {presentacionAbierta && rango && (
         <PresentacionModo
+          periodo={rango.consulta}
+          comparacion={rango.comparacion}
           onClose={() => {
             setPresentacionAbierta(false)
             // Devuelve el foco al botón que lanzó la presentación (deseable).

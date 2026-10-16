@@ -82,3 +82,46 @@ export function tituloValores(p: Periodo): string {
 export function mesesIntermedios(p: Periodo): Mes[] {
   return p.meses.slice(1, -1)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rango comparativo: DOS períodos (uno a consultar y otro contra el que se
+// compara). En Reportes el usuario elige ambos; `consulta` es el período que se
+// mira y `comparacion` es el período POSTERIOR contra el que se contrasta
+// (ej.: 1er cuatrimestre vs 2do cuatrimestre del mismo año).
+//
+// Criterio de posterioridad / no-solapamiento (ver también SelectorPeriodos):
+// el período de comparación debe EMPEZAR en un mes estrictamente posterior al
+// último mes del período consultado. Eso garantiza, a la vez, que no se solapen
+// y que `comparacion` sea posterior a `consulta`.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface RangoComparativo {
+  /** Período que se mira (viaja por el canal existente `periodo` de los slides). */
+  consulta: Periodo
+  /** Período posterior contra el que se compara (prop nueva opcional en slides). */
+  comparacion: Periodo
+}
+
+/**
+ * Arma un `Periodo` a partir de un rango de meses del MISMO año, incluyendo los
+ * meses intermedios. armarPeriodo(2026, 1, 4) → { anio: 2026, meses: [1,2,3,4] }.
+ *
+ * v1: cada rango se restringe a un mismo año porque `Periodo` tiene un solo
+ * `anio`. Asume desdeMes <= hastaMes (la validación de orden la hace quien lo
+ * invoca, p. ej. SelectorPeriodos).
+ */
+export function armarPeriodo(anio: number, desdeMes: Mes, hastaMes: Mes): Periodo {
+  const meses: Mes[] = []
+  for (let m = desdeMes; m <= hastaMes; m++) {
+    meses.push(m as Mes)
+  }
+  return { anio, meses }
+}
+
+/**
+ * Clave ordinal para comparar cronológicamente un (año, mes) contra otro:
+ * ordenMesAnio(2026, 5) < ordenMesAnio(2026, 8). Se usa para validar
+ * desde <= hasta y la posterioridad/no-solapamiento del rango de comparación.
+ */
+export function ordenMesAnio(anio: number, mes: number): number {
+  return anio * 12 + (mes - 1)
+}

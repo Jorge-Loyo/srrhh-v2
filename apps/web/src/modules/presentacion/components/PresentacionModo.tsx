@@ -25,8 +25,17 @@ interface PresentacionModoProps {
   onClose: () => void
   /** Período del reporte. Fijo por defecto; lo definirá el backend. */
   periodo?: Periodo
+  /**
+   * Período de comparación (D1). En Reportes el usuario elige un rango
+   * comparativo: `consulta` viaja por `periodo` (canal existente) y
+   * `comparacion` por esta prop opcional nueva. Por ahora solo se TRANSPORTA:
+   * los mocks todavía no la consumen. /presentacion no la pasa.
+   */
+  comparacion?: Periodo
 }
 
+// `comparacion` se acepta y transporta pero aún no se consume (los mocks no la
+// usan todavía); por eso no se desestructura en el cuerpo.
 export function PresentacionModo({ onClose, periodo = PERIODO_ACTUAL }: PresentacionModoProps) {
   const total = SLIDES_CATALOGO.length
   // Índice del slide actual (0 = slide 4, el primero del catálogo).

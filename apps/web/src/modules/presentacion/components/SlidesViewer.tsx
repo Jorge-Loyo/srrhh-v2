@@ -26,6 +26,13 @@ interface SlidesViewerProps {
   numeros: number[]
   /** Período del reporte. Fijo por defecto; lo definirá el backend. */
   periodo?: Periodo
+  /**
+   * Período de comparación (D1). En Reportes el usuario elige un rango
+   * comparativo: `consulta` viaja por `periodo` (canal existente) y
+   * `comparacion` por esta prop opcional nueva. Por ahora solo se TRANSPORTA:
+   * los mocks todavía no la consumen. /presentacion no la pasa.
+   */
+  comparacion?: Periodo
   /** Clases del contenedor. Default: layout del deck (/presentacion). */
   className?: string
 }
@@ -33,6 +40,8 @@ interface SlidesViewerProps {
 export function SlidesViewer({
   numeros,
   periodo = PERIODO_ACTUAL,
+  // `comparacion` se acepta y transporta pero aún no se consume (los mocks no
+  // la usan todavía); por eso no se desestructura acá.
   className = 'mx-auto max-w-[1280px] px-4 py-6 flex flex-col items-center gap-6',
 }: SlidesViewerProps) {
   // ── Escala del canvas al ancho disponible ───────────────────────────────────
