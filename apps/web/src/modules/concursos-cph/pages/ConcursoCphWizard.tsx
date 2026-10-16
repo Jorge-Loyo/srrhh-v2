@@ -500,6 +500,9 @@ export function ConcursoCphWizard() {
   const [modalBaja, setModalBaja] = useState(false)
   const [menuAcciones, setMenuAcciones] = useState(false)
   const menuAccionesRef = useRef<HTMLDivElement>(null)
+  // Encabezado descriptivo del concurso colapsable: arranca contraído para dar
+  // más espacio vertical al formulario; el usuario lo expande para ver detalle.
+  const [headerAbierto, setHeaderAbierto] = useState(false)
   const [modalDesignar, setModalDesignar] = useState(false)
   // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
   // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
@@ -2435,15 +2438,8 @@ export function ConcursoCphWizard() {
       {/* ── HEADER STICKY ─────────────────────────────────────────────────── */}
       {/* sticky top-0 funciona porque el scroll está en el <main> padre      */}
       <div className="sticky top-0 z-20 mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-        {/* Breadcrumb */}
+        {/* Breadcrumb — siempre visible, con el toggle del encabezado */}
         <nav className="flex items-center gap-1.5 rounded-t-xl border-b border-gray-100 bg-gray-50/60 px-6 py-2 text-xs text-gray-500">
-          <Link
-            to="/cargos/alta-por-baja"
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
-          >
-            ← Alta por Baja
-          </Link>
-          <span className="text-gray-300">/</span>
           <Link
             to="/concursos/cph"
             className="rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
@@ -2452,7 +2448,28 @@ export function ConcursoCphWizard() {
           </Link>
           <span className="text-gray-300">/</span>
           <span className="truncate font-medium text-gray-700">{c.cargo}</span>
+          <button
+            type="button"
+            onClick={() => setHeaderAbierto((v) => !v)}
+            aria-expanded={headerAbierto}
+            aria-label={headerAbierto ? 'Ocultar detalle del concurso' : 'Mostrar detalle del concurso'}
+            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+          >
+            {headerAbierto ? 'Ocultar detalle' : 'Ver detalle'}
+            <svg
+              className={`h-3.5 w-3.5 transition-transform ${headerAbierto ? 'rotate-180' : ''}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+            </svg>
+          </button>
         </nav>
+
+        {headerAbierto && (
+        <>
+        {/* Detalle colapsable del concurso */}
 
         {/* Datos principales */}
         <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4">
@@ -2681,6 +2698,8 @@ export function ConcursoCphWizard() {
               </div>
             )
           })()}
+        </>
+        )}
       </div>
 
       {/* ── CUERPO: stepper izq + formulario centro + estado derecho ─────── */}
