@@ -25,13 +25,8 @@ async function GET(path: string, token?: string) {
   const res = await fetch(buildUrl(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  const json = await res.json().catch(() => ({}))
-  // Algunos endpoints devuelven { data, meta } directamente (bajas, concursos-cph)
-  // otros devuelven { data: { data, meta } } (padron). Normalizamos acá.
-  const body =
-    json.data !== undefined && !Array.isArray(json.data) && json.data?.data !== undefined
-      ? json
-      : { data: json }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el body de respuesta HTTP tiene forma variable según el endpoint
+  const json: any = await res.json().catch(() => ({}))
   return { status: res.status, ok: res.ok, body: json, raw: json }
 }
 
@@ -44,7 +39,8 @@ async function POST(path: string, payload: unknown, token?: string) {
     },
     body: JSON.stringify(payload),
   })
-  const body = await res.json().catch(() => ({}))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el body de respuesta HTTP tiene forma variable según el endpoint
+  const body: any = await res.json().catch(() => ({}))
   return { status: res.status, ok: res.ok, body }
 }
 
@@ -54,7 +50,8 @@ async function PATCH(path: string, payload: unknown, token: string) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   })
-  const body = await res.json().catch(() => ({}))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el body de respuesta HTTP tiene forma variable según el endpoint
+  const body: any = await res.json().catch(() => ({}))
   return { status: res.status, ok: res.ok, body }
 }
 
