@@ -5,6 +5,7 @@ import jwt from '@fastify/jwt'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { env } from './config/env.js'
+import { prisma } from './shared/prisma.js'
 import { errorHandler } from './shared/errors/error.handler.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { auditLog } from './shared/middleware/audit.middleware.js'
@@ -79,12 +80,29 @@ app.setErrorHandler(errorHandler)
 // pasó la autenticación.
 app.addHook('onSend', auditLog)
 
-// Health check (público)
+// Health check (público) — monitoreo general
 app.get('/health', async () => ({
   status: 'ok',
   service: 'srrhh-api',
   timestamp: new Date().toISOString(),
 }))
+
+// Liveness (Anexo IV ASI ES0901): ¿el proceso está vivo? Debe ser simple y no
+// tocar dependencias externas. Si falla, la plataforma reinicia el contenedor.
+app.get('/health/liveness', async () => ({ status: 'ok' }))
+
+// Readiness (Anexo IV ASI ES0901): ¿la app está lista para recibir tráfico?
+// Valida el recurso crítico (la conexión a Postgres). Si falla, responde 503
+// para que el balanceador deje de rutearle solicitudes hasta que se recupere.
+// No expone datos sensibles (solo el estado de la dependencia).
+app.get('/health/readiness', async (_req, reply) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    return { status: 'ok', checks: { database: 'ok' } }
+  } catch {
+    return reply.code(503).send({ status: 'error', checks: { database: 'error' } })
+  }
+})
 
 // Rutas
 await app.register(authRoutes, { prefix: '/api/v1/auth' })
