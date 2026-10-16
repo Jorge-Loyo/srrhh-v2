@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { calcConcursoCph } from '../modules/concursos-cph/concursosCph.calc.js'
+import {
+  calcConcursoCph,
+  etapaDeSubEstado,
+  SUB_ESTADOS_POR_ETAPA,
+} from '../modules/concursos-cph/concursosCph.calc.js'
 import type { ConcursoCphCalcInput } from '../modules/concursos-cph/concursosCph.calc.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -9,17 +13,32 @@ const d = (iso: string) => new Date(iso)
 /** Base vacante: todos los campos en null/false */
 const BASE: ConcursoCphCalcInput = {
   suspendido: false,
-  eeBaja: null, fechaBaja: null,
-  eeConcurso: null, fechaEeConcurso: null,
-  fechaAutorizacion: null, sorteoJurado: null, disposicion: null,
-  fechaInscHasta: null, fechaExamen: null, fechaOrdenMerito: null,
-  fechaIfacs: null, fechaInsal: null,
-  eeDesignacion: null, cargaDocumentacion: null,
-  fechaAptoMedico: null, fechaIte: null,
-  proyectoResolucion: null, resoALaFirma: null,
-  resolucionDesignacion: null, fechaResolucion: null,
+  eeBaja: null,
+  fechaBaja: null,
+  eeConcurso: null,
+  fechaEeConcurso: null,
+  fechaAutorizacion: null,
+  sorteoJurado: null,
+  disposicion: null,
+  fechaInscDesde: null,
+  fechaInscHasta: null,
+  inscripcionCerrada: null,
+  ordenMeritoConfirmado: null,
+  fechaExamen: null,
+  fechaOrdenMerito: null,
+  fechaIfacs: null,
+  fechaInsal: null,
+  eeDesignacion: null,
+  cargaDocumentacion: null,
+  fechaAptoMedico: null,
+  fechaIte: null,
+  proyectoResolucion: null,
+  resoALaFirma: null,
+  resolucionDesignacion: null,
+  fechaResolucion: null,
   cargoSial: null,
-  dispoDesierta: null, fechaDispoDesierta: null,
+  dispoDesierta: null,
+  fechaDispoDesierta: null,
 }
 
 /** Concurso activo mínimo (tiene eeBaja + eeConcurso + fechas) */
@@ -59,14 +78,25 @@ describe('calcConcursoCph — estado', () => {
   })
 
   it('con resolucionDesignacion → finalizado', () => {
-    const r = calcConcursoCph({ ...ACTIVO, resolucionDesignacion: 'RESOL/123/MSGC/2026', fechaResolucion: d('2026-09-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      resolucionDesignacion: 'RESOL/123/MSGC/2026',
+      fechaResolucion: d('2026-09-01'),
+    })
     expect(r.estado).toBe('finalizado')
   })
 
   it('suspendido=true siempre → suspendido sin importar otros campos', () => {
     expect(calcConcursoCph({ ...ACTIVO, suspendido: true }).estado).toBe('suspendido')
     expect(calcConcursoCph({ ...BASE, suspendido: true }).estado).toBe('suspendido')
-    expect(calcConcursoCph({ ...ACTIVO, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-01-01'), suspendido: true }).estado).toBe('suspendido')
+    expect(
+      calcConcursoCph({
+        ...ACTIVO,
+        resolucionDesignacion: 'RESOL/1',
+        fechaResolucion: d('2026-01-01'),
+        suspendido: true,
+      }).estado,
+    ).toBe('suspendido')
   })
 })
 
@@ -78,7 +108,9 @@ describe('calcConcursoCph — subEstado', () => {
   })
 
   it('solo eeBaja sin eeConcurso → no iniciado', () => {
-    expect(calcConcursoCph({ ...BASE, eeBaja: 'EX-2026-00001', fechaBaja: d('2026-01-01') }).subEstado).toBe('no iniciado')
+    expect(
+      calcConcursoCph({ ...BASE, eeBaja: 'EX-2026-00001', fechaBaja: d('2026-01-01') }).subEstado,
+    ).toBe('no iniciado')
   })
 
   it('eeBaja + eeConcurso → a-caratulado', () => {
@@ -86,39 +118,78 @@ describe('calcConcursoCph — subEstado', () => {
   })
 
   it('+ fechaAutorizacion → a-autzn', () => {
-    expect(calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01') }).subEstado).toBe('a-autzn')
+    expect(calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01') }).subEstado).toBe(
+      'a-autzn',
+    )
   })
 
   it('+ sorteoJurado → b-sorteo jur', () => {
-    expect(calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01'), sorteoJurado: d('2026-02-15') }).subEstado).toBe('b-sorteo jur')
+    expect(
+      calcConcursoCph({
+        ...ACTIVO,
+        fechaAutorizacion: d('2026-02-01'),
+        sorteoJurado: d('2026-02-15'),
+      }).subEstado,
+    ).toBe('b-sorteo jur')
   })
 
   it('+ disposicion → c-dispo de llamado', () => {
-    expect(calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01'), sorteoJurado: d('2026-02-15'), disposicion: 'DI-123' }).subEstado).toBe('c-dispo de llamado')
+    expect(
+      calcConcursoCph({
+        ...ACTIVO,
+        fechaAutorizacion: d('2026-02-01'),
+        sorteoJurado: d('2026-02-15'),
+        disposicion: 'DI-123',
+      }).subEstado,
+    ).toBe('c-dispo de llamado')
   })
 
   it('+ fechaExamen → d-examen publicado', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01'), sorteoJurado: d('2026-02-15'), disposicion: 'DI-123', fechaExamen: d('2026-04-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaAutorizacion: d('2026-02-01'),
+      sorteoJurado: d('2026-02-15'),
+      disposicion: 'DI-123',
+      fechaExamen: d('2026-04-01'),
+    })
     expect(r.subEstado).toBe('d-examen publicado')
   })
 
   it('+ fechaOrdenMerito → e-orden de merito', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaAutorizacion: d('2026-02-01'), disposicion: 'DI-123', fechaExamen: d('2026-04-01'), fechaOrdenMerito: d('2026-05-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaAutorizacion: d('2026-02-01'),
+      disposicion: 'DI-123',
+      fechaExamen: d('2026-04-01'),
+      fechaOrdenMerito: d('2026-05-01'),
+    })
     expect(r.subEstado).toBe('e-orden de merito')
   })
 
   it('+ fechaIfacs → f-ifacs', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaOrdenMerito: d('2026-05-01'), fechaIfacs: d('2026-06-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaOrdenMerito: d('2026-05-01'),
+      fechaIfacs: d('2026-06-01'),
+    })
     expect(r.subEstado).toBe('f-ifacs')
   })
 
   it('+ fechaInsal → g-insal', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaIfacs: d('2026-06-01'), fechaInsal: d('2026-07-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaIfacs: d('2026-06-01'),
+      fechaInsal: d('2026-07-01'),
+    })
     expect(r.subEstado).toBe('g-insal')
   })
 
   it('+ eeDesignacion → h-tad', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaInsal: d('2026-07-01'), eeDesignacion: 'EX-2026-TAD' })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaInsal: d('2026-07-01'),
+      eeDesignacion: 'EX-2026-TAD',
+    })
     expect(r.subEstado).toBe('h-tad')
   })
 
@@ -128,12 +199,20 @@ describe('calcConcursoCph — subEstado', () => {
   })
 
   it('+ fechaAptoMedico → j-apto med', () => {
-    const r = calcConcursoCph({ ...ACTIVO, cargaDocumentacion: true, fechaAptoMedico: d('2026-08-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      cargaDocumentacion: true,
+      fechaAptoMedico: d('2026-08-01'),
+    })
     expect(r.subEstado).toBe('j-apto med')
   })
 
   it('+ fechaIte → k-ite', () => {
-    const r = calcConcursoCph({ ...ACTIVO, fechaAptoMedico: d('2026-08-01'), fechaIte: d('2026-08-15') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      fechaAptoMedico: d('2026-08-01'),
+      fechaIte: d('2026-08-15'),
+    })
     expect(r.subEstado).toBe('k-ite')
   })
 
@@ -148,17 +227,32 @@ describe('calcConcursoCph — subEstado', () => {
   })
 
   it('+ resolucionDesignacion + fechaResolucion → n-designado', () => {
-    const r = calcConcursoCph({ ...ACTIVO, resoALaFirma: true, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-09-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      resoALaFirma: true,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+    })
     expect(r.subEstado).toBe('n-designado')
   })
 
   it('+ cargoSial → o-alta sial (máxima prioridad sobre designado)', () => {
-    const r = calcConcursoCph({ ...ACTIVO, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-09-01'), cargoSial: '001234567-1' })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+      cargoSial: '001234567-1',
+    })
     expect(r.subEstado).toBe('o-alta sial')
   })
 
   it('dispoDesierta + fechaDispoDesierta → q-desierto (máxima prioridad)', () => {
-    const r = calcConcursoCph({ ...ACTIVO, cargoSial: '001234567-1', dispoDesierta: 'DI-DESIERTA', fechaDispoDesierta: d('2026-09-01') })
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      cargoSial: '001234567-1',
+      dispoDesierta: 'DI-DESIERTA',
+      fechaDispoDesierta: d('2026-09-01'),
+    })
     expect(r.subEstado).toBe('q-desierto')
   })
 })
@@ -174,7 +268,11 @@ describe('calcConcursoCph — subEstado3', () => {
   })
 
   it('fechaAutorizacion + sorteoJurado → b-autorizado', () => {
-    const r = calcConcursoCph({ ...BASE, fechaAutorizacion: d('2026-01-01'), sorteoJurado: d('2026-02-01') })
+    const r = calcConcursoCph({
+      ...BASE,
+      fechaAutorizacion: d('2026-01-01'),
+      sorteoJurado: d('2026-02-01'),
+    })
     expect(r.subEstado3).toBe('b-autorizado')
   })
 
@@ -194,12 +292,22 @@ describe('calcConcursoCph — subEstado3', () => {
   })
 
   it('fechaExamen en el pasado → e-adjudi', () => {
-    const r = calcConcursoCph({ ...BASE, disposicion: 'DI-123', fechaInscHasta: PASADO, fechaExamen: PASADO })
+    const r = calcConcursoCph({
+      ...BASE,
+      disposicion: 'DI-123',
+      fechaInscHasta: PASADO,
+      fechaExamen: PASADO,
+    })
     expect(r.subEstado3).toBe('e-adjudi')
   })
 
   it('fechaExamen en el futuro → d-etapa eval (examen no ocurrió aún)', () => {
-    const r = calcConcursoCph({ ...BASE, disposicion: 'DI-123', fechaInscHasta: PASADO, fechaExamen: FUTURO })
+    const r = calcConcursoCph({
+      ...BASE,
+      disposicion: 'DI-123',
+      fechaInscHasta: PASADO,
+      fechaExamen: FUTURO,
+    })
     expect(r.subEstado3).toBe('d-etapa eval')
   })
 
@@ -209,12 +317,21 @@ describe('calcConcursoCph — subEstado3', () => {
   })
 
   it('resolucionDesignacion → g-resolucion', () => {
-    const r = calcConcursoCph({ ...BASE, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-09-01') })
+    const r = calcConcursoCph({
+      ...BASE,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+    })
     expect(r.subEstado3).toBe('g-resolucion')
   })
 
   it('fechaDispoDesierta → h-desierto (máxima prioridad)', () => {
-    const r = calcConcursoCph({ ...BASE, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-09-01'), fechaDispoDesierta: d('2026-09-01') })
+    const r = calcConcursoCph({
+      ...BASE,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+      fechaDispoDesierta: d('2026-09-01'),
+    })
     expect(r.subEstado3).toBe('h-desierto')
   })
 })
@@ -226,7 +343,12 @@ describe('calcConcursoCph — invariantes', () => {
     const casos: ConcursoCphCalcInput[] = [
       { ...BASE, suspendido: true },
       { ...ACTIVO, suspendido: true },
-      { ...ACTIVO, suspendido: true, resolucionDesignacion: 'RESOL/1', fechaResolucion: d('2026-01-01') },
+      {
+        ...ACTIVO,
+        suspendido: true,
+        resolucionDesignacion: 'RESOL/1',
+        fechaResolucion: d('2026-01-01'),
+      },
     ]
     for (const c of casos) {
       const { estado } = calcConcursoCph(c)
@@ -271,14 +393,7 @@ describe('calcConcursoCph — invariantes', () => {
   })
 })
 
-
 // ─── Filtro por ETAPA (stepper 1..5) ↔ sub_estado ────────────────────────────
-import {
-  etapaDeSubEstado,
-  SUB_ESTADOS_POR_ETAPA,
-} from '../modules/concursos-cph/concursosCph.calc.js'
-import { describe, it, expect } from 'vitest'
-
 describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
   it('etapa 2: autorización / jurado', () => {
     for (const s of ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado']) {
@@ -300,8 +415,15 @@ describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
 
   it('etapa 5: designación', () => {
     for (const s of [
-      'h-tad', 'i-carga docu', 'j-apto med', 'k-ite',
-      'l-pycto de reso', 'm-reso a la firma', 'n-designado', 'o-alta sial', 'q-desierto',
+      'h-tad',
+      'i-carga docu',
+      'j-apto med',
+      'k-ite',
+      'l-pycto de reso',
+      'm-reso a la firma',
+      'n-designado',
+      'o-alta sial',
+      'q-desierto',
     ]) {
       expect(etapaDeSubEstado(s)).toBe(5)
     }
