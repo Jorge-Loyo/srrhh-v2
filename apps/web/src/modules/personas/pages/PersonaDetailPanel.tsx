@@ -148,11 +148,11 @@ export function PersonaDetailPanel() {
           <Section title="Identificacion">
             <Dato label="Documento" value={p.numeroDoc ? `${p.tipoDoc ?? ''} ${p.numeroDoc}`.trim() : null} />
             <Dato label="Fecha de nacimiento" value={fechaNac} />
-            {edad !== null && <Dato label="Edad" value={`${edad} anos`} />}
+            {edad !== null && <Dato label="Edad" value={`${edad} años`} />}
             <Dato label="ID SIAL" value={idSialPersona} />
             <Dato label="Primer cargo en Salud" value={formatFecha(p.antiguedadDesde)} />
             {p.antiguedadDesde && calcEdad(p.antiguedadDesde) !== null && (
-              <Dato label="Anos de antiguedad" value={`${calcEdad(p.antiguedadDesde)} anos`} />
+              <Dato label="Años de antigüedad" value={`${calcEdad(p.antiguedadDesde)} años`} />
             )}
             <Dato label="Sexo" value={p.sexo} />
             <Dato label="Especialidad principal" value={especialidadPrincipal} />

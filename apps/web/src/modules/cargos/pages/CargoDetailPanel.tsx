@@ -90,8 +90,9 @@ export function CargoDetailPanel() {
 
         <div className="divide-y divide-gray-100">
           <Section title="Identificación">
-            <Dato label="Código Cargo"      value={cargo.codigo} />
-            <Dato label="ID SIAL"           value={cargo.idSial} />
+            {/* El Código Cargo no se repite acá: ya figura como título del
+                encabezado. El ID SIAL identifica al ROL de la persona, no al
+                cargo — se muestra en "Persona actual" como "ID SIAL Rol". */}
             <Dato label="Régimen"           value={cargo.regimen} />
             <Dato label="Código de Registro"
               value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${capitalizarEtiqueta(cargo.codigoRegistro.literal)}` : null}
@@ -106,18 +107,22 @@ export function CargoDetailPanel() {
             <Dato label="Repartición"
               value={cargo.codigoRepa ? `${cargo.codigoRepa} — ${cargo.descripcionRepa}` : cargo.descripcionRepa}
             />
+            {/* Área programática: solo si el cargo pertenece a un CeSAC (Atención
+                Primaria). La mayoría de los cargos no aplican → no se muestra. */}
+            {cargo.cesac?.areaProgramatica && (
+              <Dato label="Área programática"
+                value={`${cargo.cesac.areaProgramatica.nombre} · CeSAC ${cargo.cesac.numero}`}
+              />
+            )}
           </Section>
 
-          {/* Solo mostrar Clasificación si hay al menos un campo con dato */}
-          {((cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) || cargo.agrupador || cargo.unificadorPuesto || cargo.agrupamiento) && (
+          {/* Clasificación: Agrupador / Unificador de puesto / Agrupamiento /
+              Puesto SIAL se eliminaron del pipeline del Dotaneitor (pasos 6/7/9
+              removidos, ver DOTANEITOR_DECISIONES.md) → siempre vacíos. Solo se
+              muestra Especialidad, que es el único dato de clasificación vigente. */}
+          {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
             <Section title="Clasificación">
               <Dato label="Especialidad"        value={cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad} />
-              <Dato label="Agrupador"           value={cargo.agrupador} />
-              <Dato label="Unificador de puesto" value={cargo.unificadorPuesto} />
-              <Dato label="Agrupamiento"
-                value={cargo.codAgrupamiento ? `${cargo.codAgrupamiento} — ${cargo.agrupamiento}` : cargo.agrupamiento}
-              />
-              <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
             </Section>
           )}
 

@@ -1331,6 +1331,9 @@ export interface CargoDetail extends Cargo {
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
   historial: (Ocupacion & { persona: Persona })[]
   cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
+  // Área programática: solo presente si el cargo está asignado a un CeSAC
+  // (Atención Primaria). null en la mayoría de los cargos.
+  cesac: { id: string; numero: number; areaProgramatica: { id: string; nombre: string } } | null
   // S8C-1: concursos asociados al cargo
   concursosCph: (ConcursoCph & {
     concurso: Concurso

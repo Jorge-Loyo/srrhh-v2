@@ -211,6 +211,15 @@ export async function getCargoByIdService(id: string) {
       escalafon: true,
       codigoRegistro: true,
       especialidadPuesto: { select: { id: true, nombre: true } },
+      // Área programática: solo aplica a cargos de Atención Primaria asignados a
+      // un CeSAC (cargo.cesacId). La mayoría de los cargos no tienen → null.
+      cesac: {
+        select: {
+          id: true,
+          numero: true,
+          areaProgramatica: { select: { id: true, nombre: true } },
+        },
+      },
       ocupaciones: {
         include: { persona: true },
         orderBy: { hasta: 'desc' }, // vigente (null) primero, luego más reciente
