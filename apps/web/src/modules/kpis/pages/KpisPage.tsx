@@ -1,8 +1,5 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useKpiDotacion, useKpiConcursos, useKpiAlertas, useKpiDotacionHistorica, useKpiBajas } from '../hooks/useKpis'
-import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
-import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
+import { useKpiDotacion, useKpiConcursos, useKpiAlertas, useKpiBajas } from '../hooks/useKpis'
 
 function KpiCard({ label, value, loading }: { label: string; value: string | number; loading: boolean }) {
   return (
@@ -39,12 +36,9 @@ function BarraProporcion({ vigentes, vacantes }: { vigentes: number; vacantes: n
 }
 
 export function KpisPage() {
-  const [evolucionAbierta, setEvolucionAbierta] = useState(false)
-
   const { data: dotacion, isLoading: loadingDotacion, isError: errorDotacion } = useKpiDotacion()
   const { data: concursos, isLoading: loadingConcursos, isError: errorConcursos } = useKpiConcursos()
   const { data: alertas, isLoading: loadingAlertas } = useKpiAlertas()
-  const { data: historica, isLoading: loadingHistorica } = useKpiDotacionHistorica()
   const { data: bajas, isLoading: loadingBajas } = useKpiBajas()
 
   return (
@@ -93,46 +87,9 @@ export function KpisPage() {
         </div>
       ) : null}
 
-      {/* ── Evolución de dotación histórica (colapsable) ─────────────── */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <button
-          type="button"
-          onClick={() => setEvolucionAbierta((v) => !v)}
-          aria-expanded={evolucionAbierta}
-          className="w-full flex items-center justify-between gap-3 p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary rounded-lg"
-        >
-          <div>
-            <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución de la dotación</h2>
-            <p className="text-xs text-gray-400">Personas únicas por fecha de padrón aprobada</p>
-          </div>
-          <svg
-            className={`h-5 w-5 flex-shrink-0 text-gray-400 transition-transform ${evolucionAbierta ? 'rotate-180' : ''}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-          </svg>
-        </button>
-        {evolucionAbierta && (
-          <div className="px-6 pb-6">
-            {loadingHistorica ? (
-              <div className="h-64 bg-gray-100 rounded animate-pulse" />
-            ) : (
-              <EvolucionDotacionChart data={historica} />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Evolución por Carrera → Puesto → Especialidad ────────────── */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h2 className="font-primary text-base font-bold text-gray-900 mb-1">Evolución por carrera y especialidad</h2>
-        <p className="text-xs text-gray-400 mb-4">
-          Personas activas (situación de revista) por mes — último padrón de cada mes
-        </p>
-        <EvolucionEspecialidadChart />
-      </div>
+      {/* ── Evolución de dotación: se mudó a /reportes (sección colapsable
+            "Evolución de dotación"). Antes vivían acá los bloques
+            "Evolución de la dotación" y "Evolución por carrera y especialidad". ── */}
 
       {/* ── Dotación por carrera / por efector ───────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

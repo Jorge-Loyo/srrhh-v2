@@ -1,3 +1,7 @@
+// Mudado desde `modules/kpis/components/EvolucionDotacionChart.tsx` (Opción A
+// del plan): ahora la sección "Evolución de dotación" vive en Reportes. La
+// implementación es idéntica; solo importa `useMemo` de react y el tipo de
+// `@srrhh/types`, así que no hubo imports relativos que ajustar.
 import { useMemo } from 'react'
 import type { KpiDotacionHistorica } from '@srrhh/types'
 
