@@ -28,6 +28,15 @@ import {
   stripCompletado,
   categoriaBaja,
   CENTINELA_ISO,
+  strVal,
+  esDesdoblado,
+  normEspDesdoblado,
+  particionarRegistros,
+  resolverEspecialidadDesdobladaId,
+  prefijoDesdobladoForzado,
+  formatearCodigoDesdoblado,
+  tipoDiffDesdoblado,
+  clasificacionEliminadoDesdoblado,
 } from './padron.diff.helpers.js'
 
 // Re-exportados para compatibilidad y para que otros módulos usen la única
@@ -208,10 +217,7 @@ const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
 
 type RegistroPython = Record<string, unknown>
 
-function strVal(v: unknown): string {
-  if (v === null || v === undefined) return ''
-  return String(v).trim()
-}
+// strVal se importa de padron.diff.helpers.js (única fuente del helper puro).
 
 // S22-9: comparación normalizada para el diff. El pipeline v2 normaliza todo a
 // minúscula/sin tilde, pero los datos ya cargados en la BD (de padrones viejos)
@@ -251,12 +257,11 @@ const CAMPOS_OCUPACION: Record<string, string> = {
 }
 
 async function calcularDiff(registros: RegistroPython[]) {
-  // Mapa id_sial -> registro Python
-  const nuevosMap = new Map<string, RegistroPython>()
-  for (const r of registros) {
-    const idSial = strVal(r['ID SIAL'] ?? r['id_sial'])
-    if (idSial) nuevosMap.set(idSial, r)
-  }
+  // Partición del padrón: carreras normales por id_sial (nuevosMap) y carreras
+  // desdobladas 24/07 por id_sial_rol (nuevosDesdobladosMap). Ver §3.1 del
+  // diseño: una fila 24/07 NUNCA entra a nuevosMap (no puede regenerar un
+  // cargo compartido por el camino id_sial).
+  const { nuevosMap, nuevosDesdobladosMap } = particionarRegistros(registros)
 
   // Estado actual en Postgres: Cargo + su ocupación más relevante. Se trae la
   // VIGENTE (hasta IS NULL) si existe; si no, la última CERRADA (hasta más
@@ -274,6 +279,13 @@ async function calcularDiff(registros: RegistroPython[]) {
     where: {
       estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] },
       idSial: { not: null },
+      // Excluir SOLO los cargos 24/07 del circuito por id_sial (se procesan por
+      // id_sial_rol más abajo). Se usa NOT { relación: { in } } en vez de
+      // { relación: { notIn } } a propósito: el filtro positivo sobre una
+      // relación-a-uno OPCIONAL (codigoRegistroId nullable) excluiría las filas
+      // con codigo_registro_id NULL (regresión silenciosa); NOT preserva esos
+      // NULL. Ver §3.4 del diseño (hallazgo 3).
+      NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
     },
     select: {
       idSial: true,
@@ -532,6 +544,343 @@ async function calcularDiff(registros: RegistroPython[]) {
     }
   }
 
+  // ── DESDOBLADO 24/07: matcheo por id_sial_rol (§3.2–§3.4 del diseño) ──────
+  // Toda la rama 24/07 empuja al MISMO array `diffs`. El resto de las carreras
+  // ya se procesó arriba por id_sial.
+  const idSialRolesNuevos24y07 = [...nuevosDesdobladosMap.keys()]
+
+  // Guard de tabla (§6): si llegan filas 24/07, la tabla desdoblado_mapeo_cargos
+  // (fuente de verdad del split) DEBE existir. Si no, el padrón 24/07 no se
+  // puede procesar con el split aplicado — error claro (el pipeline marca el
+  // snapshot en error) en vez de un críptico "relation does not exist".
+  if (idSialRolesNuevos24y07.length > 0) {
+    const [{ existe }] = await prisma.$queryRaw<{ existe: boolean }[]>(
+      Prisma.sql`SELECT to_regclass('public.desdoblado_mapeo_cargos') IS NOT NULL AS existe`,
+    )
+    if (!existe)
+      throw new Error(
+        'Falta la tabla desdoblado_mapeo_cargos; correr la curación de desdoblado antes de procesar padrones 24/07',
+      )
+  }
+
+  // Estado actual 24/07 keyed por id_sial_rol — fuente PRIMARIA: la ocupación
+  // (la identidad viva del rol) y su cargo 1:1. La ocupación viva gana sobre el
+  // mapeo.
+  const ocupacionesDesdobladas = idSialRolesNuevos24y07.length
+    ? await prisma.ocupacion.findMany({
+        where: { idSialRol: { in: idSialRolesNuevos24y07 } },
+        select: {
+          idSialRol: true,
+          hasta: true,
+          situacionRevista: true,
+          estadoPersona: true,
+          cuil: true,
+          codigoJefaturas: true,
+          jefeEscalafon: true,
+          comision: true,
+          repaComision: true,
+          codSituacion: true,
+          cargoDesdeFecha: true,
+          cargoHastaFecha: true,
+          persona: { select: { activo: true } },
+          cargo: {
+            select: {
+              id: true,
+              idSial: true,
+              codigo: true,
+              estado: true,
+              literalPuesto: true,
+              especialidadLegacy: true,
+              agrupador: true,
+              unificadorPuesto: true,
+              codigoRepa: true,
+              descripcionRepa: true,
+              agrupamiento: true,
+              codigoRegistro: { select: { codigo: true } },
+              hospital: { select: { sigla: true } },
+              escalafon: { select: { nombre: true } },
+            },
+          },
+        },
+      })
+    : []
+  type OcupDesdoblada = (typeof ocupacionesDesdobladas)[number]
+  const actualesDesdMap = new Map<string, OcupDesdoblada>(
+    ocupacionesDesdobladas.map((o) => [o.idSialRol, o]),
+  )
+
+  // Respaldo: para los id_sial_rol que NO tienen ocupación viva, buscar el
+  // mapeo persistente y traer el cargo 1:1 por su código con la ocupación más
+  // relevante (misma heurística que cargosActuales: vigente primero, luego la
+  // cerrada más reciente).
+  const faltantesDesd = idSialRolesNuevos24y07.filter((r) => !actualesDesdMap.has(r))
+  if (faltantesDesd.length > 0) {
+    const mapeados = await prisma.$queryRaw<{ id_sial_rol: string; codigo_cargo: string }[]>(
+      Prisma.sql`
+        SELECT id_sial_rol, codigo_cargo FROM desdoblado_mapeo_cargos
+        WHERE id_sial_rol IN (${Prisma.join(faltantesDesd)})
+      `,
+    )
+    for (const m of mapeados) {
+      const cargoMapeado = await prisma.cargo.findUnique({
+        where: { codigo: m.codigo_cargo },
+        select: {
+          id: true,
+          idSial: true,
+          codigo: true,
+          estado: true,
+          literalPuesto: true,
+          especialidadLegacy: true,
+          agrupador: true,
+          unificadorPuesto: true,
+          codigoRepa: true,
+          descripcionRepa: true,
+          agrupamiento: true,
+          codigoRegistro: { select: { codigo: true } },
+          hospital: { select: { sigla: true } },
+          escalafon: { select: { nombre: true } },
+          ocupaciones: {
+            where: { idSialRol: m.id_sial_rol },
+            orderBy: [{ hasta: { sort: 'asc', nulls: 'first' } }],
+            select: {
+              idSialRol: true,
+              hasta: true,
+              situacionRevista: true,
+              estadoPersona: true,
+              cuil: true,
+              codigoJefaturas: true,
+              jefeEscalafon: true,
+              comision: true,
+              repaComision: true,
+              codSituacion: true,
+              cargoDesdeFecha: true,
+              cargoHastaFecha: true,
+              persona: { select: { activo: true } },
+            },
+            take: 1,
+          },
+        },
+      })
+      if (!cargoMapeado) continue
+      const ocup = cargoMapeado.ocupaciones[0]
+      // Adaptar al mismo shape de OcupDesdoblada (ocupación + cargo embebido).
+      const { ocupaciones: _oc, ...cargoSinOcup } = cargoMapeado
+      actualesDesdMap.set(m.id_sial_rol, {
+        idSialRol: m.id_sial_rol,
+        hasta: ocup?.hasta ?? null,
+        situacionRevista: ocup?.situacionRevista ?? null,
+        estadoPersona: ocup?.estadoPersona ?? null,
+        cuil: ocup?.cuil ?? null,
+        codigoJefaturas: ocup?.codigoJefaturas ?? null,
+        jefeEscalafon: ocup?.jefeEscalafon ?? null,
+        comision: ocup?.comision ?? null,
+        repaComision: ocup?.repaComision ?? null,
+        codSituacion: ocup?.codSituacion ?? null,
+        cargoDesdeFecha: ocup?.cargoDesdeFecha ?? null,
+        cargoHastaFecha: ocup?.cargoHastaFecha ?? null,
+        persona: ocup?.persona ?? null,
+        cargo: cargoSinOcup,
+      } as OcupDesdoblada)
+    }
+  }
+
+  // Altas / modificados 24/07 (§3.3). Loop sobre nuevosDesdobladosMap (clave
+  // id_sial_rol), paralelo a los de id_sial.
+  for (const [idSialRol, r] of nuevosDesdobladosMap) {
+    const actual = actualesDesdMap.get(idSialRol)
+    if (tipoDiffDesdoblado(actual != null) === 'alta') {
+      // ── ALTA 1:1 (rol 24/07 nunca visto) ──
+      // Marcador __alta_desdoblada__ en `campo` (análogo a __reabrir_ocupacion__);
+      // no migra el enum TipoDiff. La allowlist del valorNuevo es la MISMA del
+      // alta normal (incluye id_sial del titular como dato informativo para la
+      // UI; la creación del cargo 1:1 NO lo usa como clave — ver §4.1/§4.5).
+      diffs.push({
+        tipo: 'nuevo',
+        idSialRol,
+        campo: '__alta_desdoblada__',
+        valorAnterior: null,
+        valorNuevo: JSON.stringify({
+          id_sial: strVal(r['ID SIAL'] ?? r['id_sial']),
+          cuil_y_rol: strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol']),
+          ayn: strVal(r['AYN'] ?? r['ayn']),
+          numero_doc: strVal(r['NUMERO DOC'] ?? r['numero_doc']),
+          tipo_doc: strVal(r['TIPO DOC'] ?? r['tipo_doc']),
+          sexo: strVal(r['SEXO'] ?? r['sexo']),
+          fecha_nacimiento: strVal(r['FECHA NACIMIENTO'] ?? r['fecha_nacimiento']),
+          antiguedad: strVal(r['ANTIGÜEDAD'] ?? r['antiguedad']),
+          siglas: strVal(r['SIGLAS'] ?? r['siglas']),
+          escalafon: strVal(r['ESCALAFON'] ?? r['escalafon']),
+          literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
+          especialidad: strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
+          tipo_hospital_sigla: strVal(r['TIPO DE HOSPITAL / SIGLA'] ?? r['tipo_hospital_sigla']),
+          situacion_de_revista: strVal(r['SITUACION DE REVISTA'] ?? r['situacion_de_revista']),
+          estado: strVal(r['ESTADO'] ?? r['estado']),
+          agrupador: strVal(r['AGRUPADOR'] ?? r['agrupador']),
+          unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
+          regimen: strVal(r['REGIMEN'] ?? r['regimen']),
+          codigo_repa: strVal(r['CODIGO REPA'] ?? r['codigo_repa']),
+          descripcion_repa: strVal(r['DESCRIPCION REPA'] ?? r['descripcion_repa']),
+          codigo_de_registro: strVal(r['CODIGO DE REGISTRO'] ?? r['codigo_de_registro']),
+          literal_cr: strVal(r['LITERAL CR'] ?? r['literal_cr']),
+          agrupamiento: strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
+          codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
+          cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
+          jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
+          documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
+          comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
+          documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
+          comision: strVal(r['COMISION'] ?? r['comision']),
+          repa_comision: strVal(r['REPA COMISION'] ?? r['repa_comision']),
+          cod_situacion: strVal(r['COD SITUACION'] ?? r['cod_situacion']),
+          fecha_bloqueo: strVal(r['FECHA BLOQUEO'] ?? r['fecha_bloqueo']),
+          bloqueo_comentario: strVal(r['BLOQUEO COMENTARIO'] ?? r['bloqueo_comentario']),
+          bloq_motivo: strVal(r['BLOQ MOTIVO'] ?? r['bloq_motivo']),
+          documentacion_del_rol: strVal(r['DOCUMENTACION DEL ROL'] ?? r['documentacion_del_rol']),
+          documentacion_baja: strVal(r['DOCUMENTACION BAJA'] ?? r['documentacion_baja']),
+          cargo_desde: strVal(r['CARGO_DESDE'] ?? r['cargo_desde']),
+          cargo_hasta: strVal(r['CARGO_HASTA'] ?? r['cargo_hasta']),
+          telefono: strVal(r['TELEFONO'] ?? r['telefono']),
+          mail_personal: strVal(r['MAIL_PERSONAL'] ?? r['mail_personal']),
+          mail_laboral: strVal(r['MAIL_LABORAL'] ?? r['mail_laboral']),
+          domicilio: strVal(r['DOMICILIO'] ?? r['domicilio']),
+          localidad: strVal(r['LOCALIDAD'] ?? r['localidad']),
+          provincia: strVal(r['PROVINCIA'] ?? r['provincia']),
+        }),
+      })
+      continue
+    }
+
+    // ── MODIFICADO contra el cargo 1:1 correcto (actual.cargo / actual) ──
+    if (!actual) continue // inalcanzable (tipoDiffDesdoblado ya lo cubrió); narrowing TS
+    // Solo se compara contra el cargo VIGENTE con ocupación vigente; una
+    // ocupación cerrada se reabre con __reabrir_ocupacion__ (igual criterio que
+    // el loop por id_sial). Se duplica la lógica mínima de comparación acá
+    // (decisión del implementador, documentada en el commit): reusar el loop de
+    // id_sial habría requerido refactor de alto riesgo sin ganancia clara, dado
+    // que la fuente del "actual" es distinta (cargo embebido en la ocupación).
+    const ocupVigente = actual.hasta == null ? actual : null
+    if (actual.hasta != null) {
+      diffs.push({
+        tipo: 'modificado',
+        idSialRol,
+        campo: '__reabrir_ocupacion__',
+        valorAnterior: actual.hasta.toISOString().slice(0, 10),
+        valorNuevo: null,
+      })
+    }
+    if (actual.cargo.estado === 'vigente') {
+      for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
+        if (tabla === 'ocupacion' && !ocupVigente) continue
+        const colUpper =
+          colPython === 'codigo_de_registro'
+            ? 'CODIGO DE REGISTRO'
+            : colPython.toUpperCase().replace(/_/g, ' ')
+        const vNueStr = strVal(r[colUpper] ?? r[colPython])
+        const esFecha = colPython === 'cargo_desde' || colPython === 'cargo_hasta'
+        if (esFecha) {
+          const mappedOcup = CAMPOS_OCUPACION[colPython]
+          const isoAnterior = toISO(
+            ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+          )
+          if (isoAnterior !== toISO(vNueStr)) {
+            const esCompl = isoAnterior === '' && vNueStr !== ''
+            diffs.push({
+              tipo: 'modificado',
+              idSialRol,
+              campo: esCompl ? `completado:${colPython}` : colPython,
+              valorAnterior: isoAnterior || null,
+              valorNuevo: vNueStr || null,
+            })
+          }
+          continue
+        }
+        let vAnterior = ''
+        if (tabla === 'cargo') {
+          if (colPython === 'codigo_de_registro') {
+            vAnterior = strVal(actual.cargo.codigoRegistro?.codigo)
+          } else {
+            const mappedCargo = CAMPOS_CARGO[colPython]
+            vAnterior = strVal(
+              mappedCargo ? (actual.cargo as Record<string, unknown>)[mappedCargo] : null,
+            )
+          }
+        } else {
+          const mappedOcup = CAMPOS_OCUPACION[colPython]
+          vAnterior = strVal(
+            mappedOcup && ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+          )
+        }
+        if (normCmp(vNueStr) !== normCmp(vAnterior)) {
+          const esCompl = strVal(vAnterior) === '' && vNueStr !== ''
+          diffs.push({
+            tipo: 'modificado',
+            idSialRol,
+            campo: esCompl ? `completado:${colPython}` : colPython,
+            valorAnterior: vAnterior || null,
+            valorNuevo: vNueStr || null,
+          })
+        }
+      }
+    }
+  }
+
+  // Bajas 24/07 (§3.4): un rol 24/07 vivo ausente del padrón nuevo es baja. Se
+  // detecta por ausencia de su id_sial_rol en nuevosDesdobladosMap, NO por el
+  // circuito id_sial (los clones tienen id_sial NULL).
+  const vivos24y07 = await prisma.ocupacion.findMany({
+    where: {
+      hasta: null,
+      cargo: {
+        codigoRegistro: { codigo: { in: ['24', '07'] } },
+        estado: { in: ['vigente', 'validacion_vacante'] },
+      },
+    },
+    select: {
+      idSialRol: true,
+      situacionRevista: true,
+      estadoPersona: true,
+      cuil: true,
+      hasta: true,
+      persona: { select: { activo: true } },
+      cargo: {
+        select: {
+          estado: true,
+          idSial: true,
+          codigo: true,
+          literalPuesto: true,
+          especialidadLegacy: true,
+          agrupador: true,
+          hospital: { select: { sigla: true } },
+          escalafon: { select: { nombre: true } },
+        },
+      },
+    },
+  })
+  const presentesDesd = new Set(nuevosDesdobladosMap.keys())
+  for (const o of vivos24y07) {
+    if (presentesDesd.has(o.idSialRol)) continue // sigue viniendo → no es baja
+    diffs.push({
+      tipo: 'eliminado',
+      idSialRol: o.idSialRol,
+      campo: categoriaBaja(o.cargo.estado, o),
+      valorAnterior: JSON.stringify({
+        id_sial: o.cargo.idSial, // puede ser NULL (clon desdoblado)
+        codigo_cargo: o.cargo.codigo, // el RES-/DOC- del cargo 1:1
+        desdoblado: true, // marca para el listado de eliminados (§3.6)
+        estado_cargo: o.cargo.estado, // para clasificar sin id_sial
+        cuil_y_rol: o.cuil ?? null,
+        literal_puesto: o.cargo.literalPuesto,
+        especialidad: o.cargo.especialidadLegacy,
+        agrupador: o.cargo.agrupador,
+        situacion_de_revista: o.situacionRevista ?? null,
+        estado: o.estadoPersona ?? null,
+        siglas: o.cargo.hospital?.sigla ?? null,
+        escalafon: o.cargo.escalafon?.nombre ?? null,
+      }),
+      valorNuevo: null,
+    })
+  }
+
   const totalNuevos = diffs.filter((d) => d.tipo === 'nuevo').length
   const totalEliminados = diffs.filter((d) => d.tipo === 'eliminado').length
   const totalModificados = new Set(
@@ -684,10 +1033,16 @@ async function runPipeline(
         await tx.padronDiff.createMany({
           data: lote.map((d) => {
             if (d.tipo !== 'nuevo') return { ...d, snapshotId, aprobado: true }
+            // Un alta desdoblada (24/07) se auto-aprueba por CARRERA, no por el
+            // texto del escalafón: si el diff llegó a __alta_desdoblada__ es
+            // porque esDesdoblado(codReg) dio true (Residencias/Docentes, que no
+            // pasan por revisión de este departamento). Así no queda bloqueada
+            // por una inconsistencia entre el escalafón y el cod_registro (§3.3).
+            const esDesdobladoDiff = d.campo === '__alta_desdoblada__'
             // RES / DOC / AS-* se aprueban automáticamente — no requieren
             // revisión manual de este departamento.
             const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
-            const autoAprobado = esAutoAprobable(datos)
+            const autoAprobado = esDesdobladoDiff ? true : esAutoAprobable(datos)
             return { ...d, snapshotId, aprobado: autoAprobado ? true : null }
           }),
         })
@@ -817,14 +1172,20 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     const cargoEstadoMapP = new Map(cargosP.map((c) => [c.idSial, c.estado]))
     idSialRolesFiltrados = todosElimPre
       .filter((d) => {
-        const idSial = (() => {
+        const parsed = (() => {
           try {
-            return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+            return JSON.parse(d.valorAnterior ?? '{}')
           } catch {
-            return null
+            return {}
           }
         })()
-        const estado = idSial ? cargoEstadoMapP.get(idSial) : null
+        // Desdoblado 24/07: id_sial es NULL en los clones; clasificar por
+        // estado_cargo guardado en valorAnterior, no por el lookup por id_sial.
+        const estado = parsed.desdoblado
+          ? parsed.estado_cargo
+          : parsed.id_sial
+            ? cargoEstadoMapP.get(parsed.id_sial as string)
+            : null
         const clasi = estado === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
         return clasi === query.clasificacionEliminado
       })
@@ -944,10 +1305,27 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
           return {}
         }
       })()
+      const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
+      // Baja de un cargo desdoblado 24/07 (§3.6): id_sial es NULL en los clones,
+      // así que NO se depende del lookup por id_sial. codigo_cargo/siglas/
+      // escalafon vienen en valorAnterior y la clasificación usa estado_cargo.
+      if (parsed.desdoblado === true) {
+        const clasificacionEliminado =
+          d.campo === 'baja_previa'
+            ? clasificacionEliminadoDesdoblado(parsed.estado_cargo)
+            : null
+        return {
+          ...d,
+          apellidoNombre,
+          clasificacionEliminado,
+          codigoCargo: parsed.codigo_cargo ?? null,
+          siglas: parsed.siglas ?? null,
+          escalafon: parsed.escalafon ?? null,
+        }
+      }
       const idSial = parsed.id_sial as string | null
       const estadoCargo = idSial ? cargoEstadoMap.get(idSial) : null
       const codigoCargo = idSial ? (cargoCodigoMap.get(idSial) ?? null) : null
-      const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
       // Clasificación solo informativa dentro de "ya estaban en baja"
       // (campo='baja_previa'). Las bajas nuevas (campo IS NULL) no se clasifican.
       const clasificacionEliminado =
@@ -1020,14 +1398,18 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     })
     const estadoMap = new Map(cargosE.map((c) => [c.idSial, c.estado]))
     for (const d of todosElim) {
-      const idSial = (() => {
+      const parsed = (() => {
         try {
-          return JSON.parse(d.valorAnterior ?? '{}').id_sial
+          return JSON.parse(d.valorAnterior ?? '{}')
         } catch {
-          return null
+          return {}
         }
       })()
-      if (estadoMap.get(idSial) === 'validacion_vacante') eliminadosEnValidacion++
+      // Desdoblado 24/07: clasificar por estado_cargo (id_sial es NULL).
+      const estado = parsed.desdoblado
+        ? parsed.estado_cargo
+        : estadoMap.get(parsed.id_sial)
+      if (estado === 'validacion_vacante') eliminadosEnValidacion++
       else eliminadosSinPersona++
     }
   }
@@ -1207,12 +1589,26 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
 
     const nuevos: { idSialRol: string; datos: Record<string, string> }[] = []
     const rechazados: { idSialRol: string; datos: Record<string, string> }[] = []
+    // Alta 1:1 desdoblada (24/07): se materializa por el camino dedicado (§4.2),
+    // NO por id_sial. `rechazadosDesdoblados` es defensa en profundidad — un
+    // alta 1:1 rechazada no crea cargo ni ocupación; además es inalcanzable en
+    // operación (auto-aprobación por carrera + guard de endpoints §4.5).
+    const nuevosDesdoblados: { idSialRol: string; datos: Record<string, string> }[] = []
+    const rechazadosDesdoblados: { idSialRol: string; datos: Record<string, string> }[] = []
     const eliminados: string[] = []
     const modificados: { idSialRol: string; cambios: typeof diffs }[] = []
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
-      if (tipo === 'nuevo' && cambios[0]!.aprobado === true)
+      // La condición "¿es desdoblada?" se evalúa PRIMERO para que un desdoblado
+      // NUNCA caiga en nuevos/rechazados (los conjuntos que se procesan por
+      // id_sial y recrearían el cargo compartido).
+      const esDesd = cambios[0]!.campo === '__alta_desdoblada__'
+      if (tipo === 'nuevo' && esDesd && cambios[0]!.aprobado === true)
+        nuevosDesdoblados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && esDesd && cambios[0]!.aprobado === false)
+        rechazadosDesdoblados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && cambios[0]!.aprobado === true)
         nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
       else if (tipo === 'nuevo' && cambios[0]!.aprobado === false)
         rechazados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
@@ -1223,21 +1619,33 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const todosLosIdSialRol = [...porSialRol.keys()]
 
     // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
+    // todosNuevos EXCLUYE nuevosDesdoblados y rechazadosDesdoblados (se procesan
+    // por id_sial_rol, no por id_sial). todosConPersona agrega nuevosDesdoblados
+    // SOLO para la precarga/creación de personas/hospitales/escalafones/
+    // codigoRegistro (el alta 1:1 necesita esos caches). rechazadosDesdoblados
+    // no entra a ninguno (no materializa nada).
     const todosNuevos = [...nuevos, ...rechazados]
-    const siglasNecesarias = [...new Set(todosNuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
+    const todosConPersona = [...nuevos, ...rechazados, ...nuevosDesdoblados]
+    // Derivadas de todosConPersona (incluye nuevosDesdoblados) para que el alta
+    // 1:1 encuentre hospital/escalafón/codigoRegistro/persona en los caches.
+    const siglasNecesarias = [...new Set(todosConPersona.map((n) => n.datos.siglas ?? n.idSialRol))]
     const cuilsNecesarios = [
-      ...new Set(todosNuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v))),
+      ...new Set(
+        todosConPersona.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)),
+      ),
     ]
     const idSialsNecesarios = [
       ...new Set(todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v))),
     ]
     const codigosRegNecesarios = [
       ...new Set(
-        todosNuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)),
+        todosConPersona
+          .map((n) => n.datos.codigo_de_registro)
+          .filter((v): v is string => Boolean(v)),
       ),
     ]
     const escalafonesNecesarios = [
-      ...new Set(todosNuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean)),
+      ...new Set(todosConPersona.map((n) => n.datos.escalafon ?? '').filter(Boolean)),
     ]
 
     const [
@@ -1288,7 +1696,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     //       cardinalidad chica, no escala con la cantidad de filas) ────────
     for (const sigla of siglasNecesarias) {
       if (hospitalCache.has(sigla)) continue
-      const datos = nuevos.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
+      // Buscar en todosConPersona (incluye desdoblados): una sigla puede venir
+      // solo de un alta 1:1 24/07 y no de las altas normales.
+      const datos = todosConPersona.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
       // upsert: si ya existe (cargado por la migración de enriquecimiento) lo
       // devuelve sin tocar sus campos descriptivos. Si es genuinamente nuevo
       // (sigla desconocida) lo crea con los datos disponibles del padrón.
@@ -1394,7 +1804,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         agrupamiento: string | null
       }
     >()
-    for (const { datos } of todosNuevos) {
+    // Set de idSialRol de altas 1:1 desdobladas: su persona SÍ se precarga/crea
+    // acá (están en todosConPersona), pero su CARGO NO se crea por este camino
+    // (id_sial = titular) — se materializa en el bloque 3c dedicado.
+    const idSialRolDesdoblados = new Set(nuevosDesdoblados.map((n) => n.idSialRol))
+    for (const { idSialRol, datos } of todosConPersona) {
       const cuil = cuilDe(datos)
       if (cuil && !personaCache.has(cuil) && !personasACrear.has(cuil)) {
         personasACrear.set(cuil, {
@@ -1414,7 +1828,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           provincia: datos.provincia || null,
         })
       }
-      if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
+      // Un alta 1:1 desdoblada (24/07) NUNCA crea cargo por este camino
+      // (datos.id_sial es el id_sial del TITULAR; reusarlo recrearía el cargo
+      // compartido). Su cargo se crea en el bloque 3c con id_sial NULL.
+      if (
+        !idSialRolDesdoblados.has(idSialRol) &&
+        datos.id_sial &&
+        !cargoCache.has(datos.id_sial) &&
+        !cargosACrear.has(datos.id_sial)
+      ) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
         // Resolución canónica: primero por CODIGO DE REGISTRO, luego por nombre.
         // Bug encontrado en vivo (Sprint 20, 2026-09-29): `datos.codigo_de_registro`
@@ -1587,6 +2009,145 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         FROM (VALUES ${Prisma.join(lote.map((a) => Prisma.sql`(${a.id}::uuid, ${a.codigo})`))}) AS v(id, codigo)
         WHERE c.id = v.id
       `
+    }
+
+    // ── 3c. Altas 1:1 desdobladas (24/07) — §4.2 del diseño. Corre DESPUÉS del
+    //        UPDATE de códigos normales (el MAX por prefijo ya los incluye) y
+    //        dentro de la MISMA transacción. Crea por fila: cargo (id_sial NULL,
+    //        código correlativo RES-/DOC-, especialidad ESTRICTA por rol),
+    //        ocupación y mapeo en desdoblado_mapeo_cargos.
+    if (nuevosDesdoblados.length > 0) {
+      // Índice norm_esp del catálogo: key `${puestoId}:${normEspDesdoblado(nombre)}`
+      // -> especialidadPuestoId. Se arma una vez a partir del cache (sin query
+      // extra), igual que norm_esp del script SQL.
+      const catalogoNormEsp = new Map<string, string>()
+      for (const [puestoId, lista] of catalogoPuestos.especialidadesPorPuesto) {
+        for (const e of lista) {
+          catalogoNormEsp.set(`${puestoId}:${normEspDesdoblado(e.nombre)}`, e.id)
+        }
+      }
+
+      // MAX por prefijo (RES/DOC, SIN guion) recomputado tras el batch normal +
+      // contador en memoria + blindaje WHILE EXISTS contra huecos/no-contiguos.
+      const maxDesdPorPrefijo = new Map<string, number>()
+      const proximoCodigoDesdoblado = async (prefijo: string): Promise<string> => {
+        if (!maxDesdPorPrefijo.has(prefijo)) {
+          maxDesdPorPrefijo.set(prefijo, await maxSecuencialCargo(prefijo, tx))
+        }
+        let n = (maxDesdPorPrefijo.get(prefijo) ?? 0) + 1
+        let codigo = formatearCodigoDesdoblado(prefijo, n)
+        while ((await tx.cargo.count({ where: { codigo } })) > 0) {
+          n++
+          codigo = formatearCodigoDesdoblado(prefijo, n)
+        }
+        maxDesdPorPrefijo.set(prefijo, n)
+        return codigo
+      }
+
+      for (const { idSialRol, datos } of nuevosDesdoblados) {
+        // Si ya existe una ocupación para este rol (no debería en un alta), se
+        // respeta y se saltea (idempotencia defensiva).
+        if (ocupacionExistenteMap.has(idSialRol)) continue
+
+        const cuil = cuilDe(datos)
+        const persona = cuil ? personaCache.get(cuil) : null
+        const hospital = hospitalCache.get(datos.siglas ?? '')
+        const escalafon =
+          (datos.codigo_de_registro
+            ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
+            : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
+        if (!persona || !hospital || !escalafon) {
+          console.warn(
+            `[padron][desdoblado] alta 1:1 omitida (id_sial_rol ${idSialRol}): falta ${!persona ? 'persona' : !hospital ? 'hospital' : 'escalafón'}`,
+          )
+          continue
+        }
+
+        // Puesto (igual que el alta normal; nunca null — auto-crea pendienteCurar).
+        const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+          escalafonId: escalafon.id,
+          literalPuesto: datos.literal_puesto ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+        })
+        // Especialidad ESTRICTA (REGLA DE ORO): match exacto o NULL. Nunca deriva
+        // ni auto-crea (resolver puro, sin tx).
+        const especialidadPuestoId = resolverEspecialidadDesdobladaId(
+          catalogoNormEsp,
+          puesto.id,
+          datos.especialidad ?? null,
+        )
+        // Prefijo forzado por carrera (RES/DOC, SIN guion).
+        const prefijoCalc = prefijoDeCargo({
+          escalafon: escalafon.nombre,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+          agrupador: datos.agrupador ?? null,
+          puestoCargo: puesto,
+        })
+        const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
+        const codigo = await proximoCodigoDesdoblado(prefijo)
+
+        const cargoId = randomUUID()
+        await tx.cargo.create({
+          data: {
+            id: cargoId,
+            idSial: null, // clon desdoblado: sin identidad propia en el SIAL
+            codigo,
+            estado: 'vigente',
+            hospitalId: hospital.id,
+            escalafonId: escalafon.id,
+            puestoCargoId: puesto.id,
+            especialidadPuestoId,
+            literalPuesto: datos.literal_puesto ?? null,
+            especialidadLegacy: datos.especialidad ?? null,
+            agrupador: datos.agrupador ?? null,
+            unificadorPuesto: datos.unificador_de_puestos ?? null,
+            regimen: datos.regimen || null,
+            codigoRepa: datos.codigo_repa || null,
+            descripcionRepa: datos.descripcion_repa || null,
+            agrupamiento: datos.agrupamiento || null,
+            codigoRegistroId: datos.codigo_de_registro
+              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
+              : null,
+          },
+        })
+
+        await tx.ocupacion.create({
+          data: {
+            id: randomUUID(),
+            personaId: persona.id,
+            cargoId,
+            idSialRol,
+            cuil: cuil ?? null,
+            situacionRevista: datos.situacion_de_revista ?? null,
+            estadoPersona: datos.estado ?? null,
+            codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
+            jefeEscalafon: datos.jefe_escalafon || null,
+            documentacionJefatura: datos.documentacion_jefatura || null,
+            comentariosJefaturas: datos.comentarios_jefaturas || null,
+            documentacionPou: datos.documentacion_pou || null,
+            comision: datos.comision || null,
+            repaComision: datos.repa_comision || null,
+            codSituacion: datos.cod_situacion || null,
+            fechaBloqueo: parseFechaDDMMYYYY(datos.fecha_bloqueo),
+            bloqueoComentario: datos.bloqueo_comentario || null,
+            bloqMotivo: datos.bloq_motivo || null,
+            documentacionDelRol: datos.documentacion_del_rol || null,
+            documentacionBaja: datos.documentacion_baja || null,
+            cargoDesdeFecha: parseFechaDDMMYYYY(datos.cargo_desde),
+            cargoHastaFecha: parseFechaDDMMYYYY(datos.cargo_hasta),
+            snapshotId: id,
+          },
+        })
+        ocupacionExistenteMap.set(idSialRol, { idSialRol, cargoId })
+
+        // Registrar el mapeo (idempotente).
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO desdoblado_mapeo_cargos (id_sial_rol, codigo_cargo, codigo_registro)
+          VALUES (${idSialRol}, ${codigo}, ${datos.codigo_de_registro ?? null})
+          ON CONFLICT (id_sial_rol) DO NOTHING
+        `)
+      }
     }
 
     const ocupacionesACrear: {
@@ -2675,6 +3236,16 @@ export async function aprobarDiffNuevoService(
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden aprobar diffs de tipo nuevo')
+  // Guard desdoblado (§4.5): un alta 24/07 se auto-aprueba por carrera y se
+  // materializa SOLO al aprobar el snapshot completo (aprobarSnapshotService),
+  // que crea el cargo 1:1 (id_sial NULL, correlativo, especialidad estricta).
+  // Resolver este diff de a uno por datos.id_sial (el del titular) recrearía el
+  // cargo compartido. Por eso se bloquea. marcarTransferenciaService y
+  // aprobar-todos lo heredan al delegar en esta función.
+  if (diff.campo === '__alta_desdoblada__')
+    throw AppError.badRequest(
+      'Un alta desdoblada (Residencias 24 / Docentes 07) no se aprueba, rechaza ni transfiere individualmente; se materializa al aprobar el snapshot completo',
+    )
   if (diff.aprobado === true) throw AppError.conflict('Este diff ya fue aprobado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
@@ -3044,6 +3615,13 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo')
     throw AppError.badRequest('Solo se pueden rechazar diffs de tipo nuevo')
+  // Guard desdoblado (§4.5): ver aprobarDiffNuevoService. Rechazar de a uno un
+  // alta 24/07 resolvería por datos.id_sial (el del titular) y recrearía/
+  // modificaría el cargo compartido. Se bloquea.
+  if (diff.campo === '__alta_desdoblada__')
+    throw AppError.badRequest(
+      'Un alta desdoblada (Residencias 24 / Docentes 07) no se aprueba, rechaza ni transfiere individualmente; se materializa al aprobar el snapshot completo',
+    )
   if (diff.aprobado === false) throw AppError.conflict('Este diff ya fue rechazado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')

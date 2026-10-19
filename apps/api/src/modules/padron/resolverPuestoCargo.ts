@@ -72,6 +72,11 @@ export interface PuestoCargoInfo {
 export interface CatalogoPuestosCache {
   puestos: Map<string, PuestoCargoInfo>
   especialidades: Map<string, string>
+  // Cambio aditivo (fix desdoblado 24/07): nombre CRUDO de cada EspecialidadPuesto
+  // por puesto, para que padron.service.ts arme el índice norm_esp del alta 1:1
+  // (resolverEspecialidadDesdobladaId) sin una query extra. NO reemplaza
+  // `especialidades` (que usa normPuestoKey, distinto de norm_esp).
+  especialidadesPorPuesto: Map<string, { id: string; nombre: string }[]>
 }
 
 // Carga el catálogo completo una sola vez — cardinalidad chica (cientos de
@@ -93,10 +98,14 @@ export async function cargarCatalogoPuestos(tx: TxCatalogo): Promise<CatalogoPue
     puestosMap.set(clavePuesto(p.escalafonId, p.modalidad, p.nombre), { id: p.id, nombre: p.nombre, modalidad: p.modalidad, tipoPuesto: p.tipoPuesto })
   }
   const especialidadesMap = new Map<string, string>()
+  const especialidadesPorPuesto = new Map<string, { id: string; nombre: string }[]>()
   for (const e of especialidades) {
     especialidadesMap.set(`${e.puestoCargId}:${normPuestoKey(e.nombre)}`, e.id)
+    const lista = especialidadesPorPuesto.get(e.puestoCargId) ?? []
+    lista.push({ id: e.id, nombre: e.nombre })
+    especialidadesPorPuesto.set(e.puestoCargId, lista)
   }
-  return { puestos: puestosMap, especialidades: especialidadesMap }
+  return { puestos: puestosMap, especialidades: especialidadesMap, especialidadesPorPuesto }
 }
 
 // Placeholder para filas del padrón con literal_puesto vacío (caso borde no
