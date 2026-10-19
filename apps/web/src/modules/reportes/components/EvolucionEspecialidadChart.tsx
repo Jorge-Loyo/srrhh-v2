@@ -1,3 +1,7 @@
+// Mudado desde `modules/kpis/components/EvolucionEspecialidadChart.tsx`
+// (Opción A del plan): la sección "Evolución de dotación" ahora vive en
+// Reportes. Único ajuste de imports: los tres hooks se resuelven desde
+// `../hooks/useReportes` (antes `../hooks/useKpis`); el resto queda igual.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GrupoDotacionEvolucion } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
@@ -5,7 +9,7 @@ import {
   useDotacionEvolucion,
   useDotacionEvolucionOpciones,
   useExportDotacionEvolucion,
-} from '../hooks/useKpis'
+} from '../hooks/useReportes'
 
 // ─── Dimensiones del gráfico ────────────────────────────────────────────────
 const W = 720
