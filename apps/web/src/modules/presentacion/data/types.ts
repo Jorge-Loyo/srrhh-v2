@@ -89,6 +89,8 @@ export interface TablaVariacion {
   decimalesPct?: number
   /** Nota al pie de la tabla (ej: "*…únicos que POSEEN VARIACIÓN"). */
   notaPie?: string
+  /** Oculta la columna "Dif." (algunas tablas sólo muestran meses + %). */
+  ocultarDif?: boolean
   filas: FilaVariacion[]
 }
 
@@ -131,7 +133,7 @@ export interface ColumnaDef {
 }
 
 /** Fila de TablaColumnas: valores por clave de columna. */
-export type FilaColumnas = Record<string, string | number | null> & {
+export type FilaColumnas = Record<string, string | number | boolean | null> & {
   /** Marca la fila como total (estilo destacado). */
   esTotal?: boolean
 }
@@ -187,12 +189,36 @@ export interface GraficoBarrasData {
   leyenda?: boolean
   /** Dibuja una línea de tendencia uniendo los topes de las barras (modo simple). */
   lineaTendencia?: boolean
+  /** Sufijo para los valores/ejes (ej: "%"). Default "". */
+  sufijo?: string
   /** Fuerza el mínimo del eje de valores. Si se omite, se calcula. */
   minY?: number
   /** Fuerza el máximo del eje de valores. Si se omite, se calcula. */
   maxY?: number
   /** Paso de la grilla del eje de valores. */
   pasoY?: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gráfico de torta (GraficoTorta).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SegmentoTorta {
+  /** Etiqueta de la porción (ej: "Residencia Médica"). */
+  etiqueta: string
+  /** Valor o porcentaje de la porción. */
+  valor: number
+  /** Color de la porción. */
+  color?: string
+}
+
+export interface GraficoTortaData {
+  segmentos: SegmentoTorta[]
+  /**
+   * Si los `valor` ya son porcentajes que suman ~100, true los usa tal cual;
+   * si son cantidades, false (default) los normaliza sobre el total.
+   */
+  valoresSonPorcentaje?: boolean
 }
 
 /** Tarjeta-resumen por tipo de universo (ej: APS 2.591 · 6,1%). */
@@ -363,4 +389,97 @@ export interface Slide11Data {
   subtituloGrafico?: string
   grafico: GraficoBarrasData
   tablaEfector: TablaVariacion
+}
+
+/**
+ * Fila de "escalafón": un rótulo de banda y tres cajones (Cargos / inicio / fin).
+ * Usada en la S14 (Autoridades Superiores, Carrera Gerencial, Docentes).
+ */
+export interface FilaEscalafon {
+  /** Rótulo de la banda superior (ej: "AUTORIDADES SUPERIORES"). */
+  rotulo: string
+  /** Color de la banda del rótulo. */
+  rotuloTono: 'naranja' | 'rojo' | 'verde' | 'navy'
+  /** Cargos totales. */
+  cargos: number | null
+  /** Valor del mes inicial. */
+  inicio: number | null
+  /** Valor del mes final. */
+  fin: number | null
+  /** Tono del cajón "fin" (rosa = leve baja, rojo = baja fuerte, verde = sube). */
+  finTono: 'rosa' | 'rojo' | 'verde' | 'neutro'
+}
+
+/**
+ * Datos de la Slide 15 — "Comparativa de Cuatrimestres".
+ * KPIs comparativos (muchos aún placeholder) + tabla comparativa por escalafón
+ * (% var 1° cuatrim / % var 2° cuatrim / dif anual) + gráfico de barras
+ * agrupadas con dos series (1° vs 2° cuatrimestre).
+ */
+export interface Slide15Data {
+  /** Período del reporte al que corresponden estos datos. */
+  periodo: Periodo
+  tag: string
+  titulo: string
+  subtitulo: string
+  kpis: Kpi[]
+  kpisSecundarios: Kpi[]
+  /** Chip de contexto arriba de los KPIs (ej: "XX · TOTAL AL CIERRE DEL 1° CUATRIM"). */
+  chipContexto?: { valor: string; label: string }
+  /** Caja-resumen destacada aparte (ej: "Diferencia e/cuatrim"). */
+  resumenDestacado?: Kpi
+  tablaComparativa: TablaColumnas
+  grafico: GraficoBarrasData
+}
+
+/**
+ * Datos de la Slide 14 — "Dotación Activa · Otros escalafones".
+ * Un bloque KPI principal + filas de escalafón (rótulo + 3 cajones) a la
+ * izquierda; a la derecha un gráfico de barras ("Abril") con aclaración.
+ */
+export interface Slide14Data {
+  /** Período del reporte al que corresponden estos datos. */
+  periodo: Periodo
+  tag: string
+  titulo: string
+  subtitulo: string
+  bloque: BloqueKpi
+  filas: FilaEscalafon[]
+  tituloGrafico?: string
+  aclaracion?: { titulo: string; lineas: string[] }
+  grafico: GraficoBarrasData
+}
+
+/**
+ * Datos de la Slide 13 — "Dotación Activa · Residentes".
+ * Un bloque KPI (sin badge) + gráfico de torta (composición por tipo de
+ * residencia) + tabla de variación por efector.
+ */
+export interface Slide13Data {
+  /** Período del reporte al que corresponden estos datos. */
+  periodo: Periodo
+  tag: string
+  titulo: string
+  subtitulo: string
+  bloque: BloqueKpi
+  torta: GraficoTortaData
+  tablaEfector: TablaVariacion
+}
+
+/**
+ * Datos de la Slide 12 — "Dotación Activa · Escalafón General".
+ * Dos bloques KPI (Dotación total ↓ / Jefes ↑) y la tabla por efector PARTIDA
+ * en dos columnas visuales (muchas filas), más un recuadro de aclaración.
+ */
+export interface Slide12Data {
+  /** Período del reporte al que corresponden estos datos. */
+  periodo: Periodo
+  tag: string
+  titulo: string
+  subtitulo: string
+  bloques: BloqueKpi[]
+  /** Tabla por efector (una sola, larga). */
+  tablaEfector: TablaVariacion
+  /** Recuadro de aclaración (título + líneas de texto). */
+  aclaracion?: { titulo: string; lineas: string[] }
 }

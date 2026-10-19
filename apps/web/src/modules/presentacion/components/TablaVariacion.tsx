@@ -26,6 +26,8 @@ export function TablaVariacion({ data, densidad, densa = false }: Props) {
   const tieneSub = Boolean(data.columnaSubEtiqueta)
   const tieneValorPrevio = Boolean(data.columnaValorPrevio)
   const decPct = data.decimalesPct ?? 2
+  // En compacta el header del % se abrevia para no forzar ancho de columna.
+  const headerPct = nivel === 'compacta' ? '% Var.' : '% Var. Cuatrim'
 
   return (
     <div className="flex flex-col min-w-0 min-h-0">
@@ -70,8 +72,8 @@ export function TablaVariacion({ data, densidad, densa = false }: Props) {
                     {m}
                   </th>
                 ))}
-                <th className={`text-right font-semibold ${padY} px-1.5`}>Dif.</th>
-                <th className={`text-right font-semibold ${padY} pr-2 pl-1.5`}>% Var. Cuatrim</th>
+                {!data.ocultarDif && <th className={`text-right font-semibold ${padY} px-1.5`}>Dif.</th>}
+                <th className={`text-right font-semibold ${padY} pr-2 pl-1.5 whitespace-nowrap`}>{headerPct}</th>
               </tr>
             </thead>
             <tbody>
@@ -108,9 +110,11 @@ export function TablaVariacion({ data, densidad, densa = false }: Props) {
                         </td>
                       )
                     })}
-                    <td className={`text-right ${padY} px-1.5 tabular-nums font-semibold ${colorSigno(fila.diferencia)}`}>
-                      {fmtDif(fila.diferencia)}
-                    </td>
+                    {!data.ocultarDif && (
+                      <td className={`text-right ${padY} px-1.5 tabular-nums font-semibold ${colorSigno(fila.diferencia)}`}>
+                        {fmtDif(fila.diferencia)}
+                      </td>
+                    )}
                     <td
                       className={`text-right ${padY} pr-2 pl-1.5 tabular-nums font-semibold rounded-r-sm ${colorSigno(fila.variacionPct)}`}
                     >

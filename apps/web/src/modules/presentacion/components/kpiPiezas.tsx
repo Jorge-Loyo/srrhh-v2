@@ -58,9 +58,13 @@ export function CajaResumen({ kpi }: { kpi: Kpi }) {
 
 /** Badge de etiqueta del bloque ("DOTACIÓN TOTAL", "JEFES"). */
 export function BadgeBloque({ texto, tono }: { texto: string; tono: 'amarillo' | 'rojo' | 'navy' }) {
-  const estilos = { amarillo: 'bg-primary text-black', rojo: 'bg-danger text-white', navy: 'bg-navy text-white' }
+  const estilos = {
+    amarillo: 'pres-banda pres-banda-amarillo',
+    rojo: 'pres-banda pres-banda-rojo',
+    navy: 'pres-banda pres-banda-navy',
+  }
   return (
-    <span className={`inline-block text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded ${estilos[tono]}`}>
+    <span className={`inline-block text-[9px] font-bold uppercase tracking-wider pl-3 pr-2.5 py-1 ${estilos[tono]}`}>
       {texto}
     </span>
   )

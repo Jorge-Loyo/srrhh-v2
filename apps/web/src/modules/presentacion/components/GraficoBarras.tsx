@@ -19,6 +19,11 @@ interface Props {
 const COLOR_DEFECTO = '#1A2B4A' // navy
 const PALETA: string[] = ['#1A2B4A', '#5BBFBF', '#ADB5BD', '#F5BF00'] // Ene/Feb/Mar/Abr
 
+/** Formatea un número con el sufijo del gráfico (ej: "%"). */
+function fmtV(n: number, data: GraficoBarrasData): string {
+  return `${fmtNum(n)}${data.sufijo ?? ''}`
+}
+
 export function GraficoBarras({ data, width = 520, height = 300 }: Props) {
   const esAgrupado = Boolean(data.categorias && data.series && data.valores)
   if (esAgrupado) return <BarrasAgrupadas data={data} width={width} height={height} />
@@ -114,10 +119,13 @@ function BarrasAgrupadas({ data, width, height }: Required<Props>) {
   if (planos.length === 0) return null
   const { minY, maxY, ticks } = calcularRango(planos, data)
 
+  // Etiquetas del eje de categorías rotadas si son muchas o largas (sólo aplica
+  // al modo vertical). Necesitan más margen inferior.
+  const rotarCats = !horizontal && (categorias.length >= 6 || categorias.some((c) => c.length > 10))
   const padL = horizontal ? 120 : 48
   const padR = 16
   const padT = mostrarLeyenda ? 28 : 12
-  const padB = 32
+  const padB = rotarCats ? 72 : 32
   const plotW = width - padL - padR
   const plotH = height - padT - padB
 
@@ -188,18 +196,32 @@ function BarrasAgrupadas({ data, width, height }: Required<Props>) {
           <g key={t}>
             <line x1={padL} y1={y} x2={width - padR} y2={y} stroke="#E9ECEF" strokeWidth={1} />
             <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fill="#6C757D">
-              {fmtNum(t)}
+              {fmtV(t, data)}
             </text>
           </g>
         )
       })}
       {categorias.map((cat, ci) => {
         const xGrupo = padL + slot * ci + (slot - grupoW) / 2
+        const cxCat = xGrupo + grupoW / 2
         return (
           <g key={cat}>
-            <text x={xGrupo + grupoW / 2} y={height - padB + 14} textAnchor="middle" fontSize={9} fill="#495057">
-              {cat}
-            </text>
+            {rotarCats ? (
+              <text
+                x={cxCat}
+                y={height - padB + 8}
+                textAnchor="end"
+                fontSize={8}
+                fill="#495057"
+                transform={`rotate(-40 ${cxCat} ${height - padB + 8})`}
+              >
+                {cat}
+              </text>
+            ) : (
+              <text x={cxCat} y={height - padB + 14} textAnchor="middle" fontSize={9} fill="#495057">
+                {cat}
+              </text>
+            )}
             {series.map((s, si) => {
               const v = matriz[ci]?.[si]
               if (v == null) return null
