@@ -69,7 +69,7 @@ El servicio Python (`DotacionAutomationBD.procesar()`) transforma el Excel en un
 | 9    | Calcula **ESTADO** (vectorizado, ver tabla abajo)                                             |
 | 9.5  | Renombra columnas SIAL → nombres finales (ej. `CARGO→ID SIAL`, `LIT_ESP_CARGO→ESPECIALIDAD`)  |
 | 9.6  | Limpia ESPECIALIDAD en COD_REG que no corresponden (solo 37/23/24 tienen especialidad)        |
-| 9.75 | Fuerza MAYÚSCULA SIN TILDE en `COLUMNAS_MAYUSCULA_FORZADA`                                    |
+| 9.75 | Fuerza **MINÚSCULA SIN TILDE** en todas las columnas de texto (salvo identificadores)         |
 | 9.8  | Elimina duplicados de ID SIAL (conserva la fila más completa)                                 |
 | 9.9  | Elimina jefaturas CPH con rol duplicado activo (sin CODIGO JEFATURAS)                         |
 | 10   | Reordena columnas según orden de referencia                                                   |
@@ -103,28 +103,36 @@ Después de `/procesar`, el endpoint `/cruzar` completa la columna ESPECIALIDAD 
 1. **Fuente SIAL** (`LIT_ESP_CARGO`): ya viene en el Excel, solo para COD_REG 37/23/24. Los demás se vacían en el paso 9.6.
 2. **Por CUIL** (`ref_especialidades_cuil`): para filas con ESPECIALIDAD vacía, busca por CUIL + COD_REG. Resultado normalizado con `sin_tilde_mayuscula()`.
 3. **Por AGRUPADOR** (`ref_especialidad_por_puesto`): para huecos restantes, busca por AGRUPADOR + PUESTO.
-4. Al final: `_forzar_mayusculas(df)` — garantiza que todo quede en MAYÚSCULA SIN TILDE.
+4. Al final: `_forzar_mayusculas(df)` — **(legacy)** baja TODO el texto a minúscula sin tilde e **ignora** los sets `COLUMNAS_MAYUSCULA_FORZADA`/`COLUMNAS_CON_TILDE` (su nombre es histórico; ya no fuerza mayúscula).
 
 ---
 
 ## Normalización de texto
 
-```python
-COLUMNAS_MAYUSCULA_FORZADA = [
-    'ESPECIALIDAD', 'AGRUPADOR', 'UNIVERSO TOTALIZADOR',
-    'TIPO DE HOSPITAL / SIGLA', 'MONOVALENCIA', 'UNIFICADOR DE PUESTOS',
-    'JEFE ESCALAFON',
-]
+**Regla vigente (2026-10): TODO el texto va a MINÚSCULA SIN TILDE.** No hay excepciones por
+columna. El flujo activo (`pipeline.py`, paso 9.75) mapea `minuscula_sin_tilde` sobre todas las
+columnas salvo las identificadoras (`_COLUMNAS_NO_MINUSCULA`: `siglas` y los ids de catálogo). El
+flujo legacy (`Dotaneitor.py::_forzar_mayusculas`) hace lo mismo.
 
-COLUMNAS_CON_TILDE = {
-    'LITERAL PUESTO', 'SITUACION DE REVISTA', 'ESTADO',
-    'AYN', 'DOMICILIO', 'LOCALIDAD', 'PROVINCIA',
-}
+Los sets de `Dotaneitor.py` quedaron como documentación histórica **sin efecto (inertes)**:
+
+```python
+COLUMNAS_MAYUSCULA_FORZADA = [ ... ]   # → sin efecto (inerte): ya no se fuerza mayúscula
+COLUMNAS_CON_TILDE         = { ... }   # → sin efecto (inerte): ya no se conservan tildes
 ```
 
-- `COLUMNAS_MAYUSCULA_FORZADA` → `sin_tilde_mayuscula()` (mayúscula + sin tilde)
-- `COLUMNAS_CON_TILDE` → sin cambio (conservan tildes y capitalización)
-- Resto → `sin_tilde()` (conserva capitalización, quita tildes)
+- `COLUMNAS_MAYUSCULA_FORZADA` → **sin efecto (inerte)**: `_forzar_mayusculas` ignora el set.
+- `COLUMNAS_CON_TILDE` → **sin efecto (inerte)**: `_forzar_mayusculas` ignora el set; estas
+  columnas (incluidas `SITUACION DE REVISTA` y `ESTADO`) también se bajan a minúscula sin tilde.
+- Todo el texto → minúscula sin tilde (no toca `ñ`).
+
+> **Catálogo cerrado de `situacion_de_revista`.** Tras la normalización, la situación de revista
+> cae en un catálogo CERRADO de 3 estados: **`activo`**, **`comision`**, **`retencion de cargo`**
+> (minúscula, sin tilde). De esta normalización depende el desglose de dotación por situación de
+> revista en `/reportes` (una serie por estado + total). El candado está en
+> `pipeline.py` (`situacion_de_revista` NO debe agregarse a `_COLUMNAS_NO_MINUSCULA`) y en
+> `services/dotaneitor/tests/test_situacion_revista_normaliza.py`. Ver `Contrato_Dotaneitor.md`
+> (Normalización de situación de revista).
 
 ---
 

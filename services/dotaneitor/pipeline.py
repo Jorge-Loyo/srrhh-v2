@@ -57,6 +57,15 @@ def _col_snake(nombre: str) -> str:
 
 # Columnas que NO se bajan a minúscula: siglas (código de efector) y los ids
 # resueltos del catálogo (UUIDs). El resto del texto va a minúscula/sin tilde.
+#
+# ⚠️ CANDADO (evolución de dotación): NO agregar 'situacion_de_revista' a este
+# set. El paso 9.75 (abajo) baja situacion_de_revista a minúscula-sin-tilde, y de
+# eso depende el desglose de dotación por situación de revista (catálogo CERRADO
+# de 3 estados: activo, comision, retencion de cargo). Si se excluyera acá, el
+# productor real reintroduciría variantes de casing/acento ('Activo', 'Comisión',
+# 'Retencion de Cargo') y las series/tarjetas de /reportes dejarían de reconciliar.
+# Ver Doc/Contratos/Contrato_Padron.md (Normalización de texto) y
+# tests/test_situacion_revista_normaliza.py.
 _COLUMNAS_NO_MINUSCULA = {
     'siglas', 'escalafon_id', 'puesto_cargo_id', 'especialidad_puesto_id',
     'cargo_jefatura_puesto_id',
