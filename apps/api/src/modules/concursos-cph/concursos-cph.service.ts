@@ -357,6 +357,22 @@ const CAMPOS_FECHA = new Set<keyof PatchConcursoCphBody>([
   'fechaDispoDesierta',
 ])
 
+// Dedup de autorizaciones pendientes: dado el conjunto de autorizaciones del
+// concurso, decide si ya existe una PENDIENTE para ese referenciaId/tipo. Es
+// una función pura (sin Prisma ni side effects) para poder testearla directo,
+// mismo patrón que elegirSlugResolutor en autorizaciones.service.ts. Se usa en
+// patchConcursoCphService para no crear una segunda autorización pendiente
+// cuando ya hay una en curso para el mismo concurso.
+export function existeAutorizacionPendiente(
+  autorizaciones: { tipo: string; referenciaId: string; estado: string }[],
+  tipo: string,
+  referenciaId: string,
+): boolean {
+  return autorizaciones.some(
+    (a) => a.tipo === tipo && a.referenciaId === referenciaId && a.estado === 'pendiente',
+  )
+}
+
 // ─── S4-3: actualizar campos por fase — estado/subEstado se recalculan ──────
 export async function patchConcursoCphService(id: string, body: PatchConcursoCphBody) {
   const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
@@ -445,14 +461,21 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
 
   // Crear Autorizacion genérica según el tipo de cambio
   if (requiereAutorizacionDoble) {
-    // Cambio estructural: director primero, luego sgrasv
-    await crearAutorizacion(prisma, {
-      tipo: 'concurso_cph',
-      referenciaId: id,
-      referenciaTipo: 'concurso_cph',
-      solicitadoPorId: undefined,
-      resolverPorRolSlug: 'director',
+    // Cambio estructural: director primero, luego sgrasv. Dedup: si ya hay una
+    // autorización pendiente para este concurso, no crear otra (evita duplicar
+    // cuando se vuelve a guardar sin haberse resuelto la anterior).
+    const pendiente = await prisma.autorizacion.findFirst({
+      where: { referenciaId: id, tipo: 'concurso_cph', estado: 'pendiente' },
     })
+    if (!pendiente) {
+      await crearAutorizacion(prisma, {
+        tipo: 'concurso_cph',
+        referenciaId: id,
+        referenciaTipo: 'concurso_cph',
+        solicitadoPorId: undefined,
+        resolverPorRolSlug: 'director',
+      })
+    }
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     // Cambio de especialidad/puesto/eeConcurso modificado, o solicitud de
     // autorización de apertura (eeConcurso + IF cargados): solo sgrasv. Se
@@ -460,6 +483,13 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     // resolver + crear sean atómicos. crearAutorizacion es la última y única
     // escritura del callback (acota el riesgo de notificación huérfana).
     await prisma.$transaction(async (tx) => {
+      // Dedup: si ya hay una autorización pendiente para este concurso, no
+      // crear otra (usa el client transaccional `tx` para que la lectura y la
+      // posible escritura sean atómicas con el resto de la rama).
+      const pendiente = await tx.autorizacion.findFirst({
+        where: { referenciaId: id, tipo: 'concurso_cph', estado: 'pendiente' },
+      })
+      if (pendiente) return
       const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
       // crearAutorizacion tipa su tx como `typeof prisma`; el cast replica el
       // patrón ya usado en autorizaciones.service.ts (siguienteCodigoCargo) para
