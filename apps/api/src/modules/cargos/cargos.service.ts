@@ -43,7 +43,7 @@ export async function listPuestosCargosService(escalafonId?: string) {
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
+  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, sinJefes, personaSearch } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -146,6 +146,21 @@ export async function listCargosService(query: CargosQuery) {
             ],
           },
         ]
+      // Sin jefes: inverso exacto de (A)/(B) de arriba — negación de la OR
+      // completa, no de cada condición por separado (De Morgan: NOT(A OR B) =
+      // NOT A AND NOT B).
+      : sinJefes === true
+        ? [
+            ...idFilters,
+            {
+              NOT: {
+                OR: [
+                  { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
+                  { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+                ],
+              },
+            },
+          ]
       : idFilters),
   ]
 

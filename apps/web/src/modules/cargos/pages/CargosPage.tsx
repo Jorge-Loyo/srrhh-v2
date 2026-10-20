@@ -48,6 +48,7 @@ export function CargosPage() {
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
   const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
   const soloJefes     = searchParams.get('soloJefes') === 'true'
+  const sinJefes      = searchParams.get('sinJefes') === 'true'
   const page          = Number(searchParams.get('page') ?? '1')
 
   // S21: uniones (OR) de la cascada de catálogo — JSON en el param `grupos`.
@@ -98,6 +99,7 @@ export function CargosPage() {
     ...(estado      && { estado }),
     ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
     ...(soloJefes && { soloJefes: true }),
+    ...(sinJefes && { sinJefes: true }),
   }
 
   const { data, isLoading, isFetching, isError } = useCargos(filters)
@@ -306,7 +308,15 @@ export function CargosPage() {
           </select>
           <button
             type="button"
-            onClick={() => setParam('soloJefes', soloJefes ? '' : 'true')}
+            onClick={() => {
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                if (soloJefes) next.delete('soloJefes'); else next.set('soloJefes', 'true')
+                next.delete('sinJefes')
+                next.delete('page')
+                return next
+              })
+            }}
             className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
               soloJefes
                 ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
@@ -315,6 +325,26 @@ export function CargosPage() {
             title="Mostrar solo cargos de jefatura"
           >
             👔 Solo jefes
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                if (sinJefes) next.delete('sinJefes'); else next.set('sinJefes', 'true')
+                next.delete('soloJefes')
+                next.delete('page')
+                return next
+              })
+            }}
+            className={`h-10 px-3 rounded border text-sm font-semibold transition-colors ${
+              sinJefes
+                ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Mostrar todos los cargos excepto los de jefatura"
+          >
+            🚫👔 Sin jefes
           </button>
         </div>
 
@@ -344,6 +374,7 @@ export function CargosPage() {
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
           if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
           if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
+          if (sinJefes) chips.push({ label: 'Sin jefes', key: 'sinJefes' })
           if (chips.length === 0) return null
           return (
             <div className="flex flex-wrap gap-2">

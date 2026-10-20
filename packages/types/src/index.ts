@@ -1030,6 +1030,8 @@ export interface CargoFilters {
   ocupado?: boolean
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Inverso de soloJefes: todos los cargos que NO son de jefatura.
+  sinJefes?: boolean
   page?: number
   limit?: number
 }
