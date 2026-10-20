@@ -18,7 +18,9 @@ import {
   resolverEspecialidadPuestoId,
   especialidadSialReal,
   normPuestoKey,
+  type CatalogoPuestosCache,
 } from './resolverPuestoCargo.js'
+import { decidirEspecialidad } from './padron.especialidad.helpers.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import type { DiffQuery } from './padron.schema.js'
@@ -396,6 +398,12 @@ async function calcularDiff(registros: RegistroPython[]) {
         // la FK nunca llega a la persistencia aunque viaje en rows). El pipeline la
         // emite solo en snake_case, igual que los otros ids resueltos.
         cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
+        // Bug A: especialidad_puesto_id resuelto por el Dotaneitor (pipeline 9.7c).
+        // Se agrega al allowlist para que aprobarSnapshotService/aprobarDiffNuevoService/
+        // transferencia lo consuman vía datos.especialidad_puesto_id en vez de
+        // re-resolver la FK desde texto (doble resolución divergente). El pipeline
+        // lo emite solo en snake_case, igual que cargo_jefatura_puesto_id.
+        especialidad_puesto_id: strVal(r['especialidad_puesto_id']),
         jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
         documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
         comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
@@ -484,6 +492,18 @@ async function calcularDiff(registros: RegistroPython[]) {
       })
     }
 
+    // Bug A: marca si en esta fila se emitió algún cambio que RE-RESUELVE la FK
+    // de especialidad en el aprobar (especialidad / literal_puesto / cod. registro,
+    // en cualquiera de sus variantes 'completado:'). Solo entonces se emite el
+    // marcador __especialidad_puesto_id__ (para no generar ruido en filas sin
+    // cambios de especialidad). Patrón análogo a __reabrir_ocupacion__.
+    let reresuelveFkEspecialidad = false
+    const CAMPOS_RERESUELVEN_FK = new Set([
+      'especialidad',
+      'literal_puesto',
+      'codigo_de_registro',
+    ])
+
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
       // No comparar campos de ocupación si no hay ocupación vigente.
       if (tabla === 'ocupacion' && !ocupVigente) continue
@@ -540,7 +560,26 @@ async function calcularDiff(registros: RegistroPython[]) {
           valorAnterior: vAnterior || null,
           valorNuevo: vNueStr || null,
         })
+        // Bug A: este cambio dispara re-resolución de la FK en el aprobar.
+        if (CAMPOS_RERESUELVEN_FK.has(colPython)) reresuelveFkEspecialidad = true
       }
+    }
+
+    // Bug A: marcador que transporta el especialidad_puesto_id ya resuelto por
+    // el Dotaneitor hasta el paso 6 del aprobar (los diffs 'modificado' son
+    // por-campo y no llevan el registro completo). Solo se emite si hubo un
+    // cambio que re-resuelve la FK y el pipeline trajo un id no vacío. El
+    // aprobar lo lee aparte (no entra a CAMPOS_CARGO/CAMPOS_OCUPACION) y, si no
+    // valida, cae al fallback por texto — comportamiento actual intacto.
+    const espPuestoIdDota = strVal(r['especialidad_puesto_id'])
+    if (reresuelveFkEspecialidad && espPuestoIdDota) {
+      diffs.push({
+        tipo: 'modificado',
+        idSialRol,
+        campo: '__especialidad_puesto_id__',
+        valorAnterior: null,
+        valorNuevo: espPuestoIdDota || null,
+      })
     }
   }
 
@@ -1206,6 +1245,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       const and: Record<string, unknown>[] = [
         { campo: { not: { startsWith: 'completado:' } } },
         { campo: { not: '__reabrir_ocupacion__' } },
+        { campo: { not: '__especialidad_puesto_id__' } },
       ]
       if (query.campo) and.push({ campo: query.campo })
       campoWhere = { AND: and }
@@ -1361,6 +1401,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         AND: [
           { campo: { not: { startsWith: 'completado:' } } },
           { campo: { not: '__reabrir_ocupacion__' } },
+          { campo: { not: '__especialidad_puesto_id__' } },
         ],
       },
     }),
@@ -1547,6 +1588,45 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
 // `Persona.cuil` es VARCHAR(11) — el CUIL puro, sin el sufijo de rol.
 function cuilDe(datos: Record<string, string>): string | undefined {
   return datos.cuil_y_rol ? datos.cuil_y_rol.split('-')[0] : undefined
+}
+
+// Bug A: decide y devuelve el especialidad_puesto_id a asignar. Usa el id ya
+// resuelto por el Dotaneitor cuando viene y valida (existe + cuelga del puesto
+// resuelto por el backend); si no, cae al resolvedor por texto actual
+// (resolverEspecialidadPuestoId), que a su vez aplica "vacío = conservar"
+// devolviendo null cuando no hay especialidad real. NUNCA lanza; peor caso
+// devuelve null. `idSialLog` es solo para el warn de diagnóstico.
+async function especialidadPuestoIdFinal(
+  tx: Parameters<typeof resolverEspecialidadPuestoId>[0],
+  cache: CatalogoPuestosCache,
+  puestoCargoId: string,
+  idDotaneitor: string | null,
+  especialidadLegacy: string | null,
+  nombrePuesto: string | null,
+  idSialLog?: string | null,
+): Promise<string | null> {
+  const idDota = (idDotaneitor ?? '').trim() || null
+  const accion = decidirEspecialidad({
+    idDotaneitor: idDota,
+    puestoDelId: idDota ? cache.especialidadPuestoCargId.get(idDota) : undefined,
+    puestoDelCargo: puestoCargoId,
+    textoEspecialidadReal: especialidadSialReal(especialidadLegacy),
+  })
+  if (accion === 'usar-id' && idDota) return idDota
+  if (idDota && accion !== 'usar-id') {
+    // Vino un id del Dotaneitor pero no se pudo usar — se cae al fallback por
+    // texto. Se loguea a nivel warn (mismo estilo que los warn de auto-alta).
+    const motivo = cache.especialidadPuestoCargId.has(idDota)
+      ? 'cuelga de otro puesto'
+      : 'id inexistente en catálogo'
+    console.warn(
+      `[padron] especialidad_puesto_id del Dotaneitor no utilizable (${motivo}) — ` +
+        `id_sial=${idSialLog ?? '?'} id=${idDota} puestoCargo=${puestoCargoId}; fallback por texto`,
+    )
+  }
+  // 'fallback-texto' y 'conservar' se resuelven igual: el resolvedor por texto
+  // devuelve null cuando no hay especialidad real (y el caller conserva la FK).
+  return resolverEspecialidadPuestoId(tx, cache, puestoCargoId, especialidadLegacy, nombrePuesto)
 }
 
 export async function aprobarSnapshotService(id: string, usuarioId: string) {
@@ -1914,12 +1994,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           literalPuesto: datos.literal_puesto ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
-        const especialidadResuelta = await resolverEspecialidadPuestoId(
+        // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor
+        // (datos.especialidad_puesto_id del allowlist) si valida; si no, fallback
+        // por texto (resolución actual).
+        const especialidadResuelta = await especialidadPuestoIdFinal(
           tx,
           catalogoPuestos,
           puestoResuelto.id,
+          datos.especialidad_puesto_id ?? null,
           datos.especialidad ?? null,
           puestoResuelto.nombre,
+          datos.id_sial,
         )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
@@ -2334,6 +2419,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
 
       const ocupExistente = ocupacionExistenteMap.get(idSialRol)
+      // Bug A: id de especialidad ya resuelto por el Dotaneitor para esta fila
+      // (marcador __especialidad_puesto_id__). null si la fila no lo trae
+      // (sin cambio de especialidad/puesto/carrera, o snapshot viejo) -> el
+      // helper cae al fallback por texto (comportamiento actual).
+      const idDotaEsp = cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
         // Si cambió el código de registro, resolver el id de la relación
         // (normaliza el prefijo 'completado:' igual que el resto, DECISIÓN 1)
@@ -2390,12 +2480,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
                 literalPuesto: litNuevo,
                 unificadorPuesto: unifNuevo,
               })
-              const espId = await resolverEspecialidadPuestoId(
+              // Bug A: preferir el id del Dotaneitor si cuelga del puesto DESTINO;
+              // si no valida, cae al fallback por texto (resolución actual).
+              const espId = await especialidadPuestoIdFinal(
                 tx,
                 catalogoPuestos,
                 puesto.id,
+                idDotaEsp,
                 espNuevo,
                 puesto.nombre,
+                idSialRol,
               )
               const prefijoNuevo = prefijoDeCargo({
                 escalafon: escDestino.nombre,
@@ -2448,12 +2542,18 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
               const puestoInfo = [...catalogoPuestos.puestos.values()].find(
                 (p) => p.id === cargoActual.puestoCargoId,
               )
-              const espResuelta = await resolverEspecialidadPuestoId(
+              // Bug A: dentro de la guardia `if (espLegacyNueva)` (vacío = conservar
+              // intacto), preferir el id del Dotaneitor validado; si no, fallback
+              // por texto. Corrige el caso Sargenti (el id de cirugía plástica se
+              // usa en vez de re-resolver el texto a bioquímica) sin romper Vilariño.
+              const espResuelta = await especialidadPuestoIdFinal(
                 tx,
                 catalogoPuestos,
                 cargoActual.puestoCargoId,
+                idDotaEsp,
                 espLegacyNueva,
                 puestoInfo?.nombre ?? null,
+                idSialRol,
               )
               // Si resolvió a algo, actualizar la FK; si por lo que sea no
               // resolvió (null), NO pisar la especialidad vigente con null.
@@ -2509,12 +2609,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
                 const espSial = especialidadSialReal(
                   (updateCargo['especialidadLegacy'] as string | null) ?? null,
                 )
-                const espReResuelta = await resolverEspecialidadPuestoId(
+                // Bug A: preferir el id del Dotaneitor si cuelga del puesto NUEVO;
+                // si no valida, fallback por texto (resolución actual).
+                const espReResuelta = await especialidadPuestoIdFinal(
                   tx,
                   catalogoPuestos,
                   puestoReResuelto.id,
+                  idDotaEsp,
                   espSial,
                   puestoReResuelto.nombre,
+                  idSialRol,
                 )
                 // Si no resolvió (null), queda sin especialidad en el nuevo
                 // puesto — es correcto (no hay dónde reubicar la anterior).
@@ -2780,12 +2884,14 @@ export async function getCamposModificadosService(snapshotId: string) {
     where: {
       snapshotId,
       tipo: 'modificado',
-      // Excluir completados y el marcador __reabrir_ocupacion__ de las sub-tabs
-      // de Modificados (Prisma rechaza dos claves `campo` en el mismo objeto).
+      // Excluir completados y los marcadores __reabrir_ocupacion__ /
+      // __especialidad_puesto_id__ de las sub-tabs de Modificados (Prisma rechaza
+      // dos claves `campo` en el mismo objeto).
       AND: [
         { campo: { not: null } },
         { campo: { not: { startsWith: 'completado:' } } },
         { campo: { not: '__reabrir_ocupacion__' } },
+        { campo: { not: '__especialidad_puesto_id__' } },
       ],
     },
     _count: { campo: true },
@@ -3398,12 +3504,15 @@ export async function aprobarDiffNuevoService(
         literalPuesto: datos.literal_puesto ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
-      const especialidadResuelta = await resolverEspecialidadPuestoId(
+      // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor si valida.
+      const especialidadResuelta = await especialidadPuestoIdFinal(
         tx,
         catalogoPuestos,
         puestoResuelto.id,
+        datos.especialidad_puesto_id ?? null,
         datos.especialidad ?? null,
         puestoResuelto.nombre,
+        datos.id_sial,
       )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
@@ -3578,12 +3687,15 @@ export async function marcarTransferenciaService(
       unificadorPuesto: datos.unificador_de_puestos ?? null,
     },
   )
-  const especialidadResueltaTransferencia = await resolverEspecialidadPuestoId(
+  // Bug A: transferencia — preferir el especialidad_puesto_id del Dotaneitor si valida.
+  const especialidadResueltaTransferencia = await especialidadPuestoIdFinal(
     prisma,
     catalogoPuestosTransferencia,
     puestoResueltoTransferencia.id,
+    datos.especialidad_puesto_id ?? null,
     datos.especialidad ?? null,
     puestoResueltoTransferencia.nombre,
+    datos.id_sial,
   )
 
   // Crear SolicitudAlta como transferencia aprobada directamente
@@ -3709,12 +3821,15 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
         literalPuesto: datos.literal_puesto ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
-      const especialidadResuelta = await resolverEspecialidadPuestoId(
+      // Bug A: alta (rechazado sin código) — preferir el id del Dotaneitor si valida.
+      const especialidadResuelta = await especialidadPuestoIdFinal(
         tx,
         catalogoPuestos,
         puestoResuelto.id,
+        datos.especialidad_puesto_id ?? null,
         datos.especialidad ?? null,
         puestoResuelto.nombre,
+        datos.id_sial,
       )
       cargo = (await tx.cargo.create({
         data: {

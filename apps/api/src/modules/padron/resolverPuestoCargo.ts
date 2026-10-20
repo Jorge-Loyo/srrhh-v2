@@ -16,8 +16,20 @@ import type { ModalidadPuesto, TipoPuesto } from '@prisma/client'
 
 type TxCatalogo = {
   puestoCargo: {
-    findMany: (args: unknown) => Promise<{ id: string; escalafonId: string; nombre: string; modalidad: ModalidadPuesto; tipoPuesto: TipoPuesto }[]>
-    create: (args: unknown) => Promise<{ id: string; nombre: string; modalidad: ModalidadPuesto; tipoPuesto: TipoPuesto }>
+    findMany: (
+      args: unknown,
+    ) => Promise<
+      {
+        id: string
+        escalafonId: string
+        nombre: string
+        modalidad: ModalidadPuesto
+        tipoPuesto: TipoPuesto
+      }[]
+    >
+    create: (
+      args: unknown,
+    ) => Promise<{ id: string; nombre: string; modalidad: ModalidadPuesto; tipoPuesto: TipoPuesto }>
   }
   especialidadPuesto: {
     findMany: (args: unknown) => Promise<{ id: string; puestoCargId: string; nombre: string }[]>
@@ -58,7 +70,11 @@ function modalidadDeUnificador(
 // (ej. "medico de planta" POF y POU del mismo escalafón: uno pisaba al otro en
 // el Map, ~150 casos en el catálogo). Así el import resolvía cargos a la
 // modalidad equivocada. Ver búsqueda con fallback a 'ambos' en resolverPuestoCargoId.
-function clavePuesto(escalafonId: string, modalidad: ModalidadPuesto | 'ambos', nombre: string | null | undefined): string {
+function clavePuesto(
+  escalafonId: string,
+  modalidad: ModalidadPuesto | 'ambos',
+  nombre: string | null | undefined,
+): string {
   return `${escalafonId}:${modalidad}:${normPuestoKey(nombre)}`
 }
 
@@ -77,6 +93,10 @@ export interface CatalogoPuestosCache {
   // (resolverEspecialidadDesdobladaId) sin una query extra. NO reemplaza
   // `especialidades` (que usa normPuestoKey, distinto de norm_esp).
   especialidadesPorPuesto: Map<string, { id: string; nombre: string }[]>
+  // Bug A: índice para validar en O(1) un especialidad_puesto_id que ya resolvió
+  // el Dotaneitor: especialidadPuestoId -> puestoCargoId del que cuelga. Permite
+  // comprobar "existe + cuelga del puesto correcto" sin query por fila.
+  especialidadPuestoCargId: Map<string, string>
 }
 
 // Carga el catálogo completo una sola vez — cardinalidad chica (cientos de
@@ -95,17 +115,31 @@ export async function cargarCatalogoPuestos(tx: TxCatalogo): Promise<CatalogoPue
   for (const p of puestos) {
     // Clave con modalidad REAL del puesto ('pof' | 'pou' | 'ambos') — así los
     // homónimos de distinta modalidad conviven en el Map sin pisarse.
-    puestosMap.set(clavePuesto(p.escalafonId, p.modalidad, p.nombre), { id: p.id, nombre: p.nombre, modalidad: p.modalidad, tipoPuesto: p.tipoPuesto })
+    puestosMap.set(clavePuesto(p.escalafonId, p.modalidad, p.nombre), {
+      id: p.id,
+      nombre: p.nombre,
+      modalidad: p.modalidad,
+      tipoPuesto: p.tipoPuesto,
+    })
   }
   const especialidadesMap = new Map<string, string>()
+  // Fix desdoblado 24/07: nombre crudo por puesto para el alta 1:1.
   const especialidadesPorPuesto = new Map<string, { id: string; nombre: string }[]>()
+  // Bug A: índice id -> puestoCargId poblado en el MISMO recorrido (sin query extra).
+  const especialidadPuestoCargIdMap = new Map<string, string>()
   for (const e of especialidades) {
     especialidadesMap.set(`${e.puestoCargId}:${normPuestoKey(e.nombre)}`, e.id)
     const lista = especialidadesPorPuesto.get(e.puestoCargId) ?? []
     lista.push({ id: e.id, nombre: e.nombre })
     especialidadesPorPuesto.set(e.puestoCargId, lista)
+    especialidadPuestoCargIdMap.set(e.id, e.puestoCargId)
   }
-  return { puestos: puestosMap, especialidades: especialidadesMap, especialidadesPorPuesto }
+  return {
+    puestos: puestosMap,
+    especialidades: especialidadesMap,
+    especialidadesPorPuesto,
+    especialidadPuestoCargId: especialidadPuestoCargIdMap,
+  }
 }
 
 // Placeholder para filas del padrón con literal_puesto vacío (caso borde no
@@ -173,8 +207,15 @@ export async function resolverPuestoCargoId(
     },
     select: { id: true, nombre: true, modalidad: true, tipoPuesto: true },
   })
-  console.warn(`[padron] Puesto sin match en catálogo: "${literal}" (escalafón ${params.escalafonId}, modalidad ${modalidad}) — PuestoCargo creado (curado="${nombreCurado}") con pendienteCurar=true`)
-  const info: PuestoCargoInfo = { id: creado.id, nombre: creado.nombre, modalidad: creado.modalidad, tipoPuesto: creado.tipoPuesto }
+  console.warn(
+    `[padron] Puesto sin match en catálogo: "${literal}" (escalafón ${params.escalafonId}, modalidad ${modalidad}) — PuestoCargo creado (curado="${nombreCurado}") con pendienteCurar=true`,
+  )
+  const info: PuestoCargoInfo = {
+    id: creado.id,
+    nombre: creado.nombre,
+    modalidad: creado.modalidad,
+    tipoPuesto: creado.tipoPuesto,
+  }
   cache.puestos.set(clavePuesto(params.escalafonId, creado.modalidad, creado.nombre), info)
   return info
 }
@@ -213,13 +254,13 @@ export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
   'psicologia infantil': 'psicologia',
   'psicologia clinica infanto juvenil': 'psicologia',
   'psicologia infanto juvenil': 'psicologia',
-  'psicologo': 'psicologia',
+  psicologo: 'psicologia',
   // Variantes de nombre (profesión vs sustantivo / formato) que YA existen en el
   // catálogo con otro nombre — mapear para no crear duplicados import a import.
-  'antropologia': 'antropologo',
-  'biologia': 'biologo',
+  antropologia: 'antropologo',
+  biologia: 'biologo',
   'cirugia toraxica': 'cirugia toracica',
-  'estomatologia': 'clinica estomatologica',
+  estomatologia: 'clinica estomatologica',
   'interdisciplinaria cuidados paliativos': 'interdisciplinaria cuidados paliativos medicos',
   'bioquimica clinica (area inmunologia)': 'bioquimica clinica-area inmunologia',
   'bioquimica clinica (endocrinologia)': 'bioquimica clinica-area endocrinologia',
@@ -229,7 +270,7 @@ export const EQUIVALENCIAS_ESPECIALIDAD: Record<string, string> = {
   // Fusión obstétrica (decisión de negocio, oct-2026): "obstetrica" (la
   // profesional) y "obstetricia" (la disciplina) son la misma especialidad en
   // los puestos de obstétrica. Se unifican a "obstetricia" para no duplicarla.
-  'obstetrica': 'obstetricia',
+  obstetrica: 'obstetricia',
 }
 
 // Aplica el mapeo de fusión sobre un nombre ya normalizado (minúscula sin
@@ -295,5 +336,8 @@ export async function resolverEspecialidadPuestoId(
     select: { id: true },
   })
   cache.especialidades.set(key, creada.id)
+  // Bug A: mantener el índice id -> puestoCargId coherente dentro de la corrida,
+  // para que una especialidad recién auto-creada también valide por id.
+  cache.especialidadPuestoCargId.set(creada.id, puestoCargoId)
   return creada.id
 }
