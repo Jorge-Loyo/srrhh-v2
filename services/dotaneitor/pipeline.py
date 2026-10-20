@@ -155,7 +155,7 @@ _ORDEN_SALIDA = [
 ]
 
 
-def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) -> tuple[pd.DataFrame, dict]:
+def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None, consolidador=None) -> tuple[pd.DataFrame, dict]:
     """Procesamiento de negocio lineal (S22-2). Reutiliza los métodos probados de
     `auto` (DotacionAutomation) para no reinventar el negocio, pero controla el
     flujo y OMITE unificador/agrupador/estado. `auto` ya debe tener siglas_df
@@ -270,6 +270,10 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
     # normalizar. Sin match → auto-alta pendiente_curar (dentro de Catalogo).
     jcat_sin_mapeo = 0
     jcat_sin_fk = 0
+    # Contadores de la cascada de especialidad vacia (paso 2/3), analogos a jcat_sin_fk.
+    esp_completada_por_rol = 0
+    esp_completada_por_cuil = 0
+    esp_vacia_tras_cascada = 0
     if catalogo is not None:
         df['literal_puesto_origen'] = df.get('literal_puesto')
         df['especialidad_origen'] = df.get('especialidad')
@@ -285,10 +289,12 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
 
         escalafon_ids, puesto_ids, especialidad_ids = [], [], []
         especialidades_resueltas = []
-        for cod_reg, lit_puesto, esp in zip(
+        for cod_reg, lit_puesto, esp, cuil_y_rol_fila, cuil_fila in zip(
             df.get('codigo_de_registro', pd.Series([None] * len(df))),
             df.get('literal_puesto', pd.Series([None] * len(df))),
             df.get('especialidad', pd.Series([None] * len(df))),
+            df.get('cuil_y_rol', pd.Series([None] * len(df))),
+            df.get('cuil', pd.Series([None] * len(df))),
         ):
             esc_id = catalogo.resolver_escalafon(cod_reg)
             pue_id = catalogo.resolver_puesto(esc_id, lit_puesto)
@@ -299,7 +305,27 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
             esp_vacia = esp is None or (isinstance(esp, float) and pd.isna(esp)) or str(esp).strip() == ''
             esp_val = esp
             if esp_vacia:
+                # DESVIACION DECLARADA (diseño §1.1 / H4): la derivación por puesto es una regla
+                # PREVIA que SOLO aplica a NO médicos (para médicos/conducción/comodín devuelve
+                # None). Por eso, para un médico con especialidad vacía (el caso del cruce), la
+                # derivación no aporta nada y el orden efectivo es exactamente la cascada 2→3→4.
                 esp_val = derivar_especialidad_desde_puesto(lit_puesto)
+                # Paso 2: histórico del MISMO rol (última especialidad conocida de ese cuil_y_rol).
+                # Paso 3: comparativo POR CUIL no ambiguo. Se corta en el primer acierto. Si el
+                # consolidador no fue provisto, la cascada se omite (comportamiento actual).
+                if esp_val is None and consolidador is not None:
+                    esp_rol = consolidador.buscar_especialidad_por_rol(cuil_y_rol_fila, cod_reg)
+                    if esp_rol is not None:
+                        esp_val = esp_rol
+                        esp_completada_por_rol += 1
+                    else:
+                        esp_cuil = consolidador.buscar_especialidad(cuil_fila, cod_reg)
+                        if esp_cuil is not None:
+                            esp_val = esp_cuil
+                            esp_completada_por_cuil += 1
+                        else:
+                            # Paso 4: nada resolvió -> queda vacía (principio rector).
+                            esp_vacia_tras_cascada += 1
             esp_id = catalogo.resolver_especialidad(pue_id, esp_val)
             escalafon_ids.append(esc_id)
             puesto_ids.append(pue_id)
@@ -348,6 +374,14 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         if jcat_sin_fk:
             logs.append({'text': f"[!] JCAT con jefatura pero sin FK a puesto de conducción (puesto no en catálogo): {jcat_sin_fk}", 'type': 'warning'})
 
+        # Resumen de la cascada de especialidad vacía (paso 2/3/4).
+        logs.append({
+            'text': f"✓ Cascada especialidad vacía — completadas por rol: {esp_completada_por_rol}, "
+                    f"por CUIL no ambiguo: {esp_completada_por_cuil}, "
+                    f"siguen vacías tras cascada: {esp_vacia_tras_cascada}",
+            'type': 'info',
+        })
+
     # ── Paso 9.75: normalización TOTAL a minúscula + sin tilde (S22-3) ────────
     # Reemplaza _forzar_mayusculas. Aplica a TODAS las columnas salvo las
     # identificadoras (siglas). No se filtra por dtype: pandas puede cargar
@@ -386,6 +420,9 @@ def _procesar_lineal(df: pd.DataFrame, auto, logs: list[dict], catalogo=None) ->
         'especialidades_auto_alta': catalogo.especialidades_auto_alta if catalogo else 0,
         'jcat_sin_mapeo': jcat_sin_mapeo,
         'jcat_sin_fk': jcat_sin_fk,
+        'esp_completada_por_rol': esp_completada_por_rol,
+        'esp_completada_por_cuil': esp_completada_por_cuil,
+        'esp_vacia_tras_cascada': esp_vacia_tras_cascada,
     }
 
     # Logs resumen
@@ -446,6 +483,7 @@ def procesar_padron(
     automation_factory=None,
     normalizador_factory=None,
     catalogo=None,
+    consolidador=None,
 ) -> ResultadoPipeline:
     """Pipeline lineal de punta a punta sobre el Excel de Cargos."""
     logs: list[dict] = []
@@ -473,6 +511,23 @@ def procesar_padron(
     except Exception as e:  # noqa: BLE001
         return ResultadoPipeline(False, f'Error al leer el Excel de Cargos: {e}')
 
+    # ── Validación de formato: columnas crudas que el pipeline necesita ───────
+    # Si el usuario sube un archivo con otra estructura (ej. no es el export del
+    # SIAL), falta alguna de estas columnas y el procesamiento revienta más
+    # adelante con un KeyError críptico (ej. 'COD_REG'). Se detecta acá temprano
+    # y se devuelve un mensaje claro y accionable para el usuario.
+    COLUMNAS_REQUERIDAS = ['CARGO', 'CUIL', 'COD_REG', 'LIT_COD_REG', 'SIGLA', 'LIT_PUESTO']
+    faltantes = [c for c in COLUMNAS_REQUERIDAS if c not in df_crudo.columns]
+    if faltantes:
+        return ResultadoPipeline(
+            False,
+            'El archivo no tiene el formato esperado del padrón: '
+            f'faltan las columnas {", ".join(faltantes)}. '
+            'Verificá que estés subiendo el export correcto del SIAL '
+            '(con las columnas CARGO, CUIL, COD_REG, SIGLA, LIT_PUESTO, etc.).',
+            logs=logs,
+        )
+
     df_norm = norm.normalizar(df_crudo)
     logs.append({'text': '✓ Normalización completada', 'type': 'success'})
     for linea in norm.generar_lineas_reporte():
@@ -494,7 +549,7 @@ def procesar_padron(
 
     # ── 3. Procesamiento lineal propio (S22-2/3) ──────────────────────────────
     try:
-        df_out, reporte = _procesar_lineal(auto.cargos_df, auto, logs, catalogo=catalogo)
+        df_out, reporte = _procesar_lineal(auto.cargos_df, auto, logs, catalogo=catalogo, consolidador=consolidador)
     except Exception as e:  # noqa: BLE001
         import traceback
         return ResultadoPipeline(False, f'Error en procesamiento: {e}\n{traceback.format_exc()}', logs=logs)

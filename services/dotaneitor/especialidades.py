@@ -2,11 +2,16 @@
 Cruce de ESPECIALIDAD por CUIL entre Cargos_Salud y la base de Especialidades (hojas
 ESPECIALIDADES CPH / SUPLENTES / RESIDENTES de ARCHIVOS PARA DOTACION.xlsx).
 
-Reglas acordadas con el usuario:
-- El cruce es por CUIL solamente (no por Cuil y Rol), aceptando que una persona con varios
-  cargos puede tener mas de una especialidad real y en ese caso se elige una sola (ver
-  _resolver_especialidad_unica). Esto es una limitacion conocida, no un bug: se completa a mano
-  mas adelante.
+Reglas acordadas con el usuario (cascada de completado de especialidad vacia):
+- (1) Si el padron trae especialidad no vacia, esa manda (tras normalizar).
+- (2) Si viene vacia, se completa con la ULTIMA especialidad conocida del MISMO rol/cargo
+  (cuil_y_rol) en padrones anteriores -> buscar_especialidad_por_rol. NUNCA la de otro rol.
+- (3) Si ese rol nunca tuvo especialidad, se consulta el comparativo POR CUIL
+  (buscar_especialidad) SOLO si es NO AMBIGUO (una unica especialidad real para ese CUIL); si
+  hay varias distintas -> vacio (_resolver_especialidad_unica devuelve None ante ambiguedad).
+- (4) Si nada resuelve -> vacio.
+  Principio rector: entre vacio y una especialidad que no corresponde, se prefiere vacio. El
+  cruce POR CUIL ya NO colapsa a la mas frecuente (eso heredaba la especialidad de otro rol).
 - Que Codigo de Registro (COD_REG) usa cada hoja:
     37 (Nueva Carrera Prof. Hosp) -> ESPECIALIDADES CPH
     23 (Salud - Guardias)         -> ESPECIALIDADES SUPLENTES
@@ -46,17 +51,36 @@ def normalizar_texto_especialidad(valor):
 
 
 def _resolver_especialidad_unica(valores):
-    """Si una misma persona (CUIL) tiene mas de un valor de especialidad distinto entre sus
-    distintos cargos, se elige uno solo: se descarta 'SIN ESPECIALIDAD' si hay una especialidad
-    real disponible, y si quedan varias reales distintas se toma la mas frecuente (empate: la
-    primera que aparece)."""
+    """Devuelve la UNICA especialidad real del grupo, o None si hay AMBIGUEDAD (mas de una
+    especialidad real distinta). Principio rector del usuario: entre vacio y una especialidad
+    ajena, se prefiere vacio. 'SIN ESPECIALIDAD' se descarta primero; si tras descartarlo queda
+    exactamente una real -> esa; si quedan >=2 reales distintas -> None (ya NO se elige la mas
+    frecuente, para no heredar la especialidad de otro rol de la persona).
+
+    USO: solo el lookup POR CUIL (paso 3 de la cascada). El lookup POR ROL NO usa esta funcion
+    (ver ConsolidadorEspecialidadesBD.cargar / buscar_especialidad_por_rol)."""
     valores = [v for v in valores if pd.notna(v)]
     if not valores:
         return None
     reales = [v for v in valores if v != SIN_ESPECIALIDAD]
-    candidatos = reales if reales else valores
-    conteo = pd.Series(candidatos).value_counts()
-    return conteo.index[0]
+    # Si no hay ninguna real (todas 'SIN ESPECIALIDAD'), el conjunto es {SIN_ESPECIALIDAD} y se
+    # devuelve ese placeholder, que buscar_especialidad ya trata como None (vacio).
+    distintas = set(reales) if reales else set(valores)
+    if len(distintas) == 1:
+        return next(iter(distintas))
+    return None   # ambiguo -> vacio (antes: la mas frecuente)
+
+
+def _clave_rol(cuil_y_rol):
+    """Canonicaliza 'Cuil y Rol' a '{cuil sin guiones}-{rol}'. El ultimo guion separa el rol;
+    los guiones del tramo CUIL se quitan. Robusto aun si algun origen trajera el CUIL con guiones
+    o espacios al frente. Ambos lados del join (ref_especialidades_cuil y el pipeline) producen el
+    mismo formato; esto solo garantiza la limpieza (trim + guiones)."""
+    s = str(cuil_y_rol).strip()
+    if '-' not in s:
+        return s
+    cuil_part, _, rol_part = s.rpartition('-')
+    return cuil_part.replace('-', '') + '-' + rol_part.strip()
 
 
 class ConsolidadorEspecialidades:
@@ -64,7 +88,11 @@ class ConsolidadorEspecialidades:
     buscar_especialidad(cuil, cod_reg) para usar durante el armado de la Dotacion."""
 
     def __init__(self):
-        self.lookups = {}  # cod_reg (str) -> dict CUIL -> especialidad
+        self.lookups = {}  # cod_reg (str) -> dict CUIL -> especialidad (paso 3: por CUIL)
+        # Paso 2 de la cascada: lookup POR ROL (cuil_y_rol normalizado -> ultima especialidad
+        # conocida de ESE rol). Se inicializa aca para que las instancias creadas por __new__
+        # en los tests tengan el atributo, igual que self.lookups.
+        self.lookups_por_rol = {}  # cod_reg (str) -> dict CUIL_Y_ROL_NORM -> especialidad
         self.reporte = {}
 
     def cargar(self, ruta_archivo):
@@ -107,8 +135,11 @@ class ConsolidadorEspecialidades:
             }
 
     def buscar_especialidad(self, cuil, cod_reg):
-        """Devuelve la especialidad para un CUIL segun su Codigo de Registro, o None si el
-        Codigo de Registro no tiene base asociada o el CUIL no esta mapeado."""
+        """Paso 3 de la cascada (comparativo POR CUIL). Devuelve la especialidad para un CUIL
+        segun su Codigo de Registro, o None si el Codigo de Registro no tiene base asociada, el
+        CUIL no esta mapeado, o el CUIL es AMBIGUO (varias especialidades reales distintas). La
+        regla de ambiguedad -> None la aporta automaticamente _resolver_especialidad_unica, que
+        es con lo que se construyo el lookup; no hace falta logica extra aca."""
         if cuil is None or pd.isna(cuil):
             return None
         cod_reg = str(cod_reg).strip() if cod_reg is not None and pd.notna(cod_reg) else None
@@ -120,6 +151,23 @@ class ConsolidadorEspecialidades:
             return None
         return especialidad
 
+    def buscar_especialidad_por_rol(self, cuil_y_rol, cod_reg):
+        """Paso 2 de la cascada (historico del MISMO rol). Devuelve la ULTIMA especialidad
+        conocida de ese cuil_y_rol en su Codigo de Registro, o None si no esta, si el cod_reg no
+        tiene base, o si el valor es SIN_ESPECIALIDAD. NO usa _resolver_especialidad_unica: dentro
+        de un mismo rol no debe anularse por ambiguedad (eso borraria la especialidad del rol);
+        se usa la ultima conocida, que es exactamente lo que pidio el usuario."""
+        if cuil_y_rol is None or (isinstance(cuil_y_rol, float) and pd.isna(cuil_y_rol)):
+            return None
+        cod_reg = str(cod_reg).strip() if cod_reg is not None and pd.notna(cod_reg) else None
+        lookup = self.lookups_por_rol.get(cod_reg)
+        if lookup is None:
+            return None
+        especialidad = lookup.get(_clave_rol(cuil_y_rol))
+        if especialidad is None or especialidad == SIN_ESPECIALIDAD:
+            return None
+        return especialidad
+
     def generar_lineas_reporte(self):
         lineas = []
         for hoja, datos in self.reporte.items():
@@ -127,7 +175,7 @@ class ConsolidadorEspecialidades:
                 f"{hoja}: {datos['cuiles']} CUILes cargados "
                 f"({datos['filas_duplicadas_removidas']} filas duplicadas removidas, "
                 f"{datos['cuiles_con_varias_especialidades']} CUILes con mas de una especialidad "
-                f"distinta entre sus cargos, se eligio una sola)"
+                f"distinta entre sus cargos, quedan sin resolver por CUIL = ambiguos -> vacio)"
             )
         return lineas
 

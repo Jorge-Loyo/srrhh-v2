@@ -1,8 +1,78 @@
+import { Prisma } from '@prisma/client'
+import pino from 'pino'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
+
+const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+
+// ─── Helper: resolver dinámicamente el slug del rol que resuelve ─────────────
+// En vez de hardcodear el slug (que en producción lleva hash, p.ej.
+// 'sgrasv_5ac494e'), se resuelve el rol que tiene asignado un permiso concreto
+// vía role_permisos → permisos. Única fuente de verdad: la matriz de permisos.
+
+type ResultadoSlugOk = { ok: true; slug: string }
+type ResultadoSlugFallo = { ok: false; motivo: 'ninguno' | 'ambiguo'; slugs: string[] }
+type ResultadoSlug = ResultadoSlugOk | ResultadoSlugFallo
+
+// Función pura (testeable sin Prisma): aplica la regla de cardinalidad.
+// NO ordena; en el caso ambiguo preserva el orden de entrada (el orden
+// determinista lo garantiza el orderBy de la query en resolverSlugPorPermiso).
+export function elegirSlugResolutor(roles: { slug: string }[]): ResultadoSlug {
+  if (roles.length === 0) return { ok: false, motivo: 'ninguno', slugs: [] }
+  if (roles.length > 1) return { ok: false, motivo: 'ambiguo', slugs: roles.map((r) => r.slug) }
+  return { ok: true, slug: roles[0]!.slug }
+}
+
+// Acceso a datos: busca los roles activos que tienen el permiso (modulo, accion)
+// con el client transaccional tx, decide con elegirSlugResolutor, y traduce el
+// fallo a un AppError.conflict (409) + logger.warn con contexto (el error
+// handler NO loguea AppError, así que se loguea acá explícitamente).
+export async function resolverSlugPorPermiso(
+  tx: Prisma.TransactionClient,
+  modulo: string,
+  accion: string,
+): Promise<string> {
+  const roles = await tx.role.findMany({
+    where: {
+      activo: true,
+      permisos: { some: { permiso: { modulo, accion } } },
+    },
+    select: { slug: true },
+    orderBy: { slug: 'asc' },
+  })
+
+  const r = elegirSlugResolutor(roles)
+
+  if (!r.ok) {
+    // Con `strict: false` (tsconfig del repo) TS no estrecha uniones discriminadas
+    // por el booleano `ok`; se referencia la variante de fallo explícitamente.
+    const fallo = r as ResultadoSlugFallo
+    if (fallo.motivo === 'ninguno') {
+      logger.warn({ modulo, accion }, 'resolverSlugPorPermiso: ningún rol con el permiso')
+      throw AppError.conflict(
+        `No hay un rol configurado para resolver esta autorización ` +
+          `(permiso ${modulo}.${accion}). Revisá la matriz de permisos.`,
+      )
+    }
+
+    // Los slugs (nombres internos de roles, con hash) quedan SOLO en el log del
+    // servidor; el 409 al cliente NO los expone.
+    logger.warn(
+      { modulo, accion, slugs: fallo.slugs },
+      'resolverSlugPorPermiso: más de un rol con el permiso',
+    )
+    throw AppError.conflict(
+      `Hay más de un rol con permiso ${modulo}.${accion}; no se puede determinar el ` +
+        `resolutor de forma unívoca. Dejá el permiso en un solo rol. ` +
+        `(Revisá los logs del servidor para ver los roles en conflicto.)`,
+    )
+  }
+
+  return (r as ResultadoSlugOk).slug
+}
 
 // ─── Helper: crear una autorización ─────────────────────────────────────────
 // Se llama desde otros services (CPH, solicitudes-alta) dentro de su propia tx.
@@ -194,20 +264,27 @@ async function _aprobarCph(
         data:  { aprobadoDirector: true },
       })
 
+      // Resolver dinámicamente el rol que debe resolver la 2ª autorización:
+      // el rol con permiso autorizaciones.resolver_sgrasv (slug real, con hash).
+      // Se resuelve con el mismo tx (consistencia transaccional) y antes de
+      // crear la fila/notificación, para que el caso 0/>1 lance y haga rollback
+      // sin dejar la aprobación del director a medias.
+      const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
+
       // Segunda autorización en cadena para sgrasv
       const autSgrasv = await tx.autorizacion.create({
         data: {
           tipo:               'concurso_cph',
           referenciaId:       aut.referenciaId,
           referenciaTipo:     'concurso_cph',
-          resolverPorRolSlug: 'sgrasv',
+          resolverPorRolSlug: slugSgrasv,
           solicitadoPorId:    aut.solicitadoPorId,
         },
       })
 
       await crearNotificacion({
         tipo:      'autorizacion_pendiente',
-        rolSlug:   'sgrasv',
+        rolSlug:   slugSgrasv,
         titulo:    'Nueva autorización pendiente',
         mensaje:   'Hay una autorización de concurso CPH esperando tu resolución (segunda etapa).',
         origenTipo: 'autorizacion',

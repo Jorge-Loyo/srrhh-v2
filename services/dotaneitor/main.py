@@ -258,9 +258,14 @@ class ConsolidadorEspecialidadesBD(ConsolidadorEspecialidades):
     TIPO_A_COD_REG = {'cph': '37', 'suplentes': '23', 'residentes': '24'}
 
     def cargar(self, _ruta_ignorada=None):
-        from especialidades import _resolver_especialidad_unica, normalizar_texto_especialidad
+        from especialidades import (
+            _resolver_especialidad_unica,
+            _clave_rol,
+            normalizar_texto_especialidad,
+        )
 
         self.lookups = {}
+        self.lookups_por_rol = {}
         self.reporte = {}
 
         with _engine.connect() as conn:
@@ -273,6 +278,8 @@ class ConsolidadorEspecialidadesBD(ConsolidadorEspecialidades):
             """), conn)
 
         if df_all.empty:
+            # Tabla vacia -> lookups vacios -> la cascada 2/3 degrada a vacio/derivacion sin
+            # romper (comportamiento tolerante documentado en el diseno §1.6).
             return
 
         df_all['ESPECIALIDAD UNIF.'] = df_all['ESPECIALIDAD UNIF.'].apply(normalizar_texto_especialidad)
@@ -280,22 +287,43 @@ class ConsolidadorEspecialidadesBD(ConsolidadorEspecialidades):
 
         for tipo, cod_reg in self.TIPO_A_COD_REG.items():
             sub = df_all[df_all['tipo'] == tipo].copy()
+            # Clave canonica compartida con el pipeline: dedup y groupby usan SIEMPRE esta misma
+            # clave normalizada (no la columna cruda 'Cuil y Rol'), para que ambos lookups queden
+            # alineados y una fila no se duplique/pierda por diferencias de formato.
+            sub['CUIL_Y_ROL_NORM'] = sub['Cuil y Rol'].map(_clave_rol)
             filas_antes = len(sub)
-            sub = sub.drop_duplicates(subset='Cuil y Rol', keep='last')
-            lookup = sub.groupby('CUIL')['ESPECIALIDAD UNIF.'].apply(
+
+            # ── Lookup POR CUIL (paso 3): ambiguedad -> None ──────────────────────────────
+            # Una fila por rol (keep='last' = la ultima conocida), luego colapsa por CUIL con
+            # _resolver_especialidad_unica (devuelve None si el CUIL tiene varias reales).
+            sub_cuil = sub.drop_duplicates(subset='CUIL_Y_ROL_NORM', keep='last')
+            lookup = sub_cuil.groupby('CUIL')['ESPECIALIDAD UNIF.'].apply(
                 _resolver_especialidad_unica
             ).to_dict()
             self.lookups[cod_reg] = lookup
-            ambiguos = sub.groupby('CUIL')['ESPECIALIDAD UNIF.'].nunique()
+
+            # ── Lookup POR ROL (paso 2): ULTIMA conocida, NO _resolver_especialidad_unica ──
+            # keep='last' deja la ultima fila por rol = la ultima especialidad conocida de ESE
+            # rol. No se colapsa por persona ni se anula por ambiguedad.
+            por_rol = sub.drop_duplicates(subset='CUIL_Y_ROL_NORM', keep='last')
+            self.lookups_por_rol[cod_reg] = dict(
+                zip(por_rol['CUIL_Y_ROL_NORM'], por_rol['ESPECIALIDAD UNIF.'])
+            )
+
+            ambiguos = sub_cuil.groupby('CUIL')['ESPECIALIDAD UNIF.'].nunique()
             self.reporte[f'ESPECIALIDADES {tipo.upper()}'] = {
                 'cuiles': len(lookup),
-                'filas_duplicadas_removidas': filas_antes - len(sub),
+                'filas_duplicadas_removidas': filas_antes - len(sub_cuil),
                 'cuiles_con_varias_especialidades': int((ambiguos > 1).sum()),
             }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _cruzar_especialidades(automation: DotacionAutomationBD) -> list[str]:
+    # LEGACY: flujo viejo /procesar+/cruzar (no es el camino activo; el activo es pipeline.py por
+    # job). Comparte _resolver_especialidad_unica, que ahora devuelve vacío ante ambigüedad, así
+    # que ya NO hereda por frecuencia la especialidad de otro rol. No se porta la cascada POR ROL
+    # a este flujo a propósito (legacy); solo se completa por CUIL no ambiguo.
     logs = []
 
     consolidador = ConsolidadorEspecialidadesBD()
@@ -703,8 +731,15 @@ def _run_padron(job_id: str, file_path: str, snapshot_id: str | None):
         # Catálogo fresco por job: ve las auto-altas de corridas previas y
         # arranca los contadores de este job en 0.
         catalogo = Catalogo(_engine)
+        # Consolidador de especialidades (ref_especialidades_cuil): provee la cascada de
+        # completado de especialidad vacía por ROL/CUIL en pipeline 9.7c. Se carga una vez por
+        # job (una query, igual que el Catálogo). Si la tabla está vacía, la cascada degrada a
+        # vacío/derivación sin romper.
+        consolidador = ConsolidadorEspecialidadesBD()
+        consolidador.cargar()
         resultado = _run_pipeline(
-            file_path, automation_factory=DotacionAutomationBD, catalogo=catalogo
+            file_path, automation_factory=DotacionAutomationBD, catalogo=catalogo,
+            consolidador=consolidador,
         )
         if not resultado.ok:
             # Caso de negocio ok=False → error del job (Decisión 5). str() del
