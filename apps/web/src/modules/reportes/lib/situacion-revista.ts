@@ -79,6 +79,48 @@ export function ordenarSituaciones(situaciones: readonly string[]): string[] {
   })
 }
 
+// ─── Color por CARRERA (código de registro) ─────────────────────────────────
+// Para que cada tarjeta de "Evolución de dotación" tenga un color propio en su
+// línea total, se asigna un color estable por código de registro. Los códigos
+// conocidos tienen un color fijo; cualquier otro cae en la paleta de reserva
+// por hash estable del código (no cambia entre cargas).
+const COLOR_CARRERA: Record<string, EstiloSerie> = {
+  '37': { color: '#0F3D6B', colorLight: '#DBEAFE' }, // CPH — azul oscuro
+  '22': { color: '#2563EB', colorLight: '#DBEAFE' }, // CPH (código secundario) — azul
+  '87': { color: '#BE185D', colorLight: '#FCE7F3' }, // Enfermería — magenta
+  '83': { color: '#C2410C', colorLight: '#FFEDD5' }, // Administrativa — naranja
+  '19': { color: '#C2410C', colorLight: '#FFEDD5' }, // Escalafón General (Admin) — naranja
+  '85': { color: '#0D9488', colorLight: '#CCFBF1' }, // CEETPS — teal
+  '24': { color: '#7C3AED', colorLight: '#EDE9FE' }, // Residencias — violeta
+  '23': { color: '#0369A1', colorLight: '#E0F2FE' }, // Salud-Guardias — celeste
+  '07': { color: '#4D7C0F', colorLight: '#ECFCCB' }, // Docentes Históricos — verde oliva
+  '60': { color: '#9333EA', colorLight: '#F3E8FF' }, // Carrera Gerencial — púrpura
+  '25': { color: '#B45309', colorLight: '#FEF3C7' }, // Autoridades Superiores — ámbar
+  '70': { color: '#0891B2', colorLight: '#CFFAFE' }, // Cuerpo Especialistas — cian
+  '17': { color: '#DB2777', colorLight: '#FCE7F3' }, // Gabinete — rosa
+  '65': { color: '#CA8A04', colorLight: '#FEF9C3' }, // Plantas Transitorias Acta — dorado
+  '16T': { color: '#65A30D', colorLight: '#ECFCCB' }, // Plantas Transitorias Mod. Op. — lima
+  '17B': { color: '#DC2626', colorLight: '#FEE2E2' }, // Régimen Modular Extraordinario — rojo
+}
+
+// Paleta de reserva para códigos no listados (colores distintos de los fijos).
+const PALETA_CARRERA: EstiloSerie[] = [
+  { color: '#7C3AED', colorLight: '#EDE9FE' },
+  { color: '#DB2777', colorLight: '#FCE7F3' },
+  { color: '#0891B2', colorLight: '#CFFAFE' },
+  { color: '#CA8A04', colorLight: '#FEF9C3' },
+  { color: '#4D7C0F', colorLight: '#ECFCCB' },
+  { color: '#9333EA', colorLight: '#F3E8FF' },
+  { color: '#0369A1', colorLight: '#E0F2FE' },
+  { color: '#C2410C', colorLight: '#FFEDD5' },
+]
+
+// Color estable para una carrera por su código de registro. Código conocido →
+// color fijo; cualquier otro → paleta de reserva por hash estable del código.
+export function colorCarrera(codigo: string): EstiloSerie {
+  return COLOR_CARRERA[codigo] ?? PALETA_CARRERA[hashKey(codigo) % PALETA_CARRERA.length]!
+}
+
 // Etiqueta legible de un estado para la leyenda.
 export function etiquetaSituacion(s: string): string {
   if (s === CLAVE_TOTAL) return 'Total'

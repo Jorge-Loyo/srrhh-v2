@@ -9,6 +9,7 @@ import type { KpiDotacionHistorica } from '@srrhh/types'
 import {
   CLAVE_TOTAL,
   estiloSerie,
+  colorCarrera,
   ordenarSituaciones,
   etiquetaSituacion,
 } from '../lib/situacion-revista'
@@ -71,6 +72,9 @@ interface SerieMini {
 interface TarjetaCarrera {
   codigo: string
   literal: string
+  // Códigos de registro que agrupa esta tarjeta (el propio + los absorbidos por
+  // fusión visual). Si es más de uno, se muestra como aclaración en la tarjeta.
+  codigosAgrupados: string[]
   actual: number
   inicial: number
   series: SerieMini[]
@@ -102,10 +106,42 @@ export function EvolucionDotacionChart({ data }: Props) {
   const tarjetas = useMemo<TarjetaCarrera[]>(() => {
     const ultimo = puntos[puntos.length - 1]
     const primero = puntos[0]
+
+    // Fusión SOLO VISUAL de códigos de registro en una sola tarjeta. El código
+    // 22 (CPH, secundario, ~2 cargos) se suma al 37 bajo "Nueva Carrera
+    // Profesional Hospitalaria" y no se muestra como tarjeta aparte. El dato en
+    // la BD no cambia: el 22 sigue existiendo; esto solo afecta este gráfico.
+    // Mapa: código absorbido → código destino.
+    const FUSION_CODIGOS: Record<string, string> = { '22': '37' }
+    const codigosAbsorbidos = new Set(Object.keys(FUSION_CODIGOS))
+
+    // Suma el total de un punto para un código destino + todos los que absorbe.
+    const totalFusionado = (punto: (typeof puntos)[number] | undefined, codigoDestino: string): number => {
+      if (!punto) return 0
+      let s = punto.porCarrera[codigoDestino]?.total ?? 0
+      for (const [abs, dest] of Object.entries(FUSION_CODIGOS)) {
+        if (dest === codigoDestino) s += punto.porCarrera[abs]?.total ?? 0
+      }
+      return s
+    }
+    // Ídem para una situación de revista puntual.
+    const situacionFusionada = (punto: (typeof puntos)[number], codigoDestino: string, sit: string): number => {
+      let s = punto.porCarrera[codigoDestino]?.porSituacion[sit] ?? 0
+      for (const [abs, dest] of Object.entries(FUSION_CODIGOS)) {
+        if (dest === codigoDestino) s += punto.porCarrera[abs]?.porSituacion[sit] ?? 0
+      }
+      return s
+    }
+
     return carreras
+      // No mostrar como tarjeta aparte los códigos que se absorben en otro.
+      .filter(({ codigo }) => !codigosAbsorbidos.has(codigo))
       .map(({ codigo, literal }) => {
-        const totalValores = puntos.map((p) => p.porCarrera[codigo]?.total ?? 0)
-        const estiloTotal = estiloSerie(CLAVE_TOTAL)
+        const totalValores = puntos.map((p) => totalFusionado(p, codigo))
+        // Color propio por carrera (código) para la línea total de la tarjeta,
+        // así cada mini-gráfico se distingue de un vistazo. Las series por
+        // situación de revista conservan su color fijo por estado.
+        const estiloTotal = colorCarrera(codigo)
         const serieTotal: SerieMini = {
           clave: CLAVE_TOTAL,
           label: etiquetaSituacion(CLAVE_TOTAL),
@@ -119,18 +155,24 @@ export function EvolucionDotacionChart({ data }: Props) {
           return {
             clave: sit,
             label: etiquetaSituacion(sit),
-            valores: puntos.map((p) => p.porCarrera[codigo]?.porSituacion[sit] ?? 0),
+            valores: puntos.map((p) => situacionFusionada(p, codigo, sit)),
             color: e.color,
             colorLight: e.colorLight,
             dashed: e.dashed,
             principal: false,
           }
         })
+        // Códigos que agrupa esta tarjeta: el propio + los absorbidos hacia él.
+        const absorbidosHaciaEste = Object.entries(FUSION_CODIGOS)
+          .filter(([, dest]) => dest === codigo)
+          .map(([abs]) => abs)
+        const codigosAgrupados = [codigo, ...absorbidosHaciaEste]
         return {
           codigo,
           literal,
-          actual: ultimo?.porCarrera[codigo]?.total ?? 0,
-          inicial: primero?.porCarrera[codigo]?.total ?? 0,
+          codigosAgrupados,
+          actual: totalFusionado(ultimo, codigo),
+          inicial: totalFusionado(primero, codigo),
           series: [serieTotal, ...seriesEstado],
           fechas,
         }
@@ -194,6 +236,7 @@ export function EvolucionDotacionChart({ data }: Props) {
           <MiniLineChart
             key={t.codigo}
             label={t.literal}
+            codigosAgrupados={t.codigosAgrupados}
             series={t.series}
             actual={t.actual}
             inicial={t.inicial}
@@ -210,9 +253,10 @@ export function EvolucionDotacionChart({ data }: Props) {
 // Dibuja la serie total (principal, con área) + las series por estado (finas
 // tenues). El rango Y se calcula sobre la serie total (la de mayor magnitud).
 function MiniLineChart({
-  label, series, actual, inicial, fechas, agrupacion,
+  label, codigosAgrupados, series, actual, inicial, fechas, agrupacion,
 }: {
   label: string
+  codigosAgrupados: string[]
   series: SerieMini[]
   actual: number
   inicial: number
@@ -250,7 +294,14 @@ function MiniLineChart({
   return (
     <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-3">
       <div className="flex items-start justify-between mb-1">
-        <p className="text-xs font-semibold text-gray-700 leading-tight max-w-[160px]">{label}</p>
+        <div className="max-w-[170px]">
+          <p className="text-xs font-semibold text-gray-700 leading-tight">{label}</p>
+          {codigosAgrupados.length > 1 && (
+            <p className="text-[9px] text-gray-400 leading-tight mt-0.5">
+              Incluye códigos {codigosAgrupados.join(' + ')}
+            </p>
+          )}
+        </div>
         <div className="text-right flex-shrink-0 ml-2">
           <p className="text-sm font-bold" style={{ color: principal.color }}>
             {actual.toLocaleString('es-AR')}

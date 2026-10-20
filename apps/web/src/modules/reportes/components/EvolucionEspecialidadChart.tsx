@@ -329,16 +329,21 @@ export function EvolucionEspecialidadChart() {
       }),
     [opciones, nombrePorSigla]
   )
-  // Combo "Carrera": value = CÓDIGO de registro, label = literal (§5.3.c). El
-  // submit manda el código; se muestra el literal.
+  // Combo "Carrera": value = CÓDIGO de registro, label = "{codigo} — {literal}"
+  // para distinguir carreras homónimas (ej. 37 vs 22, ambas "Nueva Carrera
+  // Profesional Hospitalaria"). Ordenadas alfabéticamente por el label.
   const carreraOpts = useMemo<ComboOption[]>(
-    () => (opciones?.carreras ?? listaVaciaCarreras).map((c) => ({ value: c.codigo, label: c.literal })),
+    () =>
+      (opciones?.carreras ?? listaVaciaCarreras)
+        .map((c) => ({ value: c.codigo, label: `${c.codigo} — ${c.literal}` }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true })),
     [opciones]
   )
-  // Mapa codigo→literal para resolver labels (chips de unión incluidos).
+  // Mapa codigo→"{codigo} — {literal}" para resolver labels (chips de unión
+  // incluidos), consistente con el combo de Carrera.
   const literalPorCodigo = useMemo(() => {
     const m = new Map<string, string>()
-    for (const c of opciones?.carreras ?? listaVaciaCarreras) m.set(c.codigo, c.literal)
+    for (const c of opciones?.carreras ?? listaVaciaCarreras) m.set(c.codigo, `${c.codigo} — ${c.literal}`)
     return (codigo: string) => m.get(codigo) ?? codigo
   }, [opciones])
   const puestoOpts = useMemo<ComboOption[]>(
