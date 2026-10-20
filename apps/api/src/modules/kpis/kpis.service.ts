@@ -704,6 +704,9 @@ type DimensionesEvolucion = {
   puestos?: string[]
   especialidades?: string[]
   gruposEspecialidad?: string[]
+  // Situación de revista del grupo/indicador (punto 2): se aplica dentro del AND
+  // del grupo, antes de contar. Vacío/ausente = todas.
+  situaciones?: string[]
 }
 
 // S25: grupo/especialidad "padre" de la especialidad del cargo
@@ -742,6 +745,14 @@ function condicionesGrupoEvolucion(alias: string, g: DimensionesEvolucion): Pris
   if (g.gruposEspecialidad?.length) {
     conds.push(Prisma.sql`(${grupoEspecialidadSql(alias)}) IN (${Prisma.join(g.gruposEspecialidad)})`)
   }
+  // Situación de revista (punto 2): misma normalización que el resto del motor
+  // (lower(unaccent(trim(...)))). Dentro del AND del grupo → no altera
+  // count(DISTINCT cuil) ni el desglose; solo acota qué filas entran.
+  if (g.situaciones?.length) {
+    conds.push(
+      Prisma.sql`lower(unaccent(trim(${Prisma.raw(alias)}.situacion_revista))) IN (${Prisma.join(g.situaciones)})`,
+    )
+  }
   return conds
 }
 
@@ -758,10 +769,16 @@ function construirFiltros(
     puestos?: string[]
     especialidades?: string[]
     gruposEspecialidad?: string[]
+    situaciones?: string[]
     jefatura?: FiltroJefaturaVal
     grupos?: DimensionesEvolucion[]
   },
   omitirDimension?: keyof DimensionesEvolucion,
+  // La situación de revista acota la SERIE/export (default true) pero NUNCA el
+  // facetado de opciones (se pasa false): elegir un estado no debe recortar los
+  // valores disponibles de Efector/Carrera/Puesto/Especialidad. Mismo criterio
+  // que mesDesde/mesHasta, que el facetado tampoco aplica.
+  aplicarSituacion = true,
 ) {
   const grupoEnEdicion: DimensionesEvolucion = {
     siglas: f.siglas,
@@ -769,6 +786,7 @@ function construirFiltros(
     puestos: f.puestos,
     especialidades: f.especialidades,
     gruposEspecialidad: f.gruposEspecialidad,
+    situaciones: aplicarSituacion ? f.situaciones : undefined,
   }
   if (omitirDimension) grupoEnEdicion[omitirDimension] = undefined
 
@@ -796,6 +814,7 @@ type FiltrosEvolucion = {
   puestos?: string[]
   especialidades?: string[]
   gruposEspecialidad?: string[]
+  situaciones?: string[]
   jefatura?: FiltroJefaturaVal
   grupos?: DimensionesEvolucion[]
 }
@@ -824,7 +843,7 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     prisma.$queryRaw<T[]>(Prisma.sql`
       SELECT DISTINCT ${selectExpr} AS valor
       ${BASE}
-      ${construirFiltros('ph', filtros, omitir)}
+      ${construirFiltros('ph', filtros, omitir, false)}
       ORDER BY 1
     `)
 
@@ -834,7 +853,7 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     prisma.$queryRaw<{ valor: string }[]>(Prisma.sql`
       SELECT DISTINCT (${grupoEspecialidadSql('ph')}) AS valor
       ${BASE}
-      ${construirFiltros('ph', filtros, 'gruposEspecialidad')}
+      ${construirFiltros('ph', filtros, 'gruposEspecialidad', false)}
       ORDER BY 1
     `)
 
@@ -847,7 +866,7 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
         coalesce(cr.codigo, '(sin codigo)') AS codigo,
         coalesce(cr.literal, cr.codigo, '(sin codigo)') AS literal
       ${BASE}
-      ${construirFiltros('ph', filtros, 'carreras')}
+      ${construirFiltros('ph', filtros, 'carreras', false)}
       ORDER BY 1
     `)
 
@@ -1000,10 +1019,32 @@ export function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
 // grafican). Ya NO hay filtro duro 'activo' ni regla de estado representante:
 // una persona cuenta en cada estado donde tiene ocupación vigente, y una sola
 // vez en el total.
-export async function getDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, grupos }
+type PuntoSerieEvolucion = {
+  mes: string
+  total: number
+  porSituacion: Record<string, number>
+  activosYComisionados: number
+}
 
+// Espejo local de SerieIndicadorEvolucion de @srrhh/types (el módulo no importa
+// ese paquete; mantiene sus shapes en paralelo, igual que ORDEN_SITUACION_REVISTA).
+type SerieIndicadorEvolucion = {
+  id: string
+  label: string
+  situaciones: string[]
+  puntos: PuntoSerieEvolucion[]
+}
+
+// Motor de serie de UN perfil: ejecuta la reconstrucción del estado acumulado
+// (idéntica a la del modo single histórico) y reagrupa en un punto por mes.
+// Reutilizado tanto por el perfil "en edición" (modo single, punto 2) como por
+// cada indicador comparable (punto 3). La lógica SQL NO cambió respecto del
+// código previo.
+async function serieEvolucionDeUnPerfil(
+  filtros: FiltrosEvolucion,
+  mesDesde?: string,
+  mesHasta?: string,
+): Promise<{ situaciones: string[]; puntos: PuntoSerieEvolucion[] }> {
   // `base` = estado acumulado al corte de cada mes, ya filtrado por las
   // dimensiones elegidas, con el cuil (unidad de conteo) y la situación
   // normalizada. count(DISTINCT cuil) absorbe el espejo de jefatura y las
@@ -1088,7 +1129,39 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
 
   const puntos = [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes))
 
-  return {
+  return { situaciones: ordenarSituaciones([...situacionesSet]), puntos }
+}
+
+// Serie mensual de stock, motor unificado: una línea por situación de revista
+// (NO disjuntas) + total + "activos y comisionados", todo count(DISTINCT cuil).
+// OR dentro de cada dimensión (IN), AND entre dimensiones. Un punto por mes =
+// foto reconstruida al cierre de cada mes (los meses sin foto completa no se
+// grafican).
+//
+// Dos modos (punto 3):
+//  - SIN indicadores: una sola serie del perfil "en edición" (acotada por
+//    `situaciones` del perfil, punto 2). Forma de retorno histórica.
+//  - CON indicadores: cada perfil se ejecuta SECUENCIALMENTE (no Promise.all,
+//    para no abrir N conexiones concurrentes al pool ni competir por el plan
+//    pesado) y se devuelve como una SerieIndicadorEvolucion. En ese caso
+//    `situaciones`/`puntos` del nivel superior van vacíos (el perfil en edición
+//    no se grafica) y las series viven en `indicadores`.
+export async function getDotacionEvolucionService(query: DotacionEvolucionQuery) {
+  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos, situaciones, indicadores } =
+    query
+  const filtros: FiltrosEvolucion = {
+    siglas,
+    carreras,
+    puestos,
+    especialidades,
+    gruposEspecialidad,
+    situaciones,
+    jefatura,
+    grupos,
+  }
+
+  // Campos eco que acompañan ambos modos (idénticos al return histórico).
+  const eco = {
     siglas: siglas ?? [],
     carreras: carreras ?? [],
     puestos: puestos ?? [],
@@ -1096,9 +1169,35 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
     jefatura,
     mesDesde: mesDesde ?? null,
     mesHasta: mesHasta ?? null,
-    situaciones: ordenarSituaciones([...situacionesSet]),
-    puntos,
   }
+
+  if (indicadores?.length) {
+    // Modo multi-indicador: una serie por perfil, en secuencia.
+    const series: SerieIndicadorEvolucion[] = []
+    for (const perfil of indicadores) {
+      const filtrosPerfil: FiltrosEvolucion = {
+        siglas: perfil.siglas,
+        carreras: perfil.carreras,
+        puestos: perfil.puestos,
+        especialidades: perfil.especialidades,
+        gruposEspecialidad: perfil.gruposEspecialidad,
+        situaciones: perfil.situaciones,
+        jefatura,
+      }
+      const { situaciones: sits, puntos } = await serieEvolucionDeUnPerfil(filtrosPerfil, mesDesde, mesHasta)
+      series.push({
+        id: perfil.id ?? '',
+        label: perfil.labels?.join(' · ') ?? '',
+        situaciones: sits,
+        puntos,
+      })
+    }
+    return { ...eco, situaciones: [], puntos: [], indicadores: series }
+  }
+
+  // Modo single (perfil en edición), ahora acotado por `situaciones` (punto 2).
+  const { situaciones: sits, puntos } = await serieEvolucionDeUnPerfil(filtros, mesDesde, mesHasta)
+  return { ...eco, situaciones: sits, puntos }
 }
 
 // ─── Export a Excel del detalle que respalda el gráfico ─────────────────────
@@ -1113,8 +1212,21 @@ const requireXlsx = createRequire(import.meta.url)
 const XLSX = requireXlsx('xlsx') as any
 
 export async function exportDotacionEvolucionService(query: DotacionEvolucionQuery) {
-  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos } = query
-  const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, grupos }
+  // El export IGNORA `indicadores` (es el detalle del perfil en edición) pero SÍ
+  // respeta `situaciones` → el Excel se acota igual que el gráfico (construirFiltros
+  // con aplicarSituacion default true).
+  const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos, situaciones } =
+    query
+  const filtros: FiltrosEvolucion = {
+    siglas,
+    carreras,
+    puestos,
+    especialidades,
+    gruposEspecialidad,
+    situaciones,
+    jefatura,
+    grupos,
+  }
 
   const rows = await prisma.$queryRaw<
     {

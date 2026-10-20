@@ -925,9 +925,17 @@ export interface FiltrosDotacionEvolucion {
   jefatura?: FiltroJefatura
   mesDesde?: string
   mesHasta?: string
+  // Situación de revista del perfil en edición (punto 2): acota QUÉ personas
+  // entran en la reconstrucción del estado acumulado. Multivaluado; vacío/ausente
+  // = todas.
+  situaciones?: SituacionRevista[]
   // Uniones (OR): cada grupo es un AND de dimensiones; los grupos se combinan
   // con OR. Las dimensiones sueltas de arriba actúan como "grupo en edición".
   grupos?: GrupoDotacionEvolucion[]
+  // Indicadores comparables (punto 3): cada uno es un perfil que se grafica como
+  // una línea independiente. Cuando viene, el backend devuelve N series en
+  // `KpiDotacionEvolucion.indicadores`.
+  indicadores?: PerfilIndicadorEvolucion[]
 }
 
 // Un grupo de la unión del gráfico de evolución (+ labels solo presentación).
@@ -939,7 +947,17 @@ export interface GrupoDotacionEvolucion {
   puestos?: string[]
   especialidades?: string[]
   gruposEspecialidad?: string[]
+  // Situación de revista del grupo/indicador (punto 2): se agrega una sola vez
+  // acá y el perfil de indicador la hereda. Vacío/ausente = todas.
+  situaciones?: SituacionRevista[]
   labels?: string[]
+}
+
+// Perfil de un indicador comparable (punto 3): reutiliza EXACTAMENTE las
+// dimensiones del grupo (incluida `situaciones?`) y agrega solo un `id` estable
+// que genera el front para identidad/color de la serie.
+export interface PerfilIndicadorEvolucion extends GrupoDotacionEvolucion {
+  id?: string
 }
 
 // GET /api/v1/kpis/dotacion-evolucion/opciones
@@ -973,6 +991,26 @@ export interface KpiDotacionEvolucion {
     mes: string // 'YYYY-MM'
     // total = count(DISTINCT cuil) aparte; NO es la suma de porSituacion (series
     // no disjuntas). activosYComisionados = personas en estado activo o comisión.
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
+  }[]
+  // Punto 3: presente cuando el request mandó `indicadores`. Cada elemento es
+  // una serie comparable independiente; el front la grafica como una línea. En
+  // ese modo `puntos`/`situaciones` de arriba vienen vacíos (el perfil "en
+  // edición" no se grafica cuando hay indicadores fijados).
+  indicadores?: SerieIndicadorEvolucion[]
+}
+
+// Una serie comparable (indicador) de la evolución: el perfil congelado por el
+// usuario, con su identidad/etiqueta y su reconstrucción mensual completa (el
+// front elige mostrar `total` por línea o el desglose por situación).
+export interface SerieIndicadorEvolucion {
+  id: string // id estable que mandó el front (identidad/color)
+  label: string // etiqueta legible del perfil
+  situaciones: SituacionRevista[] // situaciones presentes DENTRO de este indicador
+  puntos: {
+    mes: string // 'YYYY-MM'
     total: number
     porSituacion: Record<SituacionRevista, number>
     activosYComisionados: number
