@@ -18,9 +18,9 @@ confirman bajas, se crean concursos y se hace seguimiento fino:
 | COD_REG | Carrera                                | Sigla | ¿Tiene especialidad? |
 | ------- | -------------------------------------- | ----- | -------------------- |
 | 37      | Nueva Carrera Profesional Hospitalaria | CPH   | **SÍ**               |
-| 83      | Enfermería                             | ENF   | No                   |
+| 83      | Nueva Carrera Administrativa           | ADM   | No                   |
 | 85      | Técnicos de la Salud                   | TEC   | No                   |
-| 87      | Escalafón General CEETPS               | EG    | No                   |
+| 87      | Nueva Carrera Enfermería               | ENF   | No                   |
 
 El resto de los códigos (incluidos **24 Residencias**, **23 Suplentes/Guardias**, 22, etc.) son
 **INFORMATIVOS**: solo se usan para tomar novedades. Comportamiento simple esperado: un cargo
@@ -62,10 +62,11 @@ nuevo por cada `id_sial` nuevo, baja del `id_sial` viejo, sin gestión fina de b
   `/bajas/validacion` **cierra el cargo a `no_vigente` en ese mismo momento**
   (`apps/api/src/modules/bajas/bajas.service.ts:478-491`, `confirmarValidacionService`), en contra de
   la regla 4 (debería ser solo la 3ª validación y dejar el cargo en `validacion_vacante`).
-- **Hallazgo adicional (mapeo COD_REG↔carrera divergente):** la tabla JEFE ESCALAFON del Dotaneitor
-  asigna 85→Jefe Técnico, 87→**Jefe Enfermería**, 83→**Jefe Administrativo**
-  (`services/dotaneitor/Dotaneitor.py` `_calcular_jefe_escalafon`), que **no coincide** con el mapeo
-  del usuario (83→ENF, 87→EG). Ver §5 y §8.
+- **Mapeo COD_REG↔carrera (RESUELTO 2026-10, confirmado por el usuario):** el Dotaneitor está
+  BIEN — `_calcular_jefe_escalafon` asigna 83→**Jefe Administrativo** y 87→**Jefe Enfermería**
+  (`services/dotaneitor/Dotaneitor.py`), que coincide con el mapeo real: **83 = Nueva Carrera
+  Administrativa, 87 = Nueva Carrera Enfermería**, 85 = Técnicos de la Salud. (Una versión previa
+  de este documento los tenía invertidos — error del documento, no del código. Corregido.)
 - **Hallazgo adicional (regla 1 no modelada como invariante):** nada en el código impide dos
   ocupaciones activas (`hasta=NULL`) de la misma persona, ni elige "el más nuevo gana" entre dos
   activos. Solo existe una limpieza puntual para jefaturas fantasma (§3.6).
@@ -320,16 +321,13 @@ return prisma.cargo.update({
 - **Regla 1/2 no modeladas:** no se detecta "dos activos" ni se aplica "el más nuevo gana".
 - **Regla 4 incompleta:** "Confirmar baja" cierra el cargo (§4.2).
 
-### 5.2 COD_REG 83 — Enfermería / ENF (GESTIONADA, sin especialidad)
+### 5.2 COD_REG 83 — Nueva Carrera Administrativa / ADM (GESTIONADA, sin especialidad)
 
 **(a) Qué hace hoy**
 
-- Mismo flujo estándar. Sin especialidad del SIAL (83 no está en `HOJAS_POR_COD_REG`), pero el lado
-  Node puede **derivar** especialidad del nombre del puesto para no-médicos: `derivarEspecialidadDesdePuesto`
-  devuelve `'enfermeria'` para cualquier literal que matchee `/enfermer/`
-  (`apps/api/src/modules/padron/derivarEspecialidadPuesto.ts:84`). Es especialidad **derivada del
-  puesto**, no del SIAL.
-- JEFE ESCALAFON: **83 → `Jefe Administrativo`** (`Dotaneitor.py` `_calcular_jefe_escalafon`).
+- Mismo flujo estándar. Sin especialidad del SIAL (83 no está en `HOJAS_POR_COD_REG`).
+- JEFE ESCALAFON: **83 → `Jefe Administrativo`** (`Dotaneitor.py` `_calcular_jefe_escalafon`). ✅
+  correcto: 83 es la Carrera Administrativa.
 
 **(b) Qué debe hacer**
 
@@ -337,9 +335,8 @@ return prisma.cargo.update({
 
 **(c) Diferencias / bugs**
 
-- ⚠️ **Discrepancia de mapeo:** el usuario mapea **83 → ENF**, pero el Dotaneitor rotula 83 como
-  **"Jefe Administrativo"** y **87 → "Jefe Enfermería"**. Hay que confirmar cuál es correcto (§8,
-  pregunta abierta). Si el mapeo del usuario manda, la tabla JEFE ESCALAFON está cruzada entre 83/87.
+- Mapeo 83→Administrativa coincide con el Dotaneitor (`Jefe Administrativo`). ✅ (Confirmado por el
+  usuario 2026-10; una versión previa de este doc lo tenía como "Enfermería" por error.)
 - Regla 1/2 y regla 4: mismos huecos que CPH.
 
 ### 5.3 COD_REG 85 — Técnicos de la Salud / TEC (GESTIONADA, sin especialidad)
@@ -355,19 +352,19 @@ return prisma.cargo.update({
 **(c) Diferencias / bugs** — regla 1/2 y regla 4: mismos huecos. Mapeo 85→TEC coincide con el
 Dotaneitor (`Jefe Tecnico`). ✅
 
-### 5.4 COD_REG 87 — Escalafón General CEETPS / EG (GESTIONADA, sin especialidad)
+### 5.4 COD_REG 87 — Nueva Carrera Enfermería / ENF (GESTIONADA, sin especialidad)
 
 **(a) Qué hace hoy**
 
-- Flujo estándar. JEFE ESCALAFON: **87 → `Jefe Enfermeria`** (`Dotaneitor.py` `_calcular_jefe_escalafon`).
-- Concursos CEETPS tienen su propio sub-flujo (`ConcursoCeetps`, `schema.prisma`), separado del padrón.
+- Flujo estándar. JEFE ESCALAFON: **87 → `Jefe Enfermeria`** (`Dotaneitor.py` `_calcular_jefe_escalafon`). ✅
+  correcto: 87 es la Carrera de Enfermería.
 
 **(b) Qué debe hacer** — patrón gestionado, sin especialidad SIAL.
 
 **(c) Diferencias / bugs**
 
-- ⚠️ **Discrepancia de mapeo (misma que 83):** usuario dice **87 → EG (CEETPS)**; el Dotaneitor
-  rotula 87 como **"Jefe Enfermería"**. A confirmar (§8).
+- Mapeo 87→Enfermería coincide con el Dotaneitor (`Jefe Enfermería`). ✅ (Confirmado por el usuario
+  2026-10; una versión previa de este doc lo tenía como "CEETPS/EG" por error.)
 - Regla 1/2 y regla 4: mismos huecos.
 
 ### 5.5 Informativas (24 Residencias, 23 Suplentes/Guardias, 22, y resto)
@@ -661,9 +658,10 @@ ORDER BY ps.fecha_asignada, d.tipo;
 
 ## 8. Preguntas abiertas / decisiones pendientes
 
-1. **Mapeo COD_REG ↔ carrera (83 vs 87).** El usuario dice 83→ENF y 87→EG; el Dotaneitor rotula
-   83→"Jefe Administrativo" y 87→"Jefe Enfermería" (`Dotaneitor.py` `_calcular_jefe_escalafon`).
-   ¿Cuál es el mapeo correcto? Si manda el del usuario, la tabla JEFE ESCALAFON está cruzada.
+1. ~~**Mapeo COD_REG ↔ carrera (83 vs 87).**~~ **RESUELTO (2026-10):** 83 = Nueva Carrera
+   Administrativa, 87 = Nueva Carrera Enfermería, 85 = Técnicos de la Salud. El Dotaneitor ya lo
+   tenía bien (`_calcular_jefe_escalafon`: 83→Administrativo, 87→Enfermería). El error estaba en una
+   versión previa de este documento, ya corregido en §1 y §5. No requiere cambio de código.
 
 2. **Regla 5 vs "vacío = conservar" (Bug A).** El código conserva la especialidad vieja cuando el
    padrón viene sin dato; la regla 5 pide preferir vacío. ¿Se cambia a "vacío = vaciar" para las
