@@ -3,13 +3,20 @@
 // Reportes. Único ajuste de imports: los tres hooks se resuelven desde
 // `../hooks/useReportes` (antes `../hooks/useKpis`); el resto queda igual.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { GrupoDotacionEvolucion } from '@srrhh/types'
+import type { GrupoDotacionEvolucion, KpiDotacionEvolucion } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import {
   useDotacionEvolucion,
   useDotacionEvolucionOpciones,
   useExportDotacionEvolucion,
 } from '../hooks/useReportes'
+import {
+  CLAVE_TOTAL,
+  CLAVE_ACTIVOS_Y_COMISIONADOS,
+  estiloSerie,
+  ordenarSituaciones,
+  etiquetaSituacion,
+} from '../lib/situacion-revista'
 
 // ─── Dimensiones del gráfico ────────────────────────────────────────────────
 const W = 720
@@ -18,7 +25,8 @@ const P = { top: 20, right: 60, bottom: 34, left: 56 }
 const innerW = W - P.left - P.right
 const innerH = H - P.top - P.bottom
 
-const COLOR = '#1D6FA4'
+// Color tenue del área bajo la línea total (el color real de cada serie lo
+// resuelve el módulo compartido `situacion-revista`).
 const COLOR_LIGHT = '#DBEAFE'
 
 function techoLimpio(max: number): number {
@@ -219,6 +227,7 @@ function MultiCombobox({
 }
 
 const listaVacia: string[] = []
+const listaVaciaCarreras: { codigo: string; literal: string }[] = []
 
 // Estado de las dimensiones del filtro (lo que el usuario está editando).
 interface EstadoFiltros {
@@ -320,10 +329,18 @@ export function EvolucionEspecialidadChart() {
       }),
     [opciones, nombrePorSigla]
   )
+  // Combo "Carrera": value = CÓDIGO de registro, label = literal (§5.3.c). El
+  // submit manda el código; se muestra el literal.
   const carreraOpts = useMemo<ComboOption[]>(
-    () => (opciones?.carreras ?? listaVacia).map((c) => ({ value: c, label: c })),
+    () => (opciones?.carreras ?? listaVaciaCarreras).map((c) => ({ value: c.codigo, label: c.literal })),
     [opciones]
   )
+  // Mapa codigo→literal para resolver labels (chips de unión incluidos).
+  const literalPorCodigo = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of opciones?.carreras ?? listaVaciaCarreras) m.set(c.codigo, c.literal)
+    return (codigo: string) => m.get(codigo) ?? codigo
+  }, [opciones])
   const puestoOpts = useMemo<ComboOption[]>(
     () => (opciones?.puestos ?? listaVacia).map((p) => ({ value: p, label: titleCase(p) })),
     [opciones]
@@ -381,7 +398,7 @@ export function EvolucionEspecialidadChart() {
     const labels: string[] = []
     const g: GrupoDotacionEvolucion = {}
     if (siglas.length) { g.siglas = siglas; labels.push(siglas.join(' / ')) }
-    if (carreras.length) { g.carreras = carreras; labels.push(carreras.join(' / ')) }
+    if (carreras.length) { g.carreras = carreras; labels.push(carreras.map(literalPorCodigo).join(' / ')) }
     if (puestos.length) { g.puestos = puestos; labels.push(puestos.map(titleCase).join(' / ')) }
     if (especialidades.length) { g.especialidades = especialidades; labels.push(especialidades.map(titleCase).join(' / ')) }
     if (gruposEspecialidad.length) { g.gruposEspecialidad = gruposEspecialidad; labels.push(gruposEspecialidad.join(' / ')) }
@@ -574,45 +591,114 @@ export function EvolucionEspecialidadChart() {
       ) : puntos.length === 0 ? (
         <p className="text-sm text-gray-400">No hay datos de padrón para esta combinación.</p>
       ) : (
-        <LineaEvolucion puntos={puntos} />
+        <LineaEvolucion puntos={puntos} situaciones={serie?.situaciones ?? listaVacia} />
       )}
     </div>
   )
 }
 
 // ─── Gráfico de línea de la serie mensual ───────────────────────────────────
-function LineaEvolucion({ puntos }: { puntos: { mes: string; cantidad: number }[] }) {
-  const valores = puntos.map((p) => p.cantidad)
-  const { yMin, yMax } = calcularRangoY(valores)
+// Líneas SUPERPUESTAS (NO apiladas, §6): una `total` destacada + una por estado
+// presente + la derivada "activos y comisionados". Las series NO son disjuntas,
+// por eso no se apilan. Color/orden del módulo compartido; cada serie se puede
+// prender/apagar desde la leyenda.
+type PuntoEvolucion = KpiDotacionEvolucion['puntos'][number]
+
+interface SerieLinea {
+  clave: string
+  label: string
+  valores: number[]
+  color: string
+  dashed?: boolean
+  principal: boolean
+}
+
+function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; situaciones: string[] }) {
+  const n = puntos.length
+
+  // Series a graficar, en orden canónico §6.1: TOTAL primero (destacada), luego
+  // activo, "activos y comisionados" (tras activo), comision, retencion, etc.
+  const series = useMemo<SerieLinea[]>(() => {
+    const estados = ordenarSituaciones(situaciones)
+    const out: SerieLinea[] = []
+    const etotal = estiloSerie(CLAVE_TOTAL)
+    out.push({
+      clave: CLAVE_TOTAL,
+      label: etiquetaSituacion(CLAVE_TOTAL),
+      valores: puntos.map((p) => p.total),
+      color: etotal.color,
+      principal: true,
+    })
+    for (const sit of estados) {
+      const e = estiloSerie(sit)
+      out.push({
+        clave: sit,
+        label: etiquetaSituacion(sit),
+        valores: puntos.map((p) => p.porSituacion[sit] ?? 0),
+        color: e.color,
+        dashed: e.dashed,
+        principal: false,
+      })
+      // La línea derivada "activos y comisionados" va inmediatamente tras `activo`.
+      if (sit === 'activo') {
+        const eayc = estiloSerie(CLAVE_ACTIVOS_Y_COMISIONADOS)
+        out.push({
+          clave: CLAVE_ACTIVOS_Y_COMISIONADOS,
+          label: etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS),
+          valores: puntos.map((p) => p.activosYComisionados),
+          color: eayc.color,
+          dashed: eayc.dashed,
+          principal: false,
+        })
+      }
+    }
+    return out
+  }, [puntos, situaciones])
+
+  // Toggles de visibilidad por serie (todas visibles al inicio).
+  const [ocultas, setOcultas] = useState<Set<string>>(() => new Set())
+  function toggleSerie(clave: string) {
+    setOcultas((prev) => {
+      const next = new Set(prev)
+      if (next.has(clave)) next.delete(clave)
+      else next.add(clave)
+      return next
+    })
+  }
+
+  const visibles = series.filter((s) => !ocultas.has(s.clave))
+
+  // Rango Y sobre todos los valores visibles (superpuestas, no apiladas).
+  const { yMin, yMax } = calcularRangoY(visibles.flatMap((s) => s.valores))
   const yRange = yMax - yMin || 1
-  const n = valores.length
 
-  const coords = valores.map((v, i) => {
-    const x = P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
-    const y = P.top + innerH - ((v - yMin) / yRange) * innerH
-    return { x, y }
-  })
-
-  const linePoints = coords.map((c) => `${c.x},${c.y}`).join(' ')
-  const areaPoints = [
-    `${P.left},${P.top + innerH}`,
-    ...coords.map((c) => `${c.x},${c.y}`),
-    `${P.left + innerW},${P.top + innerH}`,
-  ].join(' ')
+  const coordsDe = (valores: number[]) =>
+    valores.map((v, i) => {
+      const x = P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+      const y = P.top + innerH - ((v - yMin) / yRange) * innerH
+      return { x, y }
+    })
 
   const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
 
-  const actual = valores[n - 1] ?? 0
-  const inicial = valores[0] ?? 0
-  const delta = actual - inicial
-  const deltaPct = inicial > 0 ? (delta / inicial) * 100 : 0
+  // Cifras de cabecera sobre `total`.
+  const totalActual = puntos[n - 1]?.total ?? 0
+  const totalInicial = puntos[0]?.total ?? 0
+  const delta = totalActual - totalInicial
+  const deltaPct = totalInicial > 0 ? (delta / totalInicial) * 100 : 0
+
+  // Sub-cifras por estado al corte (último punto).
+  const corte = puntos[n - 1]
+  const estadosOrdenados = ordenarSituaciones(situaciones)
+
+  const serieTotal = series.find((s) => s.principal)
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-6 items-baseline">
         <div>
           <p className="text-xs text-gray-500">Dotación actual</p>
-          <p className="text-2xl font-bold text-gray-900">{formatNum(actual)}</p>
+          <p className="text-2xl font-bold text-gray-900">{formatNum(totalActual)}</p>
           <p className="text-xs text-gray-400">al corte {formatMes(puntos[n - 1]!.mes)}</p>
         </div>
         <div>
@@ -624,10 +710,71 @@ function LineaEvolucion({ puntos }: { puntos: { mes: string; cantidad: number }[
             </span>
           </p>
         </div>
+        {/* Sub-cifras por estado al corte */}
+        {corte && estadosOrdenados.length > 0 && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {estadosOrdenados.map((sit) => (
+              <div key={`corte-${sit}`}>
+                <p className="text-[11px] text-gray-500">{etiquetaSituacion(sit)}</p>
+                <p className="text-sm font-semibold" style={{ color: estiloSerie(sit).color }}>
+                  {formatNum(corte.porSituacion[sit] ?? 0)}
+                </p>
+              </div>
+            ))}
+            <div>
+              <p className="text-[11px] text-gray-500">{etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS)}</p>
+              <p
+                className="text-sm font-semibold"
+                style={{ color: estiloSerie(CLAVE_ACTIVOS_Y_COMISIONADOS).color }}
+              >
+                {formatNum(corte.activosYComisionados)}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Leyenda con toggles por serie */}
+      <div className="flex flex-wrap gap-2">
+        {series.map((s) => {
+          const on = !ocultas.has(s.clave)
+          return (
+            <button
+              key={`leg-${s.clave}`}
+              type="button"
+              onClick={() => toggleSerie(s.clave)}
+              aria-pressed={on}
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-colors ${
+                on ? 'border-gray-300 text-gray-700' : 'border-gray-200 text-gray-300'
+              }`}
+            >
+              <span
+                className="inline-block h-0.5 w-4"
+                style={{
+                  backgroundColor: s.color,
+                  opacity: on ? 1 : 0.4,
+                  borderTop: s.dashed ? `1px dashed ${s.color}` : undefined,
+                }}
+              />
+              {s.label}
+            </button>
+          )
+        })}
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        <polygon points={areaPoints} fill={COLOR_LIGHT} opacity={0.6} />
+        {/* Área tenue bajo la serie total (si está visible) */}
+        {serieTotal && !ocultas.has(serieTotal.clave) && (
+          <polygon
+            points={[
+              `${P.left},${P.top + innerH}`,
+              ...coordsDe(serieTotal.valores).map((c) => `${c.x},${c.y}`),
+              `${P.left + innerW},${P.top + innerH}`,
+            ].join(' ')}
+            fill={COLOR_LIGHT}
+            opacity={0.5}
+          />
+        )}
 
         {yTicks.map((t) => {
           const y = P.top + innerH - ((t - yMin) / yRange) * innerH
@@ -641,33 +788,53 @@ function LineaEvolucion({ puntos }: { puntos: { mes: string; cantidad: number }[
           )
         })}
 
-        <polyline
-          points={linePoints}
-          fill="none"
-          stroke={COLOR}
-          strokeWidth={2.5}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
+        {/* Series secundarias primero, la total encima */}
+        {visibles
+          .filter((s) => !s.principal)
+          .map((s) => (
+            <polyline
+              key={`line-${s.clave}`}
+              points={coordsDe(s.valores).map((c) => `${c.x},${c.y}`).join(' ')}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={1.75}
+              strokeOpacity={0.85}
+              strokeDasharray={s.dashed ? '5 3' : undefined}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          ))}
 
-        {coords.map((c, i) => {
-          const isLast = i === n - 1
-          return (
-            <g key={`pt-${i}`}>
-              <circle cx={c.x} cy={c.y} r={isLast ? 4.5 : 3.5} fill={COLOR} />
-              <text
-                x={c.x}
-                y={c.y - 8}
-                textAnchor={i === 0 ? 'start' : isLast ? 'end' : 'middle'}
-                fontSize={10}
-                fill={COLOR}
-                fontWeight={isLast ? 'bold' : 'normal'}
-              >
-                {formatNum(valores[i]!)}
-              </text>
-            </g>
-          )
-        })}
+        {serieTotal && !ocultas.has(serieTotal.clave) && (
+          <>
+            <polyline
+              points={coordsDe(serieTotal.valores).map((c) => `${c.x},${c.y}`).join(' ')}
+              fill="none"
+              stroke={serieTotal.color}
+              strokeWidth={2.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {coordsDe(serieTotal.valores).map((c, i) => {
+              const isLast = i === n - 1
+              return (
+                <g key={`pt-${i}`}>
+                  <circle cx={c.x} cy={c.y} r={isLast ? 4.5 : 3.5} fill={serieTotal.color} />
+                  <text
+                    x={c.x}
+                    y={c.y - 8}
+                    textAnchor={i === 0 ? 'start' : isLast ? 'end' : 'middle'}
+                    fontSize={10}
+                    fill={serieTotal.color}
+                    fontWeight={isLast ? 'bold' : 'normal'}
+                  >
+                    {formatNum(serieTotal.valores[i]!)}
+                  </text>
+                </g>
+              )
+            })}
+          </>
+        )}
 
         {puntos.map((p, i) => {
           const x = P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
