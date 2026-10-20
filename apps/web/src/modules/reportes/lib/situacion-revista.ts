@@ -121,6 +121,44 @@ export function colorCarrera(codigo: string): EstiloSerie {
   return COLOR_CARRERA[codigo] ?? PALETA_CARRERA[hashKey(codigo) % PALETA_CARRERA.length]!
 }
 
+// ─── Color por INDICADOR (perfil comparable) ────────────────────────────────
+// Punto 3: cada "+ Unión" congela un perfil como una línea comparable con su
+// color propio. Se usa una paleta propia de 8 hues elegidos para NO coincidir
+// con ESTILOS/PALETA_RESERVA/COLOR_CARRERA/PALETA_CARRERA, de modo que la
+// elección sea honesta aun si en el futuro co-renderizan con las otras.
+const PALETA_INDICADORES: EstiloSerie[] = [
+  { color: '#1D4ED8', colorLight: '#DBEAFE' }, // azul índigo
+  { color: '#047857', colorLight: '#D1FAE5' }, // esmeralda
+  { color: '#A16207', colorLight: '#FEF3C7' }, // ámbar oscuro
+  { color: '#6D28D9', colorLight: '#EDE9FE' }, // violeta profundo
+  { color: '#9D174D', colorLight: '#FCE7F3' }, // rosa oscuro
+  { color: '#155E75', colorLight: '#CFFAFE' }, // cian oscuro
+  { color: '#B91C1C', colorLight: '#FEE2E2' }, // rojo
+  { color: '#3F6212', colorLight: '#ECFCCB' }, // oliva oscuro
+]
+
+// Helper de conveniencia: color = función pura del id (puede colisionar con
+// pocas entradas). La asignación real al crear un indicador usa
+// `asignarColorIndicador` para evitar colisiones entre indicadores simultáneos.
+export function colorIndicador(seed: string): EstiloSerie {
+  return PALETA_INDICADORES[hashKey(seed) % PALETA_INDICADORES.length]!
+}
+
+// Asignación REAL al crear un indicador: recorre la paleta desde
+// `hashKey(id) % len` y salta los colores ya tomados por los indicadores
+// existentes. El color se persiste en el estado del indicador y NO se recalcula
+// luego (quitar un indicador no recolorea a los demás). O(n²) sobre ≤8, trivial.
+export function asignarColorIndicador(id: string, usados: EstiloSerie[]): EstiloSerie {
+  const len = PALETA_INDICADORES.length
+  const start = hashKey(id) % len
+  const tomados = new Set(usados.map((e) => e.color))
+  for (let k = 0; k < len; k++) {
+    const e = PALETA_INDICADORES[(start + k) % len]!
+    if (!tomados.has(e.color)) return e
+  }
+  return PALETA_INDICADORES[start]! // todas tomadas (imposible con tope 8)
+}
+
 // Etiqueta legible de un estado para la leyenda.
 export function etiquetaSituacion(s: string): string {
   if (s === CLAVE_TOTAL) return 'Total'

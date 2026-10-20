@@ -3,7 +3,8 @@
 // Reportes. Único ajuste de imports: los tres hooks se resuelven desde
 // `../hooks/useReportes` (antes `../hooks/useKpis`); el resto queda igual.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { GrupoDotacionEvolucion, KpiDotacionEvolucion } from '@srrhh/types'
+import type { KpiDotacionEvolucion, PerfilIndicadorEvolucion } from '@srrhh/types'
+import { ORDEN_SITUACION_REVISTA } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import {
   useDotacionEvolucion,
@@ -16,7 +17,25 @@ import {
   estiloSerie,
   ordenarSituaciones,
   etiquetaSituacion,
+  asignarColorIndicador,
+  colorIndicador,
+  type EstiloSerie,
 } from '../lib/situacion-revista'
+
+// Un indicador comparable congelado en el front (punto 3): sus 5 dimensiones +
+// situación de revista, más la etiqueta legible ya joineada y su color
+// persistido (estable, no se recalcula al quitar otros indicadores).
+interface IndicadorUI {
+  id: string
+  siglas: string[]
+  carreras: string[]
+  puestos: string[]
+  especialidades: string[]
+  gruposEspecialidad: string[]
+  situaciones: string[]
+  label: string
+  color: EstiloSerie
+}
 
 // ─── Dimensiones del gráfico ────────────────────────────────────────────────
 const W = 720
@@ -236,14 +255,40 @@ interface EstadoFiltros {
   puestos: string[]
   especialidades: string[]
   gruposEspecialidad: string[]
+  situaciones: string[]
   mesDesde: string
   mesHasta: string
-  grupos: GrupoDotacionEvolucion[]
+  indicadores: IndicadorUI[]
 }
 
 const ESTADO_INICIAL: EstadoFiltros = {
   siglas: [], carreras: [], puestos: [], especialidades: [], gruposEspecialidad: [],
-  mesDesde: '', mesHasta: '', grupos: [],
+  situaciones: [], mesDesde: '', mesHasta: '', indicadores: [],
+}
+
+// id estable para un indicador: crypto.randomUUID() con fallback a un contador
+// monotónico cuando la API no está disponible.
+let _indicadorSeq = 0
+function nuevoId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  _indicadorSeq += 1
+  return `ind-${Date.now()}-${_indicadorSeq}`
+}
+
+// Un IndicadorUI → el perfil que viaja al backend (id + 5 dimensiones +
+// situaciones). NO manda color/label/labels: el front re-asocia color/label por
+// id contra su estado local.
+function toPerfil(ind: IndicadorUI): PerfilIndicadorEvolucion {
+  const p: PerfilIndicadorEvolucion = { id: ind.id }
+  if (ind.siglas.length) p.siglas = ind.siglas
+  if (ind.carreras.length) p.carreras = ind.carreras
+  if (ind.puestos.length) p.puestos = ind.puestos
+  if (ind.especialidades.length) p.especialidades = ind.especialidades
+  if (ind.gruposEspecialidad.length) p.gruposEspecialidad = ind.gruposEspecialidad
+  if (ind.situaciones.length) p.situaciones = ind.situaciones
+  return p
 }
 
 export function EvolucionEspecialidadChart() {
@@ -254,10 +299,12 @@ export function EvolucionEspecialidadChart() {
   const [puestos, setPuestos] = useState<string[]>([])
   const [especialidades, setEspecialidades] = useState<string[]>([])
   const [gruposEspecialidad, setGruposEspecialidad] = useState<string[]>([])
+  const [situaciones, setSituaciones] = useState<string[]>([])
   const [mesDesde, setMesDesde] = useState('')
   const [mesHasta, setMesHasta] = useState('')
-  // Uniones (OR): grupos fijados con "+ Unión". Cada grupo = AND de dimensiones.
-  const [grupos, setGrupos] = useState<GrupoDotacionEvolucion[]>([])
+  // Indicadores comparables: perfiles congelados con "+ Unión". Cada uno es una
+  // línea independiente del gráfico.
+  const [indicadores, setIndicadores] = useState<IndicadorUI[]>([])
 
   // ── Estado APLICADO: la "foto" que se mandó al backend. Opciones, serie y
   //    export leen SOLO de acá. Cambia únicamente al tocar "Aplicar" o al fijar
@@ -266,7 +313,7 @@ export function EvolucionEspecialidadChart() {
 
   // Filtros en edición (para armar el próximo "Aplicar"/Unión).
   const edicion: EstadoFiltros = {
-    siglas, carreras, puestos, especialidades, gruposEspecialidad, mesDesde, mesHasta, grupos,
+    siglas, carreras, puestos, especialidades, gruposEspecialidad, situaciones, mesDesde, mesHasta, indicadores,
   }
 
   // GRÁFICO + EXPORT: usan el estado APLICADO (la consulta pesada corre solo al
@@ -277,9 +324,10 @@ export function EvolucionEspecialidadChart() {
     puestos: aplicado.puestos,
     especialidades: aplicado.especialidades,
     gruposEspecialidad: aplicado.gruposEspecialidad.length ? aplicado.gruposEspecialidad : undefined,
+    situaciones: aplicado.situaciones.length ? aplicado.situaciones : undefined,
     mesDesde: aplicado.mesDesde || undefined,
     mesHasta: aplicado.mesHasta || undefined,
-    grupos: aplicado.grupos.length ? aplicado.grupos : undefined,
+    indicadores: aplicado.indicadores.length ? aplicado.indicadores.map(toPerfil) : undefined,
   }
 
   // DESPLEGABLES (facetado): usan el estado EN EDICIÓN, para que al elegir en un
@@ -291,15 +339,19 @@ export function EvolucionEspecialidadChart() {
     puestos,
     especialidades,
     gruposEspecialidad: gruposEspecialidad.length ? gruposEspecialidad : undefined,
+    // La situación de revista no acota el facetado (el backend ignora
+    // `situaciones` en opciones); se envía igual para que el contrato sea
+    // consistente, pero NO recorta las demás dimensiones.
+    situaciones: situaciones.length ? situaciones : undefined,
     // El rango de meses no acota el facetado de dimensiones; se omite acá.
-    grupos: grupos.length ? grupos : undefined,
+    // `indicadores` NO se manda a opciones (el facetado nunca los ve).
   }
 
   // ¿El estado en edición difiere del aplicado? (habilita el botón Aplicar)
   const hayCambiosSinAplicar = useMemo(
     () => JSON.stringify(edicion) !== JSON.stringify(aplicado),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [siglas, carreras, puestos, especialidades, gruposEspecialidad, mesDesde, mesHasta, grupos, aplicado]
+    [siglas, carreras, puestos, especialidades, gruposEspecialidad, situaciones, mesDesde, mesHasta, indicadores, aplicado]
   )
 
   function aplicarFiltros() {
@@ -378,52 +430,98 @@ export function EvolucionEspecialidadChart() {
     [meses, mesHasta]
   )
 
+  // Opciones del combo "Situación de revista": catálogo cerrado local (no
+  // facetado), derivado del orden canónico menos "(sin dato)".
+  const situacionOpts = useMemo<ComboOption[]>(
+    () =>
+      ORDEN_SITUACION_REVISTA.filter((s) => s !== '(sin dato)').map((s) => ({
+        value: s,
+        label: etiquetaSituacion(s),
+      })),
+    []
+  )
+
   // El gráfico, su título y el export dependen de lo APLICADO (lo que se graficó).
   const haySeleccion =
     aplicado.siglas.length + aplicado.carreras.length + aplicado.puestos.length +
-    aplicado.especialidades.length + aplicado.gruposEspecialidad.length > 0 || aplicado.grupos.length > 0
+    aplicado.especialidades.length + aplicado.gruposEspecialidad.length > 0 || aplicado.indicadores.length > 0
+  // El botón Excel se habilita solo cuando hay ≥1 dimensión suelta aplicada
+  // (el export ignora `indicadores`): si solo hay indicadores fijados, se oculta.
+  const puedeExportar =
+    aplicado.siglas.length + aplicado.carreras.length + aplicado.puestos.length +
+    aplicado.especialidades.length + aplicado.gruposEspecialidad.length > 0
   const hayFiltroActivo =
     haySeleccion || Boolean(aplicado.mesDesde || aplicado.mesHasta) || hayCambiosSinAplicar
   const puntos = serie?.puntos ?? []
 
+  // Series por indicador: re-asocia color/label por `id` contra el estado local
+  // aplicado (el backend no reconstruye label y no conoce el color). Fallback a
+  // color/label derivados del id si el indicador ya no está en el estado local.
+  const indicadoresSerie = useMemo<IndicadorSerieUI[]>(() => {
+    const series = serie?.indicadores ?? []
+    if (series.length === 0) return []
+    const porId = new Map(aplicado.indicadores.map((i) => [i.id, i]))
+    return series.map((s) => {
+      const local = porId.get(s.id)
+      return {
+        id: s.id,
+        label: local?.label ?? (s.label || 'Indicador'),
+        color: local?.color ?? colorIndicador(s.id),
+        puntos: s.puntos,
+      }
+    })
+  }, [serie, aplicado.indicadores])
+
+  // ¿Hay algo para graficar? Modo desglose (puntos) o modo multi (indicadores).
+  const tieneSerie = puntos.length > 0 || indicadoresSerie.length > 0
+
   function limpiar() {
     setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([]); setGruposEspecialidad([])
-    setMesDesde(''); setMesHasta(''); setGrupos([])
+    setSituaciones([]); setMesDesde(''); setMesHasta(''); setIndicadores([])
     setAplicado(ESTADO_INICIAL)
   }
 
-  // ¿Hay dimensiones sueltas (en edición) que fijar como unión?
-  const hayDimensionEnEdicion =
-    siglas.length + carreras.length + puestos.length + especialidades.length + gruposEspecialidad.length > 0
+  // ¿Hay un perfil en edición (dimensiones sueltas o situación) que fijar como
+  // indicador?
+  const hayPerfilEnEdicion =
+    siglas.length + carreras.length + puestos.length + especialidades.length +
+    gruposEspecialidad.length + situaciones.length > 0
 
-  // Fija las dimensiones sueltas actuales como un grupo de la unión (con labels
-  // legibles para los chips), limpia la cascada y APLICA (congela y consulta).
-  function agregarUnion() {
-    if (!hayDimensionEnEdicion) return
-    const labels: string[] = []
-    const g: GrupoDotacionEvolucion = {}
-    if (siglas.length) { g.siglas = siglas; labels.push(siglas.join(' / ')) }
-    if (carreras.length) { g.carreras = carreras; labels.push(carreras.map(literalPorCodigo).join(' / ')) }
-    if (puestos.length) { g.puestos = puestos; labels.push(puestos.map(titleCase).join(' / ')) }
-    if (especialidades.length) { g.especialidades = especialidades; labels.push(especialidades.map(titleCase).join(' / ')) }
-    if (gruposEspecialidad.length) { g.gruposEspecialidad = gruposEspecialidad; labels.push(gruposEspecialidad.join(' / ')) }
-    g.labels = labels
-    const nuevosGrupos = [...grupos, g]
-    setGrupos(nuevosGrupos)
-    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([]); setGruposEspecialidad([])
-    // Fijar la unión aplica de inmediato (como pediste): se consulta con la
-    // unión ya incorporada y la cascada en edición vacía.
+  // Fija el perfil en edición (dimensiones + situación) como un indicador
+  // comparable (con label legible y color persistido), limpia la cascada y
+  // APLICA (congela y consulta).
+  function agregarIndicador() {
+    if (!hayPerfilEnEdicion || indicadores.length >= 8) return
+    const id = nuevoId()
+    const segmentos: string[] = []
+    if (siglas.length) segmentos.push(siglas.join(' / '))
+    if (carreras.length) segmentos.push(carreras.map(literalPorCodigo).join(' / '))
+    if (puestos.length) segmentos.push(puestos.map(titleCase).join(' / '))
+    if (especialidades.length) segmentos.push(especialidades.map(titleCase).join(' / '))
+    if (gruposEspecialidad.length) segmentos.push(gruposEspecialidad.join(' / '))
+    if (situaciones.length) segmentos.push(situaciones.map(etiquetaSituacion).join(' / '))
+    const label = segmentos.length ? segmentos.join(' · ') : `Indicador ${indicadores.length + 1}`
+    const color = asignarColorIndicador(id, indicadores.map((i) => i.color))
+    const nuevo: IndicadorUI = {
+      id, siglas, carreras, puestos, especialidades, gruposEspecialidad, situaciones, label, color,
+    }
+    const nuevosIndicadores = [...indicadores, nuevo]
+    setIndicadores(nuevosIndicadores)
+    setSiglas([]); setCarreras([]); setPuestos([]); setEspecialidades([]); setGruposEspecialidad([]); setSituaciones([])
+    // Fijar el indicador aplica de inmediato: se consulta con el indicador ya
+    // incorporado y la cascada en edición vacía.
     setAplicado({
       siglas: [], carreras: [], puestos: [], especialidades: [], gruposEspecialidad: [],
-      mesDesde, mesHasta, grupos: nuevosGrupos,
+      situaciones: [], mesDesde, mesHasta, indicadores: nuevosIndicadores,
     })
   }
 
-  function quitarGrupo(index: number) {
-    const restantes = grupos.filter((_, i) => i !== index)
-    setGrupos(restantes)
-    // Quitar una unión también re-aplica (el gráfico debe reflejarlo).
-    setAplicado((prev) => ({ ...prev, grupos: restantes }))
+  function quitarIndicador(id: string) {
+    const restantes = indicadores.filter((ind) => ind.id !== id)
+    setIndicadores(restantes)
+    // Quitar un indicador también re-aplica (el gráfico debe reflejarlo). No se
+    // tocan los colores de los indicadores restantes.
+    setAplicado((prev) => ({ ...prev, indicadores: restantes }))
   }
 
   return (
@@ -474,38 +572,57 @@ export function EvolucionEspecialidadChart() {
             onChange={setGruposEspecialidad}
           />
         )}
+        {/* Situación de revista (punto 2): acota QUÉ personas entran en la
+            reconstrucción del estado acumulado. Catálogo cerrado local. */}
+        <MultiCombobox
+          label="Situación de revista"
+          options={situacionOpts}
+          selected={situaciones}
+          placeholder="Todas las situaciones…"
+          onChange={setSituaciones}
+        />
       </div>
 
-      {/* ── Uniones (OR): fijar el perfil actual y sumar otro ──────────── */}
+      {/* ── Indicadores comparables: fijar el perfil actual como otra línea ── */}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={agregarUnion}
-          disabled={!hayDimensionEnEdicion}
-          title="Fijar los filtros de arriba como una unión (OR) y armar otro perfil"
+          onClick={agregarIndicador}
+          disabled={!hayPerfilEnEdicion || indicadores.length >= 8}
+          title={
+            indicadores.length >= 8
+              ? 'Máximo 8 indicadores'
+              : 'Fijar los filtros de arriba como un indicador comparable (una línea del gráfico)'
+          }
           className="h-8 px-3 rounded border border-secondary text-secondary text-xs font-semibold hover:bg-secondary/5 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           + Unión
         </button>
-        {grupos.length === 0 ? (
+        {indicadores.length === 0 ? (
           <span className="text-xs text-gray-400">
-            Combiná filtros y tocá <span className="font-semibold">+ Unión</span> para sumar perfiles con O
-            (ej. “psicólogos del Hospital A” O “enfermeros del Hospital B”).
+            Combiná filtros (incluida la situación de revista) y tocá{' '}
+            <span className="font-semibold">+ Unión</span> para sumar un indicador: cada uno es otra línea del
+            gráfico (ej. “activos del código 37” vs. “retención de cargo del código 22”).
           </span>
         ) : (
           <>
-            <span className="text-xs text-gray-400">Uniones (O):</span>
-            {grupos.map((g, i) => (
+            <span className="text-xs text-gray-400">Indicadores:</span>
+            {indicadores.map((ind) => (
               <span
-                key={i}
-                className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-1 text-xs font-medium text-secondary"
+                key={ind.id}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
+                style={{ backgroundColor: ind.color.colorLight, color: ind.color.color }}
               >
-                {g.labels?.length ? g.labels.join(' · ') : 'Filtro'}
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: ind.color.color }}
+                />
+                {ind.label}
                 <button
                   type="button"
-                  onClick={() => quitarGrupo(i)}
-                  className="ml-0.5 hover:text-secondary/60"
-                  aria-label="Quitar unión"
+                  onClick={() => quitarIndicador(ind.id)}
+                  className="ml-0.5 hover:opacity-60"
+                  aria-label={`Quitar indicador ${ind.label}`}
                 >
                   ×
                 </button>
@@ -566,7 +683,7 @@ export function EvolucionEspecialidadChart() {
           </button>
         )}
 
-        {haySeleccion && (
+        {puedeExportar && (
           <button
             type="button"
             onClick={() => exportar.mutate(filtros)}
@@ -587,16 +704,20 @@ export function EvolucionEspecialidadChart() {
       {/* ── Gráfico ───────────────────────────────────────────────────── */}
       {!haySeleccion ? (
         <p className="text-sm text-gray-400">
-          {hayDimensionEnEdicion
+          {hayPerfilEnEdicion
             ? 'Tocá «Aplicar filtros» para calcular la evolución con la selección actual.'
-            : 'Elegí al menos un filtro (efector, carrera, puesto o especialidad) y tocá «Aplicar filtros» para ver la evolución mensual de la dotación.'}
+            : 'Elegí al menos un filtro (efector, carrera, puesto, especialidad o situación) y tocá «Aplicar filtros» para ver la evolución mensual de la dotación.'}
         </p>
       ) : isFetching ? (
         <div className="h-64 bg-gray-100 rounded animate-pulse" />
-      ) : puntos.length === 0 ? (
+      ) : !tieneSerie ? (
         <p className="text-sm text-gray-400">No hay datos de padrón para esta combinación.</p>
       ) : (
-        <LineaEvolucion puntos={puntos} situaciones={serie?.situaciones ?? listaVacia} />
+        <LineaEvolucion
+          puntos={puntos}
+          situaciones={serie?.situaciones ?? listaVacia}
+          indicadores={indicadoresSerie}
+        />
       )}
     </div>
   )
@@ -618,12 +739,52 @@ interface SerieLinea {
   principal: boolean
 }
 
-function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; situaciones: string[] }) {
-  const n = puntos.length
+// Serie de un indicador ya re-asociada a su color/label del estado local.
+interface IndicadorSerieUI {
+  id: string
+  label: string
+  color: EstiloSerie
+  puntos: PuntoEvolucion[]
+}
 
-  // Series a graficar, en orden canónico §6.1: TOTAL primero (destacada), luego
-  // activo, "activos y comisionados" (tras activo), comision, retencion, etc.
+// Layout de la pila de etiquetas del último punto y del tooltip.
+const filaH = 14
+const padding = 6
+
+function LineaEvolucion({
+  puntos,
+  situaciones,
+  indicadores,
+}: {
+  puntos: PuntoEvolucion[]
+  situaciones: string[]
+  indicadores?: IndicadorSerieUI[]
+}) {
+  // Modo: 0 indicadores → desglose por estado (como hoy); ≥1 → una línea por
+  // indicador (su TOTAL), sin desglose.
+  const modoDesglose = (indicadores?.length ?? 0) === 0
+
+  // En multi, el eje temporal se toma del PRIMER indicador con puntos (nunca de
+  // indicadores[0] a ciegas). En desglose, de `puntos`.
+  const puntosEje = modoDesglose
+    ? puntos
+    : (indicadores?.find((ind) => ind.puntos.length > 0)?.puntos ?? [])
+  const n = puntosEje.length
+  const meses = puntosEje.map((p) => p.mes)
+
+  // Series a graficar. Desglose §6.1: TOTAL primero (destacada), luego activo,
+  // "activos y comisionados" (tras activo), comision, retencion, etc. Multi: una
+  // SerieLinea por indicador (clave = id, valores = total por mes).
   const series = useMemo<SerieLinea[]>(() => {
+    if (!modoDesglose) {
+      return (indicadores ?? []).map((ind) => ({
+        clave: ind.id,
+        label: ind.label,
+        valores: ind.puntos.map((p) => p.total),
+        color: ind.color.color,
+        principal: false,
+      }))
+    }
     const estados = ordenarSituaciones(situaciones)
     const out: SerieLinea[] = []
     const etotal = estiloSerie(CLAVE_TOTAL)
@@ -658,7 +819,7 @@ function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; sit
       }
     }
     return out
-  }, [puntos, situaciones])
+  }, [modoDesglose, indicadores, puntos, situaciones])
 
   // Toggles de visibilidad por serie (todas visibles al inicio).
   const [ocultas, setOcultas] = useState<Set<string>>(() => new Set())
@@ -671,73 +832,135 @@ function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; sit
     })
   }
 
-  const visibles = series.filter((s) => !ocultas.has(s.clave))
+  // Al cambiar el conjunto/modo de series, descartar claves ocultas que ya no
+  // existen (evita arrastrar toggles de un modo al otro).
+  const clavesVigentes = series.map((s) => s.clave).join('|')
+  useEffect(() => {
+    const vigentes = new Set(clavesVigentes.split('|'))
+    setOcultas((prev) => {
+      let cambio = false
+      const next = new Set<string>()
+      for (const k of prev) {
+        if (vigentes.has(k)) next.add(k)
+        else cambio = true
+      }
+      return cambio ? next : prev
+    })
+  }, [clavesVigentes])
 
-  // Rango Y sobre todos los valores visibles (superpuestas, no apiladas).
+  // Mes bajo el cursor (tooltip por punto). null = sin hover.
+  const [mesHover, setMesHover] = useState<number | null>(null)
+
+  // Única fuente de verdad de "qué está visible": alimenta polilíneas, pila del
+  // último punto, tooltip y rango Y.
+  const visibles = series.filter((s) => !ocultas.has(s.clave))
+  const hayVisibles = visibles.length > 0
+
+  // Rango Y sobre todos los valores visibles (superpuestas, no apiladas). Con 0
+  // visibles, calcularRangoY([]) devuelve {0,10}.
   const { yMin, yMax } = calcularRangoY(visibles.flatMap((s) => s.valores))
   const yRange = yMax - yMin || 1
 
+  // x de un punto: única definición, usada en coordsDe, bandas, guía y etiquetas.
+  const coordX = (i: number) => P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+
   const coordsDe = (valores: number[]) =>
     valores.map((v, i) => {
-      const x = P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
+      const x = coordX(i)
       const y = P.top + innerH - ((v - yMin) / yRange) * innerH
       return { x, y }
     })
 
   const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
 
-  // Cifras de cabecera sobre `total`.
+  const serieTotal = modoDesglose ? series.find((s) => s.principal) : undefined
+
+  // ── Pila de etiquetas del último punto (todas las series visibles) ──────────
+  // Ordenadas desc por el valor del último punto; `textAnchor="end"`, dy
+  // incremental fijo. En desglose la TOTAL entra como primera fila (y deja de
+  // dibujar su <text> suelto del último punto). yBase = y del valor más alto.
+  const pilaUltimo = useMemo(() => {
+    if (!hayVisibles || n === 0) return []
+    const filas = visibles
+      .map((s) => {
+        const v = s.valores[n - 1] ?? 0
+        const y = P.top + innerH - ((v - yMin) / yRange) * innerH
+        return { clave: s.clave, color: s.color, valor: v, y }
+      })
+      .sort((a, b) => b.valor - a.valor)
+    const yBase = Math.min(...filas.map((f) => f.y))
+    return filas.map((f, idx) => ({ ...f, yFila: yBase + idx * filaH }))
+  }, [visibles, hayVisibles, n, yMin, yRange])
+
+  // ── Cifras de cabecera ──────────────────────────────────────────────────────
+  // Desglose: Dotación actual + variación + sub-cifras por estado al corte.
   const totalActual = puntos[n - 1]?.total ?? 0
   const totalInicial = puntos[0]?.total ?? 0
   const delta = totalActual - totalInicial
   const deltaPct = totalInicial > 0 ? (delta / totalInicial) * 100 : 0
-
-  // Sub-cifras por estado al corte (último punto).
   const corte = puntos[n - 1]
   const estadosOrdenados = ordenarSituaciones(situaciones)
 
-  const serieTotal = series.find((s) => s.principal)
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-6 items-baseline">
-        <div>
-          <p className="text-xs text-gray-500">Dotación actual</p>
-          <p className="text-2xl font-bold text-gray-900">{formatNum(totalActual)}</p>
-          <p className="text-xs text-gray-400">al corte {formatMes(puntos[n - 1]!.mes)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500">Variación vs {formatMes(puntos[0]!.mes)}</p>
-          <p className={`text-lg font-bold ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {delta >= 0 ? '▲' : '▼'} {delta >= 0 ? '+' : ''}{formatNum(delta)}
-            <span className="text-sm font-medium ml-1">
-              ({deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%)
-            </span>
-          </p>
-        </div>
-        {/* Sub-cifras por estado al corte */}
-        {corte && estadosOrdenados.length > 0 && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {estadosOrdenados.map((sit) => (
-              <div key={`corte-${sit}`}>
-                <p className="text-[11px] text-gray-500">{etiquetaSituacion(sit)}</p>
-                <p className="text-sm font-semibold" style={{ color: estiloSerie(sit).color }}>
-                  {formatNum(corte.porSituacion[sit] ?? 0)}
+      {modoDesglose && n > 0 ? (
+        <div className="flex flex-wrap gap-6 items-baseline">
+          <div>
+            <p className="text-xs text-gray-500">Dotación actual</p>
+            <p className="text-2xl font-bold text-gray-900">{formatNum(totalActual)}</p>
+            <p className="text-xs text-gray-400">al corte {formatMes(puntosEje[n - 1]!.mes)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Variación vs {formatMes(puntosEje[0]!.mes)}</p>
+            <p className={`text-lg font-bold ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+              {delta >= 0 ? '▲' : '▼'} {delta >= 0 ? '+' : ''}{formatNum(delta)}
+              <span className="text-sm font-medium ml-1">
+                ({deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(1)}%)
+              </span>
+            </p>
+          </div>
+          {/* Sub-cifras por estado al corte */}
+          {corte && estadosOrdenados.length > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {estadosOrdenados.map((sit) => (
+                <div key={`corte-${sit}`}>
+                  <p className="text-[11px] text-gray-500">{etiquetaSituacion(sit)}</p>
+                  <p className="text-sm font-semibold" style={{ color: estiloSerie(sit).color }}>
+                    {formatNum(corte.porSituacion[sit] ?? 0)}
+                  </p>
+                </div>
+              ))}
+              <div>
+                <p className="text-[11px] text-gray-500">{etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS)}</p>
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: estiloSerie(CLAVE_ACTIVOS_Y_COMISIONADOS).color }}
+                >
+                  {formatNum(corte.activosYComisionados)}
                 </p>
               </div>
-            ))}
-            <div>
-              <p className="text-[11px] text-gray-500">{etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS)}</p>
-              <p
-                className="text-sm font-semibold"
-                style={{ color: estiloSerie(CLAVE_ACTIVOS_Y_COMISIONADOS).color }}
-              >
-                {formatNum(corte.activosYComisionados)}
+            </div>
+          )}
+        </div>
+      ) : (
+        // Multi: una cifra por indicador (valor del último punto).
+        <div className="flex flex-wrap gap-x-6 gap-y-1 items-baseline">
+          {(indicadores ?? []).map((ind) => (
+            <div key={`cab-${ind.id}`}>
+              <p className="text-[11px] text-gray-500 flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: ind.color.color }}
+                />
+                {ind.label}
+              </p>
+              <p className="text-lg font-bold" style={{ color: ind.color.color }}>
+                {formatNum(ind.puntos[ind.puntos.length - 1]?.total ?? 0)}
               </p>
             </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Leyenda con toggles por serie */}
       <div className="flex flex-wrap gap-2">
@@ -768,7 +991,7 @@ function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; sit
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        {/* Área tenue bajo la serie total (si está visible) */}
+        {/* Área tenue bajo la serie total (solo desglose, si está visible) */}
         {serieTotal && !ocultas.has(serieTotal.clave) && (
           <polygon
             points={[
@@ -793,7 +1016,8 @@ function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; sit
           )
         })}
 
-        {/* Series secundarias primero, la total encima */}
+        {/* Series secundarias primero (en desglose), la total encima; en multi
+            todas las líneas de indicador. */}
         {visibles
           .filter((s) => !s.principal)
           .map((s) => (
@@ -825,30 +1049,161 @@ function LineaEvolucion({ puntos, situaciones }: { puntos: PuntoEvolucion[]; sit
               return (
                 <g key={`pt-${i}`}>
                   <circle cx={c.x} cy={c.y} r={isLast ? 4.5 : 3.5} fill={serieTotal.color} />
-                  <text
-                    x={c.x}
-                    y={c.y - 8}
-                    textAnchor={i === 0 ? 'start' : isLast ? 'end' : 'middle'}
-                    fontSize={10}
-                    fill={serieTotal.color}
-                    fontWeight={isLast ? 'bold' : 'normal'}
-                  >
-                    {formatNum(serieTotal.valores[i]!)}
-                  </text>
+                  {/* El valor del último punto vive en la pila ordenada; el primero
+                      conserva su etiqueta propia (textAnchor=start). */}
+                  {i > 0 && i < n - 1 && (
+                    <text
+                      x={c.x}
+                      y={c.y - 8}
+                      textAnchor="middle"
+                      fontSize={10}
+                      fill={serieTotal.color}
+                      fontWeight="normal"
+                    >
+                      {formatNum(serieTotal.valores[i]!)}
+                    </text>
+                  )}
+                  {i === 0 && (
+                    <text
+                      x={c.x}
+                      y={c.y - 8}
+                      textAnchor="start"
+                      fontSize={10}
+                      fill={serieTotal.color}
+                    >
+                      {formatNum(serieTotal.valores[i]!)}
+                    </text>
+                  )}
                 </g>
               )
             })}
           </>
         )}
 
-        {puntos.map((p, i) => {
-          const x = P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
-          return (
-            <text key={`lbl-${i}`} x={x} y={H - 8} textAnchor="middle" fontSize={11} fill="#9CA3AF">
-              {formatMes(p.mes)}
+        {/* Pila de etiquetas del último punto: cada serie visible, su valor del
+            último mes, ordenadas desc y apiladas para no solaparse. */}
+        {hayVisibles &&
+          n > 0 &&
+          pilaUltimo.map((f) => (
+            <text
+              key={`stack-${f.clave}`}
+              x={P.left + innerW}
+              y={f.yFila}
+              textAnchor="end"
+              fontSize={10}
+              fontWeight="bold"
+              fill={f.color}
+            >
+              {formatNum(f.valor)}
             </text>
+          ))}
+
+        {/* Placeholder cuando el usuario apagó todas las series. */}
+        {!hayVisibles && (
+          <text
+            x={P.left + innerW / 2}
+            y={P.top + innerH / 2}
+            textAnchor="middle"
+            fontSize={12}
+            fill="#9CA3AF"
+          >
+            todas las series ocultas
+          </text>
+        )}
+
+        {/* Etiquetas de mes en el eje X */}
+        {meses.map((mes, i) => (
+          <text key={`lbl-${i}`} x={coordX(i)} y={H - 8} textAnchor="middle" fontSize={11} fill="#9CA3AF">
+            {formatMes(mes)}
+          </text>
+        ))}
+
+        {/* Bandas invisibles por mes: disparan el tooltip al pasar el mouse. */}
+        {hayVisibles &&
+          n > 0 &&
+          meses.map((_, i) => {
+            const bandW = n > 1 ? innerW / (n - 1) : innerW
+            return (
+              <rect
+                key={`band-${i}`}
+                x={coordX(i) - bandW / 2}
+                y={P.top}
+                width={bandW}
+                height={innerH}
+                fill="transparent"
+                pointerEvents="all"
+                onMouseEnter={() => setMesHover(i)}
+                onMouseLeave={() => setMesHover(null)}
+              />
+            )
+          })}
+
+        {/* Tooltip por mes: línea guía + caja con el valor de cada serie visible.
+            Último hijo del svg para que nunca quede tapado. */}
+        {hayVisibles && mesHover !== null && n > 0 && (() => {
+          const xg = coordX(mesHover)
+          const filasTip = visibles
+            .map((s) => ({
+              clave: s.clave,
+              label: s.label,
+              color: s.color,
+              valor: s.valores[mesHover] ?? 0,
+            }))
+            .sort((a, b) => b.valor - a.valor)
+          const boxH = filasTip.length * filaH + 2 * padding
+          const boxW = 180
+          const haciaIzquierda = xg > P.left + innerW / 2
+          const boxX = haciaIzquierda ? xg - boxW - 8 : xg + 8
+          const boxY = Math.min(P.top, P.top + innerH - boxH)
+          return (
+            <g>
+              <line
+                x1={xg}
+                x2={xg}
+                y1={P.top}
+                y2={P.top + innerH}
+                stroke="#9CA3AF"
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+              <rect
+                x={boxX}
+                y={boxY}
+                width={boxW}
+                height={boxH}
+                rx={4}
+                fill="#FFFFFF"
+                fillOpacity={0.95}
+                stroke="#E5E7EB"
+                strokeWidth={1}
+              />
+              <text x={boxX + padding} y={boxY - 4} fontSize={10} fill="#6B7280" fontWeight="bold">
+                {formatMes(meses[mesHover]!)}
+              </text>
+              {filasTip.map((f, idx) => {
+                const yRow = boxY + padding + idx * filaH + filaH - 4
+                return (
+                  <g key={`tip-${f.clave}`}>
+                    <rect x={boxX + padding} y={yRow - 8} width={8} height={8} rx={1} fill={f.color} />
+                    <text x={boxX + padding + 12} y={yRow} fontSize={10} fill="#374151">
+                      {f.label}
+                    </text>
+                    <text
+                      x={boxX + boxW - padding}
+                      y={yRow}
+                      textAnchor="end"
+                      fontSize={10}
+                      fontWeight="bold"
+                      fill={f.color}
+                    >
+                      {formatNum(f.valor)}
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
           )
-        })}
+        })()}
       </svg>
     </div>
   )
