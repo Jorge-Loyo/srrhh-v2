@@ -408,9 +408,22 @@ export async function listBajasSialRegistrosService(query: {
   let pi = 1
 
   if (search) {
-    conditions.push(`(r.ayn ILIKE $${pi} OR r.cuil ILIKE $${pi} OR r.cargo ILIKE $${pi} OR r.car_codigo ILIKE $${pi})`)
-    params.push(`%${search}%`)
-    pi++
+    // El término se busca por substring (ILIKE) contra:
+    //  - ayn            → nombre
+    //  - cargo          → ID SIAL ROL completo (formato "{id_sial}-{rol}", ej. 001788157-2).
+    //                     Buscar el ID SIAL puro (001788157) matchea por substring igual.
+    //  - car_codigo     → código interno del cargo
+    //  - cuil (crudo)   → por si el usuario escribe el CUIL con guiones
+    // Además, para que el CUIL se pueda buscar SIN guiones (ej. 20133043358),
+    // se compara el CUIL con los guiones removidos contra el término también
+    // sin guiones. Ambos ILIKE del CUIL se incluyen para tolerar los dos formatos.
+    const searchSinGuiones = search.replace(/-/g, '')
+    conditions.push(
+      `(r.ayn ILIKE $${pi} OR r.cargo ILIKE $${pi} OR r.car_codigo ILIKE $${pi}` +
+      ` OR r.cuil ILIKE $${pi} OR replace(r.cuil, '-', '') ILIKE $${pi + 1})`
+    )
+    params.push(`%${search}%`, `%${searchSinGuiones}%`)
+    pi += 2
   }
   if (motivo) {
     conditions.push(`r.mot_baja = $${pi}`)
