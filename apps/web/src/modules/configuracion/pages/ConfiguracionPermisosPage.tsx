@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -12,6 +12,7 @@ import {
   useSetRolePermisos,
 } from '../hooks/useRoles'
 import { usePermisosCatalogo } from '../hooks/usePermisosCatalogo'
+import { construirGrupos, accionLabel } from '../lib/grilla-permisos'
 
 const nuevoRolSchema = z.object({
   nombre: z.string().min(2, 'Mínimo 2 caracteres').max(100),
@@ -27,60 +28,33 @@ interface NuevoRolValues {
   descripcion?: string
 }
 
-function agruparPorModulo(permisos: Permiso[]) {
-  const grupos = new Map<string, Permiso[]>()
-  for (const p of permisos) {
-    if (!grupos.has(p.modulo)) grupos.set(p.modulo, [])
-    grupos.get(p.modulo)!.push(p)
-  }
-  return [...grupos.entries()]
-}
-
-const MODULO_LABEL: Record<string, string> = {
-  'inicio':             'Inicio',
-  'kpis':               'Tablero KPIs',
-  'personas':           'Personas',
-  'dotacion':           'Dotación',
-  'cargos':             'Cargos',
-  'bajas':              'Baja de cargo / Alta por baja',
-  'bajas-sial':         'Bajas Consolidadas',
-  'concursos-cph':      'Concursos CPH',
-  'concursos-ceetps':   'Concursos CEETPS',
-  'padron':             'Padrón Semanal',
-  'configuracion':      'Configuración',
-  'notificaciones':     'Notificaciones',
-  'autorizaciones':     'Autorizaciones (sistema)',
-  'solicitudes-alta':   'Solicitudes Alta',
-  'etiquetas':          'Etiquetas',
-  'ordenes_merito':     'Órdenes de Mérito',
-  'postulantes':        'Postulantes',
-}
-
-const ACCION_LABEL: Record<string, string> = {
-  'ver':                   'Ver',
-  'crear':                 'Crear / Alta',
-  'editar':                'Editar',
-  'subir':                 'Subir archivo',
-  'aprobar':               'Aprobar / Rechazar',
-  'aprobar_padron':        'Aprobar padrón',
-  'eliminar_snap':         'Eliminar snapshot',
-  'resolver_director':     'Resolver Director',
-  'resolver_sgrasv':       'Resolver Sgrasv',
-  'gestionar_usuarios':    'Gestionar usuarios',
-  'gestionar_permisos':    'Gestionar permisos y roles',
-  'gestionar_organigrama': 'Gestionar Organigrama',
-  'gestionar_pou':         'Gestionar Pou',
-  'gestionar_referencias': 'Gestionar Referencias',
-  'purgar_auditoria':      'Purgar Auditoría',
-  'ver_auditoria':         'Ver Auditoría',
-}
-
-function accionLabel(accion: string) {
-  return ACCION_LABEL[accion] ?? accion.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function moduloLabel(modulo: string) {
-  return MODULO_LABEL[modulo] ?? modulo.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+// Renderiza un sub-grupo de acciones. Si `mostrarSubEncabezado` es true
+// (secciones con 2+ sub-módulos: Importación y Sistema) antepone una fila de
+// sub-encabezado con el label del sub-módulo; si no, solo las filas de acción.
+function SubgrupoFilas({
+  label,
+  mostrarSubEncabezado,
+  children,
+}: {
+  label: string
+  mostrarSubEncabezado: boolean
+  children: ReactNode
+}) {
+  return (
+    <>
+      {mostrarSubEncabezado && (
+        <tr>
+          <td
+            colSpan={3}
+            className="px-4 py-2 font-bold text-gray-500 uppercase text-[11px] tracking-wide bg-gray-50/60 border-t border-gray-100"
+          >
+            {label}
+          </td>
+        </tr>
+      )}
+      {children}
+    </>
+  )
 }
 
 export function ConfiguracionPermisosPage() {
@@ -95,6 +69,18 @@ export function ConfiguracionPermisosPage() {
   const [showNuevoRol, setShowNuevoRol] = useState(false)
   const [editando, setEditando] = useState(false)
   const [error, setError] = useState('')
+  // Estado del acordeón: ids de grupos expandidos. Inicio: todo colapsado.
+  // No se resetea al cambiar de rol (conserva el contexto entre roles).
+  const [expandidos, setExpandidos] = useState<Set<string>>(() => new Set())
+
+  function toggleSeccion(id: string) {
+    setExpandidos((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
 
   const {
     register,
@@ -120,7 +106,7 @@ export function ConfiguracionPermisosPage() {
     () => roles?.find((r) => r.id === selectedId) ?? null,
     [roles, selectedId]
   )
-  const grupos = useMemo(() => agruparPorModulo(catalogo ?? []), [catalogo])
+  const grupos = useMemo(() => construirGrupos(catalogo ?? []), [catalogo])
   const totalPermisos = catalogo?.length ?? 0
   const otorgados = selected?.slug === 'admin' ? totalPermisos : selected?.permisos?.length ?? 0
 
@@ -326,46 +312,136 @@ export function ConfiguracionPermisosPage() {
         {cargandoCatalogo && <p className="p-6 text-sm text-gray-400">Cargando catálogo de permisos...</p>}
 
         {selected && !cargandoCatalogo && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-left border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 font-semibold w-56">Módulo</th>
-                  <th className="px-4 py-3 font-semibold w-40">Acción</th>
-                  <th className="px-4 py-3 font-semibold">Descripción</th>
-                  <th className="px-4 py-3 font-semibold w-28 text-center">Otorgado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {grupos.map(([modulo, permisos]) =>
-                  permisos.map((permiso, i) => (
-                    <tr key={permiso.id} className={selected.slug === 'admin' ? 'opacity-60' : 'hover:bg-gray-50'}>
-                      {i === 0 && (
-                        <td
-                          rowSpan={permisos.length}
-                          className="px-4 py-3 font-bold text-gray-700 uppercase text-xs tracking-wide align-top border-r border-gray-100 bg-gray-50/60"
+          <div>
+            {/* Barra superior de la matriz: expandir / colapsar todo */}
+            <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-gray-200 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setExpandidos(new Set(grupos.map((g) => g.seccion.id)))}
+                className="text-xs font-semibold text-secondary hover:underline"
+              >
+                Expandir todo
+              </button>
+              <span className="text-gray-300" aria-hidden="true">
+                |
+              </span>
+              <button
+                type="button"
+                onClick={() => setExpandidos(new Set())}
+                className="text-xs font-semibold text-secondary hover:underline"
+              >
+                Colapsar todo
+              </button>
+            </div>
+
+            <div className="divide-y divide-gray-200">
+              {grupos.map((grupo) => {
+                const { seccion, subgrupos, permisosPlanos } = grupo
+                const abierto = expandidos.has(seccion.id)
+                const panelId = `grilla-panel-${seccion.id}`
+                const botonId = `grilla-boton-${seccion.id}`
+                const informativo = !!seccion.informativo
+                const totalGrupo = permisosPlanos.length
+                const otorgadosGrupo = permisosPlanos.filter((p) => tienePermiso(selected, p.id)).length
+                const conSubEncabezados = subgrupos.length >= 2
+
+                return (
+                  <div key={seccion.id}>
+                    <h3 className="m-0">
+                      <button
+                        id={botonId}
+                        type="button"
+                        onClick={() => toggleSeccion(seccion.id)}
+                        aria-expanded={abierto}
+                        aria-controls={panelId}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-secondary"
+                      >
+                        <span
+                          className={`text-gray-400 transition-transform ${abierto ? 'rotate-90' : ''}`}
+                          aria-hidden="true"
                         >
-                          {moduloLabel(modulo)}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-gray-800 font-medium">
-                        {accionLabel(permiso.accion)}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">{capitalizar(permiso.descripcion)}</td>
-                      <td className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={tienePermiso(selected, permiso.id)}
-                          disabled={selected.slug === 'admin' || setPermisos.isPending}
-                          onChange={() => onTogglePermiso(selected, permiso)}
-                          className="h-4 w-4 rounded border-gray-300 cursor-pointer disabled:cursor-default"
-                        />
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                          ▶
+                        </span>
+                        {seccion.icono && (
+                          <span className="text-base shrink-0" aria-hidden="true">
+                            {seccion.icono}
+                          </span>
+                        )}
+                        <span className="font-bold text-gray-700 uppercase text-xs tracking-wide">
+                          {seccion.label}
+                        </span>
+                        <span className="ml-auto">
+                          {informativo ? (
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 border border-gray-300 rounded-full px-2 py-0.5">
+                              Acceso abierto — sin control por rol
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-400">
+                              {otorgadosGrupo} / {totalGrupo}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    </h3>
+
+                    {abierto && (
+                      <div id={panelId} role="region" aria-labelledby={botonId} className="bg-white">
+                        {informativo ? (
+                          <p className="px-4 py-3 text-sm text-gray-500">
+                            Lectura abierta a todos los roles. No requiere permiso asignado.
+                          </p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 text-gray-500 text-left border-y border-gray-200">
+                                <tr>
+                                  <th className="px-4 py-2 font-semibold w-48">Acción</th>
+                                  <th className="px-4 py-2 font-semibold">Descripción</th>
+                                  <th className="px-4 py-2 font-semibold w-28 text-center">Otorgado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {subgrupos.map((subgrupo) => (
+                                  <SubgrupoFilas
+                                    key={subgrupo.modulo}
+                                    label={subgrupo.label}
+                                    mostrarSubEncabezado={conSubEncabezados}
+                                  >
+                                    {subgrupo.permisos.map((permiso) => (
+                                      <tr
+                                        key={permiso.id}
+                                        className={selected.slug === 'admin' ? 'opacity-60' : 'hover:bg-gray-50'}
+                                      >
+                                        <td className="px-4 py-2.5 text-gray-800 font-medium">
+                                          {accionLabel(permiso.accion)}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-gray-500">
+                                          {capitalizar(permiso.descripcion)}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={tienePermiso(selected, permiso.id)}
+                                            disabled={selected.slug === 'admin' || setPermisos.isPending}
+                                            onChange={() => onTogglePermiso(selected, permiso)}
+                                            aria-label={`${seccion.label} — ${accionLabel(permiso.accion)}`}
+                                            className="h-4 w-4 rounded border-gray-300 cursor-pointer disabled:cursor-default"
+                                          />
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </SubgrupoFilas>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
