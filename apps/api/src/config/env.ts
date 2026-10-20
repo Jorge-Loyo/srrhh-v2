@@ -13,7 +13,22 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
 })
 
-const parsed = envSchema.safeParse(process.env)
+// Bajo Vitest (process.env.VITEST) se completan valores placeholder para las
+// variables requeridas: los tests unitarios importan services que dependen de
+// este módulo sólo por funciones puras (p. ej. resolverUsuarioLogin), y no se
+// debe matar el proceso de test por falta de env. En development/production el
+// comportamiento no cambia: la validación corre y aborta si algo falta.
+const parseEnv = () =>
+  process.env.VITEST
+    ? {
+        DATABASE_URL: 'postgresql://test',
+        JWT_SECRET: 'x'.repeat(32),
+        PYTHON_SERVICE_URL: 'http://localhost',
+        ...process.env,
+      }
+    : process.env
+
+const parsed = envSchema.safeParse(parseEnv())
 
 if (!parsed.success) {
   console.error('❌ Variables de entorno inválidas:')

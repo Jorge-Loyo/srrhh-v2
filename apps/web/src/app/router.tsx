@@ -55,6 +55,7 @@ import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages
 import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
 import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
 import { PresentacionPage } from '../modules/presentacion/pages/PresentacionPage'
+import { PerfilPage } from '../modules/perfil/pages/PerfilPage'
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -72,6 +73,9 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <RequireInicio /> },
+          // Perfil del propio usuario — sin RequirePermiso (cualquier
+          // autenticado accede a su perfil, igual que Organigrama/POU).
+          { path: 'perfil', element: <PerfilPage /> },
           // Importación — página con pestañas (Padrón / Bajas Consolidadas /
           // Árbol Organigrama / Carga POU). Cada pestaña conserva su ruta y su
           // guard de permiso propio. Las vistas de detalle (diffs) van fuera.

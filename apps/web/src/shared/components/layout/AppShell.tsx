@@ -301,10 +301,10 @@ export function AppShell() {
               )}
             </Link>
             <div className="h-full bg-primary flex items-center gap-3 px-5">
-              <div className="text-right">
+              <Link to="/perfil" title="Mi perfil" className="text-right hover:opacity-80 transition-opacity">
                 <p className="text-xs font-bold text-black leading-tight">{user.username}</p>
                 <p className="text-[10px] text-black/70 capitalize">{user.rol.replace(/_/g, ' ')}</p>
-              </div>
+              </Link>
               <button
                 onClick={logout}
                 title="Cerrar sesión"

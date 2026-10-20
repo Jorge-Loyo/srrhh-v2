@@ -8,6 +8,7 @@ import { env } from './config/env.js'
 import { prisma } from './shared/prisma.js'
 import { errorHandler } from './shared/errors/error.handler.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
+import { perfilRoutes } from './modules/perfil/perfil.routes.js'
 import { auditLog } from './shared/middleware/audit.middleware.js'
 import { personasRoutes } from './modules/personas/personas.routes.js'
 import { cargosRoutes } from './modules/cargos/cargos.routes.js'
@@ -106,6 +107,7 @@ app.get('/health/readiness', async (_req, reply) => {
 
 // Rutas
 await app.register(authRoutes, { prefix: '/api/v1/auth' })
+await app.register(perfilRoutes, { prefix: '/api/v1/perfil' })
 await app.register(personasRoutes, { prefix: '/api/v1/personas' })
 await app.register(cargosRoutes, { prefix: '/api/v1/cargos' })
 await app.register(padronRoutes, { prefix: '/api/v1/padron' })

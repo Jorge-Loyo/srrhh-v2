@@ -34,22 +34,26 @@ interface AuthState {
   isLoading: boolean
   /** true mientras se verifica si hay una sesión previa al arrancar la app */
   isCheckingSession: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (identificador: string, password: string) => Promise<void>
   logout: () => void
+  /** Reescribe el user persistido (localStorage + estado) tras editar el
+   * perfil — el backend no tiene /me, así que header y can() se mantienen
+   * consistentes fusionando los campos devueltos por el PATCH. */
+  setUser: (patch: Partial<Usuario>) => void
   /** Intenta restaurar la sesión desde el refreshToken guardado. Se llama una
    * sola vez, al montar ProtectedRoute. */
   restoreSession: () => Promise<void>
 }
 
-export const useAuth = create<AuthState>((set) => ({
+export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   isLoading: false,
   isCheckingSession: true,
 
-  login: async (username, password) => {
+  login: async (identificador, password) => {
     set({ isLoading: true })
     try {
-      const res = await apiClient.post('/api/v1/auth/login', { username, password })
+      const res = await apiClient.post('/api/v1/auth/login', { identificador, password })
       const { accessToken, refreshToken, user } = res.data.data
       setAccessToken(accessToken)
       setRefreshToken(refreshToken)
@@ -75,6 +79,14 @@ export const useAuth = create<AuthState>((set) => ({
     restoreSessionPromise = null
     set({ user: null })
     window.location.href = '/login'
+  },
+
+  setUser: (patch) => {
+    const current = get().user
+    if (!current) return
+    const next = { ...current, ...patch }
+    persistUser(next)
+    set({ user: next })
   },
 
   restoreSession: () => restoreSessionOnce(set),

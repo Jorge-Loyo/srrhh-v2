@@ -472,6 +472,12 @@ export interface Usuario {
   id: string
   username: string
   email: string
+  // Clave de vinculación del usuario ("de ahora en más"), inmutable para el
+  // propio usuario. Opcional/nullable: los usuarios viejos pueden no tenerlo
+  // hasta el backfill (CUIL provisorio con prefijo '00').
+  cuil?: string | null
+  nombre?: string | null
+  apellido?: string | null
   rol: string // display: role.nombre (editable por el admin — no usar para gating de UI)
   rolSlug: string // estable, usar esto para comparar en el frontend (ej. rolSlug === 'admin')
   roleId: string
@@ -691,7 +697,11 @@ export interface RoleJerarquia {
 // -----------------------------------------------------------------------------
 
 export interface LoginRequest {
-  username: string
+  // Login multi-identificador: el usuario ingresa email, CUIL o username; el
+  // backend resuelve cuál es automáticamente. `username` queda como alias
+  // legacy opcional (retrocompatibilidad con clientes viejos).
+  identificador: string
+  username?: string
   password: string
 }
 

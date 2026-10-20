@@ -1290,6 +1290,12 @@ model Usuario {
   id           String   @id @default(uuid()) @db.Uuid
   username     String   @unique @db.VarChar(64)
   email        String   @unique @db.VarChar(255)
+  // Clave de vinculación "de ahora en más" (login multi-identificador). Nullable
+  // hasta el backfill: hay usuarios existentes sin CUIL; el UNIQUE de Postgres
+  // admite múltiples NULL, así que el estado intermedio no rompe la restricción.
+  cuil         String?  @unique @db.VarChar(11)
+  nombre       String?  @db.VarChar(120)
+  apellido     String?  @db.VarChar(120)
   passwordHash String   @map("password_hash") @db.VarChar(255)
   roleId       String   @map("role_id") @db.Uuid
   hospitalId   String?  @map("hospital_id") @db.Uuid

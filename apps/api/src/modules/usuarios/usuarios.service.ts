@@ -49,7 +49,10 @@ export async function createUsuario(body: CreateUsuarioBody) {
     const row = await prisma.usuario.create({
       data: {
         username: body.username,
-        email: body.email,
+        // Email siempre en minúsculas: sostiene el invariante de casing que
+        // usa el login por email (mode:'insensitive') y el backfill del script
+        // de rollout. Hoy se escribía crudo, lo que dejaba filas con mayúsculas.
+        email: body.email.toLowerCase().trim(),
         passwordHash,
         roleId: body.roleId,
         hospitalId: body.hospitalId ?? null,

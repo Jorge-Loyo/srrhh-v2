@@ -61,11 +61,44 @@ function buildUserPayload(usuario: {
 
 // ─── login ───────────────────────────────────────────────────────────────────
 
+// Función PURA de precedencia de la resolución del identificador de login.
+// Recibe los DOS resultados ya consultados (match exacto por username y match
+// por cuil/email) y decide cuál gana: username SIEMPRE tiene precedencia.
+// Esto preserva la semántica del login actual (findUnique por username) y
+// garantiza la Prioridad #1 (no romper el login existente): si un valor es
+// username de alguien, resuelve a ese alguien sin importar colisiones
+// cross-column. Aislada como función pura para testearla sin Prisma (patrón
+// del repo: tests de lógica pura sin vi.mock).
+export function resolverUsuarioLogin<T>(porUsername: T | null, porCuilOEmail: T | null): T | null {
+  return porUsername ?? porCuilOEmail ?? null
+}
+
 export async function loginService(body: LoginBody, signToken: (payload: object) => string, ip: string | null = null) {
-  const usuario = await prisma.usuario.findUnique({
-    where: { username: body.username },
+  const id = body.identificador // ya viene .trim() del schema
+
+  // PASO 1 — precedencia de username (preserva el comportamiento actual del
+  // login). Equivale al findUnique({ where: { username } }) de hoy.
+  const porUsername = await prisma.usuario.findUnique({
+    where: { username: id },
     include: { role: true },
   })
+
+  // PASO 2 — solo si username no matcheó: resolver por cuil (exacto) o email
+  // (case-insensitive vía mode:'insensitive', sin depender del casing guardado).
+  const porCuilOEmail = porUsername
+    ? null
+    : await prisma.usuario.findFirst({
+        where: {
+          OR: [
+            { cuil: id }, // exacto (numérico)
+            { email: { equals: id, mode: 'insensitive' } }, // case-insensitive
+          ],
+        },
+        orderBy: { createdAt: 'asc' }, // determinístico ante colisión residual
+        include: { role: true },
+      })
+
+  const usuario = resolverUsuarioLogin(porUsername, porCuilOEmail)
 
   // Siempre correr bcrypt para igualar el tiempo de respuesta independientemente
   // de si el usuario existe — evita timing side-channel que permitiría enumerar usuarios.
@@ -86,6 +119,9 @@ export async function loginService(body: LoginBody, signToken: (payload: object)
       id: usuario.id,
       username: usuario.username,
       email: usuario.email,
+      cuil: usuario.cuil,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
       rol: usuario.role.nombre,
       rolSlug: usuario.role.slug,
       roleId: usuario.roleId,
