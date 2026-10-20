@@ -77,21 +77,34 @@ export async function listCargosService(query: CargosQuery) {
     searchIds = rows.map((r) => r.id)
   }
 
-  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente O histórica
-  // (incluye cargos vacantes donde la persona fue la última ocupante)
+  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL contra la OCUPACIÓN
+  // REPRESENTANTE de cada cargo — el ocupante actual (hasta IS NULL), o si el
+  // cargo está vacante, el ÚLTIMO que lo ocupó (hasta más reciente). No matchea
+  // ocupantes históricos intermedios: para cada cargo solo cuenta "quién lo
+  // ocupa hoy o, si está vacante, quién lo dejó último" (decisión del usuario).
+  // Se elige 1 ocupación por cargo con DISTINCT ON ordenando las vigentes
+  // primero (hasta NULLS FIRST) y luego por hasta desc, y recién sobre esa fila
+  // representante se aplica el filtro de texto.
   let personaIds: string[] | undefined
   if (personaSearch) {
     const like = `%${personaSearch}%`
     // Normalizar: quitar guiones para buscar CUIL sin formato (27-12345678-9 -> 27123456789)
     const likeNorm = `%${personaSearch.replace(/-/g, '')}%`
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT DISTINCT o.cargo_id AS id
-      FROM ocupaciones o
-      JOIN personas p ON p.id = o.persona_id
+      WITH representante AS (
+        SELECT DISTINCT ON (o.cargo_id)
+               o.cargo_id,
+               o.persona_id,
+               o.id_sial_rol
+        FROM ocupaciones o
+        ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST
+      )
+      SELECT r.cargo_id AS id
+      FROM representante r
+      JOIN personas p ON p.id = r.persona_id
       WHERE (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
           OR p.cuil ILIKE ${likeNorm}
-          OR o.id_sial_rol ILIKE ${like}
-          OR o.cuil_y_rol  ILIKE ${like})
+          OR r.id_sial_rol ILIKE ${like})
     `)
     personaIds = rows.map((r) => r.id)
   }
