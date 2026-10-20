@@ -400,11 +400,113 @@ export async function getKpisAlertasService(query: KpisAlertasQuery) {
 //
 // Lee desde kpis_dotacion_snapshot — tabla materializada que se popula al
 // aprobar cada snapshot (padron.service.ts). Un punto por fecha de snapshot
-// completo aprobado. El escalafón es el nombre canónico de escalafones.nombre.
+// completo aprobado. El grano es (fecha, codigo_registro, situacion_revista):
+// una fila por estado (series NO disjuntas) + una fila reservada
+// situacion_revista='(total)' por carrera = count(DISTINCT cuil) de ese código
+// en cualquier estado (NO es la suma de los estados, §1.A del diseño).
+
+// Valor reservado que marca la fila del total por carrera en
+// kpis_dotacion_snapshot (nunca colisiona con un estado normalizado real).
+const SITUACION_TOTAL = '(total)'
+
+// Orden canónico de las series por situación de revista (espejo de
+// ORDEN_SITUACION_REVISTA en @srrhh/types; el API no depende de ese paquete).
+const ORDEN_SITUACION_REVISTA = ['activo', 'comision', 'retencion de cargo', '(sin dato)'] as const
+
+// Ordena una lista de situaciones de revista por el orden canónico
+// (ORDEN_SITUACION_REVISTA); los valores no listados van al final, alfabéticos.
+// '(total)' nunca entra acá (se separa antes).
+function ordenarSituaciones(situaciones: string[]): string[] {
+  const orden = ORDEN_SITUACION_REVISTA as readonly string[]
+  return [...situaciones].sort((a, b) => {
+    const ia = orden.indexOf(a)
+    const ib = orden.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return a.localeCompare(b)
+  })
+}
+
+// Normaliza una situación de revista al catálogo cerrado (minúscula sin tilde,
+// trim). Es el espejo TS de lower(unaccent(trim(...))) del SQL; se usa en la
+// función pura de conteo (tests) para que la lógica de agregación sea
+// verificable sin BD. NULL/vacío → '(sin dato)'.
+export function normalizarSituacionRevista(valor: string | null | undefined): string {
+  if (valor == null) return SITUACION_SIN_DATO
+  const sinTilde = valor
+    .replace(/á/g, 'a').replace(/é/g, 'e').replace(/í/g, 'i').replace(/ó/g, 'o').replace(/ú/g, 'u')
+    .replace(/Á/g, 'A').replace(/É/g, 'E').replace(/Í/g, 'I').replace(/Ó/g, 'O').replace(/Ú/g, 'U')
+  const norm = sinTilde.trim().toLowerCase()
+  return norm === '' ? SITUACION_SIN_DATO : norm
+}
+
+const SITUACION_SIN_DATO = '(sin dato)'
+
+// Fila de estado acumulado al corte, reducida a lo que importa para el conteo
+// de dotación: persona (cuil), carrera (codigo de registro) y situación.
+export interface FilaEstadoDotacion {
+  cuil: string
+  codigo: string
+  situacionRevista: string | null
+}
+
+// Agregación PURA del estado acumulado a { porCarrera: { codigo: {...} } }.
+// Reproduce exactamente lo que hacen el populate/backfill/consulta individual
+// en SQL, pero sin BD, para poder testearlo:
+//   • total               = count(DISTINCT cuil) de la carrera (cualquier estado)
+//   • porSituacion[s]      = count(DISTINCT cuil) de la carrera con AL MENOS una
+//                            ocupación en el estado s (series NO disjuntas)
+//   • activosYComisionados = count(DISTINCT cuil) con estado ∈ {activo, comision}
+// El total NO es la suma de porSituacion (una persona multi-estado cuenta en
+// cada serie pero una sola vez en total).
+export function agregarDotacion(filas: FilaEstadoDotacion[]): {
+  porCarrera: Record<string, { total: number; porSituacion: Record<string, number>; activosYComisionados: number }>
+} {
+  // Por carrera: cuiles totales, cuiles por estado, cuiles activo/comision.
+  const acc = new Map<
+    string,
+    { total: Set<string>; porSituacion: Map<string, Set<string>>; ayc: Set<string> }
+  >()
+  for (const fila of filas) {
+    const codigo = fila.codigo
+    const sit = normalizarSituacionRevista(fila.situacionRevista)
+    if (!acc.has(codigo)) {
+      acc.set(codigo, { total: new Set(), porSituacion: new Map(), ayc: new Set() })
+    }
+    const carrera = acc.get(codigo)!
+    carrera.total.add(fila.cuil)
+    if (!carrera.porSituacion.has(sit)) carrera.porSituacion.set(sit, new Set())
+    carrera.porSituacion.get(sit)!.add(fila.cuil)
+    if (sit === 'activo' || sit === 'comision') carrera.ayc.add(fila.cuil)
+  }
+  const porCarrera: Record<
+    string,
+    { total: number; porSituacion: Record<string, number>; activosYComisionados: number }
+  > = {}
+  for (const [codigo, carrera] of acc) {
+    const porSituacion: Record<string, number> = {}
+    for (const [sit, cuiles] of carrera.porSituacion) porSituacion[sit] = cuiles.size
+    porCarrera[codigo] = {
+      total: carrera.total.size,
+      porSituacion,
+      activosYComisionados: carrera.ayc.size,
+    }
+  }
+  return { porCarrera }
+}
+
 export async function getKpisDotacionHistoricaService(_query: KpisDotacionHistoricaQuery) {
   const rows = await prisma.kpisDotacionSnapshot.findMany({
-    orderBy: [{ fecha: 'asc' }, { escalafon: 'asc' }],
+    orderBy: [{ fecha: 'asc' }, { codigoRegistro: 'asc' }, { situacionRevista: 'asc' }],
   })
+
+  // Mapa codigo→literal legible para rotular las carreras. Un solo findMany; si
+  // un código es huérfano (no existe en codigos_registro) o es el bucket
+  // '(sin codigo)', el literal cae al propio código.
+  const codigos = await prisma.codigoRegistro.findMany({ select: { codigo: true, literal: true } })
+  const literalPorCodigo = new Map(codigos.map((c) => [c.codigo, c.literal ?? c.codigo]))
+  const literalDe = (codigo: string) => literalPorCodigo.get(codigo) ?? codigo
 
   // Un punto por mes = el padrón de cierre, o sea el snapshot cuya fecha es la
   // más tardía dentro de ese mes calendario. Si en un mes hubo varias subidas
@@ -420,29 +522,43 @@ export async function getKpisDotacionHistoricaService(_query: KpisDotacionHistor
     [...fechasCierrePorMes.values()].map((f) => f.toISOString().slice(0, 10))
   )
 
-  type PuntoMap = Map<string, { fecha: Date; porEscalafon: Record<string, number> }>
+  type PorCarrera = Record<string, { total: number; porSituacion: Record<string, number> }>
+  type PuntoMap = Map<string, { fecha: Date; porCarrera: PorCarrera }>
   const porFecha: PuntoMap = new Map()
-  const escalafonesSet = new Set<string>()
+  const carrerasSet = new Set<string>()
+  const situacionesSet = new Set<string>()
 
   for (const r of rows) {
     const key = r.fecha.toISOString().slice(0, 10)
     // Sólo las fechas de cierre de cada mes entran al gráfico.
     if (!fechasCierre.has(key)) continue
-    if (!porFecha.has(key)) porFecha.set(key, { fecha: r.fecha, porEscalafon: {} })
-    porFecha.get(key)!.porEscalafon[r.escalafon] = r.personas
-    escalafonesSet.add(r.escalafon)
+    if (!porFecha.has(key)) porFecha.set(key, { fecha: r.fecha, porCarrera: {} })
+    const punto = porFecha.get(key)!
+    if (!punto.porCarrera[r.codigoRegistro]) {
+      punto.porCarrera[r.codigoRegistro] = { total: 0, porSituacion: {} }
+    }
+    carrerasSet.add(r.codigoRegistro)
+    if (r.situacionRevista === SITUACION_TOTAL) {
+      // El total viene de su fila materializada; NO se suma de los estados.
+      punto.porCarrera[r.codigoRegistro].total = r.personas
+    } else {
+      punto.porCarrera[r.codigoRegistro].porSituacion[r.situacionRevista] = r.personas
+      situacionesSet.add(r.situacionRevista)
+    }
   }
 
-  const escalafones = [...escalafonesSet].sort()
+  const carreras = [...carrerasSet]
+    .sort()
+    .map((codigo) => ({ codigo, literal: literalDe(codigo) }))
+  const situaciones = ordenarSituaciones([...situacionesSet])
   const puntos = [...porFecha.values()]
     .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
     .map((p) => ({
       fecha: p.fecha,
-      total: Object.values(p.porEscalafon).reduce((s, v) => s + v, 0),
-      porEscalafon: p.porEscalafon,
+      porCarrera: p.porCarrera,
     }))
 
-  return { escalafones, puntos }
+  return { carreras, situaciones, puntos }
 }
 
 // ─── KPIs de bajas ───────────────────────────────────────────────────────────
@@ -611,10 +727,11 @@ function condicionesGrupoEvolucion(alias: string, g: DimensionesEvolucion): Pris
   if (g.siglas?.length) {
     conds.push(Prisma.sql`${siglaNormalizadaSql(alias)} IN (${Prisma.join(g.siglas)})`)
   }
-  // La carrera canónica vive en escalafones.nombre (alias e), no en el alias de
-  // padron_historico; e siempre está joineado en las queries que usan esto.
+  // La carrera ahora es el CÓDIGO de registro (codigos_registro.codigo, alias
+  // cr), no el nombre de escalafón. cr se joinea (LEFT) en todas las queries
+  // que usan esto. Los cargos sin código caen en el bucket '(sin codigo)'.
   if (g.carreras?.length) {
-    conds.push(Prisma.sql`e.nombre IN (${Prisma.join(g.carreras)})`)
+    conds.push(Prisma.sql`coalesce(cr.codigo, '(sin codigo)') IN (${Prisma.join(g.carreras)})`)
   }
   if (g.puestos?.length) {
     conds.push(Prisma.sql`(${puestoNormalizadoSql(alias)}) IN (${Prisma.join(g.puestos)})`)
@@ -692,11 +809,10 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
     FROM padron_historico ph
     JOIN cargos c ON c.id = ph.cargo_id
     JOIN escalafones e ON e.id = c.escalafon_id
-    -- Casing mezclado en la BD: el grueso del padrón quedó en 'Activo'
-    -- (mayúscula) y solo los registros nuevos del Dotaneitor v2 en minúscula.
-    -- lower(unaccent(...)) para no perder el 99%.
-    WHERE lower(unaccent(ph.situacion_revista)) = 'activo'
-      AND ph.hospital_sigla IS NOT NULL AND trim(ph.hospital_sigla) <> ''
+    -- LEFT JOIN: cargos.codigo_registro_id es nullable → los cargos sin código
+    -- caen en el bucket '(sin codigo)' en vez de descartarse silenciosamente.
+    LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+    WHERE ph.hospital_sigla IS NOT NULL AND trim(ph.hospital_sigla) <> ''
   `
 
   // Cada dimensión aplica todos los filtros MENOS el suyo (del grupo en edición).
@@ -722,9 +838,22 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
       ORDER BY 1
     `)
 
+  // Carreras: código + literal legible (objeto, no lista plana). Coalesce al
+  // bucket '(sin codigo)' para los cargos sin código de registro; el literal
+  // cae al propio código si no hay literal.
+  const distinctCarreras = () =>
+    prisma.$queryRaw<{ codigo: string; literal: string }[]>(Prisma.sql`
+      SELECT DISTINCT
+        coalesce(cr.codigo, '(sin codigo)') AS codigo,
+        coalesce(cr.literal, cr.codigo, '(sin codigo)') AS literal
+      ${BASE}
+      ${construirFiltros('ph', filtros, 'carreras')}
+      ORDER BY 1
+    `)
+
   const [siglas, carreras, puestos, especialidades, gruposEspecialidad, meses] = await Promise.all([
     distinct<{ valor: string }>(siglaNormalizadaSql('ph'), 'siglas'),
-    distinct<{ valor: string }>(Prisma.sql`e.nombre`, 'carreras'),
+    distinctCarreras(),
     distinct<{ valor: string }>(puestoNormalizadoSql('ph'), 'puestos'),
     distinct<{ valor: string }>(especialidadNormalizadaSql('ph'), 'especialidades'),
     distinctGrupos(),
@@ -738,7 +867,7 @@ export async function getDotacionEvolucionOpcionesService(filtros: FiltrosEvoluc
 
   return {
     siglas: siglas.map((r) => r.valor),
-    carreras: carreras.map((r) => r.valor),
+    carreras: carreras.map((r) => ({ codigo: r.codigo, literal: r.literal })),
     puestos: puestos.map((r) => r.valor),
     especialidades: especialidades.map((r) => r.valor),
     // Filtra NULL/vacío: solo grupos reales.
@@ -779,7 +908,7 @@ function cortesMensualesSql(mesDesde?: string, mesHasta?: string) {
 // vigente si apareció alguna vez <= corte y no fue dado de baja (padron_diff
 // 'eliminado') sin un alta posterior <= corte. Mismo criterio que el backfill
 // de kpis_dotacion_snapshot, pero conservando las dimensiones de padron_historico.
-function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
+export function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
   return Prisma.sql`
     WITH cortes AS (${cortesMensualesSql(mesDesde, mesHasta)}),
     -- El corte más reciente es el "mes en curso": debe reflejar el estado REAL
@@ -864,65 +993,100 @@ function estadoActivoAcumuladoSql(mesDesde?: string, mesHasta?: string) {
   `
 }
 
-// Serie mensual de stock (una sola línea = suma de todo lo seleccionado).
+// Serie mensual de stock, motor unificado: una línea por situación de revista
+// (NO disjuntas) + total + "activos y comisionados", todo count(DISTINCT cuil).
 // OR dentro de cada dimensión (IN), AND entre dimensiones. Un punto por mes =
-// personas activas deduplicadas en el snapshot COMPLETO de ese mes (Opción A:
-// la foto real del padrón; los meses sin foto completa no se grafican).
+// foto reconstruida al cierre de cada mes (los meses sin foto completa no se
+// grafican). Ya NO hay filtro duro 'activo' ni regla de estado representante:
+// una persona cuenta en cada estado donde tiene ocupación vigente, y una sola
+// vez en el total.
 export async function getDotacionEvolucionService(query: DotacionEvolucionQuery) {
   const { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, mesDesde, mesHasta, grupos } = query
   const filtros: FiltrosEvolucion = { siglas, carreras, puestos, especialidades, gruposEspecialidad, jefatura, grupos }
 
-  const rows = await prisma.$queryRaw<{ mes: string; cantidad: bigint }[]>(Prisma.sql`
+  // `base` = estado acumulado al corte de cada mes, ya filtrado por las
+  // dimensiones elegidas, con el cuil (unidad de conteo) y la situación
+  // normalizada. count(DISTINCT cuil) absorbe el espejo de jefatura y las
+  // suplencias de guardia (misma persona) sin necesidad del dedup por
+  // representante que usa el export.
+  const rows = await prisma.$queryRaw<
+    { mes: string; situacion: string; personas: bigint; total: bigint; activosYComisionados: bigint }[]
+  >(Prisma.sql`
     WITH ult AS (${estadoActivoAcumuladoSql(mesDesde, mesHasta)}),
-    -- Dedup espejo jefatura: UNA fila representante por (mes, persona,
-    -- repartición, puesto), igual criterio que el export (row_number ordenado
-    -- por id_sial_rol). Antes se contaba DISTINCT sin elegir representante y se
-    -- filtraba fila por fila: una persona con 2 cargos vigentes del mismo
-    -- puesto en reparticiones distintas (o 2 roles con especialidad distinta)
-    -- podía contarse en una categoría que su fila representante del export NO
-    -- tenía → conteo fantasma (ej. un "1" en "(sin especialidad)" que el Excel
-    -- no traía — Marocchi, asistente social de planta, oct-2026). Ahora la serie
-    -- y el export cuentan exactamente el mismo conjunto.
-    dedup AS (
-      SELECT ult.*,
-        row_number() OVER (
-          PARTITION BY ult.mes, ult.persona_id,
-            coalesce((SELECT codigo_repa FROM cargos WHERE id = ult.cargo_id), ''),
-            ${puestoNormalizadoSql('ult')}
-          -- El representante NUNCA debe ser una suplencia de guardia (código
-          -- SG-*): esa no es el cargo de la persona, es una habilitación para
-          -- cubrir guardias ADEMÁS de su cargo fijo. Si en la misma partición
-          -- conviven el cargo fijo (ej. CPH-POU) y la suplencia (SG), antes el
-          -- ORDER BY id_sial_rol podía elegir el SG (menor sufijo) y entonces el
-          -- filtro por carrera CPH descartaba a la persona → faltaba en el
-          -- conteo (caso Pratto/Kirsch, oct-2026). Se ordena primero por "no es
-          -- SG" para que gane el cargo fijo; a igualdad, por id_sial_rol.
-          ORDER BY (coalesce((SELECT codigo FROM cargos WHERE id = ult.cargo_id), '') LIKE 'SG-%') ASC,
-                   ult.id_sial_rol
-        ) AS drn
+    base AS (
+      SELECT
+        ult.mes,
+        p.cuil,
+        lower(unaccent(trim(ult.situacion_revista))) AS sit
       FROM ult
-      WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
+      JOIN cargos c ON c.id = ult.cargo_id
+      LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+      JOIN personas p ON p.id = ult.persona_id
+      WHERE p.cuil IS NOT NULL
+        ${construirFiltros('ult', filtros)}
     ),
-    conteo AS (
-      SELECT dedup.mes, count(*)::bigint AS cantidad
-      FROM dedup
-      JOIN cargos c ON c.id = dedup.cargo_id
-      JOIN escalafones e ON e.id = c.escalafon_id
-      WHERE dedup.drn = 1
-        ${construirFiltros('dedup', filtros)}
-      GROUP BY dedup.mes
+    meses AS (SELECT DISTINCT mes FROM ult),
+    -- Estados presentes en los datos filtrados (para armar la grilla mes×estado
+    -- y garantizar el eje temporal completo por estado, con 0 donde no hay nadie).
+    estados AS (
+      SELECT DISTINCT coalesce(sit, '(sin dato)') AS sit FROM base
+    ),
+    -- Series por estado: count(DISTINCT cuil) por (mes, estado). NO disjuntas.
+    por_estado AS (
+      SELECT mes, coalesce(sit, '(sin dato)') AS sit, count(DISTINCT cuil)::bigint AS personas
+      FROM base
+      GROUP BY mes, coalesce(sit, '(sin dato)')
+    ),
+    -- Total por mes: count(DISTINCT cuil) sin desglosar por estado (NO es la
+    -- suma de las series).
+    total_mes AS (
+      SELECT mes, count(DISTINCT cuil)::bigint AS total
+      FROM base
+      GROUP BY mes
+    ),
+    -- Unión 'activo' ∪ 'comision' pedida en el mensaje #6: count(DISTINCT cuil)
+    -- de quien tiene algún cargo activo O en comisión (NO la suma de ambas
+    -- series).
+    ayc_mes AS (
+      SELECT mes, count(DISTINCT cuil)::bigint AS ayc
+      FROM base
+      WHERE coalesce(sit, '(sin dato)') IN ('activo', 'comision')
+      GROUP BY mes
     )
-    -- Eje temporal completo: TODOS los meses del rango, con 0 donde el filtro no
-    -- deja a nadie. Antes el GROUP BY omitía los meses con conteo 0, por lo que
-    -- una categoría que llega a 0 en el último mes (ej. "sin especialidad" tras
-    -- completar las asignaciones) hacía que la serie terminara en un mes
-    -- anterior y el "corte" no coincidiera con el total → parecía incoherente
-    -- (el total mostraba octubre y la categoría septiembre).
-    SELECT to_char(m.mes, 'YYYY-MM') AS mes, COALESCE(ct.cantidad, 0)::bigint AS cantidad
-    FROM (SELECT DISTINCT mes FROM ult) m
-    LEFT JOIN conteo ct ON ct.mes = m.mes
-    ORDER BY m.mes
+    SELECT
+      to_char(m.mes, 'YYYY-MM') AS mes,
+      s.sit AS situacion,
+      COALESCE(pe.personas, 0)::bigint AS personas,
+      COALESCE(tm.total, 0)::bigint AS total,
+      COALESCE(am.ayc, 0)::bigint AS "activosYComisionados"
+    FROM meses m
+    CROSS JOIN estados s
+    LEFT JOIN por_estado pe ON pe.mes = m.mes AND pe.sit = s.sit
+    LEFT JOIN total_mes tm ON tm.mes = m.mes
+    LEFT JOIN ayc_mes am ON am.mes = m.mes
+    ORDER BY m.mes, s.sit
   `)
+
+  // Reagrupar las filas (mes × estado) en un punto por mes.
+  const situacionesSet = new Set<string>()
+  const porMes = new Map<
+    string,
+    { mes: string; total: number; porSituacion: Record<string, number>; activosYComisionados: number }
+  >()
+  for (const r of rows) {
+    if (!porMes.has(r.mes)) {
+      porMes.set(r.mes, {
+        mes: r.mes,
+        total: Number(r.total),
+        porSituacion: {},
+        activosYComisionados: Number(r.activosYComisionados),
+      })
+    }
+    porMes.get(r.mes)!.porSituacion[r.situacion] = Number(r.personas)
+    situacionesSet.add(r.situacion)
+  }
+
+  const puntos = [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes))
 
   return {
     siglas: siglas ?? [],
@@ -932,7 +1096,8 @@ export async function getDotacionEvolucionService(query: DotacionEvolucionQuery)
     jefatura,
     mesDesde: mesDesde ?? null,
     mesHasta: mesHasta ?? null,
-    puntos: rows.map((r) => ({ mes: r.mes, cantidad: Number(r.cantidad) })),
+    situaciones: ordenarSituaciones([...situacionesSet]),
+    puntos,
   }
 }
 
@@ -956,6 +1121,7 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
       cuil: string | null
       apellidoNombre: string | null
       efectorSigla: string | null
+      carreraCodigo: string
       carrera: string
       literalPuesto: string | null
       especialidad: string | null
@@ -982,8 +1148,9 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
     ),
     -- Dedup espejo jefatura: un registro por persona + repartición + puesto.
     -- Mismo criterio de orden que la serie: el representante NUNCA es una
-    -- suplencia de guardia (SG-*) si hay un cargo fijo en la misma partición,
-    -- para que serie y export cuenten el mismo conjunto (ver nota en la serie).
+    -- suplencia de guardia (SG-*) si hay un cargo fijo en la misma partición.
+    -- Ya NO se filtra por situacion_revista = 'activo' (motor unificado): el
+    -- detalle lista todos los estados; la columna conserva el valor normalizado.
     dedup AS (
       SELECT
         ult.*,
@@ -994,16 +1161,18 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
                    ult.id_sial_rol
         ) AS drn
       FROM ult
-      WHERE lower(unaccent(ult.situacion_revista)) = 'activo'
     )
     SELECT
       d.cuil,
       d.apellido_nombre AS "apellidoNombre",
       d.hospital_sigla AS "efectorSigla",
-      e.nombre AS carrera,
+      -- Carrera = código de registro (con su literal legible). LEFT JOIN porque
+      -- cargos.codigo_registro_id es nullable → bucket '(sin codigo)'.
+      coalesce(cr.codigo, '(sin codigo)') AS "carreraCodigo",
+      coalesce(cr.literal, cr.codigo, '(sin codigo)') AS carrera,
       d.literal_puesto AS "literalPuesto",
       d.especialidad,
-      d.situacion_revista AS "situacionRevista",
+      lower(unaccent(trim(d.situacion_revista))) AS "situacionRevista",
       -- id_sial_rol viene como '{idSial}-{cuil}-{seq}'; se corta la parte del CUIL
       -- en adelante para dejar solo el ID SIAL del rol (ej. '001091388-3').
       CASE
@@ -1015,10 +1184,10 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
       to_char((SELECT mes FROM mes_objetivo), 'YYYY-MM') AS "mesFoto"
     FROM dedup d
     JOIN cargos c ON c.id = d.cargo_id
-    JOIN escalafones e ON e.id = c.escalafon_id
+    LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
     WHERE d.drn = 1
       ${construirFiltros('d', filtros)}
-    ORDER BY e.nombre, d.literal_puesto, d.apellido_nombre
+    ORDER BY coalesce(cr.codigo, '(sin codigo)'), d.literal_puesto, d.apellido_nombre
   `)
 
   // Filas del Excel con encabezados legibles (formato del padrón semanal).
@@ -1034,11 +1203,26 @@ export async function exportDotacionEvolucionService(query: DotacionEvolucionQue
     'Es Jefe': r.esJefe ? 'Sí' : 'No',
   }))
 
-  const sheet = XLSX.utils.json_to_sheet(data)
+  // El Excel es el detalle auditable: UNA fila por cargo representante, así que
+  // su recuento de filas es un superconjunto de la serie (una persona con 2
+  // cargos en reparticiones distintas = 2 filas, 1 persona). Para que no se lea
+  // como contradicción con el gráfico, el resumen separa "Personas únicas"
+  // (count(DISTINCT cuil) = total de la serie) de "Filas de detalle (cargos)".
+  const personasUnicas = new Set(
+    rows.map((r) => r.cuil).filter((c): c is string => c != null && c !== ''),
+  ).size
+  const mesFoto = rows[0]?.mesFoto ?? mesHasta ?? 'actual'
+
+  const resumen = [
+    { Indicador: 'Mes de la foto', Valor: mesFoto },
+    { Indicador: 'Personas únicas', Valor: personasUnicas },
+    { Indicador: 'Filas de detalle (cargos)', Valor: rows.length },
+  ]
+
   const book = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(book, sheet, 'Dotación')
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(resumen), 'Resumen')
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data), 'Dotación')
   const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer
 
-  const mesFoto = rows[0]?.mesFoto ?? mesHasta ?? 'actual'
-  return { buffer, mesFoto, total: rows.length }
+  return { buffer, mesFoto, total: rows.length, personasUnicas }
 }

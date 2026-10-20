@@ -24,6 +24,7 @@ import { decidirEspecialidad } from './padron.especialidad.helpers.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
+import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
   parseFechaDDMMYYYY,
@@ -2857,38 +2858,61 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       await tx.padronHistorico.createMany({ data: lote })
     }
 
-    // ── 8. Resumen KPI: personas únicas por escalafón ──────────────────────
-    // Se calcula desde las ocupaciones activas (hasta IS NULL) en este momento.
-    // La fecha que se guarda es la del snapshot aprobado. ON CONFLICT reemplaza
-    // el punto anterior del mismo mes si ya existía (el último del mes gana).
-    const kpisRows = await tx.$queryRaw<{ escalafon: string; personas: number }[]>(
+    // ── 8. Resumen KPI: motor unificado (por código de registro × situación) ─
+    // Antes esto era un round-trip json_to_recordset sobre ocupaciones vivas
+    // agrupado por escalafón. Ahora es un INSERT ... SELECT puro desde
+    // padron_historico al corte de este snapshot, reusando el MISMO generador
+    // estadoActivoAcumuladoSql que la consulta individual (kpis.service), para
+    // que tarjetas, consulta individual y backfill reconcilien por construcción.
+    //
+    // Se marca el snapshot como aprobado ANTES del populate: estadoActivoAcumuladoSql
+    // filtra padron_snapshots.estado='aprobado' al calcular el corte del mes, así
+    // que este snapshot debe contar como aprobado para que su propia foto entre.
+    // Está dentro del mismo $transaction: si el populate falla, hace rollback de
+    // la aprobación completa.
+    await tx.padronSnapshot.update({
+      where: { id },
+      data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
+    })
+
+    const mesSnapshot = snapshot.fechaAsignada.toISOString().slice(0, 7) // YYYY-MM
+
+    // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
+    // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
+    // (fecha, codigo_registro, situacion_revista) no choque.
+    await tx.$executeRaw(
       Prisma.sql`
-        SELECT e.nombre AS escalafon, count(DISTINCT p.cuil)::integer AS personas
-        FROM ocupaciones o
-        JOIN cargos c      ON c.id = o.cargo_id
-        JOIN escalafones e ON e.id = c.escalafon_id
-        JOIN personas p    ON p.id = o.persona_id
-        WHERE o.hasta IS NULL AND p.cuil IS NOT NULL
-        GROUP BY e.nombre
+        DELETE FROM kpis_dotacion_snapshot
+        WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
       `,
     )
-    if (kpisRows.length > 0) {
-      // Borrar el punto anterior del mismo mes (si existe) y reemplazar con este
-      await tx.$executeRaw(
-        Prisma.sql`
-          DELETE FROM kpis_dotacion_snapshot
-          WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
-        `,
-      )
-      await tx.$executeRaw(
-        Prisma.sql`
-          INSERT INTO kpis_dotacion_snapshot (fecha, escalafon, personas)
-          SELECT ${snapshot.fechaAsignada}::date, r.escalafon, r.personas
-          FROM json_to_recordset(${JSON.stringify(kpisRows)}::json)
-            AS r(escalafon text, personas int)
-        `,
-      )
-    }
+
+    // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
+    // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
+    // carrera en cualquier estado, NO la suma de los estados). El estado sale de
+    // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
+    await tx.$executeRaw(
+      Prisma.sql`
+        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
+        WITH estado AS (${estadoActivoAcumuladoSql(mesSnapshot, mesSnapshot)}),
+        norm AS (
+          SELECT
+            p.cuil,
+            coalesce(cr.codigo, '(sin codigo)') AS codigo,
+            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
+          FROM estado
+          JOIN cargos c ON c.id = estado.cargo_id
+          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+          JOIN personas p ON p.id = estado.persona_id
+          WHERE p.cuil IS NOT NULL
+        )
+        SELECT ${snapshot.fechaAsignada}::date, codigo, sit, count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo, sit
+        UNION ALL
+        SELECT ${snapshot.fechaAsignada}::date, codigo, '(total)', count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo
+      `,
+    )
 
     // ── 9. Sincronizar universo_totalizador en organigramas desde hospitales ─
     // Cada aprobación de padrón puede traer hospitales nuevos o actualizados
@@ -2923,10 +2947,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         )
     `
 
-    await tx.padronSnapshot.update({
-      where: { id },
-      data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
-    })
+    // Nota: el snapshot se marcó como 'aprobado' en el paso 8 (el populate de
+    // KPIs lo requiere para que su propia foto entre en estadoActivoAcumuladoSql).
   }, TRANSACTION_OPTS)
 
   return { ok: true, snapshotId: id }
