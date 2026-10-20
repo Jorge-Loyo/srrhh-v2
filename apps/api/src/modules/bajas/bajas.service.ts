@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
+import { datosTrasConfirmar } from './bajas.validacion.helpers.js'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -229,7 +230,11 @@ export async function listValidacionService() {
       hospital: { select: { sigla: true, nombre: true } },
       escalafon: { select: { nombre: true } },
       ocupaciones: {
-        include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+        // Fix 1 (#5): idSialRol permite cruzar la pata padrón de los cargos
+        // 24/07 (idSial NULL) por id_sial_rol.
+        include: {
+          persona: { select: { id: true, apellidoNombre: true, cuil: true } },
+        },
         orderBy: { desde: 'desc' },
         take: 1,
       },
@@ -289,21 +294,41 @@ export async function listValidacionService() {
   const diffsPadron = snapshotIds.length > 0
     ? await prisma.padronDiff.findMany({
         where: { tipo: 'eliminado', snapshotId: { in: snapshotIds } },
-        select: { valorAnterior: true, snapshotId: true },
+        // Fix 1 (#5): idSialRol (columna no-nullable) se lee directo del diff
+        // para cruzar los cargos 24/07 cuya baja llega keyed por id_sial_rol.
+        select: { valorAnterior: true, snapshotId: true, idSialRol: true },
       })
     : []
 
   const diffPadronMap = new Map<string, { snapshotId: string }>()
+  // Fix 1 (#5): índice paralelo por id_sial_rol SOLO para los diffs 24/07
+  // (valorAnterior.desdoblado === true o id_sial parseado null). Los diffs de
+  // carreras normales siguen en diffPadronMap y NO se duplican acá.
+  const diffPadronPorRol = new Map<string, { snapshotId: string }>()
   for (const d of diffsPadron) {
     try {
-      const idSial = JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+      const prev = JSON.parse(d.valorAnterior ?? '{}')
+      const idSial = prev.id_sial as string | null
       if (idSial && !diffPadronMap.has(idSial)) diffPadronMap.set(idSial, { snapshotId: d.snapshotId })
+      const es2407 = prev.desdoblado === true || idSial == null
+      if (es2407 && d.idSialRol && !diffPadronPorRol.has(d.idSialRol)) {
+        diffPadronPorRol.set(d.idSialRol, { snapshotId: d.snapshotId })
+      }
     } catch { /* ignorar */ }
   }
 
   return cargos.map(({ ocupaciones, estadoDesde, ...c }) => {
     const bajaManual  = bajaManualMap.get(c.id) ?? null
-    const enPadron    = c.idSial ? diffPadronMap.has(c.idSial) : false
+    const ocupRelevante = ocupaciones[0] ?? null
+    // Cargo 24/07: idSial es NULL por construcción → la pata padrón se cruza por
+    // id_sial_rol de su única ocupación (orderBy desde desc, take 1). La pata
+    // SIAL automática no aplica para 24/07 (baja_sial_registros matchea por
+    // id_sial, no por id_sial_rol): queda en false, no se fabrica evidencia.
+    const enPadron    = c.idSial
+      ? diffPadronMap.has(c.idSial)
+      : ocupRelevante?.idSialRol
+        ? diffPadronPorRol.has(ocupRelevante.idSialRol)
+        : false
     const enSial      = c.idSial ? sialMap.has(c.idSial) : false
     const sialRegistro = c.idSial ? sialMap.get(c.idSial) ?? null : null
 
@@ -314,7 +339,7 @@ export async function listValidacionService() {
       : bajaManual       ? 'baja_manual'
       : 'desconocido'
 
-    const ultimaOcup = ocupaciones[0] ?? null
+    const ultimaOcup = ocupRelevante
 
     return {
       ...c,
@@ -480,13 +505,14 @@ export async function confirmarValidacionService(cargoId: string, actaAdministra
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
   if (cargo.estado !== 'validacion_vacante') throw AppError.conflict(`El cargo no esta en validacion_vacante (estado actual: ${cargo.estado})`)
 
+  // Fix 1 — Regla 4: la 3ª confirmación (padrón + SIAL + usuario) NO cierra el
+  // cargo ni habilita un concurso. El cargo queda en validacion_vacante
+  // (pendiente de resolución); el cierre a no_vigente lo hace después el flujo
+  // de alta-por-baja según genera_concurso. No se toca `estado` ni
+  // `estadoDesde` (conservar estadoDesde mantiene correcto diasEnValidacion).
   return prisma.cargo.update({
     where: { id: cargoId },
-    data: {
-      estado: 'no_vigente',
-      estadoDesde: new Date(),
-      ...(actaAdministrativa && { expediente: actaAdministrativa }),
-    },
+    data: datosTrasConfirmar(actaAdministrativa),
   })
 }
 

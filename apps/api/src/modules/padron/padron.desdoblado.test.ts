@@ -108,6 +108,23 @@ describe('particionarRegistros', () => {
     expect(nuevosMap.size).toBe(0)
     expect([...nuevosDesdobladosMap.keys()]).toEqual(['888-23-2'])
   })
+
+  // Fix 3 (cambio 1) — invariante de regresión: una fila 24/07 que comparte
+  // id_sial con una fila normal NUNCA cae en nuevosMap (nunca se matchea por
+  // cargo.id_sial → no puede regenerar un cargo compartido por ese camino).
+  it('fila 24/07 que comparte id_sial con una normal va SOLO a nuevosDesdobladosMap', () => {
+    const registros: RegistroPython[] = [
+      { 'ID SIAL': '999', 'CODIGO DE REGISTRO': '37', 'CUIL Y ROL': '20-1' }, // normal
+      { 'ID SIAL': '999', 'CODIGO DE REGISTRO': '24', 'CUIL Y ROL': '27-9' }, // 24 con MISMO id_sial
+      { 'ID SIAL': '999', 'CODIGO DE REGISTRO': '07', 'CUIL Y ROL': '30-5' }, // 07 con MISMO id_sial
+    ]
+    const { nuevosMap, nuevosDesdobladosMap } = particionarRegistros(registros)
+    // La fila normal sí está en nuevosMap (por id_sial).
+    expect([...nuevosMap.keys()]).toEqual(['999'])
+    // Las filas 24/07 van por id_sial_rol y NO contaminan nuevosMap.
+    expect([...nuevosDesdobladosMap.keys()]).toEqual(['999-27-9', '999-30-5'])
+    expect(nuevosDesdobladosMap.has('999')).toBe(false)
+  })
 })
 
 describe('resolverEspecialidadDesdobladaId (estricto, REGLA DE ORO)', () => {

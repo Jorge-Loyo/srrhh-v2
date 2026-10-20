@@ -21,6 +21,7 @@ import {
   type CatalogoPuestosCache,
 } from './resolverPuestoCargo.js'
 import { decidirEspecialidad } from './padron.especialidad.helpers.js'
+import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import type { DiffQuery } from './padron.schema.js'
@@ -701,6 +702,27 @@ async function calcularDiff(registros: RegistroPython[]) {
         },
       })
       if (!cargoMapeado) continue
+      // Fix 3 — rechazo defensivo de titular: si el cargo mapeado ya tiene una
+      // ocupación VIVA de OTRO id_sial_rol, es un cargo compartido preexistente
+      // (dato sucio). Entre un dato vacío y uno que no corresponde, el usuario
+      // prefiere vacío: NO se reusa el cargo compartido → el rol se degrada a
+      // alta 1:1 (no se setea actualesDesdMap, así el loop lo trata como alta).
+      // Usa prisma (no tx), consistente con el resto del respaldo (fase de diff).
+      const ocupAjena = await prisma.ocupacion.findFirst({
+        where: {
+          cargoId: cargoMapeado.id,
+          hasta: null,
+          idSialRol: { not: m.id_sial_rol },
+        },
+        select: { idSialRol: true },
+      })
+      if (ocupAjena) {
+        console.warn(
+          `[padron][desdoblado] cargo ${cargoMapeado.codigo} ya ocupado por ${ocupAjena.idSialRol}; ` +
+            `${m.id_sial_rol} va a alta 1:1 (no se reusa el cargo compartido)`,
+        )
+        continue
+      }
       const ocup = cargoMapeado.ocupaciones[0]
       // Adaptar al mismo shape de OcupDesdoblada (ocupación + cargo embebido).
       const { ocupaciones: _oc, ...cargoSinOcup } = cargoMapeado
@@ -1968,6 +1990,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             escalafonId: escalafon.id,
             codigoRepa: datos.codigo_repa || null,
             literalPuesto: datos.literal_puesto || null,
+            // Fix 3: un cargo desdoblado 24/07 (1:1, id_sial NULL) NUNCA puede
+            // ser recapturado por el reuso estructural de un alta normal —
+            // reconstruiría un cargo compartido. No-op para altas 24/07 (ya
+            // excluidas aguas arriba por el guard de desdoblados), pero
+            // load-bearing para un alta NORMAL cuya clave estructural colisiona
+            // con un cargo 24/07 existente: en ese caso se crea intencionalmente
+            // un cargo normal nuevo (NO es regresión). Se usa NOT { relación: in }
+            // para preservar las filas con codigo_registro_id NULL.
+            NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
           },
           select: { id: true, idSial: true, estado: true },
         })
@@ -2303,18 +2334,43 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 4. Resolver automáticamente cargos en validacion_vacante:
     //   - Si el cargo aparece en el nuevo padrón (está en nuevosIds por idSial) → rechazar baja (vuelve a vigente)
     //   - Si el cargo NO aparece → confirmar baja (pasa a no_vigente)
-    const idSialsNuevos = new Set(todosNuevos.map((n) => n.datos.id_sial).filter(Boolean))
+    const idSialsNuevos = new Set(
+      todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)),
+    )
+    // Fix 2 — Bug B: este paso resuelve por id_sial, así que debe aplicar el
+    // MISMO criterio COMPLETO que cargosActuales en calcularDiff: idSial no-NULL
+    // Y NOT 24/07 (preservando codigo_registro_id NULL con NOT { relación: in }).
+    // Los cargos 24/07 (clones con id_sial NULL y preexistentes con id_sial
+    // no-NULL) se resuelven íntegramente por id_sial_rol: reapertura vía
+    // modificado + __reabrir_ocupacion__, cierre a validacion_vacante en el
+    // paso 5. Si no se excluyen acá, un cargo 24/07 en validacion_vacante caería
+    // siempre en aConfirmarBaja → no_vigente (el bug que Fix 2 elimina).
     const cargosEnValidacion = (await tx.cargo.findMany({
-      where: { estado: { in: ['validacion_vacante', 'no_vigente'] } },
-      select: { id: true, idSial: true },
-    })) as { id: string; idSial: string }[]
+      where: {
+        estado: { in: ['validacion_vacante', 'no_vigente'] },
+        idSial: { not: null },
+        NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
+      },
+      select: { id: true, idSial: true, codigoRegistro: { select: { codigo: true } } },
+    })) as { id: string; idSial: string | null; codigoRegistro: { codigo: string } | null }[]
 
-    const aRechazarBaja = cargosEnValidacion
-      .filter((c) => idSialsNuevos.has(c.idSial))
-      .map((c) => c.id)
-    const aConfirmarBaja = cargosEnValidacion
-      .filter((c) => !idSialsNuevos.has(c.idSial))
-      .map((c) => c.id)
+    // El where ya excluye los 24/07; es24y07Set queda como guard explícito y
+    // testeable (ver particionarValidacionPorIdSial).
+    const es24y07Set = new Set(
+      cargosEnValidacion
+        .filter((c) => c.codigoRegistro?.codigo === '24' || c.codigoRegistro?.codigo === '07')
+        .map((c) => c.id),
+    )
+    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } =
+      particionarValidacionPorIdSial(
+        cargosEnValidacion.map((c) => ({
+          id: c.id,
+          idSial: c.idSial,
+          es24y07: es24y07Set.has(c.id),
+        })),
+        idSialsNuevos,
+        es24y07Set,
+      )
 
     for (const lote of chunk(aRechazarBaja, 2000)) {
       await tx.cargo.updateMany({

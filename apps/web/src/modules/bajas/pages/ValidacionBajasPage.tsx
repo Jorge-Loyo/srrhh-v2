@@ -303,6 +303,9 @@ export function ValidacionBajasPage() {
               <p className="mt-2 text-amber-700 text-xs font-semibold">
                 ⚠ Este cargo aparece en el archivo de bajas SIAL pero sigue activo en el padrón.
               </p>
+              <p className="text-gray-600 text-xs">
+                El cargo queda en validación vacante, pendiente de resolución. No habilita un concurso: el cierre o la alta-por-baja es un paso posterior.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">
@@ -334,8 +337,11 @@ export function ValidacionBajasPage() {
       {confirmando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4 space-y-4">
-            <h3 className="font-bold text-gray-900">Confirmar baja — no genera concurso</h3>
+            <h3 className="font-bold text-gray-900">Confirmar baja (3ª confirmación)</h3>
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
+              <p className="text-gray-600 text-xs">
+                El cargo queda en validación vacante, pendiente de resolución. No habilita un concurso: el cierre o la alta-por-baja es un paso posterior.
+              </p>
               <p><span className="text-gray-500">Cargo:</span> <span className="font-mono font-bold">{confirmando.codigo ?? '—'}</span></p>
               <p><span className="text-gray-500">Puesto:</span> {confirmando.literalPuesto ?? '—'}</p>
               <p><span className="text-gray-500">Hospital:</span> {confirmando.hospital.sigla}</p>
@@ -574,7 +580,7 @@ export function ValidacionBajasPage() {
                         {esValidacion
                           ? <button className="btn-primary text-xs px-3 py-1" onClick={() => { setConfirmando(raw as CargoValidacion); setActa('') }}>Confirmar baja</button>
                           : (() => { const sb = raw as CargoSoloBaja; return sb.cargoId && sb.cargoEstado !== 'no_vigente'
-                              ? <button className="btn-primary text-xs px-3 py-1" onClick={() => { setConfirmandoSoloBaja(sb); setActa('') }}>Dar de baja</button>
+                              ? <button className="btn-primary text-xs px-3 py-1" onClick={() => { setConfirmandoSoloBaja(sb); setActa('') }}>Confirmar baja SIAL</button>
                               : <span className="text-xs text-gray-300">{sb.cargoId ? 'Ya dado de baja' : 'Sin cargo'}</span>
                           })()
                         }
@@ -681,7 +687,7 @@ export function ValidacionBajasPage() {
                     <td className="px-4 py-3"><EstadoBadge estado={c.cargoEstado} /></td>
                     <td className="px-4 py-3 text-right">
                       {c.cargoId && c.cargoEstado !== 'no_vigente'
-                        ? <button className="btn-primary text-xs px-3 py-1" onClick={() => { setConfirmandoSoloBaja(c); setActa('') }}>Dar de baja</button>
+                        ? <button className="btn-primary text-xs px-3 py-1" onClick={() => { setConfirmandoSoloBaja(c); setActa('') }}>Confirmar baja SIAL</button>
                         : <span className="text-xs text-gray-300">{c.cargoId ? 'Ya dado de baja' : 'Sin cargo'}</span>
                       }
                     </td>
