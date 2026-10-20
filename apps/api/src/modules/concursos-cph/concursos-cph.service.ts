@@ -15,7 +15,10 @@ import {
   SUB_ESTADOS_POR_ETAPA,
   type ConcursoCphCalcInput,
 } from './concursosCph.calc.js'
-import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
+import {
+  crearAutorizacion,
+  resolverSlugPorPermiso,
+} from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 
 const include = {
@@ -452,13 +455,22 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     })
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     // Cambio de especialidad/puesto/eeConcurso modificado, o solicitud de
-    // autorización de apertura (eeConcurso + IF cargados): solo sgrasv.
-    await crearAutorizacion(prisma, {
-      tipo: 'concurso_cph',
-      referenciaId: id,
-      referenciaTipo: 'concurso_cph',
-      solicitadoPorId: undefined,
-      resolverPorRolSlug: 'sgrasv',
+    // autorización de apertura (eeConcurso + IF cargados): solo sgrasv. Se
+    // resuelve el slug real del rol SGRASV dentro de una transacción para que
+    // resolver + crear sean atómicos. crearAutorizacion es la última y única
+    // escritura del callback (acota el riesgo de notificación huérfana).
+    await prisma.$transaction(async (tx) => {
+      const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
+      // crearAutorizacion tipa su tx como `typeof prisma`; el cast replica el
+      // patrón ya usado en autorizaciones.service.ts (siguienteCodigoCargo) para
+      // pasar el client transaccional sin tocar la firma del helper.
+      await crearAutorizacion(tx as typeof prisma, {
+        tipo: 'concurso_cph',
+        referenciaId: id,
+        referenciaTipo: 'concurso_cph',
+        solicitadoPorId: undefined,
+        resolverPorRolSlug: slugSgrasv,
+      })
     })
   } else if (eeConcursoCargadoPorPrimeraVez) {
     // Carga inicial del expediente: notificación informativa a SGRASV (no bloquea)
