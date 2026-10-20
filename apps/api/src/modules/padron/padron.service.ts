@@ -2692,7 +2692,7 @@ export async function aprobarDiffNuevoService(
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
       const cr = (await tx.codigoRegistro.findUnique({
-        where: { codigo: datos.codigo_de_registro },
+        where: { codigo: datos.codigo_de_registro.toUpperCase() },
         include: { escalafon: true },
       })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
@@ -2709,7 +2709,7 @@ export async function aprobarDiffNuevoService(
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
       escalafon = (await tx.escalafon.findFirst({
-        where: { codigo: datos.codigo_de_registro, activo: true },
+        where: { codigo: datos.codigo_de_registro.toUpperCase(), activo: true },
       })) as EscalafonRow | null
     }
     if (!escalafon)
@@ -2720,7 +2720,7 @@ export async function aprobarDiffNuevoService(
     // Resolver CodigoRegistro
     let codigoRegistroId: string | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro.toUpperCase() } })
       codigoRegistroId = cr?.id ?? null
     }
 
@@ -2985,7 +2985,7 @@ export async function marcarTransferenciaService(
   let escalafon: EscalafonRow | null = null
   if (datos.codigo_de_registro) {
     const cr = (await prisma.codigoRegistro.findUnique({
-      where: { codigo: datos.codigo_de_registro },
+      where: { codigo: datos.codigo_de_registro.toUpperCase() },
       include: { escalafon: true },
     })) as { escalafon: EscalafonRow } | null
     escalafon = cr?.escalafon ?? null
@@ -3062,7 +3062,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
       const cr = (await tx.codigoRegistro.findUnique({
-        where: { codigo: datos.codigo_de_registro },
+        where: { codigo: datos.codigo_de_registro.toUpperCase() },
         include: { escalafon: true },
       })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
@@ -3079,7 +3079,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
       escalafon = (await tx.escalafon.findFirst({
-        where: { codigo: datos.codigo_de_registro, activo: true },
+        where: { codigo: datos.codigo_de_registro.toUpperCase(), activo: true },
       })) as EscalafonRow | null
     }
     if (!escalafon)
@@ -3089,7 +3089,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
 
     let codigoRegistroId: string | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro.toUpperCase() } })
       codigoRegistroId = cr?.id ?? null
     }
 
@@ -3307,7 +3307,7 @@ export async function buscarConcursosParaDiffService(
   let escalafonId: string | null = null
   if (datos.codigo_de_registro) {
     const cr = await prisma.codigoRegistro.findUnique({
-      where: { codigo: datos.codigo_de_registro },
+      where: { codigo: datos.codigo_de_registro.toUpperCase() },
       select: { escalafonId: true },
     })
     escalafonId = cr?.escalafonId ?? null
