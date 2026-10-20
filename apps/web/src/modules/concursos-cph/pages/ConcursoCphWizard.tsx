@@ -918,6 +918,12 @@ export function ConcursoCphWizard() {
       // Por si el patch tocó personaDesignadaId (proponer candidato al INSAL).
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'No se pudo guardar'
+      toast.error(msg)
+    },
   })
 
   // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
@@ -1146,15 +1152,30 @@ export function ConcursoCphWizard() {
 
   function confirmarCambios() {
     setModalCambios(null)
-    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado)
-    patchMutation.mutate({
-      sigla: siglaConcurso || null,
-      codigoRegistroId: crIdDeEscalafon(escalafonId),
-      especialidadSolicitada: especialidadConcurso || null,
-      especialidadPuestoSolicitadaId: especialidadConcursoId,
-    })
-    setGuardado(true)
-    setTimeout(() => setGuardado(false), 2500)
+    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado).
+    // Persistir TODOS los campos de la Etapa 1, no solo los 4 sensibles, para que
+    // el usuario no pierda lo cargado al salir y volver a entrar.
+    patchMutation.mutate(
+      {
+        sigla: siglaConcurso || null,
+        codigoRegistroId: crIdDeEscalafon(escalafonId),
+        especialidadSolicitada: especialidadConcurso || null,
+        especialidadPuestoSolicitadaId: especialidadConcursoId,
+        puestoSolicitado: puestoConcurso || null,
+        puestoCargoSolicitadoId: puestoConcursoId,
+        eeConcurso: eeConcursoInput || null,
+        ifAutorizacion: ifAutorizacionInput || null,
+      },
+      {
+        onSuccess: () => {
+          toast.success(
+            'Enviado a autorización del Director. La nueva sigla/carrera se aplicarán cuando se apruebe.',
+          )
+        },
+        // El error se comunica vía el onError global de patchMutation; no duplicar
+        // el toast ni marcar guardado.
+      },
+    )
   }
 
   return (
@@ -5349,6 +5370,14 @@ export function ConcursoCphWizard() {
                   faltantesEtapa4.length === 0 && (
                     <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
                   )}
+                {pendienteAutorizacion && etapaActiva === 'baja' && (
+                  <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">
+                      Modificación pendiente de autorización del Director.
+                    </span>{' '}
+                    La nueva sigla/carrera se aplicarán cuando se apruebe.
+                  </div>
+                )}
                 {etapa.estado !== 'pendiente' &&
                   etapa.estado !== 'bloqueada' &&
                   etapa.estado !== 'completada' && (
