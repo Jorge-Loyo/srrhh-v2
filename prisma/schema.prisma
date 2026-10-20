@@ -237,17 +237,21 @@ model UnidadFijaApayC {
   @@map("unidades_fijas_apayc")
 }
 
-// Resumen de evolución histórica de dotación por escalafón.
-// Una fila por (fecha, escalafon) — se inserta al aprobar cada snapshot
-// de padrón (padron.service.ts, aprobarSnapshotService). El escalafón
-// viene de cargo_id → escalafones.nombre (nombre canónico, no el texto
-// desnormalizado de padron_historico que tiene variantes históricas).
+// Resumen de evolución histórica de dotación por código de registro y
+// situación de revista. Una fila por (fecha, codigo_registro, situacion_revista)
+// más una fila reservada '(total)' de situacion_revista por carrera — se
+// inserta al aprobar cada snapshot de padrón (padron.service.ts). El código de
+// registro viene de cargo_id → codigos_registro.codigo (NULL → '(sin codigo)');
+// la situación de revista se normaliza a lower(unaccent(trim(...))). Las series
+// por situación NO son disjuntas: una persona cuenta en cada estado donde tiene
+// ocupación vigente, por eso el total se materializa aparte y NO es la suma.
 model KpisDotacionSnapshot {
-  fecha     DateTime @db.Date
-  escalafon String   @db.VarChar(100)
-  personas  Int
+  fecha            DateTime @db.Date
+  codigoRegistro   String   @map("codigo_registro") @db.VarChar(20)
+  situacionRevista String   @map("situacion_revista") @db.VarChar(50)
+  personas         Int
 
-  @@id([fecha, escalafon])
+  @@id([fecha, codigoRegistro, situacionRevista])
   @@index([fecha])
   @@map("kpis_dotacion_snapshot")
 }

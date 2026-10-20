@@ -883,13 +883,26 @@ export interface KpiConcursos {
   tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
 }
 
+// Situación de revista normalizada a lower(unaccent(trim(...))). El catálogo
+// está CERRADO a estos 3 valores; un 4º valor se conserva tal cual y se reporta
+// (de ahí el `| string`), nunca se fuerza a uno de los canónicos.
+export type SituacionRevista = 'activo' | 'comision' | 'retencion de cargo' | string
+
+// Orden canónico de las series por situación de revista en el front
+// ('(sin dato)' agrupa las ocupaciones sin situacion_revista).
+export const ORDEN_SITUACION_REVISTA = ['activo', 'comision', 'retencion de cargo', '(sin dato)'] as const
+
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
-  escalafones: string[] // nombres canónicos presentes en los datos
+  carreras: { codigo: string; literal: string }[] // códigos de registro presentes en los datos
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     fecha: string
-    total: number
-    porEscalafon: Record<string, number> // escalafon.nombre -> personas acumuladas
+    // codigo de registro -> { total, porSituacion }. OJO: `total` es un
+    // count(DISTINCT cuil) aparte y NO es la suma de porSituacion — las series
+    // por situación NO son disjuntas (una persona cuenta en cada estado donde
+    // tiene ocupación vigente).
+    porCarrera: Record<string, { total: number; porSituacion: Record<SituacionRevista, number> }>
   }[]
 }
 
@@ -900,6 +913,8 @@ export type FiltroJefatura = 'todos' | 'solo' | 'sin'
 // MAYÚSCULAS; el front las muestra con capitalización legible.
 export interface FiltrosDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón como antes. El front resuelve codigo→literal para mostrar.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
@@ -918,6 +933,8 @@ export interface FiltrosDotacionEvolucion {
 // Un grupo de la unión del gráfico de evolución (+ labels solo presentación).
 export interface GrupoDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón. El label de carrera se resuelve codigo→literal en el front.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
@@ -930,7 +947,7 @@ export interface GrupoDotacionEvolucion {
 // los filtros ya elegidos. Listas planas normalizadas.
 export interface KpiDotacionEvolucionOpciones {
   siglas: string[]
-  carreras: string[]
+  carreras: { codigo: string; literal: string }[]
   puestos: string[]
   especialidades: string[]
   // S25: grupos de especialidad disponibles dada la selección actual. Vacío si
@@ -951,9 +968,14 @@ export interface KpiDotacionEvolucion {
   jefatura: FiltroJefatura
   mesDesde: string | null
   mesHasta: string | null
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     mes: string // 'YYYY-MM'
-    cantidad: number
+    // total = count(DISTINCT cuil) aparte; NO es la suma de porSituacion (series
+    // no disjuntas). activosYComisionados = personas en estado activo o comisión.
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
   }[]
 }
 
