@@ -3,6 +3,7 @@ import pino from 'pino'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
@@ -130,7 +131,7 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
       skip:    offset,
       take:    limit,
       include: {
-        solicitadoPor: { select: { id: true, username: true, email: true } },
+        solicitadoPor: { select: { id: true, username: true, nombre: true, apellido: true } },
       },
     }),
   ])
@@ -194,6 +195,24 @@ export async function rechazarAutorizacionService(
         where: { id: aut.referenciaId },
         data:  { pendienteAutorizacion: false, aprobadoDirector: false },
       })
+
+      // RF3: crear una tarea pendiente para el solicitante ("corregí y reenviá").
+      // Dentro de la misma tx; el dedup de crearTareaPendiente evita duplicados.
+      if (aut.solicitadoPorId) {
+        await crearTareaPendiente(tx as typeof prisma, {
+          tipo:                  'rechazo_autorizacion_concurso',
+          usuarioDestinatarioId: aut.solicitadoPorId,
+          referenciaTipo:        'concurso_cph',
+          referenciaId:          aut.referenciaId,
+          mensaje:               mensajeTareaRechazo(observaciones),
+          creadaPorId:           resueltoPorId,
+        })
+      } else {
+        logger.warn(
+          { autorizacionId: aut.id, referenciaId: aut.referenciaId },
+          'rechazo sin solicitante: no se crea tarea pendiente (concurso_cph sin solicitadoPorId)',
+        )
+      }
     }
 
     if (aut.tipo === 'alta_cargo') {

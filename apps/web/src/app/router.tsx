@@ -50,6 +50,7 @@ import { BajasLayout } from '../modules/bajas/components/BajasLayout'
 import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
+import { TareasPage } from '../modules/tareas/pages/TareasPage'
 import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/AreasProgramaticasPage'
 import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
 import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
@@ -180,6 +181,9 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
             children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
           },
+          // Tareas pendientes — sin RequirePermiso (abierto a todos, igual que
+          // /perfil). La visibilidad real la resuelve el backend por jerarquía.
+          { path: 'tareas', element: <TareasPage /> },
           // Detalle de bajas consolidadas (fuera del layout de Importación).
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },
