@@ -3,7 +3,7 @@ import pino from 'pino'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
-import { crearTareaPendiente } from '../tareas/tareas.service.js'
+import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
@@ -204,9 +204,7 @@ export async function rechazarAutorizacionService(
           usuarioDestinatarioId: aut.solicitadoPorId,
           referenciaTipo:        'concurso_cph',
           referenciaId:          aut.referenciaId,
-          mensaje:               observaciones
-            ? `Autorizacion rechazada. Corregi y reenvia. Motivo: ${observaciones}`
-            : 'Autorizacion rechazada. Corregi y reenvia.',
+          mensaje:               mensajeTareaRechazo(observaciones),
           creadaPorId:           resueltoPorId,
         })
       } else {

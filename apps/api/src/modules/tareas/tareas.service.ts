@@ -46,6 +46,16 @@ export async function slugsDescendientes(rolSlugRaiz: string): Promise<string[]>
   return descendientesDeJerarquia(filas, rolSlugRaiz)
 }
 
+// ─── Builder del mensaje de la tarea de rechazo (función PURA) ───────────────
+// Arma el texto de la tarea que vuelve al solicitante cuando se rechaza una
+// autorización de concurso: con observaciones adjunta el motivo, sin
+// observaciones usa el texto por defecto "corregí y reenviá". Separado del
+// acceso a datos para testearlo sin BD (patrón del repo).
+export function mensajeTareaRechazo(observaciones?: string | null): string {
+  const base = 'Autorizacion rechazada. Corregi y reenvia.'
+  return observaciones ? `${base} Motivo: ${observaciones}` : base
+}
+
 // ─── Helper: crear una tarea pendiente (con deduplicación) ───────────────────
 // Dedup por (tipo, referenciaTipo, referenciaId, usuarioDestinatarioId) sobre
 // las tareas en estado 'pendiente': si ya hay una abierta la devuelve, si no la
