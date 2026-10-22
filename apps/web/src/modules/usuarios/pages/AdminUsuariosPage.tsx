@@ -1,181 +1,26 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
+import type { Usuario } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
-import { useRoles } from '../../configuracion/hooks/useRoles'
-import { getApiErrorMessage, capitalizarEtiqueta } from '@/shared/lib/utils'
-import { useCreateUsuario, useHospitales, useSetUsuarioActivo, useUsuarios, useChangePassword } from '../hooks/useUsuarios'
-import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { useSetUsuarioActivo, useUsuarios } from '../hooks/useUsuarios'
+import { UsuarioFormModal } from '../components/UsuarioFormModal'
 
-// Mismas reglas que createUsuarioSchema en apps/api (usuarios.schema.ts) —
-// duplicado a propósito: no hay forma hoy de compartir el schema de zod en sí
-// entre front y back, solo el tipo (CreateUsuarioRequest en @srrhh/types).
-const formSchema = z.object({
-  username: z.string().min(3, 'Mínimo 3 caracteres').max(64),
-  email: z.string().email('Email inválido'),
-  password: z.string().min(8, 'Mínimo 8 caracteres'),
-  roleId: z.string().uuid({ message: 'Elegí un rol' }),
-  hospitalId: z.string().optional(),
-})
-
-type FormValues = z.infer<typeof formSchema>
+type ModalState = { mode: 'create' } | { mode: 'edit'; usuario: Usuario } | null
 
 export function AdminUsuariosPage() {
   const { user: currentUser } = useAuth()
-  const [showForm, setShowForm] = useState(false)
-  const [formError, setFormError] = useState('')
-  const [changingPasswordId, setChangingPasswordId] = useState<string | null>(null)
-  const [newPassword, setNewPassword] = useState('')
-  const [pwdError, setPwdError] = useState('')
+  const [modal, setModal] = useState<ModalState>(null)
 
   const { data: usuarios, isLoading, isError } = useUsuarios()
-  const { data: hospitales } = useHospitales()
-  const { data: roles } = useRoles()
-  const createUsuario = useCreateUsuario()
   const setActivo = useSetUsuarioActivo()
-  const changePassword = useChangePassword()
-
-  async function handleChangePassword(id: string) {
-    setPwdError('')
-    if (newPassword.length < 8) { setPwdError('Mínimo 8 caracteres'); return }
-    try {
-      await changePassword.mutateAsync({ id, password: newPassword })
-      setChangingPasswordId(null)
-      setNewPassword('')
-    } catch {
-      setPwdError('Error al cambiar la contraseña')
-    }
-  }
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(formSchema) })
-
-  async function onSubmit(values: FormValues) {
-    setFormError('')
-    try {
-      await createUsuario.mutateAsync({
-        username: values.username,
-        email: values.email,
-        password: values.password,
-        roleId: values.roleId,
-        hospitalId: values.hospitalId || undefined,
-      })
-      reset()
-      setShowForm(false)
-    } catch (err) {
-      setFormError(getApiErrorMessage(err))
-    }
-  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="font-primary text-2xl font-bold text-gray-900">Usuarios</h1>
-        <button className="btn-primary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Cancelar' : '+ Nuevo usuario'}
+        <button className="btn-primary" onClick={() => setModal({ mode: 'create' })}>
+          + Nuevo usuario
         </button>
       </div>
-
-      {showForm && (
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="bg-white rounded-lg shadow-sm p-6 grid grid-cols-1 sm:grid-cols-2 gap-4"
-        >
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Usuario <span className="text-danger">*</span>
-            </label>
-            <input
-              {...register('username')}
-              className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            />
-            {errors.username && <p className="text-xs text-danger mt-1">{errors.username.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Email <span className="text-danger">*</span>
-            </label>
-            <input
-              type="email"
-              {...register('email')}
-              className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            />
-            {errors.email && <p className="text-xs text-danger mt-1">{errors.email.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Contraseña <span className="text-danger">*</span>
-            </label>
-            <input
-              type="password"
-              {...register('password')}
-              className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            />
-            {errors.password && <p className="text-xs text-danger mt-1">{errors.password.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Rol <span className="text-danger">*</span>
-            </label>
-            <select
-              {...register('roleId')}
-              defaultValue=""
-              className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            >
-              <option value="" disabled>
-                Elegir rol...
-              </option>
-              {roles?.filter((r) => r.activo).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {capitalizarEtiqueta(r.nombre)}
-                </option>
-              ))}
-            </select>
-            {errors.roleId && <p className="text-xs text-danger mt-1">{errors.roleId.message}</p>}
-            <p className="text-xs text-gray-400 mt-1">
-              Los roles y sus permisos se administran en Configuración → Permisos.
-            </p>
-          </div>
-
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Hospital <span className="text-gray-400 font-normal">(opcional)</span>
-            </label>
-            <select
-              {...register('hospitalId')}
-              defaultValue=""
-              className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-            >
-              <option value="">Sin asignar</option>
-              {hospitales?.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {hospitalLabel(h)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {formError && (
-            <div className="sm:col-span-2 bg-red-50 border border-danger text-danger text-sm px-3 py-2 rounded">
-              {formError}
-            </div>
-          )}
-
-          <div className="sm:col-span-2">
-            <button type="submit" disabled={isSubmitting} className="btn-primary">
-              {isSubmitting ? 'Creando...' : 'Crear usuario'}
-            </button>
-          </div>
-        </form>
-      )}
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         {isLoading && <p className="p-6 text-sm text-gray-400">Cargando usuarios...</p>}
@@ -186,7 +31,9 @@ export function AdminUsuariosPage() {
             <thead className="bg-gray-50 text-gray-500 text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Usuario</th>
+                <th className="px-4 py-3 font-semibold">Nombre</th>
                 <th className="px-4 py-3 font-semibold">Email</th>
+                <th className="px-4 py-3 font-semibold">CUIL</th>
                 <th className="px-4 py-3 font-semibold">Rol</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold text-right">Acciones</th>
@@ -196,7 +43,11 @@ export function AdminUsuariosPage() {
               {usuarios.map((u) => (
                 <tr key={u.id}>
                   <td className="px-4 py-3 font-medium text-gray-800">{u.username}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {`${u.apellido ?? ''} ${u.nombre ?? ''}`.trim() || '—'}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                  <td className="px-4 py-3 text-gray-600">{u.cuil ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{u.rol}</td>
                   <td className="px-4 py-3">
                     <span className={u.activo ? 'badge-success' : 'badge-default'}>
@@ -206,10 +57,10 @@ export function AdminUsuariosPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => { setChangingPasswordId(changingPasswordId === u.id ? null : u.id); setNewPassword(''); setPwdError('') }}
+                        onClick={() => setModal({ mode: 'edit', usuario: u })}
                         className="btn-outline text-xs"
                       >
-                        🔑 Contraseña
+                        Editar
                       </button>
                       <button
                         disabled={setActivo.isPending || u.id === currentUser?.id}
@@ -220,34 +71,12 @@ export function AdminUsuariosPage() {
                         {u.activo ? 'Desactivar' : 'Activar'}
                       </button>
                     </div>
-                    {changingPasswordId === u.id && (
-                      <div className="mt-2 flex items-center gap-2 justify-end">
-                        <div className="flex flex-col items-end gap-1">
-                          <input
-                            type="password"
-                            placeholder="Nueva contraseña"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            className="h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:border-secondary w-48"
-                            autoFocus
-                          />
-                          {pwdError && <p className="text-[10px] text-danger">{pwdError}</p>}
-                        </div>
-                        <button
-                          onClick={() => handleChangePassword(u.id)}
-                          disabled={changePassword.isPending}
-                          className="btn-primary text-xs h-8 px-3"
-                        >
-                          {changePassword.isPending ? '...' : 'Guardar'}
-                        </button>
-                      </div>
-                    )}
                   </td>
                 </tr>
               ))}
               {usuarios.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
                     No hay usuarios cargados todavía.
                   </td>
                 </tr>
@@ -256,6 +85,14 @@ export function AdminUsuariosPage() {
           </table>
         )}
       </div>
+
+      {modal && (
+        <UsuarioFormModal
+          mode={modal.mode}
+          usuario={modal.mode === 'edit' ? modal.usuario : undefined}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   )
 }
