@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { capitalizarEtiqueta, getApiErrorMessage } from '@/shared/lib/utils'
+import { useToast } from '@/shared/components/ui/useToast'
 import {
   useAutorizaciones,
   useAprobarAutorizacion,
@@ -180,6 +181,10 @@ export function AutorizacionesPage() {
     tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
   } | null>(null)
   const [errorConcurso, setErrorConcurso] = useState<string | null>(null)
+  // Error de aprobar/rechazar: se muestra dentro del modal (y vía toast) para
+  // que un 409/500 del backend sea visible en vez de dejar el botón mudo.
+  const [errorResolver, setErrorResolver] = useState<string | null>(null)
+  const { toast, ToastUI } = useToast()
   const navigate = useNavigate()
   const crearConcurso = useCrearConcurso()
 
@@ -201,20 +206,35 @@ export function AutorizacionesPage() {
   function cerrarModal() {
     setModal(null)
     setObs('')
+    setErrorResolver(null)
   }
 
   async function confirmar() {
     if (!modal) return
     const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
-    const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
-    // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
-    if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
-      const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
-      if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
-        setModalConcurso(res.data.concursoInfo)
+    // BUG-FIX "al dar aprobar no avanza": antes este mutateAsync no tenía
+    // try/catch, así que un 409 del backend (p. ej. resolverSlugPorPermiso
+    // encuentra más de un rol con 'autorizaciones.resolver_sgrasv' → 'ambiguo')
+    // rechazaba la promesa en silencio: el modal no se cerraba, nada se
+    // refrescaba y el botón quedaba mudo. Ahora, si falla, se muestra el
+    // mensaje real del backend (getApiErrorMessage) y el modal queda ABIERTO;
+    // solo se cierra/invalida en éxito.
+    setErrorResolver(null)
+    try {
+      const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+      // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
+      if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
+        const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
+        if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
+          setModalConcurso(res.data.concursoInfo)
+        }
       }
+      cerrarModal()
+    } catch (err) {
+      const msg = getApiErrorMessage(err)
+      setErrorResolver(msg)
+      toast.error(msg)
     }
-    cerrarModal()
   }
 
   const modalItem = items.find((a) => a.id === modal?.id)
@@ -222,6 +242,7 @@ export function AutorizacionesPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
+      {ToastUI}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Autorizaciones pendientes</h1>
@@ -314,6 +335,9 @@ export function AutorizacionesPage() {
                 autoFocus
               />
             </div>
+            {errorResolver && (
+              <p className="px-6 pb-1 text-xs text-danger">{errorResolver}</p>
+            )}
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
               <button className="btn-outline" onClick={cerrarModal} disabled={enCurso}>Cancelar</button>
               <button
@@ -356,13 +380,13 @@ export function AutorizacionesPage() {
               <div className="flex flex-col gap-2 shrink-0">
                 <button
                   className="btn-danger text-xs px-3 py-1"
-                  onClick={() => setModal({ id: a.id, accion: 'rechazar' })}
+                  onClick={() => { setErrorResolver(null); setModal({ id: a.id, accion: 'rechazar' }) }}
                 >
                   Rechazar
                 </button>
                 <button
                   className="btn-primary text-xs px-3 py-1"
-                  onClick={() => setModal({ id: a.id, accion: 'aprobar' })}
+                  onClick={() => { setErrorResolver(null); setModal({ id: a.id, accion: 'aprobar' }) }}
                 >
                   Aprobar
                 </button>

@@ -387,7 +387,21 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   )?.cargo
   const siglaActual = cargo?.hospital?.sigla ?? ''
   const crIdActual = cargo?.codigoRegistro?.id ?? ''
-  const cambiaSigla = body.sigla !== undefined && body.sigla !== siglaActual
+  // Comparación de sigla normalizada (trim + case-insensitive): 'HGAT' vs
+  // 'hgat' o ' HGAT ' NO cuenta como cambio y no debe enrutar al Director.
+  // Un cambio real de sigla (otro hospital) sí difiere normalizado → sigue
+  // disparando autorización doble, como corresponde.
+  const normSigla = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+  const cambiaSigla = body.sigla !== undefined && normSigla(body.sigla) !== normSigla(siglaActual)
+  // CR: se compara el id enviado contra el id del CR real del cargo. OJO: esta
+  // comparación solo es fiable si el cliente envía el id del CR del cargo
+  // (cargo.codigoRegistro.id) cuando NO cambió la carrera. El frontend ya no
+  // envía `codigoRegistroId` salvo que la carrera cambie de verdad (ver
+  // confirmarCambios en ConcursoCphWizard.tsx). Si otro cliente derivara el id
+  // de una fuente distinta — p. ej. "el primer CR del escalafón" cuando CPH
+  // tiene 2 CRs (22 y 37) — esta igualdad daría falso-positivo aunque la
+  // carrera no haya cambiado; por eso el fix principal vive en el front (no
+  // enviar el campo si no cambió) y esto es solo la red de seguridad.
   const cambiaCr = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
   const requiereAutorizacionDoble = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
 
