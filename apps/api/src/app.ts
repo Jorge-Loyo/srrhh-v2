@@ -28,6 +28,7 @@ import { puestosCargoRoutes } from './modules/puestos-cargo/puestos-cargo.routes
 import { rolesRoutes } from './modules/roles/roles.routes.js'
 import { permisosRoutes } from './modules/permisos/permisos.routes.js'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes.js'
+import { tareasRoutes } from './modules/tareas/tareas.routes.js'
 import { autorizacionesRoutes } from './modules/autorizaciones/autorizaciones.routes.js'
 import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-alta.routes.js'
 import { etiquetasRoutes } from './modules/etiquetas/etiquetas.routes.js'
@@ -126,6 +127,7 @@ await app.register(puestosCargoRoutes, { prefix: '/api/v1/puestos-cargo' })
 await app.register(rolesRoutes, { prefix: '/api/v1/roles' })
 await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
 await app.register(notificacionesRoutes, { prefix: '/api/v1/notificaciones' })
+await app.register(tareasRoutes,            { prefix: '/api/v1/tareas' })
 await app.register(autorizacionesRoutes,   { prefix: '/api/v1/autorizaciones' })
 await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' })
 await app.register(etiquetasRoutes,        { prefix: '/api/v1/etiquetas' })

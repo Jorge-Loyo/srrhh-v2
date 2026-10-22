@@ -653,7 +653,7 @@ export interface Autorizacion {
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
-  solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+  solicitadoPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
   resueltoPor?: Pick<Usuario, 'id' | 'username'> | null
 }
 
@@ -690,6 +690,32 @@ export interface SolicitudAlta {
 export interface RoleJerarquia {
   rolHijoSlug: string
   rolPadreSlug: string
+}
+
+// ─── Tareas pendientes ───────────────────────────────────────────────────────
+// Tarea de acción personal asignada a un usuario concreto (a diferencia de las
+// notificaciones, que van por rol). Union extensible: hoy solo el rechazo de
+// autorización de concurso genera tareas; se agregan tipos a medida que crecen
+// los flujos. `tipo`/`estado` viajan como string (VarChar en Postgres), con el
+// contrato tipado acá (mismo patrón que Notificacion.tipo).
+export type TipoTareaPendiente = 'rechazo_autorizacion_concurso'
+
+export type EstadoTareaPendiente = 'pendiente' | 'resuelta'
+
+export interface TareaPendiente {
+  id: string
+  tipo: TipoTareaPendiente
+  estado: EstadoTareaPendiente
+  usuarioDestinatarioId: string
+  referenciaTipo: string
+  referenciaId: string
+  mensaje: string | null
+  creadaPorId: string | null
+  createdAt: string
+  resueltaAt: string | null
+  // Relaciones expandidas (opcionales)
+  creadaPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
+  destinatario?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
 }
 
 // -----------------------------------------------------------------------------
