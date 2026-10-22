@@ -180,6 +180,7 @@ export function ConcursoCphWizard() {
         '—',
       escalafon: 'CPH',
       personaBaja: c?.persona?.apellidoNombre ?? '—',
+      dniBaja: c?.persona?.numeroDoc ?? '',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
       subEstado: cphData.subEstado ?? 'vacante',
@@ -2531,6 +2532,7 @@ export function ConcursoCphWizard() {
                 {c.personaBaja !== '—' && (
                   <span className="font-medium text-gray-700">{c.personaBaja}</span>
                 )}
+                {c.dniBaja && <span className="text-gray-500">DNI {c.dniBaja}</span>}
                 {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
                 {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
               </div>
