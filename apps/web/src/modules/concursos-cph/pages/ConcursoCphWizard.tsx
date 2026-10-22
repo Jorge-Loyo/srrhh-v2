@@ -919,9 +919,12 @@ export function ConcursoCphWizard() {
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'No se pudo guardar'
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'No se pudo guardar'
       toast.error(msg)
     },
   })
@@ -946,9 +949,12 @@ export function ConcursoCphWizard() {
       setObsAutorizacion('')
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Error al resolver la autorización'
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'Error al resolver la autorización'
       toast.error(msg)
     },
   })

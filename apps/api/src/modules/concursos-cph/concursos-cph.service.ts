@@ -422,7 +422,19 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   const patch: Prisma.ConcursoCphUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCphBody, unknown][]) {
     if (value === undefined) continue
-    if (key === 'sigla' || key === 'codigoRegistroId') continue // se manejan aparte
+    // sigla/codigoRegistroId se manejan aparte (rama de autorización doble).
+    // puestoCargoSolicitadoId/especialidadPuestoSolicitadaId son FKs a
+    // relaciones en el modelo: Prisma.update() NO acepta el id escalar, hay
+    // que escribirlos con connect/disconnect (se hace más abajo). Si se
+    // dejaran pasar por este loop, Prisma rompe con "Unknown argument
+    // `puestoCargoSolicitadoId`. Did you mean `puestoCargoSolicitado`?".
+    if (
+      key === 'sigla' ||
+      key === 'codigoRegistroId' ||
+      key === 'puestoCargoSolicitadoId' ||
+      key === 'especialidadPuestoSolicitadaId'
+    )
+      continue // se manejan aparte
     const isFecha = CAMPOS_FECHA.has(key)
     ;(patch as Record<string, unknown>)[key] =
       isFecha && typeof value === 'string' ? new Date(value) : value
@@ -443,6 +455,21 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     }
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     patch.pendienteAutorizacion = true
+  }
+
+  // puestoCargoSolicitadoId / especialidadPuestoSolicitadaId son relaciones
+  // (@relation) en ConcursoCph: Prisma.update() exige connect/disconnect, no
+  // el id escalar (ver el `continue` del loop de arriba). Se traducen acá,
+  // igual que codigoRegistroSolicitado. Un id → connect; null → disconnect.
+  if (body.puestoCargoSolicitadoId !== undefined) {
+    patch.puestoCargoSolicitado = body.puestoCargoSolicitadoId
+      ? { connect: { id: body.puestoCargoSolicitadoId } }
+      : { disconnect: true }
+  }
+  if (body.especialidadPuestoSolicitadaId !== undefined) {
+    patch.especialidadPuestoSolicitada = body.especialidadPuestoSolicitadaId
+      ? { connect: { id: body.especialidadPuestoSolicitadaId } }
+      : { disconnect: true }
   }
 
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
