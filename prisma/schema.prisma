@@ -1321,6 +1321,8 @@ model Usuario {
   sorteosJuradoGenerados    SorteoJurado[]        @relation("SorteoJuradoGeneradoPor")
   sorteosJuradoConfirmados  SorteoJurado[]        @relation("SorteoJuradoConfirmadoPor")
   organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
+  tareasRecibidas           TareaPendiente[]      @relation("TareaDestinatario")
+  tareasCreadas             TareaPendiente[]      @relation("TareaCreadaPor")
 
   @@map("usuarios")
 }
@@ -1763,6 +1765,30 @@ model Notificacion {
   @@index([tipo])
   @@index([creadaAt])
   @@map("notificaciones")
+}
+
+// Tarea pendiente dirigida a un usuario concreto (a diferencia de Notificacion,
+// que apunta a un rol). tipo/estado como string VarChar con union TS de contrato
+// en @srrhh/types. referenciaTipo/referenciaId siguen el patrón de Autorizacion.
+model TareaPendiente {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tipo                  String    @db.VarChar(50)
+  estado                String    @default("pendiente") @db.VarChar(20)
+  usuarioDestinatarioId String    @map("usuario_destinatario_id") @db.Uuid
+  referenciaTipo        String    @map("referencia_tipo") @db.VarChar(50)
+  referenciaId          String    @map("referencia_id") @db.Uuid
+  mensaje               String?   @db.Text
+  creadaPorId           String?   @map("creada_por_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resueltaAt            DateTime? @map("resuelta_at") @db.Timestamptz
+
+  destinatario Usuario  @relation("TareaDestinatario", fields: [usuarioDestinatarioId], references: [id])
+  creadaPor    Usuario? @relation("TareaCreadaPor", fields: [creadaPorId], references: [id])
+
+  @@index([usuarioDestinatarioId, estado])
+  @@index([referenciaTipo, referenciaId])
+  @@index([estado])
+  @@map("tareas_pendientes")
 }
 
 // =============================================================================
