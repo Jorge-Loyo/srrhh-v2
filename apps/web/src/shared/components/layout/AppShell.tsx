@@ -4,6 +4,7 @@ import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
 import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks/useNotificaciones'
 import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
+import { useTareasPendientes } from '../../../modules/tareas/hooks/useTareas'
 import { can } from '../../lib/can'
 
 const CARGOS_SUBITEMS = [
@@ -35,6 +36,7 @@ export function AppShell() {
   const { data: noLeidas = 0 } = useNotificacionesNoLeidas()
   const puedeVerAutorizaciones = can(user, 'autorizaciones', 'ver')
   const { data: autorizacionesPendientes = 0 } = useAutorizacionesPendientes(puedeVerAutorizaciones)
+  const { data: tareasPendientes = 0 } = useTareasPendientes()
   const haySnapshotPendiente = snapshots?.some((s) => s.estado === 'pendiente') ?? false
   const location = useLocation()
 
@@ -287,6 +289,19 @@ export function AppShell() {
                 )}
               </Link>
             )}
+            {/* Badge tareas pendientes (sky) — abierto a todos, sin gate de permiso */}
+            <Link
+              to="/tareas"
+              title="Tareas pendientes"
+              className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/10 transition-colors mr-1"
+            >
+              <span className="text-white text-lg">📋</span>
+              {tareasPendientes > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-sky-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+                  {tareasPendientes > 99 ? '99+' : tareasPendientes}
+                </span>
+              )}
+            </Link>
             {/* Badge notificaciones */}
             <Link
               to="/notificaciones"

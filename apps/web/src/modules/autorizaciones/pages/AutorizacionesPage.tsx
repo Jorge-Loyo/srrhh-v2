@@ -347,7 +347,9 @@ export function AutorizacionesPage() {
                 </div>
                 <Referencia autorizacion={a} onEsInformativa={marcarInformativa} />
                 {a.solicitadoPor && (
-                  <p className="text-xs text-gray-400 mt-1">Solicitado por {a.solicitadoPor.username}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Solicitado por {[a.solicitadoPor.nombre, a.solicitadoPor.apellido].filter(Boolean).join(' ') || a.solicitadoPor.username}
+                  </p>
                 )}
               </div>
               {!informativas.has(a.referenciaId) && (
