@@ -167,3 +167,132 @@ export function etiquetaSituacion(s: string): string {
   // Estados del catálogo vienen en minúscula sin tilde → capitalizar.
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
+
+// ─── Escala/normalización del gráfico comparativo (helpers puros) ────────────
+// Funciones totales, deterministas y sin React: la lógica de escala/label vive
+// acá para ser razonable aislada (y unit-testeable si se agrega un runner).
+
+// Acota v al rango [min, max]. Función total y pura.
+export const clamp = (v: number, min: number, max: number): number =>
+  Math.min(Math.max(v, min), max)
+
+// Rango [min, max] en UNIDADES DE DATO al que mapear una serie.
+export interface RangoY {
+  min: number
+  max: number
+}
+
+// Escala real AJUSTADA a un conjunto de valores (reemplaza calcularRangoY): NO
+// fuerza 0; ajusta al rango con padding del 15%. Si todos los valores son
+// iguales (rango 0), abre una ventana simétrica artificial (±5% del valor, o ±1
+// si el valor es 0) para centrar la recta sin dividir por cero. Nunca devuelve
+// min===max.
+export function rangoAjustado(valores: number[]): RangoY {
+  const vals = valores.filter((v) => Number.isFinite(v))
+  if (vals.length === 0) return { min: 0, max: 10 }
+  const min = Math.min(...vals)
+  const max = Math.max(...vals)
+  const rango = max - min
+  if (rango === 0) {
+    const pad = Math.max(Math.abs(max) * 0.05, 1)
+    return { min: min - pad, max: max + pad }
+  }
+  const pad = rango * 0.15
+  return { min: min - pad, max: max + pad }
+}
+
+// Proyección valor→y (pixeles del SVG) para el rango dado. yTop = borde
+// superior del área (y menor), yBottom = borde inferior (y mayor). El plano Y
+// del SVG crece hacia abajo, por eso yTop < yBottom. Cumple:
+// escalaSerie(r,yTop,yBottom)(r.max) === yTop y (r.min) === yBottom.
+export function escalaSerie(
+  rango: RangoY,
+  yTop: number,
+  yBottom: number,
+): (v: number) => number {
+  const span = rango.max - rango.min || 1
+  const alto = yBottom - yTop
+  return (v: number) => yBottom - ((v - rango.min) / span) * alto
+}
+
+// Default del modo de escala. 'tendencia' si hay ≥2 series visibles con
+// magnitudes muy dispares (la de mayor nivel supera a la de menor por un factor
+// ≥1.5); si no, 'real'. En desglose siempre 'real'. Recibe un nivel
+// representativo por serie (p.ej. promedio de sus valores), NO las series.
+export function defaultModoEscala(
+  nivelesPorSerie: number[],
+  modoDesglose: boolean,
+): 'real' | 'tendencia' {
+  if (modoDesglose) return 'real'
+  const niveles = nivelesPorSerie.filter((v) => v > 0)
+  if (niveles.length < 2) return 'real'
+  const max = Math.max(...niveles)
+  const min = Math.min(...niveles)
+  return max / min >= 1.5 ? 'tendencia' : 'real'
+}
+
+// Abreviatura corta de una situación de revista (para el label corto de un
+// indicador, NO para la leyenda, que usa etiquetaSituacion completo). Estados
+// conocidos → forma de 2-3 letras; cualquier otro → primeras 2 letras
+// capitalizadas.
+const ABREV_SITUACION: Record<string, string> = {
+  'activo': 'Act',
+  'comision': 'Com',
+  'retencion de cargo': 'RC',
+  '(sin dato)': 's/d',
+}
+export function abreviaturaSituacion(s: string): string {
+  return ABREV_SITUACION[s] ?? s.charAt(0).toUpperCase() + s.slice(1, 3)
+}
+
+// Label corto para tooltip/etiquetas. Concatena las dimensiones presentes
+// abreviadas (unidas por '/') + sufijo de situación abreviada. NUNCA produce el
+// label largo literal. Función total: sin ningún campo → 'Indicador'.
+const MAX_CHARS_SEG = 6
+export function labelCortoIndicador(
+  ind: {
+    carreras: string[]
+    siglas: string[]
+    puestos: string[]
+    especialidades: string[]
+    gruposEspecialidad: string[]
+    situaciones: string[]
+  },
+  maxElems = 2,
+): string {
+  // Resume una lista de elementos de una dimensión: primeros `maxElems` unidos
+  // por '/', con '+k' por los restantes.
+  const resumirLista = (xs: string[]): string => {
+    if (xs.length <= maxElems) return xs.join('/')
+    return xs.slice(0, maxElems).join('/') + '+' + (xs.length - maxElems)
+  }
+  // Abrevia el primer valor de una dimensión de texto a MAX_CHARS_SEG letras.
+  const abreviarTexto = (v: string): string => {
+    const up = v.toUpperCase()
+    return up.length > MAX_CHARS_SEG ? up.slice(0, MAX_CHARS_SEG) + '…' : up
+  }
+
+  const segmentos: string[] = []
+  if (ind.carreras.length) segmentos.push(resumirLista(ind.carreras))
+  if (ind.siglas.length) segmentos.push(resumirLista(ind.siglas))
+
+  // puesto/especialidad/grupo: solo se representa la primera no vacía (de las
+  // tres) como texto abreviado; las otras dos, si existen, se resumen con '+N'.
+  const textuales = [ind.puestos, ind.especialidades, ind.gruposEspecialidad]
+  const presentesTextuales = textuales.filter((xs) => xs.length > 0)
+  if (presentesTextuales.length > 0) {
+    segmentos.push(abreviarTexto(presentesTextuales[0]![0]!))
+  }
+
+  let out = segmentos.join('/')
+  // Dimensiones de puesto/especialidad/grupo adicionales no representadas.
+  const extra = presentesTextuales.length > 1 ? presentesTextuales.length - 1 : 0
+  if (extra > 0) out += (out ? '+' : '') + extra
+
+  if (ind.situaciones.length) {
+    const abrevs = ind.situaciones.map(abreviaturaSituacion).join('/')
+    out = out ? `${out} · ${abrevs}` : abrevs
+  }
+
+  return out || 'Indicador'
+}

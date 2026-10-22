@@ -19,6 +19,11 @@ import {
   etiquetaSituacion,
   asignarColorIndicador,
   colorIndicador,
+  clamp,
+  rangoAjustado,
+  escalaSerie,
+  defaultModoEscala,
+  labelCortoIndicador,
   type EstiloSerie,
 } from '../lib/situacion-revista'
 
@@ -47,28 +52,6 @@ const innerH = H - P.top - P.bottom
 // Color tenue del área bajo la línea total (el color real de cada serie lo
 // resuelve el módulo compartido `situacion-revista`).
 const COLOR_LIGHT = '#DBEAFE'
-
-function techoLimpio(max: number): number {
-  if (max <= 0) return 10
-  const mag = 10 ** Math.floor(Math.log10(max))
-  for (const p of [1, 2, 2.5, 5, 10]) {
-    if (p * mag >= max) return p * mag
-  }
-  return 10 * mag
-}
-
-// Rango Y: si la variación relativa es baja, se ajusta al mínimo para que la
-// curva no se vea plana. Mismo criterio que EvolucionDotacionChart.
-function calcularRangoY(valores: number[]): { yMin: number; yMax: number } {
-  const vals = valores.filter((v) => v > 0)
-  if (vals.length === 0) return { yMin: 0, yMax: 10 }
-  const min = Math.min(...vals)
-  const max = Math.max(...vals)
-  const rango = max - min
-  if (rango / max > 0.3) return { yMin: 0, yMax: techoLimpio(max) }
-  const padding = Math.max(rango * 0.5, max * 0.005)
-  return { yMin: Math.floor(min - padding), yMax: Math.ceil(max + padding) }
-}
 
 function formatNum(n: number): string {
   return n.toLocaleString('es-AR')
@@ -466,6 +449,7 @@ export function EvolucionEspecialidadChart() {
       return {
         id: s.id,
         label: local?.label ?? (s.label || 'Indicador'),
+        labelCorto: local ? labelCortoIndicador(local) : (s.label?.slice(0, 16) ?? 'Indicador'),
         color: local?.color ?? colorIndicador(s.id),
         puntos: s.puntos,
       }
@@ -733,6 +717,7 @@ type PuntoEvolucion = KpiDotacionEvolucion['puntos'][number]
 interface SerieLinea {
   clave: string
   label: string
+  labelCorto: string
   valores: number[]
   color: string
   dashed?: boolean
@@ -743,6 +728,7 @@ interface SerieLinea {
 interface IndicadorSerieUI {
   id: string
   label: string
+  labelCorto: string
   color: EstiloSerie
   puntos: PuntoEvolucion[]
 }
@@ -780,6 +766,7 @@ function LineaEvolucion({
       return (indicadores ?? []).map((ind) => ({
         clave: ind.id,
         label: ind.label,
+        labelCorto: ind.labelCorto,
         valores: ind.puntos.map((p) => p.total),
         color: ind.color.color,
         principal: false,
@@ -791,6 +778,7 @@ function LineaEvolucion({
     out.push({
       clave: CLAVE_TOTAL,
       label: etiquetaSituacion(CLAVE_TOTAL),
+      labelCorto: etiquetaSituacion(CLAVE_TOTAL),
       valores: puntos.map((p) => p.total),
       color: etotal.color,
       principal: true,
@@ -800,6 +788,7 @@ function LineaEvolucion({
       out.push({
         clave: sit,
         label: etiquetaSituacion(sit),
+        labelCorto: etiquetaSituacion(sit),
         valores: puntos.map((p) => p.porSituacion[sit] ?? 0),
         color: e.color,
         dashed: e.dashed,
@@ -811,6 +800,7 @@ function LineaEvolucion({
         out.push({
           clave: CLAVE_ACTIVOS_Y_COMISIONADOS,
           label: etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS),
+          labelCorto: etiquetaSituacion(CLAVE_ACTIVOS_Y_COMISIONADOS),
           valores: puntos.map((p) => p.activosYComisionados),
           color: eayc.color,
           dashed: eayc.dashed,
@@ -856,22 +846,66 @@ function LineaEvolucion({
   const visibles = series.filter((s) => !ocultas.has(s.clave))
   const hayVisibles = visibles.length > 0
 
-  // Rango Y sobre todos los valores visibles (superpuestas, no apiladas). Con 0
-  // visibles, calcularRangoY([]) devuelve {0,10}.
-  const { yMin, yMax } = calcularRangoY(visibles.flatMap((s) => s.valores))
-  const yRange = yMax - yMin || 1
+  // Nivel representativo por serie VISIBLE = promedio de sus valores (robusto a
+  // un pico puntual). Alimenta el default del modo de escala.
+  const nivelDe = (s: SerieLinea) =>
+    s.valores.length ? s.valores.reduce((a, b) => a + b, 0) / s.valores.length : 0
+  const nivelesVisibles = visibles.map(nivelDe)
+  // Clave estable del CONJUNTO visible: dispara el recálculo del default cuando
+  // cambia qué se compara (apagar/encender serie incluido).
+  const clavesVisibles = visibles.map((s) => s.clave).join('|')
+
+  // Modo de escala: 'real' = escala compartida ajustada al rango; 'tendencia' =
+  // cada serie normalizada a su propio min/max (solo visual, valores siempre
+  // reales). Default inicial 'real'; el useEffect lo fija según los niveles
+  // visibles en el primer commit y cuando cambia el conjunto visible.
+  type ModoEscala = 'real' | 'tendencia'
+  const [modoEscala, setModoEscala] = useState<ModoEscala>('real')
+  useEffect(() => {
+    setModoEscala(defaultModoEscala(nivelesVisibles, modoDesglose))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clavesVisibles, modoDesglose])
+
+  // Rango compartido (escala real) sobre todos los valores visibles. Con 0
+  // visibles, rangoAjustado([]) devuelve {0,10}.
+  const rangoGlobal = useMemo(
+    () => rangoAjustado(visibles.flatMap((s) => s.valores)),
+    [visibles],
+  )
+
+  // Proyección Y por serie. En modo 'tendencia' (solo multi) cada serie usa su
+  // propio rango; en el resto, todas comparten rangoGlobal.
+  const escalaPorSerie = useMemo(() => {
+    const yTop = P.top
+    const yBottom = P.top + innerH
+    const usarPropio = !modoDesglose && modoEscala === 'tendencia'
+    const m = new Map<string, (v: number) => number>()
+    for (const s of visibles) {
+      const rango = usarPropio ? rangoAjustado(s.valores) : rangoGlobal
+      m.set(s.clave, escalaSerie(rango, yTop, yBottom))
+    }
+    return m
+  }, [visibles, modoDesglose, modoEscala, rangoGlobal])
+
+  // En modo tendencia el eje Y numérico pierde sentido (cada serie su escala).
+  const ejeTendencia = !modoDesglose && modoEscala === 'tendencia'
 
   // x de un punto: única definición, usada en coordsDe, bandas, guía y etiquetas.
   const coordX = (i: number) => P.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2)
 
-  const coordsDe = (valores: number[]) =>
-    valores.map((v, i) => {
-      const x = coordX(i)
-      const y = P.top + innerH - ((v - yMin) / yRange) * innerH
-      return { x, y }
-    })
+  // valor→coordenadas usando la proyección POR SERIE (clave ∈ visibles).
+  const coordsDe = (clave: string, valores: number[]) => {
+    const proy = escalaPorSerie.get(clave)!
+    return valores.map((v, i) => ({ x: coordX(i), y: proy(v) }))
+  }
 
-  const yTicks = [yMin, Math.round((yMin + yMax) / 2), yMax]
+  const yTicks = [
+    rangoGlobal.min,
+    Math.round((rangoGlobal.min + rangoGlobal.max) / 2),
+    rangoGlobal.max,
+  ]
+  // Proyección del rango global para ubicar los ticks/gridlines numéricos.
+  const proyGlobal = escalaSerie(rangoGlobal, P.top, P.top + innerH)
 
   const serieTotal = modoDesglose ? series.find((s) => s.principal) : undefined
 
@@ -881,16 +915,28 @@ function LineaEvolucion({
   // dibujar su <text> suelto del último punto). yBase = y del valor más alto.
   const pilaUltimo = useMemo(() => {
     if (!hayVisibles || n === 0) return []
-    const filas = visibles
-      .map((s) => {
-        const v = s.valores[n - 1] ?? 0
-        const y = P.top + innerH - ((v - yMin) / yRange) * innerH
-        return { clave: s.clave, color: s.color, valor: v, y }
-      })
-      .sort((a, b) => b.valor - a.valor)
-    const yBase = Math.min(...filas.map((f) => f.y))
-    return filas.map((f, idx) => ({ ...f, yFila: yBase + idx * filaH }))
-  }, [visibles, hayVisibles, n, yMin, yRange])
+    // y = posición visual natural (final de la línea, normalizada en tendencia);
+    // valor = real. Se re-ancla cada etiqueta a la MISMA proyección por serie.
+    const filas = visibles.map((s) => {
+      const v = s.valores[n - 1] ?? 0
+      const proy = escalaPorSerie.get(s.clave)!
+      return { clave: s.clave, color: s.color, valor: v, y: proy(v), label: s.labelCorto, yFila: 0 }
+    })
+    // Anti-solape: ordenar por y natural (arriba→abajo) y empujar hacia abajo
+    // solo lo mínimo cuando dos quedarían a menos de filaH px.
+    filas.sort((a, b) => a.y - b.y)
+    const sep = filaH
+    let prevY = -Infinity
+    for (const f of filas) {
+      f.yFila = Math.max(f.y, prevY + sep)
+      prevY = f.yFila
+    }
+    // Si la última se pasó del borde inferior, correr todo el bloque hacia arriba.
+    const yBottom = P.top + innerH
+    const exceso = (filas[filas.length - 1]?.yFila ?? 0) - yBottom
+    if (exceso > 0) for (const f of filas) f.yFila -= exceso
+    return filas
+  }, [visibles, hayVisibles, n, escalaPorSerie])
 
   // ── Cifras de cabecera ──────────────────────────────────────────────────────
   // Desglose: Dotación actual + variación + sub-cifras por estado al corte.
@@ -962,6 +1008,41 @@ function LineaEvolucion({
         </div>
       )}
 
+      {/* Toggle de escala (solo multi con ≥2 indicadores visibles) + microcopy */}
+      {!modoDesglose && visibles.length >= 2 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded border border-gray-300 text-xs overflow-hidden">
+            <button
+              type="button"
+              aria-pressed={modoEscala === 'real'}
+              onClick={() => setModoEscala('real')}
+              className={
+                modoEscala === 'real' ? 'px-2 py-1 bg-secondary text-white' : 'px-2 py-1 text-gray-600'
+              }
+            >
+              Escala real
+            </button>
+            <button
+              type="button"
+              aria-pressed={modoEscala === 'tendencia'}
+              onClick={() => setModoEscala('tendencia')}
+              className={
+                modoEscala === 'tendencia'
+                  ? 'px-2 py-1 bg-secondary text-white'
+                  : 'px-2 py-1 text-gray-600'
+              }
+            >
+              Comparar tendencias
+            </button>
+          </div>
+          {ejeTendencia && (
+            <span className="text-[11px] text-gray-400">
+              Escala por indicador — comparando tendencias, no valores absolutos
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Leyenda con toggles por serie */}
       <div className="flex flex-wrap gap-2">
         {series.map((s) => {
@@ -996,7 +1077,7 @@ function LineaEvolucion({
           <polygon
             points={[
               `${P.left},${P.top + innerH}`,
-              ...coordsDe(serieTotal.valores).map((c) => `${c.x},${c.y}`),
+              ...coordsDe(serieTotal.clave, serieTotal.valores).map((c) => `${c.x},${c.y}`),
               `${P.left + innerW},${P.top + innerH}`,
             ].join(' ')}
             fill={COLOR_LIGHT}
@@ -1004,17 +1085,32 @@ function LineaEvolucion({
           />
         )}
 
-        {yTicks.map((t) => {
-          const y = P.top + innerH - ((t - yMin) / yRange) * innerH
-          return (
-            <g key={`tick-${t}`}>
-              <line x1={P.left} x2={P.left + innerW} y1={y} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
-              <text x={P.left - 6} y={y + 4} textAnchor="end" fontSize={11} fill="#9CA3AF">
-                {formatNum(t)}
-              </text>
-            </g>
-          )
-        })}
+        {/* Eje Y: en modo tendencia el número compartido no tiene sentido (cada
+            serie su escala), así que se dibuja una grilla neutra sin número
+            (techo/mitad/piso del área). En real/desglose, ticks rotulados. */}
+        {ejeTendencia
+          ? [P.top, P.top + innerH / 2, P.top + innerH].map((y, i) => (
+              <line
+                key={`grid-${i}`}
+                x1={P.left}
+                x2={P.left + innerW}
+                y1={y}
+                y2={y}
+                stroke="#F3F4F6"
+                strokeWidth={0.8}
+              />
+            ))
+          : yTicks.map((t) => {
+              const y = proyGlobal(t)
+              return (
+                <g key={`tick-${t}`}>
+                  <line x1={P.left} x2={P.left + innerW} y1={y} y2={y} stroke="#E5E7EB" strokeWidth={0.8} />
+                  <text x={P.left - 6} y={y + 4} textAnchor="end" fontSize={11} fill="#9CA3AF">
+                    {formatNum(t)}
+                  </text>
+                </g>
+              )
+            })}
 
         {/* Series secundarias primero (en desglose), la total encima; en multi
             todas las líneas de indicador. */}
@@ -1023,7 +1119,7 @@ function LineaEvolucion({
           .map((s) => (
             <polyline
               key={`line-${s.clave}`}
-              points={coordsDe(s.valores).map((c) => `${c.x},${c.y}`).join(' ')}
+              points={coordsDe(s.clave, s.valores).map((c) => `${c.x},${c.y}`).join(' ')}
               fill="none"
               stroke={s.color}
               strokeWidth={1.75}
@@ -1037,14 +1133,14 @@ function LineaEvolucion({
         {serieTotal && !ocultas.has(serieTotal.clave) && (
           <>
             <polyline
-              points={coordsDe(serieTotal.valores).map((c) => `${c.x},${c.y}`).join(' ')}
+              points={coordsDe(serieTotal.clave, serieTotal.valores).map((c) => `${c.x},${c.y}`).join(' ')}
               fill="none"
               stroke={serieTotal.color}
               strokeWidth={2.5}
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            {coordsDe(serieTotal.valores).map((c, i) => {
+            {coordsDe(serieTotal.clave, serieTotal.valores).map((c, i) => {
               const isLast = i === n - 1
               return (
                 <g key={`pt-${i}`}>
@@ -1080,8 +1176,26 @@ function LineaEvolucion({
           </>
         )}
 
-        {/* Pila de etiquetas del último punto: cada serie visible, su valor del
-            último mes, ordenadas desc y apiladas para no solaparse. */}
+        {/* Pila de etiquetas del último punto: cada serie visible, su valor REAL
+            del último mes, re-anclada a la posición visual de su línea. En
+            tendencia se prefija el labelCorto (líneas de magnitud dispar pueden
+            quedar a la misma altura). Conector cosmético cuando se la empujó. */}
+        {hayVisibles &&
+          n > 0 &&
+          pilaUltimo
+            .filter((f) => Math.abs(f.yFila - f.y) > 2)
+            .map((f) => (
+              <line
+                key={`conn-${f.clave}`}
+                x1={P.left + innerW}
+                y1={f.y}
+                x2={P.left + innerW}
+                y2={f.yFila}
+                stroke={f.color}
+                strokeWidth={0.75}
+                strokeOpacity={0.5}
+              />
+            ))}
         {hayVisibles &&
           n > 0 &&
           pilaUltimo.map((f) => (
@@ -1094,7 +1208,7 @@ function LineaEvolucion({
               fontWeight="bold"
               fill={f.color}
             >
-              {formatNum(f.valor)}
+              {ejeTendencia ? `${f.label}: ${formatNum(f.valor)}` : formatNum(f.valor)}
             </text>
           ))}
 
@@ -1141,20 +1255,40 @@ function LineaEvolucion({
         {/* Tooltip por mes: línea guía + caja con el valor de cada serie visible.
             Último hijo del svg para que nunca quede tapado. */}
         {hayVisibles && mesHover !== null && n > 0 && (() => {
+          // Estimación de ancho: la fuente del SVG no es monoespaciada, por eso
+          // el resultado se acota duro con clamp y los labels se truncan.
+          const CHAR_W = 6 // ancho aprox por caracter a fontSize 10
+          const SWATCH = 12 // cuadrito de color + gap
+          const GAP_VALOR = 10 // separación label→valor
+          const BOX_MIN = 120
+          const BOX_MAX = 240 // tope duro: la caja nunca crece más que esto
           const xg = coordX(mesHover)
           const filasTip = visibles
             .map((s) => ({
               clave: s.clave,
-              label: s.label,
+              labelCorto: s.labelCorto,
               color: s.color,
               valor: s.valores[mesHover] ?? 0,
             }))
             .sort((a, b) => b.valor - a.valor)
+          const anchoFila = (label: string, valor: string) =>
+            SWATCH + label.length * CHAR_W + GAP_VALOR + valor.length * CHAR_W
+          const boxW = clamp(
+            Math.max(...filasTip.map((f) => anchoFila(f.labelCorto, formatNum(f.valor)))) + 2 * padding,
+            BOX_MIN,
+            BOX_MAX,
+          )
           const boxH = filasTip.length * filaH + 2 * padding
-          const boxW = 180
+          // Horizontal: lado opuesto al cursor, acotado al área de datos.
           const haciaIzquierda = xg > P.left + innerW / 2
-          const boxX = haciaIzquierda ? xg - boxW - 8 : xg + 8
-          const boxY = Math.min(P.top, P.top + innerH - boxH)
+          let boxX = haciaIzquierda ? xg - boxW - 8 : xg + 8
+          boxX = clamp(boxX, P.left, P.left + innerW - boxW)
+          // Vertical: anclado a la posición visual más alta de las series bajo el
+          // cursor, acotado para que la caja entre completa dentro del área.
+          const yRef = Math.min(
+            ...visibles.map((s) => escalaPorSerie.get(s.clave)!(s.valores[mesHover] ?? 0)),
+          )
+          const boxY = clamp(yRef - 8, P.top, P.top + innerH - boxH)
           return (
             <g>
               <line
@@ -1182,11 +1316,23 @@ function LineaEvolucion({
               </text>
               {filasTip.map((f, idx) => {
                 const yRow = boxY + padding + idx * filaH + filaH - 4
+                // Truncado por FILA (depende del ancho del valor de esa fila) y
+                // acotado contra boxW (ancho efectivo de la caja dibujada).
+                const valorStr = formatNum(f.valor)
+                const valorW = valorStr.length * CHAR_W
+                const maxChars = Math.floor(
+                  (boxW - 2 * padding - SWATCH - GAP_VALOR - valorW) / CHAR_W,
+                )
+                const labelMostrado =
+                  f.labelCorto.length > maxChars
+                    ? f.labelCorto.slice(0, Math.max(1, maxChars - 1)) + '…'
+                    : f.labelCorto
                 return (
                   <g key={`tip-${f.clave}`}>
+                    <title>{f.labelCorto}</title>
                     <rect x={boxX + padding} y={yRow - 8} width={8} height={8} rx={1} fill={f.color} />
                     <text x={boxX + padding + 12} y={yRow} fontSize={10} fill="#374151">
-                      {f.label}
+                      {labelMostrado}
                     </text>
                     <text
                       x={boxX + boxW - padding}
@@ -1196,7 +1342,7 @@ function LineaEvolucion({
                       fontWeight="bold"
                       fill={f.color}
                     >
-                      {formatNum(f.valor)}
+                      {valorStr}
                     </text>
                   </g>
                 )
