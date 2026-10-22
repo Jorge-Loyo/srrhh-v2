@@ -729,9 +729,22 @@ export interface AprobarSnapshotRequest {
 export interface CreateUsuarioRequest {
   username: string
   email: string
+  nombre: string
+  apellido: string
+  cuil: string
   password: string
   roleId: string
   hospitalId?: string
+}
+
+export interface UpdateUsuarioRequest {
+  username?: string
+  email?: string
+  nombre?: string
+  apellido?: string
+  cuil?: string
+  roleId?: string
+  hospitalId?: string | null
 }
 
 // S4-6 — POST /api/v1/concursos. Carga manual por ahora (el disparador
