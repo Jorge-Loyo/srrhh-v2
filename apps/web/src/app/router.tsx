@@ -50,11 +50,13 @@ import { BajasLayout } from '../modules/bajas/components/BajasLayout'
 import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
 import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
 import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
+import { TareasPage } from '../modules/tareas/pages/TareasPage'
 import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/AreasProgramaticasPage'
 import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
 import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
 import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
 import { PresentacionPage } from '../modules/presentacion/pages/PresentacionPage'
+import { PerfilPage } from '../modules/perfil/pages/PerfilPage'
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -72,6 +74,9 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <RequireInicio /> },
+          // Perfil del propio usuario — sin RequirePermiso (cualquier
+          // autenticado accede a su perfil, igual que Organigrama/POU).
+          { path: 'perfil', element: <PerfilPage /> },
           // Importación — página con pestañas (Padrón / Bajas Consolidadas /
           // Árbol Organigrama / Carga POU). Cada pestaña conserva su ruta y su
           // guard de permiso propio. Las vistas de detalle (diffs) van fuera.
@@ -176,6 +181,9 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
             children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
           },
+          // Tareas pendientes — sin RequirePermiso (abierto a todos, igual que
+          // /perfil). La visibilidad real la resuelve el backend por jerarquía.
+          { path: 'tareas', element: <TareasPage /> },
           // Detalle de bajas consolidadas (fuera del layout de Importación).
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },

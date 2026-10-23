@@ -40,11 +40,11 @@ no el nombre de `ESCALAFON` del Excel (que trae nombres históricos variables).
 El padrón trae especialidad (`LIT_ESP_CARGO`) solo para estos códigos; en el resto se vacía
 (paso 9.6 del pipeline):
 
-| COD_REG | Carrera                                  | Rol en el sistema |
-| ------- | ---------------------------------------- | ----------------- |
+| COD_REG | Carrera                                      | Rol en el sistema |
+| ------- | -------------------------------------------- | ----------------- |
 | `37`    | Nueva Carrera Profesional Hospitalaria (CPH) | **Gestionada**    |
-| `23`    | Salud · Guardias (Suplentes)             | **Informativa**   |
-| `24`    | Residentes (Residencias)                 | **Informativa**   |
+| `23`    | Salud · Guardias (Suplentes)                 | **Informativa**   |
+| `24`    | Residentes (Residencias)                     | **Informativa**   |
 
 ### Carreras SIN especialidad
 
@@ -70,15 +70,15 @@ El padrón trae especialidad (`LIT_ESP_CARGO`) solo para estos códigos; en el r
 
 Requiere valor en `JCAT` (y `JCAT = 0` NO cuenta como jefatura):
 
-| Condición                       | JEFE ESCALAFON        |
-| ------------------------------- | --------------------- |
-| Sin JCAT (o JCAT vacío)         | `null`                |
+| Condición                         | JEFE ESCALAFON        |
+| --------------------------------- | --------------------- |
+| Sin JCAT (o JCAT vacío)           | `null`                |
 | COD_REG `37` + **sin** ESCRITORIO | `Jefe CPH POF`        |
 | COD_REG `37` + **con** ESCRITORIO | `Jefe CPH POU`        |
-| COD_REG `85`                    | `Jefe Tecnico`        |
-| COD_REG `87`                    | `Jefe Enfermeria`     |
-| COD_REG `83`                    | `Jefe Administrativo` |
-| resto                           | `null`                |
+| COD_REG `85`                      | `Jefe Tecnico`        |
+| COD_REG `87`                      | `Jefe Enfermeria`     |
+| COD_REG `83`                      | `Jefe Administrativo` |
+| resto                             | `null`                |
 
 ---
 
@@ -141,6 +141,7 @@ estos roles es **`id_sial_rol`**, no `id_sial`.
 - Los endpoints individuales tienen un guard que impide colapsar dos personas en un cargo 24/07.
 
 **Invariante C.1 (lo valida el usuario por SQL tras cada padrón):**
+
 > **0 cargos compartidos de roles 24/07.** Si la query de invariante C.1 da > 0, hay un desdoblado
 > roto y debe corregirse antes de dar por bueno el padrón.
 
@@ -211,6 +212,25 @@ que quizás no le corresponde (principio rector). Objetivo: garantizar el invari
 > **Estado del código:** ambos fixes (Bug B + refinamiento A) están en la rama `fix-bajas-reglas`
 > junto con la Regla 5. Hasta su merge, el blindaje de datos (nullificar `id_sial` desajustado)
 > sostiene el invariante C.1.
+
+---
+
+## Normalización de situación de revista
+
+`situacion_revista` se guarda **minúscula sin tilde**, en un **catálogo CERRADO de 3 estados**:
+`activo`, `comision`, `retencion de cargo`. La normaliza el productor activo (`pipeline.py`, paso
+9.75 — baja a minúscula-sin-tilde todas las columnas salvo las identificadoras), no un mapeo
+hardcodeado; un 4º valor inesperado se conserva como su normalizado, nunca se fuerza.
+
+El **desglose de dotación por situación de revista** en `/reportes` (una serie por estado + línea
+total, series NO disjuntas) **depende de esta normalización**: si la columna volviera a traer
+variantes de casing/acento (`Activo`, `Comisión`, `Retencion de Cargo`), las series y las tarjetas
+dejarían de reconciliar. Por eso `situacion_de_revista` **no** se agrega a
+`_COLUMNAS_NO_MINUSCULA` (candado comentado en `pipeline.py` + test
+`services/dotaneitor/tests/test_situacion_revista_normaliza.py`).
+
+> Esta regla NO modifica la Regla 2 (especialidad) ni la regla de cálculo de `ESTADO`. Detalle del
+> flujo de normalización en `Contrato_Padron.md` (sección «Normalización de texto»).
 
 ---
 

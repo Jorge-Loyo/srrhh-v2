@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
-import { useHospitales } from '@/shared/hooks/useCatalogos'
+import { useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
@@ -23,14 +23,16 @@ function ModalBuscarCargo({
   onCerrar: () => void
 }) {
   const [hospitalId, setHospitalId] = useState('')
+  const [codigoRegistroId, setCodigoRegistroId] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
   const { data: hospitales } = useHospitales()
+  const { data: codigosRegistro } = useCodigosRegistro()
 
-  const activo = !!(hospitalId || busqueda.length >= 2 || personaBusq.length >= 2)
+  const activo = !!(hospitalId || codigoRegistroId || busqueda.length >= 2 || personaBusq.length >= 2)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['cargo-modal-baja', hospitalId, busqueda, personaBusq],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
@@ -40,6 +42,7 @@ function ModalBuscarCargo({
             limit: 30,
             estado: 'vigente',
             ...(hospitalId && { hospitalId }),
+            ...(codigoRegistroId && { codigoRegistroId }),
             ...(busqueda.length >= 2 && { search: busqueda }),
             ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
           },
@@ -49,6 +52,7 @@ function ModalBuscarCargo({
             limit: 10,
             estado: 'validacion_vacante',
             ...(hospitalId && { hospitalId }),
+            ...(codigoRegistroId && { codigoRegistroId }),
             ...(busqueda.length >= 2 && { search: busqueda }),
             ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
           },
@@ -70,12 +74,23 @@ function ModalBuscarCargo({
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 border-b border-gray-100 space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-            <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-              <option value="">Todas</option>
-              {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
+              <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
+                <option value="">Todas</option>
+                {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+              <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
+                <option value="">Todas</option>
+                {codigosRegistro?.map((cr) => (
+                  <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
@@ -85,8 +100,13 @@ function ModalBuscarCargo({
         <div className="flex-1 overflow-y-auto">
           {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
           {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
-          {activo && !isLoading && (data?.length ?? 0) === 0 && <p className="p-6 text-sm text-gray-400 text-center">Sin resultados.</p>}
-          {activo && !isLoading && (data?.length ?? 0) > 0 && (
+          {activo && !isLoading && isError && (
+            <p className="p-6 text-sm text-danger text-center">
+              Ocurrió un error al buscar cargos. Reintentá; si persiste, avisá al equipo técnico.
+            </p>
+          )}
+          {activo && !isLoading && !isError && (data?.length ?? 0) === 0 && <p className="p-6 text-sm text-gray-400 text-center">Sin resultados.</p>}
+          {activo && !isLoading && !isError && (data?.length ?? 0) > 0 && (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>

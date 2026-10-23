@@ -35,10 +35,14 @@ COLUMNAS_MAYUSCULA_FORZADA = [
 ]
 
 
-# Columnas que deben conservar tildes y capitalización original (Formato Título):
-# no entran ni en COLUMNAS_MAYUSCULA_FORZADA ni en el paso genérico de sin_tilde.
+# Documentación histórica SIN EFECTO (inerte): este set describía columnas que
+# "conservaban" tildes/capitalización, pero _forzar_mayusculas (ver abajo) ignora
+# el set y baja TODO el texto a minúscula sin tilde (regla 2026-10). Se quitaron
+# 'SITUACION DE REVISTA' y 'ESTADO' porque hoy se normalizan a minúscula-sin-tilde
+# (de eso depende el desglose de dotación por situación de revista, catálogo
+# cerrado de 3 estados). El set queda solo como rastro histórico; no altera el flujo.
 COLUMNAS_CON_TILDE = {
-    'LITERAL PUESTO', 'SITUACION DE REVISTA', 'ESTADO',
+    'LITERAL PUESTO',
     'AYN', 'DOMICILIO', 'LOCALIDAD', 'PROVINCIA',
 }
 

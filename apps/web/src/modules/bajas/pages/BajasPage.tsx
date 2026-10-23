@@ -48,7 +48,7 @@ export function BajasPage() {
       <div className="flex gap-3 flex-wrap">
         <input
           type="text"
-          placeholder="Buscar por nombre, CUIL, cargo..."
+          placeholder="Buscar por nombre, CUIL, Id SIAL, código de cargo..."
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
           className="input-field text-sm w-72"

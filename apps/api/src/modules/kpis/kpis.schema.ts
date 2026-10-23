@@ -85,13 +85,61 @@ const gruposEvolucion = z
     }
   })
 
+// Perfil de un indicador comparable (punto 3): mismas dimensiones que el grupo,
+// más `situaciones` (filtro de situación de revista del perfil), `id` estable
+// que genera el front (identidad/color) y `labels` (solo presentación; el
+// backend no lo usa en la lógica). `situaciones` NO se restringe con z.enum: se
+// trata como catálogo normalizado con posibilidad de un 4º valor; el SQL
+// normaliza y un valor desconocido simplemente no matchea.
+const perfilIndicadorSchema = grupoEvolucionSchema.extend({
+  situaciones: z.array(z.string()).optional(),
+  id: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+})
+
+// Dimensiones que hacen que un perfil NO sea vacío. Excluye `labels` (solo
+// presentación) e `id`: un perfil con solo `labels` y sin ninguna dimensión ni
+// `situaciones` produciría un indicador con condiciones vacías → match-all
+// espurio, por eso se descarta.
+const DIMENSIONES_INDICADOR = [
+  'siglas',
+  'carreras',
+  'puestos',
+  'especialidades',
+  'gruposEspecialidad',
+  'situaciones',
+] as const
+
+// Misma mecánica que `gruposEvolucion` (JSON string → array validado, error de
+// parseo → 400 vía ctx.addIssue) pero con predicado de vacío PROPIO que chequea
+// solo las dimensiones + situaciones (no `labels`/`id`) y tope de 8 indicadores.
+const indicadoresEvolucion = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    if (!v) return undefined
+    try {
+      const parsed = JSON.parse(v)
+      const arr = z.array(perfilIndicadorSchema).max(8).parse(parsed)
+      const noVacios = arr.filter((g) =>
+        DIMENSIONES_INDICADOR.some((k) => Array.isArray(g[k]) && g[k]!.length > 0),
+      )
+      return noVacios.length ? noVacios : undefined
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'indicadores: JSON inválido' })
+      return z.NEVER
+    }
+  })
+
 const filtrosEvolucionBase = {
   siglas: multiFiltro,
   carreras: multiFiltro,
   puestos: multiFiltro,
   especialidades: multiFiltro,
   gruposEspecialidad: multiFiltro,
+  situaciones: multiFiltro,
   grupos: gruposEvolucion,
+  indicadores: indicadoresEvolucion,
 }
 
 // Opciones facetadas: mismos filtros, sin jefatura obligatoria pero admitida.

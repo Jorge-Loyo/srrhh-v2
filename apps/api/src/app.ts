@@ -8,6 +8,7 @@ import { env } from './config/env.js'
 import { prisma } from './shared/prisma.js'
 import { errorHandler } from './shared/errors/error.handler.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
+import { perfilRoutes } from './modules/perfil/perfil.routes.js'
 import { auditLog } from './shared/middleware/audit.middleware.js'
 import { personasRoutes } from './modules/personas/personas.routes.js'
 import { cargosRoutes } from './modules/cargos/cargos.routes.js'
@@ -27,6 +28,7 @@ import { puestosCargoRoutes } from './modules/puestos-cargo/puestos-cargo.routes
 import { rolesRoutes } from './modules/roles/roles.routes.js'
 import { permisosRoutes } from './modules/permisos/permisos.routes.js'
 import { notificacionesRoutes } from './modules/notificaciones/notificaciones.routes.js'
+import { tareasRoutes } from './modules/tareas/tareas.routes.js'
 import { autorizacionesRoutes } from './modules/autorizaciones/autorizaciones.routes.js'
 import { solicitudesAltaRoutes } from './modules/solicitudes-alta/solicitudes-alta.routes.js'
 import { etiquetasRoutes } from './modules/etiquetas/etiquetas.routes.js'
@@ -106,6 +108,7 @@ app.get('/health/readiness', async (_req, reply) => {
 
 // Rutas
 await app.register(authRoutes, { prefix: '/api/v1/auth' })
+await app.register(perfilRoutes, { prefix: '/api/v1/perfil' })
 await app.register(personasRoutes, { prefix: '/api/v1/personas' })
 await app.register(cargosRoutes, { prefix: '/api/v1/cargos' })
 await app.register(padronRoutes, { prefix: '/api/v1/padron' })
@@ -124,6 +127,7 @@ await app.register(puestosCargoRoutes, { prefix: '/api/v1/puestos-cargo' })
 await app.register(rolesRoutes, { prefix: '/api/v1/roles' })
 await app.register(permisosRoutes, { prefix: '/api/v1/permisos' })
 await app.register(notificacionesRoutes, { prefix: '/api/v1/notificaciones' })
+await app.register(tareasRoutes,            { prefix: '/api/v1/tareas' })
 await app.register(autorizacionesRoutes,   { prefix: '/api/v1/autorizaciones' })
 await app.register(solicitudesAltaRoutes,  { prefix: '/api/v1/solicitudes-alta' })
 await app.register(etiquetasRoutes,        { prefix: '/api/v1/etiquetas' })

@@ -237,17 +237,21 @@ model UnidadFijaApayC {
   @@map("unidades_fijas_apayc")
 }
 
-// Resumen de evolución histórica de dotación por escalafón.
-// Una fila por (fecha, escalafon) — se inserta al aprobar cada snapshot
-// de padrón (padron.service.ts, aprobarSnapshotService). El escalafón
-// viene de cargo_id → escalafones.nombre (nombre canónico, no el texto
-// desnormalizado de padron_historico que tiene variantes históricas).
+// Resumen de evolución histórica de dotación por código de registro y
+// situación de revista. Una fila por (fecha, codigo_registro, situacion_revista)
+// más una fila reservada '(total)' de situacion_revista por carrera — se
+// inserta al aprobar cada snapshot de padrón (padron.service.ts). El código de
+// registro viene de cargo_id → codigos_registro.codigo (NULL → '(sin codigo)');
+// la situación de revista se normaliza a lower(unaccent(trim(...))). Las series
+// por situación NO son disjuntas: una persona cuenta en cada estado donde tiene
+// ocupación vigente, por eso el total se materializa aparte y NO es la suma.
 model KpisDotacionSnapshot {
-  fecha     DateTime @db.Date
-  escalafon String   @db.VarChar(100)
-  personas  Int
+  fecha            DateTime @db.Date
+  codigoRegistro   String   @map("codigo_registro") @db.VarChar(20)
+  situacionRevista String   @map("situacion_revista") @db.VarChar(50)
+  personas         Int
 
-  @@id([fecha, escalafon])
+  @@id([fecha, codigoRegistro, situacionRevista])
   @@index([fecha])
   @@map("kpis_dotacion_snapshot")
 }
@@ -1286,6 +1290,12 @@ model Usuario {
   id           String   @id @default(uuid()) @db.Uuid
   username     String   @unique @db.VarChar(64)
   email        String   @unique @db.VarChar(255)
+  // Clave de vinculación "de ahora en más" (login multi-identificador). Nullable
+  // hasta el backfill: hay usuarios existentes sin CUIL; el UNIQUE de Postgres
+  // admite múltiples NULL, así que el estado intermedio no rompe la restricción.
+  cuil         String?  @unique @db.VarChar(11)
+  nombre       String?  @db.VarChar(120)
+  apellido     String?  @db.VarChar(120)
   passwordHash String   @map("password_hash") @db.VarChar(255)
   roleId       String   @map("role_id") @db.Uuid
   hospitalId   String?  @map("hospital_id") @db.Uuid
@@ -1311,6 +1321,8 @@ model Usuario {
   sorteosJuradoGenerados    SorteoJurado[]        @relation("SorteoJuradoGeneradoPor")
   sorteosJuradoConfirmados  SorteoJurado[]        @relation("SorteoJuradoConfirmadoPor")
   organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
+  tareasRecibidas           TareaPendiente[]      @relation("TareaDestinatario")
+  tareasCreadas             TareaPendiente[]      @relation("TareaCreadaPor")
 
   @@map("usuarios")
 }
@@ -1753,6 +1765,30 @@ model Notificacion {
   @@index([tipo])
   @@index([creadaAt])
   @@map("notificaciones")
+}
+
+// Tarea pendiente dirigida a un usuario concreto (a diferencia de Notificacion,
+// que apunta a un rol). tipo/estado como string VarChar con union TS de contrato
+// en @srrhh/types. referenciaTipo/referenciaId siguen el patrón de Autorizacion.
+model TareaPendiente {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tipo                  String    @db.VarChar(50)
+  estado                String    @default("pendiente") @db.VarChar(20)
+  usuarioDestinatarioId String    @map("usuario_destinatario_id") @db.Uuid
+  referenciaTipo        String    @map("referencia_tipo") @db.VarChar(50)
+  referenciaId          String    @map("referencia_id") @db.Uuid
+  mensaje               String?   @db.Text
+  creadaPorId           String?   @map("creada_por_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resueltaAt            DateTime? @map("resuelta_at") @db.Timestamptz
+
+  destinatario Usuario  @relation("TareaDestinatario", fields: [usuarioDestinatarioId], references: [id])
+  creadaPor    Usuario? @relation("TareaCreadaPor", fields: [creadaPorId], references: [id])
+
+  @@index([usuarioDestinatarioId, estado])
+  @@index([referenciaTipo, referenciaId])
+  @@index([estado])
+  @@map("tareas_pendientes")
 }
 
 // =============================================================================

@@ -180,6 +180,7 @@ export function ConcursoCphWizard() {
         '—',
       escalafon: 'CPH',
       personaBaja: c?.persona?.apellidoNombre ?? '—',
+      dniBaja: c?.persona?.numeroDoc ?? '',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
       subEstado: cphData.subEstado ?? 'vacante',
@@ -918,6 +919,15 @@ export function ConcursoCphWizard() {
       // Por si el patch tocó personaDesignadaId (proponer candidato al INSAL).
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
     },
+    onError: (err: unknown) => {
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'No se pudo guardar'
+      toast.error(msg)
+    },
   })
 
   // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
@@ -940,9 +950,12 @@ export function ConcursoCphWizard() {
       setObsAutorizacion('')
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Error al resolver la autorización'
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'Error al resolver la autorización'
       toast.error(msg)
     },
   })
@@ -1014,9 +1027,15 @@ export function ConcursoCphWizard() {
   function handleGuardar() {
     if (etapaActiva === 'baja') {
       const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
+      // La comparación que decide "cambió / no cambió" es normalizada
+      // (trim + toLowerCase) para sigla/especialidad/puesto: un cambio de
+      // solo-capitalización ('Medico de Planta' vs 'medico de planta') NO
+      // cuenta como cambio y no dispara autorización. El valor que se muestra
+      // y se persiste conserva el texto que escribió el usuario.
+      const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
       const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
       // Sigla y escalafón: autorización doble (director → sgrasv)
-      if (siglaConcurso !== originales.sigla)
+      if (norm(siglaConcurso) !== norm(originales.sigla))
         cambiosConAutorizacion.push({
           campo: 'Sigla',
           de: originales.sigla,
@@ -1030,13 +1049,13 @@ export function ConcursoCphWizard() {
         })
       // Especialidad y puesto: autorización simple (solo sgrasv)
       const eeConcursoActual = cphData?.eeConcurso
-      if (especialidadConcurso !== originales.especialidad)
+      if (norm(especialidadConcurso) !== norm(originales.especialidad))
         cambiosConAutorizacion.push({
           campo: 'Especialidad',
           de: originales.especialidad,
           a: especialidadConcurso,
         })
-      if (puestoConcurso !== originales.puesto)
+      if (norm(puestoConcurso) !== norm(originales.puesto))
         cambiosConAutorizacion.push({
           campo: 'Puesto',
           de: originales.puesto,
@@ -1071,13 +1090,17 @@ export function ConcursoCphWizard() {
           }
         })
     }
-    // Incluir valores de SearchableSelect (no tienen data-key, viven en estado React)
+    // Incluir valores de SearchableSelect (no tienen data-key, viven en estado
+    // React). La comparación es normalizada (trim + toLowerCase): un cambio de
+    // solo-capitalización no viaja como cambio protegido; si cambió de verdad,
+    // se persiste el texto tal cual lo escribió el usuario.
     if (etapaActiva === 'baja') {
-      if (especialidadConcurso !== originales.especialidad) {
+      const normCmp = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+      if (normCmp(especialidadConcurso) !== normCmp(originales.especialidad)) {
         body.especialidadSolicitada = especialidadConcurso || null
         body.especialidadPuestoSolicitadaId = especialidadConcursoId
       }
-      if (puestoConcurso !== originales.puesto) {
+      if (normCmp(puestoConcurso) !== normCmp(originales.puesto)) {
         body.puestoSolicitado = puestoConcurso || null
         body.puestoCargoSolicitadoId = puestoConcursoId
       }
@@ -1146,15 +1169,62 @@ export function ConcursoCphWizard() {
 
   function confirmarCambios() {
     setModalCambios(null)
-    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado)
-    patchMutation.mutate({
-      sigla: siglaConcurso || null,
-      codigoRegistroId: crIdDeEscalafon(escalafonId),
-      especialidadSolicitada: especialidadConcurso || null,
-      especialidadPuestoSolicitadaId: especialidadConcursoId,
-    })
-    setGuardado(true)
-    setTimeout(() => setGuardado(false), 2500)
+    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado).
+    // Persistir los campos de la Etapa 1 para que el usuario no pierda lo
+    // cargado al salir y volver a entrar.
+    //
+    // BUG-FIX autorización doble: antes se mandaban SIEMPRE `sigla` y
+    // `codigoRegistroId`, aunque no hubieran cambiado. El backend
+    // (patchConcursoCphService) compara `body.sigla`/`body.codigoRegistroId`
+    // contra los valores del cargo y, si viajan y difieren, enruta al Director
+    // (requiereAutorizacionDoble). Peor: `codigoRegistroId` salía de
+    // `crIdDeEscalafon(escalafonId)`, que devuelve el PRIMER CR del escalafón
+    // ordenado por literal — y CPH tiene 2 CRs (22 y 37), así que ese id casi
+    // nunca coincide con el CR real del cargo → `cambiaCr` falso-positivo →
+    // Director indebido. Ahora `sigla` y `codigoRegistroId` solo viajan si de
+    // verdad cambiaron respecto de los originales (comparación de sigla
+    // normalizada trim+toLowerCase; carrera por `escalafonId`). Si el usuario
+    // solo tocó especialidad/puesto, no viajan y el backend cae en
+    // tieneCambioProtegido (solo SGRASV), no en autorización doble.
+    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+    const cambioSigla = norm(siglaConcurso) !== norm(originales.sigla)
+    const cambioCarrera = escalafonId !== originales.escalafonId
+    // Puesto: un cambio de solo-capitalización ('Medico de Planta' vs 'medico
+    // de planta') NO cuenta como cambio. Se compara normalizado (trim +
+    // toLowerCase); si solo difiere el casing, no se envía como cambio. El
+    // valor persistido conserva el texto que escribió el usuario.
+    const cambioPuesto =
+      norm(puestoConcurso) !== norm(originales.puesto) ||
+      puestoConcursoId !== (puestosDisponiblesCatalogo.find((p) => p.nombre === originales.puesto)?.id ?? null)
+    const cambioEspecialidad = norm(especialidadConcurso) !== norm(originales.especialidad)
+
+    const body: Record<string, unknown> = {
+      eeConcurso: eeConcursoInput || null,
+      ifAutorizacion: ifAutorizacionInput || null,
+    }
+    if (cambioSigla) body.sigla = siglaConcurso || null
+    if (cambioCarrera) body.codigoRegistroId = crIdDeEscalafon(escalafonId)
+    if (cambioEspecialidad) {
+      body.especialidadSolicitada = especialidadConcurso || null
+      body.especialidadPuestoSolicitadaId = especialidadConcursoId
+    }
+    if (cambioPuesto) {
+      body.puestoSolicitado = puestoConcurso || null
+      body.puestoCargoSolicitadoId = puestoConcursoId
+    }
+
+    patchMutation.mutate(
+      body,
+      {
+        onSuccess: () => {
+          toast.success(
+            'Enviado a autorización del Director. La nueva sigla/carrera se aplicarán cuando se apruebe.',
+          )
+        },
+        // El error se comunica vía el onError global de patchMutation; no duplicar
+        // el toast ni marcar guardado.
+      },
+    )
   }
 
   return (
@@ -2510,6 +2580,7 @@ export function ConcursoCphWizard() {
                 {c.personaBaja !== '—' && (
                   <span className="font-medium text-gray-700">{c.personaBaja}</span>
                 )}
+                {c.dniBaja && <span className="text-gray-500">DNI {c.dniBaja}</span>}
                 {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
                 {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
               </div>
@@ -5349,6 +5420,14 @@ export function ConcursoCphWizard() {
                   faltantesEtapa4.length === 0 && (
                     <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
                   )}
+                {pendienteAutorizacion && etapaActiva === 'baja' && (
+                  <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">
+                      Modificación pendiente de autorización del Director.
+                    </span>{' '}
+                    La nueva sigla/carrera se aplicarán cuando se apruebe.
+                  </div>
+                )}
                 {etapa.estado !== 'pendiente' &&
                   etapa.estado !== 'bloqueada' &&
                   etapa.estado !== 'completada' && (

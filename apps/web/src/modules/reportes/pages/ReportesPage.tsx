@@ -95,7 +95,7 @@ export function ReportesPage() {
                 Evolución por carrera y especialidad
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                Personas activas (situación de revista) por mes — último padrón de cada mes
+                Personas únicas por mes (total + desglose por situación de revista) — último padrón de cada mes
               </p>
               <EvolucionEspecialidadChart />
             </div>

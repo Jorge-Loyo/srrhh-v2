@@ -2,8 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { z } from 'zod'
-import { createUsuarioSchema } from './usuarios.schema.js'
-import { listUsuarios, createUsuario, setUsuarioActivo, changePassword } from './usuarios.service.js'
+import { createUsuarioSchema, updateUsuarioSchema } from './usuarios.schema.js'
+import {
+  listUsuarios,
+  createUsuario,
+  updateUsuario,
+  setUsuarioActivo,
+  changePassword,
+} from './usuarios.service.js'
 
 export async function usuariosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -36,5 +42,11 @@ export async function usuariosRoutes(app: FastifyInstance) {
     const { password } = z.object({ password: z.string().min(8) }).parse(request.body)
     await changePassword(request.params.id, password)
     return reply.send({ ok: true })
+  })
+
+  app.patch<{ Params: { id: string } }>('/:id', async (request, reply) => {
+    const body = updateUsuarioSchema.parse(request.body)
+    const usuario = await updateUsuario(request.params.id, body)
+    return reply.send({ data: usuario })
   })
 }

@@ -472,6 +472,12 @@ export interface Usuario {
   id: string
   username: string
   email: string
+  // Clave de vinculación del usuario ("de ahora en más"), inmutable para el
+  // propio usuario. Opcional/nullable: los usuarios viejos pueden no tenerlo
+  // hasta el backfill (CUIL provisorio con prefijo '00').
+  cuil?: string | null
+  nombre?: string | null
+  apellido?: string | null
   rol: string // display: role.nombre (editable por el admin — no usar para gating de UI)
   rolSlug: string // estable, usar esto para comparar en el frontend (ej. rolSlug === 'admin')
   roleId: string
@@ -647,7 +653,7 @@ export interface Autorizacion {
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
-  solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+  solicitadoPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
   resueltoPor?: Pick<Usuario, 'id' | 'username'> | null
 }
 
@@ -686,12 +692,42 @@ export interface RoleJerarquia {
   rolPadreSlug: string
 }
 
+// ─── Tareas pendientes ───────────────────────────────────────────────────────
+// Tarea de acción personal asignada a un usuario concreto (a diferencia de las
+// notificaciones, que van por rol). Union extensible: hoy solo el rechazo de
+// autorización de concurso genera tareas; se agregan tipos a medida que crecen
+// los flujos. `tipo`/`estado` viajan como string (VarChar en Postgres), con el
+// contrato tipado acá (mismo patrón que Notificacion.tipo).
+export type TipoTareaPendiente = 'rechazo_autorizacion_concurso'
+
+export type EstadoTareaPendiente = 'pendiente' | 'resuelta'
+
+export interface TareaPendiente {
+  id: string
+  tipo: TipoTareaPendiente
+  estado: EstadoTareaPendiente
+  usuarioDestinatarioId: string
+  referenciaTipo: string
+  referenciaId: string
+  mensaje: string | null
+  creadaPorId: string | null
+  createdAt: string
+  resueltaAt: string | null
+  // Relaciones expandidas (opcionales)
+  creadaPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
+  destinatario?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
+}
+
 // -----------------------------------------------------------------------------
 // DTOs — Requests
 // -----------------------------------------------------------------------------
 
 export interface LoginRequest {
-  username: string
+  // Login multi-identificador: el usuario ingresa email, CUIL o username; el
+  // backend resuelve cuál es automáticamente. `username` queda como alias
+  // legacy opcional (retrocompatibilidad con clientes viejos).
+  identificador: string
+  username?: string
   password: string
 }
 
@@ -719,9 +755,22 @@ export interface AprobarSnapshotRequest {
 export interface CreateUsuarioRequest {
   username: string
   email: string
+  nombre: string
+  apellido: string
+  cuil: string
   password: string
   roleId: string
   hospitalId?: string
+}
+
+export interface UpdateUsuarioRequest {
+  username?: string
+  email?: string
+  nombre?: string
+  apellido?: string
+  cuil?: string
+  roleId?: string
+  hospitalId?: string | null
 }
 
 // S4-6 — POST /api/v1/concursos. Carga manual por ahora (el disparador
@@ -883,13 +932,26 @@ export interface KpiConcursos {
   tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
 }
 
+// Situación de revista normalizada a lower(unaccent(trim(...))). El catálogo
+// está CERRADO a estos 3 valores; un 4º valor se conserva tal cual y se reporta
+// (de ahí el `| string`), nunca se fuerza a uno de los canónicos.
+export type SituacionRevista = 'activo' | 'comision' | 'retencion de cargo' | string
+
+// Orden canónico de las series por situación de revista en el front
+// ('(sin dato)' agrupa las ocupaciones sin situacion_revista).
+export const ORDEN_SITUACION_REVISTA = ['activo', 'comision', 'retencion de cargo', '(sin dato)'] as const
+
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
-  escalafones: string[] // nombres canónicos presentes en los datos
+  carreras: { codigo: string; literal: string }[] // códigos de registro presentes en los datos
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     fecha: string
-    total: number
-    porEscalafon: Record<string, number> // escalafon.nombre -> personas acumuladas
+    // codigo de registro -> { total, porSituacion }. OJO: `total` es un
+    // count(DISTINCT cuil) aparte y NO es la suma de porSituacion — las series
+    // por situación NO son disjuntas (una persona cuenta en cada estado donde
+    // tiene ocupación vigente).
+    porCarrera: Record<string, { total: number; porSituacion: Record<SituacionRevista, number> }>
   }[]
 }
 
@@ -900,6 +962,8 @@ export type FiltroJefatura = 'todos' | 'solo' | 'sin'
 // MAYÚSCULAS; el front las muestra con capitalización legible.
 export interface FiltrosDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón como antes. El front resuelve codigo→literal para mostrar.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
@@ -910,19 +974,39 @@ export interface FiltrosDotacionEvolucion {
   jefatura?: FiltroJefatura
   mesDesde?: string
   mesHasta?: string
+  // Situación de revista del perfil en edición (punto 2): acota QUÉ personas
+  // entran en la reconstrucción del estado acumulado. Multivaluado; vacío/ausente
+  // = todas.
+  situaciones?: SituacionRevista[]
   // Uniones (OR): cada grupo es un AND de dimensiones; los grupos se combinan
   // con OR. Las dimensiones sueltas de arriba actúan como "grupo en edición".
   grupos?: GrupoDotacionEvolucion[]
+  // Indicadores comparables (punto 3): cada uno es un perfil que se grafica como
+  // una línea independiente. Cuando viene, el backend devuelve N series en
+  // `KpiDotacionEvolucion.indicadores`.
+  indicadores?: PerfilIndicadorEvolucion[]
 }
 
 // Un grupo de la unión del gráfico de evolución (+ labels solo presentación).
 export interface GrupoDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón. El label de carrera se resuelve codigo→literal en el front.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
   gruposEspecialidad?: string[]
+  // Situación de revista del grupo/indicador (punto 2): se agrega una sola vez
+  // acá y el perfil de indicador la hereda. Vacío/ausente = todas.
+  situaciones?: SituacionRevista[]
   labels?: string[]
+}
+
+// Perfil de un indicador comparable (punto 3): reutiliza EXACTAMENTE las
+// dimensiones del grupo (incluida `situaciones?`) y agrega solo un `id` estable
+// que genera el front para identidad/color de la serie.
+export interface PerfilIndicadorEvolucion extends GrupoDotacionEvolucion {
+  id?: string
 }
 
 // GET /api/v1/kpis/dotacion-evolucion/opciones
@@ -930,7 +1014,7 @@ export interface GrupoDotacionEvolucion {
 // los filtros ya elegidos. Listas planas normalizadas.
 export interface KpiDotacionEvolucionOpciones {
   siglas: string[]
-  carreras: string[]
+  carreras: { codigo: string; literal: string }[]
   puestos: string[]
   especialidades: string[]
   // S25: grupos de especialidad disponibles dada la selección actual. Vacío si
@@ -951,9 +1035,34 @@ export interface KpiDotacionEvolucion {
   jefatura: FiltroJefatura
   mesDesde: string | null
   mesHasta: string | null
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     mes: string // 'YYYY-MM'
-    cantidad: number
+    // total = count(DISTINCT cuil) aparte; NO es la suma de porSituacion (series
+    // no disjuntas). activosYComisionados = personas en estado activo o comisión.
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
+  }[]
+  // Punto 3: presente cuando el request mandó `indicadores`. Cada elemento es
+  // una serie comparable independiente; el front la grafica como una línea. En
+  // ese modo `puntos`/`situaciones` de arriba vienen vacíos (el perfil "en
+  // edición" no se grafica cuando hay indicadores fijados).
+  indicadores?: SerieIndicadorEvolucion[]
+}
+
+// Una serie comparable (indicador) de la evolución: el perfil congelado por el
+// usuario, con su identidad/etiqueta y su reconstrucción mensual completa (el
+// front elige mostrar `total` por línea o el desglose por situación).
+export interface SerieIndicadorEvolucion {
+  id: string // id estable que mandó el front (identidad/color)
+  label: string // etiqueta legible del perfil
+  situaciones: SituacionRevista[] // situaciones presentes DENTRO de este indicador
+  puntos: {
+    mes: string // 'YYYY-MM'
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
   }[]
 }
 

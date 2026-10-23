@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
+import { AppError } from '../../shared/errors/AppError.js'
 import {
   concursosCphQuerySchema,
   patchConcursoCphSchema,
@@ -111,8 +112,10 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     '/:id',
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
+      const usuarioId = (request as any).user?.id as string | undefined
+      if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
       const body = patchConcursoCphSchema.parse(request.body)
-      const data = await patchConcursoCphService(request.params.id, body)
+      const data = await patchConcursoCphService(request.params.id, body, usuarioId)
       return reply.send({ data })
     },
   )

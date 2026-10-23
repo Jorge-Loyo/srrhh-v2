@@ -74,10 +74,15 @@ INSERT INTO _rp (slug, modulo, accion) VALUES
   ('supervision_de_concursos_4ff21d6','personas','ver'),
   ('supervision_de_concursos_4ff21d6','retenciones','crear'),
   ('supervision_de_concursos_4ff21d6','retenciones','ver'),
-  -- GOCDCPS (4)
+  -- GOCDCPS (3)
+  -- NO asignar 'autorizaciones','resolver_sgrasv' a GOCDCPS: la 2a firma del
+  -- flujo CPH (director -> sgrasv) resuelve el rol por permiso con
+  -- resolverSlugPorPermiso(tx,'autorizaciones','resolver_sgrasv'), que exige
+  -- EXACTAMENTE 1 rol resolutor. Si GOCDCPS tambien lo tiene hay 2 roles ->
+  -- 'ambiguo' -> AppError.conflict (409) -> rollback al aprobar. El negocio
+  -- decidio que el unico resolutor SGRASV es el rol SGRASV (sgrasv_5ac494e).
   ('dgocdcps_cd75a0c','autorizaciones','crear'),
   ('dgocdcps_cd75a0c','autorizaciones','resolver'),
-  ('dgocdcps_cd75a0c','autorizaciones','resolver_sgrasv'),
   ('dgocdcps_cd75a0c','bajas','ver'),
   -- GOCEETTEPS (2)
   ('goceetteps_f5e556a','bajas','ver'),
@@ -111,7 +116,7 @@ COMMIT;
 -- ── VERIFICACION ──
 -- Roles (deben estar los 11).
 SELECT slug, nombre FROM roles ORDER BY slug;
--- Permisos por rol nuevo (conteos esperados: sgrasv 22, supervision 17, gocdcps 4, goceetteps 2, jurado 0).
+-- Permisos por rol nuevo (conteos esperados: sgrasv 22, supervision 17, gocdcps 3, goceetteps 2, jurado 0).
 SELECT r.slug, count(rp.permiso_id) AS n_permisos
 FROM roles r LEFT JOIN role_permisos rp ON rp.role_id = r.id
 WHERE r.slug IN ('sgrasv_5ac494e','supervision_de_concursos_4ff21d6','dgocdcps_cd75a0c','goceetteps_f5e556a','jurado_cph_5d42d64')
