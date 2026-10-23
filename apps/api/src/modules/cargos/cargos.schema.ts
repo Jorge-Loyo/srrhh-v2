@@ -63,6 +63,16 @@ export const cargosQuerySchema = z.object({
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>
 
+// Export de /cargos (GET /api/v1/cargos/export): trae la totalidad de los
+// cargos (excluyendo solo borrados lógicos), SIN filtros de pantalla. Solo
+// acepta paginado para que `fetchAllPages` (pageSize 1000) pueda recorrer todo.
+export const cargosExportQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(1000).default(1000),
+})
+
+export type CargosExportQuery = z.infer<typeof cargosExportQuerySchema>
+
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 
 // S5-10: Alta de Cargo manual.
