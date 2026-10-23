@@ -13,6 +13,11 @@ export interface ReconciliarParams {
   literalPuesto: string | null | undefined
   especialidadLegacy: string | null | undefined
   codigoRegistroId: string | null | undefined
+  // Si el código de registro no se pudo derivar automáticamente, el call-site
+  // pasa la señal de revisión. Cuando llega, el cargo cubierto queda marcado
+  // para revisión por ESTA causa (CR no derivable) en vez de limpiarse; si no
+  // llega, se limpia la revisión (comportamiento histórico al cubrir vacante).
+  revisionCr?: { motivo: string } | null
 }
 
 /**
@@ -62,8 +67,11 @@ export async function reconciliarCargoConduccionVacante(
       codigoRegistroId: p.codigoRegistroId ?? null,
       estado: 'vigente',
       // Al cubrirse con una persona real, deja de ser vacante "fría" a revisar.
-      revisionDato: false,
-      revisionMotivo: null,
+      // PERO si el código de registro no se pudo derivar, el cargo queda a
+      // revisión por esa nueva causa en vez de limpiarse.
+      ...(p.revisionCr
+        ? { revisionDato: true, revisionMotivo: p.revisionCr.motivo }
+        : { revisionDato: false, revisionMotivo: null }),
     },
   })
 

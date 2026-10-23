@@ -24,6 +24,11 @@ import { decidirEspecialidad } from './padron.especialidad.helpers.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
+import {
+  derivarCodigoRegistroId,
+  MOTIVO_CR_NO_DERIVABLE,
+  type CrCatalogo,
+} from './derivarCodigoRegistro.js'
 import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
@@ -1867,6 +1872,32 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       )
     }
 
+    // ── 2c. Contexto para la derivación automática del código de registro ──
+    // Para decidir "cuántos CRs tiene el escalafón" hace falta el catálogo
+    // COMPLETO de CRs (no el filtrado al batch de codigoRegistroCache). La
+    // cardinalidad es chica (~16 filas), así que se carga una sola vez y se
+    // construyen los mapas que consume derivarCodigoRegistroId. Ver
+    // derivarCodigoRegistro.ts.
+    const crCatalogoCompleto = (await tx.codigoRegistro.findMany({
+      select: { id: true, codigo: true, escalafonId: true, escalafon: { select: { codigo: true } } },
+    })) as { id: string; codigo: string; escalafonId: string; escalafon: { codigo: string } }[]
+    const crCtxEscalafonCodigoPorId = new Map<string, string>()
+    const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
+    const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+    for (const row of crCatalogoCompleto) {
+      const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
+      crCtxCrPorCodigo.set(row.codigo, cr)
+      crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
+      const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
+      lista.push(cr)
+      crCtxCrsPorEscalafonId.set(row.escalafonId, lista)
+    }
+    const derivarCrCtx = {
+      escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
+      crsPorEscalafonId: crCtxCrsPorEscalafonId,
+      crPorCodigo: crCtxCrPorCodigo,
+    }
+
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
     const personasACrear = new Map<
       string,
@@ -1905,6 +1936,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         codigoRepa: string | null
         descripcionRepa: string | null
         agrupamiento: string | null
+        codigoRegistroId: string | null
+        revisionDato?: boolean
+        revisionMotivo?: string | null
       }
     >()
     // Set de idSialRol de altas 1:1 desdobladas: su persona SÍ se precarga/crea
@@ -1960,6 +1994,14 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // ese cargo en vez de crear uno nuevo. Helper compartido con los demás
         // flujos del padrón — ver reconciliarConduccion.ts.
         if (datos.id_sial) {
+          // Derivación automática del código de registro (cascada 1→4) para el
+          // cargo de conducción que se cubre. Si no es derivable, se marca para
+          // revisión en vez de dejarlo silenciosamente en NULL.
+          const decisionCrConduccion = derivarCodigoRegistroId(
+            escalafon.id,
+            datos.codigo_de_registro ?? null,
+            derivarCrCtx,
+          )
           const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
             codigoRepa: datos.codigo_repa,
             codigoJefaturas: datos.codigo_jefaturas,
@@ -1967,9 +2009,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             escalafonId: escalafon.id,
             literalPuesto: datos.literal_puesto,
             especialidadLegacy: datos.especialidad,
-            codigoRegistroId: datos.codigo_de_registro
-              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-              : null,
+            codigoRegistroId: decisionCrConduccion.codigoRegistroId,
+            revisionCr: decisionCrConduccion.revision ?? null,
           })
           if (cargoVinculado) {
             cargoCache.set(datos.id_sial, {
@@ -2047,6 +2088,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
         // de asignación de códigos más abajo.
+        // Derivación automática del código de registro (cascada 1→4). Estas
+        // filas nacen sin revisión previa, así que marcar revisión es aditivo.
+        const decisionCrA = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
@@ -2063,9 +2111,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
           agrupamiento: datos.agrupamiento || null,
-          codigoRegistroId: datos.codigo_de_registro
-            ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-            : null,
+          codigoRegistroId: decisionCrA.codigoRegistroId,
+          ...(decisionCrA.revision
+            ? { revisionDato: true, revisionMotivo: decisionCrA.revision.motivo }
+            : {}),
           _prefijo: prefijo,
         } as never)
       }
@@ -2203,6 +2252,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
         const codigo = await proximoCodigoDesdoblado(prefijo)
 
+        // Derivación automática del código de registro (cascada 1→4). El cargo
+        // desdoblado nace sin revisión previa: marcar revisión es aditivo.
+        const decisionCrDesd = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
         const cargoId = randomUUID()
         await tx.cargo.create({
           data: {
@@ -2222,9 +2278,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             codigoRepa: datos.codigo_repa || null,
             descripcionRepa: datos.descripcion_repa || null,
             agrupamiento: datos.agrupamiento || null,
-            codigoRegistroId: datos.codigo_de_registro
-              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-              : null,
+            codigoRegistroId: decisionCrDesd.codigoRegistroId,
+            ...(decisionCrDesd.revision
+              ? { revisionDato: true, revisionMotivo: decisionCrDesd.revision.motivo }
+              : {}),
           },
         })
 
