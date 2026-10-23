@@ -29,6 +29,7 @@ import {
   MOTIVO_CR_NO_DERIVABLE,
   type CrCatalogo,
 } from './derivarCodigoRegistro.js'
+import { derivarRegimenId } from './derivarRegimen.js'
 import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
@@ -1884,9 +1885,14 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const crCtxEscalafonCodigoPorId = new Map<string, string>()
     const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
     const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+    // id de CR -> su código string. Lo necesita la derivación de régimen, que
+    // recibe el id del CR resuelto y debe traducirlo al código (85/83/22/...)
+    // que consume derivarRegimen.
+    const crCtxCodigoPorId = new Map<string, string>()
     for (const row of crCatalogoCompleto) {
       const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
       crCtxCrPorCodigo.set(row.codigo, cr)
+      crCtxCodigoPorId.set(row.id, row.codigo)
       crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
       const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
       lista.push(cr)
@@ -1896,6 +1902,21 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
       crsPorEscalafonId: crCtxCrsPorEscalafonId,
       crPorCodigo: crCtxCrPorCodigo,
+    }
+    // Traduce el id del CR resuelto al código string que consume derivarRegimen.
+    const crCodigoDe = (id: string | null): string | null =>
+      id ? (crCtxCodigoPorId.get(id) ?? null) : null
+
+    // ── 2d. Contexto para la derivación automática del RÉGIMEN ──
+    // El régimen se deriva SIEMPRE después de resolver el CR. Se carga el
+    // catálogo `regimenes` una sola vez por transacción (cardinalidad chica,
+    // ~12 filas) y se arma el mapa nombre→{ id, nombre } que consume
+    // derivarRegimenId. Ver derivarRegimen.ts.
+    const regimenesCatalogo = await tx.regimen.findMany({
+      select: { id: true, nombre: true },
+    })
+    const regimenCtx = {
+      regimenPorNombre: new Map(regimenesCatalogo.map((r) => [r.nombre, r])),
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
@@ -1937,6 +1958,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         descripcionRepa: string | null
         agrupamiento: string | null
         codigoRegistroId: string | null
+        regimenId: string | null
         revisionDato?: boolean
         revisionMotivo?: string | null
       }
@@ -2002,6 +2024,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             datos.codigo_de_registro ?? null,
             derivarCrCtx,
           )
+          // Régimen derivado SIEMPRE después de resolver el CR.
+          const decisionRegC = derivarRegimenId(
+            crCodigoDe(decisionCrConduccion.codigoRegistroId),
+            datos.literal_puesto ?? null,
+            regimenCtx,
+          )
           const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
             codigoRepa: datos.codigo_repa,
             codigoJefaturas: datos.codigo_jefaturas,
@@ -2011,6 +2039,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             especialidadLegacy: datos.especialidad,
             codigoRegistroId: decisionCrConduccion.codigoRegistroId,
             revisionCr: decisionCrConduccion.revision ?? null,
+            regimenId: decisionRegC.regimenId,
+            revisionRegimen: decisionRegC.revision ?? null,
           })
           if (cargoVinculado) {
             cargoCache.set(datos.id_sial, {
@@ -2095,6 +2125,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           datos.codigo_de_registro ?? null,
           derivarCrCtx,
         )
+        // Régimen derivado SIEMPRE después de resolver el CR. La marca de
+        // revisión combina las causas de CR y de régimen (aditiva).
+        const decisionRegA = derivarRegimenId(
+          crCodigoDe(decisionCrA.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosA: string[] = []
+        if (decisionCrA.revision) motivosA.push(decisionCrA.revision.motivo)
+        if (decisionRegA.revision) motivosA.push(decisionRegA.revision.motivo)
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
@@ -2112,8 +2152,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           descripcionRepa: datos.descripcion_repa || null,
           agrupamiento: datos.agrupamiento || null,
           codigoRegistroId: decisionCrA.codigoRegistroId,
-          ...(decisionCrA.revision
-            ? { revisionDato: true, revisionMotivo: decisionCrA.revision.motivo }
+          regimenId: decisionRegA.regimenId,
+          ...(motivosA.length > 0
+            ? { revisionDato: true, revisionMotivo: motivosA.join(' | ').slice(0, 200) }
             : {}),
           _prefijo: prefijo,
         } as never)
@@ -2259,6 +2300,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           datos.codigo_de_registro ?? null,
           derivarCrCtx,
         )
+        // Régimen derivado SIEMPRE después de resolver el CR. Marca de revisión
+        // aditiva (CR + régimen).
+        const decisionRegDesd = derivarRegimenId(
+          crCodigoDe(decisionCrDesd.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosDesd: string[] = []
+        if (decisionCrDesd.revision) motivosDesd.push(decisionCrDesd.revision.motivo)
+        if (decisionRegDesd.revision) motivosDesd.push(decisionRegDesd.revision.motivo)
         const cargoId = randomUUID()
         await tx.cargo.create({
           data: {
@@ -2279,8 +2330,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             descripcionRepa: datos.descripcion_repa || null,
             agrupamiento: datos.agrupamiento || null,
             codigoRegistroId: decisionCrDesd.codigoRegistroId,
-            ...(decisionCrDesd.revision
-              ? { revisionDato: true, revisionMotivo: decisionCrDesd.revision.motivo }
+            regimenId: decisionRegDesd.regimenId,
+            ...(motivosDesd.length > 0
+              ? { revisionDato: true, revisionMotivo: motivosDesd.join(' | ').slice(0, 200) }
               : {}),
           },
         })
@@ -2559,6 +2611,34 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
 
+          // Régimen (FEAT-003): al cambiar el CR, el régimen se re-deriva
+          // SIEMPRE. crCambio.valorNuevo es ya el CÓDIGO string del CR nuevo.
+          // Se lee el literal del cargo de forma INCONDICIONAL (puede hacer
+          // falta aunque no haya reclasificación de carrera), y se prefiere el
+          // literal entrante del update si vino en este snapshot.
+          const crCodigoNuevo = crCambio.valorNuevo
+          const cargoLitU = (await tx.cargo.findUnique({
+            where: { id: ocupExistente.cargoId },
+            select: { literalPuesto: true },
+          })) as { literalPuesto: string | null } | null
+          const litEfectivo =
+            (updateCargo['literalPuesto'] as string | null) ?? cargoLitU?.literalPuesto ?? null
+          const decisionRegU = derivarRegimenId(crCodigoNuevo, litEfectivo, regimenCtx)
+          updateCargo['regimenId'] = decisionRegU.regimenId
+          if (decisionRegU.regimenId === null && decisionRegU.revision) {
+            // Marca de revisión ADITIVA: no pisa un motivo de CR ya seteado ni
+            // limpia una revisión preexistente; concatena con ' | ', truncado.
+            // revisionDato es boolean en el modelo; el Record es string|null,
+            // así que se escribe vía cast (Prisma acepta el boolean en runtime).
+            ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+            const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+            updateCargo['revisionMotivo'] = (
+              motivoPrevio
+                ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                : decisionRegU.revision.motivo
+            ).slice(0, 200)
+          }
+
           // RECLASIFICACIÓN DE CARRERA: el código de registro MANDA sobre la
           // carrera (escalafón). Si el nuevo cod. registro pertenece a un
           // escalafón distinto del que tiene el cargo, el cargo cambió de
@@ -2698,13 +2778,38 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (litNuevo) {
             const cargoActualP = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
-              select: { escalafonId: true, puestoCargoId: true, unificadorPuesto: true },
+              select: {
+                escalafonId: true,
+                puestoCargoId: true,
+                unificadorPuesto: true,
+                codigoRegistro: { select: { codigo: true } },
+              },
             })) as {
               escalafonId: string
               puestoCargoId: string | null
               unificadorPuesto: string | null
+              codigoRegistro: { codigo: string } | null
             } | null
             if (cargoActualP) {
+              // Régimen (FEAT-003): el régimen puede cambiar por el nuevo literal
+              // aunque el CR no cambie (ej. CR 85 que pasa de 'auxiliar de
+              // enfermeria' a otro literal). Se re-deriva y se setea FUERA de la
+              // guarda de reasignación de puesto. Marca de revisión aditiva.
+              const decisionRegU = derivarRegimenId(
+                cargoActualP.codigoRegistro?.codigo ?? null,
+                litNuevo,
+                regimenCtx,
+              )
+              updateCargo['regimenId'] = decisionRegU.regimenId
+              if (decisionRegU.regimenId === null && decisionRegU.revision) {
+                ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+                const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+                updateCargo['revisionMotivo'] = (
+                  motivoPrevio
+                    ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                    : decisionRegU.revision.motivo
+                ).slice(0, 200)
+              }
               const unif =
                 ((updateCargo['unificadorPuesto'] as string | null) ??
                   cargoActualP.unificadorPuesto) ||

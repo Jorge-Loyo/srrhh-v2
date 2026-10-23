@@ -19,6 +19,7 @@ import {
   derivarCodigoRegistroId,
   type CrCatalogo,
 } from '../modules/padron/derivarCodigoRegistro.js'
+import { derivarRegimenId } from '../modules/padron/derivarRegimen.js'
 
 // ── Mapeo régimen_empleo del organigrama → escalafón (código canónico) ──
 const REGIMEN_A_ESCALAFON: Record<string, string> = {
@@ -131,9 +132,11 @@ export async function derivarCargosConduccionService(
   const crCtxEscalafonCodigoPorId = new Map<string, string>()
   const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
   const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+  const crCtxCodigoPorId = new Map<string, string>()
   for (const row of crCatalogo) {
     const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
     crCtxCrPorCodigo.set(row.codigo, cr)
+    crCtxCodigoPorId.set(row.id, row.codigo)
     crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
     const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
     lista.push(cr)
@@ -143,6 +146,17 @@ export async function derivarCargosConduccionService(
     escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
     crsPorEscalafonId: crCtxCrsPorEscalafonId,
     crPorCodigo: crCtxCrPorCodigo,
+  }
+  // Traduce el id del CR resuelto al código string que consume derivarRegimen.
+  const crCodigoDe = (id: string | null): string | null =>
+    id ? (crCtxCodigoPorId.get(id) ?? null) : null
+
+  // Catálogo de regímenes para la derivación del régimen del cargo de
+  // conducción (se carga una vez; ver derivarRegimen.ts). El régimen se deriva
+  // SIEMPRE después de resolver el CR.
+  const regimenesCatalogo = await prisma.regimen.findMany({ select: { id: true, nombre: true } })
+  const regimenCtx = {
+    regimenPorNombre: new Map(regimenesCatalogo.map((r) => [r.nombre, r])),
   }
   const hospitales = await prisma.hospital.findMany()
   const hospitalPorSigla = new Map(hospitales.map((h) => [h.sigla, h]))
@@ -213,15 +227,23 @@ export async function derivarCargosConduccionService(
     // las reglas 2/3/4. Gerencial (escalafón '60', CR único '60') lo resuelve
     // la regla 2. Nodo sin CR derivable → NULL + revisión.
     const decisionCr = derivarCodigoRegistroId(escalafon.id, null, derivarCrCtx)
+    // Régimen derivado SIEMPRE después de resolver el CR (literal del nodo).
+    const decisionReg = derivarRegimenId(
+      crCodigoDe(decisionCr.codigoRegistroId),
+      tipoInfo.literal,
+      regimenCtx,
+    )
 
-    // La revisión "fría" (nodo sin personal activo) y la revisión por CR no
-    // derivable se COMBINAN: el cargo queda a revisión si aplica cualquiera, y
-    // el motivo une ambas causas sin perder ninguna.
+    // La revisión "fría" (nodo sin personal activo), la revisión por CR no
+    // derivable y la de régimen no derivable se COMBINAN: el cargo queda a
+    // revisión si aplica cualquiera, y el motivo une las causas sin perder
+    // ninguna.
     const frio = !nodo.tiene_personal_activo
     const motivos: string[] = []
     if (frio) motivos.push('Nodo del organigrama sin personal activo (vacante fría)')
     if (decisionCr.revision) motivos.push(decisionCr.revision.motivo)
-    const revisionDato = frio || !!decisionCr.revision
+    if (decisionReg.revision) motivos.push(decisionReg.revision.motivo)
+    const revisionDato = frio || !!decisionCr.revision || !!decisionReg.revision
     const revisionMotivo = motivos.length > 0 ? motivos.join(' | ') : null
 
     if (dryRun) {
@@ -246,6 +268,7 @@ export async function derivarCargosConduccionService(
           estado: 'vigente',
           origen: 'organigrama',
           codigoRegistroId: decisionCr.codigoRegistroId,
+          regimenId: decisionReg.regimenId,
           revisionDato,
           revisionMotivo,
           agrupador: jcat ? `jcat:${jcat}` : null,

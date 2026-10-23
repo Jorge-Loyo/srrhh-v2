@@ -18,6 +18,10 @@ export interface ReconciliarParams {
   // para revisión por ESTA causa (CR no derivable) en vez de limpiarse; si no
   // llega, se limpia la revisión (comportamiento histórico al cubrir vacante).
   revisionCr?: { motivo: string } | null
+  // Régimen derivado (FEAT-003). Se persiste en regimen_id; si no fue
+  // derivable, revisionRegimen trae el motivo y suma a la marca de revisión.
+  regimenId?: string | null
+  revisionRegimen?: { motivo: string } | null
 }
 
 /**
@@ -56,6 +60,15 @@ export async function reconciliarCargoConduccionVacante(
   })
   if (!cargoVacanteOrg) return null
 
+  // Al cubrirse con una persona real, deja de ser vacante "fría" a revisar.
+  // PERO si el CR o el régimen no se pudieron derivar, el cargo queda a revisión
+  // por esas causas (combinadas) en vez de limpiarse. Sólo se limpia la revisión
+  // cuando NO hay NINGUNA (ni CR ni régimen).
+  const motivos: string[] = []
+  if (p.revisionCr) motivos.push(p.revisionCr.motivo)
+  if (p.revisionRegimen) motivos.push(p.revisionRegimen.motivo)
+  const hayRevision = motivos.length > 0
+
   await tx.cargo.update({
     where: { id: cargoVacanteOrg.id },
     data: {
@@ -65,12 +78,10 @@ export async function reconciliarCargoConduccionVacante(
       literalPuesto: p.literalPuesto ?? null,
       especialidadLegacy: p.especialidadLegacy ?? null,
       codigoRegistroId: p.codigoRegistroId ?? null,
+      regimenId: p.regimenId ?? null,
       estado: 'vigente',
-      // Al cubrirse con una persona real, deja de ser vacante "fría" a revisar.
-      // PERO si el código de registro no se pudo derivar, el cargo queda a
-      // revisión por esa nueva causa en vez de limpiarse.
-      ...(p.revisionCr
-        ? { revisionDato: true, revisionMotivo: p.revisionCr.motivo }
+      ...(hayRevision
+        ? { revisionDato: true, revisionMotivo: motivos.join(' | ').slice(0, 200) }
         : { revisionDato: false, revisionMotivo: null }),
     },
   })

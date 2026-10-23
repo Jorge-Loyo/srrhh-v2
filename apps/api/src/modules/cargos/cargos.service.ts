@@ -244,9 +244,12 @@ export async function exportCargosService(query: CargosExportQuery) {
       include: {
         codigoRegistro: { select: { codigo: true } },
         puestoCargo: { select: { tipoPuesto: true } },
-        // Carrera/escalafón del cargo: su nombre largo alimenta la columna
-        // "Régimen" del export (ej. "Nueva Carrera Profesional Hospitalaria"),
-        // en vez del campo regimen crudo ("General").
+        // Régimen persistido del cargo (catálogo `regimenes`): fuente PRIMARIA
+        // de la columna "Régimen" del export (ej. "Nueva Carrera Profesional
+        // Hospitalaria"). Fallback al nombre del escalafón para cargos
+        // pre-backfill (regimenId NULL), y al campo regimen crudo como último
+        // recurso.
+        regimenRef: { select: { nombre: true } },
         escalafon: { select: { nombre: true } },
         // Especialidad del cargo (catálogo, con fallback al legacy del padrón).
         // El modelo Ocupacion NO tiene especialidad propia; la "especialidad del
@@ -294,9 +297,10 @@ export async function exportCargosService(query: CargosExportQuery) {
     return {
       codigo: c.codigo ?? '',
       codigoRegistro: c.codigoRegistro?.codigo ?? '',
-      // "Régimen" muestra la carrera/escalafón (nombre largo), no el campo
-      // regimen crudo. Fallback a regimen si el cargo no tiene escalafón.
-      regimen: c.escalafon?.nombre ?? c.regimen ?? '',
+      // "Régimen" muestra el régimen persistido (catálogo); fallback al nombre
+      // del escalafón para cargos pre-backfill, y al campo regimen crudo como
+      // último recurso.
+      regimen: c.regimenRef?.nombre ?? c.escalafon?.nombre ?? c.regimen ?? '',
       tipo: c.puestoCargo ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto) : '',
       estado: estadoLabel,
       // Situación del CARGO: Ocupado si tiene una ocupación vigente (hasta=null),
