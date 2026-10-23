@@ -244,10 +244,22 @@ export async function exportCargosService(query: CargosExportQuery) {
       include: {
         codigoRegistro: { select: { codigo: true } },
         puestoCargo: { select: { tipoPuesto: true } },
+        // Carrera/escalafón del cargo: su nombre largo alimenta la columna
+        // "Régimen" del export (ej. "Nueva Carrera Profesional Hospitalaria"),
+        // en vez del campo regimen crudo ("General").
+        escalafon: { select: { nombre: true } },
+        // Especialidad del cargo (catálogo, con fallback al legacy del padrón).
+        // El modelo Ocupacion NO tiene especialidad propia; la "especialidad del
+        // ocupante" es la del cargo que ocupa — se muestra solo si está ocupado.
+        especialidadPuesto: { select: { nombre: true } },
         // Ocupación vigente (si existe): CUIL y situación de revista del ocupante.
         ocupaciones: {
           where: { hasta: null },
-          select: { cuil: true, situacionRevista: true, persona: { select: { cuil: true } } },
+          select: {
+            cuil: true,
+            situacionRevista: true,
+            persona: { select: { cuil: true } },
+          },
           take: 1,
         },
         // Baja asociada más reciente: expediente (eeBaja) cuando el cargo no
@@ -282,7 +294,9 @@ export async function exportCargosService(query: CargosExportQuery) {
     return {
       codigo: c.codigo ?? '',
       codigoRegistro: c.codigoRegistro?.codigo ?? '',
-      regimen: c.regimen ?? '',
+      // "Régimen" muestra la carrera/escalafón (nombre largo), no el campo
+      // regimen crudo. Fallback a regimen si el cargo no tiene escalafón.
+      regimen: c.escalafon?.nombre ?? c.regimen ?? '',
       tipo: c.puestoCargo ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto) : '',
       estado: estadoLabel,
       // Situación del CARGO: el modelo no tiene un campo separado de `estado`,
@@ -291,6 +305,12 @@ export async function exportCargosService(query: CargosExportQuery) {
       literalPuesto: c.literalPuesto ?? '',
       cuilOExpediente,
       situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
+      // Especialidad del ocupante = especialidad del cargo que ocupa (catálogo,
+      // fallback al legacy del padrón). Solo si el cargo está ocupado; vacía
+      // si está vacante. El modelo Ocupacion no guarda especialidad propia.
+      especialidadOcupante: ocupacion
+        ? (c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? '')
+        : '',
     }
   })
 

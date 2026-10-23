@@ -217,7 +217,7 @@ export function CargosPage() {
         `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
         [
           { titulo: 'INFORMACIÓN DE CARGOS', span: 6 },
-          { titulo: 'INFORMACIÓN DE OCUPACIÓN DEL CARGO', span: 3 },
+          { titulo: 'INFORMACIÓN DE OCUPACIÓN DEL CARGO', span: 4 },
         ],
         [
           'Código de Cargo',
@@ -229,6 +229,7 @@ export function CargosPage() {
           'Literal Puesto',
           'CUIL / Expediente',
           'Situación de revista del ocupante',
+          'Especialidad del ocupante',
         ],
         cargos.map((c) => [
           c.codigo,
@@ -240,6 +241,7 @@ export function CargosPage() {
           c.literalPuesto,
           c.cuilOExpediente,
           c.situacionRevistaOcupante,
+          c.especialidadOcupante,
         ])
       )
     } catch {

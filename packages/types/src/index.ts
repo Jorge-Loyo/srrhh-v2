@@ -1159,6 +1159,7 @@ export interface CargoExportRow {
   literalPuesto: string
   cuilOExpediente: string
   situacionRevistaOcupante: string
+  especialidadOcupante: string
 }
 
 export interface ConcursoFilters {
