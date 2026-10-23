@@ -109,6 +109,8 @@ export interface DotacionFilters {
   // S21: catálogo del cargo (multi-select combinable, NO cascada forzada).
   escalafonId?: string[]
   modalidad?: 'pof' | 'pou' | 'ambos'
+  // Jefe/No jefe — dimensión propia del árbol del panel por hospital.
+  conduccion?: string[]
   puestoNombre?: string[]
   especialidadNombre?: string[]
   grupoEspecialidad?: string[]
@@ -141,7 +143,7 @@ export interface DotacionFilters {
 
 const CSV_KEYS: (keyof DotacionFilters)[] = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
-  'escalafonId', 'puestoNombre', 'especialidadNombre', 'grupoEspecialidad', 'codigoRegistroId',
+  'escalafonId', 'conduccion', 'puestoNombre', 'especialidadNombre', 'grupoEspecialidad', 'codigoRegistroId',
   'regimen', 'tipoOrigen', 'especialidadCph', 'provincia', 'localidad',
   'sexo', 'situacionRevista', 'reparticion',
   'areaProgramaticaId', 'cesacId', 'unidadFijaId',
@@ -231,8 +233,15 @@ export interface DotacionDesgloseRow {
 }
 
 export interface DotacionDesgloseResponse {
-  groupBy: DotacionGroupByKey
+  groupBy: string
   rows: DotacionDesgloseRow[]
+}
+
+async function fetchDotacionDesglose(groupBy: string, filters: DotacionFilters): Promise<DotacionDesgloseResponse> {
+  const res = await apiClient.get<DotacionDesgloseResponse>('/api/v1/dotacion/desglose', {
+    params: { ...toDotacionParams(filters), groupBy },
+  })
+  return res.data
 }
 
 // Panel "Fichas": conteo por valor de una dimensión, bajo los MISMOS filtros
@@ -242,13 +251,36 @@ export interface DotacionDesgloseResponse {
 export function useDotacionDesglose(groupBy: DotacionGroupByKey, filters: DotacionFilters, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['dotacion-desglose', groupBy, filters],
-    queryFn: async () => {
-      const res = await apiClient.get<DotacionDesgloseResponse>('/api/v1/dotacion/desglose', {
-        params: { ...toDotacionParams(filters), groupBy },
-      })
-      return res.data
-    },
+    queryFn: () => fetchDotacionDesglose(groupBy, filters),
     placeholderData: (prev) => prev,
+    enabled: options?.enabled,
+  })
+}
+
+// Tabla dinámica de una Carrera (panel por hospital > click en una carrera):
+// una sola consulta trae el cruce Planta/Guardia × Jefe/No jefe ×
+// Especialidad × Puesto × Situación de Revista — DotacionHospitalPanel.tsx
+// arma la tabla (decide qué niveles mostrar según cuáles de modalidad/
+// conduccion/especialidad tengan más de un valor distinto, y pivotea el
+// resto por situación), igual que hacía el HOME del sistema viejo.
+export interface DotacionCarreraTablaFila {
+  modalidad: string
+  conduccion: string
+  especialidad: string
+  puesto: string
+  situacion: string
+  total: number
+}
+
+export function useDotacionCarreraTabla(filters: DotacionFilters, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['dotacion-carrera-tabla', filters],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: DotacionCarreraTablaFila[] }>('/api/v1/dotacion/tabla-carrera', {
+        params: toDotacionParams(filters),
+      })
+      return res.data.data
+    },
     enabled: options?.enabled,
   })
 }

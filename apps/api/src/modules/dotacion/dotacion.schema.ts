@@ -96,6 +96,9 @@ export const dotacionQuerySchema = z.object({
   // de texto snapshot (unificadorPuesto/agrupador/literalPuesto/especialidad).
   escalafonId: csv(),
   modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
+  // Jefe/No jefe — ver condicionesDimensiones en el servicio. Dimensión
+  // propia del árbol de apertura del panel por hospital.
+  conduccion: csv(),
   puestoNombre: csv(),
   especialidadNombre: csv(),
   grupoEspecialidad: csv(),
@@ -159,6 +162,10 @@ export const DOTACION_GROUP_BY_COLUMNS = [
   'sigla', 'universoTotalizador', 'tipoHospital', 'monovalencia',
   'escalafon', 'literalPuesto', 'especialidad',
   'sexo', 'situacionRevista', 'reparticion',
+  // Planta/Guardia y Jefe/No jefe — usadas por el árbol de apertura del
+  // panel por hospital (DotacionHospitalTree.tsx), no por el panel "Fichas"
+  // genérico (no están en DOTACION_GROUP_BY_OPTIONS del frontend).
+  'modalidad', 'conduccion',
 ] as const
 
 export const dotacionDesgloseQuerySchema = dotacionQuerySchema
@@ -166,6 +173,16 @@ export const dotacionDesgloseQuerySchema = dotacionQuerySchema
   .extend({ groupBy: z.enum(DOTACION_GROUP_BY_COLUMNS) })
 
 export type DotacionDesgloseQuery = z.infer<typeof dotacionDesgloseQuerySchema>
+
+// Tabla completa de una Carrera (ver getDotacionCarreraTablaService): mismos
+// filtros que el listado (uniones incluidas), sin paginación/orden/
+// skipDistinct ni mesCorte — a diferencia de /desglose no hace falta `groupBy`
+// porque las columnas del cruce son fijas (modalidad/conducción/especialidad/
+// puesto/situación).
+export const dotacionCarreraTablaQuerySchema = dotacionQuerySchema
+  .omit({ page: true, limit: true, sortBy: true, sortDir: true, skipDistinct: true, mesCorte: true })
+
+export type DotacionCarreraTablaQuery = z.infer<typeof dotacionCarreraTablaQuerySchema>
 
 // Sentinel para "filtrar por valores sin cargar (NULL)" en una dimensión del
 // panel "Fichas" — el backend le muestra al usuario esos casos como ficha
