@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { EstadoCargo } from '@srrhh/types'
-import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
+import type { CargoExportRow, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
+import { downloadExcelConGrupos, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones, useCodigosRegistro, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import type { FiltrosCatalogoValores } from '@/shared/components/filtros/FiltrosCatalogo'
@@ -206,26 +206,41 @@ export function CargosPage() {
     setExportando(true)
     setExportError(false)
     try {
-      const { page: _page, limit: _limit, ...filtrosSinPaginado } = filters
-      const cargos = await fetchAllPages<Cargo>((p, l) =>
+      // Universo completo: pega al endpoint dedicado SIN pasar los filtros de
+      // pantalla (trae todos los cargos, excluyendo solo borrados lógicos).
+      const cargos = await fetchAllPages<CargoExportRow>((p, l) =>
         apiClient
-          .get<PaginatedResponse<Cargo>>('/api/v1/cargos', { params: { ...filtrosSinPaginado, page: p, limit: l } })
+          .get<PaginatedResponse<CargoExportRow>>('/api/v1/cargos/export', { params: { page: p, limit: l } })
           .then((r) => r.data)
       )
-      downloadExcel(
+      downloadExcelConGrupos(
         `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
-        cargos.map((c) => ({
-          'Código Cargo': c.codigo ?? '',
-          Puesto: capitalizar(c.literalPuesto),
-          Especialidad: capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? c.especialidad),
-          Agrupador: c.agrupador ?? '',
-          'Unificador de Puesto': c.unificadorPuesto ?? '',
-          Repartición: c.hospital?.sigla ?? '',
-          Carrera: c.escalafon?.nombre ?? '',
-          Régimen: c.regimen ?? '',
-          Estado: ESTADO_LABEL[c.estado],
-          Ocupación: c.ocupado ? 'Ocupado' : 'Vacante',
-        }))
+        [
+          { titulo: 'INFORMACIÓN DE CARGOS', span: 6 },
+          { titulo: 'INFORMACIÓN DE OCUPACIÓN DEL CARGO', span: 3 },
+        ],
+        [
+          'Código de Cargo',
+          'Código de Registro',
+          'Régimen',
+          'Tipo',
+          'Estado',
+          'Situación',
+          'Literal Puesto',
+          'CUIL / Expediente',
+          'Situación de revista del ocupante',
+        ],
+        cargos.map((c) => [
+          c.codigo,
+          c.codigoRegistro,
+          c.regimen,
+          c.tipo,
+          c.estado,
+          c.situacion,
+          c.literalPuesto,
+          c.cuilOExpediente,
+          c.situacionRevistaOcupante,
+        ])
       )
     } catch {
       setExportError(true)

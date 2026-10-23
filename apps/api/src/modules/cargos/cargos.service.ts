@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo } from './cargos.schema.js'
+import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo, CargosExportQuery } from './cargos.schema.js'
+import type { CargoExportRow } from '@srrhh/types'
 import { prefijoDeCargo, siguienteCodigoCargo, PREFIJOS_CONDUCCION } from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 
@@ -213,6 +214,87 @@ export async function listCargosService(query: CargosQuery) {
     })),
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   }
+}
+
+// ─── Export de /cargos: universo completo con las 9 columnas resueltas ──────
+// Trae la TOTALIDAD de los cargos SIN filtros de pantalla y SIN excluir
+// estados (vigentes, en concurso, de baja, vacantes). Única exclusión:
+// borrados lógicos (deletedAt != null) — el listado normal NO los filtra, pero
+// el export SÍ (criterio confirmado por el usuario). Endpoint dedicado para no
+// encarecer cada request del listado paginado con los joins extra.
+const ESTADO_LABEL_EXPORT: Record<string, string> = {
+  vigente: 'Vigente',
+  no_vigente: 'No vigente',
+  validacion_vacante: 'En validación',
+}
+
+const TIPO_PUESTO_LABEL: Record<string, string> = {
+  ejecucion: 'Ejecución',
+  conduccion: 'Conducción',
+}
+
+export async function exportCargosService(query: CargosExportQuery) {
+  const { page, limit } = query
+  const where: Prisma.CargoWhereInput = { deletedAt: null }
+
+  const [total, cargos] = await Promise.all([
+    prisma.cargo.count({ where }),
+    prisma.cargo.findMany({
+      where,
+      include: {
+        codigoRegistro: { select: { codigo: true } },
+        puestoCargo: { select: { tipoPuesto: true } },
+        // Ocupación vigente (si existe): CUIL y situación de revista del ocupante.
+        ocupaciones: {
+          where: { hasta: null },
+          select: { cuil: true, situacionRevista: true, persona: { select: { cuil: true } } },
+          take: 1,
+        },
+        // Baja asociada más reciente: expediente (eeBaja) cuando el cargo no
+        // está ocupado.
+        bajas: {
+          select: { eeBaja: true },
+          orderBy: [{ fechaBaja: 'desc' }, { createdAt: 'desc' }],
+          take: 1,
+        },
+      },
+      orderBy: { idSial: 'asc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ])
+
+  const data: CargoExportRow[] = cargos.map((c) => {
+    const ocupacion = c.ocupaciones[0] ?? null
+    const estadoLabel = ESTADO_LABEL_EXPORT[c.estado] ?? c.estado
+
+    // Col 8 — CUIL del ocupante / Expediente (condicional):
+    //  1) OCUPADO → CUIL del ocupante (fallback a persona.cuil)
+    //  2) no ocupado + baja con eeBaja → expediente de la baja
+    //  3) sin ocupante ni baja → '' (sin fallback a expediente de creación)
+    let cuilOExpediente = ''
+    if (ocupacion) {
+      cuilOExpediente = ocupacion.cuil ?? ocupacion.persona?.cuil ?? ''
+    } else {
+      cuilOExpediente = c.bajas[0]?.eeBaja ?? ''
+    }
+
+    return {
+      codigo: c.codigo ?? '',
+      codigoRegistro: c.codigoRegistro?.codigo ?? '',
+      regimen: c.regimen ?? '',
+      tipo: c.puestoCargo ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto) : '',
+      estado: estadoLabel,
+      // Situación del CARGO: el modelo no tiene un campo separado de `estado`,
+      // se refleja el mismo label (ver plan §1 col 6).
+      situacion: estadoLabel,
+      literalPuesto: c.literalPuesto ?? '',
+      cuilOExpediente,
+      situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
+    }
+  })
+
+  return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
 // ─── S3-5: detalle con ocupación actual e historial ────────────────────────

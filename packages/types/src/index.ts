@@ -1143,6 +1143,24 @@ export interface CargoFilters {
   limit?: number
 }
 
+// Export de /cargos: fila ya resuelta y FORMATEADA en el backend para el Excel
+// de dos niveles de encabezado (ver GET /api/v1/cargos/export y
+// downloadExcelConGrupos). Cada clave es una de las 9 columnas, como string
+// listo para volcar a la celda (sin más transformación en el front).
+export interface CargoExportRow {
+  // Grupo 1 — INFORMACIÓN DE CARGOS
+  codigo: string
+  codigoRegistro: string
+  regimen: string
+  tipo: string
+  estado: string
+  situacion: string
+  // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO
+  literalPuesto: string
+  cuilOExpediente: string
+  situacionRevistaOcupante: string
+}
+
 export interface ConcursoFilters {
   hospitalId?: string
   tipoConcurso?: TipoConcurso
