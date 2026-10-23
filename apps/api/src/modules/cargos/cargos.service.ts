@@ -299,9 +299,10 @@ export async function exportCargosService(query: CargosExportQuery) {
       regimen: c.escalafon?.nombre ?? c.regimen ?? '',
       tipo: c.puestoCargo ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto) : '',
       estado: estadoLabel,
-      // Situación del CARGO: el modelo no tiene un campo separado de `estado`,
-      // se refleja el mismo label (ver plan §1 col 6).
-      situacion: estadoLabel,
+      // Situación del CARGO: Ocupado si tiene una ocupación vigente (hasta=null),
+      // Vacante si no. Distinto del Estado (vigente/etc.) y de la situación de
+      // revista del ocupante (grupo 2).
+      situacion: ocupacion ? 'Ocupado' : 'Vacante',
       literalPuesto: c.literalPuesto ?? '',
       cuilOExpediente,
       situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
