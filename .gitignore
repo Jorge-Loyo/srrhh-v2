@@ -76,6 +76,12 @@ Doc/Referencias/*.pdf
 Doc/Referencias/*.xlsx
 Doc/Referencias/*.xls
 Doc/Referencias/*.csv
+# ...incluyendo subcarpetas (p.ej. Doc/Referencias/Concursos/ con los CSV de
+# origen y el .xlsx que genera scripts/etl_concursos_excel.mjs).
+Doc/Referencias/**/*.pdf
+Doc/Referencias/**/*.xlsx
+Doc/Referencias/**/*.xls
+Doc/Referencias/**/*.csv
 
 # Git worktrees locales (nunca se versionan dentro del repo)
 .worktrees/
