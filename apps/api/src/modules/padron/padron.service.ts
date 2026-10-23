@@ -4,6 +4,7 @@ import { Agent as HttpsAgent } from 'node:https'
 import FormData from 'form-data'
 import axios from 'axios'
 import { Prisma } from '@prisma/client'
+import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
@@ -78,6 +79,28 @@ interface HospitalRow {
 interface EscalafonRow {
   id: string
   nombre: string
+}
+
+// Busca un Escalafon activo por nombre, insensible a mayúsculas/tildes (regla
+// del proyecto, @srrhh/normalizacion — mismo criterio que ya usa
+// resolverPuestoCargo.ts para puesto/especialidad desde S21). Prisma no
+// soporta lower(unaccent()) nativo en el `where`, así que esto reemplaza el
+// `findFirst({ where: { nombre } })` exacto que, al no matchear el padrón
+// trayendo el nombre con otro casing, generaba catálogo duplicado (ver
+// scripts/fix_escalafones_duplicados_casing.sql — bug ya corregido en datos,
+// esto evita que vuelva a pasar).
+async function buscarEscalafonPorNombre(tx: PrismaTx, nombre: string): Promise<EscalafonRow | null> {
+  if (!nombre) return null
+  // Mismo criterio que normalizarTexto (minúscula + sin tilde + espacios
+  // colapsados + trim) pero en SQL, para no traer todo el catálogo acá.
+  const rows = await tx.$queryRaw<EscalafonRow[]>`
+    SELECT id, nombre FROM escalafones
+    WHERE activo = true
+      AND lower(unaccent(regexp_replace(trim(nombre), '\s+', ' ', 'g')))
+        = lower(unaccent(regexp_replace(trim(${nombre}), '\s+', ' ', 'g')))
+    LIMIT 1
+  `
+  return rows[0] ?? null
 }
 interface PersonaRow {
   id: string
@@ -1766,10 +1789,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         where: { codigo: { in: codigosRegNecesarios } },
         include: { escalafon: true },
       }) as Promise<{ codigo: string; id: string; escalafonId: string; escalafon: EscalafonRow }[]>,
-      // Fallback: buscar por nombre para códigos no mapeados
-      tx.escalafon.findMany({
-        where: { nombre: { in: escalafonesNecesarios }, activo: true },
-      }) as Promise<EscalafonRow[]>,
+      // Fallback: buscar por nombre para códigos no mapeados — trae TODOS los
+      // activos (cardinalidad chica, ~20 filas) en vez de filtrar por el `IN`
+      // de nombres crudos del padrón: ese filtro es exacto (case/tilde-
+      // sensitive) y si el padrón trae otro casing no matchea nada, aunque la
+      // fila ya exista (ver buscarEscalafonPorNombre / escalafonCache abajo,
+      // que sí comparan normalizado).
+      tx.escalafon.findMany({ where: { activo: true } }) as Promise<EscalafonRow[]>,
       tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
       tx.cargo.findMany({ where: { idSial: { in: idSialsNecesarios } } }) as Promise<CargoRow[]>,
       tx.ocupacion.findMany({
@@ -1779,8 +1805,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     ])
 
     const hospitalCache = new Map(hospitalesExistentes.map((h) => [h.sigla, h]))
+    // Clave normalizada (minúscula/sin tilde) — el padrón trae el nombre del
+    // escalafón con casing variable entre corridas; comparar normalizado evita
+    // crear un escalafón duplicado cuando el que ya existe difiere solo en eso
+    // (ver scripts/fix_escalafones_duplicados_casing.sql).
     const escalafonCache = new Map<string, EscalafonRow>(
-      escalafonesExistentes.map((e) => [e.nombre, e]),
+      escalafonesExistentes.map((e) => [normalizarTexto(e.nombre), e]),
     )
     const escalafonPorCodRegCache = new Map(
       codigosRegistroExistentesLookup.map((cr) => [
@@ -1816,17 +1846,20 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       hospitalCache.set(sigla, h)
     }
     for (const nombre of escalafonesNecesarios) {
-      if (escalafonCache.has(nombre)) continue
+      const clave = normalizarTexto(nombre)
+      if (escalafonCache.has(clave)) continue
       // Si ya está mapeado por código de registro no crear uno nuevo
-      const yaMapado = [...escalafonPorCodRegCache.values()].find((e) => e.nombre === nombre)
+      const yaMapado = [...escalafonPorCodRegCache.values()].find(
+        (e) => normalizarTexto(e.nombre) === clave,
+      )
       if (yaMapado) {
-        escalafonCache.set(nombre, yaMapado)
+        escalafonCache.set(clave, yaMapado)
         continue
       }
       const e = await tx.escalafon.create({
         data: { codigo: `${nombre.slice(0, 12)}-${randomUUID().slice(0, 7)}`, nombre },
       })
-      escalafonCache.set(nombre, e)
+      escalafonCache.set(clave, e)
     }
 
     // ── 2b. Resolver CodigoRegistro: lookup/create por código numérico ─────
@@ -1848,7 +1881,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       if (codigoRegistroCache.has(codigo)) continue
       const datosEjemplo = nuevos.find((n) => n.datos.codigo_de_registro === codigo)!.datos
       const escalafon =
-        escalafonPorCodRegCache.get(codigo) ?? escalafonCache.get(datosEjemplo.escalafon ?? '')
+        escalafonPorCodRegCache.get(codigo) ??
+        escalafonCache.get(normalizarTexto(datosEjemplo.escalafon ?? ''))
       if (!escalafon) {
         console.warn(
           `[padron] CODIGO DE REGISTRO "${codigo}" sin escalafón resuelto — fila omitida`,
@@ -1950,7 +1984,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const escalafon =
           (datos.codigo_de_registro
             ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
-            : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
+            : undefined) ?? escalafonCache.get(normalizarTexto(datos.escalafon ?? ''))
         if (!hospital || !escalafon) continue
 
         // S24-6: reconciliación con los cargos de conducción VACANTES generados
@@ -2042,6 +2076,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           agrupador: datos.agrupador ?? null,
           puestoCargo: puestoResuelto,
+          tieneEspecialidad: Boolean(especialidadResuelta),
         })
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
@@ -2171,7 +2206,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const escalafon =
           (datos.codigo_de_registro
             ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
-            : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
+            : undefined) ?? escalafonCache.get(normalizarTexto(datos.escalafon ?? ''))
         if (!persona || !hospital || !escalafon) {
           console.warn(
             `[padron][desdoblado] alta 1:1 omitida (id_sial_rol ${idSialRol}): falta ${!persona ? 'persona' : !hospital ? 'hospital' : 'escalafón'}`,
@@ -2198,6 +2233,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           agrupador: datos.agrupador ?? null,
           puestoCargo: puesto,
+          tieneEspecialidad: Boolean(especialidadPuestoId),
         })
         const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
         const codigo = await proximoCodigoDesdoblado(prefijo)
@@ -2552,6 +2588,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
                 unificadorPuesto: unifNuevo,
                 agrupador: null,
                 puestoCargo: puesto,
+                tieneEspecialidad: Boolean(espId),
               })
               const codigoNuevo = await siguienteCodigoCargo(prefijoNuevo, tx)
               updateCargo['escalafonId'] = escDestino.id
@@ -3431,9 +3468,7 @@ export async function aprobarDiffNuevoService(
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = (await tx.escalafon.findFirst({
-        where: { nombre: datos.escalafon, activo: true },
-      })) as EscalafonRow | null
+      escalafon = await buscarEscalafonPorNombre(tx, datos.escalafon)
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -3575,6 +3610,7 @@ export async function aprobarDiffNuevoService(
         unificadorPuesto: datos.unificador_de_puestos ?? null,
         agrupador: datos.agrupador ?? null,
         puestoCargo: puestoResuelto,
+        tieneEspecialidad: Boolean(especialidadResuelta),
       })
       const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`
@@ -3727,9 +3763,7 @@ export async function marcarTransferenciaService(
     escalafon = cr?.escalafon ?? null
   }
   if (!escalafon && datos.escalafon) {
-    escalafon = (await prisma.escalafon.findFirst({
-      where: { nombre: datos.escalafon, activo: true },
-    })) as EscalafonRow | null
+    escalafon = await buscarEscalafonPorNombre(prisma, datos.escalafon)
   }
   if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado (${datos.escalafon ?? ''})`)
 
@@ -3814,9 +3848,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = (await tx.escalafon.findFirst({
-        where: { nombre: datos.escalafon, activo: true },
-      })) as EscalafonRow | null
+      escalafon = await buscarEscalafonPorNombre(tx, datos.escalafon)
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -4062,10 +4094,7 @@ export async function buscarConcursosParaDiffService(
     escalafonId = cr?.escalafonId ?? null
   }
   if (!escalafonId && datos.escalafon) {
-    const esc = await prisma.escalafon.findFirst({
-      where: { nombre: datos.escalafon, activo: true },
-      select: { id: true },
-    })
+    const esc = await buscarEscalafonPorNombre(prisma, datos.escalafon)
     escalafonId = esc?.id ?? null
   }
 
