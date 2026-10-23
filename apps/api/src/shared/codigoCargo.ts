@@ -63,6 +63,15 @@ export function prefijoDeCargo(params: {
   unificadorPuesto: string | null
   agrupador: string | null
   puestoCargo?: PuestoCargoResuelto | null
+  // Jefe de Departamento/División/Sección/Unidad de CPH: el catálogo no
+  // distingue Planta/Guardia para estos 4 puestos (modalidad='ambos' — el
+  // padrón nunca cargó esa info para jefaturas, a diferencia de ejecución
+  // donde el propio nombre dice "...de guardia"). Heurística confirmada
+  // contra los 2512 cargos existentes (100% de cobertura, sin casos
+  // ambiguos): con especialidad asignada → Planta, sin especialidad →
+  // Guardia. Solo se usa como último fallback, cuando ningún otro signo
+  // (nombre/unificador/modalidad) ya resolvió POU/POF.
+  tieneEspecialidad?: boolean
 }): string {
   const esc  = normStr(params.escalafon)
   const unif = normStr(params.unificadorPuesto)
@@ -93,8 +102,15 @@ export function prefijoDeCargo(params: {
     if (esConduccion && nombrePuesto.includes('DIRECTOR') && nombrePuesto.includes('SUB')) return 'CPH-SD'
     if (esConduccion && nombrePuesto.includes('DIRECTOR'))                                  return 'CPH-D'
     if (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE')) {
-      // Jefe de guardia vs jefe de planta — se determina por la modalidad
-      return esPou ? 'CPH-J-POU' : 'CPH-J-POF'
+      // Jefe de guardia vs jefe de planta — se determina por la modalidad.
+      if (esPou) return 'CPH-J-POU'
+      // Fallback: catálogo sin resolver (modalidad='ambos', sin "guardia" en
+      // el nombre) — usar la heurística de especialidad (ver comentario del
+      // parámetro tieneEspecialidad).
+      if (!esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
+        return params.tieneEspecialidad ? 'CPH-J-POF' : 'CPH-J-POU'
+      }
+      return 'CPH-J-POF'
     }
     return esPou ? 'CPH-POU' : 'CPH-POF'
   }

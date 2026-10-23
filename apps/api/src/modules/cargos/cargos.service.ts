@@ -340,6 +340,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     unificadorPuesto: body.unificadorPuesto ?? null,
     agrupador: body.agrupador ?? null,
     puestoCargo,
+    tieneEspecialidad: Boolean(body.especialidadPuestoId),
   })
 
   const cargos = await prisma.$transaction(async (tx) => {
