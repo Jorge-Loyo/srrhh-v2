@@ -329,6 +329,23 @@ model CodigoRegistro {
   @@map("codigos_registro")
 }
 
+// Régimen: clasificación de grupos de cargos (concepto reutilizable en toda la
+// app: filtros, reportes, export). Catálogo modelado como tabla con FK desde
+// Cargo.regimenId (molde escalafones/codigos_registro).
+model Regimen {
+  id        String   @id @default(uuid()) @db.Uuid
+  nombre    String   @unique @db.VarChar(100)
+  orden     Int
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  cargos Cargo[]
+
+  @@map("regimenes")
+}
+
 // =============================================================================
 // ENTIDADES PRINCIPALES
 // =============================================================================
@@ -414,7 +431,12 @@ model Cargo {
   especialidadLegacy   String?     @map("especialidad_legacy") @db.VarChar(200)
   agrupador            String?     @db.VarChar(150)
   unificadorPuesto     String?     @map("unificador_puesto") @db.VarChar(200)
+  // Columna legacy (snapshot de texto del padrón); NO se toca. El concepto
+  // nuevo de régimen persistido vive en regimenId/regimenRef.
   regimen              String?     @db.VarChar(50)
+  // Régimen persistido (clasificación reutilizable). El campo de relación se
+  // llama regimenRef porque `regimen` ya está ocupado por el string legacy.
+  regimenId            String?     @map("regimen_id") @db.Uuid
   // S2-17: repartición y clasificaciones SIAL
   codigoRepa           String?     @map("codigo_repa") @db.VarChar(20)
   descripcionRepa      String?     @map("descripcion_repa") @db.VarChar(200)
@@ -480,6 +502,7 @@ model Cargo {
   codigoRegistro     CodigoRegistro?     @relation(fields: [codigoRegistroId], references: [id])
   puestoCargo        PuestoCargo         @relation(fields: [puestoCargoId], references: [id])
   especialidadPuesto EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
+  regimenRef         Regimen?            @relation(fields: [regimenId], references: [id])
   cesac              Cesac?              @relation(fields: [cesacId], references: [id])
   unidadFija         UnidadFijaApayC?    @relation(fields: [unidadFijaId], references: [id])
   createdBy          Usuario?            @relation("CargosCreados", fields: [createdById], references: [id])
@@ -505,6 +528,7 @@ model Cargo {
   @@index([cargoRetenidoId])
   @@index([puestoCargoId])
   @@index([especialidadPuestoId])
+  @@index([regimenId])
   @@index([cesacId])
   @@index([unidadFijaId])
   @@map("cargos")
