@@ -64,6 +64,21 @@ export const concursosCphQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  // Ordenamiento de la lista por fecha. `ordenarPor` elige la columna
+  // (fecha_ee_concurso = fecha del expediente de concurso, fecha_baja = fecha
+  // de la baja) y `orden` la dirección. DEFAULT: fecha_ee_concurso desc (más
+  // reciente primero). Los concursos SIN esa fecha (null) quedan al final
+  // (NULLS LAST) sin importar asc/desc — ver listConcursosCphService.
+  ordenarPor: z.enum(['fecha_ee_concurso', 'fecha_baja']).default('fecha_ee_concurso'),
+  orden: z.enum(['asc', 'desc']).default('desc'),
+  // Filtros de rango por fecha, independientes para cada una de las dos
+  // fechas (se combinan por AND). Todos opcionales: solo-desde filtra >=,
+  // solo-hasta filtra <=, ambos filtran el intervalo. Mismo validador de
+  // fecha YYYY-MM-DD que usan los demás campos de fecha del módulo.
+  fechaBajaDesde: fecha.optional(),
+  fechaBajaHasta: fecha.optional(),
+  fechaEeConcursoDesde: fecha.optional(),
+  fechaEeConcursoHasta: fecha.optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>

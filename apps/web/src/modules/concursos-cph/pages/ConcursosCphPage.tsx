@@ -197,6 +197,17 @@ function ConcursosListaTab() {
   const [puesto, setPuesto] = useState('')
   const [conduccion, setConduccion] = useState<'' | 'true' | 'false'>('')
   const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
+  // Ordenamiento por fecha. DEFAULT: fecha de expediente, descendente (más
+  // reciente primero), alineado con el default del backend.
+  const [ordenarPor, setOrdenarPor] = useState<'fecha_ee_concurso' | 'fecha_baja'>(
+    'fecha_ee_concurso',
+  )
+  const [orden, setOrden] = useState<'asc' | 'desc'>('desc')
+  // Rangos de fecha (YYYY-MM-DD), independientes: baja y expediente de concurso.
+  const [fechaBajaDesde, setFechaBajaDesde] = useState('')
+  const [fechaBajaHasta, setFechaBajaHasta] = useState('')
+  const [fechaEeConcursoDesde, setFechaEeConcursoDesde] = useState('')
+  const [fechaEeConcursoHasta, setFechaEeConcursoHasta] = useState('')
   const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
@@ -269,6 +280,12 @@ function ConcursosListaTab() {
     ...(conFaltantes && { conFaltantes: true }),
     ...(personaOm && { personaOm: personaOm === 'true' }),
     ...(validado && { validado: validado === 'true' }),
+    ordenarPor,
+    orden,
+    ...(fechaBajaDesde && { fechaBajaDesde }),
+    ...(fechaBajaHasta && { fechaBajaHasta }),
+    ...(fechaEeConcursoDesde && { fechaEeConcursoDesde }),
+    ...(fechaEeConcursoHasta && { fechaEeConcursoHasta }),
     ...(etiquetasFiltro.length && {
       etiquetaIds: etiquetasFiltro
         .map((nombre) => catalogoEtiquetas.find((e) => e.nombre === nombre)?.id)
@@ -506,10 +523,37 @@ function ConcursosListaTab() {
               {ESTADO_LABEL[e]}
             </button>
           ))}
+          {/* Ordenamiento por fecha: columna + dirección (default fecha de
+              expediente, más reciente primero). */}
+          <div className="flex items-center gap-2 ml-auto">
+            <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">
+              Ordenar por
+            </label>
+            <select
+              value={ordenarPor}
+              onChange={(e) =>
+                resetPage(setOrdenarPor)(e.target.value as 'fecha_ee_concurso' | 'fecha_baja')
+              }
+              aria-label="Ordenar por fecha"
+              className="h-8 px-2 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="fecha_ee_concurso">Fecha de expediente</option>
+              <option value="fecha_baja">Fecha de baja</option>
+            </select>
+            <select
+              value={orden}
+              onChange={(e) => resetPage(setOrden)(e.target.value as 'asc' | 'desc')}
+              aria-label="Dirección del orden"
+              className="h-8 px-2 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="desc">Más reciente primero</option>
+              <option value="asc">Más antiguo primero</option>
+            </select>
+          </div>
           <button
             type="button"
             onClick={() => setDrawerAvanzado(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-secondary hover:text-secondary transition-colors ml-auto"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-secondary hover:text-secondary transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -526,10 +570,25 @@ function ConcursosListaTab() {
               validado ||
               puesto ||
               conduccion ||
+              fechaBajaDesde ||
+              fechaBajaHasta ||
+              fechaEeConcursoDesde ||
+              fechaEeConcursoHasta ||
               etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {[subEstado, etapa !== '', origen, personaOm, validado, puesto, conduccion].filter(Boolean).length +
-                  (etiquetasFiltro.length > 0 ? 1 : 0)}
+                {[
+                  subEstado,
+                  etapa !== '',
+                  origen,
+                  personaOm,
+                  validado,
+                  puesto,
+                  conduccion,
+                  fechaBajaDesde,
+                  fechaBajaHasta,
+                  fechaEeConcursoDesde,
+                  fechaEeConcursoHasta,
+                ].filter(Boolean).length + (etiquetasFiltro.length > 0 ? 1 : 0)}
               </span>
             )}
           </button>
@@ -608,6 +667,22 @@ function ConcursosListaTab() {
               label: validado === 'true' ? 'Validados' : 'Sin validar',
               onClear: () => resetPage(setValidado)(''),
             })
+          if (fechaBajaDesde || fechaBajaHasta)
+            chips.push({
+              label: `Fecha de baja: ${fechaBajaDesde || '…'} → ${fechaBajaHasta || '…'}`,
+              onClear: () => {
+                resetPage(setFechaBajaDesde)('')
+                setFechaBajaHasta('')
+              },
+            })
+          if (fechaEeConcursoDesde || fechaEeConcursoHasta)
+            chips.push({
+              label: `Fecha de expediente: ${fechaEeConcursoDesde || '…'} → ${fechaEeConcursoHasta || '…'}`,
+              onClear: () => {
+                resetPage(setFechaEeConcursoDesde)('')
+                setFechaEeConcursoHasta('')
+              },
+            })
           if (etiquetasFiltro.length > 0)
             chips.push({
               label: `Etiquetas: ${etiquetasFiltro.join(', ')}`,
@@ -648,6 +723,10 @@ function ConcursosListaTab() {
                   setValidado('')
                   setPuesto('')
                   setConduccion('')
+                  setFechaBajaDesde('')
+                  setFechaBajaHasta('')
+                  setFechaEeConcursoDesde('')
+                  setFechaEeConcursoHasta('')
                   setEtiquetasFiltro([])
                   setPage(1)
                 }}
@@ -961,6 +1040,58 @@ function ConcursosListaTab() {
 
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Fecha de baja
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Desde</span>
+                    <input
+                      type="date"
+                      value={fechaBajaDesde}
+                      onChange={(e) => resetPage(setFechaBajaDesde)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Hasta</span>
+                    <input
+                      type="date"
+                      value={fechaBajaHasta}
+                      onChange={(e) => resetPage(setFechaBajaHasta)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Fecha de expediente de concurso
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Desde</span>
+                    <input
+                      type="date"
+                      value={fechaEeConcursoDesde}
+                      onChange={(e) => resetPage(setFechaEeConcursoDesde)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Hasta</span>
+                    <input
+                      type="date"
+                      value={fechaEeConcursoHasta}
+                      onChange={(e) => resetPage(setFechaEeConcursoHasta)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Tipo de cargo
                 </p>
                 <select
@@ -985,6 +1116,10 @@ function ConcursosListaTab() {
                 validado ||
                 puesto ||
                 conduccion ||
+                fechaBajaDesde ||
+                fechaBajaHasta ||
+                fechaEeConcursoDesde ||
+                fechaEeConcursoHasta ||
                 etiquetasFiltro.length > 0) && (
                 <button
                   onClick={() => {
@@ -995,6 +1130,10 @@ function ConcursosListaTab() {
                     resetPage(setValidado)('')
                     resetPage(setPuesto)('')
                     resetPage(setConduccion)('')
+                    resetPage(setFechaBajaDesde)('')
+                    setFechaBajaHasta('')
+                    resetPage(setFechaEeConcursoDesde)('')
+                    setFechaEeConcursoHasta('')
                     resetPage(setEtiquetasFiltro)([])
                   }}
                   className="flex-1 btn-outline text-danger border-danger hover:bg-danger/5"

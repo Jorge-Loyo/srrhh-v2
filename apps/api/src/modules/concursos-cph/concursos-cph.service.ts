@@ -113,6 +113,12 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     etiquetaIds,
     personaOm,
     validado,
+    ordenarPor,
+    orden,
+    fechaBajaDesde,
+    fechaBajaHasta,
+    fechaEeConcursoDesde,
+    fechaEeConcursoHasta,
   } = query
   const offset = (page - 1) * limit
 
@@ -273,6 +279,26 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     etapaWhere = { subEstado: { in: SUB_ESTADOS_POR_ETAPA[etapa as 2 | 3 | 4 | 5] } }
   }
 
+  // Filtros de rango por fecha (independientes y combinables por AND). Las
+  // columnas fecha_baja / fecha_ee_concurso son scalar en ConcursoCph, así que
+  // se expresan como condiciones gte/lte directas. El "hasta" se parsea con
+  // T23:59:59.999 para incluir el día completo (las fechas pueden venir con
+  // componente horario). Cada rango se arma solo si llegó al menos un extremo.
+  const rangoFechaBaja: Prisma.DateTimeNullableFilter | undefined =
+    fechaBajaDesde || fechaBajaHasta
+      ? {
+          ...(fechaBajaDesde && { gte: new Date(`${fechaBajaDesde}T00:00:00.000`) }),
+          ...(fechaBajaHasta && { lte: new Date(`${fechaBajaHasta}T23:59:59.999`) }),
+        }
+      : undefined
+  const rangoFechaEeConcurso: Prisma.DateTimeNullableFilter | undefined =
+    fechaEeConcursoDesde || fechaEeConcursoHasta
+      ? {
+          ...(fechaEeConcursoDesde && { gte: new Date(`${fechaEeConcursoDesde}T00:00:00.000`) }),
+          ...(fechaEeConcursoHasta && { lte: new Date(`${fechaEeConcursoHasta}T23:59:59.999`) }),
+        }
+      : undefined
+
   const where: Prisma.ConcursoCphWhereInput = {
     // etapaWhere se combina por AND para que su NOT (etapa 1) no colisione con
     // la clave OR de personaOm (ambos usarían claves de nivel superior).
@@ -307,15 +333,30 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     }),
     // Etapa 5 — validado contra el padrón.
     ...(validado !== undefined && { validado }),
+    // Rango por fecha de baja / fecha de expediente de concurso (opcionales,
+    // independientes; cada uno es una condición gte/lte sobre su columna).
+    ...(rangoFechaBaja && { fechaBaja: rangoFechaBaja }),
+    ...(rangoFechaEeConcurso && { fechaEeConcurso: rangoFechaEeConcurso }),
   }
+
+  // Orden dinámico por la fecha elegida (fecha_ee_concurso / fecha_baja) en la
+  // dirección pedida, con NULLS LAST: los concursos sin esa fecha quedan al
+  // final sin importar asc/desc. Prisma 5.22 soporta la forma
+  // `{ sort, nulls }`. Se agrega un desempate estable por createdAt desc
+  // (orden anterior) para que páginas con muchas fechas iguales/null no bailen.
+  const campoOrden: 'fechaEeConcurso' | 'fechaBaja' =
+    ordenarPor === 'fecha_baja' ? 'fechaBaja' : 'fechaEeConcurso'
+  const orderBy: Prisma.ConcursoCphOrderByWithRelationInput[] = [
+    { [campoOrden]: { sort: orden, nulls: 'last' } },
+    { createdAt: 'desc' },
+  ]
 
   const [total, data] = await Promise.all([
     prisma.concursoCph.count({ where }),
     prisma.concursoCph.findMany({
       where,
       include,
-      // Orden: por fecha de creación, más recientes primero.
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip: offset,
       take: limit,
     }),

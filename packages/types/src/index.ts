@@ -1199,6 +1199,15 @@ export interface ConcursoCphFilters {
   personaOm?: boolean
   // Etapa 5: concursos validados contra el padrón (flag validado).
   validado?: boolean
+  // Ordenamiento por fecha: columna + dirección. DEFAULT en el back es
+  // fecha_ee_concurso desc (más reciente primero), con NULLS LAST.
+  ordenarPor?: 'fecha_ee_concurso' | 'fecha_baja'
+  orden?: 'asc' | 'desc'
+  // Filtros de rango por fecha (YYYY-MM-DD), independientes y combinables.
+  fechaBajaDesde?: string
+  fechaBajaHasta?: string
+  fechaEeConcursoDesde?: string
+  fechaEeConcursoHasta?: string
 }
 
 // ─── Etapa 5 CPH: estado de designación / validación contra el padrón ────────
