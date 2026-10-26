@@ -506,11 +506,7 @@ async function calcularDiff(registros: RegistroPython[]) {
     // marcador __especialidad_puesto_id__ (para no generar ruido en filas sin
     // cambios de especialidad). Patrón análogo a __reabrir_ocupacion__.
     let reresuelveFkEspecialidad = false
-    const CAMPOS_RERESUELVEN_FK = new Set([
-      'especialidad',
-      'literal_puesto',
-      'codigo_de_registro',
-    ])
+    const CAMPOS_RERESUELVEN_FK = new Set(['especialidad', 'literal_puesto', 'codigo_de_registro'])
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
       // No comparar campos de ocupación si no hay ocupación vigente.
@@ -794,7 +790,9 @@ async function calcularDiff(registros: RegistroPython[]) {
           codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
           cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
           jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
-          documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
+          documentacion_jefatura: strVal(
+            r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura'],
+          ),
           comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
           documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
           comision: strVal(r['COMISION'] ?? r['comision']),
@@ -1027,11 +1025,13 @@ async function runPipeline(
     const result = await (async (): Promise<{ total: number; cols: string[] }> => {
       const deadline = Date.now() + JOB_POLL_TIMEOUT_MS
       while (Date.now() < deadline) {
-        let job: { status: string; result: { total: number; cols: string[] } | null; error: string | null }
+        let job: {
+          status: string
+          result: { total: number; cols: string[] } | null
+          error: string | null
+        }
         try {
-          ;({ data: job } = await conReintentoRed(() =>
-            python.get<typeof job>(`/job/${job_id}`),
-          ))
+          ;({ data: job } = await conReintentoRed(() => python.get<typeof job>(`/job/${job_id}`)))
         } catch (e) {
           if (axios.isAxiosError(e) && e.response?.status === 404)
             throw new Error('El job del Dotaneitor expiró o no existe')
@@ -1380,9 +1380,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       // escalafon vienen en valorAnterior y la clasificación usa estado_cargo.
       if (parsed.desdoblado === true) {
         const clasificacionEliminado =
-          d.campo === 'baja_previa'
-            ? clasificacionEliminadoDesdoblado(parsed.estado_cargo)
-            : null
+          d.campo === 'baja_previa' ? clasificacionEliminadoDesdoblado(parsed.estado_cargo) : null
         return {
           ...d,
           apellidoNombre,
@@ -1476,9 +1474,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         }
       })()
       // Desdoblado 24/07: clasificar por estado_cargo (id_sial es NULL).
-      const estado = parsed.desdoblado
-        ? parsed.estado_cargo
-        : estadoMap.get(parsed.id_sial)
+      const estado = parsed.desdoblado ? parsed.estado_cargo : estadoMap.get(parsed.id_sial)
       if (estado === 'validacion_vacante') eliminadosEnValidacion++
       else eliminadosSinPersona++
     }
@@ -1880,7 +1876,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // construyen los mapas que consume derivarCodigoRegistroId. Ver
     // derivarCodigoRegistro.ts.
     const crCatalogoCompleto = (await tx.codigoRegistro.findMany({
-      select: { id: true, codigo: true, escalafonId: true, escalafon: { select: { codigo: true } } },
+      select: {
+        id: true,
+        codigo: true,
+        escalafonId: true,
+        escalafon: { select: { codigo: true } },
+      },
     })) as { id: string; codigo: string; escalafonId: string; escalafon: { codigo: string } }[]
     const crCtxEscalafonCodigoPorId = new Map<string, string>()
     const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
@@ -2471,16 +2472,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         .filter((c) => c.codigoRegistro?.codigo === '24' || c.codigoRegistro?.codigo === '07')
         .map((c) => c.id),
     )
-    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } =
-      particionarValidacionPorIdSial(
-        cargosEnValidacion.map((c) => ({
-          id: c.id,
-          idSial: c.idSial,
-          es24y07: es24y07Set.has(c.id),
-        })),
-        idSialsNuevos,
-        es24y07Set,
-      )
+    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } = particionarValidacionPorIdSial(
+      cargosEnValidacion.map((c) => ({
+        id: c.id,
+        idSial: c.idSial,
+        es24y07: es24y07Set.has(c.id),
+      })),
+      idSialsNuevos,
+      es24y07Set,
+    )
 
     for (const lote of chunk(aRechazarBaja, 2000)) {
       await tx.cargo.updateMany({
@@ -2589,7 +2589,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       // (marcador __especialidad_puesto_id__). null si la fila no lo trae
       // (sin cambio de especialidad/puesto/carrera, o snapshot viejo) -> el
       // helper cae al fallback por texto (comportamiento actual).
-      const idDotaEsp = cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
+      const idDotaEsp =
+        cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
         // Si cambió el código de registro, resolver el id de la relación
         // (normaliza el prefijo 'completado:' igual que el resto, DECISIÓN 1)
@@ -3875,7 +3876,7 @@ export async function aprobarDiffNuevoService(
 
     // Marcar diff como aprobado
     await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: true } })
-  })
+  }, TRANSACTION_OPTS) // timeout largo: aprobar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }
@@ -4119,7 +4120,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     }
 
     await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: false } })
-  })
+  }, TRANSACTION_OPTS) // timeout largo: rechazar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }
