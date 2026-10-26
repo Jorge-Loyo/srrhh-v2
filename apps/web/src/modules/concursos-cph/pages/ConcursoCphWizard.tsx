@@ -134,9 +134,31 @@ export function ConcursoCphWizard() {
   const escalafonesOrdenados = [...escalafones].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es'),
   )
-  // Helper: dado un escalafonId, devuelve el primer codigoRegistroId asociado
-  const crIdDeEscalafon = (escId: string) =>
-    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null
+  // Helper: dado un escalafonId, devuelve un codigoRegistroId DETERMINÍSTICO
+  // del escalafón. FIX A (informe diag-bug1-persiste): antes se usaba
+  // `codigosRegistro.find(...)`, que devuelve el PRIMER CR según el orden del
+  // array — arbitrario. Cuando un escalafón tiene 2 CRs con el mismo literal
+  // (CPH: CR 22 y CR 37), ese orden elegía uno al azar y disparaba el falso
+  // "cambio de carrera". Ahora se elige por una regla estable: el CR de menor
+  // `codigo` (comparado numérico si aplica, si no alfabético), y como desempate
+  // el menor `id`. Esto solo se usa cuando la carrera REALMENTE cambió de
+  // escalafón; el backend compara por escalafón, así que cualquier CR válido de
+  // ese escalafón representa la misma carrera.
+  const crIdDeEscalafon = (escId: string) => {
+    const delEsc = codigosRegistro.filter((cr) => cr.escalafonId === escId)
+    if (delEsc.length === 0) return null
+    const ordenados = [...delEsc].sort((a, b) => {
+      const ca = a.codigo ?? ''
+      const cb = b.codigo ?? ''
+      const na = Number(ca)
+      const nb = Number(cb)
+      if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb
+      const byCodigo = ca.localeCompare(cb, 'es')
+      if (byCodigo !== 0) return byCodigo
+      return a.id.localeCompare(b.id)
+    })
+    return ordenados[0].id
+  }
   const escalafonCph = escalafones.find(
     (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
   )
@@ -796,6 +818,22 @@ export function ConcursoCphWizard() {
     especialidad: '',
   }
   const [originales, setOriginales] = useState(originalesRef)
+  // FIX A.2 (informe diag-bug1-persiste): fuente de verdad INMUTABLE de los
+  // valores originales de SIGLA y ESCALAFÓN, poblada UNA sola vez cuando llega
+  // cphData y NO re-pisada por refetches de codigosRegistro. La comparación de
+  // "cambió sigla/carrera" en confirmarCambios usa este ref, no el estado
+  // `originales` (que puede quedar desalineado en un re-render intermedio y
+  // producía el falso-positivo que enrutaba al Director). `inicializado=false`
+  // mientras no haya cargado ⇒ no se evalúan cambios ni se envían
+  // sigla/codigoRegistroId.
+  const originalesSiglaCarreraRef = useRef<{
+    inicializado: boolean
+    sigla: string
+    escalafonId: string
+  }>({ inicializado: false, sigla: '', escalafonId: '' })
+  // Guarda para "cargar una sola vez" los campos del cargo desde cphData, sin
+  // que un refetch de codigosRegistro los re-pise (FIX A.3).
+  const cargaInicialHechaRef = useRef<string | null>(null)
   const { data: especialidadesDisponiblesCatalogo = [] } = useEspecialidadesPuesto(
     escalafonId || undefined,
     puestoConcurso || undefined,
@@ -848,6 +886,15 @@ export function ConcursoCphWizard() {
     }
   }, [especialidadesDisponibles])
 
+  // FIX A.3 (informe diag-bug1-persiste): CARGAR UNA SOLA VEZ los campos del
+  // cargo desde cphData. Antes este efecto dependía también de
+  // `codigosRegistro`, así que cada refetch de ese catálogo re-pisaba
+  // siglaConcurso/escalafonId/originales — una ventana de re-render en la que
+  // `originales` podía quedar a medio cargar mientras el estado vivo ya estaba
+  // poblado, lo que producía el falso "cambió sigla/carrera". Ahora el efecto
+  // depende SOLO de cphData y se guarda con `cargaInicialHechaRef` por id del
+  // concurso. La resolución de fallback por CR (cuando el cargo no trae
+  // escalafonId propio) vive en un efecto aparte dep [codigosRegistro].
   useEffect(() => {
     if (!cphData) return
     type CargoCph = {
@@ -859,25 +906,16 @@ export function ConcursoCphWizard() {
       especialidadLegacy?: string
     }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const cphId = cphData.id
+    // Si ya se inicializó para ESTE concurso, no re-pisar (evita que un
+    // re-render por otra dependencia resetee lo que el usuario está editando).
+    if (cargaInicialHechaRef.current === cphId) return
+
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // El cargo ya trae escalafonId propio (FK real) — se usa directo. Antes
-    // esto se re-derivaba SOLO a través de cargo.codigoRegistro, que puede
-    // ser null (cargos sin codigoRegistroId vinculado, ej. altas más viejas o
-    // datos legacy) y dejaba escalafonId vacío en silencio, rompiendo los
-    // combos de puesto/especialidad de todo el wizard. Se deja el fallback
-    // por codigoRegistro por compatibilidad, pero ya no es la vía principal.
-    let resolvedEscalafonId = cargo?.escalafonId ?? ''
-    if (!resolvedEscalafonId) {
-      const crId = cargo?.codigoRegistro?.id ?? ''
-      const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-      if (crId && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.id === crId)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      } else if (crLiteral && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.literal === crLiteral)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      }
-    }
+    // El cargo ya trae escalafonId propio (FK real) — se usa directo. El
+    // fallback por codigoRegistro (cuando escalafonId viene vacío) se resuelve
+    // en el efecto separado dep [codigosRegistro] más abajo.
+    const resolvedEscalafonId = cargo?.escalafonId ?? ''
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
     setIfAutorizacionInput(cphData.ifAutorizacion ?? '')
@@ -895,6 +933,45 @@ export function ConcursoCphWizard() {
       puesto: rawPuesto,
       especialidad: rawEspecialidad,
     })
+    // Fuente de verdad inmutable para sigla/carrera (FIX A.2). Si el cargo trae
+    // escalafonId propio, ya queda inicializado; si no, se completa en el
+    // efecto de fallback por CR. Solo se marca `inicializado` cuando hay un
+    // escalafonId resuelto, para no evaluar cambios contra un ref vacío.
+    originalesSiglaCarreraRef.current = {
+      inicializado: resolvedEscalafonId !== '',
+      sigla: cargo?.hospital?.sigla ?? '',
+      escalafonId: resolvedEscalafonId,
+    }
+    cargaInicialHechaRef.current = cphId
+  }, [cphData])
+
+  // FIX A.3: resolución de FALLBACK del escalafón por codigoRegistro, separada
+  // del "cargar una vez". Solo corre si el escalafón aún no se resolvió (cargo
+  // sin escalafonId propio, datos legacy) y ya llegó el catálogo de CRs. No
+  // re-pisa nada si el escalafón ya está puesto.
+  useEffect(() => {
+    if (!cphData) return
+    if (originalesSiglaCarreraRef.current.inicializado) return
+    if (codigosRegistro.length === 0) return
+    type CargoCph = { codigoRegistro?: { id?: string; literal?: string } }
+    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const crId = cargo?.codigoRegistro?.id ?? ''
+    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+    let resolved = ''
+    if (crId) {
+      resolved = codigosRegistro.find((c) => c.id === crId)?.escalafonId ?? ''
+    }
+    if (!resolved && crLiteral) {
+      resolved = codigosRegistro.find((c) => c.literal === crLiteral)?.escalafonId ?? ''
+    }
+    if (!resolved) return
+    setEscalafonId(resolved)
+    setOriginales((prev) => ({ ...prev, escalafonId: resolved }))
+    originalesSiglaCarreraRef.current = {
+      inicializado: true,
+      sigla: originalesSiglaCarreraRef.current.sigla,
+      escalafonId: resolved,
+    }
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
   const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })
@@ -1032,19 +1109,29 @@ export function ConcursoCphWizard() {
       // solo-capitalización ('Medico de Planta' vs 'medico de planta') NO
       // cuenta como cambio y no dispara autorización. El valor que se muestra
       // y se persiste conserva el texto que escribió el usuario.
-      const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+      // FIX D: normalización robusta (acentos/espacios/invisibles).
+      const norm = (s: string | null | undefined) =>
+        (s ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase()
       const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
-      // Sigla y escalafón: autorización doble (director → sgrasv)
-      if (norm(siglaConcurso) !== norm(originales.sigla))
+      // Sigla y escalafón: autorización doble (director → sgrasv). FIX A.2: se
+      // comparan contra el ref inmutable y solo si ya está inicializado, para
+      // no abrir el modal por un falso-positivo de timing.
+      const origRef = originalesSiglaCarreraRef.current
+      if (origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla))
         cambiosConAutorizacion.push({
           campo: 'Sigla',
-          de: originales.sigla,
+          de: origRef.sigla,
           a: siglaConcurso,
         })
-      if (escalafonId !== originales.escalafonId)
+      if (origRef.inicializado && escalafonId !== origRef.escalafonId)
         cambiosConAutorizacion.push({
           campo: 'Carrera',
-          de: escalafonLabel(labelEsc(originales.escalafonId)),
+          de: escalafonLabel(labelEsc(origRef.escalafonId)),
           a: escalafonLabel(labelEsc(escalafonId)),
         })
       // Especialidad y puesto: autorización simple (solo sgrasv)
@@ -1186,9 +1273,25 @@ export function ConcursoCphWizard() {
     // normalizada trim+toLowerCase; carrera por `escalafonId`). Si el usuario
     // solo tocó especialidad/puesto, no viajan y el backend cae en
     // tieneCambioProtegido (solo SGRASV), no en autorización doble.
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
-    const cambioSigla = norm(siglaConcurso) !== norm(originales.sigla)
-    const cambioCarrera = escalafonId !== originales.escalafonId
+    // FIX D: normalización robusta (acentos/espacios internos/invisibles fuera)
+    // para que diferencias solo de formato no cuenten como cambio.
+    const norm = (s: string | null | undefined) =>
+      (s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    // FIX A.2: la comparación de sigla/carrera usa el ref INMUTABLE poblado una
+    // vez desde cphData, no el estado `originales` (que podía quedar a medio
+    // cargar en un re-render y disparar el falso "cambio"). Si el ref aún no se
+    // inicializó (escalafón sin resolver), NO evaluamos ni enviamos
+    // sigla/codigoRegistroId — así un guardado prematuro nunca arrastra esos
+    // campos al PATCH.
+    const origRef = originalesSiglaCarreraRef.current
+    const cambioSigla = origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla)
+    // Carrera por ESCALAFÓN (identidad estable), no por id de CR.
+    const cambioCarrera = origRef.inicializado && escalafonId !== origRef.escalafonId
     // Puesto: un cambio de solo-capitalización ('Medico de Planta' vs 'medico
     // de planta') NO cuenta como cambio. Se compara normalizado (trim +
     // toLowerCase); si solo difiere el casing, no se envía como cambio. El
@@ -1203,7 +1306,16 @@ export function ConcursoCphWizard() {
       ifAutorizacion: ifAutorizacionInput || null,
     }
     if (cambioSigla) body.sigla = siglaConcurso || null
-    if (cambioCarrera) body.codigoRegistroId = crIdDeEscalafon(escalafonId)
+    // FIX A.1: NO mandar un CR arbitrario. `codigoRegistroId` solo viaja cuando
+    // el ESCALAFÓN realmente cambió, y se deriva de forma DETERMINÍSTICA del
+    // nuevo escalafón (crIdDeEscalafon elige por regla estable, no por orden de
+    // array). El backend compara por escalafón, así que cualquier CR válido de
+    // ese escalafón representa la misma carrera; mientras la carrera no cambie,
+    // este campo nunca se envía y el guardado cae en el flujo sin Director.
+    if (cambioCarrera) {
+      const crNuevo = crIdDeEscalafon(escalafonId)
+      if (crNuevo) body.codigoRegistroId = crNuevo
+    }
     if (cambioEspecialidad) {
       body.especialidadSolicitada = especialidadConcurso || null
       body.especialidadPuestoSolicitadaId = especialidadConcursoId

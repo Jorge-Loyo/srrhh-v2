@@ -382,27 +382,53 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   // Detectar cambio de sigla o código de registro (campos que requieren autorización doble: director → sgrasv)
   const cargo = (
     existing.concurso as unknown as {
-      cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } }
+      cargo?: {
+        escalafonId?: string
+        hospital?: { sigla?: string }
+        codigoRegistro?: { id?: string; escalafonId?: string }
+      }
     }
   )?.cargo
   const siglaActual = cargo?.hospital?.sigla ?? ''
-  const crIdActual = cargo?.codigoRegistro?.id ?? ''
-  // Comparación de sigla normalizada (trim + case-insensitive): 'HGAT' vs
-  // 'hgat' o ' HGAT ' NO cuenta como cambio y no debe enrutar al Director.
+  // Escalafón real del cargo = identidad ESTABLE de la carrera. Se prefiere el
+  // escalafón del CR del cargo y, si no hay CR, se cae al escalafonId del
+  // propio cargo (ambos apuntan al mismo escalafón para un cargo consistente).
+  const escalafonActual = cargo?.codigoRegistro?.escalafonId ?? cargo?.escalafonId ?? ''
+  // Comparación de sigla normalizada (acentos/espacios/invisibles fuera): 'HGAT'
+  // vs 'hgat' o ' HGAT ' NO cuenta como cambio y no debe enrutar al Director.
   // Un cambio real de sigla (otro hospital) sí difiere normalizado → sigue
   // disparando autorización doble, como corresponde.
-  const normSigla = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+  const normSigla = (s: string | null | undefined) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
   const cambiaSigla = body.sigla !== undefined && normSigla(body.sigla) !== normSigla(siglaActual)
-  // CR: se compara el id enviado contra el id del CR real del cargo. OJO: esta
-  // comparación solo es fiable si el cliente envía el id del CR del cargo
-  // (cargo.codigoRegistro.id) cuando NO cambió la carrera. El frontend ya no
-  // envía `codigoRegistroId` salvo que la carrera cambie de verdad (ver
-  // confirmarCambios en ConcursoCphWizard.tsx). Si otro cliente derivara el id
-  // de una fuente distinta — p. ej. "el primer CR del escalafón" cuando CPH
-  // tiene 2 CRs (22 y 37) — esta igualdad daría falso-positivo aunque la
-  // carrera no haya cambiado; por eso el fix principal vive en el front (no
-  // enviar el campo si no cambió) y esto es solo la red de seguridad.
-  const cambiaCr = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
+  // CARRERA por ESCALAFÓN, no por id de CR (FIX B del informe diag-bug1-persiste):
+  // el escalafón CPH tiene DOS codigos_registro con literal IDÉNTICO (CR 22 y
+  // CR 37). Comparar `body.codigoRegistroId !== crIdActual` marcaba cambio de
+  // carrera al mandar CR 22 vs CR 37 aunque sean la MISMA carrera (mismo
+  // escalafón). Ahora se resuelve el escalafón del CR enviado (lookup en
+  // codigos_registro) y solo cuenta como cambio si cambia el ESCALAFÓN. Un
+  // cambio real de carrera (otro escalafón) sí difiere → sigue enrutando a
+  // Director, como corresponde.
+  let cambiaCr = false
+  if (body.codigoRegistroId !== undefined) {
+    if (!body.codigoRegistroId) {
+      // Se pidió desvincular el CR explícitamente (null): cuenta como cambio
+      // solo si había un escalafón de carrera definido.
+      cambiaCr = escalafonActual !== ''
+    } else {
+      const crEnviado = await prisma.codigoRegistro.findUnique({
+        where: { id: body.codigoRegistroId },
+        select: { escalafonId: true },
+      })
+      const escalafonEnviado = crEnviado?.escalafonId ?? ''
+      cambiaCr = escalafonEnviado !== escalafonActual
+    }
+  }
   const requiereAutorizacionDoble = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
 
   // Detectar cambios que requieren solo autorización de SGRASV (sin director)
@@ -460,6 +486,19 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     patch.fechaEeConcurso = new Date()
   }
 
+  // FIX C (informe diag-bug1-persiste): cuando el PATCH NO trae cambio
+  // estructural real de sigla/carrera, hay que borrar los restos de un disparo
+  // falso viejo (sigla_solicitada / codigo_registro_solicitado_id pegados por
+  // el bug del CR arbitrario) y resetear aprobadoDirector. Sin esto el concurso
+  // seguía mostrando el "cambio" falso y quedaba congelado esperando al
+  // Director. NUNCA se llama cuando requiereAutorizacionDoble es true (cambio
+  // real de sigla/escalafón), para no romper el flujo legítimo Director→SGRASV.
+  const limpiarRestosSolicitado = () => {
+    patch.siglaSolicitada = null
+    patch.codigoRegistroSolicitado = { disconnect: true }
+    patch.aprobadoDirector = false
+  }
+
   if (requiereAutorizacionDoble) {
     patch.pendienteAutorizacion = true
     patch.siglaSolicitada = body.sigla ?? null
@@ -470,6 +509,13 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     }
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     patch.pendienteAutorizacion = true
+    limpiarRestosSolicitado()
+  } else if (!body.pendienteAutorizacion) {
+    // Guardado normal sin autorización: limpia restos de un disparo falso
+    // viejo para destrabar el estado congelado. Se excluye el caso en que el
+    // cliente mantiene explícitamente pendienteAutorizacion=true (no pisar un
+    // flujo de autorización legítimo en curso).
+    limpiarRestosSolicitado()
   }
 
   // puestoCargoSolicitadoId / especialidadPuestoSolicitadaId son relaciones
