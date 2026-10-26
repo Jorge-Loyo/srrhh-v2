@@ -12,6 +12,17 @@ export const concursosCphQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   hospitalId: z.string().uuid().optional(),
+  // Filtro multi-sigla (efector) — CSV de ids de hospital. Replica el patrón
+  // de `etiquetaIds` (CSV→array) con validación uuid por elemento. Prioridad:
+  // si viene `hospitalIds` (array no vacío) gana y se filtra con IN; si no, se
+  // usa `hospitalId` single (compatibilidad con links/bookmarks viejos).
+  hospitalIds: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((v) => v.split(',').filter(Boolean))
+    .pipe(z.array(z.string().uuid()))
+    .optional(),
   cargoId: z.string().uuid().optional(),
   estado: z.nativeEnum(EstadoConcursoCph).optional(),
   subEstado: z.string().trim().min(1).optional(),

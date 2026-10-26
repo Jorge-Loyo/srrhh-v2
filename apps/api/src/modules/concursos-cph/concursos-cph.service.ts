@@ -97,6 +97,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     page,
     limit,
     hospitalId,
+    hospitalIds,
     cargoId,
     estado,
     subEstado,
@@ -303,7 +304,9 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     // etapaWhere se combina por AND para que su NOT (etapa 1) no colisione con
     // la clave OR de personaOm (ambos usarían claves de nivel superior).
     ...(etapa !== undefined && { AND: [etapaWhere] }),
-    ...(hospitalId && { hospitalId }),
+    // Filtro por efector: si viene multi-sigla (hospitalIds) se filtra con IN
+    // (OR entre efectores); si no, se usa el hospitalId single (compatibilidad).
+    ...(hospitalIds?.length ? { hospitalId: { in: hospitalIds } } : hospitalId ? { hospitalId } : {}),
     ...(cargoId && { cargoId }),
     ...estadoWhere,
     ...(subEstado && { subEstado }),

@@ -190,7 +190,8 @@ export function ConcursosCphPage() {
 function ConcursosListaTab() {
   const [search, setSearch] = useState('')
   const [especialidad, setEspecialidad] = useState('')
-  const [hospitalId, setHospitalId] = useState('')
+  // Filtro multi-sigla (efector): ids de hospital seleccionados. [] = todas.
+  const [hospitalIds, setHospitalIds] = useState<string[]>([])
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
   // Filtro por ETAPA (1..5 del stepper), reemplaza al viejo filtro por
@@ -282,7 +283,7 @@ function ConcursosListaTab() {
     ...(especialidadDebounced && { especialidad: especialidadDebounced }),
     ...(puestoDebounced && { puesto: puestoDebounced }),
     ...(conduccion && { conduccion: conduccion === 'true' }),
-    ...(hospitalId && { hospitalId }),
+    ...(hospitalIds.length && { hospitalIds: hospitalIds.join(',') }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(etapa !== '' && { etapa }),
@@ -528,17 +529,20 @@ function ConcursosListaTab() {
             onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
-          <SearchableSelect
-            value={hospitalId}
-            onChange={resetPage(setHospitalId)}
-            options={hospitales?.map((h) => hospitalLabel(h)) ?? []}
-            placeholder="Todas las siglas"
+          {/* Multi-sigla: varios efectores a la vez (OR/IN). El value guarda
+              ids de hospital; formatOption muestra "SIGLA — Nombre". Sin
+              selección muestra "Todas las siglas"; con selección el propio
+              componente agrega el conteo ("Todas las siglas (3)"). */}
+          <MultiSelectDropdown
+            label="Todas las siglas"
+            value={hospitalIds}
+            options={hospitales?.map((h) => h.id) ?? []}
+            onChange={resetPage(setHospitalIds)}
             className="min-w-[220px]"
-            valueToDisplay={(id) => {
+            formatOption={(id) => {
               const h = hospitales?.find((x) => x.id === id)
-              return h ? hospitalLabel(h) : ''
+              return h ? hospitalLabel(h) : id
             }}
-            displayToValue={(label) => hospitales?.find((h) => hospitalLabel(h) === label)?.id ?? ''}
           />
         </div>
 
@@ -658,13 +662,14 @@ function ConcursosListaTab() {
               label: conduccion === 'true' ? 'Cargo de conducción' : 'Cargo de ejecución',
               onClear: () => resetPage(setConduccion)(''),
             })
-          if (hospitalId) {
-            const h = hospitales?.find((x) => x.id === hospitalId)
+          // Un chip por sigla seleccionada; se puede quitar individualmente.
+          hospitalIds.forEach((id) => {
+            const h = hospitales?.find((x) => x.id === id)
             chips.push({
-              label: `Sigla: ${h ? hospitalLabel(h) : hospitalId}`,
-              onClear: () => resetPage(setHospitalId)(''),
+              label: `Sigla: ${h ? hospitalLabel(h) : id}`,
+              onClear: () => resetPage(setHospitalIds)(hospitalIds.filter((x) => x !== id)),
             })
-          }
+          })
           if (estado)
             chips.push({
               label: `Estado: ${ESTADO_LABEL[estado]}`,
@@ -752,7 +757,7 @@ function ConcursosListaTab() {
                 onClick={() => {
                   setSearch('')
                   setEspecialidad('')
-                  setHospitalId('')
+                  setHospitalIds([])
                   setEstado('')
                   setSubEstado('')
                   setEtapa('')

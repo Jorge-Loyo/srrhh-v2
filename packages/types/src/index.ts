@@ -1177,6 +1177,10 @@ export interface ConcursoCphFilters {
   page?: number
   limit?: number
   hospitalId?: string
+  // CSV de ids de hospital (efector) — filtro multi-sigla; un concurso matchea
+  // si pertenece a alguno de los efectores pedidos (IN/OR). Tiene prioridad
+  // sobre hospitalId single en el back.
+  hospitalIds?: string
   estado?: EstadoConcursoCph
   subEstado?: string
   subEstado3?: string
