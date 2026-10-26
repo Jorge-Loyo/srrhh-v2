@@ -3,8 +3,14 @@ import { Link } from 'react-router-dom'
 import { EstadoConcursoCph } from '@srrhh/types'
 import type { ConcursoCph, ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales } from '@/shared/hooks/useCatalogos'
+import {
+  useHospitales,
+  useEscalafones,
+  usePuestosCargoNormalizados,
+  useEspecialidadesDePuestoId,
+} from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
@@ -195,6 +201,10 @@ function ConcursosListaTab() {
   const [personaOm, setPersonaOm] = useState<'' | 'true' | 'false'>('')
   const [validado, setValidado] = useState<'' | 'true' | 'false'>('')
   const [puesto, setPuesto] = useState('')
+  // Id del puesto elegido en el catálogo. Estado SOLO-UI: habilita y alimenta
+  // la especialidad dependiente (useEspecialidadesDePuestoId). NO viaja al
+  // backend — el back sigue filtrando por `puesto` (nombre string).
+  const [puestoCargoId, setPuestoCargoId] = useState('')
   const [conduccion, setConduccion] = useState<'' | 'true' | 'false'>('')
   const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
   // Ordenamiento por fecha. DEFAULT: fecha de expediente, descendente (más
@@ -296,6 +306,20 @@ function ConcursosListaTab() {
 
   const { data, isLoading, isFetching, isError } = useConcursosCph(filters)
   const { data: hospitales } = useHospitales()
+
+  // Catálogo de puestos CPH para el autocompletar del filtro "Puesto".
+  // Se acota al escalafón CPH (igual que el wizard y FiltrosCatalogo): sin
+  // escalafonId el hook no trae nada (query enabled: !!escalafonId).
+  const { data: escalafones = [] } = useEscalafones(true)
+  const escalafonCphId = escalafones.find(
+    (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
+  )?.id
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonCphId || undefined)
+  // Especialidades del puesto EXACTO por id (preferido en filtros: evita el bug
+  // de puestos homónimos). Alimenta el combo de Especialidad dependiente.
+  const { data: especialidadesPuesto = [] } = useEspecialidadesDePuestoId(
+    puestoCargoId || undefined,
+  )
 
   function resetPage<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -612,7 +636,11 @@ function ConcursosListaTab() {
           if (puestoDebounced)
             chips.push({
               label: `Puesto: "${puestoDebounced}"`,
-              onClear: () => setPuesto(''),
+              onClear: () => {
+                setPuesto('')
+                setPuestoCargoId('')
+                setEspecialidad('')
+              },
             })
           if (conduccion)
             chips.push({
@@ -722,6 +750,7 @@ function ConcursosListaTab() {
                   setPersonaOm('')
                   setValidado('')
                   setPuesto('')
+                  setPuestoCargoId('')
                   setConduccion('')
                   setFechaBajaDesde('')
                   setFechaBajaHasta('')
@@ -1029,12 +1058,71 @@ function ConcursosListaTab() {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Puesto
                 </p>
-                <input
-                  type="text"
-                  placeholder="Buscar puesto…"
+                {/* Autocompletar contra el catálogo CPH: solo puestos mapeados
+                    (SearchableSelect solo emite onChange al elegir una opción).
+                    El estado `puesto` guarda el NOMBRE crudo del catálogo (el
+                    mismo string que viaja al backend); `puestoCargoId` guarda
+                    el id para habilitar/poblar la especialidad dependiente. */}
+                <SearchableSelect
                   value={puesto}
-                  onChange={(e) => resetPage(setPuesto)(e.target.value)}
-                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                  onChange={(nombre) => {
+                    resetPage(setPuesto)(nombre)
+                    setPuestoCargoId(
+                      puestosCatalogo.find(
+                        (p) => p.nombre === nombre || capitalizar(p.nombre) === nombre,
+                      )?.id ?? '',
+                    )
+                    // Al cambiar de puesto, limpiar la especialidad dependiente.
+                    resetPage(setEspecialidad)('')
+                  }}
+                  options={puestosCatalogo.map((p) => capitalizar(p.nombre))}
+                  valueToDisplay={(v) =>
+                    capitalizar(
+                      puestosCatalogo.find((p) => p.nombre === v || capitalizar(p.nombre) === v)
+                        ?.nombre,
+                    ) || v
+                  }
+                  displayToValue={(label) =>
+                    puestosCatalogo.find((p) => capitalizar(p.nombre) === label)?.nombre ?? label
+                  }
+                  placeholder={escalafonCphId ? 'Buscar puesto…' : 'Catálogo no disponible'}
+                  disabled={!escalafonCphId}
+                  className="w-full"
+                />
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Especialidad del puesto
+                </p>
+                {/* Especialidad DEPENDIENTE del puesto elegido. Deshabilitada
+                    hasta elegir un puesto o si el puesto no tiene especialidades
+                    en el catálogo. Escribe sobre el MISMO estado `especialidad`
+                    (nombre string) que viaja al backend. */}
+                <SearchableSelect
+                  value={especialidad}
+                  onChange={(nombre) => resetPage(setEspecialidad)(nombre)}
+                  options={especialidadesPuesto.map((e) => capitalizar(e.nombre))}
+                  valueToDisplay={(v) =>
+                    capitalizar(
+                      especialidadesPuesto.find(
+                        (e) => e.nombre === v || capitalizar(e.nombre) === v,
+                      )?.nombre,
+                    ) || v
+                  }
+                  displayToValue={(label) =>
+                    especialidadesPuesto.find((e) => capitalizar(e.nombre) === label)?.nombre ??
+                    label
+                  }
+                  placeholder={
+                    !puestoCargoId
+                      ? 'Elegí un puesto primero'
+                      : especialidadesPuesto.length === 0
+                        ? 'El puesto no tiene especialidades'
+                        : 'Todas las especialidades'
+                  }
+                  disabled={!puestoCargoId || especialidadesPuesto.length === 0}
+                  className="w-full"
                 />
               </section>
 
@@ -1129,6 +1217,8 @@ function ConcursosListaTab() {
                     resetPage(setPersonaOm)('')
                     resetPage(setValidado)('')
                     resetPage(setPuesto)('')
+                    setPuestoCargoId('')
+                    resetPage(setEspecialidad)('')
                     resetPage(setConduccion)('')
                     resetPage(setFechaBajaDesde)('')
                     setFechaBajaHasta('')
