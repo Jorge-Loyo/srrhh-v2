@@ -311,9 +311,20 @@ function ConcursosListaTab() {
   // Se acota al escalafón CPH (igual que el wizard y FiltrosCatalogo): sin
   // escalafonId el hook no trae nada (query enabled: !!escalafonId).
   const { data: escalafones = [] } = useEscalafones(true)
-  const escalafonCphId = escalafones.find(
-    (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
-  )?.id
+  // Match flexible del escalafón CPH: el nombre real en la BD es "Nueva Carrera
+  // Prof. Hosp" (NO "Nueva Carrera Profesional Hospitalaria", que es el literal
+  // del código de registro). Se normaliza (minúsculas + sin acentos) y se busca
+  // por "prof"+"hosp" o "cph" para no depender del texto exacto y evitar el
+  // "Catálogo no disponible" por un nombre que no matchea.
+  const normEsc = (s: string) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+  const escalafonCphId = escalafones.find((e) => {
+    const n = normEsc(e.nombre)
+    return (n.includes('prof') && n.includes('hosp')) || n.includes('cph')
+  })?.id
   const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonCphId || undefined)
   // Especialidades del puesto EXACTO por id (preferido en filtros: evita el bug
   // de puestos homónimos). Alimenta el combo de Especialidad dependiente.
