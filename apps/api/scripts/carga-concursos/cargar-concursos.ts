@@ -672,11 +672,9 @@ async function procesarHoja(
           }
         }
 
-        if (warnings.length) {
-          reporte.warnings.push({ hoja, fila: idx, msgs: [...warnings] })
-        }
-
-        // En dry-run forzamos rollback para no escribir nada.
+        // En dry-run forzamos rollback para no escribir nada. Los warnings de la
+        // fila se vuelcan al reporte UNA sola vez, fuera de la tx (ver más abajo),
+        // para no contarlos doble entre el cuerpo de la tx y el catch del rollback.
         if (flags.dryRun) {
           throw new RollbackDryRun()
         }
@@ -689,15 +687,22 @@ async function procesarHoja(
       if (e instanceof RollbackDryRun) {
         // Esperado en dry-run: la resolución corrió, pero NO se persiste. El clon
         // (catalogoFila) se descarta, así nada auto-creado y revertido se filtra
-        // a filas siguientes (ese era el bug de la FK en CEETPS).
-        if (warnings.length) reporte.warnings.push({ hoja, fila: idx, msgs: [...warnings] })
-        continue
+        // a filas siguientes (ese era el bug de la FK en CEETPS). NO se vuelca el
+        // reporte acá: se hace una sola vez al final del loop (ver abajo).
+      } else {
+        reporte.errorInsert.push({
+          hoja,
+          fila: idx,
+          error: e instanceof Error ? e.message : String(e),
+        })
       }
-      reporte.errorInsert.push({
-        hoja,
-        fila: idx,
-        error: e instanceof Error ? e.message : String(e),
-      })
+    }
+
+    // Warnings de la fila: se vuelcan UNA sola vez, pase lo que pase con la tx
+    // (commit real / rollback de dry-run / error). Antes se empujaban dentro de
+    // la tx Y en el catch del rollback, duplicando el conteo en dry-run.
+    if (warnings.length) {
+      reporte.warnings.push({ hoja, fila: idx, msgs: [...warnings] })
     }
   }
 }
@@ -747,8 +752,39 @@ function imprimirReporte(reporte: Reporte, flags: Flags): void {
       l(`    … y ${reporte.discrepanciaSubestado.length - 50} más`)
     }
   }
+
+  // Desglose de warnings por categoría (no por fila): cuántos MENSAJES de cada
+  // clase se acumularon. Sirve para distinguir lo benigno (designado externo,
+  // fecha fuera de rango conservada) de lo que amerita revisión (CUIL inválido).
+  if (reporte.warnings.length) {
+    const tally = clasificarWarnings(reporte.warnings)
+    l('  Warnings por categoría (mensajes):')
+    for (const [cat, n] of tally) l(`    ${cat} ... ${n}`)
+  }
   l('══════════════════════════════════════════════════════════')
   l('')
+}
+
+// Clasifica cada MENSAJE de warning por un prefijo estable. Devuelve pares
+// [categoría, cantidad] ordenados por cantidad desc. Las primeras dos son
+// benignas (esperadas); CUIL inválido/verificador y fecha no parseable ameritan
+// una mirada si el conteo no es trivial.
+function clasificarWarnings(filas: Reporte['warnings']): Array<[string, number]> {
+  const cuenta = new Map<string, number>()
+  const bump = (k: string) => cuenta.set(k, (cuenta.get(k) ?? 0) + 1)
+  for (const f of filas) {
+    for (const m of f.msgs) {
+      if (m.startsWith('designado externo')) bump('designado externo (CUIL ok, sin persona) [benigno]')
+      else if (m.includes('fuera de rango')) bump('fecha fuera de rango 2018–2045 (conservada) [benigno]')
+      else if (m.includes('no tiene 11 dígitos')) bump('CUIL sin 11 dígitos (ignorado) [revisar]')
+      else if (m.includes('prefijo inusual')) bump('CUIL prefijo inusual (ignorado) [revisar]')
+      else if (m.includes('dígito verificador')) bump('CUIL verificador inválido (ignorado) [revisar]')
+      else if (m.includes('no parseable')) bump('fecha no parseable (descartada) [revisar]')
+      else if (m.includes('excede SmallInt')) bump('carga_horaria > SmallInt (descartada) [revisar]')
+      else bump('otro')
+    }
+  }
+  return [...cuenta.entries()].sort((a, b) => b[1] - a[1])
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
