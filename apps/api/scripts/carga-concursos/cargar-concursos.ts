@@ -175,6 +175,49 @@ const REVISAR_MANUAL_HASTA = 87
 // ─── Normalización de sigla ────────────────────────────────────────────────
 const normSigla = (s: string | null | undefined) => (s ?? '').trim().toUpperCase()
 
+// ─── Aislamiento del catálogo por transacción de fila ────────────────────────
+// BUG (dry-run CEETPS): el catálogo de puestos se construye UNA vez al arranque,
+// fuera de toda transacción, y se procesa UNA transacción por fila. Cuando una
+// fila auto-crea un PuestoCargo, resolverPuestoCargoId() lo inserta con `tx`
+// (correcto) PERO además lo cachea en memoria (`cache.puestos.set`). En dry-run
+// la transacción hace rollback: el INSERT se descarta, pero la entrada queda en
+// el cache compartido. La siguiente fila con el MISMO puesto lo encuentra en el
+// cache ("existente"), devuelve ese id YA REVERTIDO y lo pasa a cargo.create →
+// viola cargos_puesto_cargo_id_fkey. CEETPS lo dispara en masa porque sus ~393
+// filas comparten pocos nombres de puesto; CPH tiene la misma falla latente.
+//
+// El pipeline real (aprobarSnapshotService, padron.service.ts ~1798) no la sufre
+// porque arma el cache DENTRO del mismo $transaction que crea todos los cargos:
+// una sola tx, un solo cache, y lo creado es visible SOLO si la tx commitea.
+//
+// Fix que respeta el diseño per-fila: clonar el cache ANTES de la tx de cada
+// fila, mutar el CLON dentro de la tx, y recién al COMMITEAR volcar el clon al
+// cache compartido. En rollback/error/dry-run se descarta el clon → nada se
+// filtra a filas siguientes y el cache nunca referencia un id revertido.
+function clonarCatalogo(c: CatalogoPuestosCache): CatalogoPuestosCache {
+  return {
+    puestos: new Map(c.puestos),
+    especialidades: new Map(c.especialidades),
+    especialidadesPorPuesto: new Map(
+      [...c.especialidadesPorPuesto].map(
+        ([k, v]) => [k, [...v]] as [string, { id: string; nombre: string }[]],
+      ),
+    ),
+    especialidadPuestoCargId: new Map(c.especialidadPuestoCargId),
+  }
+}
+
+function volcarCatalogo(destino: CatalogoPuestosCache, origen: CatalogoPuestosCache): void {
+  for (const [k, v] of origen.puestos) destino.puestos.set(k, v)
+  for (const [k, v] of origen.especialidades) destino.especialidades.set(k, v)
+  for (const [k, v] of origen.especialidadesPorPuesto) {
+    destino.especialidadesPorPuesto.set(k, [...v])
+  }
+  for (const [k, v] of origen.especialidadPuestoCargId) {
+    destino.especialidadPuestoCargId.set(k, v)
+  }
+}
+
 // ─── Arranque de caches (una vez) ────────────────────────────────────────────
 async function construirCaches(prisma: PrismaClient): Promise<Caches> {
   const catalogo = await cargarCatalogoPuestos(prisma)
@@ -266,9 +309,13 @@ export async function crearCargo(
     fila: Fila
     hospitalId: string
     usuarioCarga: string
+    // Catálogo AISLADO de esta transacción de fila (clon). Toda auto-creación de
+    // PuestoCargo/EspecialidadPuesto se cachea acá; solo se vuelca al cache
+    // compartido si la tx commitea (ver clonarCatalogo/volcarCatalogo).
+    catalogo: CatalogoPuestosCache
   },
 ): Promise<string> {
-  const { tipo, fila, hospitalId, usuarioCarga } = params
+  const { tipo, fila, hospitalId, usuarioCarga, catalogo } = params
   const puestoSolicitado = str(fila['puesto_solicitado'])
   const especialidadSolicitada = str(fila['especialidad_solicitada'])
 
@@ -279,7 +326,7 @@ export async function crearCargo(
     cr = caches.crCph
     // CPH usa prefijoDeCargo (rama 1, sin ambigüedad). Se pasa el nombre del
     // escalafón canónico resuelto por id (no un literal hardcodeado).
-    const puestoResuelto = await resolverPuestoCargoId(tx, caches.catalogo, {
+    const puestoResuelto = await resolverPuestoCargoId(tx, catalogo, {
       escalafonId: cr.escalafonId,
       literalPuesto: puestoSolicitado,
       unificadorPuesto: puestoSolicitado,
@@ -292,7 +339,7 @@ export async function crearCargo(
     })
     const especialidadPuestoId = await resolverEspecialidadPuestoId(
       tx,
-      caches.catalogo,
+      catalogo,
       puestoResuelto.id,
       especialidadSolicitada,
       puestoResuelto.nombre,
@@ -323,14 +370,14 @@ export async function crearCargo(
   const sub = (str(fila['sub_carrera']) ?? '').toUpperCase()
   cr = caches.crPorSubCarrera[sub] ?? caches.crPorSubCarrera['ANEXO2']!
   prefijo = prefijoCeetpsPorSubCarrera(str(fila['sub_carrera']), puestoSolicitado)
-  const puestoResuelto = await resolverPuestoCargoId(tx, caches.catalogo, {
+  const puestoResuelto = await resolverPuestoCargoId(tx, catalogo, {
     escalafonId: cr.escalafonId,
     literalPuesto: puestoSolicitado,
     unificadorPuesto: puestoSolicitado,
   })
   const especialidadPuestoId = await resolverEspecialidadPuestoId(
     tx,
-    caches.catalogo,
+    catalogo,
     puestoResuelto.id,
     null,
     puestoResuelto.nombre,
@@ -465,6 +512,11 @@ async function procesarHoja(
       reporte.revisarManual++
     }
 
+    // Catálogo aislado de ESTA fila: se parte del cache compartido y se muta el
+    // clon dentro de la tx. Solo si la tx commitea (real, sin dry-run) se vuelca
+    // al cache compartido. Evita que un puesto auto-creado y luego revertido
+    // (dry-run / error) deje un id fantasma que viole la FK en filas siguientes.
+    const catalogoFila = clonarCatalogo(caches.catalogo)
     try {
       await prisma.$transaction(async (tx) => {
         // Paso G — designado activo
@@ -482,6 +534,7 @@ async function procesarHoja(
             fila,
             hospitalId,
             usuarioCarga: flags.usuarioCarga!,
+            catalogo: catalogoFila,
           })
           reporte.creanCargo++
         }
@@ -628,9 +681,15 @@ async function procesarHoja(
           throw new RollbackDryRun()
         }
       })
+      // La tx commiteó (modo real): recién ahora los puestos/especialidades
+      // auto-creados existen de verdad → se vuelcan al cache compartido para que
+      // las filas siguientes los reutilicen sin recrearlos.
+      volcarCatalogo(caches.catalogo, catalogoFila)
     } catch (e) {
       if (e instanceof RollbackDryRun) {
-        // Esperado en dry-run: la resolución corrió, pero no se persiste.
+        // Esperado en dry-run: la resolución corrió, pero NO se persiste. El clon
+        // (catalogoFila) se descarta, así nada auto-creado y revertido se filtra
+        // a filas siguientes (ese era el bug de la FK en CEETPS).
         if (warnings.length) reporte.warnings.push({ hoja, fila: idx, msgs: [...warnings] })
         continue
       }
@@ -707,9 +766,19 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
+  // Tolerancia WSL: el default de --excel viene en formato Windows (c:/...), que
+  // no existe desde WSL. Si no se encuentra, probar la variante /mnt/c/... antes
+  // de abortar. Si el usuario pasó --excel con una ruta válida, este fallback no
+  // hace nada. No reemplaza al flag: documentamos la ruta /mnt/c en el RUNBOOK.
   if (!fs.existsSync(flags.excel)) {
-    console.error(`ERROR: no existe el Excel en: ${flags.excel}`)
-    process.exit(1)
+    const wsl = flags.excel.replace(/^([a-zA-Z]):[\\/]/, (_m, d) => `/mnt/${d.toLowerCase()}/`)
+    if (wsl !== flags.excel && fs.existsSync(wsl)) {
+      console.log(`Excel (ruta Windows no encontrada; usando variante WSL): ${wsl}`)
+      flags.excel = wsl
+    } else {
+      console.error(`ERROR: no existe el Excel en: ${flags.excel}`)
+      process.exit(1)
+    }
   }
 
   const prisma = new PrismaClient()
