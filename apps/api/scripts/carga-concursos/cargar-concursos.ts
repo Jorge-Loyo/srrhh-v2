@@ -175,6 +175,26 @@ const REVISAR_MANUAL_HASTA = 87
 // ─── Normalización de sigla ────────────────────────────────────────────────
 const normSigla = (s: string | null | undefined) => (s ?? '').trim().toUpperCase()
 
+// ─── Destino de la conexión (para imprimir, sin credenciales) ────────────────
+// Extrae host:puerto/base de DATABASE_URL y marca si es Neon o una base local,
+// SIN exponer usuario/password. Sirve para confirmar a ojo a qué base se escribe
+// antes de una carga real (evita repetir el incidente localhost-vs-Neon).
+function describirDestinoBd(url: string | undefined): string {
+  if (!url) return '(DATABASE_URL vacío — Prisma fallará)'
+  try {
+    const u = new URL(url)
+    const host = u.hostname
+    const puerto = u.port || '(default)'
+    const base = u.pathname.replace(/^\//, '') || '(sin nombre)'
+    const esNeon = /neon\.tech$/i.test(host)
+    const esLocal = host === 'localhost' || host === '127.0.0.1'
+    const etiqueta = esNeon ? 'NEON' : esLocal ? 'LOCAL (¡no es Neon!)' : 'DESCONOCIDA'
+    return `${etiqueta} → ${host}:${puerto}/${base}`
+  } catch {
+    return '(DATABASE_URL no parseable)'
+  }
+}
+
 // ─── Aislamiento del catálogo por transacción de fila ────────────────────────
 // BUG (dry-run CEETPS): el catálogo de puestos se construye UNA vez al arranque,
 // fuera de toda transacción, y se procesa UNA transacción por fila. Cuando una
@@ -833,7 +853,11 @@ async function main(): Promise<void> {
       process.exit(1)
     }
     console.log(`Usuario de carga: ${usuario.username} (${usuario.id})`)
-    console.log(`Modo: ${flags.dryRun ? 'DRY-RUN (no escribe)' : 'REAL (escribe en Neon)'}`)
+    console.log(`Modo: ${flags.dryRun ? 'DRY-RUN (no escribe)' : 'REAL (ESCRIBE y commitea)'}`)
+    // Imprime el HOST real de la conexión (de DATABASE_URL) para que se vea a qué
+    // base se conecta ANTES de escribir. NO imprime credenciales. Evita repetir
+    // el incidente de cargar en la base equivocada (localhost en vez de Neon).
+    console.log(`Base de datos: ${describirDestinoBd(process.env.DATABASE_URL)}`)
     console.log(`Excel: ${flags.excel}`)
 
     // Caches (una vez)
