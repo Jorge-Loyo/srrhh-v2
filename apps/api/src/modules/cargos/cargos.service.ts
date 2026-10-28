@@ -1,9 +1,19 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo, CargosExportQuery } from './cargos.schema.js'
+import type {
+  CargosQuery,
+  CreateCargoBody,
+  AltasQuery,
+  GrupoCatalogo,
+  CargosExportQuery,
+} from './cargos.schema.js'
 import type { CargoExportRow } from '@srrhh/types'
-import { prefijoDeCargo, siguienteCodigoCargo, PREFIJOS_CONDUCCION } from '../../shared/codigoCargo.js'
+import {
+  prefijoDeCargo,
+  siguienteCodigoCargo,
+  PREFIJOS_CONDUCCION,
+} from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
@@ -37,14 +47,37 @@ interface PuestoCargoRow {
 export async function listPuestosCargosService(escalafonId?: string) {
   const puestos = await prisma.puestoCargo.findMany({
     where: { activo: true, ...(escalafonId && { escalafonId }) },
-    select: { id: true, nombre: true, especialidades: { where: { activo: true }, select: { id: true, nombre: true } } },
+    select: {
+      id: true,
+      nombre: true,
+      especialidades: { where: { activo: true }, select: { id: true, nombre: true } },
+    },
     orderBy: { nombre: 'asc' },
   })
-  return puestos.map((p): PuestoCargoRow => ({ id: p.id, puesto: p.nombre, especialidades: p.especialidades }))
+  return puestos.map((p): PuestoCargoRow => ({
+    id: p.id,
+    puesto: p.nombre,
+    especialidades: p.especialidades,
+  }))
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
+  const {
+    page,
+    limit,
+    search,
+    hospitalId,
+    escalafonId,
+    codigoRegistroId,
+    modalidad,
+    puestoCargoId,
+    especialidadPuestoId,
+    grupos,
+    estado,
+    ocupado,
+    soloJefes,
+    personaSearch,
+  } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -112,7 +145,7 @@ export async function listCargosService(query: CargosQuery) {
 
   // Intersectar todos los filtros de id con AND
   const idFilters: Prisma.CargoWhereInput[] = [
-    ...(searchIds  !== undefined ? [{ id: { in: searchIds  } }] : []),
+    ...(searchIds !== undefined ? [{ id: { in: searchIds } }] : []),
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
   ]
 
@@ -156,7 +189,11 @@ export async function listCargosService(query: CargosQuery) {
               // (A) jefatura por el código del cargo (ocupado o vacante)
               { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
               // (B) jefatura por JCAT de la ocupación vigente (enfermería, etc.)
-              { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+              {
+                ocupaciones: {
+                  some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } },
+                },
+              },
             ],
           },
         ]
@@ -165,13 +202,13 @@ export async function listCargosService(query: CargosQuery) {
 
   const where: Prisma.CargoWhereInput = {
     ...(catalogoWhere && catalogoWhere),
-    ...(estado      && { estado }),
+    ...(estado && { estado }),
     // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
     // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS
     // los cargos ocupados de toda la base (sin acotar por los demás filtros)
     // y podía superar el máximo de bind variables de Postgres (32767),
     // tirando abajo el listado entero con cualquier combinación de filtros.
-    ...(ocupado === true  && { ocupaciones: { some: { hasta: null } } }),
+    ...(ocupado === true && { ocupaciones: { some: { hasta: null } } }),
     ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
     ...(andClauses.length > 0 && { AND: andClauses }),
   }
@@ -204,9 +241,9 @@ export async function listCargosService(query: CargosQuery) {
       ...c,
       ocupado: ocupaciones.length > 0,
       ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha
-        ? (ocupaciones[0].cargoDesdeFecha instanceof Date
-            ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
-            : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10))
+        ? ocupaciones[0].cargoDesdeFecha instanceof Date
+          ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
+          : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10)
         : null,
       personaOcupante: ocupaciones[0]?.persona
         ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
@@ -233,6 +270,12 @@ const TIPO_PUESTO_LABEL: Record<string, string> = {
   conduccion: 'Conducción',
 }
 
+// Quita viñetas, guiones y espacios iniciales que vienen pegados en el dato
+// legacy de especialidad (ej. "•\u00a0Cardiología", "- Clínica Médica").
+function limpiarEspecialidad(valor: string): string {
+  return valor.replace(/^[\s•·∙‣◦\-*·\u00a0]+/, '').trim()
+}
+
 export async function exportCargosService(query: CargosExportQuery) {
   const { page, limit } = query
   const where: Prisma.CargoWhereInput = { deletedAt: null }
@@ -242,15 +285,16 @@ export async function exportCargosService(query: CargosExportQuery) {
     prisma.cargo.findMany({
       where,
       include: {
-        codigoRegistro: { select: { codigo: true } },
+        // codigo → columna "Código de Registro" (ej. "37"); literal → columna
+        // "Carrera" (descripción del CR, ej. "Nueva Carrera Profesional
+        // Hospitalaria").
+        codigoRegistro: { select: { codigo: true, literal: true } },
         puestoCargo: { select: { tipoPuesto: true } },
-        // Régimen persistido del cargo (catálogo `regimenes`): fuente PRIMARIA
-        // de la columna "Régimen" del export (ej. "Nueva Carrera Profesional
-        // Hospitalaria"). Fallback al nombre del escalafón para cargos
-        // pre-backfill (regimenId NULL), y al campo regimen crudo como último
-        // recurso.
-        regimenRef: { select: { nombre: true } },
         escalafon: { select: { nombre: true } },
+        // Sigla del hospital/repartición del cargo. Se usa en ambos grupos:
+        // "Sigla" del grupo 1 (info del cargo) y "Sigla" del grupo 2
+        // (info de ocupación) son la misma sigla del cargo.
+        hospital: { select: { sigla: true } },
         // Especialidad del cargo (catálogo, con fallback al legacy del padrón).
         // El modelo Ocupacion NO tiene especialidad propia; la "especialidad del
         // ocupante" es la del cargo que ocupa — se muestra solo si está ocupado.
@@ -260,6 +304,7 @@ export async function exportCargosService(query: CargosExportQuery) {
           where: { hasta: null },
           select: {
             cuil: true,
+            idSialRol: true,
             situacionRevista: true,
             persona: { select: { cuil: true } },
           },
@@ -297,24 +342,39 @@ export async function exportCargosService(query: CargosExportQuery) {
     return {
       codigo: c.codigo ?? '',
       codigoRegistro: c.codigoRegistro?.codigo ?? '',
-      // "Régimen" muestra el régimen persistido (catálogo); fallback al nombre
-      // del escalafón para cargos pre-backfill, y al campo regimen crudo como
-      // último recurso.
-      regimen: c.regimenRef?.nombre ?? c.escalafon?.nombre ?? c.regimen ?? '',
-      tipo: c.puestoCargo ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto) : '',
+      // Columna "Carrera": la DESCRIPCIÓN (literal) del código de registro del
+      // cargo (ej. "Nueva Carrera Profesional Hospitalaria"), sin el código
+      // —el código va en su propia columna "Código de Registro"—. Fallback al
+      // nombre del escalafón si el cargo no tiene CR vinculado.
+      regimen: c.codigoRegistro?.literal ?? c.escalafon?.nombre ?? '',
+      // Columna "Sigla" (grupo 1): sigla del hospital/repartición del cargo.
+      sigla: c.hospital?.sigla ?? '',
+      tipo: c.puestoCargo
+        ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto)
+        : '',
       estado: estadoLabel,
       // Situación del CARGO: Ocupado si tiene una ocupación vigente (hasta=null),
       // Vacante si no. Distinto del Estado (vigente/etc.) y de la situación de
       // revista del ocupante (grupo 2).
       situacion: ocupacion ? 'Ocupado' : 'Vacante',
       literalPuesto: c.literalPuesto ?? '',
+      // Columna "Repartición" (grupo 2): descripción de la repartición del
+      // cargo, sin el código (coherente con "Carrera").
+      reparticion: c.descripcionRepa ?? '',
+      // Columna "Sigla" (grupo 2): la misma sigla del cargo que el grupo 1.
+      siglaOcupacion: c.hospital?.sigla ?? '',
       cuilOExpediente,
+      // ID SIAL Rol del ocupante (identificador natural del rol en el padrón,
+      // ej. "001812167-1-20123456789-1"). Solo si está ocupado; vacío si no.
+      idSialRolOcupante: ocupacion?.idSialRol ?? '',
       situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
       // Especialidad del ocupante = especialidad del cargo que ocupa (catálogo,
       // fallback al legacy del padrón). Solo si el cargo está ocupado; vacía
       // si está vacante. El modelo Ocupacion no guarda especialidad propia.
+      // Se limpian viñetas/guiones iniciales que vienen embebidos en el dato
+      // legacy (ej. "• Cardiología" → "Cardiología").
       especialidadOcupante: ocupacion
-        ? (c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? '')
+        ? limpiarEspecialidad(c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? '')
         : '',
     }
   })
@@ -381,12 +441,19 @@ export async function getCargoByIdService(id: string) {
   const [concursosCph, concursosCeetps] = await Promise.all([
     prisma.concursoCph.findMany({
       where: { cargoId: id },
-      include: { concurso: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      include: {
+        concurso: true,
+        personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } },
+      },
       orderBy: { createdAt: 'desc' },
     }),
     prisma.concursoCeetps.findMany({
       where: { cargoId: id },
-      include: { concurso: true, escalafon: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      include: {
+        concurso: true,
+        escalafon: true,
+        personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } },
+      },
       orderBy: { createdAt: 'desc' },
     }),
   ])
@@ -413,7 +480,9 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   }
   let especialidadPuesto: { id: string; nombre: string; puestoCargId: string } | null = null
   if (body.especialidadPuestoId) {
-    especialidadPuesto = await prisma.especialidadPuesto.findUnique({ where: { id: body.especialidadPuestoId } })
+    especialidadPuesto = await prisma.especialidadPuesto.findUnique({
+      where: { id: body.especialidadPuestoId },
+    })
     if (!especialidadPuesto || especialidadPuesto.puestoCargId !== body.puestoCargoId) {
       throw AppError.notFound('Especialidad no encontrada en el catálogo para ese puesto')
     }
@@ -422,8 +491,8 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   if (!body.forzar) {
     const duplicado = await prisma.cargo.findFirst({
       where: {
-        hospitalId:   body.hospitalId,
-        escalafonId:  body.escalafonId,
+        hospitalId: body.hospitalId,
+        escalafonId: body.escalafonId,
         puestoCargoId: body.puestoCargoId,
         estado: 'vigente',
       },
@@ -431,11 +500,11 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     })
     if (duplicado) {
       throw AppError.conflict('Ya existe un cargo vigente con la misma estructura', {
-        codigo:       duplicado.codigo,
+        codigo: duplicado.codigo,
         literalPuesto: duplicado.literalPuesto,
-        hospital:     duplicado.hospital.sigla,
-        escalafon:    duplicado.escalafon.nombre,
-        id:           duplicado.id,
+        hospital: duplicado.hospital.sigla,
+        escalafon: duplicado.escalafon.nombre,
+        id: duplicado.id,
       })
     }
   }
@@ -456,20 +525,20 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
         data: {
           idSial,
           codigo,
-          hospitalId:       body.hospitalId,
-          escalafonId:      body.escalafonId,
+          hospitalId: body.hospitalId,
+          escalafonId: body.escalafonId,
           codigoRegistroId: body.codigoRegistroId ?? null,
-          puestoCargoId:      body.puestoCargoId,
+          puestoCargoId: body.puestoCargoId,
           especialidadPuestoId: body.especialidadPuestoId ?? null,
           // Snapshot de auditoría — nombre canónico del catálogo al momento del alta.
-          literalPuesto:    puestoCargo.nombre,
+          literalPuesto: puestoCargo.nombre,
           especialidadLegacy: especialidadPuesto?.nombre ?? null,
-          agrupador:        body.agrupador ?? null,
+          agrupador: body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
-          regimen:          body.regimen ?? null,
-          expediente:       body.expediente ?? null,
-          fechaDesde:       body.desde ? new Date(body.desde) : null,
-          createdById:      createdById ?? null,
+          regimen: body.regimen ?? null,
+          expediente: body.expediente ?? null,
+          fechaDesde: body.desde ? new Date(body.desde) : null,
+          createdById: createdById ?? null,
           estado: 'vigente',
         },
         include: { hospital: true, escalafon: true },
@@ -497,13 +566,13 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     puedeIniciarConcurso,
     ...(puedeIniciarConcurso && {
       concursoInfo: {
-        cargoId:              primero.id,
-        hospitalId:           primero.hospitalId,
-        codigo:               primero.codigo,
-        literalPuesto:        primero.literalPuesto,
-        hospitalSigla:        hospital.sigla,
+        cargoId: primero.id,
+        hospitalId: primero.hospitalId,
+        codigo: primero.codigo,
+        literalPuesto: primero.literalPuesto,
+        hospitalSigla: hospital.sigla,
         tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
-        escalafonId:          primero.escalafonId,
+        escalafonId: primero.escalafonId,
       },
     }),
   }
@@ -525,7 +594,7 @@ export async function listAltasService(query: AltasQuery) {
     prisma.cargo.findMany({
       where,
       include: {
-        hospital:  { select: { sigla: true, nombre: true } },
+        hospital: { select: { sigla: true, nombre: true } },
         escalafon: { select: { nombre: true } },
         createdBy: { select: { username: true, email: true } },
       },

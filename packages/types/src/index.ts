@@ -1152,12 +1152,19 @@ export interface CargoExportRow {
   codigo: string
   codigoRegistro: string
   regimen: string
+  // Sigla del hospital/repartición del cargo (= cargo.hospital.sigla).
+  sigla: string
   tipo: string
   estado: string
   situacion: string
   // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO
   literalPuesto: string
+  // Repartición del cargo (descripción). Sigla: misma que el grupo 1.
+  reparticion: string
+  siglaOcupacion: string
   cuilOExpediente: string
+  // ID SIAL Rol del ocupante (identificador natural del rol en el padrón).
+  idSialRolOcupante: string
   situacionRevistaOcupante: string
   especialidadOcupante: string
 }
