@@ -50,7 +50,9 @@ function semaforoLabel(c: ConcursoCph): string {
 }
 
 // Clasifica la documentación respaldatoria del concurso en uno de 3 tipos:
-//  - Baja: el concurso viene de una baja (tiene baja asociada) → expediente de baja
+//  - Baja: el concurso tiene expediente de baja cargado (eeBaja) → expediente de baja.
+//    Se basa en eeBaja (no en la FK baja/bajaId) porque los concursos importados
+//    traen el expediente de baja como texto sin estar vinculados a una fila `bajas`.
 //  - Ampliación: cargo nuevo con expediente de alta cargado (cargo.expediente)
 //  - Cobertura: cargo sin baja ni expediente de alta (cobertura de dotación, sin doc)
 function respaldatoria(c: ConcursoCph): {
@@ -58,10 +60,11 @@ function respaldatoria(c: ConcursoCph): {
   expediente: string | null
   badgeClass: string
 } {
-  if (c.concurso?.baja) {
+  const eeBaja = c.eeBaja?.trim()
+  if (eeBaja) {
     return {
       tipo: 'Baja',
-      expediente: c.eeBaja ?? null,
+      expediente: eeBaja,
       badgeClass: 'bg-orange-100 text-orange-700',
     }
   }
