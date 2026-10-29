@@ -450,8 +450,12 @@ export function ValidacionBajasPage() {
                 <div className="text-xs text-amber-600">Solo SIAL</div>
               </div>
               <div className="px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200">
-                <div className="text-lg font-bold text-gray-700">{todos.length + (soloBaja?.length ?? 0)}</div>
-                <div className="text-xs text-gray-500">Total</div>
+                {/* Cargos ÚNICOS en validacion_vacante (lo que devuelve /validacion,
+                    que filtra por estado). NO sumar soloBaja: es una lista aparte
+                    y solapada (bajas SIAL que pueden no estar en validación) — sumarla
+                    daba un total inflado por doble conteo. */}
+                <div className="text-lg font-bold text-gray-700">{todos.length}</div>
+                <div className="text-xs text-gray-500">Cargos en validación</div>
               </div>
             </div>
           )}
