@@ -24,6 +24,16 @@ enum EstadoCargo {
   validacion_vacante
 }
 
+// Sub-estado del cargo cuando `estado = vigente` (ver SPRINT_estado_subestado_cargo.md,
+// decisión A1-corregido). Columna PERSISTIDA (no cálculo), mutuamente excluyente:
+// un cargo vigente tiene exactamente uno; es null cuando el cargo es
+// validacion_vacante o no_vigente. NO se agregan valores a EstadoCargo.
+enum SubEstadoCargo {
+  ocupado
+  vacante
+  concurso
+}
+
 enum EstadoSnapshot {
   procesando
   pendiente
@@ -447,6 +457,9 @@ model Cargo {
   // mostraba "Familia" siempre vacío).
   puestoCodigoSial     String?     @map("puesto_codigo_sial") @db.VarChar(20)
   estado               EstadoCargo @default(vigente)
+  // Sub-estado persistido del cargo vigente (ocupado | vacante | concurso).
+  // null cuando el cargo NO es vigente. Ver SPRINT_estado_subestado_cargo.md.
+  subEstado            SubEstadoCargo? @map("sub_estado")
   // S8A-1: fecha en que el cargo entró al estado actual (para calcular días en estado)
   estadoDesde          DateTime?   @map("estado_desde") @db.Date
   // S7-1: trazabilidad del alta manual (RF-11/12/13)
@@ -524,6 +537,7 @@ model Cargo {
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
+  @@index([subEstado])
   @@index([cargoBaseId])
   @@index([cargoRetenidoId])
   @@index([puestoCargoId])

@@ -19,6 +19,16 @@ export const EstadoCargo = {
 } as const
 export type EstadoCargo = (typeof EstadoCargo)[keyof typeof EstadoCargo]
 
+// Sub-estado del cargo vigente (ocupado | vacante | concurso) — columna
+// persistida, mutuamente excluyente, null cuando el cargo NO es vigente.
+// Ver SPRINT_estado_subestado_cargo.md (decisión A1-corregido).
+export const SubEstadoCargo = {
+  OCUPADO: 'ocupado',
+  VACANTE: 'vacante',
+  CONCURSO: 'concurso',
+} as const
+export type SubEstadoCargo = (typeof SubEstadoCargo)[keyof typeof SubEstadoCargo]
+
 export const EstadoSnapshot = {
   PROCESANDO: 'procesando',
   PENDIENTE: 'pendiente',
@@ -196,6 +206,10 @@ export interface Cargo {
   estado: EstadoCargo
   // S8A-1: días en estado actual (calculado por el backend)
   estadoDesde: string | null
+  // Sub-estado persistido del cargo vigente (null si no es vigente, o si el
+  // backfill todavía no corrió). Los consumidores leen esta columna; mientras
+  // esté en null, usan `ocupado` como fallback transitorio (ver D4 del plan).
+  subEstado: SubEstadoCargo | null
   ocupado: boolean
   ocupadoDesde: string | null
   // S7-1/S7-2: campos de trazabilidad de alta manual
@@ -939,7 +953,12 @@ export type SituacionRevista = 'activo' | 'comision' | 'retencion de cargo' | st
 
 // Orden canónico de las series por situación de revista en el front
 // ('(sin dato)' agrupa las ocupaciones sin situacion_revista).
-export const ORDEN_SITUACION_REVISTA = ['activo', 'comision', 'retencion de cargo', '(sin dato)'] as const
+export const ORDEN_SITUACION_REVISTA = [
+  'activo',
+  'comision',
+  'retencion de cargo',
+  '(sin dato)',
+] as const
 
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
@@ -1137,6 +1156,8 @@ export interface CargoFilters {
   grupos?: string
   estado?: EstadoCargo
   ocupado?: boolean
+  // Filtro por el sub-estado persistido del cargo vigente (aditivo a `ocupado`).
+  subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
   page?: number
@@ -1148,18 +1169,23 @@ export interface CargoFilters {
 // downloadExcelConGrupos). Cada clave es una de las 9 columnas, como string
 // listo para volcar a la celda (sin más transformación en el front).
 export interface CargoExportRow {
-  // Grupo 1 — INFORMACIÓN DE CARGOS
+  // Grupo 1 — INFORMACIÓN DE CARGOS (siempre, el cargo existe)
   codigo: string
   codigoRegistro: string
   regimen: string
   // Sigla del hospital/repartición del cargo (= cargo.hospital.sigla).
   sigla: string
+  // Código y descripción de la repartición del CARGO (siempre).
+  codigoReparticion: string
+  reparticionCargo: string
   tipo: string
   estado: string
   situacion: string
-  // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO
+  // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO (solo si ocupado)
   literalPuesto: string
-  // Repartición del cargo (descripción). Sigla: misma que el grupo 1.
+  // Código, descripción y sigla de la repartición del OCUPANTE. Vacías si el
+  // cargo está vacante (coinciden con las del cargo cuando está ocupado).
+  codigoReparticionOcupacion: string
   reparticion: string
   siglaOcupacion: string
   cuilOExpediente: string
@@ -1750,10 +1776,10 @@ export interface DesignarConcursoRequest {
 // ---- SPRINT 18 — Retención de cargos ----
 
 export const TipoOrigen = {
-  R: 'R',     // remplazante de ejecución
+  R: 'R', // remplazante de ejecución
   TTR: 'TTR', // remplazante de conducción (Titular Transitorio por Reemplazo)
 } as const
-export type TipoOrigen = typeof TipoOrigen[keyof typeof TipoOrigen] | null
+export type TipoOrigen = (typeof TipoOrigen)[keyof typeof TipoOrigen] | null
 
 // Nodo de una cadena de retención — distinto de `NodoCadena` (useCadenaMando.ts,
 // feature no relacionada de "cadena de mando"/jerarquía org).
@@ -1868,17 +1894,16 @@ export interface VencimientoCargo {
 // PATCH /api/v1/retenciones/:cargoId/renovar
 export interface RenovarPeriodoRequest {
   periodoHasta: string // 'YYYY-MM-DD'
-  docRespaldo: string  // acto administrativo que respalda la renovación
+  docRespaldo: string // acto administrativo que respalda la renovación
 }
 
 // POST /api/v1/comisiones — registrar una comisión sobre una ocupación activa
 export interface ComisionInput {
   ocupacionId: string
-  comision: string      // motivo / descripción
-  repaComision: string  // repartición / hospital de destino
+  comision: string // motivo / descripción
+  repaComision: string // repartición / hospital de destino
   crComentario?: string
 }
-
 
 // ─── Jornada de sorteos CPH ─────────────────────────────────────────────────
 

@@ -75,6 +75,7 @@ export async function listCargosService(query: CargosQuery) {
     grupos,
     estado,
     ocupado,
+    subEstado,
     soloJefes,
     personaSearch,
   } = query
@@ -210,6 +211,9 @@ export async function listCargosService(query: CargosQuery) {
     // tirando abajo el listado entero con cualquier combinación de filtros.
     ...(ocupado === true && { ocupaciones: { some: { hasta: null } } }),
     ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
+    // Filtro por sub-estado persistido (aditivo al filtro `ocupado`, que sigue
+    // operando sobre la relación `ocupaciones` por compatibilidad — ver D4).
+    ...(subEstado && { subEstado }),
     ...(andClauses.length > 0 && { AND: andClauses }),
   }
 
@@ -239,6 +243,9 @@ export async function listCargosService(query: CargosQuery) {
   return {
     data: cargos.map(({ ocupaciones, ...c }) => ({
       ...c,
+      // Sub-estado persistido (ya viene en `c` por el spread del cargo). Los
+      // consumidores lo leen; `ocupado` se mantiene como fallback transitorio.
+      subEstado: c.subEstado,
       ocupado: ocupaciones.length > 0,
       ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha
         ? ocupaciones[0].cargoDesdeFecha instanceof Date
@@ -263,6 +270,14 @@ const ESTADO_LABEL_EXPORT: Record<string, string> = {
   vigente: 'Vigente',
   no_vigente: 'No vigente',
   validacion_vacante: 'En validación',
+}
+
+// Etiqueta de la columna "Situación" del exportable a partir del sub-estado
+// persistido del cargo (ocupado | vacante | concurso).
+const SUB_ESTADO_LABEL_EXPORT: Record<string, string> = {
+  ocupado: 'Ocupado',
+  vacante: 'Vacante',
+  concurso: 'Concurso',
 }
 
 const TIPO_PUESTO_LABEL: Record<string, string> = {
@@ -349,24 +364,37 @@ export async function exportCargosService(query: CargosExportQuery) {
       regimen: c.codigoRegistro?.literal ?? c.escalafon?.nombre ?? '',
       // Columna "Sigla" (grupo 1): sigla del hospital/repartición del cargo.
       sigla: c.hospital?.sigla ?? '',
+      // Grupo 1 (INFORMACIÓN DE CARGOS): código y descripción de la repartición
+      // del CARGO. Se muestran SIEMPRE (el cargo existe, ocupado o vacante).
+      codigoReparticion: c.codigoRepa ?? '',
+      reparticionCargo: c.descripcionRepa ?? '',
       tipo: c.puestoCargo
         ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto)
         : '',
       estado: estadoLabel,
-      // Situación del CARGO: Ocupado si tiene una ocupación vigente (hasta=null),
-      // Vacante si no. Distinto del Estado (vigente/etc.) y de la situación de
-      // revista del ocupante (grupo 2).
-      situacion: ocupacion ? 'Ocupado' : 'Vacante',
+      // Situación del CARGO: lee el sub-estado persistido (ocupado/vacante/
+      // concurso). Fallback transitorio a la ocupación mientras el backfill no
+      // haya poblado la columna (ver D4). Distinto del Estado (vigente/etc.) y
+      // de la situación de revista del ocupante (grupo 2).
+      situacion: c.subEstado
+        ? (SUB_ESTADO_LABEL_EXPORT[c.subEstado] ?? c.subEstado)
+        : ocupacion ? 'Ocupado' : 'Vacante',
       literalPuesto: c.literalPuesto ?? '',
-      // Columna "Repartición" (grupo 2): descripción de la repartición del
-      // cargo, sin el código (coherente con "Carrera").
-      reparticion: c.descripcionRepa ?? '',
-      // Columna "Sigla" (grupo 2): la misma sigla del cargo que el grupo 1.
-      siglaOcupacion: c.hospital?.sigla ?? '',
+      // Grupo 2 (INFORMACIÓN DE OCUPACIÓN DEL CARGO): código, descripción y sigla
+      // de la repartición del OCUPANTE. Solo si el cargo está OCUPADO; vacías si
+      // está vacante (el valor coincide con el del cargo, pero representa dónde
+      // trabaja el ocupante, por eso se omite cuando no hay ocupación).
+      codigoReparticionOcupacion: ocupacion ? (c.codigoRepa ?? '') : '',
+      reparticion: ocupacion ? (c.descripcionRepa ?? '') : '',
+      siglaOcupacion: ocupacion ? (c.hospital?.sigla ?? '') : '',
       cuilOExpediente,
-      // ID SIAL Rol del ocupante (identificador natural del rol en el padrón,
-      // ej. "001812167-1-20123456789-1"). Solo si está ocupado; vacío si no.
-      idSialRolOcupante: ocupacion?.idSialRol ?? '',
+      // ID SIAL Rol del ocupante: el dato crudo es "legajo-rol-cuil-rol"
+      // (ej. "001081578-7-27188648229-7"); se recorta a "legajo-rol"
+      // (ej. "001081578-7") — los 2 primeros segmentos — porque el resto es el
+      // CUIL (que ya va en su propia columna). Solo si está ocupado.
+      idSialRolOcupante: ocupacion?.idSialRol
+        ? ocupacion.idSialRol.split('-').slice(0, 2).join('-')
+        : '',
       situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
       // Especialidad del ocupante = especialidad del cargo que ocupa (catálogo,
       // fallback al legacy del padrón). Solo si el cargo está ocupado; vacía

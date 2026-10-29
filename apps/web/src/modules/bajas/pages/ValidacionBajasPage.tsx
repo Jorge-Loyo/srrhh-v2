@@ -65,7 +65,25 @@ interface CargoSoloBaja {
   padronFecha: string
 }
 
-type SubTab = 'todos' | 'triangulados' | 'solo_padron' | 'solo_baja' | 'historico'
+interface GrupoClasificacion {
+  clave: string
+  tieneBaja: boolean
+  enConcurso: boolean
+  tuvoOcupacion: boolean
+  conteo: number
+  etiqueta: string
+  conocido: boolean
+  porOrigen: { padron: number; organigrama: number; manual: number; otro: number }
+  // Separación CPH / CEETPS (el backend la desglosa por grupo).
+  porTipoConcurso: { cph: number; ceetps: number; sinConcurso: number }
+}
+
+interface ClasificacionVacantesResponse {
+  total: number
+  grupos: GrupoClasificacion[]
+}
+
+type SubTab = 'todos' | 'triangulados' | 'solo_padron' | 'solo_baja' | 'historico' | 'clasificacion'
 
 function OrigenBadge({ origen }: { origen: Origen }) {
   if (origen === 'ambos') return (
@@ -95,6 +113,18 @@ function OrigenBadge({ origen }: { origen: Origen }) {
   )
 }
 
+function SiNoBadge({ value }: { value: boolean }) {
+  return value ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+      ✓ Sí
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+      ✗ No
+    </span>
+  )
+}
+
 function EstadoBadge({ estado }: { estado: string | null }) {
   if (!estado) return <span className="text-gray-300 text-xs">—</span>
   const map: Record<string, { label: string; cls: string }> = {
@@ -120,6 +150,9 @@ export function ValidacionBajasPage() {
   const [busqueda, setBusqueda] = useState('')
   const [escalafon, setEscalafon] = useState('')
   const [subTab, setSubTab] = useState<SubTab>('todos')
+  // Pestaña interna de la vista Clasificación: separa CPH y CEETPS (pedido de
+  // negocio). 'cph' muestra el desglose de concursos CPH, 'ceetps' el de CEETPS.
+  const [tipoConcursoTab, setTipoConcursoTab] = useState<'cph' | 'ceetps'>('cph')
   const [page, setPage] = useState(1)
 
   const { data, isLoading, isError } = useQuery({
@@ -147,6 +180,15 @@ export function ValidacionBajasPage() {
     },
   })
 
+  const { data: clasificacion, isLoading: loadingClasificacion } = useQuery({
+    queryKey: ['validacion-clasificacion'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: ClasificacionVacantesResponse }>('/api/v1/bajas/validacion/clasificacion')
+      return res.data.data
+    },
+    enabled: subTab === 'clasificacion',
+  })
+
   const confirmar = useMutation({
     mutationFn: async ({ cargoId, actaAdministrativa }: { cargoId: string; actaAdministrativa?: string }) =>
       apiClient.post(`/api/v1/bajas/validacion/${cargoId}/confirmar`, { actaAdministrativa }),
@@ -172,6 +214,7 @@ export function ValidacionBajasPage() {
     solo_padron:  soloPadron.length,
     solo_baja:    soloBaja?.length ?? null,
     historico:    historico?.length ?? null,
+    clasificacion: clasificacion?.grupos.length ?? null,
   }
 
   // Base activa (no histórico)
@@ -284,6 +327,7 @@ export function ValidacionBajasPage() {
     { key: 'solo_padron', label: 'Solo padrón' },
     { key: 'solo_baja',   label: 'Solo baja SIAL ⚠' },
     { key: 'historico',   label: '📁 Histórico' },
+    { key: 'clasificacion', label: '📊 Clasificación' },
   ]
 
   return (
@@ -520,15 +564,25 @@ export function ValidacionBajasPage() {
           </span>
         </div>
       )}
+      {subTab === 'clasificacion' && (
+        <div className="flex items-start gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-700">
+          <span className="mt-0.5 shrink-0">📊</span>
+          <span>
+            Clasificación <strong>en vivo</strong> de todos los cargos en <strong>validación vacante</strong> según tres dimensiones:
+            si tienen <strong>baja</strong> registrada, si están <strong>en concurso</strong> y si <strong>tuvieron ocupación</strong>.
+            Cada combinación observada se cuantifica por separado.
+          </span>
+        </div>
+      )}
 
       {/* Tabla */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        {(isLoading || (subTab === 'historico' && loadingHistorico) || (subTab === 'solo_baja' && loadingSoloBaja)) && (
+        {((subTab !== 'clasificacion' && isLoading) || (subTab === 'historico' && loadingHistorico) || (subTab === 'solo_baja' && loadingSoloBaja) || (subTab === 'clasificacion' && loadingClasificacion)) && (
           <p className="p-6 text-sm text-gray-400">Cargando...</p>
         )}
         {isError && <p className="p-6 text-sm text-danger">No se pudo cargar el listado.</p>}
 
-        {!isLoading && !isError && filtrados.length === 0 && !(subTab === 'todos' && (soloBaja?.length ?? 0) > 0) && (
+        {subTab !== 'clasificacion' && !isLoading && !isError && filtrados.length === 0 && !(subTab === 'todos' && (soloBaja?.length ?? 0) > 0) && (
           <p className="p-8 text-center text-sm text-gray-400">
             {busqueda ? `Sin resultados para "${busqueda}"` : 'No hay cargos en esta categoría.'}
           </p>
@@ -752,6 +806,110 @@ export function ValidacionBajasPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Clasificación de vacantes */}
+        {subTab === 'clasificacion' && !loadingClasificacion && clasificacion && (
+          clasificacion.grupos.length === 0 ? (
+            <p className="p-8 text-center text-sm text-gray-400">No hay cargos en validación vacante.</p>
+          ) : (
+            (() => {
+              // Totales CPH / CEETPS a través de todos los grupos (para los
+              // contadores de las pestañas internas).
+              const totalCph = clasificacion.grupos.reduce((acc, g) => acc + g.porTipoConcurso.cph, 0)
+              const totalCeetps = clasificacion.grupos.reduce((acc, g) => acc + g.porTipoConcurso.ceetps, 0)
+              // Grupos visibles en la pestaña activa: solo los que tienen al
+              // menos un cargo del tipo de concurso seleccionado.
+              const gruposTab = clasificacion.grupos.filter((g) =>
+                tipoConcursoTab === 'cph' ? g.porTipoConcurso.cph > 0 : g.porTipoConcurso.ceetps > 0
+              )
+              return (
+                <>
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 text-sm">
+                    <span className="text-gray-500">Total de cargos en validación vacante:</span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-bold bg-navy text-white">
+                      {clasificacion.total}
+                    </span>
+                    <span className="text-gray-400 text-xs">· {clasificacion.grupos.length} grupos</span>
+                  </div>
+
+                  {/* Pestañas internas CPH / CEETPS (separación pedida por negocio) */}
+                  <div className="px-4 pt-3 flex gap-2 border-b border-gray-100">
+                    {([
+                      { key: 'cph' as const, label: 'CPH', total: totalCph },
+                      { key: 'ceetps' as const, label: 'CEETPS', total: totalCeetps },
+                    ]).map((t) => (
+                      <button
+                        key={t.key}
+                        onClick={() => setTipoConcursoTab(t.key)}
+                        className={`px-4 py-2 text-sm font-semibold rounded-t-md border-b-2 transition-colors ${
+                          tipoConcursoTab === t.key
+                            ? 'border-navy text-navy'
+                            : 'border-transparent text-gray-400 hover:text-gray-600'
+                        }`}
+                      >
+                        {t.label}
+                        <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-600">
+                          {t.total}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {gruposTab.length === 0 ? (
+                    <p className="p-8 text-center text-sm text-gray-400">
+                      No hay cargos en validación con concurso {tipoConcursoTab === 'cph' ? 'CPH' : 'CEETPS'}.
+                    </p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-navy text-white text-left sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Grupo</th>
+                          <th className="px-4 py-3 font-semibold text-center">Tiene baja</th>
+                          <th className="px-4 py-3 font-semibold text-center">En concurso</th>
+                          <th className="px-4 py-3 font-semibold text-center">Tuvo ocupación</th>
+                          <th className="px-4 py-3 font-semibold text-right">
+                            Cargos {tipoConcursoTab === 'cph' ? 'CPH' : 'CEETPS'}
+                          </th>
+                          <th className="px-4 py-3 font-semibold text-right">Total grupo</th>
+                          <th className="px-4 py-3 font-semibold">Por origen</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {gruposTab.map((g) => (
+                          <tr key={g.clave} className="hover:bg-gray-50 align-top">
+                            <td className="px-4 py-3 text-gray-700 max-w-[360px]">
+                              <div className="flex items-start gap-2">
+                                {g.conocido
+                                  ? <span className="mt-0.5 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200 shrink-0">Conocido</span>
+                                  : <span className="mt-0.5 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200 shrink-0">Otro</span>}
+                                <span className="text-xs leading-relaxed">{g.etiqueta}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center"><SiNoBadge value={g.tieneBaja} /></td>
+                            <td className="px-4 py-3 text-center"><SiNoBadge value={g.enConcurso} /></td>
+                            <td className="px-4 py-3 text-center"><SiNoBadge value={g.tuvoOcupacion} /></td>
+                            <td className="px-4 py-3 text-right font-bold text-gray-800">
+                              {tipoConcursoTab === 'cph' ? g.porTipoConcurso.cph : g.porTipoConcurso.ceetps}
+                            </td>
+                            <td className="px-4 py-3 text-right text-gray-500">{g.conteo}</td>
+                            <td className="px-4 py-3 text-xs text-gray-500">
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                {g.porOrigen.padron > 0 && <span>padrón: <strong className="text-gray-700">{g.porOrigen.padron}</strong></span>}
+                                {g.porOrigen.organigrama > 0 && <span>organigrama: <strong className="text-gray-700">{g.porOrigen.organigrama}</strong></span>}
+                                {g.porOrigen.manual > 0 && <span>manual: <strong className="text-gray-700">{g.porOrigen.manual}</strong></span>}
+                                {g.porOrigen.otro > 0 && <span>otro: <strong className="text-gray-700">{g.porOrigen.otro}</strong></span>}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )
+            })()
+          )
         )}
       </div>
     </div>

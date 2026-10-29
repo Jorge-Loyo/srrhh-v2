@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { EstadoCargo } from '@srrhh/types'
+import { EstadoCargo, SubEstadoCargo } from '@srrhh/types'
 
 // S21: un grupo de la cascada de catálogo. Varios grupos se combinan con OR
 // (uniones), ver `grupos` abajo y cargos.service.
@@ -53,6 +53,8 @@ export const cargosQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  // Filtro por el sub-estado persistido del cargo vigente (aditivo a `ocupado`).
+  subEstado: z.nativeEnum(SubEstadoCargo).optional(),
   // Solo jefes: cargos cuya ocupación vigente es de jefatura.
   soloJefes: z
     .enum(['true', 'false'])

@@ -133,9 +133,17 @@ function ModalBuscarCargo({
                       {c.personaOcupante ? c.personaOcupante.apellidoNombre : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className={c.estado === 'validacion_vacante' ? 'badge-warning' : c.ocupado ? 'badge-success' : 'badge-warning'}>
-                        {c.estado === 'validacion_vacante' ? 'En validación' : c.ocupado ? 'Ocupado' : 'Vacante'}
-                      </span>
+                      {(() => {
+                        if (c.estado === 'validacion_vacante') {
+                          return <span className="badge-warning">En validación</span>
+                        }
+                        // Lee el sub-estado persistido; fallback transitorio a la
+                        // ocupación mientras el backfill no haya corrido (ver D4).
+                        const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
+                        const label = sub === 'ocupado' ? 'Ocupado' : sub === 'concurso' ? 'Concurso' : 'Vacante'
+                        const cls = sub === 'ocupado' ? 'badge-success' : sub === 'concurso' ? 'badge-info' : 'badge-warning'
+                        return <span className={cls}>{label}</span>
+                      })()}
                     </td>
                   </tr>
                 ))}

@@ -1,7 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { CadenaRetencionPanel } from '@/modules/retenciones/components/CadenaRetencionPanel'
-import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
+import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps, SubEstadoCargo } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
@@ -39,6 +39,19 @@ export function CargoDetailPanel() {
   const vigente = cargo.estado === EstadoCargo.VIGENTE
   const ocupado = !!persona
   const retenido = ocup?.situacionRevista === 'Retencion de Cargo'
+
+  // Sub-estado a mostrar junto al estado: lee la columna persistida `subEstado`;
+  // mientras esté en null (backfill pendiente) usa la ocupación como fallback
+  // transitorio (ver D4 del plan).
+  const subEstadoCargo = cargo.subEstado ?? (ocupado ? SubEstadoCargo.OCUPADO : SubEstadoCargo.VACANTE)
+  const subEstadoLabel =
+    subEstadoCargo === SubEstadoCargo.OCUPADO ? 'Ocupado'
+    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'Concurso'
+    : 'Vacante'
+  const subEstadoClase =
+    subEstadoCargo === SubEstadoCargo.OCUPADO ? 'bg-blue-100 text-blue-800'
+    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'bg-indigo-100 text-indigo-700'
+    : 'bg-orange-100 text-orange-700'
 
   const desdeOcup = ocup?.cargoDesdeFecha
     ? ocup.cargoDesdeFecha.slice(0, 10)
@@ -80,8 +93,8 @@ export function CargoDetailPanel() {
                 {ESTADO_LABEL[cargo.estado]}
               </span>
               {vigente && (
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
-                  {ocupado ? 'Ocupado' : 'Vacante'}
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${subEstadoClase}`}>
+                  {subEstadoLabel}
                 </span>
               )}
             </div>
@@ -148,7 +161,11 @@ export function CargoDetailPanel() {
           </div>
         ) : !persona ? (
           <div className="p-6 text-center">
-            <p className="text-gray-400 text-sm">Cargo vacante — sin persona asignada.</p>
+            <p className="text-gray-400 text-sm">
+              {subEstadoCargo === SubEstadoCargo.CONCURSO
+                ? 'Cargo en concurso — sin persona asignada.'
+                : 'Cargo vacante — sin persona asignada.'}
+            </p>
           </div>
         ) : (
           <div className="p-6">

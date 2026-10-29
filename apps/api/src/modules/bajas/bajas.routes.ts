@@ -3,7 +3,7 @@ import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService, listClasificacionVacantesService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -75,6 +75,14 @@ export async function bajasRoutes(app: FastifyInstance) {
   // S8B: GET /validacion/historico — cargos no_vigente confirmados
   app.get('/validacion/historico', async (_request, reply) => {
     const data = await listValidacionHistoricoService()
+    return reply.send({ data })
+  })
+
+  // GET /validacion/clasificacion — clasificación en vivo de los cargos en
+  // validacion_vacante según la matriz de 3 dimensiones (baja/concurso/ocupación).
+  // Debe registrarse ANTES de /validacion para que matchee correctamente.
+  app.get('/validacion/clasificacion', async (_request, reply) => {
+    const data = await listClasificacionVacantesService()
     return reply.send({ data })
   })
 
