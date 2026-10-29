@@ -148,6 +148,10 @@ export function prefijoDeCargo(params: {
   if (esc.includes('TRANSITORIA') && esc.includes('PLANTA')) return 'PT'
   if (esc.includes('TRANSITORIO') || esc.includes('CUERPO')) return 'CT'
   if (esc.includes('GABINETE'))                              return 'PG'
+  // Régimen Modular Extraordinario PG (código de registro 17B). Antes caía al
+  // fallback 'CARGO' porque "MODULAR" no matchea "MODULO"; su nomenclatura
+  // propia es RME. Va antes de la rama MODULO para no confundirse con ella.
+  if (esc.includes('MODULAR EXTRAORDINARIO') || esc === 'RME' || esc === '17B') return 'RME'
   if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return 'MO'
   if (esc.includes('SALUD') && esc.includes('GUARDIA'))      return 'SG'
 
