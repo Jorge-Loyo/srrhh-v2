@@ -5,6 +5,7 @@ import type {
   DesignacionEstado,
   DeclararDesiertoRequest,
   DesignarConcursoRequest,
+  AsignarDesignadoCphRequest,
   GenerarSorteoJuradoRequest,
   ImportarInscriptosResult,
   CandidatoOmReservado,
@@ -156,6 +157,27 @@ export function useDesignarConcursoCph(id: string) {
       // INSAL y en Etapa 5) vive en una query aparte — sin esto quedaba
       // desactualizado hasta salir y volver a entrar a la etapa.
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
+    },
+  })
+}
+
+// Asignar manualmente la persona designada SIN ocupar el cargo —
+// POST /:id/asignar-designado. Para concursos finalizados sin persona vinculada.
+export function useAsignarDesignadoCph(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: AsignarDesignadoCphRequest) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/asignar-designado`,
+        body,
+      )
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concurso-cph-wizard', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-designacion-estado', id] })
     },
   })
 }

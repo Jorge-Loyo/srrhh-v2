@@ -7,6 +7,7 @@ import type {
   PatchConcursoCphBody,
   SuspenderConcursoCphBody,
   DesignarCphBody,
+  AsignarDesignadoCphBody,
   DeclararDesiertoBody,
 } from './concursos-cph.schema.js'
 import {
@@ -929,6 +930,42 @@ export async function suspenderConcursoCphService(id: string, body: SuspenderCon
     data: {
       suspendido: body.suspendido,
       ...(body.observaciones !== undefined && { observaciones: body.observaciones }),
+      estado: calc.estado,
+      subEstado: calc.subEstado,
+      subEstado3: calc.subEstado3,
+    },
+    include,
+  })
+}
+
+// ─── Asignar persona designada SIN ocupar el cargo ──────────────────────────
+// Caso histórico: concurso finalizado con resolución de designación cargada
+// pero sin persona_designada_id. Vincula la persona y recalcula el sub-estado
+// (→ n-designado). NO crea Ocupacion, NO modifica el Cargo, NO genera
+// id_sial_rol. La persona entra a la dotación recién cuando aparezca en el
+// padrón (import del padrón, otro flujo). A diferencia de
+// designarConcursoCphService, NO bloquea por estado==='finalizado'.
+export async function asignarDesignadoConcursoCphService(
+  id: string,
+  body: AsignarDesignadoCphBody,
+) {
+  const existing = await prisma.concursoCph.findUnique({ where: { id } })
+  if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+
+  const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+  if (!persona) throw AppError.notFound('Persona no encontrada')
+
+  // Reasignación permitida por defecto: si ya había persona vinculada, se
+  // sobreescribe (regla confirmada). El sub-estado se recalcula sobre la fila
+  // existente (personaDesignadaId no es input de calcConcursoCph: n-designado
+  // depende de resolucionDesignacion, ya presente en estos casos), igual que
+  // patch/suspender.
+  const calc = calcConcursoCph(toCalcInput(existing))
+
+  return prisma.concursoCph.update({
+    where: { id },
+    data: {
+      personaDesignadaId: body.personaId,
       estado: calc.estado,
       subEstado: calc.subEstado,
       subEstado3: calc.subEstado3,

@@ -1773,6 +1773,12 @@ export interface DesignarConcursoRequest {
   observaciones?: string | null
 }
 
+// POST /api/v1/concursos-cph/:id/asignar-designado — vincula persona designada
+// SIN ocupar el cargo (caso histórico: finalizado sin persona vinculada).
+export interface AsignarDesignadoCphRequest {
+  personaId: string
+}
+
 // ---- SPRINT 18 — Retención de cargos ----
 
 export const TipoOrigen = {

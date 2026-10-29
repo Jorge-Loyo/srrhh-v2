@@ -189,6 +189,15 @@ export const designarCphSchema = z.object({
 
 export type DesignarCphBody = z.infer<typeof designarCphSchema>
 
+// Asignar manualmente la persona designada SIN crear ocupación (caso histórico:
+// concurso finalizado con resolución cargada pero sin persona vinculada). Solo
+// recibe el personaId — el sub-estado (n-designado) lo recalcula el backend.
+export const asignarDesignadoCphSchema = z.object({
+  personaId: z.string().uuid(),
+})
+
+export type AsignarDesignadoCphBody = z.infer<typeof asignarDesignadoCphSchema>
+
 // PS16D-3: declarar desierto — guarda snapshot en ConcursoCphDesierto,
 // limpia campos de la ronda, pone suspendido=true, sub-estado Q-DESIERTO.
 export const declararDesiertoSchema = z.object({

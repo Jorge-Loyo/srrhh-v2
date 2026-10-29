@@ -61,6 +61,8 @@ enum TipoConcurso {
 enum MotivoConcurso {
   nuevo_cargo
   alta_por_baja
+  retencion_de_cargo
+  cobertura_dotacion
 }
 
 enum EstadoConcursoCph {

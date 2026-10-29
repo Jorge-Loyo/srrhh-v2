@@ -75,7 +75,13 @@ function calcEstadoBase(row: ConcursoCphCalcInput): EstadoConcursoCphCalc {
 function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaDispoDesierta && row.dispoDesierta) return 'q-desierto'
   if (row.cargoSial) return 'o-alta sial'
-  if (row.fechaResolucion && row.resolucionDesignacion) return 'n-designado'
+  // n-designado: hay persona designada con resolución de designación cargada.
+  // El concurso está finalizado administrativamente y espera que la persona
+  // aparezca en el padrón (nómina legal) por su id_sial_rol — ahí se completa
+  // el alta SIAL (o-alta sial, vía cargoSial / vinculación del padrón).
+  // La fecha de la resolución es opcional: basta el número de resolución para
+  // considerar designado el concurso (regla de negocio confirmada 2026-10-29).
+  if (row.resolucionDesignacion) return 'n-designado'
   if (row.resoALaFirma) return 'm-reso a la firma'
   if (row.proyectoResolucion) return 'l-pycto de reso'
   if (row.fechaIte) return 'k-ite'

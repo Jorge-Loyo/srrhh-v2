@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { TipoConcurso } from '@srrhh/types'
+// MotivoConcurso del cliente Prisma (nuevo_cargo/alta_por_baja/retencion_de_cargo/
+// cobertura_dotacion, S-tipo-concurso) — el dropdown "Origen" de la baja lo manda
+// para que el concurso que se genera guarde el tipo. No confundir con el
+// MotivoConcurso legacy de @srrhh/types.
+import { MotivoConcurso } from '@prisma/client'
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 
@@ -44,6 +49,7 @@ export const createBajaSchema = z
     fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
     cargaHoraria: z.coerce.number().int().min(1).max(99).optional(),
     tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
+    motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
     escalafonId: z.string().uuid().optional(),
     observaciones: z.string().trim().max(2000).optional(),
     estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
@@ -75,6 +81,7 @@ const updateBajaBase = z.object({
   fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
   cargaHoraria: z.coerce.number().int().min(1).max(99).optional(),
   tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
+  motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
   escalafonId: z.string().uuid().optional(),
   observaciones: z.string().trim().max(2000).optional(),
   estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),

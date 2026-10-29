@@ -12,6 +12,7 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { usePuestosCargoNormalizados } from '@/shared/hooks/useCatalogos'
 import { useConcursoCeetps, usePatchConcursoCeetps, useDesignarConcursoCeetps } from '../hooks/useConcursosCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
 import { apiClient } from '@/shared/lib/api-client'
@@ -255,6 +256,11 @@ export function ConcursoCeetpsDetail() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className={ESTADO_BADGE[concurso.estado]}>{ESTADO_LABEL[concurso.estado]}</span>
+            {motivoConcursoLabel(concurso.concurso?.motivoConcurso) && (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                {motivoConcursoLabel(concurso.concurso?.motivoConcurso)}
+              </span>
+            )}
             <span className={diasBadgeClass(dias)}>{dias === 0 ? 'Movido hoy' : `${dias} días sin movimiento`}</span>
             {getCasoCeetps(concurso).validacion && (
               <ExportDropdown

@@ -8,6 +8,7 @@ import {
   patchConcursoCphSchema,
   suspenderConcursoCphSchema,
   designarCphSchema,
+  asignarDesignadoCphSchema,
   declararDesiertoSchema,
   generarSorteoJuradoSchema,
 } from './concursos-cph.schema.js'
@@ -19,6 +20,7 @@ import {
   getPersonaDesignadaService,
   getDesignacionEstadoService,
   designarConcursoCphService,
+  asignarDesignadoConcursoCphService,
   declararDesiertoService,
   importarConcursosCsvService,
 } from './concursos-cph.service.js'
@@ -153,6 +155,19 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = designarCphSchema.parse(request.body)
       const data = await designarConcursoCphService(request.params.id, body)
+      return reply.send({ data })
+    },
+  )
+
+  // POST /:id/asignar-designado — vincula persona_designada_id en un concurso
+  // (típicamente finalizado) SIN crear ocupación ni tocar el cargo. El cargo se
+  // ocupa recién cuando la persona aparezca en el padrón (otro flujo).
+  app.post<{ Params: { id: string } }>(
+    '/:id/asignar-designado',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = asignarDesignadoCphSchema.parse(request.body)
+      const data = await asignarDesignadoConcursoCphService(request.params.id, body)
       return reply.send({ data })
     },
   )

@@ -26,8 +26,10 @@ import {
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import {
   useDesignarConcursoCph,
+  useAsignarDesignadoCph,
   useDeclararDesiertoCph,
   useSuspenderConcursoCph,
   useGenerarSorteoJurado,
@@ -208,6 +210,7 @@ export function ConcursoCphWizard() {
       subEstado: cphData.subEstado ?? 'vacante',
       subEstado3: cphData.subEstado3 ?? '',
       suspendido: cphData.suspendido,
+      motivoConcurso: c?.motivoConcurso ?? null,
       observaciones: cphData.observaciones ?? '',
     }
   }, [cphData])
@@ -530,7 +533,12 @@ export function ConcursoCphWizard() {
   // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
   // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
   // oficial real, crea la ocupación — comportamiento existente sin cambios.
-  const [modalDesignarModo, setModalDesignarModo] = useState<'proponer' | 'designar'>('designar')
+  // 'asignar': vincular la persona designada SIN ocupar el cargo (caso
+  // histórico: concurso finalizado sin persona vinculada). Oculta fecha/idSial
+  // y usa asignarDesignadoMutation.
+  const [modalDesignarModo, setModalDesignarModo] = useState<
+    'proponer' | 'designar' | 'asignar'
+  >('designar')
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
   const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<string | null>(null)
@@ -719,6 +727,7 @@ export function ConcursoCphWizard() {
   const inscriptoFileRef = useRef<HTMLInputElement>(null)
 
   const designarMutation = useDesignarConcursoCph(id!)
+  const asignarDesignadoMutation = useAsignarDesignadoCph(id!)
   const declararDesiertoMutation = useDeclararDesiertoCph(id!)
   const suspenderMutation = useSuspenderConcursoCph(id!)
 
@@ -807,6 +816,29 @@ export function ConcursoCphWizard() {
       return res.data.data
     },
     enabled: !!designarPersonaId,
+  })
+
+  // Búsqueda libre de personas por texto (nombre/CUIL/DNI) — solo en el modo
+  // 'asignar', donde no hay orden de mérito con la persona ganadora (casos
+  // históricos). Mismo endpoint y shape que usa seleccionarCandidatoOM.
+  const { data: personasBusqueda = [] } = useQuery({
+    queryKey: ['personas-busqueda', designarSearch],
+    enabled:
+      modalDesignar &&
+      modalDesignarModo === 'asignar' &&
+      designarSearch.trim().length >= 2,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: designarSearch.trim(), limit: 10 } })
+      return res.data.data
+    },
   })
   const formRef = useRef<HTMLDivElement>(null)
   const tipoGestionRef = useRef<HTMLSelectElement>(null)
@@ -1855,25 +1887,96 @@ export function ConcursoCphWizard() {
               <span className="text-green-500 text-xl">👤</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
-                  {modalDesignarModo === 'proponer' ? 'Proponer candidato' : 'Registrar designación'}
+                  {modalDesignarModo === 'proponer'
+                    ? 'Proponer candidato'
+                    : modalDesignarModo === 'asignar'
+                      ? 'Asignar persona designada'
+                      : 'Registrar designación'}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {modalDesignarModo === 'proponer'
                     ? 'Elegí a quién notificar por INSAL. Esto no ocupa el cargo — la designación oficial es en la Etapa 5.'
-                    : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
+                    : modalDesignarModo === 'asignar'
+                      ? 'Solo vincula a la persona que ganó el concurso. NO ocupa el cargo — el cargo pasa a ocupado recién cuando la persona aparezca en el padrón semanal.'
+                      : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
                 </p>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
+              {/* Modo 'asignar': buscador libre de personas por texto. Estos
+                  concursos históricos no tienen orden de mérito con la persona
+                  ganadora, así que se busca directo contra /api/v1/personas. */}
+              {modalDesignarModo === 'asignar' && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Buscar persona (nombre, CUIL o DNI){' '}
+                    <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={designarSearch}
+                    onChange={(e) => setDesignarSearch(e.target.value)}
+                    placeholder="Escribí al menos 2 caracteres..."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  {designarSearch.trim().length >= 2 && (
+                    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                      {personasBusqueda.length === 0 ? (
+                        <p className="px-3 py-2.5 text-xs text-gray-400">
+                          Sin resultados para «{designarSearch.trim()}».
+                        </p>
+                      ) : (
+                        personasBusqueda.map((p) => {
+                          const elegido = designarPersonaId === p.id
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setDesignarPersonaId(p.id)
+                                setDesignarPersonaNombre(p.apellidoNombre)
+                                setDesignarPersonaEspCph(p.especialidadCph ?? null)
+                                setDesignarSearch(p.apellidoNombre)
+                              }}
+                              className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3 ${
+                                elegido ? 'bg-green-50' : ''
+                              }`}
+                            >
+                              <span className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                <span className="col-span-2 font-medium text-gray-800 truncate">
+                                  {p.apellidoNombre}
+                                </span>
+                                <span className="text-xs text-gray-400 font-mono">
+                                  CUIL {p.cuil ?? '—'}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  DNI {p.numeroDoc ?? '—'}
+                                </span>
+                                {p.especialidadCph && (
+                                  <span className="col-span-2 text-xs text-gray-500 truncate">
+                                    🩺 {p.especialidadCph}
+                                  </span>
+                                )}
+                              </span>
+                              {elegido && <span className="text-green-600 shrink-0">✓</span>}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Elegibles del orden de mérito de este concurso */}
-              {elegiblesOM.length === 0 && (
+              {modalDesignarModo !== 'asignar' && elegiblesOM.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   ⚠ Todavía no hay orden de mérito calculado para este concurso — no hay
                   candidatos para proponer. Andá a la Etapa 3 (Inscripción/Examen/OM), cargá las
                   notas de los presentados y apretá «📊 Cargar notas / calcular orden».
                 </div>
               )}
-              {elegiblesOM.length > 0 && (
+              {modalDesignarModo !== 'asignar' && elegiblesOM.length > 0 && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Orden de mérito — elegí a quién proponer <span className="text-danger">*</span>
@@ -2126,6 +2229,48 @@ export function ConcursoCphWizard() {
                   }
                 >
                   {patchMutation.isPending ? 'Guardando...' : 'Proponer candidato'}
+                </button>
+              ) : modalDesignarModo === 'asignar' ? (
+                <button
+                  className="btn-primary"
+                  disabled={!designarPersonaId || asignarDesignadoMutation.isPending}
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      { personaId: designarPersonaId },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            'Persona designada vinculada — el cargo se ocupará cuando aparezca en el padrón.',
+                          )
+                          setModalDesignar(false)
+                          setDesignarPersonaId('')
+                          setDesignarPersonaNombre('')
+                          setDesignarPersonaEspCph(null)
+                          setDesignarSearch('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: {
+                                    message?: string
+                                    error?: { message?: string }
+                                  }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo vincular la persona.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending
+                    ? 'Guardando...'
+                    : 'Vincular persona designada'}
                 </button>
               ) : (
                 <button
@@ -2710,6 +2855,11 @@ export function ConcursoCphWizard() {
                   {c.subEstado3}
                 </span>
               )}
+              {motivoConcursoLabel(c.motivoConcurso) && (
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                  {motivoConcursoLabel(c.motivoConcurso)}
+                </span>
+              )}
               {c.suspendido && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger">
                   ⏸ Suspendido
@@ -2745,6 +2895,21 @@ export function ConcursoCphWizard() {
                     >
                       📋 Ver baja
                     </button>
+                    {/* Asignar designado (sin ocupar) — solo si el concurso aún
+                        no tiene persona vinculada (caso histórico). NO ocupa el
+                        cargo; eso ocurre cuando la persona aparezca en el padrón. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('asignar')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        👤 Asignar designado (sin ocupar)
+                      </button>
+                    )}
                     {/* Suspender / Activar */}
                     <button
                       disabled={suspenderMutation.isPending}
@@ -4907,6 +5072,32 @@ export function ConcursoCphWizard() {
                   const ocup = v?.ocupacionVigente ?? v?.ultimaOcupacion ?? null
                   return (
                     <div className="space-y-5">
+                      {/* Asignar persona designada manualmente (caso histórico:
+                          concurso sin persona vinculada). Solo vincula; NO ocupa
+                          el cargo (eso pasa cuando aparezca en el padrón). */}
+                      {cphData && !cphData.personaDesignadaId && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              Asignar persona designada
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              Este concurso no tiene persona vinculada. Vinculá a quien ganó
+                              (caso histórico). No ocupa el cargo — eso pasa cuando aparezca en
+                              el padrón.
+                            </p>
+                          </div>
+                          <button
+                            className="btn-primary text-sm shrink-0"
+                            onClick={() => {
+                              setModalDesignarModo('asignar')
+                              setModalDesignar(true)
+                            }}
+                          >
+                            👤 Asignar designado
+                          </button>
+                        </div>
+                      )}
                       {/* ── ARRIBA: detalle informativo de la persona ── */}
                       {v && (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">

@@ -1,10 +1,19 @@
 import { TipoConcurso } from '@srrhh/types'
-import type { Prisma } from '@prisma/client'
+import type { MotivoConcurso, Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { CreateConcursoBody } from './concursos.schema.js'
 import { calcConcursoCph, type ConcursoCphCalcInput } from '../concursos-cph/concursosCph.calc.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { prefijoRemplazante, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+
+// Label legible de cada motivo para la notificación concurso_iniciado a sgrasv.
+const MOTIVO_CONCURSO_LABEL: Record<MotivoConcurso, string> = {
+  nuevo_cargo: 'Nuevo cargo',
+  alta_por_baja: 'Alta por baja',
+  retencion_de_cargo: 'Retención de cargo',
+  cobertura_dotacion: 'Cobertura de dotación',
+}
 
 const CALC_INPUT_VACIO: Omit<ConcursoCphCalcInput, 'suspendido' | 'eeBaja' | 'fechaBaja'> = {
   eeConcurso: null,
@@ -47,6 +56,26 @@ export async function createConcursoTx(
   usuarioId: string,
   bajaId?: string,
 ) {
+  // Retención de cargo: el titular retiene su cargo y se concursa un
+  // reemplazante. El código del cargo del concurso conserva su número y se le
+  // inserta -R- (CPH-POF-017530 → CPH-POF-R-000NNN), mismo criterio de
+  // prefijo/secuencial que registrarRetencionService (retenciones.service.ts).
+  // El cargo retenido NO se toca. Se recodifica in-place el cargo del concurso.
+  if (body.motivoConcurso === 'retencion_de_cargo') {
+    const cargo = await tx.cargo.findUnique({
+      where: { id: body.cargoId },
+      select: { codigo: true },
+    })
+    // Omitir si no hay código (cargo legacy sin codificar) o si ya está
+    // recodificado como remplazante (-R- / -TTR-) — no aplicar dos veces.
+    if (cargo?.codigo && !/-(R|TTR)-\d{6}$/.test(cargo.codigo)) {
+      const prefijoBase = cargo.codigo.replace(/-\d{6}$/, '')
+      const prefijo = prefijoRemplazante(prefijoBase, 'R')
+      const nuevoCodigo = await siguienteCodigoCargo(prefijo, tx)
+      await tx.cargo.update({ where: { id: body.cargoId }, data: { codigo: nuevoCodigo } })
+    }
+  }
+
   const concurso = await tx.concurso.create({
     data: {
       cargoId: body.cargoId,
@@ -56,6 +85,7 @@ export async function createConcursoTx(
       origen: body.origen,
       fechaVacante: new Date(body.fechaVacante),
       motivo: body.motivo ?? null,
+      motivoConcurso: body.motivoConcurso ?? null,
       expediente: body.expediente ?? null,
       tipoConcurso: body.tipoConcurso,
       registradoPorId: usuarioId,
@@ -91,7 +121,7 @@ export async function createConcursoTx(
         select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
       })
       const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
-      const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
+      const motivoLabel = MOTIVO_CONCURSO_LABEL[body.motivoConcurso]
       await crearNotificacion({
         tipo: 'concurso_iniciado',
         rolSlug: 'sgrasv',
@@ -124,7 +154,7 @@ export async function createConcursoTx(
         select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
       })
       const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
-      const motivoLabel = body.motivoConcurso === 'nuevo_cargo' ? 'Nuevo cargo' : 'Alta por baja'
+      const motivoLabel = MOTIVO_CONCURSO_LABEL[body.motivoConcurso]
       await crearNotificacion({
         tipo: 'concurso_iniciado',
         rolSlug: 'sgrasv',

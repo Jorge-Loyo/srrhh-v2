@@ -8,7 +8,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
-  CEETPS_CODIGOS,
+  CEETPS_CODIGOS, origenToMotivoConcurso,
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
@@ -380,7 +380,11 @@ export function NuevaBajaPage() {
       cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
       observaciones: observaciones || undefined,
       generaConcurso: conConcurso,
-      ...(conConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
+      ...(conConcurso && {
+        tipoConcurso: tipoConcursoSeleccionado,
+        // Propaga el tipo elegido en "Origen" al concurso que se genera.
+        motivoConcurso: origenToMotivoConcurso(origen),
+      }),
     }
   }
 
@@ -419,7 +423,10 @@ export function NuevaBajaPage() {
         // Si ya pasó por paso 2 y decidió, preservar la decisión
         ...(generaConcurso !== null && {
           generaConcurso,
-          ...(generaConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
+          ...(generaConcurso && {
+            tipoConcurso: tipoConcursoSeleccionado,
+            motivoConcurso: origenToMotivoConcurso(origen),
+          }),
         }),
       }
       if (modoEdicion) {

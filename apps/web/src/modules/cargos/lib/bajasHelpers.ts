@@ -1,7 +1,35 @@
 // Lógica portada desde dotacion-rrhh/frontend/src/utils/concursalesHelpers.js
 
-export const OPCIONES_ORIGEN = ['Alta por Baja', 'Cobertura Dotación'] as const
+export const OPCIONES_ORIGEN = ['Alta por Baja', 'Retención de Cargo', 'Cobertura Dotación'] as const
 export type OrigenBaja = typeof OPCIONES_ORIGEN[number]
+
+// Valores del enum MotivoConcurso (cliente Prisma) que puede nacer desde la
+// baja. `nuevo_cargo` es legacy y no se elige acá.
+export type MotivoConcurso = 'alta_por_baja' | 'retencion_de_cargo' | 'cobertura_dotacion'
+
+// Mapea el dropdown "Origen" de la baja al enum MotivoConcurso que se guarda en
+// el concurso generado. Devuelve undefined si el origen no mapea a un motivo.
+export function origenToMotivoConcurso(origen: string): MotivoConcurso | undefined {
+  switch (origen) {
+    case 'Alta por Baja':      return 'alta_por_baja'
+    case 'Retención de Cargo': return 'retencion_de_cargo'
+    case 'Cobertura Dotación': return 'cobertura_dotacion'
+    default:                   return undefined
+  }
+}
+
+// Label legible del motivo del concurso, compartido por el badge del detalle
+// CPH/CEETPS y la lista CEETPS. Cubre los 4 valores del enum (incluye el legacy
+// `nuevo_cargo`). Devuelve null si no hay motivo (no renderizar badge).
+export function motivoConcursoLabel(motivo: string | null | undefined): string | null {
+  switch (motivo) {
+    case 'nuevo_cargo':        return 'Nuevo cargo'
+    case 'alta_por_baja':      return 'Alta por baja'
+    case 'retencion_de_cargo': return 'Retención de cargo'
+    case 'cobertura_dotacion': return 'Cobertura de dotación'
+    default:                   return null
+  }
+}
 
 export const OPCIONES_MOTIVO_BAJA = [
   'Renuncia', 'Cese de Cargo', 'Defunción', 'Jubilación', 'Cesantía',
