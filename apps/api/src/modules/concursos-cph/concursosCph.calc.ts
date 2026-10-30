@@ -48,6 +48,12 @@ export interface ConcursoCphCalcInput {
   // Desierto
   dispoDesierta: string | null
   fechaDispoDesierta: Date | null
+  // Validación contra el padrón (nómina legal). El alta SIAL (o-alta sial) se
+  // dispara cuando la persona designada aparece en el padrón por su
+  // id_sial_rol — eso enciende `validado`. `validadoIdSialRol` es informativo
+  // (el rol real del padrón con el que se cerró).
+  validado: boolean
+  validadoIdSialRol: string | null
 }
 
 // String literal en vez del enum de @srrhh/types o @prisma/client a propósito:
@@ -74,7 +80,12 @@ function calcEstadoBase(row: ConcursoCphCalcInput): EstadoConcursoCphCalc {
 
 function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaDispoDesierta && row.dispoDesierta) return 'q-desierto'
-  if (row.cargoSial) return 'o-alta sial'
+  // o-alta sial: la persona designada apareció en el padrón (nómina legal) por
+  // su id_sial_rol y quedó validada. El disparador es `validado` (no `cargoSial`,
+  // que es sólo un atajo informativo): el PATCH manual enciende `validado` cuando
+  // se carga `cargoSial` a mano (ver patchConcursoCphService), y el enganche
+  // automático del padrón lo enciende al ocupar (ver aprobarDiffNuevoService).
+  if (row.validado) return 'o-alta sial'
   // n-designado: hay persona designada con resolución de designación cargada.
   // El concurso está finalizado administrativamente y espera que la persona
   // aparezca en el padrón (nómina legal) por su id_sial_rol — ahí se completa

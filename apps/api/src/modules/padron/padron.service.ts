@@ -31,6 +31,10 @@ import {
 } from './derivarCodigoRegistro.js'
 import { derivarRegimenId } from './derivarRegimen.js'
 import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
+import {
+  calcConcursoCph,
+  type ConcursoCphCalcInput,
+} from '../concursos-cph/concursosCph.calc.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
   parseFechaDDMMYYYY,
@@ -3347,6 +3351,121 @@ const normalizarEsp = (s: string | null | undefined): string =>
 
 const soloDigitos = (s: string | null | undefined): string => (s ?? '').replace(/\D/g, '')
 
+// Fila de concurso usada para cruzar contra el padrón por CUIL del designado.
+// Incluye lo necesario para calcular `validable` (carrera + especialidad) y
+// para ocupar/vincular el cargo del concurso.
+const CONCURSO_INDEX_SELECT = {
+  id: true,
+  validado: true,
+  especialidadSolicitada: true,
+  designadoRefCuil: true,
+  designadoRefIdSialRol: true,
+  concurso: {
+    select: {
+      cargo: {
+        select: { id: true, codigo: true, idSial: true, escalafonId: true },
+      },
+    },
+  },
+  personaDesignada: { select: { cuil: true, apellidoNombre: true } },
+  inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
+} satisfies Prisma.ConcursoCphSelect
+
+export type ConcursoIndexRow = Prisma.ConcursoCphGetPayload<{ select: typeof CONCURSO_INDEX_SELECT }>
+
+// Construye el índice de concursos por CUIL (normalizado a dígitos) del
+// designado. Prioridad al insertar en el Map: persona designada > inscripto
+// reservado > referencia manual (designadoRefCuil) — cada fuente sólo se
+// escribe si no hay ya una entrada para ese CUIL (la de mayor prioridad gana).
+//
+// `where` lo decide el caller porque difiere entre usos:
+//  - Preview (getValidacionesPreviewService): mantiene su filtro histórico
+//    (estado != 'finalizado', suspendido=false, con persona del OM).
+//  - Enganche automático del Paso 2 (loop masivo): NO filtra por estado — un
+//    designado queda `finalizado` (regla n-designado ⇒ finalizado), así que
+//    ese filtro excluiría justo a los designados. Filtra validado=false e
+//    incluye designadoRefCuil en el OR para enganchar cargas manuales.
+async function resolverConcursoDesignadoPorCuil(
+  where: Prisma.ConcursoCphWhereInput,
+): Promise<Map<string, ConcursoIndexRow>> {
+  const concursos = await prisma.concursoCph.findMany({
+    where,
+    select: CONCURSO_INDEX_SELECT,
+  })
+
+  const concursoPorCuil = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursos) {
+    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
+    if (cuilDesig && !concursoPorCuil.has(cuilDesig)) concursoPorCuil.set(cuilDesig, cc)
+  }
+  for (const cc of concursos) {
+    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
+    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
+  }
+  for (const cc of concursos) {
+    const cuilRef = soloDigitos(cc.designadoRefCuil)
+    if (cuilRef && !concursoPorCuil.has(cuilRef)) concursoPorCuil.set(cuilRef, cc)
+  }
+  return concursoPorCuil
+}
+
+// Decide si un diff del padrón es "validable" contra un concurso designado:
+// coincide la carrera (escalafón) Y la especialidad. Pura y testeable — se usa
+// tanto en el preview como en el enganche automático del Paso 2.
+export function esValidableContraConcurso(args: {
+  escalafonDiffId: string | null
+  especialidadDiff: string | null | undefined
+  escalafonConcursoId: string | null | undefined
+  especialidadConcurso: string | null | undefined
+}): { carreraCoincide: boolean; especialidadCoincide: boolean; validable: boolean } {
+  const carreraCoincide =
+    !!args.escalafonDiffId && args.escalafonDiffId === (args.escalafonConcursoId ?? null)
+  const especialidadCoincide =
+    !!args.especialidadDiff &&
+    !!args.especialidadConcurso &&
+    normalizarEsp(args.especialidadDiff) === normalizarEsp(args.especialidadConcurso)
+  return { carreraCoincide, especialidadCoincide, validable: carreraCoincide && especialidadCoincide }
+}
+
+// Extrae los campos de calcConcursoCph() de una fila completa de ConcursoCph —
+// espejo de toCalcInput() de concursos-cph.service, replicado acá para no
+// acoplar el módulo padrón al service de concursos (el calc en sí es puro).
+function toCalcInputPadron(
+  row: Prisma.ConcursoCphGetPayload<Record<string, never>>,
+): ConcursoCphCalcInput {
+  return {
+    suspendido: row.suspendido,
+    eeBaja: row.eeBaja,
+    fechaBaja: row.fechaBaja,
+    eeConcurso: row.eeConcurso,
+    fechaEeConcurso: row.fechaEeConcurso,
+    fechaAutorizacion: row.fechaAutorizacion,
+    sorteoJurado: row.sorteoJurado,
+    disposicion: row.disposicion,
+    fechaInscDesde: row.fechaInscDesde,
+    fechaInscHasta: row.fechaInscHasta,
+    inscripcionCerrada: row.inscripcionCerrada,
+    ordenMeritoConfirmado: row.ordenMeritoConfirmado,
+    fechaExamen: row.fechaExamen,
+    fechaOrdenMerito: row.fechaOrdenMerito,
+    fechaIfacs: row.fechaIfacs,
+    fechaInsal: row.fechaInsal,
+    eeDesignacion: row.eeDesignacion,
+    cargaDocumentacion: row.cargaDocumentacion,
+    fechaAptoMedico: row.fechaAptoMedico,
+    fechaIte: row.fechaIte,
+    proyectoResolucion: row.proyectoResolucion,
+    resoALaFirma: row.resoALaFirma,
+    resolucionDesignacion: row.resolucionDesignacion,
+    fechaResolucion: row.fechaResolucion,
+    cargoSial: row.cargoSial,
+    dispoDesierta: row.dispoDesierta,
+    fechaDispoDesierta: row.fechaDispoDesierta,
+    validado: row.validado,
+    validadoIdSialRol: row.validadoIdSialRol,
+  }
+}
+
 export async function getValidacionesPreviewService(snapshotId: string) {
   await getSnapshotOrThrow(snapshotId)
 
@@ -3396,39 +3515,13 @@ export async function getValidacionesPreviewService(snapshotId: string) {
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
 
   // Concursos abiertos con persona del orden de mérito (reservada o designada).
-  // Traemos el CUIL de ambas fuentes + escalafón + especialidad para cruzar.
-  const concursos = await prisma.concursoCph.findMany({
-    where: {
-      estado: { not: 'finalizado' },
-      suspendido: false,
-      OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
-    },
-    select: {
-      id: true,
-      validado: true,
-      especialidadSolicitada: true,
-      concurso: {
-        select: {
-          cargo: {
-            select: { id: true, codigo: true, idSial: true, escalafonId: true },
-          },
-        },
-      },
-      personaDesignada: { select: { cuil: true, apellidoNombre: true } },
-      inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
-    },
+  // Índice de concursos por CUIL (normalizado a dígitos). WHERE histórico del
+  // preview (distinto del que usa el enganche automático del Paso 2).
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    estado: { not: 'finalizado' },
+    suspendido: false,
+    OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
   })
-
-  // Índice de concursos por CUIL (normalizado a dígitos) de su persona.
-  type ConcursoRow = (typeof concursos)[number]
-  const concursoPorCuil = new Map<string, ConcursoRow>()
-  for (const cc of concursos) {
-    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
-    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
-    if (cuilDesig) concursoPorCuil.set(cuilDesig, cc)
-    // El reservado solo si no hay ya uno por designado (designado tiene prioridad).
-    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
-  }
 
   const detalle = parsed
     .map((p) => {
@@ -3440,12 +3533,12 @@ export async function getValidacionesPreviewService(snapshotId: string) {
         (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
         (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
         null
-      const carreraCoincide =
-        !!escalafonDiff && escalafonDiff === (cc.concurso?.cargo?.escalafonId ?? null)
-      const especialidadCoincide =
-        !!p.especialidad &&
-        !!cc.especialidadSolicitada &&
-        normalizarEsp(p.especialidad) === normalizarEsp(cc.especialidadSolicitada)
+      const { carreraCoincide, especialidadCoincide } = esValidableContraConcurso({
+        escalafonDiffId: escalafonDiff,
+        especialidadDiff: p.especialidad,
+        escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+        especialidadConcurso: cc.especialidadSolicitada,
+      })
 
       const nombre =
         cc.personaDesignada?.apellidoNombre ??
@@ -3523,9 +3616,93 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
 
   const pendientes = await prisma.padronDiff.findMany({
     where: { snapshotId, tipo: 'nuevo', aprobado: null },
-    select: { id: true, idSialRol: true },
+    select: { id: true, idSialRol: true, campo: true, valorNuevo: true },
   })
   if (pendientes.length === 0) return { ok: true, total: 0, procesados: 0 }
+
+  // ── Paso 2: enganche automático padrón → concurso designado ───────────────
+  // Antes del loop (una sola vez, no por diff) armamos el índice de concursos
+  // designados por CUIL y los lookups de escalafón para decidir `validable`.
+  // Para cada diff se resuelve `vincularConcursoId` SOLO si el match es validable
+  // (CUIL + carrera + especialidad). Un match no validable (o sin concurso) deja
+  // `vincularConcursoId` undefined → camino normal (comportamiento actual intacto).
+  const parsedPendientes = pendientes.map((d) => {
+    const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+    return {
+      diffId: d.id,
+      campo: d.campo,
+      idSialRol: d.idSialRol,
+      cuil: cuilDe(datos),
+      escalafon: datos.escalafon as string | undefined,
+      especialidad: datos.especialidad as string | undefined,
+      codigoDeRegistro: datos.codigo_de_registro as string | undefined,
+    }
+  })
+
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    suspendido: false,
+    validado: false,
+    OR: [
+      { personaDesignadaId: { not: null } },
+      { inscriptoReservadoId: { not: null } },
+      { designadoRefCuil: { not: null } },
+    ],
+  })
+
+  // Índice por id_sial_rol tipeado manualmente (match directo, prioridad superior).
+  const concursoPorIdSialRol = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursoPorCuil.values()) {
+    if (cc.designadoRefIdSialRol && !concursoPorIdSialRol.has(cc.designadoRefIdSialRol)) {
+      concursoPorIdSialRol.set(cc.designadoRefIdSialRol, cc)
+    }
+  }
+
+  const codRegs = [
+    ...new Set(parsedPendientes.map((p) => p.codigoDeRegistro).filter((v): v is string => !!v)),
+  ]
+  const escNames = [
+    ...new Set(parsedPendientes.map((p) => p.escalafon).filter((v): v is string => !!v)),
+  ]
+  const [codRegsLookup, escalafonesLookup] = await Promise.all([
+    prisma.codigoRegistro.findMany({
+      where: { codigo: { in: codRegs } },
+      select: { codigo: true, escalafonId: true },
+    }),
+    prisma.escalafon.findMany({
+      where: { nombre: { in: escNames }, activo: true },
+      select: { id: true, nombre: true },
+    }),
+  ])
+  const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+
+  // Resuelve el concurso a vincular para un diff, o undefined si no engancha.
+  const resolverVinculo = (p: (typeof parsedPendientes)[number]): string | undefined => {
+    // Los desdoblados 24/07 se materializan por el camino dedicado del snapshot;
+    // no se enganchan acá (aprobarDiffNuevoService los rechaza igual).
+    if (p.campo === '__alta_desdoblada__') return undefined
+    // 1) Match directo por id_sial_rol tipeado manualmente (prioridad superior).
+    const porId = concursoPorIdSialRol.get(p.idSialRol)
+    // 2) Match por CUIL del designado.
+    const porCuil = p.cuil ? concursoPorCuil.get(soloDigitos(p.cuil)) : undefined
+    const cc = porId ?? porCuil
+    if (!cc) return undefined
+    const escalafonDiffId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
+      null
+    const { validable } = esValidableContraConcurso({
+      escalafonDiffId,
+      especialidadDiff: p.especialidad,
+      escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+      especialidadConcurso: cc.especialidadSolicitada,
+    })
+    // Guarda: sólo enganchar si el match es confiable (CUIL + carrera +
+    // especialidad). Los no-validables quedan para la decisión manual existente.
+    return validable ? cc.id : undefined
+  }
+  const vinculoPorDiff = new Map<string, string | undefined>()
+  for (const p of parsedPendientes) vinculoPorDiff.set(p.diffId, resolverVinculo(p))
 
   const progreso: AprobacionProgreso = {
     estado: 'procesando',
@@ -3544,7 +3721,7 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   void (async () => {
     for (const diff of pendientes) {
       try {
-        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId, vinculoPorDiff.get(diff.id))
         progreso.aprobados++
       } catch (err) {
         progreso.fallidos.push({
@@ -3695,12 +3872,20 @@ export async function aprobarDiffNuevoService(
       })) as { cargo: CargoRow } | null
       if (concurso?.cargo) {
         cargo = concurso.cargo
-        // Actualizar idSial del cargo del concurso al id_sial del padrón
+        // Paso 2 — ocupar el cargo del concurso: idSial real del padrón +
+        // estado vigente + sub_estado 'ocupado' (invariante del backfill:
+        // ocupado = vigente + ocupación viva). Incondicional: el designado que
+        // aparece en el padrón ocupa el cargo aunque ya estuviera vigente.
         await tx.cargo.update({
           where: { id: cargo.id },
-          data: { idSial: datos.id_sial },
+          data: {
+            idSial: datos.id_sial,
+            estado: 'vigente',
+            subEstado: 'ocupado',
+            estadoDesde: new Date(),
+          },
         })
-        cargo = { ...cargo, idSial: datos.id_sial }
+        cargo = { ...cargo, idSial: datos.id_sial, estado: 'vigente' }
       }
     }
 
@@ -3786,6 +3971,41 @@ export async function aprobarDiffNuevoService(
       })) as CargoRow
     }
 
+    // Paso 2 — reconciliación de la ocupación MANUAL. Si el cargo del concurso
+    // ya tiene una ocupación viva sintética (idSialRol LIKE 'MANUAL-{cargo8}-%'),
+    // creada por la designación manual antes de que el padrón trajera a la
+    // persona, se ACTUALIZA su idSialRol al real del padrón en vez de crear otra
+    // (evita violar Ocupacion.idSialRol @unique y duplicar). Sólo en la rama de
+    // vínculo a concurso y sólo si no hay ya una ocupación con el idSialRol real
+    // (idempotencia ante reejecución de "aprobar todos").
+    if (vincularConcursoId && persona && cargo) {
+      const yaReconciliada = await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+      })
+      if (!yaReconciliada) {
+        const ocupManual = await tx.ocupacion.findFirst({
+          where: {
+            cargoId: cargo.id,
+            hasta: null,
+            idSialRol: { startsWith: `MANUAL-${cargo.id.slice(0, 8)}-` },
+          },
+        })
+        if (ocupManual) {
+          await tx.ocupacion.update({
+            where: { id: ocupManual.id },
+            data: {
+              idSialRol: diff.idSialRol,
+              personaId: persona.id,
+              cuil: cuilDe(datos),
+              situacionRevista: datos.situacion_de_revista ?? null,
+              estadoPersona: datos.estado ?? null,
+              snapshotId,
+            },
+          })
+        }
+      }
+    }
+
     // Crear ocupación si no existe
     if (persona && cargo) {
       const ocupExistente = await tx.ocupacion.findUnique({ where: { idSialRol: diff.idSialRol } })
@@ -3861,6 +4081,29 @@ export async function aprobarDiffNuevoService(
       })
 
       if (debeValidar) {
+        // Paso 2 — recalcular el concurso tras encender `validado`. El primer
+        // update escribe validado pero NO recalcula el sub-estado; con el
+        // disparador por `validado` (Parte A), un concurso validado debe quedar
+        // en 'o-alta sial'. Releemos la fila completa y persistimos el recálculo.
+        const rowCompleta = await tx.concursoCph.findUnique({ where: { id: vincularConcursoId } })
+        if (rowCompleta) {
+          const calc = calcConcursoCph(toCalcInputPadron(rowCompleta))
+          await tx.concursoCph.update({
+            where: { id: vincularConcursoId },
+            data: {
+              estado: calc.estado,
+              subEstado: calc.subEstado,
+              subEstado3: calc.subEstado3,
+            },
+          })
+        } else {
+          // No debería ocurrir dentro de la tx; se deja el concurso validado con
+          // el sub-estado viejo y se registra para diagnóstico (no bloquea el batch).
+          console.warn(
+            `[padron] recálculo omitido: concurso ${vincularConcursoId} no encontrado tras validar`,
+          )
+        }
+
         const cargoCodigo = concursoActual?.concurso?.cargo?.codigo ?? nombrePersona
         await crearNotificacion({
           tipo: 'autorizacion_resuelta',

@@ -189,12 +189,38 @@ export const designarCphSchema = z.object({
 
 export type DesignarCphBody = z.infer<typeof designarCphSchema>
 
-// Asignar manualmente la persona designada SIN crear ocupación (caso histórico:
-// concurso finalizado con resolución cargada pero sin persona vinculada). Solo
-// recibe el personaId — el sub-estado (n-designado) lo recalcula el backend.
-export const asignarDesignadoCphSchema = z.object({
+// Asignar manualmente la persona designada SIN crear ocupación. Dos formas
+// (union discriminada por la presencia de personaId vs refCuil):
+//
+//  (1) forma existente `{ personaId }`: vincular una Persona real ya en la BD
+//      (caso histórico: concurso finalizado con resolución cargada pero sin
+//      persona vinculada). El sub-estado (n-designado) lo recalcula el backend.
+//
+//  (2) forma manual por referencia `{ refCuil, refNombre, idSialRol? }`: el
+//      candidato NO está en la BD de personas ni en la orden de mérito. NO se
+//      crea Persona: se guarda sólo la referencia (CUIL normalizado + nombre).
+//      `idSialRol` es opcional: si el operador lo conoce, se persiste para el
+//      match directo contra el padrón (Paso 2). La persona real se crea/vincula
+//      cuando el padrón la traiga.
+const asignarDesignadoPersonaSchema = z.object({
   personaId: z.string().uuid(),
 })
+
+const asignarDesignadoManualSchema = z.object({
+  // CUIL de referencia: se normaliza a dígitos y debe quedar en exactamente 11.
+  refCuil: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\D/g, ''))
+    .refine((s) => s.length === 11, 'El CUIL debe tener 11 dígitos'),
+  refNombre: z.string().trim().min(1).max(200),
+  idSialRol: z.string().trim().max(50).optional(),
+})
+
+export const asignarDesignadoCphSchema = z.union([
+  asignarDesignadoPersonaSchema,
+  asignarDesignadoManualSchema,
+])
 
 export type AsignarDesignadoCphBody = z.infer<typeof asignarDesignadoCphSchema>
 

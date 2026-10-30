@@ -40,6 +40,8 @@ const CALC_INPUT_VACIO: Omit<ConcursoCphCalcInput, 'suspendido' | 'eeBaja' | 'fe
   cargoSial: null,
   dispoDesierta: null,
   fechaDispoDesierta: null,
+  validado: false,
+  validadoIdSialRol: null,
 }
 
 // ─── Lógica interna reutilizable dentro de una transacción existente ────────

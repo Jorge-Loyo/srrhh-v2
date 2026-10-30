@@ -412,6 +412,13 @@ export interface ConcursoCph {
   fechaDispoDesierta: string | null
   cantidadCargos: number
   personaDesignadaId: string | null
+  // Carga manual por referencia (Paso 2): designado que no está en la BD de
+  // personas. Sólo referencia (no crea Persona); la Persona real se vincula
+  // cuando el padrón la traiga. designadoRefIdSialRol = id_sial_rol tipeado
+  // por el operador para el match directo.
+  designadoRefCuil: string | null
+  designadoRefNombre: string | null
+  designadoRefIdSialRol: string | null
   suspendido: boolean
   ifacs: string | null
   insal: string | null
@@ -1773,11 +1780,16 @@ export interface DesignarConcursoRequest {
   observaciones?: string | null
 }
 
-// POST /api/v1/concursos-cph/:id/asignar-designado — vincula persona designada
-// SIN ocupar el cargo (caso histórico: finalizado sin persona vinculada).
-export interface AsignarDesignadoCphRequest {
-  personaId: string
-}
+// POST /api/v1/concursos-cph/:id/asignar-designado — vincula el designado SIN
+// ocupar el cargo. Dos formas:
+//  (1) `{ personaId }`: vincular una Persona real ya en la BD (caso histórico:
+//      finalizado sin persona vinculada).
+//  (2) `{ refCuil, refNombre, idSialRol? }`: carga manual por referencia cuando
+//      el designado NO está en la BD. No crea Persona; sólo guarda la referencia.
+//      idSialRol opcional (match directo contra el padrón si el operador lo conoce).
+export type AsignarDesignadoCphRequest =
+  | { personaId: string }
+  | { refCuil: string; refNombre: string; idSialRol?: string }
 
 // ---- SPRINT 18 — Retención de cargos ----
 

@@ -89,6 +89,8 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
     cargoSial: row.cargoSial,
     dispoDesierta: row.dispoDesierta,
     fechaDispoDesierta: row.fechaDispoDesierta,
+    validado: row.validado,
+    validadoIdSialRol: row.validadoIdSialRol,
   }
 }
 
@@ -578,6 +580,23 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
       : { disconnect: true }
   }
 
+  // Atajo de compatibilidad (Decisión A): el disparador real de o-alta sial es
+  // `validado` (la persona apareció en el padrón). Pero históricamente el alta
+  // SIAL se cargaba a mano completando `cargoSial`. Para no perder ese flujo,
+  // SOLO en este PATCH manual: si llega `cargoSial` no-vacío y el concurso no
+  // estaba validado, encender `validado`/`validadoAt` para que el recálculo
+  // devuelva o-alta sial. Este atajo vive únicamente acá; NO aplica al
+  // `cargoSial` que escribe aprobarDiffNuevoService (ese valida por el padrón).
+  if (
+    body.cargoSial !== undefined &&
+    body.cargoSial !== null &&
+    body.cargoSial !== '' &&
+    !existing.validado
+  ) {
+    patch.validado = true
+    patch.validadoAt = new Date()
+  }
+
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
   const calc = calcConcursoCph(merged)
 
@@ -952,20 +971,41 @@ export async function asignarDesignadoConcursoCphService(
   const existing = await prisma.concursoCph.findUnique({ where: { id } })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
 
-  const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
-  if (!persona) throw AppError.notFound('Persona no encontrada')
-
   // Reasignación permitida por defecto: si ya había persona vinculada, se
   // sobreescribe (regla confirmada). El sub-estado se recalcula sobre la fila
   // existente (personaDesignadaId no es input de calcConcursoCph: n-designado
   // depende de resolucionDesignacion, ya presente en estos casos), igual que
-  // patch/suspender.
+  // patch/suspender. NINGUNA de las dos formas ocupa el cargo ni enciende
+  // validado: la ocupación/validación llega recién con el padrón (Paso 2).
+  const data: Prisma.ConcursoCphUpdateInput = {}
+
+  if ('refCuil' in body && body.refCuil) {
+    // Forma manual por referencia. refCuil ya viene normalizado (11 dígitos)
+    // desde el schema. Guardar siempre la referencia; NO crear Persona.
+    data.designadoRefCuil = body.refCuil
+    data.designadoRefNombre = body.refNombre
+    // id_sial tipeado (opcional): se persiste en una columna dedicada para el
+    // match directo contra el padrón en el Paso 2. NO se escribe en
+    // validadoIdSialRol (ese es el rol real del padrón, lo setea el enganche).
+    data.designadoRefIdSialRol = body.idSialRol ?? null
+    // Si el CUIL de referencia matchea una Persona real ya en la BD, vincularla
+    // también por personaDesignadaId (RF-B5); si no, queda sólo la referencia y
+    // la Persona se vincula cuando el padrón la traiga.
+    const persona = await prisma.persona.findUnique({ where: { cuil: body.refCuil } })
+    if (persona) data.personaDesignada = { connect: { id: persona.id } }
+  } else if ('personaId' in body && body.personaId) {
+    // Forma existente: vincular Persona real por id. Debe existir.
+    const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+    if (!persona) throw AppError.notFound('Persona no encontrada')
+    data.personaDesignada = { connect: { id: body.personaId } }
+  }
+
   const calc = calcConcursoCph(toCalcInput(existing))
 
   return prisma.concursoCph.update({
     where: { id },
     data: {
-      personaDesignadaId: body.personaId,
+      ...data,
       estado: calc.estado,
       subEstado: calc.subEstado,
       subEstado3: calc.subEstado3,
@@ -1008,10 +1048,12 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
       },
     })
 
-    // Cargo → vigente (ocupado)
+    // Cargo → vigente + ocupado. Mantener sub_estado en runtime (Paso 2,
+    // invariante del backfill: ocupado = vigente + ocupación viva). Antes la
+    // designación manual ocupaba pero dejaba sub_estado sin tocar.
     await tx.cargo.update({
       where: { id: cargoId },
-      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+      data: { estado: 'vigente', subEstado: 'ocupado', estadoDesde: new Date(body.fechaDesde) },
     })
 
     // Avanzar sub-estado a N-DESIGNADO y estado a finalizado
@@ -1147,6 +1189,10 @@ export async function importarConcursosCsvService(buffer: Buffer) {
         cargoSial: str(row['cargo_sial']),
         dispoDesierta: str(row['dispo_desierta']),
         fechaDispoDesierta: fecha(row['fecha_dispo_desierta']),
+        // Import CSV: el concurso se crea sin validar contra el padrón. El alta
+        // SIAL (o-alta sial) llega con el enganche del padrón o el PATCH manual.
+        validado: false,
+        validadoIdSialRol: null,
       }
       // Si el CSV dice FINALIZADO, forzar estado finalizado independientemente del calc
       const calc = calcConcursoCph(calcInput)
@@ -1281,6 +1327,8 @@ export async function importarConcursosCsvService(buffer: Buffer) {
       cargoSial: merged.cargoSial,
       dispoDesierta: merged.dispoDesierta,
       fechaDispoDesierta: merged.fechaDispoDesierta,
+      validado: merged.validado,
+      validadoIdSialRol: merged.validadoIdSialRol,
     })
 
     await prisma.concursoCph.update({

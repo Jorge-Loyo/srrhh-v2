@@ -39,6 +39,8 @@ const BASE: ConcursoCphCalcInput = {
   cargoSial: null,
   dispoDesierta: null,
   fechaDispoDesierta: null,
+  validado: false,
+  validadoIdSialRol: null,
 }
 
 /** Concurso activo mínimo (tiene eeBaja + eeConcurso + fechas) */
@@ -236,20 +238,33 @@ describe('calcConcursoCph — subEstado', () => {
     expect(r.subEstado).toBe('n-designado')
   })
 
-  it('+ cargoSial → o-alta sial (máxima prioridad sobre designado)', () => {
+  it('+ validado → o-alta sial (el padrón confirmó; gana sobre n-designado)', () => {
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+      validado: true,
+      validadoIdSialRol: '001234567-1',
+    })
+    expect(r.subEstado).toBe('o-alta sial')
+  })
+
+  it('cargoSial no-nulo pero validado=false → n-designado (cargoSial ya NO dispara o-alta sial)', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
       cargoSial: '001234567-1',
+      validado: false,
     })
-    expect(r.subEstado).toBe('o-alta sial')
+    expect(r.subEstado).toBe('n-designado')
   })
 
   it('dispoDesierta + fechaDispoDesierta → q-desierto (máxima prioridad)', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
       dispoDesierta: 'DI-DESIERTA',
       fechaDispoDesierta: d('2026-09-01'),
     })
@@ -365,19 +380,21 @@ describe('calcConcursoCph — invariantes', () => {
       fechaIfacs: d('2026-06-01'),
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
       dispoDesierta: 'DI-DESIERTA',
       fechaDispoDesierta: d('2026-09-01'),
     })
     expect(r.subEstado).toBe('q-desierto')
   })
 
-  it('o-alta sial gana sobre n-designado', () => {
+  it('o-alta sial (validado) gana sobre n-designado', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
     })
     expect(r.subEstado).toBe('o-alta sial')
   })

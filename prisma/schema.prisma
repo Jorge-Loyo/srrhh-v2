@@ -837,6 +837,16 @@ model ConcursoCph {
   dispoDesierta                  String?           @map("dispo_desierta") @db.VarChar(50)
   fechaDispoDesierta             DateTime?         @map("fecha_dispo_desierta") @db.Date
   personaDesignadaId             String?           @map("persona_designada_id") @db.Uuid
+  // Carga manual por referencia (Paso 2, tercera vía de "elegir candidato"):
+  // el designado NO está en la BD de personas ni en la orden de mérito. Se
+  // guarda sólo la referencia (CUIL normalizado + nombre) SIN crear Persona.
+  // La Persona real se vincula cuando el padrón la traiga (enganche automático).
+  // designadoRefIdSialRol: id_sial_rol que el operador tipea si lo conoce, para
+  // el match directo contra el padrón (distinto de validadoIdSialRol, que es el
+  // rol real con el que se cerró la validación).
+  designadoRefCuil               String?           @map("designado_ref_cuil") @db.VarChar(11)
+  designadoRefNombre             String?           @map("designado_ref_nombre") @db.VarChar(200)
+  designadoRefIdSialRol          String?           @map("designado_ref_id_sial_rol") @db.VarChar(50)
   suspendido                     Boolean           @default(false)
   // Campos nuevos — datos del CSV histórico y flujo completo
   ifacs                          String?           @db.VarChar(200) // expediente IF del IFACS

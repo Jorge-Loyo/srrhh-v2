@@ -536,8 +536,11 @@ export function ConcursoCphWizard() {
   // 'asignar': vincular la persona designada SIN ocupar el cargo (caso
   // histórico: concurso finalizado sin persona vinculada). Oculta fecha/idSial
   // y usa asignarDesignadoMutation.
+  // 'manual': carga manual por referencia (tercera vía) — el candidato no está
+  // en la orden de mérito ni en la BD de personas. Guarda solo la referencia
+  // (CUIL + nombre + id_sial opcional); NO crea Persona ni ocupa el cargo.
   const [modalDesignarModo, setModalDesignarModo] = useState<
-    'proponer' | 'designar' | 'asignar'
+    'proponer' | 'designar' | 'asignar' | 'manual'
   >('designar')
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
@@ -545,6 +548,10 @@ export function ConcursoCphWizard() {
   const [designarFechaDesde, setDesignarFechaDesde] = useState('')
   const [designarIdSialRol, setDesignarIdSialRol] = useState('')
   const [designarSearch, setDesignarSearch] = useState('')
+  // Vía manual por referencia: CUIL (11 díg), apellido/nombre y id_sial opcional.
+  const [manualCuil, setManualCuil] = useState('')
+  const [manualNombre, setManualNombre] = useState('')
+  const [manualIdSial, setManualIdSial] = useState('')
   // Inscripto (de este concurso) que corresponde a la persona propuesta —
   // se necesita para poder marcarlo en insalRechazados si no acepta.
   const [designarInscriptoId, setDesignarInscriptoId] = useState('')
@@ -840,6 +847,44 @@ export function ConcursoCphWizard() {
       return res.data.data
     },
   })
+
+  // Vía 'manual': lookup por CUIL contra la BD de personas. Cuando el operador
+  // tipea 11 dígitos, se busca el match exacto por CUIL para informar si la
+  // persona ya existe (y qué roles SIAL vincularían). NO crea nada: solo informa.
+  const manualCuilNorm = manualCuil.replace(/\D/g, '')
+  const { data: manualMatch = null } = useQuery({
+    queryKey: ['personas-busqueda-manual', manualCuilNorm],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && manualCuilNorm.length === 11,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: manualCuilNorm, limit: 5 } })
+      return res.data.data.find((p) => p.cuil.replace(/\D/g, '') === manualCuilNorm) ?? null
+    },
+  })
+  // Roles SIAL de la persona que matcheó por CUIL (para mostrar qué vincularía).
+  const { data: manualSialRoles = [] } = useQuery({
+    queryKey: ['persona-sial-roles-manual', manualMatch?.id],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && !!manualMatch?.id,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          idSialRol: string
+          codigoCargo: string | null
+          literalPuesto: string | null
+          hospitalSigla: string
+        }[]
+      }>(`/api/v1/personas/${manualMatch!.id}/sial-roles`)
+      return res.data.data
+    },
+  })
+
   const formRef = useRef<HTMLDivElement>(null)
   const tipoGestionRef = useRef<HTMLSelectElement>(null)
   // Valores originales para detectar cambios en etapa baja
@@ -1891,14 +1936,18 @@ export function ConcursoCphWizard() {
                     ? 'Proponer candidato'
                     : modalDesignarModo === 'asignar'
                       ? 'Asignar persona designada'
-                      : 'Registrar designación'}
+                      : modalDesignarModo === 'manual'
+                        ? 'Carga manual por referencia'
+                        : 'Registrar designación'}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {modalDesignarModo === 'proponer'
                     ? 'Elegí a quién notificar por INSAL. Esto no ocupa el cargo — la designación oficial es en la Etapa 5.'
                     : modalDesignarModo === 'asignar'
                       ? 'Solo vincula a la persona que ganó el concurso. NO ocupa el cargo — el cargo pasa a ocupado recién cuando la persona aparezca en el padrón semanal.'
-                      : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
+                      : modalDesignarModo === 'manual'
+                        ? 'Cargá al designado cuando NO está en la orden de mérito ni en la base de personas. Se guarda solo la referencia (CUIL + nombre); la persona real se vincula cuando el padrón la traiga. No ocupa el cargo.'
+                        : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
                 </p>
               </div>
             </div>
@@ -1968,15 +2017,95 @@ export function ConcursoCphWizard() {
                 </div>
               )}
 
+              {/* Modo 'manual': carga por referencia. CUIL + apellido/nombre
+                  requeridos, id_sial opcional. Al tipear 11 dígitos de CUIL se
+                  consulta la BD y se informa si la persona ya existe. */}
+              {modalDesignarModo === 'manual' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      CUIL <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={manualCuil}
+                      onChange={(e) => setManualCuil(e.target.value)}
+                      placeholder="11 dígitos"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                    {manualCuil.trim().length > 0 && manualCuilNorm.length !== 11 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        El CUIL debe tener 11 dígitos ({manualCuilNorm.length} hasta ahora).
+                      </p>
+                    )}
+                    {manualCuilNorm.length === 11 && (
+                      <div className="mt-2 rounded-lg border px-3 py-2 text-xs">
+                        {manualMatch ? (
+                          <div className="text-emerald-700">
+                            <p className="font-semibold">
+                              ✓ Esta persona ya está en la base: {manualMatch.apellidoNombre}
+                            </p>
+                            {manualSialRoles.length > 0 ? (
+                              <p className="mt-1 text-gray-600">
+                                Roles SIAL que vincularían:{' '}
+                                {manualSialRoles.map((r) => r.idSialRol).join(', ')}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-gray-500">
+                                Sin roles SIAL activos — se vinculará y ocupará cuando aparezca en
+                                el padrón.
+                              </p>
+                            )}
+                            <p className="mt-1 text-gray-500">
+                              Se vinculará la persona real además de guardar la referencia.
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-blue-700">
+                            No está en la base — se guardará solo la referencia. La persona se
+                            creará/vinculará cuando el padrón la traiga.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Apellido y nombre <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualNombre}
+                      onChange={(e) => setManualNombre(e.target.value)}
+                      placeholder="Apellido, Nombre"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      id_sial (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualIdSial}
+                      onChange={(e) => setManualIdSial(e.target.value)}
+                      placeholder="Si lo conocés, para el match directo con el padrón"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Elegibles del orden de mérito de este concurso */}
-              {modalDesignarModo !== 'asignar' && elegiblesOM.length === 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   ⚠ Todavía no hay orden de mérito calculado para este concurso — no hay
                   candidatos para proponer. Andá a la Etapa 3 (Inscripción/Examen/OM), cargá las
                   notas de los presentados y apretá «📊 Cargar notas / calcular orden».
                 </div>
               )}
-              {modalDesignarModo !== 'asignar' && elegiblesOM.length > 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length > 0 && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Orden de mérito — elegí a quién proponer <span className="text-danger">*</span>
@@ -2271,6 +2400,52 @@ export function ConcursoCphWizard() {
                   {asignarDesignadoMutation.isPending
                     ? 'Guardando...'
                     : 'Vincular persona designada'}
+                </button>
+              ) : modalDesignarModo === 'manual' ? (
+                <button
+                  className="btn-primary"
+                  disabled={
+                    manualCuilNorm.length !== 11 ||
+                    manualNombre.trim().length === 0 ||
+                    asignarDesignadoMutation.isPending
+                  }
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      {
+                        refCuil: manualCuilNorm,
+                        refNombre: manualNombre.trim(),
+                        ...(manualIdSial.trim() ? { idSialRol: manualIdSial.trim() } : {}),
+                      },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            manualMatch
+                              ? 'Designado vinculado por referencia (persona encontrada en la base). El cargo se ocupará cuando el padrón lo confirme.'
+                              : 'Designado guardado por referencia. La persona se vinculará cuando el padrón la traiga.',
+                          )
+                          setModalDesignar(false)
+                          setManualCuil('')
+                          setManualNombre('')
+                          setManualIdSial('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: { message?: string; error?: { message?: string } }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo guardar la referencia del designado.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending ? 'Guardando...' : 'Guardar referencia'}
                 </button>
               ) : (
                 <button
@@ -2908,6 +3083,21 @@ export function ConcursoCphWizard() {
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
                       >
                         👤 Asignar designado (sin ocupar)
+                      </button>
+                    )}
+                    {/* Carga manual por referencia — candidato que no está en la
+                        orden de mérito ni en la base de personas. Guarda solo la
+                        referencia; no ocupa el cargo. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('manual')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        ✍ Cargar designado manual (por referencia)
                       </button>
                     )}
                     {/* Suspender / Activar */}
@@ -5087,15 +5277,26 @@ export function ConcursoCphWizard() {
                               el padrón.
                             </p>
                           </div>
-                          <button
-                            className="btn-primary text-sm shrink-0"
-                            onClick={() => {
-                              setModalDesignarModo('asignar')
-                              setModalDesignar(true)
-                            }}
-                          >
-                            👤 Asignar designado
-                          </button>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-primary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('asignar')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              👤 Asignar designado
+                            </button>
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✍ Carga manual por referencia
+                            </button>
+                          </div>
                         </div>
                       )}
                       {/* ── ARRIBA: detalle informativo de la persona ── */}
