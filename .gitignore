@@ -82,6 +82,9 @@ Doc/Referencias/**/*.pdf
 Doc/Referencias/**/*.xlsx
 Doc/Referencias/**/*.xls
 Doc/Referencias/**/*.csv
+# ...y los .sql generados a partir de esos insumos (contienen datos reales:
+# CUILs, nombres). El generador .py que los produce SÍ se versiona en scripts/.
+Doc/Referencias/**/*.sql
 
 # Git worktrees locales (nunca se versionan dentro del repo)
 .worktrees/
