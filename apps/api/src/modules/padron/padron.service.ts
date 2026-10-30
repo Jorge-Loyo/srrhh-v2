@@ -51,6 +51,7 @@ import {
   formatearCodigoDesdoblado,
   tipoDiffDesdoblado,
   clasificacionEliminadoDesdoblado,
+  evaluarRatioTamano,
 } from './padron.diff.helpers.js'
 
 // Re-exportados para compatibilidad y para que otros módulos usen la única
@@ -203,6 +204,44 @@ async function getSnapshotOrThrow(id: string) {
   const snapshot = await prisma.padronSnapshot.findUnique({ where: { id } })
   if (!snapshot) throw AppError.notFound('Snapshot no encontrado')
   return snapshot
+}
+
+// ─── Guarda contra padrón parcial ────────────────────────────────────────────
+// Trae el total del ÚLTIMO snapshot aprobado (el más reciente por fechaAsignada),
+// excluyendo opcionalmente un snapshot (el propio al re-chequear en aprobar).
+// Devuelve null si no hay aprobado previo (la guarda no aplica — primer padrón).
+async function totalUltimoSnapshotAprobado(excluirId?: string): Promise<number | null> {
+  const ultimo = await prisma.padronSnapshot.findFirst({
+    where: { estado: 'aprobado', ...(excluirId ? { id: { not: excluirId } } : {}) },
+    orderBy: { fechaAsignada: 'desc' },
+    select: { totalRegistros: true },
+  })
+  return ultimo?.totalRegistros ?? null
+}
+
+// Arma el texto de advertencia de padrón chico: incluye conteos, porcentaje y la
+// explicación operativa. Fuente única del mensaje (lo usa runPipeline para
+// persistir la advertencia y aprobarSnapshotService para el error del bloqueo).
+function mensajeAdvertenciaRatio(totalNuevo: number, totalReferencia: number, ratio: number): string {
+  const pct = Math.round(ratio * 1000) / 10 // 1 decimal
+  return `Este padrón trae ${totalNuevo} registros vs ${totalReferencia} del último aprobado (${pct}%) — posible exportación parcial del SIAL. Confirmá el override para aprobar igual.`
+}
+
+// Evalúa el ratio de tamaño del padrón nuevo contra el último aprobado y arma la
+// advertencia si corresponde. `ratio`/`advertencia` son null cuando la guarda no
+// aplica (sin aprobado previo) o el ratio es normal. `excluirId` se usa al
+// re-chequear en la aprobación para no compararse contra sí mismo.
+async function evaluarRatioContraUltimoAprobado(
+  totalNuevo: number,
+  excluirId?: string,
+): Promise<{ ratio: number | null; advertencia: string | null; anomalo: boolean }> {
+  const totalRef = await totalUltimoSnapshotAprobado(excluirId)
+  const { ratio, anomalo } = evaluarRatioTamano(totalNuevo, totalRef, env.PADRON_RATIO_MINIMO)
+  const advertencia =
+    anomalo && ratio != null && totalRef != null
+      ? mensajeAdvertenciaRatio(totalNuevo, totalRef, ratio)
+      : null
+  return { ratio, advertencia, anomalo }
 }
 
 // ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
@@ -1053,12 +1092,25 @@ async function runPipeline(
     if (!result.total) throw new Error('El padrón procesado no tiene filas')
 
     // El total real recién se conoce al terminar (el 202 fue con total 0).
+    // Guarda contra padrón parcial: se compara el total nuevo contra el del
+    // ÚLTIMO snapshot aprobado (referencia estable, no el último subido que
+    // podría ser otro parcial en error). Si el ratio cae bajo el umbral, se
+    // persiste la advertencia en el snapshot para que sea visible ANTES de
+    // aprobar; el bloqueo blando real se re-chequea en aprobarSnapshotService.
+    const evalRatio = await evaluarRatioContraUltimoAprobado(result.total, snapshotId)
     await prisma.padronSnapshot
       .update({
         where: { id: snapshotId },
-        data: { totalRegistros: result.total },
+        data: {
+          totalRegistros: result.total,
+          ratioTamano: evalRatio.ratio,
+          advertenciaTamano: evalRatio.advertencia,
+        },
       })
       .catch(() => {})
+    if (evalRatio.advertencia) {
+      console.warn(`[padron] guarda ratio snapshotId=${snapshotId}: ${evalRatio.advertencia}`)
+    }
 
     // Descarga paginada del parquet (GET idempotente → CON conReintentoRed).
     // Timeout por-request de 60 s, no el default de 30 s: cada página de 5.000
@@ -1207,6 +1259,8 @@ export async function listSnapshotsService() {
       estado: true,
       pasoActual: true,
       errorMsg: true,
+      ratioTamano: true,
+      advertenciaTamano: true,
       aprobadoAt: true,
       createdAt: true,
       procesadoPor: { select: { username: true } },
@@ -1568,6 +1622,8 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       filename: snapshot.filename,
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
+      ratioTamano: snapshot.ratioTamano,
+      advertenciaTamano: snapshot.advertenciaTamano,
     },
     summary: {
       nuevos,
@@ -1658,7 +1714,11 @@ async function especialidadPuestoIdFinal(
   return resolverEspecialidadPuestoId(tx, cache, puestoCargoId, especialidadLegacy, nombrePuesto)
 }
 
-export async function aprobarSnapshotService(id: string, usuarioId: string) {
+export async function aprobarSnapshotService(
+  id: string,
+  usuarioId: string,
+  overrideRatioTamano = false,
+) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')
     throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
@@ -1671,6 +1731,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     throw AppError.conflict(
       `Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`,
     )
+
+  // Guarda contra padrón parcial — BLOQUEO BLANDO. Se re-evalúa el ratio contra
+  // el último aprobado EN ESTE MOMENTO (fuente de verdad al aprobar, no la foto
+  // guardada al procesar, que pudo quedar desactualizada si cambió la
+  // referencia). Si el padrón es anómalo y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const evalRatio = await evaluarRatioContraUltimoAprobado(snapshot.totalRegistros, id)
+  if (evalRatio.anomalo && evalRatio.advertencia && !overrideRatioTamano) {
+    throw AppError.conflict(evalRatio.advertencia)
+  }
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 

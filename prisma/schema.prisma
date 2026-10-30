@@ -663,6 +663,12 @@ model PadronSnapshot {
   // S2-16: rutas de archivos generados por el pipeline
   archivoResultadoPath String?        @map("archivo_resultado_path") @db.VarChar(500)
   archivoCalidadPath   String?        @map("archivo_calidad_path") @db.VarChar(500)
+  // Guarda contra padrón parcial: ratio de tamaño (totalRegistros / total del
+  // último snapshot aprobado) calculado al terminar el pipeline, y el texto de
+  // la advertencia cuando el ratio cae bajo PADRON_RATIO_MINIMO. null = la guarda
+  // no aplicó (primer padrón sin aprobado previo) o el ratio fue normal.
+  ratioTamano          Float?         @map("ratio_tamano")
+  advertenciaTamano    String?        @map("advertencia_tamano") @db.Text
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones

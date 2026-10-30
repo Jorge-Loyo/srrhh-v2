@@ -289,7 +289,16 @@ export function PadronDiffPage() {
 
   async function handleAprobar() {
     if (!snapshotId) return
-    await aprobar.mutateAsync(snapshotId)
+    // Guarda contra padrón parcial: si el padrón vino sospechosamente chico
+    // (advertenciaTamano presente), exigir confirmación explícita del operador
+    // y recién ahí pasar el override al endpoint.
+    const advertencia = baseData?.snapshot.advertenciaTamano
+    let overrideRatioTamano = false
+    if (advertencia) {
+      if (!window.confirm(`${advertencia}\n\n¿Aprobar igual este padrón?`)) return
+      overrideRatioTamano = true
+    }
+    await aprobar.mutateAsync({ snapshotId, overrideRatioTamano })
     navigate('/padron')
   }
 
@@ -351,6 +360,21 @@ export function PadronDiffPage() {
           </div>
           {(aprobar.isError || rechazar.isError) && (
             <p className="text-sm text-danger mt-2">No se pudo completar la operación. Volvé a intentar en unos segundos.</p>
+          )}
+          {/* Guarda contra padrón parcial: advertencia de padrón chico. Visible
+              junto al botón Aprobar; al aprobar se exige confirmar el override. */}
+          {snapshot.estado === 'pendiente' && snapshot.advertenciaTamano && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span className="mt-0.5 shrink-0">⚠</span>
+              <span>
+                <strong>Posible padrón parcial.</strong> {snapshot.advertenciaTamano}
+                {snapshot.ratioTamano != null && (
+                  <span className="ml-1 text-red-600">
+                    (ratio {(snapshot.ratioTamano * 100).toFixed(1)}%)
+                  </span>
+                )}
+              </span>
+            </div>
           )}
         </div>
 

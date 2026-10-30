@@ -278,6 +278,11 @@ export interface PadronSnapshot {
   estado: EstadoSnapshot
   pasoActual: string | null
   errorMsg: string | null
+  // Guarda contra padrón parcial: ratio totalRegistros / total del último
+  // aprobado y texto de advertencia cuando el padrón vino sospechosamente chico.
+  // null = la guarda no aplicó (primer padrón) o el ratio fue normal.
+  ratioTamano: number | null
+  advertenciaTamano: string | null
   aprobadoAt: string | null
   createdAt: string
   procesadoPor: { username: string } | null
@@ -896,7 +901,7 @@ export interface DiffSummary {
 export interface SnapshotDiffResponse {
   // Subconjunto de PadronSnapshot: getSnapshotDiffService devuelve solo estos
   // campos (no aprobadoAt/createdAt/procesadoPor/aprobadoPor).
-  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado'>
+  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado' | 'ratioTamano' | 'advertenciaTamano'>
   summary: DiffSummary
   diffs: PaginatedResponse<PadronDiff>
 }

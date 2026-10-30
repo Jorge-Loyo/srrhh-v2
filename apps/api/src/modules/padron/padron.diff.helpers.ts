@@ -75,6 +75,35 @@ export function categoriaBaja(
   return esBajaNueva ? null : 'baja_previa'
 }
 
+// ─── GUARDA CONTRA PADRÓN PARCIAL (ratio de tamaño) ──────────────────────────
+// Previene que un padrón PARCIAL (error de exportación del SIAL) se procese como
+// completo y genere miles de falsas bajas (validacion_vacante). Funciones PURAS,
+// sin Prisma/env, para testearlas como el resto de los helpers del diff.
+
+export interface EvaluacionRatioTamano {
+  // Ratio nuevo/últimoAprobado. null cuando la guarda NO aplica (sin referencia).
+  ratio: number | null
+  // true cuando ratio < umbral (padrón sospechosamente chico). false si no aplica.
+  anomalo: boolean
+}
+
+// Calcula el ratio de tamaño del padrón nuevo contra el último snapshot APROBADO
+// y decide si es anómalo (ratio < umbral). La guarda NO aplica (ratio null,
+// anomalo false) cuando no hay referencia de tamaño: primer padrón sin aprobado
+// previo, o referencia con total <= 0 (evita división por cero / dato corrupto).
+// Pura: recibe los conteos y el umbral, no toca BD ni env.
+export function evaluarRatioTamano(
+  totalNuevo: number,
+  totalUltimoAprobado: number | null | undefined,
+  umbral: number,
+): EvaluacionRatioTamano {
+  if (totalUltimoAprobado == null || totalUltimoAprobado <= 0) {
+    return { ratio: null, anomalo: false }
+  }
+  const ratio = totalNuevo / totalUltimoAprobado
+  return { ratio, anomalo: ratio < umbral }
+}
+
 // ─── DESDOBLADO (24 Residencias / 07 Docentes) ───────────────────────────────
 // Fix del pipeline: estos dos cod_registro llevan un cargo 1:1 por rol (1 cargo
 // = 1 rol = 1 persona), identificado por id_sial_rol, NO por cargo.id_sial. El

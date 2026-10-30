@@ -11,6 +11,11 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  // Guarda contra padrón parcial: ratio mínimo (totalNuevo / totalÚltimoAprobado)
+  // por debajo del cual el padrón se considera sospechosamente chico (posible
+  // exportación parcial del SIAL) y la aprobación queda bloqueada salvo override.
+  // Datos reales: parciales dan 0.06–0.60; un completo normal ~1.0.
+  PADRON_RATIO_MINIMO: z.coerce.number().min(0).max(1).default(0.7),
 })
 
 // Bajo Vitest (process.env.VITEST) se completan valores placeholder para las

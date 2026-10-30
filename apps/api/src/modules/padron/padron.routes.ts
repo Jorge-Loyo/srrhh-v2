@@ -88,9 +88,14 @@ export async function padronRoutes(app: FastifyInstance) {
   )
 
   // POST /snapshots/:id/aprobar — S2-6/S2-7 (requiere editor o admin)
-  app.post<{ Params: { id: string } }>('/snapshots/:id/aprobar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
+  // `overrideRatioTamano` (flag explícito en el body) salta el bloqueo blando de
+  // la guarda contra padrón parcial cuando el operador confirma que el padrón
+  // chico es correcto. Queda auditado vía aprobadoPorId/aprobadoAt (ya exige el
+  // permiso aprobar_padron de la ruta).
+  app.post<{ Params: { id: string }; Body: { overrideRatioTamano?: boolean } }>('/snapshots/:id/aprobar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
     const user = request.user as { id: string }
-    const result = await aprobarSnapshotService(request.params.id, user.id)
+    const overrideRatioTamano = request.body?.overrideRatioTamano === true
+    const result = await aprobarSnapshotService(request.params.id, user.id, overrideRatioTamano)
     return reply.send({ data: result })
   })
 
