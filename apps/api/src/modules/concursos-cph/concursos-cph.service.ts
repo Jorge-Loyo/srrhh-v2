@@ -31,7 +31,11 @@ const include = {
       // en vez de especialidadLegacy (snapshot que dejó de mantenerse).
       cargo: { include: { hospital: true, codigoRegistro: true, especialidadPuesto: true } },
       persona: true,
-      baja: true,
+      // baja.persona: los concursos importados no tienen concurso.persona (el
+      // Concurso base no guardó personaId), pero la persona que se fue SÍ está
+      // en la baja. Se incluye para que el encabezado del wizard muestre quién
+      // se dio de baja (fallback a baja.persona cuando concurso.persona es null).
+      baja: { include: { persona: true } },
     },
   },
   hospital: true,

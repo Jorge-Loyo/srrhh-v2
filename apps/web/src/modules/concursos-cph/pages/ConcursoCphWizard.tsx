@@ -181,6 +181,7 @@ export function ConcursoCphWizard() {
           partidaPresupuestaria?: string | null
           cargaHoraria?: number | null
           fechaPaseParalelo?: string | Date | null
+          persona?: { apellidoNombre?: string | null; numeroDoc?: string | null; cuil?: string | null } | null
         }
       }
     )?.baja
@@ -203,8 +204,10 @@ export function ConcursoCphWizard() {
         c?.cargo?.especialidad ??
         '—',
       escalafon: 'CPH',
-      personaBaja: c?.persona?.apellidoNombre ?? '—',
-      dniBaja: c?.persona?.numeroDoc ?? '',
+      // Fallback a baja.persona: los concursos importados no tienen
+      // concurso.persona, pero la persona que se fue está en la baja.
+      personaBaja: c?.persona?.apellidoNombre ?? baja?.persona?.apellidoNombre ?? '—',
+      cuilBaja: c?.persona?.cuil ?? baja?.persona?.cuil ?? '',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
       subEstado: cphData.subEstado ?? 'vacante',
@@ -3012,7 +3015,7 @@ export function ConcursoCphWizard() {
                 {c.personaBaja !== '—' && (
                   <span className="font-medium text-gray-700">{c.personaBaja}</span>
                 )}
-                {c.dniBaja && <span className="text-gray-500">DNI {c.dniBaja}</span>}
+                {c.cuilBaja && <span className="text-gray-500">CUIL {c.cuilBaja}</span>}
                 {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
                 {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
               </div>
@@ -5263,9 +5266,10 @@ export function ConcursoCphWizard() {
                   return (
                     <div className="space-y-5">
                       {/* Asignar persona designada manualmente (caso histórico:
-                          concurso sin persona vinculada). Solo vincula; NO ocupa
-                          el cargo (eso pasa cuando aparezca en el padrón). */}
-                      {cphData && !cphData.personaDesignadaId && (
+                          concurso sin persona vinculada NI referencia manual).
+                          Solo vincula; NO ocupa el cargo (eso pasa cuando aparezca
+                          en el padrón). */}
+                      {cphData && !cphData.personaDesignadaId && !cphData.designadoRefCuil && !cphData.designadoRefNombre && (
                         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
                           <div>
                             <p className="text-sm font-semibold text-blue-800">
@@ -5295,6 +5299,40 @@ export function ConcursoCphWizard() {
                               }}
                             >
                               ✍ Carga manual por referencia
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {/* Designado cargado por REFERENCIA manual (sin persona en la
+                          BD todavía). Muestra los datos cargados y permite editar.
+                          El cargo se ocupará cuando el padrón traiga a la persona. */}
+                      {cphData && !cphData.personaDesignadaId && (cphData.designadoRefCuil || cphData.designadoRefNombre) && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              ✍ Designado cargado por referencia
+                            </p>
+                            <p className="text-sm font-bold text-gray-900 mt-1">
+                              {cphData.designadoRefNombre ?? '—'}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {cphData.designadoRefCuil && <>CUIL <span className="font-mono">{cphData.designadoRefCuil}</span></>}
+                              {cphData.designadoRefIdSialRol && <> · ID SIAL rol <span className="font-mono">{cphData.designadoRefIdSialRol}</span></>}
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              A la espera del padrón. Cuando la persona aparezca con este CUIL, el
+                              cargo pasa a ocupado automáticamente.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✏ Editar referencia
                             </button>
                           </div>
                         </div>
