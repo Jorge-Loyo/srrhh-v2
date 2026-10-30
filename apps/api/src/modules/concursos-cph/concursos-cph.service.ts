@@ -316,16 +316,22 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(idIn !== undefined && { id: { in: idIn } }),
-    // Origen / documentación respaldatoria:
-    //  - baja: tiene baja asociada
-    //  - ampliacion: sin baja, pero el cargo tiene expediente de alta
-    //  - cobertura: sin baja y sin expediente de cargo (sin documentación)
-    ...(origen === 'baja' && { concurso: { is: { bajaId: { not: null } } } }),
+    // Origen / documentación respaldatoria. Se basa en eeBaja (texto del
+    // expediente de baja en el propio ConcursoCph), NO en la FK concurso.bajaId:
+    // los concursos importados traen el expediente de baja como texto sin estar
+    // vinculados a una fila `bajas`, así que filtrar por bajaId dejaba afuera a
+    // la mayoría. Alinea con la clasificación visual respaldatoria() del front.
+    //  - baja: tiene eeBaja cargado (expediente de baja)
+    //  - ampliacion: sin eeBaja, pero el cargo tiene expediente de alta
+    //  - cobertura: sin eeBaja y sin expediente de cargo (sin documentación)
+    ...(origen === 'baja' && { eeBaja: { not: null } }),
     ...(origen === 'ampliacion' && {
-      concurso: { is: { bajaId: null, cargo: { is: { expediente: { not: null } } } } },
+      eeBaja: null,
+      concurso: { is: { cargo: { is: { expediente: { not: null } } } } },
     }),
     ...(origen === 'cobertura' && {
-      concurso: { is: { bajaId: null, cargo: { is: { expediente: null } } } },
+      eeBaja: null,
+      concurso: { is: { cargo: { is: { expediente: null } } } },
     }),
     ...(etiquetaIds?.length && { etiquetas: { some: { etiquetaId: { in: etiquetaIds } } } }),
     // Etapa 5 — "tiene persona del orden de mérito": reserva de Etapa 4
