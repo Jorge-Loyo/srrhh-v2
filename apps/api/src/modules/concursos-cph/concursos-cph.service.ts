@@ -22,6 +22,7 @@ import {
 } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
+import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
 
 const include = {
   concurso: {
@@ -1440,6 +1441,36 @@ const normEsp = (s: string | null | undefined): string =>
     .toLowerCase()
     .trim()
 
+// ¿El concurso EXIGE una especialidad concreta? Reutiliza el helper canónico
+// `especialidadSialReal`, que descarta los placeholders de "sin dato" ("SIN
+// ESPECIALIDAD", "(sin especificar)", "s/e"…) y los valores vacíos/null,
+// tratándolos EXACTAMENTE igual que vacío (misma decisión de negocio que el
+// import del padrón). Si devuelve null, la especialidad NO se usa como criterio
+// de bloqueo: alcanza con que coincida la carrera.
+export function especialidadConcursoExigida(espConcurso: string | null | undefined): boolean {
+  return especialidadSialReal(espConcurso ?? null) != null
+}
+
+// Lógica pura de coincidencia de especialidad entre el concurso y un rol del
+// padrón. Extraída para poder testearla aislada (ver concursos-cph.validacion.test.ts):
+//  - Si el concurso NO exige especialidad concreta (null/vacío/placeholder "sin
+//    especialidad") → true: no bloquea por especialidad.
+//  - Si SÍ exige una especialidad concreta → se mantiene EXACTAMENTE el
+//    comportamiento previo: match (normEsp) contra la especialidad del rol o
+//    contra especialidadCph de la persona.
+export function especialidadCoincide(
+  espConcurso: string | null | undefined,
+  espOcupacion: string | null | undefined,
+  espPersonaCph: string | null | undefined,
+): boolean {
+  if (!especialidadConcursoExigida(espConcurso)) return true
+  const eNorm = normEsp(espConcurso)
+  return (
+    (!!espOcupacion && normEsp(espOcupacion) === eNorm) ||
+    (!!espPersonaCph && normEsp(espPersonaCph) === eNorm)
+  )
+}
+
 export async function getDesignacionEstadoService(id: string) {
   const concurso = await prisma.concursoCph.findUnique({
     where: { id },
@@ -1587,14 +1618,8 @@ export async function getDesignacionEstadoService(id: string) {
     `
   }
 
-  const especialidadCoincideOcup = (o: OcupRow): boolean => {
-    if (!espConcurso) return false
-    const eNorm = normEsp(espConcurso)
-    return (
-      (!!o.especialidad && normEsp(o.especialidad) === eNorm) ||
-      (!!persona?.especialidadCph && normEsp(persona.especialidadCph) === eNorm)
-    )
-  }
+  const especialidadCoincideOcup = (o: OcupRow): boolean =>
+    especialidadCoincide(espConcurso, o.especialidad, persona?.especialidadCph)
   const carreraCoincideOcup = (o: OcupRow): boolean =>
     !!concursoInfo.escalafonId && o.escalafonId === concursoInfo.escalafonId
 
