@@ -11,7 +11,7 @@ const TABS = [
   { to: '/cargos',               label: 'Ver cargos',   end: true,  permiso: { modulo: 'cargos', accion: 'ver' } },
   { to: '/cargos/alta',          label: 'Alta de cargo', end: false, permiso: { modulo: 'cargos', accion: 'crear' } },
   { to: '/cargos/baja',          label: 'Baja de cargo', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/cargos/alta-por-baja', label: 'Alta por baja', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
 ]
 
 export function CargosLayout() {

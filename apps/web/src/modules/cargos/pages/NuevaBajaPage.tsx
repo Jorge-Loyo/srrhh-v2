@@ -248,7 +248,10 @@ export function NuevaBajaPage() {
   const [especialidad, setEspecialidad] = useState('')
 
   // ── campos editables ──
-  const [origen, setOrigen] = useState('')
+  // Origen puede venir fijado por el modal "Gestión de Cargos" (query ?origen=...).
+  // Si viene, se inicializa con ese valor y el dropdown queda bloqueado.
+  const origenFijado = searchParams.get('origen') ?? ''
+  const [origen, setOrigen] = useState(origenFijado)
   const [exBaja, setExBaja] = useState('')
   const [partida, setPartida] = useState('')
   const [fechaBaja, setFechaBaja] = useState('')   // siempre ISO yyyy-mm-dd en el input
@@ -306,6 +309,13 @@ export function NuevaBajaPage() {
         .finally(() => setCargandoCargo(false))
     }
   }, [bajaExistente])
+
+  // Si el origen vino fijado por el modal "Gestión de Cargos", aplicar su lógica
+  // (ej. "Cobertura Dotación" fuerza el motivo) una sola vez al montar.
+  useEffect(() => {
+    if (origenFijado) handleOrigenChange(origenFijado)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const codigoNum = Number(codigoRegistro)
   const esCeetps = CEETPS_CODIGOS.includes(codigoNum)
@@ -554,7 +564,12 @@ export function NuevaBajaPage() {
               <Section title="Identificación">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Origen" required>
-                    <select value={origen} onChange={(e) => handleOrigenChange(e.target.value)} className="input h-10 w-full">
+                    <select
+                      value={origen}
+                      onChange={(e) => handleOrigenChange(e.target.value)}
+                      disabled={!!origenFijado}
+                      className="input h-10 w-full disabled:bg-gray-100 disabled:text-gray-600 disabled:cursor-not-allowed"
+                    >
                       <option value="">Seleccioná...</option>
                       {OPCIONES_ORIGEN.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>

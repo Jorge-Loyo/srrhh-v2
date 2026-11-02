@@ -11,7 +11,7 @@ const CARGOS_SUBITEMS = [
   { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
   { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'crear' } },
   { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes',  permiso: { modulo: 'bajas', accion: 'crear' } },
 ]
 
 const IMPORTACION_SUBITEMS = [

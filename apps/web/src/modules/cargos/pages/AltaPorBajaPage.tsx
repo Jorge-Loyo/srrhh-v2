@@ -4,6 +4,27 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import type { Baja, ConcursoCph, PaginatedResponse } from '@srrhh/types'
 
+// Opciones de origen que ofrece el modal de "Gestión de Cargos". Cada una
+// abre el mismo formulario de baja con el origen fijado y bloqueado. El texto
+// explicativo es editable por negocio (placeholders a confirmar con Jorge).
+const ORIGENES_GESTION = [
+  {
+    valor: 'Alta por Baja',
+    titulo: 'Alta por Baja',
+    desc: 'La persona se da de baja del cargo y se genera un concurso para cubrir la vacante que deja. [descripción a confirmar]',
+  },
+  {
+    valor: 'Retención de Cargo',
+    titulo: 'Retención de Cargo',
+    desc: 'La persona deja la función pero retiene su cargo. [descripción a confirmar]',
+  },
+  {
+    valor: 'Cobertura Dotación',
+    titulo: 'Cobertura de Dotación',
+    desc: 'Se cubre una vacante de dotación existente. [descripción a confirmar]',
+  },
+] as const
+
 const ESTADO_CLASSES: Record<string, string> = {
   resolucion_a_la_firma: 'badge-default',
   pendiente:  'badge-warning',
@@ -152,7 +173,13 @@ function ModalDetalleBaja({
 export function AltaPorBajaPage() {
   const [search, setSearch] = useState('')
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
+  const [modalOrigenAbierto, setModalOrigenAbierto] = useState(false)
   const navigate = useNavigate()
+
+  function elegirOrigen(valor: string) {
+    setModalOrigenAbierto(false)
+    navigate(`/cargos/baja/nueva?origen=${encodeURIComponent(valor)}`)
+  }
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['bajas', search],
@@ -170,10 +197,46 @@ export function AltaPorBajaPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Alta por Baja</h1>
-          <button className="btn-outline" onClick={() => navigate('/cargos/baja/nueva')}>
-            + Nueva Baja
+          <button className="btn-outline" onClick={() => setModalOrigenAbierto(true)}>
+            Gestión de Cargos
           </button>
         </div>
+
+        {modalOrigenAbierto && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setModalOrigenAbierto(false)}
+          >
+            <div
+              className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="font-primary text-lg font-bold text-gray-900">Gestión de Cargos</h2>
+                <button
+                  className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+                  onClick={() => setModalOrigenAbierto(false)}
+                  aria-label="Cerrar"
+                >
+                  ×
+                </button>
+              </div>
+              <p className="text-sm text-gray-500">Elegí el origen de la gestión. Cada uno tiene su propia lógica.</p>
+              <div className="space-y-3">
+                {ORIGENES_GESTION.map((o) => (
+                  <button
+                    key={o.valor}
+                    onClick={() => elegirOrigen(o.valor)}
+                    className="w-full text-left border border-gray-200 rounded-lg p-4 hover:border-secondary hover:bg-secondary/5 transition-colors"
+                  >
+                    <div className="font-semibold text-gray-900">{o.titulo}</div>
+                    <div className="text-sm text-gray-500 mt-1">{o.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <input
           type="text"
