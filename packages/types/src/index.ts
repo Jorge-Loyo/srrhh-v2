@@ -662,6 +662,9 @@ export interface Baja {
   registradoPorId: string | null
   createdAt: string
   updatedAt: string
+  // Flag calculado por el listado GET /bajas: true si el cargo.idSial figura
+  // en el padrón de bajas SIAL (informativo, no persistido).
+  enSial?: boolean
   // Relaciones expandidas
   cargo?: Cargo & { hospital: Hospital; escalafon: Escalafon }
   hospital?: Hospital

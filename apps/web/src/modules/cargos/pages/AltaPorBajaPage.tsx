@@ -369,7 +369,9 @@ export function AltaPorBajaPage() {
                 <th className="px-4 py-3 font-semibold">Hospital</th>
                 <th className="px-4 py-3 font-semibold">Persona</th>
                 <th className="px-4 py-3 font-semibold">Motivo</th>
+                <th className="px-4 py-3 font-semibold">Origen</th>
                 <th className="px-4 py-3 font-semibold">Concurso</th>
+                <th className="px-4 py-3 font-semibold">SIAL</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold" />
               </tr>
@@ -387,11 +389,28 @@ export function AltaPorBajaPage() {
                   <td className="px-4 py-3 text-gray-600">{b.cargo?.hospital?.sigla ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{b.persona?.apellidoNombre ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{b.motivo ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{b.tipificadorOrigen ?? '—'}</td>
                   <td className="px-4 py-3">
                     {b.generaConcurso
                       ? <span className="badge-info">Sí</span>
                       : <span className="badge-default">No</span>
                     }
+                  </td>
+                  <td className="px-4 py-3">
+                    {b.enSial ? (
+                      <span
+                        className="badge-success"
+                        title={
+                          'Baja registrada en SIAL' +
+                          (b.persona?.apellidoNombre ? ` — ${b.persona.apellidoNombre}` : '') +
+                          (b.eeBaja ? ` · Exp: ${b.eeBaja}` : '')
+                        }
+                      >
+                        En SIAL ✓
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
