@@ -1,0 +1,14 @@
+-- Columna aditiva `resolucion` en `padron_diff` (FASE 1, Opción A §5.3): cómo se
+-- gestionó un id_sial nuevo desde Gestión de Puestos. Nullable (null = pendiente
+-- / sin gestionar). Valores esperados que setean los services:
+--   'cargo'             -> crear-cargo (aprobarDiffNuevoService sin concurso)
+--   'concurso_vinculado'-> crear-cargo ocupando el cargo de un concurso CPH
+--   'concurso_creado'   -> crear-concurso (crearConcursoParaIdSialService)
+--   'transferencia'     -> transferencia (marcarTransferenciaService)
+--   'sin_codigo'        -> sin-codigo (rechazarDiffNuevoService)
+--
+-- Aditivo e idempotente (ADD COLUMN IF NOT EXISTS) para poder re-correrlo sin error.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). El usuario (Jorge) corre este .sql a mano en Neon.
+ALTER TABLE padron_diff ADD COLUMN IF NOT EXISTS resolucion VARCHAR(50);

@@ -692,6 +692,10 @@ model PadronDiff {
   valorNuevo    String?  @map("valor_nuevo") @db.Text
   // null = pendiente decisión, true = aprobado (se crea cargo+persona+ocupación), false = rechazado (se crea sin código)
   aprobado      Boolean?
+  // Resolución tomada en Gestión de Puestos para un id_sial nuevo: cómo se
+  // gestionó el diff. Valores esperados: 'cargo' | 'concurso_vinculado' |
+  // 'concurso_creado' | 'transferencia' | 'sin_codigo'. Aditivo y nullable.
+  resolucion    String?  @map("resolucion") @db.VarChar(50)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones

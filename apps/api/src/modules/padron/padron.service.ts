@@ -147,6 +147,58 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out
 }
 
+// Repoblado del resumen KPI (kpis_dotacion_snapshot) de un mes dado. Extraído
+// del paso 8 del aprobar (Opción A §5.3) para reusarlo al gestionar un id_sial
+// nuevo en gestion-puestos: borra TODAS las filas del mes de `fecha` (incluida
+// la fila '(total)') y reinserta desde estadoActivoAcumuladoSql(mes, mes),
+// misma fuente que la consulta individual (kpis.service), de modo que tarjetas,
+// consulta individual y backfill reconcilien por construcción. Recibe el `tx`
+// para correr dentro de la transacción del caller (si el populate falla, hace
+// rollback junto con el resto de la operación). NO cambia el comportamiento del
+// paso 8: el `tx.padronSnapshot.update({...estado:'aprobado'...})` se queda en
+// el caller (el aprobar), porque estadoActivoAcumuladoSql filtra snapshots
+// aprobado y el snapshot debe marcarse aprobado ANTES de llamar a esta función.
+export async function repopularKpiDotacionMes(tx: PrismaTx, fecha: Date) {
+  const mes = fecha.toISOString().slice(0, 7) // YYYY-MM
+
+  // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
+  // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
+  // (fecha, codigo_registro, situacion_revista) no choque.
+  await tx.$executeRaw(
+    Prisma.sql`
+        DELETE FROM kpis_dotacion_snapshot
+        WHERE date_trunc('month', fecha) = date_trunc('month', ${fecha}::date)
+      `,
+  )
+
+  // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
+  // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
+  // carrera en cualquier estado, NO la suma de los estados). El estado sale de
+  // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
+  await tx.$executeRaw(
+    Prisma.sql`
+        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
+        WITH estado AS (${estadoActivoAcumuladoSql(mes, mes)}),
+        norm AS (
+          SELECT
+            p.cuil,
+            coalesce(cr.codigo, '(sin codigo)') AS codigo,
+            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
+          FROM estado
+          JOIN cargos c ON c.id = estado.cargo_id
+          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+          JOIN personas p ON p.id = estado.persona_id
+          WHERE p.cuil IS NOT NULL
+        )
+        SELECT ${fecha}::date, codigo, sit, count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo, sit
+        UNION ALL
+        SELECT ${fecha}::date, codigo, '(total)', count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo
+      `,
+  )
+}
+
 // Agentes HTTP con keep-alive controlado. Sin esto, axios reusa el socket TCP
 // entre requests; el Dotaneitor (uvicorn 1 worker) cierra el keep-alive durante
 // los polls largos de /normalizar-/procesar-/cruzar, y la primera request nueva
@@ -3137,44 +3189,7 @@ export async function aprobarSnapshotService(
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
     })
 
-    const mesSnapshot = snapshot.fechaAsignada.toISOString().slice(0, 7) // YYYY-MM
-
-    // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
-    // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
-    // (fecha, codigo_registro, situacion_revista) no choque.
-    await tx.$executeRaw(
-      Prisma.sql`
-        DELETE FROM kpis_dotacion_snapshot
-        WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
-      `,
-    )
-
-    // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
-    // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
-    // carrera en cualquier estado, NO la suma de los estados). El estado sale de
-    // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
-    await tx.$executeRaw(
-      Prisma.sql`
-        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
-        WITH estado AS (${estadoActivoAcumuladoSql(mesSnapshot, mesSnapshot)}),
-        norm AS (
-          SELECT
-            p.cuil,
-            coalesce(cr.codigo, '(sin codigo)') AS codigo,
-            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
-          FROM estado
-          JOIN cargos c ON c.id = estado.cargo_id
-          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
-          JOIN personas p ON p.id = estado.persona_id
-          WHERE p.cuil IS NOT NULL
-        )
-        SELECT ${snapshot.fechaAsignada}::date, codigo, sit, count(DISTINCT cuil)::int
-          FROM norm GROUP BY codigo, sit
-        UNION ALL
-        SELECT ${snapshot.fechaAsignada}::date, codigo, '(total)', count(DISTINCT cuil)::int
-          FROM norm GROUP BY codigo
-      `,
-    )
+    await repopularKpiDotacionMes(tx, snapshot.fechaAsignada)
 
     // ── 9. Sincronizar universo_totalizador en organigramas desde hospitales ─
     // Cada aprobación de padrón puede traer hospitales nuevos o actualizados
@@ -4212,8 +4227,53 @@ export async function aprobarDiffNuevoService(
       }
     }
 
+    // ── Opción A §5.3: al GESTIONAR un id_sial nuevo, el cargo recién creado
+    //    cuenta en el histórico/KPI del MES DE GESTIÓN (now()), NO en la
+    //    fechaAsignada del snapshot del padrón (que puede ser de un mes ya
+    //    cerrado). Se preserva la serie histórica previa intacta (no se tocan
+    //    meses cerrados) y el cargo suma recién en el mes real de gestión.
+    //
+    // (1) Histórico: una fila padron_historico del id_sial recién creado, armada
+    //     igual que el paso 7 del aprobar (persona/cargo/hospital/escalafón/
+    //     literalPuesto/especialidad/estadoPersona/situacionRevista), con
+    //     fechaAsignada = now().
+    if (persona && cargo) {
+      const ocupacionFinal = (await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+        include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
+      })) as OcupacionFinalRow | null
+      if (ocupacionFinal) {
+        const fechaGestion = new Date()
+        await tx.padronHistorico.create({
+          data: {
+            id: randomUUID(),
+            snapshotId,
+            fechaAsignada: fechaGestion,
+            personaId: ocupacionFinal.personaId,
+            cargoId: ocupacionFinal.cargoId,
+            idSialRol: ocupacionFinal.idSialRol,
+            cuil: ocupacionFinal.persona.cuil,
+            escalafon: ocupacionFinal.cargo.escalafon.nombre,
+            hospitalSigla: ocupacionFinal.cargo.hospital.sigla,
+            literalPuesto: ocupacionFinal.cargo.literalPuesto,
+            especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
+            agrupador: ocupacionFinal.cargo.agrupador,
+            unificadorPuesto: ocupacionFinal.cargo.unificadorPuesto,
+            estadoPersona: ocupacionFinal.estadoPersona,
+            situacionRevista: ocupacionFinal.situacionRevista,
+          },
+        })
+
+        // (2) Repoblar el resumen KPI del MES DE GESTIÓN (now()).
+        await repopularKpiDotacionMes(tx, fechaGestion)
+      }
+    }
+
     // Marcar diff como aprobado
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: true } })
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: true, resolucion: vincularConcursoId ? 'concurso_vinculado' : 'cargo' },
+    })
   }, TRANSACTION_OPTS) // timeout largo: aprobar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
@@ -4295,6 +4355,10 @@ export async function marcarTransferenciaService(
       solicitadoPorId: usuarioId,
     },
   })
+
+  // El histórico + KPI del mes de gestión ya los escribió aprobarDiffNuevoService
+  // (NO duplicar). Acá solo se afina la resolución del diff a 'transferencia'.
+  await prisma.padronDiff.update({ where: { id: diffId }, data: { resolucion: 'transferencia' } })
 
   return { ok: true, diffId }
 }
@@ -4457,7 +4521,12 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       }
     }
 
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: false } })
+    // Sin código: NO escribe padron_historico ni repuebla KPI (consistente con
+    // "no cuenta hasta gestionar como cargo real"); solo marca el diff.
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: false, resolucion: 'sin_codigo' },
+    })
   }, TRANSACTION_OPTS) // timeout largo: rechazar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }

@@ -46,6 +46,7 @@ import { jornadasSorteoRoutes } from './modules/jornadas-sorteo/jornadas-sorteo.
 import { areasProgramaticasRoutes } from './modules/areas-programaticas/areas-programaticas.routes.js'
 import { cesacsRoutes } from './modules/areas-programaticas/cesacs.routes.js'
 import { unidadesFijasRoutes } from './modules/areas-programaticas/unidades-fijas.routes.js'
+import { gestionPuestosRoutes } from './modules/gestion-puestos/gestion-puestos.routes.js'
 
 const app = Fastify({
   logger: {
@@ -145,6 +146,7 @@ await app.register(jornadasSorteoRoutes,   { prefix: '/api/v1/jornadas-sorteo' }
 await app.register(areasProgramaticasRoutes, { prefix: '/api/v1/areas-programaticas' })
 await app.register(cesacsRoutes,           { prefix: '/api/v1/cesacs' })
 await app.register(unidadesFijasRoutes,    { prefix: '/api/v1/unidades-fijas' })
+await app.register(gestionPuestosRoutes,   { prefix: '/api/v1/gestion-puestos' })
 
 // Start
 try {
