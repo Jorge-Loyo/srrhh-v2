@@ -439,11 +439,20 @@ export async function getCargoByIdService(id: string) {
         where: { estado: 'vigente' },
         select: { id: true, codigo: true, literalPuesto: true, tipoOrigen: true, estado: true },
       },
+      // Etiquetas asignadas al cargo (relación N:M vía tabla join). Se aplanan
+      // abajo para que el frontend consuma un array plano de `Etiqueta`.
+      etiquetas: { include: { etiqueta: true } },
     },
   })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
 
-  const { ocupaciones, ...rest } = cargo
+  const { ocupaciones, etiquetas, ...rest } = cargo
+  // Aplana la relación join `etiquetas: [{ etiqueta }]` a `Etiqueta[]`, dejando
+  // solo las activas y ordenadas por nombre (mismo criterio que concursos-cph).
+  const etiquetasPlanas = etiquetas
+    .map((e) => e.etiqueta)
+    .filter((e) => e.activo)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
   const ocupacionActual = ocupaciones.find((o) => o.hasta === null) ?? null
   const historial = ocupaciones.filter((o) => o.hasta !== null)
 
@@ -486,7 +495,15 @@ export async function getCargoByIdService(id: string) {
     }),
   ])
 
-  return { ...rest, ocupacionActual, historial, cargoActivo, concursosCph, concursosCeetps }
+  return {
+    ...rest,
+    ocupacionActual,
+    historial,
+    cargoActivo,
+    concursosCph,
+    concursosCeetps,
+    etiquetas: etiquetasPlanas,
+  }
 }
 
 // ─── S5-10 + S7-2 + S7-5 + S14-3: Alta de Cargo manual ─────────────────────────────────

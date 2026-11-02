@@ -14,9 +14,9 @@ import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
-import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '../hooks/useEtiquetas'
+import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '@/shared/hooks/useEtiquetas'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
-import { EtiquetasControl } from '../components/EtiquetasControl'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { JuradosTab } from '../components/JuradosTab'
 import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
 import { JornadasSorteoTab } from '../components/JornadasSorteoTab'
@@ -391,7 +391,11 @@ function ConcursosListaTab() {
       let ok = 0
       for (const concursoCphId of ids) {
         try {
-          await asignarEtiqueta.mutateAsync({ etiquetaId, concursoCphId })
+          await asignarEtiqueta.mutateAsync({
+            etiquetaId,
+            entidad: 'concurso_cph',
+            entidadId: concursoCphId,
+          })
           ok++
         } catch {
           // sigue con los demás
@@ -896,7 +900,8 @@ function ConcursosListaTab() {
                           </td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
-                              concursoCphId={c.id}
+                              entidad="concurso_cph"
+                              entidadId={c.id}
                               asignadas={c.etiquetas ?? []}
                               variant="compacto"
                             />

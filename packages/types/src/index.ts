@@ -231,6 +231,9 @@ export interface Cargo {
   hospital?: Hospital
   escalafon?: Escalafon
   codigoRegistro?: CodigoRegistro | null
+  // Etiquetas asignadas (aplanadas desde la tabla join por el backend; hoy las
+  // incluye el detalle GET /cargos/:id).
+  etiquetas?: Etiqueta[]
 }
 
 export interface Ocupacion {

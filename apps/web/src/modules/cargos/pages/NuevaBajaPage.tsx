@@ -12,6 +12,7 @@ import {
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 
 type Paso = 1 | 2 | 3
 
@@ -334,6 +335,20 @@ export function NuevaBajaPage() {
   const codigoNum = Number(codigoRegistro)
   const esCeetps = CEETPS_CODIGOS.includes(codigoNum)
 
+  // Refresca solo las etiquetas del cargo tras asignar/quitar una, sin pisar los
+  // campos derivados (algunos editables como CUIL/nombre en alta manual).
+  async function refrescarEtiquetasCargo() {
+    if (!cargo) return
+    try {
+      const res = await apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${cargo.id}`)
+      const det = res.data.data
+      setCargo((prev) => (prev ? { ...prev, etiquetas: det.etiquetas ?? [] } : prev))
+    } catch {
+      // Silencioso: el EtiquetasControl ya muestra su propio toast en error de
+      // asignación/quita; un fallo de refresco no debe bloquear el formulario.
+    }
+  }
+
   function aplicarCargo(det: CargoDetail) {
     const d = derivarDesdeCargo(det)
     setCargo(det)
@@ -631,7 +646,24 @@ export function NuevaBajaPage() {
                       Cambiar
                     </button>
                   </div>
-                ) : (
+                ) : null}
+
+                {/* Etiquetas del cargo — disponibles en cualquier formulario que
+                    gestione un cargo. Solo se muestran cuando hay un cargo
+                    seleccionado. */}
+                {cargo && !cargandoCargo && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-500">Etiquetas:</span>
+                    <EtiquetasControl
+                      entidad="cargo"
+                      entidadId={cargo.id}
+                      asignadas={cargo.etiquetas ?? []}
+                      onCambio={refrescarEtiquetasCargo}
+                    />
+                  </div>
+                )}
+
+                {!cargandoCargo && !cargo && (
                   <button
                     type="button"
                     onClick={() => setModalAbierto(true)}

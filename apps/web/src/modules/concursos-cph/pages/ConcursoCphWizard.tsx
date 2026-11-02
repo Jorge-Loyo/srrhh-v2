@@ -65,7 +65,7 @@ import {
 } from '../lib/wizard.constants'
 import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
-import { EtiquetasControl } from '../components/EtiquetasControl'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
 
 // Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
@@ -3060,7 +3060,11 @@ export function ConcursoCphWizard() {
                         <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                           Etiquetas
                         </p>
-                        <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />
+                        <EtiquetasControl
+                          entidad="concurso_cph"
+                          entidadId={id}
+                          asignadas={cphData.etiquetas ?? []}
+                        />
                       </div>
                     )}
                     {/* Ver baja */}

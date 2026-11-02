@@ -5,15 +5,26 @@ import {
   useCrearEtiqueta,
   useAsignarEtiqueta,
   useDesasignarEtiqueta,
-} from '../hooks/useEtiquetas'
+  type EntidadEtiqueta,
+} from '@/shared/hooks/useEtiquetas'
 import { useToast } from '@/shared/components/ui/useToast'
 
 interface EtiquetasControlProps {
-  concursoCphId: string
-  /** Etiquetas ya asignadas al concurso (aplanadas por el backend). */
+  /** Entidad a la que se asignan las etiquetas (cargo, concurso_cph, etc.). */
+  entidad: EntidadEtiqueta
+  /** Id de la entidad concreta. */
+  entidadId: string
+  /** Etiquetas ya asignadas a la entidad (aplanadas por el backend). */
   asignadas: Etiqueta[]
   /** compacto: chips más chicos, para filas de tabla. */
   variant?: 'normal' | 'compacto'
+  /**
+   * Callback opcional que se dispara tras asignar/quitar/crear una etiqueta.
+   * Útil cuando las etiquetas de la entidad no viven en react-query (p. ej. un
+   * cargo cargado en estado local) y hay que refrescarlas a mano. Los usos que
+   * dependen de la invalidación de queries (concursos-cph) pueden omitirlo.
+   */
+  onCambio?: () => void
 }
 
 // Paleta por defecto para etiquetas nuevas (nombre CSS → estilos Tailwind-like inline).
@@ -41,9 +52,11 @@ function chipStyle(color: string | null): React.CSSProperties {
 }
 
 export function EtiquetasControl({
-  concursoCphId,
+  entidad,
+  entidadId,
   asignadas,
   variant = 'normal',
+  onCambio,
 }: EtiquetasControlProps) {
   const [abierto, setAbierto] = useState(false)
   const [busqueda, setBusqueda] = useState('')
@@ -88,8 +101,9 @@ export function EtiquetasControl({
 
   async function handleAsignar(etiquetaId: string) {
     try {
-      await asignar.mutateAsync({ etiquetaId, concursoCphId })
+      await asignar.mutateAsync({ etiquetaId, entidad, entidadId })
       setBusqueda('')
+      onCambio?.()
     } catch {
       toast.error('No se pudo asignar la etiqueta')
     }
@@ -97,7 +111,8 @@ export function EtiquetasControl({
 
   async function handleQuitar(etiquetaId: string) {
     try {
-      await desasignar.mutateAsync({ etiquetaId, concursoCphId })
+      await desasignar.mutateAsync({ etiquetaId, entidad, entidadId })
+      onCambio?.()
     } catch {
       toast.error('No se pudo quitar la etiqueta')
     }
@@ -108,8 +123,9 @@ export function EtiquetasControl({
     if (!nombre) return
     try {
       const nueva = await crear.mutateAsync({ nombre, color: colorNueva })
-      await asignar.mutateAsync({ etiquetaId: nueva.id, concursoCphId })
+      await asignar.mutateAsync({ etiquetaId: nueva.id, entidad, entidadId })
       setBusqueda('')
+      onCambio?.()
       toast.success(`Etiqueta "${nombre}" creada y asignada`)
     } catch {
       toast.error('No se pudo crear la etiqueta (¿nombre repetido?)')
