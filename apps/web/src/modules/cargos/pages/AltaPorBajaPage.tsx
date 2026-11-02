@@ -172,6 +172,7 @@ function ModalDetalleBaja({
 
 export function AltaPorBajaPage() {
   const [search, setSearch] = useState('')
+  const [estadoFiltro, setEstadoFiltro] = useState('')
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
   const [modalOrigenAbierto, setModalOrigenAbierto] = useState(false)
   const navigate = useNavigate()
@@ -182,10 +183,14 @@ export function AltaPorBajaPage() {
   }
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['bajas', search],
+    queryKey: ['bajas', search, estadoFiltro],
     queryFn: async () => {
       const res = await apiClient.get<PaginatedResponse<Baja>>('/api/v1/bajas', {
-        params: { limit: 50, ...(search.length >= 2 && { search }) },
+        params: {
+          limit: 50,
+          ...(search.length >= 2 && { search }),
+          ...(estadoFiltro && { estado: estadoFiltro }),
+        },
       })
       return res.data
     },
@@ -238,13 +243,25 @@ export function AltaPorBajaPage() {
           </div>
         )}
 
-        <input
-          type="text"
-          placeholder="Buscar por código de cargo, persona, motivo..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-        />
+        <div className="flex gap-3">
+          <input
+            type="text"
+            placeholder="Buscar por código de cargo, persona, motivo..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded flex-1 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          />
+          <select
+            value={estadoFiltro}
+            onChange={(e) => setEstadoFiltro(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded w-56 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Todos los estados</option>
+            <option value="resolucion_a_la_firma">Borradores (resolución a la firma)</option>
+            <option value="confirmada">Confirmada</option>
+            <option value="anulada">Anulada</option>
+          </select>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">

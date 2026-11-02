@@ -24,38 +24,39 @@ function ModalBuscarCargo({
 }) {
   const [hospitalId, setHospitalId] = useState('')
   const [codigoRegistroId, setCodigoRegistroId] = useState('')
+  const [estadoFiltro, setEstadoFiltro] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  const activo = !!(hospitalId || codigoRegistroId || busqueda.length >= 2 || personaBusq.length >= 2)
+  const activo = !!(hospitalId || codigoRegistroId || estadoFiltro || busqueda.length >= 2 || personaBusq.length >= 2)
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, busqueda, personaBusq],
+    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
+      const comunes = {
+        ...(hospitalId && { hospitalId }),
+        ...(codigoRegistroId && { codigoRegistroId }),
+        ...(busqueda.length >= 2 && { search: busqueda }),
+        ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
+      }
+      // Si el usuario eligió un estado, se consulta solo ese. Si no, se mantiene
+      // el comportamiento por defecto: vigentes + en validación.
+      if (estadoFiltro) {
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: { limit: 40, estado: estadoFiltro, ...comunes },
+        })
+        return res.data.data
+      }
       const [r1, r2] = await Promise.all([
         apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
-          params: {
-            limit: 30,
-            estado: 'vigente',
-            ...(hospitalId && { hospitalId }),
-            ...(codigoRegistroId && { codigoRegistroId }),
-            ...(busqueda.length >= 2 && { search: busqueda }),
-            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
-          },
+          params: { limit: 30, estado: 'vigente', ...comunes },
         }),
         apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
-          params: {
-            limit: 10,
-            estado: 'validacion_vacante',
-            ...(hospitalId && { hospitalId }),
-            ...(codigoRegistroId && { codigoRegistroId }),
-            ...(busqueda.length >= 2 && { search: busqueda }),
-            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
-          },
+          params: { limit: 10, estado: 'validacion_vacante', ...comunes },
         }),
       ])
       return [...r1.data.data, ...r2.data.data]
@@ -96,6 +97,17 @@ function ModalBuscarCargo({
             <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
             <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
+              <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
+                <option value="">Vigentes + en validación</option>
+                <option value="vigente">Vigente</option>
+                <option value="validacion_vacante">En validación</option>
+                <option value="no_vigente">No vigente</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
@@ -111,6 +123,7 @@ function ModalBuscarCargo({
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Código</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">ID SIAL Rol</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Puesto</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Especialidad</th>
@@ -122,6 +135,7 @@ function ModalBuscarCargo({
                 {data?.map((c) => (
                   <tr key={c.id} onClick={() => onSeleccionar(c)} className="cursor-pointer hover:bg-blue-50 transition-colors">
                     <td className="px-3 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">{c.codigo ?? '—'}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">{c.idSial ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{c.hospital?.sigla ?? '—'}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[220px]">
                       <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
