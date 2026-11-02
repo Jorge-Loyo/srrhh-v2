@@ -671,7 +671,7 @@ export function NuevaBajaPage() {
                     <select
                       value={origen}
                       onChange={(e) => handleOrigenChange(e.target.value)}
-                      disabled={!!origenFijado}
+                      disabled={!!origenFijado || modoEdicion}
                       className="input h-10 w-full disabled:bg-gray-100 disabled:text-gray-600 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccioná...</option>

@@ -219,7 +219,7 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
     }
 
     return updated
-  })
+  }, { timeout: 20000 })  // sube el default de 5s: la tx confirma baja + crea concurso (muchas queries) y contra Neon remoto pasaba el límite (P2028)
 }
 
 // --- POST /:id/anular --- anular un borrador de baja ------------------------
@@ -921,5 +921,5 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
     })
 
     return tx.baja.findUnique({ where: { id: baja.id }, include })
-  })
+  }, { timeout: 20000 })  // sube el default de 5s: la tx crea baja + concurso (muchas queries) y contra Neon remoto pasaba el límite (P2028)
 }
