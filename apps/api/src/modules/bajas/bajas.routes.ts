@@ -3,7 +3,7 @@ import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { bajasQuerySchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService, listClasificacionVacantesService } from './bajas.service.js'
+import { listBajasService, createBajaService, updateBajaService, anularBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService, listClasificacionVacantesService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -62,6 +62,19 @@ export async function bajasRoutes(app: FastifyInstance) {
       const body = updateBajaSchema.parse(request.body)
       const user = request.user as { id: string }
       const data = await updateBajaService(id, body as any, user.id)
+      return reply.send({ data })
+    }
+  )
+
+  // POST /:id/anular — anular un borrador (resolucion_a_la_firma → anulada).
+  // NO toca el cargo ni crea concurso (el borrador nunca confirmó nada).
+  app.post(
+    '/:id/anular',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const user = request.user as { id: string }
+      const data = await anularBajaService(id, user.id)
       return reply.send({ data })
     }
   )

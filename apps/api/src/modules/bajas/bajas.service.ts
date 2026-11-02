@@ -222,6 +222,27 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
   })
 }
 
+// --- POST /:id/anular --- anular un borrador de baja ------------------------
+// Una baja en 'resolucion_a_la_firma' es un BORRADOR: nunca confirmó nada, así
+// que anularla NO toca el cargo, NO crea concurso, NO inactiva persona. Solo
+// lleva la baja a 'anulada'. Se usa un endpoint dedicado (y no el PATCH /:id)
+// para no pasar por la rama de confirmación de updateBajaService.
+export async function anularBajaService(id: string, _usuarioId: string) {
+  const baja = await prisma.baja.findUnique({ where: { id } })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+  if (baja.estado !== 'resolucion_a_la_firma') {
+    throw AppError.conflict('Solo se pueden anular bajas en estado resolucion a la firma')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    return tx.baja.update({
+      where: { id },
+      data: { estado: 'anulada' },
+      include,
+    })
+  })
+}
+
 // --- S8B: Validacion de Bajas -----------------------------------------------
 
 export async function listValidacionService() {

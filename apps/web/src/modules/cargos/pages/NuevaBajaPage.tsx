@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
@@ -236,6 +236,7 @@ function derivarDesdeCargo(det: CargoDetail) {
 // ── Página principal ──────────────────────────────────────────────────────────
 export function NuevaBajaPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const { bajaId } = useParams<{ bajaId?: string }>()
   const modoEdicion = !!bajaId
@@ -490,6 +491,33 @@ export function NuevaBajaPage() {
       }
     } catch {
       setError('No se pudo guardar el borrador.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  // Anular borrador: solo disponible en modo edición sobre una baja en
+  // 'resolucion_a_la_firma'. Lleva la baja a 'anulada' sin tocar el cargo.
+  const puedeAnular = modoEdicion && (bajaExistente?.estado as string | undefined) === 'resolucion_a_la_firma'
+
+  const mutAnular = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<{ data: Baja }>(`/api/v1/bajas/${bajaId}/anular`)
+      return res.data.data
+    },
+  })
+
+  async function anular() {
+    if (!bajaId) return
+    if (!window.confirm('¿Anular esta baja? El borrador quedará anulado y el cargo no se modifica.')) return
+    setGuardando(true); setError('')
+    try {
+      await mutAnular.mutateAsync()
+      queryClient.invalidateQueries({ queryKey: ['bajas'] })
+      navigate('/cargos/alta-por-baja')
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message ?? ''
+      setError(msg || 'No se pudo anular la baja. Intentá de nuevo.')
     } finally {
       setGuardando(false)
     }
@@ -790,9 +818,21 @@ export function NuevaBajaPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">
-                {[!cargo && 'Asigná un cargo', !fechaBaja && 'Completá la fecha', !motivo && 'Seleccioná un motivo'].filter(Boolean).join(' · ')}
-              </p>
+              <div className="flex items-center gap-3">
+                {puedeAnular && (
+                  <button
+                    type="button"
+                    disabled={guardando}
+                    onClick={anular}
+                    className="px-4 h-10 rounded-lg border-2 border-danger text-danger text-sm font-semibold hover:bg-danger hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Anular baja
+                  </button>
+                )}
+                <p className="text-xs text-gray-400">
+                  {[!cargo && 'Asigná un cargo', !fechaBaja && 'Completá la fecha', !motivo && 'Seleccioná un motivo'].filter(Boolean).join(' · ')}
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 {guardadoOk && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
                 {error && <span className="text-sm text-danger">{error}</span>}
