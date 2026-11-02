@@ -1,8 +1,15 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import type { Baja, ConcursoCph, PaginatedResponse } from '@srrhh/types'
+import { formatDateMask, dmyToIso, isoToDmy } from '../lib/bajasHelpers'
+
+// Una baja tiene datos pendientes si le falta alguno de los 2 campos diferidos:
+// Doc. respaldatoria o Fecha pase paralelo/GT (ver flujo de campos diferidos).
+function tieneCamposDiferidosPendientes(b: Baja): boolean {
+  return !b.docRespaldatoria || !b.fechaPaseParalelo
+}
 
 // Opciones de origen que ofrece el modal de "Gestión de Cargos". Cada una
 // abre el mismo formulario de baja con el origen fijado y bloqueado. El texto
@@ -170,10 +177,88 @@ function ModalDetalleBaja({
   )
 }
 
+// Modal chico para completar los 2 campos diferidos sin reabrir el formulario
+// completo de la baja. Prellenado con los valores actuales (si los hay).
+function ModalCamposDiferidos({
+  baja,
+  onClose,
+}: {
+  baja: Baja
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [docRespaldatoria, setDocRespaldatoria] = useState(baja.docRespaldatoria ?? '')
+  const [fechaPaseDmy, setFechaPaseDmy] = useState(isoToDmy(baja.fechaPaseParalelo))
+  const [error, setError] = useState('')
+
+  const mut = useMutation({
+    mutationFn: async () => {
+      const fechaIso = fechaPaseDmy ? dmyToIso(fechaPaseDmy) : ''
+      if (fechaPaseDmy && fechaIso === null) {
+        throw new Error('Fecha pase paralelo inválida (usá dd/mm/aaaa)')
+      }
+      const res = await apiClient.patch<{ data: Baja }>(
+        `/api/v1/bajas/${baja.id}/campos-diferidos`,
+        { docRespaldatoria, fechaPaseParalelo: fechaIso ?? '' },
+      )
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bajas'] })
+      onClose()
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { message?: string } }; message?: string }
+      setError(err?.response?.data?.message ?? err?.message ?? 'No se pudieron guardar los datos.')
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="font-primary text-base font-bold text-gray-900">Completar datos pendientes</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none" aria-label="Cerrar">&times;</button>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Doc. respaldatoria</label>
+            <input
+              type="text"
+              value={docRespaldatoria}
+              onChange={(e) => setDocRespaldatoria(e.target.value.replace(/\s/g, ''))}
+              className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Fecha pase paralelo / GT</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="dd/mm/aaaa"
+              value={fechaPaseDmy}
+              onChange={(e) => setFechaPaseDmy(formatDateMask(e.target.value))}
+              className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+          </div>
+          {error && <p className="text-sm text-danger">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
+          <button className="btn-outline" onClick={onClose} disabled={mut.isPending}>Cancelar</button>
+          <button className="btn-primary" onClick={() => { setError(''); mut.mutate() }} disabled={mut.isPending}>
+            {mut.isPending ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AltaPorBajaPage() {
   const [search, setSearch] = useState('')
   const [estadoFiltro, setEstadoFiltro] = useState('')
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
+  const [bajaDiferidos, setBajaDiferidos] = useState<Baja | null>(null)
   const [modalOrigenAbierto, setModalOrigenAbierto] = useState(false)
   const navigate = useNavigate()
 
@@ -309,9 +394,22 @@ export function AltaPorBajaPage() {
                     }
                   </td>
                   <td className="px-4 py-3">
-                    <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
-                      {fmtEstado(b.estado)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
+                        {fmtEstado(b.estado)}
+                      </span>
+                      {tieneCamposDiferidosPendientes(b) && (
+                        <button
+                          type="button"
+                          onClick={() => setBajaDiferidos(b)}
+                          title="Datos pendientes: completar Doc. respaldatoria / Fecha pase paralelo"
+                          aria-label="Completar datos pendientes"
+                          className="text-amber-500 hover:text-amber-600 leading-none"
+                        >
+                          ⚠️
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right">
                     {(b.estado as string) === 'resolucion_a_la_firma' ? (
@@ -341,6 +439,13 @@ export function AltaPorBajaPage() {
         <ModalDetalleBaja
           baja={bajaSeleccionada}
           onClose={() => setBajaSeleccionada(null)}
+        />
+      )}
+
+      {bajaDiferidos && (
+        <ModalCamposDiferidos
+          baja={bajaDiferidos}
+          onClose={() => setBajaDiferidos(null)}
         />
       )}
     </div>

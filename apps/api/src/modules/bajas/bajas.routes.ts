@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { bajasQuerySchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, anularBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService, listClasificacionVacantesService } from './bajas.service.js'
+import { bajasQuerySchema, camposDiferidosSchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
+import { listBajasService, createBajaService, updateBajaService, anularBajaService, updateCamposDiferidosService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService, listClasificacionVacantesService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -75,6 +75,19 @@ export async function bajasRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string }
       const user = request.user as { id: string }
       const data = await anularBajaService(id, user.id)
+      return reply.send({ data })
+    }
+  )
+
+  // PATCH /:id/campos-diferidos — completar Doc. respaldatoria y Fecha pase
+  // paralelo/GT sin tocar estado/cargo/concurso (endpoint dedicado, ver service)
+  app.patch(
+    '/:id/campos-diferidos',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const body = camposDiferidosSchema.parse(request.body)
+      const data = await updateCamposDiferidosService(id, body)
       return reply.send({ data })
     }
   )

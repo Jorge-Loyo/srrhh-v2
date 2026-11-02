@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { BajasQuery, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
+import type { BajasQuery, CamposDiferidosBody, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
 import { datosTrasConfirmar } from './bajas.validacion.helpers.js'
@@ -240,6 +240,37 @@ export async function anularBajaService(id: string, _usuarioId: string) {
       data: { estado: 'anulada' },
       include,
     })
+  })
+}
+
+// --- PATCH /:id/campos-diferidos --- completar los 2 campos diferidos --------
+// Doc. respaldatoria y Fecha pase paralelo/GT se pueden guardar vacíos al crear
+// la baja (los datos a veces llegan con el concurso ya iniciado) y completarse
+// después desde la lista. Este update es MÍNIMO a propósito: solo toca esos dos
+// campos y NO reusa updateBajaService (que, al salir de resolucion_a_la_firma,
+// dispara la lógica de confirmación: crea concurso / cambia estado del cargo).
+
+// Helper puro: arma el `data` del update solo con los 2 campos diferidos.
+// '' limpia el campo (null); undefined lo deja sin tocar. Testeable sin Prisma.
+export function buildCamposDiferidosData(body: CamposDiferidosBody) {
+  const data: { docRespaldatoria?: string | null; fechaPaseParalelo?: Date | null } = {}
+  if (body.docRespaldatoria !== undefined) {
+    data.docRespaldatoria = body.docRespaldatoria === '' ? null : body.docRespaldatoria
+  }
+  if (body.fechaPaseParalelo !== undefined) {
+    data.fechaPaseParalelo = body.fechaPaseParalelo === '' ? null : new Date(body.fechaPaseParalelo)
+  }
+  return data
+}
+
+export async function updateCamposDiferidosService(id: string, body: CamposDiferidosBody) {
+  const baja = await prisma.baja.findUnique({ where: { id } })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+
+  return prisma.baja.update({
+    where: { id },
+    data: buildCamposDiferidosData(body),
+    include,
   })
 }
 

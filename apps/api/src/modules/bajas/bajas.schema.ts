@@ -98,3 +98,13 @@ export const updateBajaSchema = updateBajaBase
   )
 
 export type UpdateBajaBody = z.infer<typeof updateBajaSchema>
+
+// PATCH /:id/campos-diferidos — completar los 2 campos que la baja permite
+// diferir (Doc. respaldatoria y Fecha pase paralelo/GT). Endpoint dedicado:
+// NO toca estado, cargo ni concurso. Ambos opcionales; '' limpia el campo.
+export const camposDiferidosSchema = z.object({
+  docRespaldatoria: z.string().trim().max(500).optional(),
+  fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+})
+
+export type CamposDiferidosBody = z.infer<typeof camposDiferidosSchema>

@@ -286,6 +286,20 @@ export function NuevaBajaPage() {
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [error, setError] = useState('')
 
+  // Campos diferidos: Doc. respaldatoria y Fecha pase paralelo/GT pueden quedar
+  // pendientes. Si al avanzar/guardar alguno está vacío, se pide confirmación
+  // previa y, si el usuario acepta, se ejecuta la acción diferida guardada acá.
+  const [avisoDiferidos, setAvisoDiferidos] = useState<null | (() => void)>(null)
+  const hayCamposDiferidosPendientes = !docRespaldatoria || !fechaPaseParalelo
+  // Ejecuta `accion` directo si no hay pendientes; si los hay, muestra el aviso.
+  function conAvisoDiferidos(accion: () => void) {
+    if (hayCamposDiferidosPendientes) {
+      setAvisoDiferidos(() => accion)
+    } else {
+      accion()
+    }
+  }
+
   // ── cargar baja existente (modo edición) ──
   const { data: bajaExistente } = useQuery({
     queryKey: ['baja-editar', bajaId],
@@ -567,6 +581,39 @@ export function NuevaBajaPage() {
         />
       )}
 
+      {/* Aviso previo — campos diferidos pendientes (Doc. respaldatoria / Fecha
+          pase paralelo). Al confirmar se ejecuta la acción diferida guardada. */}
+      {avisoDiferidos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setAvisoDiferidos(null)} />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-start gap-3">
+              <span className="text-xl">⚠️</span>
+              <h2 className="font-primary text-base font-bold text-gray-900">Datos pendientes de completar</h2>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-gray-600">
+                Doc. respaldatoria y/o Fecha pase paralelo quedarán pendientes de completar. Podés
+                cargarlos después desde la lista de bajas. ¿Continuar?
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button className="btn-outline" onClick={() => setAvisoDiferidos(null)}>Cancelar</button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const accion = avisoDiferidos
+                  setAvisoDiferidos(null)
+                  accion()
+                }}
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-3xl mx-auto space-y-6">
         {/* breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
@@ -839,10 +886,10 @@ export function NuevaBajaPage() {
                 {modoEdicion && (
                   <button className="btn-outline" onClick={() => navigate(volverUrl)}>← Volver</button>
                 )}
-                <button className="btn-outline" disabled={!cargo || guardando} onClick={guardarBorrador}>
+                <button className="btn-outline" disabled={!cargo || guardando} onClick={() => conAvisoDiferidos(guardarBorrador)}>
                   {guardando ? 'Guardando...' : 'Guardar borrador'}
                 </button>
-                <button className="btn-primary" disabled={!paso1Valido} onClick={avanzar}>
+                <button className="btn-primary" disabled={!paso1Valido} onClick={() => conAvisoDiferidos(avanzar)}>
                   Continuar →
                 </button>
               </div>
