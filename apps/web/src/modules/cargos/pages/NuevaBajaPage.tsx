@@ -31,11 +31,15 @@ function ModalBuscarCargo({
   // buscar → se ocultan los inputs de texto y el filtro de carrera queda fijo en
   // 37. Puesto (solo POU) y especialidad (cascada) son desplegables.
   const esCobertura = origen === 'Cobertura Dotación'
+  // Modo "Retención de Cargo": solo tiene sentido buscar personas en situación
+  // de revista "retención de cargo", y el cargo siempre vigente. Por eso la
+  // situación de revista queda fija y el filtro de estado del cargo se oculta.
+  const esRetencion = origen === 'Retención de Cargo'
 
   const [hospitalId, setHospitalId] = useState('')
   const [codigoRegistroId, setCodigoRegistroId] = useState('')
   const [estadoFiltro, setEstadoFiltro] = useState('')
-  const [situacionRevista, setSituacionRevista] = useState('')
+  const [situacionRevista, setSituacionRevista] = useState(esRetencion ? 'retencion de cargo' : '')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
   // Cobertura Dotación: puesto (POU) y especialidad en cascada.
@@ -83,6 +87,14 @@ function ModalBuscarCargo({
         ...(situacionRevista && { situacionRevista }),
         ...(busqueda.length >= 2 && { search: busqueda }),
         ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
+      }
+      // Retención de Cargo: el filtro de estado del cargo no se muestra; siempre
+      // se traen cargos vigentes (es donde la persona retiene el cargo).
+      if (esRetencion) {
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: { limit: 40, estado: 'vigente', ...comunes },
+        })
+        return res.data.data
       }
       // Si el usuario eligió un estado, se consulta solo ese. Si no, se mantiene
       // el comportamiento por defecto: vigentes + en validación.
@@ -189,21 +201,30 @@ function ModalBuscarCargo({
                 <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
-                  <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Vigentes + en validación</option>
-                    <option value="vigente">Vigente</option>
-                    <option value="validacion_vacante">En validación</option>
-                    <option value="no_vigente">No vigente</option>
-                  </select>
-                </div>
+                {/* En Retención de Cargo el estado del cargo no se elige: siempre vigente. */}
+                {!esRetencion && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
+                    <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
+                      <option value="">Vigentes + en validación</option>
+                      <option value="vigente">Vigente</option>
+                      <option value="validacion_vacante">En validación</option>
+                      <option value="no_vigente">No vigente</option>
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Estado de la persona en el puesto</label>
-                  <select value={situacionRevista} onChange={(e) => setSituacionRevista(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todos</option>
-                    <option value="activo">Activo</option>
-                    <option value="comision">Comisión</option>
+                  {/* En Retención de Cargo queda fija en "retención de cargo" (única opción posible). */}
+                  <select
+                    value={situacionRevista}
+                    onChange={(e) => setSituacionRevista(e.target.value)}
+                    disabled={esRetencion}
+                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed"
+                  >
+                    {!esRetencion && <option value="">Todos</option>}
+                    {!esRetencion && <option value="activo">Activo</option>}
+                    {!esRetencion && <option value="comision">Comisión</option>}
                     <option value="retencion de cargo">Retención de cargo</option>
                   </select>
                 </div>
