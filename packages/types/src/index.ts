@@ -1178,6 +1178,9 @@ export interface CargoFilters {
   subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Situación de revista del ocupante vigente (estado de la persona en el
+  // puesto). Catálogo normalizado minúscula sin tilde.
+  situacionRevista?: 'activo' | 'comision' | 'retencion de cargo'
   page?: number
   limit?: number
 }

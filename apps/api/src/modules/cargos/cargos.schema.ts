@@ -61,6 +61,12 @@ export const cargosQuerySchema = z.object({
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   personaSearch: z.string().trim().min(1).optional(),
+  // Filtro por la situación de revista del ocupante vigente (estado de la
+  // persona en el puesto). Pedido desde "Retención de Cargo" en el form de
+  // baja, pero es un filtro genérico del listado. Valores del catálogo
+  // cerrado normalizado (minúscula sin tilde): 'activo' | 'comision' |
+  // 'retencion de cargo'. Ver normalizarSituacionRevista en kpis.service.
+  situacionRevista: z.enum(['activo', 'comision', 'retencion de cargo']).optional(),
 })
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>

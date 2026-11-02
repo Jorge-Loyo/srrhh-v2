@@ -26,21 +26,23 @@ function ModalBuscarCargo({
   const [hospitalId, setHospitalId] = useState('')
   const [codigoRegistroId, setCodigoRegistroId] = useState('')
   const [estadoFiltro, setEstadoFiltro] = useState('')
+  const [situacionRevista, setSituacionRevista] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  const activo = !!(hospitalId || codigoRegistroId || estadoFiltro || busqueda.length >= 2 || personaBusq.length >= 2)
+  const activo = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, busqueda, personaBusq],
+    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       const comunes = {
         ...(hospitalId && { hospitalId }),
         ...(codigoRegistroId && { codigoRegistroId }),
+        ...(situacionRevista && { situacionRevista }),
         ...(busqueda.length >= 2 && { search: busqueda }),
         ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
       }
@@ -106,6 +108,15 @@ function ModalBuscarCargo({
                 <option value="vigente">Vigente</option>
                 <option value="validacion_vacante">En validación</option>
                 <option value="no_vigente">No vigente</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Estado de la persona en el puesto</label>
+              <select value={situacionRevista} onChange={(e) => setSituacionRevista(e.target.value)} className="input h-9 w-full text-sm">
+                <option value="">Todos</option>
+                <option value="activo">Activo</option>
+                <option value="comision">Comisión</option>
+                <option value="retencion de cargo">Retención de cargo</option>
               </select>
             </div>
           </div>
@@ -349,6 +360,8 @@ export function NuevaBajaPage() {
 
   const codigoNum = Number(codigoRegistro)
   const esCeetps = CEETPS_CODIGOS.includes(codigoNum)
+  // Origen "Retención de Cargo": label de fecha y motivo fijo/bloqueado.
+  const esRetencion = origen === 'Retención de Cargo'
 
   // Refresca solo las etiquetas del cargo tras asignar/quitar una, sin pisar los
   // campos derivados (algunos editables como CUIL/nombre en alta manual).
@@ -404,6 +417,11 @@ export function NuevaBajaPage() {
       setPartida('')
       setDocRespaldatoria('')
       setMotivo('Cobertura Dotación')
+    }
+    // Retención de Cargo: el motivo queda fijo y bloqueado en 'Retención de
+    // Cargo' (mismo patrón que Cobertura Dotación, pero solo fija el motivo).
+    if (v === 'Retención de Cargo') {
+      setMotivo('Retención de Cargo')
     }
   }
 
@@ -803,7 +821,7 @@ export function NuevaBajaPage() {
               {/* Fechas */}
               <Section title="Fechas y expediente">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <Field label="Fecha de baja" required>
+                  <Field label={esRetencion ? 'Fecha de retención' : 'Fecha de baja'} required>
                     <input
                       type="date"
                       value={fechaBaja}
@@ -824,8 +842,8 @@ export function NuevaBajaPage() {
                     <select
                       value={motivo}
                       onChange={(e) => setMotivo(e.target.value)}
-                      disabled={['Cobertura Dotación', 'Ampliación', 'POU a POF'].includes(origen)}
-                      className="input h-10 w-full"
+                      disabled={esRetencion || ['Cobertura Dotación', 'Ampliación', 'POU a POF'].includes(origen)}
+                      className="input h-10 w-full disabled:bg-gray-100 disabled:text-gray-600 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccioná...</option>
                       {OPCIONES_MOTIVO_BAJA.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -1002,7 +1020,7 @@ export function NuevaBajaPage() {
                 <Row label="POU/POF"          value={pouPof} />
                 <Row label="Puesto"           value={puesto} />
                 <Row label="Especialidad"     value={especialidad} />
-                <Row label="Fecha de baja"    value={fechaBaja} />
+                <Row label={esRetencion ? 'Fecha de retención' : 'Fecha de baja'} value={fechaBaja} />
                 <Row label="Carga horaria"    value={cargaHoraria ? `${cargaHoraria} hs` : ''} />
                 <Row label="Motivo"           value={motivo} />
                 {docRespaldatoria && <Row label="Doc. respaldatoria" value={docRespaldatoria} />}

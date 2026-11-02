@@ -78,6 +78,7 @@ export async function listCargosService(query: CargosQuery) {
     subEstado,
     soloJefes,
     personaSearch,
+    situacionRevista,
   } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
@@ -144,10 +145,27 @@ export async function listCargosService(query: CargosQuery) {
     personaIds = rows.map((r) => r.id)
   }
 
+  // Filtro situacionRevista: estado de la persona en el puesto (situación de
+  // revista de la OCUPACIÓN VIGENTE del cargo). El dato crudo en BD viene con
+  // mayúsculas/tildes/espacios inconsistentes, así que se normaliza en SQL con
+  // lower(unaccent(trim(...))) — mismo criterio que normalizarSituacionRevista
+  // (kpis.service) — y se compara contra el valor ya normalizado del query.
+  let situacionRevistaIds: string[] | undefined
+  if (situacionRevista) {
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT o.cargo_id AS id
+      FROM ocupaciones o
+      WHERE o.hasta IS NULL
+        AND lower(unaccent(trim(coalesce(o.situacion_revista, '')))) = ${situacionRevista}
+    `)
+    situacionRevistaIds = rows.map((r) => r.id)
+  }
+
   // Intersectar todos los filtros de id con AND
   const idFilters: Prisma.CargoWhereInput[] = [
     ...(searchIds !== undefined ? [{ id: { in: searchIds } }] : []),
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
+    ...(situacionRevistaIds !== undefined ? [{ id: { in: situacionRevistaIds } }] : []),
   ]
 
   // S21: cascada de catálogo con UNIONES (OR). Los campos sueltos forman el
