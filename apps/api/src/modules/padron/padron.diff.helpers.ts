@@ -283,3 +283,25 @@ export function clasificacionEliminadoDesdoblado(
 export function formatearCodigoDesdoblado(prefijo: string, n: number): string {
   return `${prefijo}-${String(n).padStart(6, '0')}`
 }
+
+// Clasifica un grupo de diffs de un mismo id_sial_rol en el cubo que el paso 4
+// del aprobar (padron.service.ts) usa para materializar. Réplica PURA de la
+// cadena de ramas del `for (const [idSialRol, cambios] of porSialRol)`: la
+// condición "¿es desdoblada?" (campo '__alta_desdoblada__') se evalúa PRIMERO
+// para que un desdoblado NUNCA caiga en nuevos/rechazados. Clave para FASE 0:
+// un tipo 'nuevo' con aprobado=null (pendiente, sin decisión) NO matchea
+// ninguna rama → devuelve null → NO se materializa (no crea cargo/ocupación ni
+// entra a padron_historico). Puro y testeable sin Prisma.
+export function clasificarGrupoAprobar(
+  primerCambio: { tipo: string; campo: string; aprobado: boolean | null },
+): 'nuevosDesdoblados' | 'rechazadosDesdoblados' | 'nuevos' | 'rechazados' | 'eliminados' | 'modificados' | null {
+  const { tipo, campo, aprobado } = primerCambio
+  const esDesd = campo === '__alta_desdoblada__'
+  if (tipo === 'nuevo' && esDesd && aprobado === true) return 'nuevosDesdoblados'
+  if (tipo === 'nuevo' && esDesd && aprobado === false) return 'rechazadosDesdoblados'
+  if (tipo === 'nuevo' && aprobado === true) return 'nuevos'
+  if (tipo === 'nuevo' && aprobado === false) return 'rechazados'
+  if (tipo === 'eliminado') return 'eliminados'
+  if (tipo === 'modificado') return 'modificados'
+  return null
+}

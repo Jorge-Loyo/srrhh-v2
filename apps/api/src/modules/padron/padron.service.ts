@@ -1738,15 +1738,6 @@ export async function aprobarSnapshotService(
   if (snapshot.estado !== 'pendiente')
     throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
-  // Bloquear si hay diffs nuevos sin decisión (aprobado IS NULL)
-  const pendientes = await prisma.padronDiff.count({
-    where: { snapshotId: id, tipo: 'nuevo', aprobado: null },
-  })
-  if (pendientes > 0)
-    throw AppError.conflict(
-      `Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`,
-    )
-
   // Guarda contra padrón parcial — BLOQUEO BLANDO. Se re-evalúa el ratio contra
   // el último aprobado EN ESTE MOMENTO (fuente de verdad al aprobar, no la foto
   // guardada al procesar, que pudo quedar desactualizada si cambió la
