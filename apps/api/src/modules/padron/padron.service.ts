@@ -52,6 +52,7 @@ import {
   tipoDiffDesdoblado,
   clasificacionEliminadoDesdoblado,
   evaluarRatioTamano,
+  evaluarBajaSialRequerida,
 } from './padron.diff.helpers.js'
 
 // Re-exportados para compatibilidad y para que otros módulos usen la única
@@ -242,6 +243,19 @@ async function evaluarRatioContraUltimoAprobado(
       ? mensajeAdvertenciaRatio(totalNuevo, totalRef, ratio)
       : null
   return { ratio, advertencia, anomalo }
+}
+
+// ─── Guarda contra padrón sin baja SIAL de la semana ─────────────────────────
+// Trae las fecha_archivo de los snapshots de baja SIAL "válidos" = SUBIDOS
+// (estado IN ('pendiente','aprobado') — decisión de negocio: basta que la baja
+// SIAL esté subida, no hace falta que esté aprobada). `estado` es varchar en DB
+// (no enum), por eso se consulta con $queryRaw, igual que listValidacionService.
+async function fechasBajaSialValidas(): Promise<Date[]> {
+  const rows = await prisma.$queryRaw<{ fecha_archivo: Date }[]>`
+    SELECT fecha_archivo FROM baja_sial_snapshots
+    WHERE estado IN ('pendiente', 'aprobado')
+  `
+  return rows.map((r) => r.fecha_archivo)
 }
 
 // ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
@@ -1718,6 +1732,7 @@ export async function aprobarSnapshotService(
   id: string,
   usuarioId: string,
   overrideRatioTamano = false,
+  overrideBajaSial = false,
 ) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')
@@ -1741,6 +1756,24 @@ export async function aprobarSnapshotService(
   const evalRatio = await evaluarRatioContraUltimoAprobado(snapshot.totalRegistros, id)
   if (evalRatio.anomalo && evalRatio.advertencia && !overrideRatioTamano) {
     throw AppError.conflict(evalRatio.advertencia)
+  }
+
+  // Guarda contra padrón sin la baja SIAL de la semana — BLOQUEO BLANDO. Exige
+  // que exista al menos una baja SIAL SUBIDA (estado IN ('pendiente','aprobado')
+  // — basta con que esté subida, no hace falta que esté aprobada) cuya
+  // fecha_archivo caiga dentro de ±PADRON_BAJA_SIAL_VENTANA_DIAS de la fecha del
+  // padrón (snapshot.fechaAsignada). Si falta y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const fechasBajaSial = await fechasBajaSialValidas()
+  const evalBajaSial = evaluarBajaSialRequerida(
+    snapshot.fechaAsignada,
+    fechasBajaSial,
+    env.PADRON_EXIGIR_BAJA_SIAL,
+    env.PADRON_BAJA_SIAL_VENTANA_DIAS,
+  )
+  if (evalBajaSial.falta && evalBajaSial.advertencia && !overrideBajaSial) {
+    throw AppError.conflict(evalBajaSial.advertencia)
   }
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })

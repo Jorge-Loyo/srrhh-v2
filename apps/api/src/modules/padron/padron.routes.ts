@@ -90,12 +90,15 @@ export async function padronRoutes(app: FastifyInstance) {
   // POST /snapshots/:id/aprobar — S2-6/S2-7 (requiere editor o admin)
   // `overrideRatioTamano` (flag explícito en el body) salta el bloqueo blando de
   // la guarda contra padrón parcial cuando el operador confirma que el padrón
-  // chico es correcto. Queda auditado vía aprobadoPorId/aprobadoAt (ya exige el
-  // permiso aprobar_padron de la ruta).
-  app.post<{ Params: { id: string }; Body: { overrideRatioTamano?: boolean } }>('/snapshots/:id/aprobar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
+  // chico es correcto. `overrideBajaSial` salta de la misma forma el bloqueo
+  // blando de la guarda contra padrón sin la baja SIAL de la semana. Ambos
+  // quedan auditados vía aprobadoPorId/aprobadoAt (ya exige el permiso
+  // aprobar_padron de la ruta).
+  app.post<{ Params: { id: string }; Body: { overrideRatioTamano?: boolean; overrideBajaSial?: boolean } }>('/snapshots/:id/aprobar', { preHandler: requirePermiso({ modulo: 'padron', accion: 'aprobar_padron' }) }, async (request, reply) => {
     const user = request.user as { id: string }
     const overrideRatioTamano = request.body?.overrideRatioTamano === true
-    const result = await aprobarSnapshotService(request.params.id, user.id, overrideRatioTamano)
+    const overrideBajaSial = request.body?.overrideBajaSial === true
+    const result = await aprobarSnapshotService(request.params.id, user.id, overrideRatioTamano, overrideBajaSial)
     return reply.send({ data: result })
   })
 

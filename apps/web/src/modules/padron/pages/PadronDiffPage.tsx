@@ -298,7 +298,22 @@ export function PadronDiffPage() {
       if (!window.confirm(`${advertencia}\n\n¿Aprobar igual este padrón?`)) return
       overrideRatioTamano = true
     }
-    await aprobar.mutateAsync({ snapshotId, overrideRatioTamano })
+    // Guarda contra padrón sin la baja SIAL de la semana: a diferencia del ratio
+    // (que se persiste al procesar), esta se evalúa al aprobar y el backend
+    // responde 409 con la advertencia. Se intenta sin override; ante el 409 se
+    // muestra el mensaje y, si el operador confirma, se reintenta con el flag.
+    try {
+      await aprobar.mutateAsync({ snapshotId, overrideRatioTamano })
+    } catch (e: any) {
+      const status = e?.response?.status
+      const msg = e?.response?.data?.message ?? ''
+      if (status === 409 && msg) {
+        if (!window.confirm(`${msg}\n\n¿Aprobar igual este padrón?`)) return
+        await aprobar.mutateAsync({ snapshotId, overrideRatioTamano, overrideBajaSial: true })
+      } else {
+        return
+      }
+    }
     navigate('/padron')
   }
 

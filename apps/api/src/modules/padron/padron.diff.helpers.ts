@@ -104,6 +104,47 @@ export function evaluarRatioTamano(
   return { ratio, anomalo: ratio < umbral }
 }
 
+// ─── GUARDA CONTRA PADRÓN SIN BAJA SIAL DE LA SEMANA ─────────────────────────
+// Previene que un padrón se apruebe sin haber subido las bajas SIAL de esa
+// semana: eso hace que el padrón detecte como "eliminados" a personas que en
+// realidad ya son bajas registradas en SIAL y las deje en validacion_vacante
+// sin vincular (causa del backlog de 2.214 bajas recién limpiado por backfill).
+// Bloqueo BLANDO con override auditado, igual que la guarda de ratio. Función
+// PURA, sin Prisma/env, para testearla como el resto de los helpers del diff.
+
+// Milisegundos en un día (ventana ±ventanaDias). Local al helper.
+const MS_POR_DIA = 24 * 60 * 60 * 1000
+
+// Decide si falta la baja SIAL de la semana del padrón. Si `exigir` es false la
+// guarda NO aplica (nunca falta). Si `exigir` es true, basta con que exista al
+// menos una fecha en `fechasBajaSialDisponibles` (fecha_archivo de snapshots
+// SIAL válidos) dentro de ±`ventanaDias` de `fechaPadron` para que NO falte.
+// `ventanaDias === 0` exige fecha exacta (mismo día). Si no hay ninguna dentro
+// de la ventana (incluida la lista vacía) ⇒ falta=true con una advertencia que
+// menciona la fecha del padrón y la ventana. PURA: no toca BD ni env.
+export function evaluarBajaSialRequerida(
+  fechaPadron: Date,
+  fechasBajaSialDisponibles: Date[],
+  exigir: boolean,
+  ventanaDias: number,
+): { falta: boolean; advertencia: string | null } {
+  if (!exigir) return { falta: false, advertencia: null }
+
+  const toleranciaMs = ventanaDias * MS_POR_DIA
+  const refMs = fechaPadron.getTime()
+  const hayDentroDeVentana = fechasBajaSialDisponibles.some(
+    (f) => Math.abs(f.getTime() - refMs) <= toleranciaMs,
+  )
+  if (hayDentroDeVentana) return { falta: false, advertencia: null }
+
+  const fechaIso = fechaPadron.toISOString().slice(0, 10)
+  const advertencia =
+    `No hay una baja SIAL subida para la semana del padrón (${fechaIso}, ventana ±${ventanaDias} día(s)). ` +
+    `Aprobar sin la baja SIAL de la semana reacumula bajas en validacion_vacante sin vincular. ` +
+    `Subí la baja SIAL de la semana o confirmá el override para aprobar igual.`
+  return { falta: true, advertencia }
+}
+
 // ─── DESDOBLADO (24 Residencias / 07 Docentes) ───────────────────────────────
 // Fix del pipeline: estos dos cod_registro llevan un cargo 1:1 por rol (1 cargo
 // = 1 rol = 1 persona), identificado por id_sial_rol, NO por cargo.id_sial. El
