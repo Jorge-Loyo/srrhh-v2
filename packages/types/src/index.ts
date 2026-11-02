@@ -1178,6 +1178,12 @@ export interface CargoFilters {
   subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Literal del puesto del cargo (texto canónico del catálogo). Match exacto
+  // normalizado — usado por "Cobertura Dotación" (desplegable de puestos POU).
+  literalPuesto?: string
+  // Especialidad del cargo (catálogo o legacy). Match exacto normalizado —
+  // cascada del puesto en "Cobertura Dotación".
+  especialidad?: string
   // Situación de revista del ocupante vigente (estado de la persona en el
   // puesto). Catálogo normalizado minúscula sin tilde.
   situacionRevista?: 'activo' | 'comision' | 'retencion de cargo'

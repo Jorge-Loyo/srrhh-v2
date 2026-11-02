@@ -78,6 +78,8 @@ export async function listCargosService(query: CargosQuery) {
     subEstado,
     soloJefes,
     personaSearch,
+    literalPuesto,
+    especialidad,
     situacionRevista,
   } = query
 
@@ -145,6 +147,38 @@ export async function listCargosService(query: CargosQuery) {
     personaIds = rows.map((r) => r.id)
   }
 
+  // Filtro literalPuesto: puesto del cargo elegido de un desplegable (literal
+  // canónico, ej. "PROFESIONAL GUARDIA MEDICO"). Igual que `search`, Prisma no
+  // deja usar unaccent() dentro del `where` tipado, así que se resuelven los
+  // ids con una query raw y se intersectan abajo. Match EXACTO normalizado
+  // (unaccent + lower + trim) — no `contains` — porque el valor viene del
+  // catálogo, no es texto libre.
+  let literalPuestoIds: string[] | undefined
+  if (literalPuesto) {
+    const term = literalPuesto.toLowerCase().trim()
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT c.id FROM cargos c
+      WHERE lower(unaccent(trim(coalesce(c.literal_puesto, '')))) = unaccent(${term})
+    `)
+    literalPuestoIds = rows.map((r) => r.id)
+  }
+
+  // Filtro especialidad: especialidad del cargo elegida en cascada del puesto
+  // (desplegable de "Cobertura Dotación"). Match exacto normalizado contra la
+  // especialidad del catálogo (join a especialidades_puestos) o el snapshot
+  // legacy (`especialidad_legacy`). Mismo patrón raw→ids que los demás filtros.
+  let especialidadIds: string[] | undefined
+  if (especialidad) {
+    const term = especialidad.toLowerCase().trim()
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT c.id FROM cargos c
+      LEFT JOIN especialidades_puesto ep ON ep.id = c.especialidad_puesto_id
+      WHERE lower(unaccent(trim(coalesce(ep.nombre, '')))) = unaccent(${term})
+         OR lower(unaccent(trim(coalesce(c.especialidad_legacy, '')))) = unaccent(${term})
+    `)
+    especialidadIds = rows.map((r) => r.id)
+  }
+
   // Filtro situacionRevista: estado de la persona en el puesto (situación de
   // revista de la OCUPACIÓN VIGENTE del cargo). El dato crudo en BD viene con
   // mayúsculas/tildes/espacios inconsistentes, así que se normaliza en SQL con
@@ -165,6 +199,8 @@ export async function listCargosService(query: CargosQuery) {
   const idFilters: Prisma.CargoWhereInput[] = [
     ...(searchIds !== undefined ? [{ id: { in: searchIds } }] : []),
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
+    ...(literalPuestoIds !== undefined ? [{ id: { in: literalPuestoIds } }] : []),
+    ...(especialidadIds !== undefined ? [{ id: { in: especialidadIds } }] : []),
     ...(situacionRevistaIds !== undefined ? [{ id: { in: situacionRevistaIds } }] : []),
   ]
 

@@ -61,6 +61,16 @@ export const cargosQuerySchema = z.object({
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   personaSearch: z.string().trim().min(1).optional(),
+  // Filtro por el literal del puesto del cargo (texto canónico del catálogo,
+  // ej. "PROFESIONAL GUARDIA MEDICO"). Pedido desde "Cobertura Dotación" en el
+  // form de baja, donde el puesto se elige de un desplegable con los literales
+  // POU; el front no tiene el id de catálogo, manda el literal. Match exacto
+  // normalizado (unaccent + lower + trim) contra `literal_puesto`.
+  literalPuesto: z.string().trim().min(1).optional(),
+  // Filtro por la especialidad del cargo (literal del catálogo/legacy). Cascada
+  // del puesto en "Cobertura Dotación". Match exacto normalizado contra la
+  // especialidad del catálogo (especialidadPuesto.nombre) o el snapshot legacy.
+  especialidad: z.string().trim().min(1).optional(),
   // Filtro por la situación de revista del ocupante vigente (estado de la
   // persona en el puesto). Pedido desde "Retención de Cargo" en el form de
   // baja, pero es un filtro genérico del listado. Valores del catálogo

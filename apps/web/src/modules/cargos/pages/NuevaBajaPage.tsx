@@ -9,6 +9,7 @@ import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
   CEETPS_CODIGOS, origenToMotivoConcurso,
+  getPuestoOptions, getEspecialidadOptions,
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
@@ -17,28 +18,65 @@ import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 type Paso = 1 | 2 | 3
 
 function ModalBuscarCargo({
+  origen,
   onSeleccionar,
   onCerrar,
 }: {
+  origen: string
   onSeleccionar: (c: Cargo) => void
   onCerrar: () => void
 }) {
+  // Modo "Cobertura Dotación": se buscan cargos VACANTES (sin ocupante), que
+  // siempre son POU + CPH (código de registro 37). No hay persona ni id_sial que
+  // buscar → se ocultan los inputs de texto y el filtro de carrera queda fijo en
+  // 37. Puesto (solo POU) y especialidad (cascada) son desplegables.
+  const esCobertura = origen === 'Cobertura Dotación'
+
   const [hospitalId, setHospitalId] = useState('')
   const [codigoRegistroId, setCodigoRegistroId] = useState('')
   const [estadoFiltro, setEstadoFiltro] = useState('')
   const [situacionRevista, setSituacionRevista] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
+  // Cobertura Dotación: puesto (POU) y especialidad en cascada.
+  const [puestoCob, setPuestoCob] = useState('')
+  const [especialidadCob, setEspecialidadCob] = useState('')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  const activo = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
+  // Código de registro 37 (CPH) — en Cobertura Dotación la carrera va fija a 37.
+  const codigoReg37 = codigosRegistro?.find((cr) => cr.codigo === '37')
+  // Puestos POU (guardia) para el desplegable de Cobertura Dotación.
+  const puestosPou = getPuestoOptions('POU', '')
+  const especialidadesCob = puestoCob ? getEspecialidadOptions(puestoCob) : []
+
+  const activoCobertura = !!(codigoReg37 && (hospitalId || puestoCob || especialidadCob))
+  const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
+  const activo = esCobertura ? activoCobertura : activoDefault
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
+    queryKey: esCobertura
+      ? ['cargo-modal-baja-cobertura', hospitalId, codigoReg37?.id, puestoCob, especialidadCob]
+      : ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
+      if (esCobertura) {
+        // Vacante = cargo vigente SIN ocupante (ocupado=false). Siempre POU +
+        // código de registro 37. Puesto/especialidad filtran server-side.
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: {
+            limit: 40,
+            estado: 'vigente',
+            ocupado: 'false',
+            ...(codigoReg37 && { codigoRegistroId: codigoReg37.id }),
+            ...(hospitalId && { hospitalId }),
+            ...(puestoCob && { literalPuesto: puestoCob }),
+            ...(especialidadCob && { especialidad: especialidadCob }),
+          },
+        })
+        return res.data.data
+      }
       const comunes = {
         ...(hospitalId && { hospitalId }),
         ...(codigoRegistroId && { codigoRegistroId }),
@@ -73,56 +111,114 @@ function ModalBuscarCargo({
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Filtrá por sigla, código, puesto, especialidad o persona</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {esCobertura
+                ? 'Cargos vacantes POU (CPH 37) — filtrá por sigla, puesto y especialidad'
+                : 'Filtrá por sigla, código, puesto, especialidad o persona'}
+            </p>
           </div>
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 border-b border-gray-100 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-              <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Todas</option>
-                {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-              <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Todas</option>
-                {codigosRegistro?.map((cr) => (
-                  <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
-            <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
-              <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Vigentes + en validación</option>
-                <option value="vigente">Vigente</option>
-                <option value="validacion_vacante">En validación</option>
-                <option value="no_vigente">No vigente</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Estado de la persona en el puesto</label>
-              <select value={situacionRevista} onChange={(e) => setSituacionRevista(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Todos</option>
-                <option value="activo">Activo</option>
-                <option value="comision">Comisión</option>
-                <option value="retencion de cargo">Retención de cargo</option>
-              </select>
-            </div>
-          </div>
+          {esCobertura ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
+                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+                  {/* Fija en CPH (código 37) — no elegible en Cobertura Dotación. */}
+                  <select value="37" disabled className="input h-9 w-full text-sm bg-gray-50 text-gray-600">
+                    <option value="37">37{codigoReg37?.literal ? ` — ${codigoReg37.literal}` : ''}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto (POU)</label>
+                  <select
+                    value={puestoCob}
+                    onChange={(e) => { setPuestoCob(e.target.value); setEspecialidadCob('') }}
+                    className="input h-9 w-full text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {puestosPou.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Especialidad</label>
+                  <select
+                    value={especialidadCob}
+                    onChange={(e) => setEspecialidadCob(e.target.value)}
+                    disabled={!puestoCob}
+                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option value="">{puestoCob ? 'Todas' : 'Elegí un puesto primero'}</option>
+                    {especialidadesCob.map((e) => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
+                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+                  <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {codigosRegistro?.map((cr) => (
+                      <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
+                <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
+                  <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Vigentes + en validación</option>
+                    <option value="vigente">Vigente</option>
+                    <option value="validacion_vacante">En validación</option>
+                    <option value="no_vigente">No vigente</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Estado de la persona en el puesto</label>
+                  <select value={situacionRevista} onChange={(e) => setSituacionRevista(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todos</option>
+                    <option value="activo">Activo</option>
+                    <option value="comision">Comisión</option>
+                    <option value="retencion de cargo">Retención de cargo</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
+          {!activo && (
+            <p className="p-6 text-sm text-gray-400 text-center">
+              {esCobertura
+                ? 'Seleccioná una sigla, un puesto o una especialidad'
+                : 'Seleccioná una sigla o escribí al menos 2 caracteres'}
+            </p>
+          )}
           {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
           {activo && !isLoading && isError && (
             <p className="p-6 text-sm text-danger text-center">
@@ -594,6 +690,7 @@ export function NuevaBajaPage() {
     <>
       {modalAbierto && (
         <ModalBuscarCargo
+          origen={origen}
           onSeleccionar={seleccionarCargo}
           onCerrar={() => setModalAbierto(false)}
         />
