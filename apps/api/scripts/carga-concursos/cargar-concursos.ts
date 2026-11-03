@@ -637,6 +637,7 @@ async function procesarHoja(
           // CEETPS
           const ceetpsInput = {
             expedienteConcurso: str(fila['expediente_concurso']),
+            fechaCaratulacion: fecha(fila['fecha_caratulacion'], 'fecha_caratulacion', warnings),
             puestoSolicitado: str(fila['puesto_solicitado']),
             dispoLlamado: str(fila['dispo_llamado']),
             fechaIfacs: fecha(fila['fecha_ifacs'], 'fecha_ifacs', warnings),
@@ -645,7 +646,7 @@ async function procesarHoja(
             dispoDesignacion: str(fila['dispo_designacion']),
             resolucionDesignacion: str(fila['resolucion_designacion']),
           }
-          const estado = calcEstadoCeetps(ceetpsInput)
+          const calcCeetps = calcEstadoCeetps(ceetpsInput)
           const sub = (str(fila['sub_carrera']) ?? '').toUpperCase()
           const cr = caches.crPorSubCarrera[sub] ?? caches.crPorSubCarrera['ANEXO2']!
 
@@ -670,8 +671,10 @@ async function procesarHoja(
                 cargoId,
                 hospitalId,
                 escalafonId: cr.escalafonId,
-                estado,
+                estado: calcCeetps.estado,
+                subEstado: calcCeetps.subEstado,
                 expedienteConcurso: ceetpsInput.expedienteConcurso,
+                fechaCaratulacion: ceetpsInput.fechaCaratulacion,
                 puestoSolicitado: ceetpsInput.puestoSolicitado,
                 dispoLlamado: ceetpsInput.dispoLlamado,
                 cargaHoraria: num(fila['carga_horaria'], {

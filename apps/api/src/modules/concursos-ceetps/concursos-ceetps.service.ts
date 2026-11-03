@@ -6,42 +6,76 @@ import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { calcEstadoCeetps } from './concursosCeetps.calc.js'
 
 const include = {
-  // cargo.codigoRegistro: clasificador FINO de la carrera —
-  // Enfermería(87)/Técnicos(85)/Administrativa(83). Las tres carreras tienen
-  // escalafones DISTINTOS en el modelo normalizado actual (seed/QB:
-  // 87 Nueva Carrera Enfermería, 85 CEETPS, 83 Nueva Carrera Administrativa),
-  // así que el filtro por `escalafonId` ya las separa; `codigoRegistro` sigue
-  // siendo el clasificador fino que usan los documentos exportables
-  // (Validación/Autorización). (El comentario anterior decía que las tres
-  // compartían un único escalafón "CEETPS" — eso describía un modelo viejo
-  // pre-reset S21 y quedó desactualizado.)
+  // cargo.codigoRegistro: clasificador fino de la carrera —
+  // Enfermería(87)/Técnicos(85)/Administrativa(83). Ver comentario en el
+  // include original: escalafonId ya separa las tres carreras; codigoRegistro
+  // sigue siendo el clasificador fino que usan los documentos exportables.
   concurso: { include: { cargo: { include: { codigoRegistro: true } }, persona: true, baja: true } },
   hospital: true,
   escalafon: true,
   personaDesignada: true,
 } satisfies Prisma.ConcursoCeetpsInclude
 
-// `calcEstadoCeetps` se extrajo a ./concursosCeetps.calc.ts (módulo exportable,
-// reutilizado por el script de carga masiva) — misma lógica, sin cambio de
-// comportamiento.
+// Campos cuyo valor string YYYY-MM-DD debe convertirse a Date antes de
+// escribir a Prisma (tipo DateTime/Date en el schema).
+const CAMPOS_FECHA = new Set<keyof PatchConcursoCeetpsBody>([
+  'fechaCaratulacion',
+  'fechaAutorizacion',
+  'fechaIfacs',
+  'fechaInsal',
+  'fechaProyectoDispo',
+])
 
-const CAMPOS_FECHA = new Set<keyof PatchConcursoCeetpsBody>(['fechaIfacs', 'fechaInsal'])
+// ─── Helper: aplicar rango de fechas al where de Prisma ─────────────────────
+function rangoFecha(desde?: string, hasta?: string): Prisma.DateTimeNullableFilter | undefined {
+  if (!desde && !hasta) return undefined
+  return {
+    ...(desde && { gte: new Date(desde) }),
+    ...(hasta && { lte: new Date(hasta) }),
+  }
+}
 
 // ─── S5-1: listado paginado con filtros ─────────────────────────────────────
 export async function listConcursosCeetpsService(query: ConcursosCeetpsQuery) {
-  const { page, limit, hospitalId, escalafonId, estado, search } = query
+  const {
+    page, limit,
+    hospitalId, escalafonId, estado, subEstado,
+    fechaCaratulacionDesde, fechaCaratulacionHasta,
+    fechaAutorizacionDesde, fechaAutorizacionHasta,
+    fechaIfacsDesde, fechaIfacsHasta,
+    fechaInsalDesde, fechaInsalHasta,
+    search,
+  } = query
   const offset = (page - 1) * limit
 
+  const rCaratulacion  = rangoFecha(fechaCaratulacionDesde, fechaCaratulacionHasta)
+  const rAutorizacion  = rangoFecha(fechaAutorizacionDesde, fechaAutorizacionHasta)
+  const rIfacs         = rangoFecha(fechaIfacsDesde, fechaIfacsHasta)
+  const rInsal         = rangoFecha(fechaInsalDesde, fechaInsalHasta)
+
   const where: Prisma.ConcursoCeetpsWhereInput = {
-    ...(hospitalId && { hospitalId }),
-    ...(escalafonId && { escalafonId }),
-    ...(estado && { estado }),
+    ...(hospitalId      && { hospitalId }),
+    ...(escalafonId     && { escalafonId }),
+    ...(estado          && { estado }),
+    ...(subEstado       && { subEstado }),
+    ...(rCaratulacion   && { fechaCaratulacion: rCaratulacion }),
+    ...(rAutorizacion   && { fechaAutorizacion: rAutorizacion }),
+    ...(rIfacs          && { fechaIfacs: rIfacs }),
+    ...(rInsal          && { fechaInsal: rInsal }),
     ...(search && {
       OR: [
-        { expedienteConcurso: { contains: search, mode: 'insensitive' } },
-        { puestoSolicitado: { contains: search, mode: 'insensitive' } },
+        { expedienteConcurso:    { contains: search, mode: 'insensitive' } },
+        { expedienteConcurso2:   { contains: search, mode: 'insensitive' } },
+        { tipificadorOrigen:     { contains: search, mode: 'insensitive' } },
+        { puestoSolicitado:      { contains: search, mode: 'insensitive' } },
+        { dispoLlamado:          { contains: search, mode: 'insensitive' } },
+        { expedienteDesignacion: { contains: search, mode: 'insensitive' } },
+        { dispoDesignacion:      { contains: search, mode: 'insensitive' } },
         { resolucionDesignacion: { contains: search, mode: 'insensitive' } },
-        { observaciones: { contains: search, mode: 'insensitive' } },
+        { puestoDesignado:       { contains: search, mode: 'insensitive' } },
+        { numeroAptoMedico:      { contains: search, mode: 'insensitive' } },
+        { codigoSial:            { contains: search, mode: 'insensitive' } },
+        { observaciones:         { contains: search, mode: 'insensitive' } },
       ],
     }),
   }
@@ -67,7 +101,7 @@ export async function getConcursoCeetpsByIdService(id: string) {
   return concursoCeetps
 }
 
-// ─── S5-1: actualizar campos por fase — estado se recalcula ─────────────────
+// ─── S5-1: actualizar campos por fase — estado y subEstado se recalculan ─────
 export async function patchConcursoCeetpsService(id: string, body: PatchConcursoCeetpsBody) {
   const existing = await prisma.concursoCeetps.findUnique({ where: { id } })
   if (!existing) throw AppError.notFound('Concurso CEETPS no encontrado')
@@ -96,12 +130,13 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
     }
   }
 
+  // Recalcular estado + subEstado a partir del estado merged
   const merged = { ...existing, ...(patch as Partial<typeof existing>) }
-  const estado = calcEstadoCeetps(merged)
+  const { estado, subEstado } = calcEstadoCeetps(merged)
 
   return prisma.concursoCeetps.update({
     where: { id },
-    data: { ...patch, estado },
+    data: { ...patch, estado, subEstado },
     include,
   })
 }
@@ -147,16 +182,17 @@ export async function designarConcursoCeetpsService(id: string, body: DesignarCe
       data: {
         personaDesignadaId: body.personaId,
         estado: 'finalizado',
+        subEstado: null,
       },
       include,
     })
 
-    const cargoCodigo = (concurso.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ?? id.slice(0, 8)
+    const cargoCodigo = concurso.concurso.cargo?.codigo ?? id.slice(0, 8)
     await crearNotificacion({
-      tipo:      'autorizacion_resuelta',
-      rolSlug:   'concursales_ceetps',
-      titulo:    `Designación registrada — ${cargoCodigo}`,
-      mensaje:   `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
+      tipo:       'autorizacion_resuelta',
+      rolSlug:    'concursales_ceetps',
+      titulo:     `Designación registrada — ${cargoCodigo}`,
+      mensaje:    `${persona.apellidoNombre} fue designado/a en el cargo ${cargoCodigo}.`,
       origenTipo: 'concurso_ceetps',
       origenId:   id,
       origenKey:  `designacion_ceetps:${id}`,
