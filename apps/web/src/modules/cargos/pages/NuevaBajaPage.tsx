@@ -13,6 +13,7 @@ import {
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 
 type Paso = 1 | 2 | 3
@@ -60,6 +61,40 @@ function ModalBuscarCargo({
   // Puestos POU (guardia) para el desplegable de Cobertura Dotación.
   const puestosPou = getPuestoOptions('POU', '')
   const especialidadesCob = puestoCob ? getEspecialidadOptions(puestoCob) : []
+
+  // ── Mapeos label↔id para los SearchableSelect (combobox con búsqueda) ──────
+  // SearchableSelect trabaja con options: string[] (labels); para los campos
+  // cuyo value es un id (Sigla→hospitalId, Carrera→codigoRegistroId) se pasan
+  // displayToValue/valueToDisplay para traducir label↔id.
+  const siglaOptions = (hospitales ?? []).map((h) => hospitalLabel(h))
+  const hospitalIdToLabel = (id: string) => {
+    const h = (hospitales ?? []).find((x) => x.id === id)
+    return h ? hospitalLabel(h) : ''
+  }
+  const labelToHospitalId = (label: string) => {
+    const h = (hospitales ?? []).find((x) => hospitalLabel(x) === label)
+    return h?.id ?? ''
+  }
+  // Carrera (rama default): catálogo completo de códigos de registro.
+  const carreraOptions = (codigosRegistro ?? []).map((cr) => `${cr.codigo} — ${cr.literal}`)
+  const carreraIdToLabel = (id: string) => {
+    const cr = (codigosRegistro ?? []).find((x) => x.id === id)
+    return cr ? `${cr.codigo} — ${cr.literal}` : ''
+  }
+  const labelToCarreraId = (label: string) => {
+    const cr = (codigosRegistro ?? []).find((x) => `${x.codigo} — ${x.literal}` === label)
+    return cr?.id ?? ''
+  }
+  // Carrera (Cobertura): solo los códigos válidos 37/23; el value es el CÓDIGO.
+  const coberturaCarreraOptions = CODIGOS_COBERTURA.map((cod) => {
+    const cr = codigosRegCobertura.find((c) => c.codigo === cod)
+    return cr?.literal ? `${cod} — ${cr.literal}` : cod
+  })
+  const coberturaCodigoToLabel = (cod: string) => {
+    const cr = codigosRegCobertura.find((c) => c.codigo === cod)
+    return cr?.literal ? `${cod} — ${cr.literal}` : cod
+  }
+  const coberturaLabelToCodigo = (label: string) => label.split(' — ')[0]
 
   const activoCobertura = !!(codigoRegCoberturaSel && (hospitalId || puestoCob || especialidadCob))
   const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
@@ -145,53 +180,51 @@ function ModalBuscarCargo({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={hospitalId}
+                    onChange={setHospitalId}
+                    options={siglaOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={hospitalIdToLabel}
+                    displayToValue={labelToHospitalId}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
                   {/* Elegible entre los códigos válidos para estos concursos (37 y 23). */}
-                  <select
+                  <SearchableSelect
                     value={codigoCobertura}
-                    onChange={(e) => setCodigoCobertura(e.target.value)}
-                    className="input h-9 w-full text-sm"
-                  >
-                    {CODIGOS_COBERTURA.map((cod) => {
-                      const cr = codigosRegCobertura.find((c) => c.codigo === cod)
-                      return (
-                        <option key={cod} value={cod}>
-                          {cod}{cr?.literal ? ` — ${cr.literal}` : ''}
-                        </option>
-                      )
-                    })}
-                  </select>
+                    onChange={(v) => setCodigoCobertura(v || '37')}
+                    options={coberturaCarreraOptions}
+                    placeholder="Carrera"
+                    className="text-sm"
+                    valueToDisplay={coberturaCodigoToLabel}
+                    displayToValue={coberturaLabelToCodigo}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto (POU)</label>
-                  <select
+                  <SearchableSelect
                     value={puestoCob}
-                    onChange={(e) => { setPuestoCob(e.target.value); setEspecialidadCob('') }}
-                    className="input h-9 w-full text-sm"
-                  >
-                    <option value="">Todos</option>
-                    {puestosPou.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                    onChange={(v) => { setPuestoCob(v); setEspecialidadCob('') }}
+                    options={puestosPou}
+                    placeholder="Todos"
+                    className="text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Especialidad</label>
-                  <select
+                  <SearchableSelect
                     value={especialidadCob}
-                    onChange={(e) => setEspecialidadCob(e.target.value)}
+                    onChange={setEspecialidadCob}
+                    options={especialidadesCob}
+                    placeholder={puestoCob ? 'Todas' : 'Elegí un puesto primero'}
+                    className="text-sm"
                     disabled={!puestoCob}
-                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                  >
-                    <option value="">{puestoCob ? 'Todas' : 'Elegí un puesto primero'}</option>
-                    {especialidadesCob.map((e) => <option key={e} value={e}>{e}</option>)}
-                  </select>
+                  />
                 </div>
               </div>
             </>
@@ -200,19 +233,27 @@ function ModalBuscarCargo({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={hospitalId}
+                    onChange={setHospitalId}
+                    options={siglaOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={hospitalIdToLabel}
+                    displayToValue={labelToHospitalId}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-                  <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {codigosRegistro?.map((cr) => (
-                      <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={codigoRegistroId}
+                    onChange={setCodigoRegistroId}
+                    options={carreraOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={carreraIdToLabel}
+                    displayToValue={labelToCarreraId}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
