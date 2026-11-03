@@ -134,7 +134,7 @@ export function PadronDiffPage() {
   )
   // La pestaña "Nuevos id_sial" es solo-lectura: las decisiones (crear cargo /
   // concurso / transferencia / sin código) se tomaron fuera de la aprobación,
-  // en el módulo "Gestión de Puestos". Acá solo se audita qué trae el padrón.
+  // en el módulo "Incidencias". Acá solo se audita qué trae el padrón.
   // Mapa idSialRol → código del concurso abierto (si existe), para el indicador
   // informativo "genera concurso / sin concurso".
   const concursoInfoMap = new Map(
@@ -549,7 +549,7 @@ export function PadronDiffPage() {
           </div>
 
           {/* Aviso: los id_sial nuevos ya no se deciden acá; se gestionan en el
-              módulo "Gestión de Puestos" después de aprobar el padrón. */}
+              módulo "Incidencias" después de aprobar el padrón. */}
           {tab === 'nuevo' && (
             <div className="mx-4 mt-1 mb-2 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
               <span className="mt-0.5 shrink-0">ℹ</span>
@@ -557,10 +557,10 @@ export function PadronDiffPage() {
                 Estos id_sial se resuelven en{' '}
                 <button
                   type="button"
-                  onClick={() => navigate('/gestion-puestos')}
+                  onClick={() => navigate('/incidencias')}
                   className="font-semibold underline hover:text-blue-900"
                 >
-                  Gestión de Puestos
+                  Incidencias
                 </button>{' '}
                 después de aprobar. Esta vista es solo de auditoría.
               </span>

@@ -259,6 +259,11 @@ export function ConcursoCphWizard() {
         ? rawFecha.slice(0, 10)
         : (rawFecha as Date).toISOString().slice(0, 10)
       : ''
+    // Datos informativos de la baja (readonly). Se reutilizan los valores ya
+    // resueltos en el memo `concurso` (cuilBaja / especialidad) para no volver
+    // a traerlos ni duplicar la lógica de fallback.
+    const cuilBajaResuelto = concurso?.cuilBaja ?? ''
+    const especialidadBajaResuelto = concurso?.especialidad ?? ''
     // Determinar estado de cada etapa según qué campos tiene completados.
     // Etapa 2 COMPLETA solo con TODOS sus requisitos: fecha de autorización +
     // jurado CONFIRMADO + disposición de llamado. Mientras falte alguno, la
@@ -319,6 +324,20 @@ export function ConcursoCphWizard() {
             label: 'Puesto',
             tipo: 'texto',
             valor: cphData?.concurso?.cargo?.literalPuesto ?? '',
+            readonly: true,
+          },
+          {
+            key: 'cuilBaja',
+            label: 'CUIL',
+            tipo: 'texto',
+            valor: cuilBajaResuelto,
+            readonly: true,
+          },
+          {
+            key: 'especialidadBaja',
+            label: 'Especialidad de la baja',
+            tipo: 'texto',
+            valor: especialidadBajaResuelto,
             readonly: true,
           },
           {
@@ -3626,8 +3645,10 @@ export function ConcursoCphWizard() {
                     </div>
                   </div>
 
-                  {/* ── Datos del concurso (editables solo en etapa activa) ── */}
-                  <div>
+                  {/* ── Datos del concurso (editables solo en etapa activa) ──
+                      Separación visual clara respecto del bloque de la baja:
+                      línea superior (border-t) + espaciado. */}
+                  <div className="mt-8 border-t border-gray-200 pt-6">
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
                       Datos del concurso
                     </p>

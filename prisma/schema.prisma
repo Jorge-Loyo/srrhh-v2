@@ -692,7 +692,7 @@ model PadronDiff {
   valorNuevo    String?  @map("valor_nuevo") @db.Text
   // null = pendiente decisión, true = aprobado (se crea cargo+persona+ocupación), false = rechazado (se crea sin código)
   aprobado      Boolean?
-  // Resolución tomada en Gestión de Puestos para un id_sial nuevo: cómo se
+  // Resolución tomada en Incidencias para un id_sial nuevo: cómo se
   // gestionó el diff. Valores esperados: 'cargo' | 'concurso_vinculado' |
   // 'concurso_creado' | 'transferencia' | 'sin_codigo'. Aditivo y nullable.
   resolucion    String?  @map("resolucion") @db.VarChar(50)
@@ -1254,6 +1254,11 @@ model Baja {
   cargaHoraria          Int?       @map("carga_horaria")
   generaConcurso        Boolean    @default(true) @map("genera_concurso")
   estado                EstadoBaja @default(pendiente)
+  // Especialidad elegida en el formulario de baja cuando el cargo la trae
+  // vacía (entre las disponibles según el Puesto). Se persiste en el registro
+  // de la baja y alimenta como semilla la carátula del concurso que se genere.
+  // Aditivo y nullable: bajas viejas sin especialidad siguen válidas.
+  especialidad          String?    @db.VarChar(200)
   observaciones         String?    @db.Text
   registradoPorId       String?    @map("registrado_por") @db.Uuid
   // S17: vinculación al archivo semanal del padrón

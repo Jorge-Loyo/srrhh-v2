@@ -680,6 +680,8 @@ export interface Baja {
   fechaPaseParalelo: string | null
   generaConcurso: boolean
   estado: EstadoBaja
+  // Especialidad elegida en el formulario cuando el cargo la trae vacía.
+  especialidad: string | null
   observaciones: string | null
   registradoPorId: string | null
   createdAt: string
@@ -1475,6 +1477,7 @@ export interface CreateBajaRequest {
   generaConcurso?: boolean
   tipoConcurso?: TipoConcurso
   escalafonId?: string
+  especialidad?: string | null
   observaciones?: string
 }
 

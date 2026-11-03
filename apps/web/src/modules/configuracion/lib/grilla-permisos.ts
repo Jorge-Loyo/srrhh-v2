@@ -23,7 +23,9 @@ export const SECCIONES: SeccionPermisos[] = [
   { id: 'reportes', label: 'Reportes', icono: '📈', modulos: ['reportes'] },
   { id: 'kpis', label: 'Tablero KPIs', icono: '📊', modulos: ['kpis'] },
   { id: 'dotacion', label: 'Dotación', icono: '🩺', modulos: ['dotacion'] },
-  { id: 'organigrama', label: 'Organigrama', icono: '🏢', modulos: [], informativo: true },
+  // Organigrama pasa a NO informativo: ahora tiene permisos de pestaña
+  // (tab:estructura cosmético + tab:areas-programaticas) que deben renderizarse.
+  { id: 'organigrama', label: 'Organigrama', icono: '🏢', modulos: ['organigrama'] },
   { id: 'pou', label: 'POU', icono: '🧮', modulos: [], informativo: true },
   { id: 'personas', label: 'Personas', icono: '👤', modulos: ['personas'] },
   { id: 'cargos', label: 'Cargos', icono: '🗂️', modulos: ['cargos'] },
@@ -111,6 +113,13 @@ const ACCION_LABEL: Record<string, string> = {
 }
 
 export function accionLabel(accion: string) {
+  // Permisos de pestaña `tab:<slug>` -> "Pestaña: <Title Case del slug>".
+  // El label corto deriva del slug (puede perder preposiciones/acentos); la
+  // descripción legible completa viene del campo `descripcion` del permiso.
+  if (accion.startsWith('tab:')) {
+    const slug = accion.slice('tab:'.length)
+    return 'Pestaña: ' + slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
   return ACCION_LABEL[accion] ?? accion.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 

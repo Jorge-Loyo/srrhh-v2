@@ -156,6 +156,7 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
         fechaPaseParalelo: body.fechaPaseParalelo ? new Date(body.fechaPaseParalelo) : baja.fechaPaseParalelo,
         cargaHoraria: body.cargaHoraria ?? baja.cargaHoraria,
         generaConcurso: body.generaConcurso,
+        especialidad: body.especialidad ?? baja.especialidad,
         observaciones: body.observaciones ?? baja.observaciones,
         ...(body.estado && body.estado !== 'resolucion_a_la_firma' && { estado: body.estado as never }),
       },
@@ -165,6 +166,9 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
     // Si sale del borrador, aplicar lógica de negocio
     if (body.estado && body.estado !== 'resolucion_a_la_firma') {
       const generaConcurso = body.generaConcurso ?? baja.generaConcurso
+      // Especialidad de la baja (la del body, o la ya guardada) — alimenta como
+      // semilla la carátula del concurso que se genere.
+      const especialidadBaja = body.especialidad ?? baja.especialidad ?? undefined
 
       if (generaConcurso && body.tipoConcurso) {
         // Con concurso: cargo pasa a vigente (vacante esperando designación)
@@ -199,6 +203,9 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
             escalafonId: body.escalafonId,
             fechaBaja: fechaVacanteUpdate,
             eeBaja: body.eeBaja ?? baja.eeBaja ?? undefined,
+            // Semilla de la carátula: la especialidad de la baja. El usuario
+            // puede cambiarla después en la caratulación del concurso.
+            especialidadSolicitada: especialidadBaja,
           },
           usuarioId,
           id
@@ -857,6 +864,7 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
         fechaPaseParalelo: body.fechaPaseParalelo ? new Date(body.fechaPaseParalelo) : null,
         cargaHoraria: body.cargaHoraria ?? null,
         generaConcurso: body.generaConcurso,
+        especialidad: body.especialidad ?? null,
         observaciones: body.observaciones ?? null,
         registradoPorId: usuarioId,
         ...(body.estado && { estado: body.estado as never }),
@@ -901,6 +909,9 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
           escalafonId: body.escalafonId,
           fechaBaja: fechaVacanteCreate,
           eeBaja: body.eeBaja,
+          // Semilla de la carátula: la especialidad de la baja. El usuario
+          // puede cambiarla después en la caratulación del concurso.
+          especialidadSolicitada: body.especialidad ?? undefined,
         },
         usuarioId,
         baja.id

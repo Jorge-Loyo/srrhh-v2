@@ -6,12 +6,14 @@ import { can } from '@/shared/lib/can'
 // antes eran entradas sueltas del menú (Padrón Semanal, Bajas Consolidadas,
 // Árbol Organigrama, Carga POU). Pestañas sincronizadas con la URL — cada una
 // conserva su ruta original, así no se rompen enlaces existentes. Se filtran
-// por el mismo permiso que protege cada destino.
+// por su permiso PROPIO `tab:*`. Importación no es un módulo del catálogo: cada
+// permiso de pestaña vive en el módulo real de su destino (padron, bajas-sial,
+// configuracion).
 const TABS = [
-  { to: '/padron',            label: 'Padrón Semanal',     icono: '📋', end: true,  permiso: { modulo: 'padron', accion: 'ver' } },
-  { to: '/bajas-consolidadas', label: 'Bajas Consolidadas', icono: '📄', end: true,  permiso: { modulo: 'bajas-sial', accion: 'aprobar' } },
-  { to: '/organigrama/arbol', label: 'Árbol Organigrama',  icono: '🌳', end: false, permiso: { modulo: 'configuracion', accion: 'gestionar_organigrama' } },
-  { to: '/pou/carga',         label: 'Carga POU',          icono: '📥', end: false, permiso: { modulo: 'configuracion', accion: 'gestionar_pou' } },
+  { to: '/padron',            label: 'Padrón Semanal',     icono: '📋', end: true,  permiso: { modulo: 'padron', accion: 'tab:padron-semanal' } },
+  { to: '/bajas-consolidadas', label: 'Bajas Consolidadas', icono: '📄', end: true,  permiso: { modulo: 'bajas-sial', accion: 'tab:bajas-consolidadas' } },
+  { to: '/organigrama/arbol', label: 'Árbol Organigrama',  icono: '🌳', end: false, permiso: { modulo: 'configuracion', accion: 'tab:arbol-organigrama' } },
+  { to: '/pou/carga',         label: 'Carga POU',          icono: '📥', end: false, permiso: { modulo: 'configuracion', accion: 'tab:carga-pou' } },
 ]
 
 export function ImportacionLayout() {

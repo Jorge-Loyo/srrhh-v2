@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
@@ -6,28 +6,37 @@ import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks
 import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
 import { useTareasPendientes } from '../../../modules/tareas/hooks/useTareas'
 import { can } from '../../lib/can'
+import { SuspenseFallback } from '../SuspenseFallback'
 
+// Permisos por pestaña `tab:*`: el sidebar oculta exactamente lo que el layout
+// oculta (el gate de cada sub-ítem usa el MISMO permiso que su pestaña).
 const CARGOS_SUBITEMS = [
-  { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
-  { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'crear' } },
-  { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes',  permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'tab:ver-cargos' } },
+  { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'tab:alta-cargo' } },
+  { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'cargos', accion: 'tab:baja-cargo' } },
+  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes',  permiso: { modulo: 'cargos', accion: 'tab:cobertura-vacantes' } },
+]
+
+const BAJAS_SUBITEMS = [
+  { to: '/bajas',            permiso: { modulo: 'bajas', accion: 'tab:bajas' } },
+  { to: '/bajas/validacion', permiso: { modulo: 'bajas', accion: 'tab:validacion' } },
+  { to: '/bajas/vinculacion', permiso: { modulo: 'bajas', accion: 'tab:vinculaciones' } },
 ]
 
 const IMPORTACION_SUBITEMS = [
-  { to: '/padron',            permiso: { modulo: 'padron', accion: 'ver' } },
-  { to: '/bajas-consolidadas', permiso: { modulo: 'bajas-sial', accion: 'aprobar' } },
-  { to: '/organigrama/arbol', permiso: { modulo: 'configuracion', accion: 'gestionar_organigrama' } },
-  { to: '/pou/carga',         permiso: { modulo: 'configuracion', accion: 'gestionar_pou' } },
+  { to: '/padron',            permiso: { modulo: 'padron', accion: 'tab:padron-semanal' } },
+  { to: '/bajas-consolidadas', permiso: { modulo: 'bajas-sial', accion: 'tab:bajas-consolidadas' } },
+  { to: '/organigrama/arbol', permiso: { modulo: 'configuracion', accion: 'tab:arbol-organigrama' } },
+  { to: '/pou/carga',         permiso: { modulo: 'configuracion', accion: 'tab:carga-pou' } },
 ]
 
 const CONFIGURACION_SUBITEMS = [
-  { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/tokens',    label: 'Tokens',      permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
-  { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
-  { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'gestionar_referencias' } },
-  { to: '/configuracion/auditoria', label: 'Auditoría', permiso: { modulo: 'configuracion', accion: 'ver_auditoria' } },
+  { to: '/configuracion/usuarios',  label: 'Usuarios',   permiso: { modulo: 'configuracion', accion: 'tab:usuarios' } },
+  { to: '/configuracion/tokens',    label: 'Tokens',      permiso: { modulo: 'configuracion', accion: 'tab:tokens' } },
+  { to: '/configuracion/permisos',  label: 'Permisos',   permiso: { modulo: 'configuracion', accion: 'tab:permisos' } },
+  { to: '/configuracion/jerarquia', label: 'Jerarquía',  permiso: { modulo: 'configuracion', accion: 'tab:jerarquia' } },
+  { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'tab:referencias' } },
+  { to: '/configuracion/auditoria', label: 'Auditoría', permiso: { modulo: 'configuracion', accion: 'tab:auditoria' } },
 ]
 
 export function AppShell() {
@@ -49,6 +58,7 @@ export function AppShell() {
   // Cada ítem/grupo se filtra por lo que el usuario puede hacer de verdad
   // (user.permisos, calculado server-side en el login) — no por rolSlug a mano.
   const cargosSubitems = CARGOS_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
+  const bajasSubitems = BAJAS_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
   const importacionSubitems = IMPORTACION_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
   const configuracionSubitems = CONFIGURACION_SUBITEMS.filter((item) => can(user, item.permiso.modulo, item.permiso.accion))
 
@@ -168,15 +178,15 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Gestión de Puestos — cola de id_sial nuevos pendientes de gestionar
+          {/* Incidencias — cola de id_sial nuevos pendientes de gestionar
               tras aprobar el padrón (crear cargo / vincular o crear concurso /
               transferencia / sin código). */}
-          {can(user, 'gestion-puestos', 'ver') && (
-            <NavLink to="/gestion-puestos"
+          {can(user, 'incidencias', 'ver') && (
+            <NavLink to="/incidencias"
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
-              title={collapsed ? 'Gestión de Puestos' : undefined}>
+              title={collapsed ? 'Incidencias' : undefined}>
               <span className="text-base shrink-0">📌</span>
-              {!collapsed && <span className="truncate">Gestión de Puestos</span>}
+              {!collapsed && <span className="truncate">Incidencias</span>}
             </NavLink>
           )}
 
@@ -192,9 +202,11 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Bajas — página con pestañas internas (Bajas / Validación / Vinculaciones) */}
-          {can(user, 'bajas', 'crear') && (
-            <NavLink to="/bajas" end
+          {/* Bajas — página con pestañas internas (Bajas / Validación / Vinculaciones).
+              Visible si el usuario ve al menos una pestaña; el link va a la primera
+              pestaña visible (mismo patrón que Importación). */}
+          {bajasSubitems.length > 0 && (
+            <NavLink to={bajasSubitems[0].to} end
               className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
                 location.pathname.startsWith('/bajas') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
               }`}
@@ -344,7 +356,12 @@ export function AppShell() {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+          {/* Suspense para el lazy-loading de las páginas de módulo (ver
+              router.tsx). Envuelve solo el área de contenido: el sidebar y el
+              header quedan fijos mientras carga el chunk de la ruta destino. */}
+          <Suspense fallback={<SuspenseFallback />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

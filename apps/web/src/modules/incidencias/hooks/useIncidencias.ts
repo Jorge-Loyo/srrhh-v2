@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 
-// ─── Tipos del contrato con el backend (gestion-puestos.service.ts) ──────────
+// ─── Tipos del contrato con el backend (incidencias.service.ts) ──────────────
 // La cola de pendientes deriva de los PadronDiff tipo='nuevo' aprobado=null de
 // snapshots aprobados. El backend ya aplana el valorNuevo y agrega diagnóstico
 // (con/sin concurso) y el flag tieneBajaAsociada por fila.
@@ -59,14 +59,14 @@ export interface ConcursoCandidato {
   hospital: string | null
 }
 
-const PENDIENTES_KEY = ['gestion-puestos', 'pendientes'] as const
+const PENDIENTES_KEY = ['incidencias', 'pendientes'] as const
 
-export function useGestionPuestosPendientes() {
+export function useIncidenciasPendientes() {
   return useQuery({
     queryKey: PENDIENTES_KEY,
     queryFn: async () => {
       const res = await apiClient.get<{ data: PendientesResponse }>(
-        '/api/v1/gestion-puestos/pendientes',
+        '/api/v1/incidencias/pendientes',
       )
       return res.data.data
     },
@@ -83,7 +83,7 @@ export function useCrearCargo() {
   const invalidar = useInvalidarPendientes()
   return useMutation({
     mutationFn: async (diffId: string) => {
-      const res = await apiClient.post(`/api/v1/gestion-puestos/pendientes/${diffId}/crear-cargo`)
+      const res = await apiClient.post(`/api/v1/incidencias/pendientes/${diffId}/crear-cargo`)
       return res.data.data
     },
     onSuccess: invalidar,
@@ -95,7 +95,7 @@ export function useVincularConcurso() {
   return useMutation({
     mutationFn: async ({ diffId, concursoCphId }: { diffId: string; concursoCphId: string }) => {
       const res = await apiClient.post(
-        `/api/v1/gestion-puestos/pendientes/${diffId}/vincular-concurso`,
+        `/api/v1/incidencias/pendientes/${diffId}/vincular-concurso`,
         { concursoCphId },
       )
       return res.data.data
@@ -108,7 +108,7 @@ export function useTransferencia() {
   const invalidar = useInvalidarPendientes()
   return useMutation({
     mutationFn: async (diffId: string) => {
-      const res = await apiClient.post(`/api/v1/gestion-puestos/pendientes/${diffId}/transferencia`)
+      const res = await apiClient.post(`/api/v1/incidencias/pendientes/${diffId}/transferencia`)
       return res.data.data
     },
     onSuccess: invalidar,
@@ -131,7 +131,7 @@ export function useCrearConcurso() {
   return useMutation({
     mutationFn: async ({ diffId, body }: { diffId: string; body: CrearConcursoBody }) => {
       const res = await apiClient.post(
-        `/api/v1/gestion-puestos/pendientes/${diffId}/crear-concurso`,
+        `/api/v1/incidencias/pendientes/${diffId}/crear-concurso`,
         body,
       )
       return res.data.data
@@ -144,7 +144,7 @@ export function useSinCodigo() {
   const invalidar = useInvalidarPendientes()
   return useMutation({
     mutationFn: async (diffId: string) => {
-      const res = await apiClient.post(`/api/v1/gestion-puestos/pendientes/${diffId}/sin-codigo`)
+      const res = await apiClient.post(`/api/v1/incidencias/pendientes/${diffId}/sin-codigo`)
       return res.data.data
     },
     onSuccess: invalidar,
@@ -157,7 +157,7 @@ export function useSinCodigo() {
 export async function buscarConcursosParaPendiente(diffId: string, q?: string) {
   const params = q ? `?q=${encodeURIComponent(q)}` : ''
   const res = await apiClient.get<{ data: ConcursoCandidato[] }>(
-    `/api/v1/gestion-puestos/pendientes/${diffId}/concursos${params}`,
+    `/api/v1/incidencias/pendientes/${diffId}/concursos${params}`,
   )
   return res.data.data ?? []
 }

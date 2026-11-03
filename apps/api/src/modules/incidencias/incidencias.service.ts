@@ -2,7 +2,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import type { CreateConcursoBody } from '../concursos/concursos.schema.js'
-import type { CrearConcursoParaIdSialBody } from './gestion-puestos.schema.js'
+import type { CrearConcursoParaIdSialBody } from './incidencias.schema.js'
 import {
   aprobarDiffNuevoService,
   marcarTransferenciaService,

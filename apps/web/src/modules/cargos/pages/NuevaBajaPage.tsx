@@ -13,6 +13,7 @@ import {
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 
 type Paso = 1 | 2 | 3
@@ -27,9 +28,10 @@ function ModalBuscarCargo({
   onCerrar: () => void
 }) {
   // Modo "Cobertura Dotación": se buscan cargos VACANTES (sin ocupante), que
-  // siempre son POU + CPH (código de registro 37). No hay persona ni id_sial que
-  // buscar → se ocultan los inputs de texto y el filtro de carrera queda fijo en
-  // 37. Puesto (solo POU) y especialidad (cascada) son desplegables.
+  // siempre son POU. La carrera se elige entre los códigos de registro válidos
+  // para estos concursos (37 y 23). No hay persona ni id_sial que buscar → se
+  // ocultan los inputs de texto. Puesto (solo POU) y especialidad (cascada) son
+  // desplegables.
   const esCobertura = origen === 'Cobertura Dotación'
   // Modo "Retención de Cargo": solo tiene sentido buscar personas en situación
   // de revista "retención de cargo", y el cargo siempre vigente. Por eso la
@@ -45,35 +47,76 @@ function ModalBuscarCargo({
   // Cobertura Dotación: puesto (POU) y especialidad en cascada.
   const [puestoCob, setPuestoCob] = useState('')
   const [especialidadCob, setEspecialidadCob] = useState('')
+  // Cobertura Dotación: la carrera se elige entre los códigos válidos para
+  // estos concursos (37 y 23). Default = 37.
+  const [codigoCobertura, setCodigoCobertura] = useState('37')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  // Código de registro 37 (CPH) — en Cobertura Dotación la carrera va fija a 37.
-  const codigoReg37 = codigosRegistro?.find((cr) => cr.codigo === '37')
+  // Códigos de registro válidos para Cobertura Dotación (37 y 23). El operador
+  // elige cuál; el buscador trae vacantes del código seleccionado.
+  const CODIGOS_COBERTURA = ['37', '23']
+  const codigosRegCobertura = (codigosRegistro ?? []).filter((cr) => CODIGOS_COBERTURA.includes(cr.codigo))
+  const codigoRegCoberturaSel = codigosRegCobertura.find((cr) => cr.codigo === codigoCobertura)
   // Puestos POU (guardia) para el desplegable de Cobertura Dotación.
   const puestosPou = getPuestoOptions('POU', '')
   const especialidadesCob = puestoCob ? getEspecialidadOptions(puestoCob) : []
 
-  const activoCobertura = !!(codigoReg37 && (hospitalId || puestoCob || especialidadCob))
+  // ── Mapeos label↔id para los SearchableSelect (combobox con búsqueda) ──────
+  // SearchableSelect trabaja con options: string[] (labels); para los campos
+  // cuyo value es un id (Sigla→hospitalId, Carrera→codigoRegistroId) se pasan
+  // displayToValue/valueToDisplay para traducir label↔id.
+  const siglaOptions = (hospitales ?? []).map((h) => hospitalLabel(h))
+  const hospitalIdToLabel = (id: string) => {
+    const h = (hospitales ?? []).find((x) => x.id === id)
+    return h ? hospitalLabel(h) : ''
+  }
+  const labelToHospitalId = (label: string) => {
+    const h = (hospitales ?? []).find((x) => hospitalLabel(x) === label)
+    return h?.id ?? ''
+  }
+  // Carrera (rama default): catálogo completo de códigos de registro.
+  const carreraOptions = (codigosRegistro ?? []).map((cr) => `${cr.codigo} — ${cr.literal}`)
+  const carreraIdToLabel = (id: string) => {
+    const cr = (codigosRegistro ?? []).find((x) => x.id === id)
+    return cr ? `${cr.codigo} — ${cr.literal}` : ''
+  }
+  const labelToCarreraId = (label: string) => {
+    const cr = (codigosRegistro ?? []).find((x) => `${x.codigo} — ${x.literal}` === label)
+    return cr?.id ?? ''
+  }
+  // Carrera (Cobertura): solo los códigos válidos 37/23; el value es el CÓDIGO.
+  const coberturaCarreraOptions = CODIGOS_COBERTURA.map((cod) => {
+    const cr = codigosRegCobertura.find((c) => c.codigo === cod)
+    return cr?.literal ? `${cod} — ${cr.literal}` : cod
+  })
+  const coberturaCodigoToLabel = (cod: string) => {
+    const cr = codigosRegCobertura.find((c) => c.codigo === cod)
+    return cr?.literal ? `${cod} — ${cr.literal}` : cod
+  }
+  const coberturaLabelToCodigo = (label: string) => label.split(' — ')[0]
+
+  const activoCobertura = !!(codigoRegCoberturaSel && (hospitalId || puestoCob || especialidadCob))
   const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
   const activo = esCobertura ? activoCobertura : activoDefault
 
   const { data, isLoading, isError } = useQuery({
     queryKey: esCobertura
-      ? ['cargo-modal-baja-cobertura', hospitalId, codigoReg37?.id, puestoCob, especialidadCob]
+      ? ['cargo-modal-baja-cobertura', hospitalId, codigoRegCoberturaSel?.id, puestoCob, especialidadCob]
       : ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (esCobertura) {
         // Vacante = cargo vigente SIN ocupante (ocupado=false). Siempre POU +
-        // código de registro 37. Puesto/especialidad filtran server-side.
+        // código de registro elegido (37 o 23). Puesto/especialidad filtran
+        // server-side.
         const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
           params: {
             limit: 40,
             estado: 'vigente',
             ocupado: 'false',
-            ...(codigoReg37 && { codigoRegistroId: codigoReg37.id }),
+            ...(codigoRegCoberturaSel && { codigoRegistroId: codigoRegCoberturaSel.id }),
             ...(hospitalId && { hospitalId }),
             ...(puestoCob && { literalPuesto: puestoCob }),
             ...(especialidadCob && { especialidad: especialidadCob }),
@@ -125,7 +168,7 @@ function ModalBuscarCargo({
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
             <p className="text-xs text-gray-500 mt-0.5">
               {esCobertura
-                ? 'Cargos vacantes POU (CPH 37) — filtrá por sigla, puesto y especialidad'
+                ? 'Cargos vacantes POU (CPH 37 o 23) — filtrá por carrera, sigla, puesto y especialidad'
                 : 'Filtrá por sigla, código, puesto, especialidad o persona'}
             </p>
           </div>
@@ -137,42 +180,51 @@ function ModalBuscarCargo({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={hospitalId}
+                    onChange={setHospitalId}
+                    options={siglaOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={hospitalIdToLabel}
+                    displayToValue={labelToHospitalId}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-                  {/* Fija en CPH (código 37) — no elegible en Cobertura Dotación. */}
-                  <select value="37" disabled className="input h-9 w-full text-sm bg-gray-50 text-gray-600">
-                    <option value="37">37{codigoReg37?.literal ? ` — ${codigoReg37.literal}` : ''}</option>
-                  </select>
+                  {/* Elegible entre los códigos válidos para estos concursos (37 y 23). */}
+                  <SearchableSelect
+                    value={codigoCobertura}
+                    onChange={(v) => setCodigoCobertura(v || '37')}
+                    options={coberturaCarreraOptions}
+                    placeholder="Carrera"
+                    className="text-sm"
+                    valueToDisplay={coberturaCodigoToLabel}
+                    displayToValue={coberturaLabelToCodigo}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto (POU)</label>
-                  <select
+                  <SearchableSelect
                     value={puestoCob}
-                    onChange={(e) => { setPuestoCob(e.target.value); setEspecialidadCob('') }}
-                    className="input h-9 w-full text-sm"
-                  >
-                    <option value="">Todos</option>
-                    {puestosPou.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                    onChange={(v) => { setPuestoCob(v); setEspecialidadCob('') }}
+                    options={puestosPou}
+                    placeholder="Todos"
+                    className="text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Especialidad</label>
-                  <select
+                  <SearchableSelect
                     value={especialidadCob}
-                    onChange={(e) => setEspecialidadCob(e.target.value)}
+                    onChange={setEspecialidadCob}
+                    options={especialidadesCob}
+                    placeholder={puestoCob ? 'Todas' : 'Elegí un puesto primero'}
+                    className="text-sm"
                     disabled={!puestoCob}
-                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                  >
-                    <option value="">{puestoCob ? 'Todas' : 'Elegí un puesto primero'}</option>
-                    {especialidadesCob.map((e) => <option key={e} value={e}>{e}</option>)}
-                  </select>
+                  />
                 </div>
               </div>
             </>
@@ -181,19 +233,27 @@ function ModalBuscarCargo({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={hospitalId}
+                    onChange={setHospitalId}
+                    options={siglaOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={hospitalIdToLabel}
+                    displayToValue={labelToHospitalId}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-                  <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
-                    <option value="">Todas</option>
-                    {codigosRegistro?.map((cr) => (
-                      <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={codigoRegistroId}
+                    onChange={setCodigoRegistroId}
+                    options={carreraOptions}
+                    placeholder="Todas"
+                    className="text-sm"
+                    valueToDisplay={carreraIdToLabel}
+                    displayToValue={labelToCarreraId}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -390,6 +450,14 @@ export function NuevaBajaPage() {
   const [pouPof, setPouPof] = useState('')
   const [puesto, setPuesto] = useState('')
   const [especialidad, setEspecialidad] = useState('')
+  // Si el cargo trajo la especialidad VACÍA pero hay un puesto, el usuario
+  // puede elegir una especialidad entre las disponibles para ese puesto. Si el
+  // cargo ya trae especialidad, el campo queda readonly (no se pisa lo del
+  // cargo). El flag se fija al aplicar el cargo (no depende del valor actual
+  // de `especialidad`), para que el campo siga editable después de elegir.
+  const [especialidadVinoDelCargo, setEspecialidadVinoDelCargo] = useState(false)
+  const especialidadesDisponibles = puesto ? getEspecialidadOptions(puesto) : []
+  const especialidadEditable = !especialidadVinoDelCargo && !!puesto && especialidadesDisponibles.length > 0
 
   // ── campos editables ──
   // Origen puede venir fijado por el modal "Gestión de Cargos" (query ?origen=...).
@@ -463,7 +531,18 @@ export function NuevaBajaPage() {
     if (bajaExistente.cargoId) {
       setCargandoCargo(true)
       apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${bajaExistente.cargoId}`)
-        .then((res) => aplicarCargo(res.data.data))
+        .then((res) => {
+          const det = res.data.data
+          aplicarCargo(det)
+          // Si la baja ya tenía especialidad guardada y el cargo la trae VACÍA,
+          // preseleccionarla en el campo editable (aplicarCargo dejó el estado
+          // en editable porque el cargo no la trae). Si el cargo sí la trae,
+          // aplicarCargo ya la mostró readonly y no se pisa.
+          const delCargo = det.especialidadPuesto?.nombre ?? det.especialidadLegacy ?? det.especialidad ?? ''
+          if (!delCargo && bajaExistente.especialidad) {
+            setEspecialidad(bajaExistente.especialidad)
+          }
+        })
         .finally(() => setCargandoCargo(false))
     }
   }, [bajaExistente])
@@ -504,6 +583,9 @@ export function NuevaBajaPage() {
     setPouPof(d.pouPof)
     setPuesto(d.puesto)
     setEspecialidad(d.especialidad)
+    // Si el cargo trajo especialidad, el campo queda readonly; si vino vacía,
+    // habilitamos la edición (elegir entre las especialidades del puesto).
+    setEspecialidadVinoDelCargo(!!d.especialidad)
   }
 
   async function seleccionarCargo(c: Cargo) {
@@ -568,6 +650,7 @@ export function NuevaBajaPage() {
       fechaPaseParalelo: fechaPaseParalelo || undefined,
       cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
       observaciones: observaciones || undefined,
+      especialidad: especialidad || undefined,
       generaConcurso: conConcurso,
       ...(conConcurso && {
         tipoConcurso: tipoConcursoSeleccionado,
@@ -608,6 +691,7 @@ export function NuevaBajaPage() {
         fechaPaseParalelo: fechaPaseParalelo || undefined,
         cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
         observaciones: observaciones || undefined,
+        especialidad: especialidad || undefined,
         estado: 'resolucion_a_la_firma',
         // Si ya pasó por paso 2 y decidió, preservar la decisión
         ...(generaConcurso !== null && {
@@ -922,7 +1006,21 @@ export function NuevaBajaPage() {
                     <ReadonlyInput value={puesto} />
                   </Field>
                   <Field label="Especialidad">
-                    <ReadonlyInput value={especialidad} />
+                    {/* Si el cargo trae la especialidad cargada → readonly (se
+                        respeta lo que vino del cargo). Si viene VACÍA y hay
+                        puesto, el usuario puede elegir entre las especialidades
+                        disponibles para ese puesto. */}
+                    {especialidadEditable ? (
+                      <SearchableSelect
+                        value={especialidad}
+                        onChange={setEspecialidad}
+                        options={especialidadesDisponibles}
+                        placeholder="Elegí una especialidad"
+                        className="text-sm"
+                      />
+                    ) : (
+                      <ReadonlyInput value={especialidad} />
+                    )}
                   </Field>
                   <Field label="Partida presupuestaria">
                     <input
