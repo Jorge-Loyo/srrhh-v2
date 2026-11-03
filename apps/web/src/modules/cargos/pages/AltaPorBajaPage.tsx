@@ -286,7 +286,7 @@ export function AltaPorBajaPage() {
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="font-primary text-xl font-bold text-gray-900">Alta por Baja</h1>
+          <h1 className="font-primary text-xl font-bold text-gray-900">Bajas históricas</h1>
           <button className="btn-outline" onClick={() => setModalOrigenAbierto(true)}>
             Gestión de Cargos
           </button>
