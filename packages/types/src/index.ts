@@ -1180,6 +1180,8 @@ export interface CargoFilters {
   subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Inverso de soloJefes: todos los cargos que NO son de jefatura.
+  sinJefes?: boolean
   // Literal del puesto del cargo (texto canónico del catálogo). Match exacto
   // normalizado — usado por "Cobertura Dotación" (desplegable de puestos POU).
   literalPuesto?: string

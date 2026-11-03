@@ -60,6 +60,11 @@ export const cargosQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  // Sin jefes: inverso de soloJefes — todos los cargos que NO son de jefatura.
+  sinJefes: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   personaSearch: z.string().trim().min(1).optional(),
   // Filtro por el literal del puesto del cargo (texto canónico del catálogo,
   // ej. "PROFESIONAL GUARDIA MEDICO"). Pedido desde "Cobertura Dotación" en el

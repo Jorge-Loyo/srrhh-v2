@@ -77,6 +77,7 @@ export async function listCargosService(query: CargosQuery) {
     ocupado,
     subEstado,
     soloJefes,
+    sinJefes,
     personaSearch,
     literalPuesto,
     especialidad,
@@ -252,6 +253,21 @@ export async function listCargosService(query: CargosQuery) {
             ],
           },
         ]
+      // Sin jefes: inverso exacto de (A)/(B) de arriba — negación de la OR
+      // completa, no de cada condición por separado (De Morgan: NOT(A OR B) =
+      // NOT A AND NOT B).
+      : sinJefes === true
+        ? [
+            ...idFilters,
+            {
+              NOT: {
+                OR: [
+                  { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
+                  { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+                ],
+              },
+            },
+          ]
       : idFilters),
   ]
 
@@ -613,6 +629,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     unificadorPuesto: body.unificadorPuesto ?? null,
     agrupador: body.agrupador ?? null,
     puestoCargo,
+    tieneEspecialidad: Boolean(body.especialidadPuestoId),
   })
 
   const cargos = await prisma.$transaction(async (tx) => {

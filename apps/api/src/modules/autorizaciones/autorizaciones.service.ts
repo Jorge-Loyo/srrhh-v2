@@ -382,6 +382,7 @@ async function _aprobarAltaCargo(
       unificadorPuesto: solicitud.unificadorPuesto ?? null,
       agrupador:        solicitud.agrupador ?? null,
       puestoCargo:      solicitud.puestoCargo,
+      tieneEspecialidad: Boolean(solicitud.especialidadPuestoId),
     })
 
     const cargosCreadosIds: string[] = []
