@@ -149,7 +149,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 // Repoblado del resumen KPI (kpis_dotacion_snapshot) de un mes dado. Extraído
 // del paso 8 del aprobar (Opción A §5.3) para reusarlo al gestionar un id_sial
-// nuevo en gestion-puestos: borra TODAS las filas del mes de `fecha` (incluida
+// nuevo en incidencias: borra TODAS las filas del mes de `fecha` (incluida
 // la fila '(total)') y reinserta desde estadoActivoAcumuladoSql(mes, mes),
 // misma fuente que la consulta individual (kpis.service), de modo que tarjetas,
 // consulta individual y backfill reconcilien por construcción. Recibe el `tx`

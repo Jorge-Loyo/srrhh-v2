@@ -49,7 +49,7 @@ vi.mock('../../shared/codigoCargo.js', () => ({
 }))
 
 // Importaciones DESPUÉS de los mocks (ESM: los vi.mock se hoistean).
-import { getPendientesService } from './gestion-puestos.service.js'
+import { getPendientesService } from './incidencias.service.js'
 import { aprobarDiffNuevoService } from '../padron/padron.service.js'
 
 const diffNuevo = (over: Partial<Record<string, unknown>> = {}) => ({
