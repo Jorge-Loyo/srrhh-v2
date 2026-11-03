@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../../modules/auth/hooks/useAuth'
 import { useSnapshots } from '../../../modules/padron/hooks/usePadron'
@@ -6,6 +6,7 @@ import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks
 import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
 import { useTareasPendientes } from '../../../modules/tareas/hooks/useTareas'
 import { can } from '../../lib/can'
+import { SuspenseFallback } from '../SuspenseFallback'
 
 const CARGOS_SUBITEMS = [
   { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
@@ -344,7 +345,12 @@ export function AppShell() {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+          {/* Suspense para el lazy-loading de las páginas de módulo (ver
+              router.tsx). Envuelve solo el área de contenido: el sidebar y el
+              header quedan fijos mientras carga el chunk de la ruta destino. */}
+          <Suspense fallback={<SuspenseFallback />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

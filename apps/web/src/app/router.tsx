@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '../shared/components/layout/AppShell'
 import { LoginPage } from '../modules/auth/pages/LoginPage'
@@ -5,59 +6,71 @@ import { ProtectedRoute } from '../modules/auth/components/ProtectedRoute'
 import { RequirePermiso } from '../modules/auth/components/RequirePermiso'
 import { useAuth } from '../modules/auth/hooks/useAuth'
 import { can } from '../shared/lib/can'
-import { AdminUsuariosPage } from '../modules/usuarios/pages/AdminUsuariosPage'
-import { ConfiguracionPermisosPage } from '../modules/configuracion/pages/ConfiguracionPermisosPage'
-import { ConfiguracionJerarquiaPage } from '../modules/configuracion/pages/ConfiguracionJerarquiaPage'
-import { ConfiguracionReferenciasPage } from '../modules/configuracion/pages/ConfiguracionReferenciasPage'
-import { ConfiguracionLayout } from '../modules/configuracion/components/ConfiguracionLayout'
-import { ImportacionLayout } from '../modules/importacion/components/ImportacionLayout'
-import { OrganigramaHomePage } from '../modules/organigrama/pages/OrganigramaHomePage'
-import { OrganigramaDetallePage } from '../modules/organigrama/pages/OrganigramaDetallePage'
-import { OrganigramaArbolPage } from '../modules/organigrama/pages/OrganigramaArbolPage'
-import { OrganigramaLayout } from '../modules/organigrama/components/OrganigramaLayout'
-import { PouHomePage } from '../modules/pou/pages/PouHomePage'
-import { PouDetallePage } from '../modules/pou/pages/PouDetallePage'
-import { PouComparativaPage } from '../modules/pou/pages/PouComparativaPage'
-import { PouCargaPage } from '../modules/pou/pages/PouCargaPage'
-import { PouTriangulacionPage } from '../modules/pou/pages/PouTriangulacionPage'
-import { InicioPage } from '../modules/inicio/pages/InicioPage'
-import { PadronPage } from '../modules/padron/pages/PadronPage'
-import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
-import { PersonasPage } from '../modules/personas/pages/PersonasPage'
-import { IncidenciasPage } from '../modules/incidencias/pages/IncidenciasPage'
-import { DotacionPage } from '../modules/dotacion/pages/DotacionPage'
-import { ReportesPage } from '../modules/reportes/pages/ReportesPage'
-import { TokensPage } from '../modules/tokens/pages/TokensPage'
-import { AuditoriaPage } from '../modules/auditoria/pages/AuditoriaPage'
-import { PersonaDetailPanel } from '../modules/personas/pages/PersonaDetailPanel'
-import { CargosPage } from '../modules/cargos/pages/CargosPage'
-import { CargoDetailPanel } from '../modules/cargos/pages/CargoDetailPanel'
-import { CargosLayout } from '../modules/cargos/components/CargosLayout'
-import { AltaCargosPage } from '../modules/cargos/pages/AltaCargosPage'
-import { AltaPorBajaPage } from '../modules/cargos/pages/AltaPorBajaPage'
-import { BajaCargosPage } from '../modules/cargos/pages/BajaCargosPage'
-import { NuevaBajaPage } from '../modules/cargos/pages/NuevaBajaPage'
-import { ConcursosCphPage } from '../modules/concursos-cph/pages/ConcursosCphPage'
-import { ConcursoCphWizard } from '../modules/concursos-cph/pages/ConcursoCphWizard'
-import { ConcursosCeetpsPage } from '../modules/concursos-ceetps/pages/ConcursosCeetpsPage'
-import { ConcursoCeetpsDetail } from '../modules/concursos-ceetps/pages/ConcursoCeetpsDetail'
-import { KpisPage } from '../modules/kpis/pages/KpisPage'
-import { BajasPage } from '../modules/bajas/pages/BajasPage'
-import { BajasConsolidasPage } from '../modules/bajas/pages/BajasConsolidasPage'
-import { BajasSialDiffPage } from '../modules/bajas/pages/BajasSialDiffPage'
-import { ValidacionBajasPage } from '../modules/bajas/pages/ValidacionBajasPage'
-import { BajaVinculacionPage } from '../modules/bajas/pages/BajaVinculacionPage'
-import { BajasLayout } from '../modules/bajas/components/BajasLayout'
-import { RetencionesPage } from '../modules/retenciones/pages/RetencionesPage'
-import { NotificacionesPage } from '../modules/notificaciones/pages/NotificacionesPage'
-import { AutorizacionesPage } from '../modules/autorizaciones/pages/AutorizacionesPage'
-import { TareasPage } from '../modules/tareas/pages/TareasPage'
-import { AreasProgramaticasPage } from '../modules/areas-programaticas/pages/AreasProgramaticasPage'
-import { AreaProgramaticaDetailPage } from '../modules/areas-programaticas/pages/AreaProgramaticaDetailPage'
-import { CesacDetailPage } from '../modules/areas-programaticas/pages/CesacDetailPage'
-import { UnidadFijaDetailPage } from '../modules/areas-programaticas/pages/UnidadFijaDetailPage'
-import { PresentacionPage } from '../modules/presentacion/pages/PresentacionPage'
-import { PerfilPage } from '../modules/perfil/pages/PerfilPage'
+import { SuspenseFallback } from '../shared/components/SuspenseFallback'
+
+// Route-based lazy loading: cada página de módulo (y sus dependencias pesadas
+// — @xyflow/react en el organigrama, jspdf/xlsx/docx en los exports, etc.) se
+// carga solo cuando se navega a su ruta, no en el arranque. Esto saca ~3 MB del
+// bundle inicial. El chrome base (AppShell, Login, ProtectedRoute,
+// RequirePermiso) queda con import estático para no meter un flash de carga en
+// el arranque; el <Suspense> que cubre estas páginas vive en AppShell, envolviendo
+// el <Outlet/> del área de contenido.
+//
+// Las páginas se exportan con nombre (no default), así que el loader adapta
+// `{ NombrePage }` a `{ default }`, que es lo que espera React.lazy.
+const AdminUsuariosPage = lazy(() => import('../modules/usuarios/pages/AdminUsuariosPage').then((m) => ({ default: m.AdminUsuariosPage })))
+const ConfiguracionPermisosPage = lazy(() => import('../modules/configuracion/pages/ConfiguracionPermisosPage').then((m) => ({ default: m.ConfiguracionPermisosPage })))
+const ConfiguracionJerarquiaPage = lazy(() => import('../modules/configuracion/pages/ConfiguracionJerarquiaPage').then((m) => ({ default: m.ConfiguracionJerarquiaPage })))
+const ConfiguracionReferenciasPage = lazy(() => import('../modules/configuracion/pages/ConfiguracionReferenciasPage').then((m) => ({ default: m.ConfiguracionReferenciasPage })))
+const ConfiguracionLayout = lazy(() => import('../modules/configuracion/components/ConfiguracionLayout').then((m) => ({ default: m.ConfiguracionLayout })))
+const ImportacionLayout = lazy(() => import('../modules/importacion/components/ImportacionLayout').then((m) => ({ default: m.ImportacionLayout })))
+const OrganigramaHomePage = lazy(() => import('../modules/organigrama/pages/OrganigramaHomePage').then((m) => ({ default: m.OrganigramaHomePage })))
+const OrganigramaDetallePage = lazy(() => import('../modules/organigrama/pages/OrganigramaDetallePage').then((m) => ({ default: m.OrganigramaDetallePage })))
+const OrganigramaArbolPage = lazy(() => import('../modules/organigrama/pages/OrganigramaArbolPage').then((m) => ({ default: m.OrganigramaArbolPage })))
+const OrganigramaLayout = lazy(() => import('../modules/organigrama/components/OrganigramaLayout').then((m) => ({ default: m.OrganigramaLayout })))
+const PouHomePage = lazy(() => import('../modules/pou/pages/PouHomePage').then((m) => ({ default: m.PouHomePage })))
+const PouDetallePage = lazy(() => import('../modules/pou/pages/PouDetallePage').then((m) => ({ default: m.PouDetallePage })))
+const PouComparativaPage = lazy(() => import('../modules/pou/pages/PouComparativaPage').then((m) => ({ default: m.PouComparativaPage })))
+const PouCargaPage = lazy(() => import('../modules/pou/pages/PouCargaPage').then((m) => ({ default: m.PouCargaPage })))
+const PouTriangulacionPage = lazy(() => import('../modules/pou/pages/PouTriangulacionPage').then((m) => ({ default: m.PouTriangulacionPage })))
+const InicioPage = lazy(() => import('../modules/inicio/pages/InicioPage').then((m) => ({ default: m.InicioPage })))
+const PadronPage = lazy(() => import('../modules/padron/pages/PadronPage').then((m) => ({ default: m.PadronPage })))
+const PadronDiffPage = lazy(() => import('../modules/padron/pages/PadronDiffPage').then((m) => ({ default: m.PadronDiffPage })))
+const PersonasPage = lazy(() => import('../modules/personas/pages/PersonasPage').then((m) => ({ default: m.PersonasPage })))
+const IncidenciasPage = lazy(() => import('../modules/incidencias/pages/IncidenciasPage').then((m) => ({ default: m.IncidenciasPage })))
+const DotacionPage = lazy(() => import('../modules/dotacion/pages/DotacionPage').then((m) => ({ default: m.DotacionPage })))
+const ReportesPage = lazy(() => import('../modules/reportes/pages/ReportesPage').then((m) => ({ default: m.ReportesPage })))
+const TokensPage = lazy(() => import('../modules/tokens/pages/TokensPage').then((m) => ({ default: m.TokensPage })))
+const AuditoriaPage = lazy(() => import('../modules/auditoria/pages/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })))
+const PersonaDetailPanel = lazy(() => import('../modules/personas/pages/PersonaDetailPanel').then((m) => ({ default: m.PersonaDetailPanel })))
+const CargosPage = lazy(() => import('../modules/cargos/pages/CargosPage').then((m) => ({ default: m.CargosPage })))
+const CargoDetailPanel = lazy(() => import('../modules/cargos/pages/CargoDetailPanel').then((m) => ({ default: m.CargoDetailPanel })))
+const CargosLayout = lazy(() => import('../modules/cargos/components/CargosLayout').then((m) => ({ default: m.CargosLayout })))
+const AltaCargosPage = lazy(() => import('../modules/cargos/pages/AltaCargosPage').then((m) => ({ default: m.AltaCargosPage })))
+const AltaPorBajaPage = lazy(() => import('../modules/cargos/pages/AltaPorBajaPage').then((m) => ({ default: m.AltaPorBajaPage })))
+const BajaCargosPage = lazy(() => import('../modules/cargos/pages/BajaCargosPage').then((m) => ({ default: m.BajaCargosPage })))
+const NuevaBajaPage = lazy(() => import('../modules/cargos/pages/NuevaBajaPage').then((m) => ({ default: m.NuevaBajaPage })))
+const ConcursosCphPage = lazy(() => import('../modules/concursos-cph/pages/ConcursosCphPage').then((m) => ({ default: m.ConcursosCphPage })))
+const ConcursoCphWizard = lazy(() => import('../modules/concursos-cph/pages/ConcursoCphWizard').then((m) => ({ default: m.ConcursoCphWizard })))
+const ConcursosCeetpsPage = lazy(() => import('../modules/concursos-ceetps/pages/ConcursosCeetpsPage').then((m) => ({ default: m.ConcursosCeetpsPage })))
+const ConcursoCeetpsDetail = lazy(() => import('../modules/concursos-ceetps/pages/ConcursoCeetpsDetail').then((m) => ({ default: m.ConcursoCeetpsDetail })))
+const KpisPage = lazy(() => import('../modules/kpis/pages/KpisPage').then((m) => ({ default: m.KpisPage })))
+const BajasPage = lazy(() => import('../modules/bajas/pages/BajasPage').then((m) => ({ default: m.BajasPage })))
+const BajasConsolidasPage = lazy(() => import('../modules/bajas/pages/BajasConsolidasPage').then((m) => ({ default: m.BajasConsolidasPage })))
+const BajasSialDiffPage = lazy(() => import('../modules/bajas/pages/BajasSialDiffPage').then((m) => ({ default: m.BajasSialDiffPage })))
+const ValidacionBajasPage = lazy(() => import('../modules/bajas/pages/ValidacionBajasPage').then((m) => ({ default: m.ValidacionBajasPage })))
+const BajaVinculacionPage = lazy(() => import('../modules/bajas/pages/BajaVinculacionPage').then((m) => ({ default: m.BajaVinculacionPage })))
+const BajasLayout = lazy(() => import('../modules/bajas/components/BajasLayout').then((m) => ({ default: m.BajasLayout })))
+const RetencionesPage = lazy(() => import('../modules/retenciones/pages/RetencionesPage').then((m) => ({ default: m.RetencionesPage })))
+const NotificacionesPage = lazy(() => import('../modules/notificaciones/pages/NotificacionesPage').then((m) => ({ default: m.NotificacionesPage })))
+const AutorizacionesPage = lazy(() => import('../modules/autorizaciones/pages/AutorizacionesPage').then((m) => ({ default: m.AutorizacionesPage })))
+const TareasPage = lazy(() => import('../modules/tareas/pages/TareasPage').then((m) => ({ default: m.TareasPage })))
+const AreasProgramaticasPage = lazy(() => import('../modules/areas-programaticas/pages/AreasProgramaticasPage').then((m) => ({ default: m.AreasProgramaticasPage })))
+const AreaProgramaticaDetailPage = lazy(() => import('../modules/areas-programaticas/pages/AreaProgramaticaDetailPage').then((m) => ({ default: m.AreaProgramaticaDetailPage })))
+const CesacDetailPage = lazy(() => import('../modules/areas-programaticas/pages/CesacDetailPage').then((m) => ({ default: m.CesacDetailPage })))
+const UnidadFijaDetailPage = lazy(() => import('../modules/areas-programaticas/pages/UnidadFijaDetailPage').then((m) => ({ default: m.UnidadFijaDetailPage })))
+const PresentacionPage = lazy(() => import('../modules/presentacion/pages/PresentacionPage').then((m) => ({ default: m.PresentacionPage })))
+const PerfilPage = lazy(() => import('../modules/perfil/pages/PerfilPage').then((m) => ({ default: m.PerfilPage })))
 
 // Redirige a /kpis si el usuario no tiene permiso para ver el inicio
 function RequireInicio() {
@@ -224,6 +237,14 @@ export const router = createBrowserRouter([
   },
   { path: '/login', element: <LoginPage /> },
   // Página independiente para el nuevo proyecto de front — pública, sin AppShell
-  // ni guard de auth, para tenerla como lienzo en blanco.
-  { path: '/presentacion', element: <PresentacionPage /> },
+  // ni guard de auth, para tenerla como lienzo en blanco. Al estar fuera del
+  // AppShell necesita su propio <Suspense> para el lazy-load de su chunk.
+  {
+    path: '/presentacion',
+    element: (
+      <Suspense fallback={<SuspenseFallback />}>
+        <PresentacionPage />
+      </Suspense>
+    ),
+  },
 ])
