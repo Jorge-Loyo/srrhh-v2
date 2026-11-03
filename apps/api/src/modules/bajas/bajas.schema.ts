@@ -52,6 +52,9 @@ export const createBajaSchema = z
     motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
     escalafonId: z.string().uuid().optional(),
     observaciones: z.string().trim().max(2000).optional(),
+    // Especialidad elegida cuando el cargo la trae vacía — se persiste en la
+    // baja y alimenta como semilla la carátula del concurso que se genere.
+    especialidad: z.string().trim().max(200).optional().nullable(),
     estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
   })
   // Solo validar concurso cuando NO es borrador
@@ -84,6 +87,9 @@ const updateBajaBase = z.object({
   motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
   escalafonId: z.string().uuid().optional(),
   observaciones: z.string().trim().max(2000).optional(),
+  // Especialidad elegida cuando el cargo la trae vacía — se persiste en la
+  // baja y alimenta como semilla la carátula del concurso que se genere.
+  especialidad: z.string().trim().max(200).optional().nullable(),
   estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
 })
 

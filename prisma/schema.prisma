@@ -1226,6 +1226,11 @@ model Baja {
   cargaHoraria          Int?       @map("carga_horaria")
   generaConcurso        Boolean    @default(true) @map("genera_concurso")
   estado                EstadoBaja @default(pendiente)
+  // Especialidad elegida en el formulario de baja cuando el cargo la trae
+  // vacía (entre las disponibles según el Puesto). Se persiste en el registro
+  // de la baja y alimenta como semilla la carátula del concurso que se genere.
+  // Aditivo y nullable: bajas viejas sin especialidad siguen válidas.
+  especialidad          String?    @db.VarChar(200)
   observaciones         String?    @db.Text
   registradoPorId       String?    @map("registrado_por") @db.Uuid
   // S17: vinculación al archivo semanal del padrón
