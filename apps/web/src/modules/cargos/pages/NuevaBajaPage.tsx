@@ -450,6 +450,14 @@ export function NuevaBajaPage() {
   const [pouPof, setPouPof] = useState('')
   const [puesto, setPuesto] = useState('')
   const [especialidad, setEspecialidad] = useState('')
+  // Si el cargo trajo la especialidad VACÍA pero hay un puesto, el usuario
+  // puede elegir una especialidad entre las disponibles para ese puesto. Si el
+  // cargo ya trae especialidad, el campo queda readonly (no se pisa lo del
+  // cargo). El flag se fija al aplicar el cargo (no depende del valor actual
+  // de `especialidad`), para que el campo siga editable después de elegir.
+  const [especialidadVinoDelCargo, setEspecialidadVinoDelCargo] = useState(false)
+  const especialidadesDisponibles = puesto ? getEspecialidadOptions(puesto) : []
+  const especialidadEditable = !especialidadVinoDelCargo && !!puesto && especialidadesDisponibles.length > 0
 
   // ── campos editables ──
   // Origen puede venir fijado por el modal "Gestión de Cargos" (query ?origen=...).
@@ -564,6 +572,9 @@ export function NuevaBajaPage() {
     setPouPof(d.pouPof)
     setPuesto(d.puesto)
     setEspecialidad(d.especialidad)
+    // Si el cargo trajo especialidad, el campo queda readonly; si vino vacía,
+    // habilitamos la edición (elegir entre las especialidades del puesto).
+    setEspecialidadVinoDelCargo(!!d.especialidad)
   }
 
   async function seleccionarCargo(c: Cargo) {
@@ -982,7 +993,21 @@ export function NuevaBajaPage() {
                     <ReadonlyInput value={puesto} />
                   </Field>
                   <Field label="Especialidad">
-                    <ReadonlyInput value={especialidad} />
+                    {/* Si el cargo trae la especialidad cargada → readonly (se
+                        respeta lo que vino del cargo). Si viene VACÍA y hay
+                        puesto, el usuario puede elegir entre las especialidades
+                        disponibles para ese puesto. */}
+                    {especialidadEditable ? (
+                      <SearchableSelect
+                        value={especialidad}
+                        onChange={setEspecialidad}
+                        options={especialidadesDisponibles}
+                        placeholder="Elegí una especialidad"
+                        className="text-sm"
+                      />
+                    ) : (
+                      <ReadonlyInput value={especialidad} />
+                    )}
                   </Field>
                   <Field label="Partida presupuestaria">
                     <input
