@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
+import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import {
-  useGestionPuestosPendientes,
+  useIncidenciasPendientes,
   useCrearCargo,
   useVincularConcurso,
   useTransferencia,
@@ -12,7 +14,17 @@ import {
   type PendienteItem,
   type ConcursoCandidato,
   type CrearConcursoBody,
-} from '../hooks/useGestionPuestos'
+} from '../hooks/useIncidencias'
+
+// Normaliza texto para comparar sin distinguir mayúsculas ni acentos — mismo
+// criterio de búsqueda laxa que usan otras listas del sistema.
+function norm(s: string | null | undefined): string {
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
 
 // Sub-pestañas: con/sin concurso. Se derivan del diagnóstico que trae el
 // backend por fila (diagnostico.concursoCphId presente = genera concurso),
@@ -33,11 +45,13 @@ const TIPO_CONCURSO_OPCIONES = [
 
 type Feedback = { tipo: 'ok' | 'error'; texto: string } | null
 
-export function GestionPuestosPage() {
+export function IncidenciasPage() {
   const { user } = useAuth()
-  const puedeGestionar = can(user, 'gestion-puestos', 'gestionar')
+  const puedeGestionar = can(user, 'incidencias', 'gestionar')
 
-  const { data, isLoading, isError } = useGestionPuestosPendientes()
+  const { data, isLoading, isError } = useIncidenciasPendientes()
+  // Catálogo de escalafones (carreras) — misma fuente que CargosPage.
+  const { data: escalafones } = useEscalafones(true)
   const crearCargo = useCrearCargo()
   const vincularConcurso = useVincularConcurso()
   const transferencia = useTransferencia()
@@ -45,6 +59,9 @@ export function GestionPuestosPage() {
   const crearConcurso = useCrearConcurso()
 
   const [filtro, setFiltro] = useState<FiltroConcurso>('todos')
+  // Filtro por carrera (escalafón) y buscador de texto único (persona / id_sial / CUIL).
+  const [carrera, setCarrera] = useState('')
+  const [busqueda, setBusqueda] = useState('')
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [busyDiffId, setBusyDiffId] = useState<string | null>(null)
 
@@ -103,21 +120,63 @@ export function GestionPuestosPage() {
   }
 
   if (isLoading) return <p className="text-sm text-gray-400">Cargando cola de pendientes...</p>
-  if (isError) return <p className="text-sm text-danger">No se pudo cargar la cola de Gestión de Puestos.</p>
+  if (isError) return <p className="text-sm text-danger">No se pudo cargar la cola de Incidencias.</p>
   if (!data) return null
 
   const { pendientes, resumen } = data
+  // Filtrado en cliente: la cola de pendientes ya viene completa del backend
+  // (GET /pendientes sin paginación), así que carrera y búsqueda se resuelven
+  // acá, sin round-trips extra por tecla (lo más simple y consistente para una
+  // lista chica). El buscador matchea en un solo campo contra persona (ayn),
+  // id_sial e id_sial_rol, y CUIL. Mínimo 2 caracteres, como el resto del repo.
+  const carreraNorm = norm(carrera)
+  const q = norm(busqueda)
+  const buscarActivo = q.length >= 2
+
   const pendientesFiltrados = pendientes.filter((p) => {
-    if (filtro === 'con_concurso') return p.diagnostico?.concursoCphId != null
-    if (filtro === 'sin_concurso') return p.diagnostico?.concursoCphId == null
+    if (filtro === 'con_concurso' && p.diagnostico?.concursoCphId == null) return false
+    if (filtro === 'sin_concurso' && p.diagnostico?.concursoCphId != null) return false
+    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
+    if (buscarActivo) {
+      const v = p.valorNuevo
+      const matchBusqueda =
+        norm(v.ayn).includes(q) ||
+        norm(v.idSial).includes(q) ||
+        norm(p.idSialRol).includes(q) ||
+        norm(v.cuil).includes(q)
+      if (!matchBusqueda) return false
+    }
     return true
   })
 
-  const CONTEOS: Record<FiltroConcurso, number> = {
-    todos: resumen.total,
-    con_concurso: resumen.conConcurso,
-    sin_concurso: resumen.sinConcurso,
-  }
+  // Conteos de las sub-pestañas: reflejan carrera + búsqueda aplicadas (pero no
+  // el propio filtro con/sin concurso), para que los números coincidan con lo
+  // que ve el usuario tras filtrar por carrera o buscar.
+  const baseFiltrada = pendientes.filter((p) => {
+    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
+    if (buscarActivo) {
+      const v = p.valorNuevo
+      return (
+        norm(v.ayn).includes(q) ||
+        norm(v.idSial).includes(q) ||
+        norm(p.idSialRol).includes(q) ||
+        norm(v.cuil).includes(q)
+      )
+    }
+    return true
+  })
+  const hayFiltroExtra = carreraNorm !== '' || buscarActivo
+  const CONTEOS: Record<FiltroConcurso, number> = hayFiltroExtra
+    ? {
+        todos: baseFiltrada.length,
+        con_concurso: baseFiltrada.filter((p) => p.diagnostico?.concursoCphId != null).length,
+        sin_concurso: baseFiltrada.filter((p) => p.diagnostico?.concursoCphId == null).length,
+      }
+    : {
+        todos: resumen.total,
+        con_concurso: resumen.conConcurso,
+        sin_concurso: resumen.sinConcurso,
+      }
 
   return (
     <>
@@ -126,7 +185,7 @@ export function GestionPuestosPage() {
         <div className="bg-white rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-primary text-xl font-bold text-gray-900">Gestión de Puestos</h1>
+              <h1 className="font-primary text-xl font-bold text-gray-900">Incidencias</h1>
               <p className="text-sm text-gray-500">
                 Id_sial nuevos pendientes de gestionar tras aprobar el padrón. Cada fila es una
                 persona en un puesto; acá se decide cómo se le asigna el cargo.
@@ -153,6 +212,35 @@ export function GestionPuestosPage() {
           </div>
         )}
 
+        {/* Filtros: carrera (escalafón) + buscador único (persona / id_sial / CUIL) */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="block text-sm sm:w-64">
+            <span className="text-gray-700 font-medium">Carrera</span>
+            <select
+              value={carrera}
+              onChange={(e) => setCarrera(e.target.value)}
+              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="">Todas las carreras</option>
+              {(escalafones ?? []).map((e) => (
+                <option key={e.id} value={e.nombre}>
+                  {escalafonLabel(e.nombre)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm flex-1">
+            <span className="text-gray-700 font-medium">Buscar persona, id_sial o CUIL</span>
+            <input
+              type="search"
+              placeholder="Nombre, id_sial o CUIL (mín. 2 caracteres)"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </label>
+        </div>
+
         {/* Sub-pestañas con/sin concurso */}
         <div className="border-b border-gray-200 flex gap-1">
           {FILTROS.map((f) => (
@@ -174,7 +262,9 @@ export function GestionPuestosPage() {
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           {pendientesFiltrados.length === 0 ? (
             <p className="p-6 text-sm text-gray-400 text-center">
-              No hay id_sial pendientes para este filtro.
+              {carreraNorm || buscarActivo
+                ? 'No hay incidencias que coincidan con los filtros.'
+                : 'No hay id_sial pendientes para este filtro.'}
             </p>
           ) : (
             <table className="w-full text-sm border-separate border-spacing-0">
