@@ -531,7 +531,18 @@ export function NuevaBajaPage() {
     if (bajaExistente.cargoId) {
       setCargandoCargo(true)
       apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${bajaExistente.cargoId}`)
-        .then((res) => aplicarCargo(res.data.data))
+        .then((res) => {
+          const det = res.data.data
+          aplicarCargo(det)
+          // Si la baja ya tenía especialidad guardada y el cargo la trae VACÍA,
+          // preseleccionarla en el campo editable (aplicarCargo dejó el estado
+          // en editable porque el cargo no la trae). Si el cargo sí la trae,
+          // aplicarCargo ya la mostró readonly y no se pisa.
+          const delCargo = det.especialidadPuesto?.nombre ?? det.especialidadLegacy ?? det.especialidad ?? ''
+          if (!delCargo && bajaExistente.especialidad) {
+            setEspecialidad(bajaExistente.especialidad)
+          }
+        })
         .finally(() => setCargandoCargo(false))
     }
   }, [bajaExistente])
@@ -639,6 +650,7 @@ export function NuevaBajaPage() {
       fechaPaseParalelo: fechaPaseParalelo || undefined,
       cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
       observaciones: observaciones || undefined,
+      especialidad: especialidad || undefined,
       generaConcurso: conConcurso,
       ...(conConcurso && {
         tipoConcurso: tipoConcursoSeleccionado,
@@ -679,6 +691,7 @@ export function NuevaBajaPage() {
         fechaPaseParalelo: fechaPaseParalelo || undefined,
         cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
         observaciones: observaciones || undefined,
+        especialidad: especialidad || undefined,
         estado: 'resolucion_a_la_firma',
         // Si ya pasó por paso 2 y decidió, preservar la decisión
         ...(generaConcurso !== null && {
