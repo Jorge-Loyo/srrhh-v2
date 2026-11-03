@@ -25,9 +25,17 @@ const CR_CPH: CrInfo = {
   escalafonId: 'esc-cph',
   escalafonNombre: 'Nueva Carrera Prof. Hosp',
 }
-const CR_ENF: CrInfo = { id: 'cr-87', escalafonId: 'esc-enf', escalafonNombre: 'Nueva Carrera Enfermería' }
+const CR_ENF: CrInfo = {
+  id: 'cr-87',
+  escalafonId: 'esc-enf',
+  escalafonNombre: 'Nueva Carrera Enfermería',
+}
 const CR_TEC: CrInfo = { id: 'cr-85', escalafonId: 'esc-tec', escalafonNombre: 'CEETPS' }
-const CR_ADM: CrInfo = { id: 'cr-83', escalafonId: 'esc-adm', escalafonNombre: 'Nueva Carrera Administrativa' }
+const CR_ADM: CrInfo = {
+  id: 'cr-83',
+  escalafonId: 'esc-adm',
+  escalafonNombre: 'Nueva Carrera Administrativa',
+}
 
 // Catálogo mínimo: cualquier resolución de puesto auto-crea un puesto nuevo.
 function nuevoCaches(): Caches {
@@ -129,12 +137,16 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
   it('CPH: usa CR 22, escalafón del CR, prefijo CPH-*', async () => {
     const { tx, cargosCreados } = mockTx()
     const caches = nuevoCaches()
-    const fila: Fila = { puesto_solicitado: 'medico de planta', especialidad_solicitada: 'clinica medica' }
+    const fila: Fila = {
+      puesto_solicitado: 'medico de planta',
+      especialidad_solicitada: 'clinica medica',
+    }
     const id = await crearCargo(tx as never, caches, {
       tipo: 'cph',
       fila,
       hospitalId: 'hosp-1',
       usuarioCarga: 'user-1',
+      catalogo: caches.catalogo,
     })
     expect(id).toMatch(/^cargo-/)
     const c = cargosCreados[0]!
@@ -151,7 +163,13 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     const { tx, cargosCreados } = mockTx()
     const caches = nuevoCaches()
     const fila: Fila = { sub_carrera: 'ENFERMERIA', puesto_solicitado: 'enfermero' }
-    await crearCargo(tx as never, caches, { tipo: 'ceetps', fila, hospitalId: 'hosp-1', usuarioCarga: 'u' })
+    await crearCargo(tx as never, caches, {
+      tipo: 'ceetps',
+      fila,
+      hospitalId: 'hosp-1',
+      usuarioCarga: 'u',
+      catalogo: caches.catalogo,
+    })
     const c = cargosCreados[0]!
     expect(c.codigoRegistroId).toBe('cr-87')
     expect(c.escalafonId).toBe('esc-enf')
@@ -167,6 +185,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
         fila: { sub_carrera: 'TECNICOS', puesto_solicitado: 'tecnico de GUARDIA' },
         hospitalId: 'hosp-1',
         usuarioCarga: 'u',
+        catalogo: caches.catalogo,
       })
       expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-POU-/)
     }
@@ -177,6 +196,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
         fila: { sub_carrera: 'TECNICOS', puesto_solicitado: 'tecnico radiologo' },
         hospitalId: 'hosp-1',
         usuarioCarga: 'u',
+        catalogo: caches.catalogo,
       })
       expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-POF-/)
     }
@@ -190,6 +210,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
       fila: { sub_carrera: 'ANEXO2', puesto_solicitado: 'camillero' },
       hospitalId: 'hosp-1',
       usuarioCarga: 'u',
+      catalogo: caches.catalogo,
     })
     const c = cargosCreados[0]!
     expect(c.codigoRegistroId).toBe('cr-83')
@@ -222,7 +243,12 @@ describe('cphCalcInput — campos sin columna fijados y estado derivado', () => 
   it('fila C-DISPO sin fechas de inscripción recalcula un nivel por debajo (discrepancia esperada)', () => {
     const w: Warnings = []
     const input = cphCalcInput(
-      { ee_concurso: 'EX-1', fecha_ee_concurso: '2026-01-10', fecha_autorizacion: '2026-02-01', sorteo_jurado: '2026-02-15' },
+      {
+        ee_concurso: 'EX-1',
+        fecha_ee_concurso: '2026-01-10',
+        fecha_autorizacion: '2026-02-01',
+        sorteo_jurado: '2026-02-15',
+      },
       w,
     )
     const calc = calcConcursoCph(input)
