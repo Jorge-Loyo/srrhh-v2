@@ -27,9 +27,10 @@ function ModalBuscarCargo({
   onCerrar: () => void
 }) {
   // Modo "Cobertura Dotación": se buscan cargos VACANTES (sin ocupante), que
-  // siempre son POU + CPH (código de registro 37). No hay persona ni id_sial que
-  // buscar → se ocultan los inputs de texto y el filtro de carrera queda fijo en
-  // 37. Puesto (solo POU) y especialidad (cascada) son desplegables.
+  // siempre son POU. La carrera se elige entre los códigos de registro válidos
+  // para estos concursos (37 y 23). No hay persona ni id_sial que buscar → se
+  // ocultan los inputs de texto. Puesto (solo POU) y especialidad (cascada) son
+  // desplegables.
   const esCobertura = origen === 'Cobertura Dotación'
   // Modo "Retención de Cargo": solo tiene sentido buscar personas en situación
   // de revista "retención de cargo", y el cargo siempre vigente. Por eso la
@@ -45,35 +46,42 @@ function ModalBuscarCargo({
   // Cobertura Dotación: puesto (POU) y especialidad en cascada.
   const [puestoCob, setPuestoCob] = useState('')
   const [especialidadCob, setEspecialidadCob] = useState('')
+  // Cobertura Dotación: la carrera se elige entre los códigos válidos para
+  // estos concursos (37 y 23). Default = 37.
+  const [codigoCobertura, setCodigoCobertura] = useState('37')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  // Código de registro 37 (CPH) — en Cobertura Dotación la carrera va fija a 37.
-  const codigoReg37 = codigosRegistro?.find((cr) => cr.codigo === '37')
+  // Códigos de registro válidos para Cobertura Dotación (37 y 23). El operador
+  // elige cuál; el buscador trae vacantes del código seleccionado.
+  const CODIGOS_COBERTURA = ['37', '23']
+  const codigosRegCobertura = (codigosRegistro ?? []).filter((cr) => CODIGOS_COBERTURA.includes(cr.codigo))
+  const codigoRegCoberturaSel = codigosRegCobertura.find((cr) => cr.codigo === codigoCobertura)
   // Puestos POU (guardia) para el desplegable de Cobertura Dotación.
   const puestosPou = getPuestoOptions('POU', '')
   const especialidadesCob = puestoCob ? getEspecialidadOptions(puestoCob) : []
 
-  const activoCobertura = !!(codigoReg37 && (hospitalId || puestoCob || especialidadCob))
+  const activoCobertura = !!(codigoRegCoberturaSel && (hospitalId || puestoCob || especialidadCob))
   const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
   const activo = esCobertura ? activoCobertura : activoDefault
 
   const { data, isLoading, isError } = useQuery({
     queryKey: esCobertura
-      ? ['cargo-modal-baja-cobertura', hospitalId, codigoReg37?.id, puestoCob, especialidadCob]
+      ? ['cargo-modal-baja-cobertura', hospitalId, codigoRegCoberturaSel?.id, puestoCob, especialidadCob]
       : ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (esCobertura) {
         // Vacante = cargo vigente SIN ocupante (ocupado=false). Siempre POU +
-        // código de registro 37. Puesto/especialidad filtran server-side.
+        // código de registro elegido (37 o 23). Puesto/especialidad filtran
+        // server-side.
         const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
           params: {
             limit: 40,
             estado: 'vigente',
             ocupado: 'false',
-            ...(codigoReg37 && { codigoRegistroId: codigoReg37.id }),
+            ...(codigoRegCoberturaSel && { codigoRegistroId: codigoRegCoberturaSel.id }),
             ...(hospitalId && { hospitalId }),
             ...(puestoCob && { literalPuesto: puestoCob }),
             ...(especialidadCob && { especialidad: especialidadCob }),
@@ -125,7 +133,7 @@ function ModalBuscarCargo({
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
             <p className="text-xs text-gray-500 mt-0.5">
               {esCobertura
-                ? 'Cargos vacantes POU (CPH 37) — filtrá por sigla, puesto y especialidad'
+                ? 'Cargos vacantes POU (CPH 37 o 23) — filtrá por carrera, sigla, puesto y especialidad'
                 : 'Filtrá por sigla, código, puesto, especialidad o persona'}
             </p>
           </div>
@@ -144,9 +152,20 @@ function ModalBuscarCargo({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-                  {/* Fija en CPH (código 37) — no elegible en Cobertura Dotación. */}
-                  <select value="37" disabled className="input h-9 w-full text-sm bg-gray-50 text-gray-600">
-                    <option value="37">37{codigoReg37?.literal ? ` — ${codigoReg37.literal}` : ''}</option>
+                  {/* Elegible entre los códigos válidos para estos concursos (37 y 23). */}
+                  <select
+                    value={codigoCobertura}
+                    onChange={(e) => setCodigoCobertura(e.target.value)}
+                    className="input h-9 w-full text-sm"
+                  >
+                    {CODIGOS_COBERTURA.map((cod) => {
+                      const cr = codigosRegCobertura.find((c) => c.codigo === cod)
+                      return (
+                        <option key={cod} value={cod}>
+                          {cod}{cr?.literal ? ` — ${cr.literal}` : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
               </div>
