@@ -5,13 +5,14 @@ import { can } from '@/shared/lib/can'
 // Layout con pestañas para el módulo Cargos. Reemplaza el desplegable del menú:
 // "Cargos" es un NavLink simple a /cargos y las acciones (Alta, Baja, Alta por
 // baja) son pestañas sincronizadas con la URL — cada una conserva su ruta, así
-// no se rompen los enlaces directos existentes. Las pestañas se filtran por
-// permiso (base para evaluar permisos por pestaña más adelante).
+// no se rompen los enlaces directos existentes. Cada pestaña se filtra por su
+// permiso PROPIO `tab:*` (permisos granulares por pestaña), administrable por
+// rol desde /configuracion/permisos.
 const TABS = [
-  { to: '/cargos',               label: 'Ver cargos',   end: true,  permiso: { modulo: 'cargos', accion: 'ver' } },
-  { to: '/cargos/alta',          label: 'Alta de cargo', end: false, permiso: { modulo: 'cargos', accion: 'crear' } },
-  { to: '/cargos/baja',          label: 'Baja de cargo', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos',               label: 'Ver cargos',   end: true,  permiso: { modulo: 'cargos', accion: 'tab:ver-cargos' } },
+  { to: '/cargos/alta',          label: 'Alta de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:alta-cargo' } },
+  { to: '/cargos/baja',          label: 'Baja de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:baja-cargo' } },
+  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'cargos', accion: 'tab:cobertura-vacantes' } },
 ]
 
 export function CargosLayout() {

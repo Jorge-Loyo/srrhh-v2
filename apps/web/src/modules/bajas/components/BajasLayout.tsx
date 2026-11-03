@@ -6,9 +6,9 @@ import { can } from '@/shared/lib/can'
 // Pestañas sincronizadas con la URL (cada una conserva su ruta). Reemplaza las
 // entradas sueltas del menú "Bajas" y "Validación de Bajas".
 const TABS = [
-  { to: '/bajas',            label: 'Bajas',         end: true,  permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/bajas/validacion', label: 'Validación',    end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/bajas/vinculacion', label: 'Vinculaciones', end: false, permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/bajas',            label: 'Bajas',         end: true,  permiso: { modulo: 'bajas', accion: 'tab:bajas' } },
+  { to: '/bajas/validacion', label: 'Validación',    end: false, permiso: { modulo: 'bajas', accion: 'tab:validacion' } },
+  { to: '/bajas/vinculacion', label: 'Vinculaciones', end: false, permiso: { modulo: 'bajas', accion: 'tab:vinculaciones' } },
 ]
 
 export function BajasLayout() {

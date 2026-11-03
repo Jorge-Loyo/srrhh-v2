@@ -8,12 +8,12 @@ import { can } from '@/shared/lib/can'
 // Los permisos de cada pestaña son los MISMOS que protegen su ruta en el
 // router (RequirePermiso), para no mostrar una pestaña que luego daría 403.
 const TABS = [
-  { to: '/configuracion/usuarios',    label: 'Usuarios',              permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/tokens',      label: 'Tokens',                permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/jerarquia',   label: 'Jerarquía',             permiso: { modulo: 'configuracion', accion: 'gestionar_usuarios' } },
-  { to: '/configuracion/permisos',    label: 'Permisos',              permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
-  { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'gestionar_permisos' } },
-  { to: '/configuracion/auditoria',   label: 'Auditoría',             permiso: { modulo: 'configuracion', accion: 'ver_auditoria' } },
+  { to: '/configuracion/usuarios',    label: 'Usuarios',              permiso: { modulo: 'configuracion', accion: 'tab:usuarios' } },
+  { to: '/configuracion/tokens',      label: 'Tokens',                permiso: { modulo: 'configuracion', accion: 'tab:tokens' } },
+  { to: '/configuracion/jerarquia',   label: 'Jerarquía',             permiso: { modulo: 'configuracion', accion: 'tab:jerarquia' } },
+  { to: '/configuracion/permisos',    label: 'Permisos',              permiso: { modulo: 'configuracion', accion: 'tab:permisos' } },
+  { to: '/configuracion/referencias', label: 'Referencias Dotaneitor', permiso: { modulo: 'configuracion', accion: 'tab:referencias' } },
+  { to: '/configuracion/auditoria',   label: 'Auditoría',             permiso: { modulo: 'configuracion', accion: 'tab:auditoria' } },
 ]
 
 export function ConfiguracionLayout() {
