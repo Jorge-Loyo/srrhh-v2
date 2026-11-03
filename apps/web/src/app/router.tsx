@@ -97,17 +97,20 @@ export const router = createBrowserRouter([
           {
             element: <ImportacionLayout />,
             children: [
-              { path: 'padron', element: <PadronPage /> },
               {
-                element: <RequirePermiso permiso={{ modulo: 'bajas-sial', accion: 'aprobar' }} />,
+                element: <RequirePermiso permiso={{ modulo: 'padron', accion: 'tab:padron-semanal' }} />,
+                children: [{ path: 'padron', element: <PadronPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'bajas-sial', accion: 'tab:bajas-consolidadas' }} />,
                 children: [{ path: 'bajas-consolidadas', element: <BajasConsolidasPage /> }],
               },
               {
-                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_organigrama' }} />,
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:arbol-organigrama' }} />,
                 children: [{ path: 'organigrama/arbol', element: <OrganigramaArbolPage /> }],
               },
               {
-                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_pou' }} />,
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:carga-pou' }} />,
                 children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
               },
             ],
@@ -133,9 +136,12 @@ export const router = createBrowserRouter([
           {
             element: <OrganigramaLayout />,
             children: [
+              // "Estructura" — acceso ABIERTO por código (decisión E2 §7): la ruta
+              // /organigrama NO lleva RequirePermiso. El permiso cosmético
+              // organigrama/tab:estructura aparece en la grilla pero no gobierna.
               { path: 'organigrama', element: <OrganigramaHomePage /> },
               {
-                element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
+                element: <RequirePermiso permiso={{ modulo: 'organigrama', accion: 'tab:areas-programaticas' }} />,
                 children: [{ path: 'organigrama/areas-programaticas', element: <AreasProgramaticasPage /> }],
               },
             ],
@@ -160,10 +166,22 @@ export const router = createBrowserRouter([
           {
             element: <CargosLayout />,
             children: [
-              { path: 'cargos', element: <CargosPage /> },
-              { path: 'cargos/alta', element: <AltaCargosPage /> },
-              { path: 'cargos/baja', element: <BajaCargosPage /> },
-              { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:ver-cargos' }} />,
+                children: [{ path: 'cargos', element: <CargosPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:alta-cargo' }} />,
+                children: [{ path: 'cargos/alta', element: <AltaCargosPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:baja-cargo' }} />,
+                children: [{ path: 'cargos/baja', element: <BajaCargosPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:cobertura-vacantes' }} />,
+                children: [{ path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> }],
+              },
             ],
           },
           { path: 'cargos/:id', element: <CargoDetailPanel /> },
@@ -184,9 +202,18 @@ export const router = createBrowserRouter([
           {
             element: <BajasLayout />,
             children: [
-              { path: 'bajas', element: <BajasPage /> },
-              { path: 'bajas/validacion', element: <ValidacionBajasPage /> },
-              { path: 'bajas/vinculacion', element: <BajaVinculacionPage /> },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'bajas', accion: 'tab:bajas' }} />,
+                children: [{ path: 'bajas', element: <BajasPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'bajas', accion: 'tab:validacion' }} />,
+                children: [{ path: 'bajas/validacion', element: <ValidacionBajasPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'bajas', accion: 'tab:vinculaciones' }} />,
+                children: [{ path: 'bajas/vinculacion', element: <BajaVinculacionPage /> }],
+              },
             ],
           },
           { path: 'retenciones/validacion', element: <RetencionesPage /> },
@@ -211,22 +238,27 @@ export const router = createBrowserRouter([
             element: <ConfiguracionLayout />,
             children: [
               {
-                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_usuarios' }} />,
-                children: [
-                  { path: 'configuracion/usuarios', element: <AdminUsuariosPage /> },
-                  { path: 'configuracion/tokens', element: <TokensPage /> },
-                  { path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> },
-                ],
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:usuarios' }} />,
+                children: [{ path: 'configuracion/usuarios', element: <AdminUsuariosPage /> }],
               },
               {
-                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'gestionar_permisos' }} />,
-                children: [
-                  { path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> },
-                  { path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> },
-                ],
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:tokens' }} />,
+                children: [{ path: 'configuracion/tokens', element: <TokensPage /> }],
               },
               {
-                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'ver_auditoria' }} />,
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:jerarquia' }} />,
+                children: [{ path: 'configuracion/jerarquia', element: <ConfiguracionJerarquiaPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:referencias' }} />,
+                children: [{ path: 'configuracion/referencias', element: <ConfiguracionReferenciasPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:permisos' }} />,
+                children: [{ path: 'configuracion/permisos', element: <ConfiguracionPermisosPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:auditoria' }} />,
                 children: [{ path: 'configuracion/auditoria', element: <AuditoriaPage /> }],
               },
             ],
