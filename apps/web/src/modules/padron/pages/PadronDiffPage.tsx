@@ -1,23 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { TipoDiff } from '@srrhh/types'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { useAprobarSnapshot, useRechazarSnapshot, useSnapshotDiff, useDiagnosticoNuevos, useCamposModificados, useValidacionesPreview } from '../hooks/usePadron'
-import { apiClient } from '@/shared/lib/api-client'
-
-// Progreso de "Aprobar todos" (background + polling). El backend expone el
-// avance en GET .../aprobacion-progreso.
-interface AprobacionProgreso {
-  estado: 'procesando' | 'completado' | 'error'
-  total: number
-  procesados: number
-  aprobados: number
-  fallidos: Array<{ diffId: string; cargo: string; motivo: string }>
-  iniciadoAt: number
-  finalizadoAt: number | null
-}
 
 // La columna `campo` del diff usa prefijos para separar vistas sin tocar el
 // enum TipoDiff: 'completado:<col>' sobre tipo='modificado' y 'baja_previa'
@@ -25,7 +11,7 @@ interface AprobacionProgreso {
 type TabKey = TipoDiff | 'completado'
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: TipoDiff.NUEVO, label: 'Nuevos cargos' },
+  { key: TipoDiff.NUEVO, label: 'Nuevos id_sial' },
   { key: TipoDiff.MODIFICADO, label: 'Modificados' },
   { key: 'completado', label: 'Completados' },
   { key: TipoDiff.ELIMINADO, label: 'Bajas' },
@@ -80,19 +66,12 @@ export function PadronDiffPage() {
   const { snapshotId } = useParams<{ snapshotId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const queryClient = useQueryClient()
 
   const [tab, setTab] = useState<TabKey>(TipoDiff.NUEVO)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [soloPendientes, setSoloPendientes] = useState(false)
-  const [modalAprobarTodos, setModalAprobarTodos] = useState(false)
-  const [modalConcurso, setModalConcurso] = useState<{ diffId: string; idSialRol: string } | null>(null)
-  const [concursoSearch, setConcursoSearch] = useState('')
-  const [concursoResultados, setConcursoResultados] = useState<any[]>([])
-  const [concursoLoading, setConcursoLoading] = useState(false)
-  const concursoSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [subTabNuevos, setSubTabNuevos] = useState<SubTabNuevos>('ingreso')
   // Encabezado activo dentro de la pestaña Bajas: 'nuevas' = bajas nuevas de la
   // semana (campo IS NULL); 'previas' = ya estaban en baja (campo='baja_previa',
@@ -153,125 +132,16 @@ export function PadronDiffPage() {
   const cambioRolSet = new Set(
     diagnostico.data?.detalle.filter((d) => d.clasificacion === 'nuevo_rol').map((d) => d.idSialRol) ?? []
   )
-  // Mapa idSialRol → info de concurso abierto (si existe)
-  const concursoMap = new Map(
+  // La pestaña "Nuevos id_sial" es solo-lectura: las decisiones (crear cargo /
+  // concurso / transferencia / sin código) se tomaron fuera de la aprobación,
+  // en el módulo "Gestión de Puestos". Acá solo se audita qué trae el padrón.
+  // Mapa idSialRol → código del concurso abierto (si existe), para el indicador
+  // informativo "genera concurso / sin concurso".
+  const concursoInfoMap = new Map(
     (diagnostico.data?.detalle ?? [])
       .filter((d) => d.concursoCphId)
-      .map((d) => [d.idSialRol, { concursoCphId: d.concursoCphId!, concursoCodigo: d.concursoCodigo, estadoConcurso: d.estadoConcurso }])
+      .map((d) => [d.idSialRol, d.concursoCodigo])
   )
-
-  function optimisticDecision(diffId: string, decision: boolean) {
-    queryClient.setQueriesData(
-      { queryKey: ['snapshot-diff', snapshotId] },
-      (old: any) => {
-        if (!old) return old
-        return {
-          ...old,
-          diffs: {
-            ...old.diffs,
-            data: old.diffs.data.map((d: any) => d.id === diffId ? { ...d, aprobado: decision } : d),
-          },
-          summary: {
-            ...old.summary,
-            nuevosPendientes: Math.max(0, (old.summary.nuevosPendientes ?? 0) - 1),
-            nuevosRechazados: decision ? old.summary.nuevosRechazados : (old.summary.nuevosRechazados ?? 0) + 1,
-          },
-        }
-      }
-    )
-  }
-
-  // Buscar concursos cuando cambia el texto en el modal
-  useEffect(() => {
-    if (!modalConcurso) return
-    if (concursoSearchRef.current) clearTimeout(concursoSearchRef.current)
-    concursoSearchRef.current = setTimeout(async () => {
-      setConcursoLoading(true)
-      try {
-        const params = concursoSearch ? `?q=${encodeURIComponent(concursoSearch)}` : ''
-        const res = await apiClient.get(`/api/v1/padron/snapshots/${snapshotId}/diffs/${modalConcurso.diffId}/concursos${params}`)
-        setConcursoResultados(res.data.data ?? [])
-      } catch { setConcursoResultados([]) }
-      finally { setConcursoLoading(false) }
-    }, 300)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [concursoSearch, modalConcurso])
-
-  function abrirModalConcurso(diffId: string, idSialRol: string) {
-    setConcursoSearch('')
-    setConcursoResultados([])
-    setModalConcurso({ diffId, idSialRol })
-  }
-
-  function cerrarModalConcurso() {
-    setModalConcurso(null)
-    setConcursoSearch('')
-    setConcursoResultados([])
-  }
-
-  function vincularConcurso(concursoCphId: string) {
-    if (!modalConcurso) return
-    aprobarDiff.mutate({ diffId: modalConcurso.diffId, vincularConcursoId: concursoCphId })
-    cerrarModalConcurso()
-  }
-
-  const aprobarDiff = useMutation({
-    mutationFn: ({ diffId, vincularConcursoId }: { diffId: string; vincularConcursoId?: string }) =>
-      apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/aprobar`, { vincularConcursoId }),
-    onMutate: ({ diffId }) => optimisticDecision(diffId, true),
-    onSuccess: () => { if (soloPendientes) queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }) },
-    onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
-  })
-
-  const transferenciaDiff = useMutation({
-    mutationFn: (diffId: string) => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/transferencia`),
-    onMutate: (diffId) => optimisticDecision(diffId, true),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
-    onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
-  })
-
-  const rechazarDiff = useMutation({
-    mutationFn: (diffId: string) => apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/${diffId}/rechazar`),
-    onMutate: (diffId) => optimisticDecision(diffId, false),
-    onSuccess: () => { if (soloPendientes) queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }) },
-    onError: () => queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] }),
-  })
-
-  // "Aprobar todos" corre en BACKGROUND: el POST responde 202 enseguida y el
-  // avance se sigue por polling (useQuery abajo). `aprobacionLanzada` prende
-  // el polling; se apaga al completar.
-  const [aprobacionLanzada, setAprobacionLanzada] = useState(false)
-
-  const aprobarTodos = useMutation({
-    mutationFn: async () => {
-      await apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/diffs/aprobar-todos`)
-    },
-    onSuccess: () => setAprobacionLanzada(true),
-  })
-
-  // Polling del progreso mientras la aprobación está en curso. Se refresca cada
-  // 1.5s; al completar, invalida la tabla de diffs y corta el polling.
-  const { data: progresoAprobacion } = useQuery({
-    queryKey: ['aprobacion-progreso', snapshotId],
-    queryFn: async () => {
-      const res = await apiClient.get<{ data: AprobacionProgreso | null }>(
-        `/api/v1/padron/snapshots/${snapshotId}/diffs/aprobacion-progreso`,
-      )
-      return res.data.data
-    },
-    enabled: aprobacionLanzada,
-    refetchInterval: (query) => {
-      const d = query.state.data as AprobacionProgreso | null | undefined
-      return d && d.estado === 'procesando' ? 1500 : false
-    },
-  })
-
-  // Al terminar la aprobación, refrescar la tabla de diffs una sola vez.
-  useEffect(() => {
-    if (progresoAprobacion && progresoAprobacion.estado !== 'procesando') {
-      queryClient.invalidateQueries({ queryKey: ['snapshot-diff', snapshotId] })
-    }
-  }, [progresoAprobacion?.estado, snapshotId, queryClient])
 
   const puedeDecidir = can(user, 'padron', 'aprobar_padron')
 
@@ -289,7 +159,31 @@ export function PadronDiffPage() {
 
   async function handleAprobar() {
     if (!snapshotId) return
-    await aprobar.mutateAsync(snapshotId)
+    // Guarda contra padrón parcial: si el padrón vino sospechosamente chico
+    // (advertenciaTamano presente), exigir confirmación explícita del operador
+    // y recién ahí pasar el override al endpoint.
+    const advertencia = baseData?.snapshot.advertenciaTamano
+    let overrideRatioTamano = false
+    if (advertencia) {
+      if (!window.confirm(`${advertencia}\n\n¿Aprobar igual este padrón?`)) return
+      overrideRatioTamano = true
+    }
+    // Guarda contra padrón sin la baja SIAL de la semana: a diferencia del ratio
+    // (que se persiste al procesar), esta se evalúa al aprobar y el backend
+    // responde 409 con la advertencia. Se intenta sin override; ante el 409 se
+    // muestra el mensaje y, si el operador confirma, se reintenta con el flag.
+    try {
+      await aprobar.mutateAsync({ snapshotId, overrideRatioTamano })
+    } catch (e: any) {
+      const status = e?.response?.status
+      const msg = e?.response?.data?.message ?? ''
+      if (status === 409 && msg) {
+        if (!window.confirm(`${msg}\n\n¿Aprobar igual este padrón?`)) return
+        await aprobar.mutateAsync({ snapshotId, overrideRatioTamano, overrideBajaSial: true })
+      } else {
+        return
+      }
+    }
     navigate('/padron')
   }
 
@@ -307,7 +201,6 @@ export function PadronDiffPage() {
   const diffs = diffsData?.diffs
   const nuevosPendientes = summary.nuevosPendientes ?? 0
   const nuevosRechazados = summary.nuevosRechazados ?? 0
-  const hayPendientes = nuevosPendientes > 0
 
   return (
     <>
@@ -340,8 +233,7 @@ export function PadronDiffPage() {
                   <button
                     className="btn-primary"
                     onClick={handleAprobar}
-                    disabled={aprobar.isPending || rechazar.isPending || hayPendientes}
-                    title={hayPendientes ? `Hay ${nuevosPendientes} cargo(s) nuevo(s) sin decisión` : undefined}
+                    disabled={aprobar.isPending || rechazar.isPending}
                   >
                     {aprobar.isPending ? 'Aprobando...' : 'Aprobar'}
                   </button>
@@ -351,6 +243,21 @@ export function PadronDiffPage() {
           </div>
           {(aprobar.isError || rechazar.isError) && (
             <p className="text-sm text-danger mt-2">No se pudo completar la operación. Volvé a intentar en unos segundos.</p>
+          )}
+          {/* Guarda contra padrón parcial: advertencia de padrón chico. Visible
+              junto al botón Aprobar; al aprobar se exige confirmar el override. */}
+          {snapshot.estado === 'pendiente' && snapshot.advertenciaTamano && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span className="mt-0.5 shrink-0">⚠</span>
+              <span>
+                <strong>Posible padrón parcial.</strong> {snapshot.advertenciaTamano}
+                {snapshot.ratioTamano != null && (
+                  <span className="ml-1 text-red-600">
+                    (ratio {(snapshot.ratioTamano * 100).toFixed(1)}%)
+                  </span>
+                )}
+              </span>
+            </div>
           )}
         </div>
 
@@ -639,27 +546,26 @@ export function PadronDiffPage() {
               onChange={(e) => { setSearch(e.target.value); setPage(1) }}
               className="w-full max-w-sm border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
-            {tab === 'nuevo' && nuevosPendientes > 0 && snapshot.estado === 'pendiente' && puedeDecidir && (
-              <button
-                onClick={() => setModalAprobarTodos(true)}
-                className="text-sm px-3 py-1.5 rounded-md border font-medium transition-colors bg-green-50 border-green-300 text-green-700 hover:bg-green-100"
-              >
-                Aprobar todos ({nuevosPendientes})
-              </button>
-            )}
-            {tab === 'nuevo' && snapshot.estado === 'pendiente' && nuevosPendientes > 0 && (
-              <button
-                onClick={() => { setSoloPendientes((v) => !v); setPage(1) }}
-                className={`text-sm px-3 py-1.5 rounded-md border font-medium transition-colors ${
-                  soloPendientes
-                    ? 'bg-orange-100 border-orange-300 text-orange-700'
-                    : 'border-gray-300 text-gray-500 hover:border-gray-400'
-                }`}
-              >
-                {soloPendientes ? `Solo pendientes (${nuevosPendientes})` : `Todos (${summary.nuevos})`}
-              </button>
-            )}
           </div>
+
+          {/* Aviso: los id_sial nuevos ya no se deciden acá; se gestionan en el
+              módulo "Gestión de Puestos" después de aprobar el padrón. */}
+          {tab === 'nuevo' && (
+            <div className="mx-4 mt-1 mb-2 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+              <span className="mt-0.5 shrink-0">ℹ</span>
+              <span>
+                Estos id_sial se resuelven en{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/gestion-puestos')}
+                  className="font-semibold underline hover:text-blue-900"
+                >
+                  Gestión de Puestos
+                </button>{' '}
+                después de aprobar. Esta vista es solo de auditoría.
+              </span>
+            </div>
+          )}
 
           {/* Spinner mientras carga la tabla de modificados */}
           {tab === TipoDiff.MODIFICADO && (!campoFiltro || isDiffsLoading) && (
@@ -684,9 +590,8 @@ export function PadronDiffPage() {
                   <th className="px-4 py-3 font-semibold">Carrera</th>
                   <th className="px-4 py-3 font-semibold">Puesto</th>
                   <th className="px-4 py-3 font-semibold">Especialidad</th>
-                  {tab === 'eliminado' && <th className="px-4 py-3 font-semibold">Código cargo</th>}
-                  {tab === 'nuevo' && <th className="px-4 py-3 font-semibold">{snapshot.estado === 'aprobado' ? 'Código asignado' : 'Código a generar'}</th>}
-                  <th className="px-4 py-3 rounded-tr-lg" />
+                  {tab === 'eliminado' && <th className="px-4 py-3 font-semibold rounded-tr-lg">Código cargo</th>}
+                  {tab === 'nuevo' && <th className="px-4 py-3 font-semibold rounded-tr-lg">Concurso</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -701,7 +606,6 @@ export function PadronDiffPage() {
                     const r = parseRegistro(tab === 'nuevo' ? d.valorNuevo : d.valorAnterior)
                     const isPending = d.aprobado === null
                     const isRechazado = d.aprobado === false
-                    const isAprobado = d.aprobado === true
                     return (
                       <tr key={d.id} className={isPending ? 'bg-orange-50' : isRechazado ? 'bg-gray-50' : 'hover:bg-gray-50'}>
                         <td className="px-4 py-3 text-gray-600 font-mono text-xs">{r.id_sial ?? d.idSialRol}</td>
@@ -717,99 +621,28 @@ export function PadronDiffPage() {
                             {d.codigoCargo ?? <span className="text-gray-300">—</span>}
                           </td>
                         )}
-                        {tab === 'nuevo' && (
-                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">
-                            {isAprobado
-                              ? (
-                                <div className="flex flex-col items-end gap-1">
-                                  <span className="text-green-600 font-semibold font-mono">
-                                    {d.codigoReal ?? d.codigoPreview ?? '✓ Asignado'}
-                                  </span>
-                                  {d.codigoReutilizado && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
-                                      ↺ Cargo de concurso{d.concursoCodigo ? `: ${d.concursoCodigo}` : ''}
-                                    </span>
-                                  )}
-                                </div>
-                              )
-                              : isRechazado
-                                ? <span className="text-gray-400">⚠ Sin asignar</span>
-                                : d.codigoPreview ? <span className="text-blue-700">{d.codigoPreview}</span> : '—'
-                            }
-                          </td>
-                        )}
-                        <td className="px-4 py-3 text-right">
-                          {tab === 'nuevo' && snapshot.estado === 'pendiente' && puedeDecidir && (
-                            isAprobado || isRechazado
-                              ? (
-                                <span className={`text-xs font-semibold ${isAprobado ? 'text-green-600' : 'text-gray-400'}`}>
-                                  {isAprobado ? '✓ Aprobado' : '✕ Sin código'}
+                        {tab === 'nuevo' && (() => {
+                          // Indicador informativo "genera concurso / sin concurso"
+                          // (read-only). El diagnóstico solo carga en snapshots
+                          // pendientes; si está aprobado no hay dato de concurso.
+                          const concursoCodigo = concursoInfoMap.get(d.idSialRol)
+                          const tieneConcurso = concursoInfoMap.has(d.idSialRol)
+                          return (
+                            <td className="px-4 py-3">
+                              {!diagnostico.data ? (
+                                <span className="text-gray-300">—</span>
+                              ) : tieneConcurso ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+                                  Genera concurso{concursoCodigo ? `: ${concursoCodigo}` : ''}
                                 </span>
-                              )
-                              : (() => {
-                                  const concurso = concursoMap.get(d.idSialRol)
-                                  const busy = aprobarDiff.isPending || rechazarDiff.isPending || transferenciaDiff.isPending
-                                  return (
-                                    <div className="flex flex-col items-end gap-1.5">
-                                      {concurso && (
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
-                                          ⚠ Concurso abierto: {concurso.concursoCodigo ?? concurso.concursoCphId.slice(0, 8)}
-                                        </span>
-                                      )}
-                                      <div className="flex gap-1">
-                                        {concurso ? (
-                                          <>
-                                            <button
-                                              className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-green-600 border-green-700 text-white hover:bg-green-700"
-                                              disabled={busy}
-                                              onClick={() => aprobarDiff.mutate({ diffId: d.id, vincularConcursoId: concurso.concursoCphId })}
-                                            >
-                                              Aprobar + vincular
-                                            </button>
-                                            <button
-                                              className="btn-primary text-xs px-2 py-1"
-                                              disabled={busy}
-                                              onClick={() => aprobarDiff.mutate({ diffId: d.id })}
-                                            >
-                                              Aprobar
-                                            </button>
-                                          </>
-                                        ) : (
-                                          <button
-                                            className="btn-primary text-xs px-3 py-1"
-                                            disabled={busy}
-                                            onClick={() => aprobarDiff.mutate({ diffId: d.id })}
-                                          >
-                                            Aprobar
-                                          </button>
-                                        )}
-                                        <button
-                                          className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
-                                          disabled={busy}
-                                          onClick={() => abrirModalConcurso(d.id, d.idSialRol)}
-                                        >
-                                          Concurso
-                                        </button>
-                                        <button
-                                          className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
-                                          disabled={busy}
-                                          onClick={() => transferenciaDiff.mutate(d.id)}
-                                        >
-                                          Transferencia
-                                        </button>
-                                        <button
-                                          className="btn-outline text-xs px-2 py-1"
-                                          disabled={busy}
-                                          onClick={() => rechazarDiff.mutate(d.id)}
-                                        >
-                                          Sin código
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )
-                                })()
-                          )}
-                        </td>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                  Sin concurso
+                                </span>
+                              )}
+                            </td>
+                          )
+                        })()}
                       </tr>
                     )
                   })}
@@ -864,196 +697,6 @@ export function PadronDiffPage() {
           )}
         </div>
       </div>
-
-      {/* Modal buscar concurso */}
-      {modalConcurso && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) cerrarModalConcurso() }}
-        >
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-primary text-lg font-bold text-gray-900">Vincular a concurso CPH</h2>
-              <button onClick={cerrarModalConcurso} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
-            </div>
-            <p className="text-sm text-gray-500">
-              Buscá el concurso al que pertenece esta designación. El cargo tomará el código del concurso — no se generará uno nuevo.
-            </p>
-            <input
-              autoFocus
-              type="search"
-              placeholder="Buscar por puesto, hospital, código de cargo..."
-              value={concursoSearch}
-              onChange={(e) => setConcursoSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 rounded-md border border-gray-200">
-              {concursoLoading && (
-                <p className="p-4 text-sm text-gray-400 text-center">Buscando...</p>
-              )}
-              {!concursoLoading && concursoResultados.length === 0 && (
-                <p className="p-4 text-sm text-gray-400 text-center">
-                  {concursoSearch ? 'Sin resultados para esa búsqueda.' : 'Cargando concursos del hospital...'}
-                </p>
-              )}
-              {!concursoLoading && concursoResultados.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => vincularConcurso(c.id)}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {c.codigoCargo ?? <span className="text-gray-400 font-normal">Sin código</span>}
-                        {' '}
-                        <span className="font-normal text-gray-600">{c.literalPuesto}</span>
-                      </p>
-                      {c.especialidad && (
-                        <p className="text-xs text-indigo-600 font-medium mt-0.5 truncate">{c.especialidad}</p>
-                      )}
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {c.hospital}
-                        {c.eeConcurso && <> · {c.eeConcurso}</>}
-                        {c.expediente && <> · Exp: {c.expediente}</>}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        c.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {c.estado}
-                      </span>
-                      {!c.estaCompleto && (
-                        <span className="text-[10px] text-orange-600 font-medium">⚠ Pendiente de completar</span>
-                      )}
-                      {c.yaDesignado && (
-                        <span className="text-[10px] text-blue-600 font-medium">Ya tiene designado</span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end pt-1">
-              <button className="btn-outline" onClick={cerrarModalConcurso}>Cancelar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal aprobar todos */}
-      {modalAprobarTodos && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setModalAprobarTodos(false) }}
-        >
-          {(() => {
-            const prog = progresoAprobacion
-            const procesando = prog?.estado === 'procesando' || (aprobacionLanzada && !prog)
-            const completado = prog?.estado === 'completado' || prog?.estado === 'error'
-            const pct = prog && prog.total > 0 ? Math.round((prog.procesados / prog.total) * 100) : 0
-            const cerrarBloqueado = procesando
-            return (
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-                <h2 className="font-primary text-lg font-bold text-gray-900">Aprobar todos los pendientes</h2>
-
-                {/* Estado inicial: confirmar */}
-                {!aprobacionLanzada && !aprobarTodos.isPending && (
-                  <p className="text-sm text-gray-600">
-                    Se generará un código para cada uno de los{' '}
-                    <span className="font-semibold text-gray-900">{nuevosPendientes} cargos pendientes</span>.
-                    Puede tardar varios minutos; podés seguir el avance acá. Esta acción no se puede deshacer.
-                  </p>
-                )}
-
-                {aprobarTodos.isError && (
-                  <p className="text-sm text-danger">
-                    No se pudo iniciar la operación. Volvé a intentar — lo que ya se haya aprobado queda guardado.
-                  </p>
-                )}
-
-                {/* En curso: barra de progreso */}
-                {procesando && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm text-gray-700">
-                      <span>Aprobando cargos…</span>
-                      <span className="font-semibold">
-                        {prog ? `${prog.procesados.toLocaleString('es-AR')} / ${prog.total.toLocaleString('es-AR')}` : 'Iniciando…'}
-                      </span>
-                    </div>
-                    <div className="h-2.5 w-full rounded-full bg-gray-200 overflow-hidden">
-                      <div className="h-full bg-secondary transition-all duration-300" style={{ width: `${pct}%` }} />
-                    </div>
-                    {prog && prog.fallidos.length > 0 && (
-                      <p className="text-xs text-danger">{prog.fallidos.length} con error hasta ahora (se detallan al terminar)</p>
-                    )}
-                    <p className="text-[11px] text-gray-400">Podés cerrar esta ventana; la aprobación sigue en el servidor.</p>
-                  </div>
-                )}
-
-                {/* Completado: resumen */}
-                {completado && prog && (
-                  <div className="space-y-3">
-                    <p className="text-sm text-gray-700">
-                      Se aprobaron <span className="font-semibold text-green-700">{prog.aprobados.toLocaleString('es-AR')}</span> cargos
-                      {' '}de {prog.total.toLocaleString('es-AR')}.
-                      {prog.fallidos.length > 0 && (
-                        <> Quedaron <span className="font-semibold text-danger">{prog.fallidos.length}</span> sin aprobar:</>
-                      )}
-                    </p>
-                    {prog.fallidos.length > 0 && (
-                      <div className="max-h-56 overflow-y-auto border border-gray-200 rounded">
-                        <table className="text-xs w-full">
-                          <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                              <th className="px-2 py-1.5 text-left font-medium text-gray-500">Cargo</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-gray-500">Motivo</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100">
-                            {prog.fallidos.map((f) => (
-                              <tr key={f.diffId}>
-                                <td className="px-2 py-1.5 font-mono text-gray-600 align-top">{f.cargo}</td>
-                                <td className="px-2 py-1.5 text-gray-700 align-top">{f.motivo}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-3 pt-2">
-                  <button
-                    className="btn-outline"
-                    onClick={() => { setModalAprobarTodos(false); if (completado) { setAprobacionLanzada(false); aprobarTodos.reset() } }}
-                    disabled={cerrarBloqueado}
-                  >
-                    {completado ? 'Cerrar' : 'Cancelar'}
-                  </button>
-                  {/* Iniciar */}
-                  {!aprobacionLanzada && (
-                    <button className="btn-primary" onClick={() => aprobarTodos.mutate()} disabled={aprobarTodos.isPending}>
-                      {aprobarTodos.isPending ? 'Iniciando…' : `Aprobar ${nuevosPendientes} cargos`}
-                    </button>
-                  )}
-                  {/* Reintentar los que quedaron */}
-                  {completado && prog && prog.fallidos.length > 0 && (
-                    <button
-                      className="btn-primary"
-                      onClick={() => { setAprobacionLanzada(false); aprobarTodos.reset(); aprobarTodos.mutate() }}
-                    >
-                      Reintentar {prog.fallidos.length} pendientes
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          })()}
-        </div>
-      )}
     </>
   )
 }

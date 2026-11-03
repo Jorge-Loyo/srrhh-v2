@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { BajasQuery, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
+import type { BajasQuery, CamposDiferidosBody, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
 import { datosTrasConfirmar } from './bajas.validacion.helpers.js'
@@ -194,6 +194,7 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
             origen: 'Baja',
             fechaVacante: fechaVacanteUpdate,
             motivo: body.motivo ?? baja.motivo ?? undefined,
+            motivoConcurso: body.motivoConcurso,
             tipoConcurso: body.tipoConcurso,
             escalafonId: body.escalafonId,
             fechaBaja: fechaVacanteUpdate,
@@ -218,6 +219,58 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
     }
 
     return updated
+  }, { timeout: 20000 })  // sube el default de 5s: la tx confirma baja + crea concurso (muchas queries) y contra Neon remoto pasaba el límite (P2028)
+}
+
+// --- POST /:id/anular --- anular un borrador de baja ------------------------
+// Una baja en 'resolucion_a_la_firma' es un BORRADOR: nunca confirmó nada, así
+// que anularla NO toca el cargo, NO crea concurso, NO inactiva persona. Solo
+// lleva la baja a 'anulada'. Se usa un endpoint dedicado (y no el PATCH /:id)
+// para no pasar por la rama de confirmación de updateBajaService.
+export async function anularBajaService(id: string, _usuarioId: string) {
+  const baja = await prisma.baja.findUnique({ where: { id } })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+  if (baja.estado !== 'resolucion_a_la_firma') {
+    throw AppError.conflict('Solo se pueden anular bajas en estado resolucion a la firma')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    return tx.baja.update({
+      where: { id },
+      data: { estado: 'anulada' },
+      include,
+    })
+  })
+}
+
+// --- PATCH /:id/campos-diferidos --- completar los 2 campos diferidos --------
+// Doc. respaldatoria y Fecha pase paralelo/GT se pueden guardar vacíos al crear
+// la baja (los datos a veces llegan con el concurso ya iniciado) y completarse
+// después desde la lista. Este update es MÍNIMO a propósito: solo toca esos dos
+// campos y NO reusa updateBajaService (que, al salir de resolucion_a_la_firma,
+// dispara la lógica de confirmación: crea concurso / cambia estado del cargo).
+
+// Helper puro: arma el `data` del update solo con los 2 campos diferidos.
+// '' limpia el campo (null); undefined lo deja sin tocar. Testeable sin Prisma.
+export function buildCamposDiferidosData(body: CamposDiferidosBody) {
+  const data: { docRespaldatoria?: string | null; fechaPaseParalelo?: Date | null } = {}
+  if (body.docRespaldatoria !== undefined) {
+    data.docRespaldatoria = body.docRespaldatoria === '' ? null : body.docRespaldatoria
+  }
+  if (body.fechaPaseParalelo !== undefined) {
+    data.fechaPaseParalelo = body.fechaPaseParalelo === '' ? null : new Date(body.fechaPaseParalelo)
+  }
+  return data
+}
+
+export async function updateCamposDiferidosService(id: string, body: CamposDiferidosBody) {
+  const baja = await prisma.baja.findUnique({ where: { id } })
+  if (!baja) throw AppError.notFound('Baja no encontrada')
+
+  return prisma.baja.update({
+    where: { id },
+    data: buildCamposDiferidosData(body),
+    include,
   })
 }
 
@@ -357,6 +410,144 @@ export async function listValidacionService() {
       sialFecha: ultimoSnapshotSial?.fechaArchivo?.toISOString().slice(0, 10) ?? null,
     }
   })
+}
+
+// --- GET /validacion/clasificacion ------------------------------------------
+// Clasifica EN VIVO todos los cargos en validacion_vacante (deleted_at NULL)
+// según 3 dimensiones booleanas y agrupa por la terna de flags.
+//   tiene_baja     = existe alguna fila en `bajas` para el cargo
+//   en_concurso    = existe alguna fila en `concursos` OR `concursos_cph` OR
+//                    `concursos_ceetps` para el cargo. Se chequean las TRES
+//                    relaciones con semántica OR: aunque `concursos` es la tabla
+//                    canónica, `ConcursoCph`/`ConcursoCeetps` llevan su propio
+//                    cargo_id y pueden existir de cargas que no pasaron por el
+//                    flujo base; chequear las tres evita sub-contar.
+//   tuvo_ocupacion = existe CUALQUIER fila en `ocupaciones` (con o sin `hasta`)
+// No se hardcodean conteos: se cuentan en vivo. Se emiten TODAS las
+// combinaciones observadas (hasta 8), no solo las 4 conocidas.
+
+type OrigenCargo = 'padron' | 'organigrama' | 'manual' | 'otro'
+
+// Desglose por tipo de concurso dentro de un grupo. `cph`/`ceetps` cuentan los
+// cargos que tienen concurso de ese tipo (un cargo puede tener ambos → cuenta
+// en los dos); `sinConcurso` los que no tienen concurso de ningún tipo.
+interface PorTipoConcurso {
+  cph: number
+  ceetps: number
+  sinConcurso: number
+}
+
+interface GrupoClasificacion {
+  clave: string
+  tieneBaja: boolean
+  enConcurso: boolean
+  tuvoOcupacion: boolean
+  conteo: number
+  etiqueta: string
+  conocido: boolean
+  porOrigen: Record<OrigenCargo, number>
+  // Separación CPH / CEETPS pedida por negocio (pestañas distintas en la UI).
+  porTipoConcurso: PorTipoConcurso
+}
+
+interface ClasificacionVacantesResponse {
+  total: number
+  grupos: GrupoClasificacion[]
+}
+
+// Etiquetas de negocio de los 4 grupos conocidos, keyed por `${baja}-${concurso}-${ocupacion}`
+const ETIQUETAS_CONOCIDAS: Record<string, string> = {
+  'false-false-true':
+    'Vacante natural: el padrón dejó de reportar al ocupante, sin baja ni concurso formal. Pendiente de validación por RRHH.',
+  'false-true-false':
+    'Cargo nuevo de carga en concurso: vacante concursada, nunca ocupada.',
+  'true-true-true':
+    'Flujo completo: baja registrada y concurso en proceso.',
+  'true-false-true':
+    'Baja registrada sin concurso.',
+}
+
+function etiquetaAutomatica(tieneBaja: boolean, enConcurso: boolean, tuvoOcupacion: boolean): string {
+  const si = (v: boolean) => (v ? 'sí' : 'no')
+  return `Combinación no prevista: baja=${si(tieneBaja)}, concurso=${si(enConcurso)}, ocupación=${si(tuvoOcupacion)}.`
+}
+
+function normalizarOrigen(origen: string): OrigenCargo {
+  return origen === 'padron' || origen === 'organigrama' || origen === 'manual' ? origen : 'otro'
+}
+
+export async function listClasificacionVacantesService(): Promise<ClasificacionVacantesResponse> {
+  const cargos = await prisma.cargo.findMany({
+    where: { estado: 'validacion_vacante', deletedAt: null },
+    select: { id: true, origen: true },
+  })
+
+  const cargoIds = cargos.map((c) => c.id)
+
+  if (cargoIds.length === 0) {
+    return { total: 0, grupos: [] }
+  }
+
+  // Sets de cargoId que cumplen cada dimensión. Una sola query por relación
+  // (sin N+1), con distinct por cargoId.
+  const [conBaja, conConcurso, conConcursoCph, conConcursoCeetps, conOcupacion] = await Promise.all([
+    prisma.baja.findMany({ where: { cargoId: { in: cargoIds } }, select: { cargoId: true }, distinct: ['cargoId'] }),
+    prisma.concurso.findMany({ where: { cargoId: { in: cargoIds } }, select: { cargoId: true }, distinct: ['cargoId'] }),
+    prisma.concursoCph.findMany({ where: { cargoId: { in: cargoIds } }, select: { cargoId: true }, distinct: ['cargoId'] }),
+    prisma.concursoCeetps.findMany({ where: { cargoId: { in: cargoIds } }, select: { cargoId: true }, distinct: ['cargoId'] }),
+    prisma.ocupacion.findMany({ where: { cargoId: { in: cargoIds } }, select: { cargoId: true }, distinct: ['cargoId'] }),
+  ])
+
+  const setBaja = new Set(conBaja.map((r) => r.cargoId))
+  const setConcursoCph = new Set(conConcursoCph.map((r) => r.cargoId))
+  const setConcursoCeetps = new Set(conConcursoCeetps.map((r) => r.cargoId))
+  const setConcurso = new Set<string>([
+    ...conConcurso.map((r) => r.cargoId),
+    ...setConcursoCph,
+    ...setConcursoCeetps,
+  ])
+  const setOcupacion = new Set(conOcupacion.map((r) => r.cargoId))
+
+  const grupos = new Map<string, GrupoClasificacion>()
+
+  for (const cargo of cargos) {
+    const tieneBaja = setBaja.has(cargo.id)
+    const enConcurso = setConcurso.has(cargo.id)
+    const tuvoOcupacion = setOcupacion.has(cargo.id)
+    const clave = `${tieneBaja}-${enConcurso}-${tuvoOcupacion}`
+
+    let grupo = grupos.get(clave)
+    if (!grupo) {
+      const etiquetaConocida = ETIQUETAS_CONOCIDAS[clave]
+      grupo = {
+        clave,
+        tieneBaja,
+        enConcurso,
+        tuvoOcupacion,
+        conteo: 0,
+        etiqueta: etiquetaConocida ?? etiquetaAutomatica(tieneBaja, enConcurso, tuvoOcupacion),
+        conocido: etiquetaConocida != null,
+        porOrigen: { padron: 0, organigrama: 0, manual: 0, otro: 0 },
+        porTipoConcurso: { cph: 0, ceetps: 0, sinConcurso: 0 },
+      }
+      grupos.set(clave, grupo)
+    }
+    grupo.conteo += 1
+    grupo.porOrigen[normalizarOrigen(cargo.origen)] += 1
+
+    // Desglose CPH/CEETPS. Un cargo con concurso de ambos tipos cuenta en los
+    // dos; sin concurso de ningún tipo, en `sinConcurso`.
+    const esCph = setConcursoCph.has(cargo.id)
+    const esCeetps = setConcursoCeetps.has(cargo.id)
+    if (esCph) grupo.porTipoConcurso.cph += 1
+    if (esCeetps) grupo.porTipoConcurso.ceetps += 1
+    if (!esCph && !esCeetps) grupo.porTipoConcurso.sinConcurso += 1
+  }
+
+  return {
+    total: cargos.length,
+    grupos: [...grupos.values()].sort((a, b) => b.conteo - a.conteo),
+  }
 }
 
 export async function listSoloBajaSialService() {
@@ -705,6 +896,7 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
           origen: 'Baja',
           fechaVacante: fechaVacanteCreate,
           motivo: body.motivo,
+          motivoConcurso: body.motivoConcurso,
           tipoConcurso: body.tipoConcurso,
           escalafonId: body.escalafonId,
           fechaBaja: fechaVacanteCreate,
@@ -729,5 +921,5 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
     })
 
     return tx.baja.findUnique({ where: { id: baja.id }, include })
-  })
+  }, { timeout: 20000 })  // sube el default de 5s: la tx crea baja + concurso (muchas queries) y contra Neon remoto pasaba el límite (P2028)
 }

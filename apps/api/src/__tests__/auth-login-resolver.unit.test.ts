@@ -10,8 +10,13 @@ import { describe, it, expect } from 'vitest'
 import { resolverUsuarioLogin } from '../modules/auth/auth.service.js'
 
 describe('resolverUsuarioLogin — precedencia de username', () => {
-  const porUsername = { id: 'A', username: '99000000001' }
-  const porCuilOEmail = { id: 'B', cuil: '99000000001' }
+  // resolverUsuarioLogin es genérica: ambos argumentos deben ser del mismo
+  // tipo T (en runtime son dos filas Usuario de Prisma). Los fixtures usan una
+  // forma común { id, identificador } — el test solo lee `.id` y la identidad
+  // del objeto (toBe), así que la forma concreta de las columnas no importa;
+  // lo que importa es que compartan tipo para que la inferencia de T no falle.
+  const porUsername = { id: 'A', identificador: '99000000001' }
+  const porCuilOEmail = { id: 'B', identificador: '99000000001' }
 
   it('(a) si hay match por username, gana ese usuario aunque exista otro por cuil/email', () => {
     const r = resolverUsuarioLogin(porUsername, porCuilOEmail)

@@ -25,7 +25,17 @@ import { decidirEspecialidad } from './padron.especialidad.helpers.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
+import {
+  derivarCodigoRegistroId,
+  MOTIVO_CR_NO_DERIVABLE,
+  type CrCatalogo,
+} from './derivarCodigoRegistro.js'
+import { derivarRegimenId } from './derivarRegimen.js'
 import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
+import {
+  calcConcursoCph,
+  type ConcursoCphCalcInput,
+} from '../concursos-cph/concursosCph.calc.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
   parseFechaDDMMYYYY,
@@ -42,6 +52,8 @@ import {
   formatearCodigoDesdoblado,
   tipoDiffDesdoblado,
   clasificacionEliminadoDesdoblado,
+  evaluarRatioTamano,
+  evaluarBajaSialRequerida,
 } from './padron.diff.helpers.js'
 
 // Re-exportados para compatibilidad y para que otros módulos usen la única
@@ -158,6 +170,58 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out
 }
 
+// Repoblado del resumen KPI (kpis_dotacion_snapshot) de un mes dado. Extraído
+// del paso 8 del aprobar (Opción A §5.3) para reusarlo al gestionar un id_sial
+// nuevo en gestion-puestos: borra TODAS las filas del mes de `fecha` (incluida
+// la fila '(total)') y reinserta desde estadoActivoAcumuladoSql(mes, mes),
+// misma fuente que la consulta individual (kpis.service), de modo que tarjetas,
+// consulta individual y backfill reconcilien por construcción. Recibe el `tx`
+// para correr dentro de la transacción del caller (si el populate falla, hace
+// rollback junto con el resto de la operación). NO cambia el comportamiento del
+// paso 8: el `tx.padronSnapshot.update({...estado:'aprobado'...})` se queda en
+// el caller (el aprobar), porque estadoActivoAcumuladoSql filtra snapshots
+// aprobado y el snapshot debe marcarse aprobado ANTES de llamar a esta función.
+export async function repopularKpiDotacionMes(tx: PrismaTx, fecha: Date) {
+  const mes = fecha.toISOString().slice(0, 7) // YYYY-MM
+
+  // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
+  // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
+  // (fecha, codigo_registro, situacion_revista) no choque.
+  await tx.$executeRaw(
+    Prisma.sql`
+        DELETE FROM kpis_dotacion_snapshot
+        WHERE date_trunc('month', fecha) = date_trunc('month', ${fecha}::date)
+      `,
+  )
+
+  // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
+  // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
+  // carrera en cualquier estado, NO la suma de los estados). El estado sale de
+  // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
+  await tx.$executeRaw(
+    Prisma.sql`
+        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
+        WITH estado AS (${estadoActivoAcumuladoSql(mes, mes)}),
+        norm AS (
+          SELECT
+            p.cuil,
+            coalesce(cr.codigo, '(sin codigo)') AS codigo,
+            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
+          FROM estado
+          JOIN cargos c ON c.id = estado.cargo_id
+          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+          JOIN personas p ON p.id = estado.persona_id
+          WHERE p.cuil IS NOT NULL
+        )
+        SELECT ${fecha}::date, codigo, sit, count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo, sit
+        UNION ALL
+        SELECT ${fecha}::date, codigo, '(total)', count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo
+      `,
+  )
+}
+
 // Agentes HTTP con keep-alive controlado. Sin esto, axios reusa el socket TCP
 // entre requests; el Dotaneitor (uvicorn 1 worker) cierra el keep-alive durante
 // los polls largos de /normalizar-/procesar-/cruzar, y la primera request nueva
@@ -216,6 +280,57 @@ async function getSnapshotOrThrow(id: string) {
   const snapshot = await prisma.padronSnapshot.findUnique({ where: { id } })
   if (!snapshot) throw AppError.notFound('Snapshot no encontrado')
   return snapshot
+}
+
+// ─── Guarda contra padrón parcial ────────────────────────────────────────────
+// Trae el total del ÚLTIMO snapshot aprobado (el más reciente por fechaAsignada),
+// excluyendo opcionalmente un snapshot (el propio al re-chequear en aprobar).
+// Devuelve null si no hay aprobado previo (la guarda no aplica — primer padrón).
+async function totalUltimoSnapshotAprobado(excluirId?: string): Promise<number | null> {
+  const ultimo = await prisma.padronSnapshot.findFirst({
+    where: { estado: 'aprobado', ...(excluirId ? { id: { not: excluirId } } : {}) },
+    orderBy: { fechaAsignada: 'desc' },
+    select: { totalRegistros: true },
+  })
+  return ultimo?.totalRegistros ?? null
+}
+
+// Arma el texto de advertencia de padrón chico: incluye conteos, porcentaje y la
+// explicación operativa. Fuente única del mensaje (lo usa runPipeline para
+// persistir la advertencia y aprobarSnapshotService para el error del bloqueo).
+function mensajeAdvertenciaRatio(totalNuevo: number, totalReferencia: number, ratio: number): string {
+  const pct = Math.round(ratio * 1000) / 10 // 1 decimal
+  return `Este padrón trae ${totalNuevo} registros vs ${totalReferencia} del último aprobado (${pct}%) — posible exportación parcial del SIAL. Confirmá el override para aprobar igual.`
+}
+
+// Evalúa el ratio de tamaño del padrón nuevo contra el último aprobado y arma la
+// advertencia si corresponde. `ratio`/`advertencia` son null cuando la guarda no
+// aplica (sin aprobado previo) o el ratio es normal. `excluirId` se usa al
+// re-chequear en la aprobación para no compararse contra sí mismo.
+async function evaluarRatioContraUltimoAprobado(
+  totalNuevo: number,
+  excluirId?: string,
+): Promise<{ ratio: number | null; advertencia: string | null; anomalo: boolean }> {
+  const totalRef = await totalUltimoSnapshotAprobado(excluirId)
+  const { ratio, anomalo } = evaluarRatioTamano(totalNuevo, totalRef, env.PADRON_RATIO_MINIMO)
+  const advertencia =
+    anomalo && ratio != null && totalRef != null
+      ? mensajeAdvertenciaRatio(totalNuevo, totalRef, ratio)
+      : null
+  return { ratio, advertencia, anomalo }
+}
+
+// ─── Guarda contra padrón sin baja SIAL de la semana ─────────────────────────
+// Trae las fecha_archivo de los snapshots de baja SIAL "válidos" = SUBIDOS
+// (estado IN ('pendiente','aprobado') — decisión de negocio: basta que la baja
+// SIAL esté subida, no hace falta que esté aprobada). `estado` es varchar en DB
+// (no enum), por eso se consulta con $queryRaw, igual que listValidacionService.
+async function fechasBajaSialValidas(): Promise<Date[]> {
+  const rows = await prisma.$queryRaw<{ fecha_archivo: Date }[]>`
+    SELECT fecha_archivo FROM baja_sial_snapshots
+    WHERE estado IN ('pendiente', 'aprobado')
+  `
+  return rows.map((r) => r.fecha_archivo)
 }
 
 // ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
@@ -523,11 +638,7 @@ async function calcularDiff(registros: RegistroPython[]) {
     // marcador __especialidad_puesto_id__ (para no generar ruido en filas sin
     // cambios de especialidad). Patrón análogo a __reabrir_ocupacion__.
     let reresuelveFkEspecialidad = false
-    const CAMPOS_RERESUELVEN_FK = new Set([
-      'especialidad',
-      'literal_puesto',
-      'codigo_de_registro',
-    ])
+    const CAMPOS_RERESUELVEN_FK = new Set(['especialidad', 'literal_puesto', 'codigo_de_registro'])
 
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
       // No comparar campos de ocupación si no hay ocupación vigente.
@@ -811,7 +922,9 @@ async function calcularDiff(registros: RegistroPython[]) {
           codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
           cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
           jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
-          documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
+          documentacion_jefatura: strVal(
+            r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura'],
+          ),
           comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
           documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
           comision: strVal(r['COMISION'] ?? r['comision']),
@@ -1044,11 +1157,13 @@ async function runPipeline(
     const result = await (async (): Promise<{ total: number; cols: string[] }> => {
       const deadline = Date.now() + JOB_POLL_TIMEOUT_MS
       while (Date.now() < deadline) {
-        let job: { status: string; result: { total: number; cols: string[] } | null; error: string | null }
+        let job: {
+          status: string
+          result: { total: number; cols: string[] } | null
+          error: string | null
+        }
         try {
-          ;({ data: job } = await conReintentoRed(() =>
-            python.get<typeof job>(`/job/${job_id}`),
-          ))
+          ;({ data: job } = await conReintentoRed(() => python.get<typeof job>(`/job/${job_id}`)))
         } catch (e) {
           if (axios.isAxiosError(e) && e.response?.status === 404)
             throw new Error('El job del Dotaneitor expiró o no existe')
@@ -1066,12 +1181,25 @@ async function runPipeline(
     if (!result.total) throw new Error('El padrón procesado no tiene filas')
 
     // El total real recién se conoce al terminar (el 202 fue con total 0).
+    // Guarda contra padrón parcial: se compara el total nuevo contra el del
+    // ÚLTIMO snapshot aprobado (referencia estable, no el último subido que
+    // podría ser otro parcial en error). Si el ratio cae bajo el umbral, se
+    // persiste la advertencia en el snapshot para que sea visible ANTES de
+    // aprobar; el bloqueo blando real se re-chequea en aprobarSnapshotService.
+    const evalRatio = await evaluarRatioContraUltimoAprobado(result.total, snapshotId)
     await prisma.padronSnapshot
       .update({
         where: { id: snapshotId },
-        data: { totalRegistros: result.total },
+        data: {
+          totalRegistros: result.total,
+          ratioTamano: evalRatio.ratio,
+          advertenciaTamano: evalRatio.advertencia,
+        },
       })
       .catch(() => {})
+    if (evalRatio.advertencia) {
+      console.warn(`[padron] guarda ratio snapshotId=${snapshotId}: ${evalRatio.advertencia}`)
+    }
 
     // Descarga paginada del parquet (GET idempotente → CON conReintentoRed).
     // Timeout por-request de 60 s, no el default de 30 s: cada página de 5.000
@@ -1220,6 +1348,8 @@ export async function listSnapshotsService() {
       estado: true,
       pasoActual: true,
       errorMsg: true,
+      ratioTamano: true,
+      advertenciaTamano: true,
       aprobadoAt: true,
       createdAt: true,
       procesadoPor: { select: { username: true } },
@@ -1397,9 +1527,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       // escalafon vienen en valorAnterior y la clasificación usa estado_cargo.
       if (parsed.desdoblado === true) {
         const clasificacionEliminado =
-          d.campo === 'baja_previa'
-            ? clasificacionEliminadoDesdoblado(parsed.estado_cargo)
-            : null
+          d.campo === 'baja_previa' ? clasificacionEliminadoDesdoblado(parsed.estado_cargo) : null
         return {
           ...d,
           apellidoNombre,
@@ -1493,9 +1621,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         }
       })()
       // Desdoblado 24/07: clasificar por estado_cargo (id_sial es NULL).
-      const estado = parsed.desdoblado
-        ? parsed.estado_cargo
-        : estadoMap.get(parsed.id_sial)
+      const estado = parsed.desdoblado ? parsed.estado_cargo : estadoMap.get(parsed.id_sial)
       if (estado === 'validacion_vacante') eliminadosEnValidacion++
       else eliminadosSinPersona++
     }
@@ -1585,6 +1711,8 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       filename: snapshot.filename,
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
+      ratioTamano: snapshot.ratioTamano,
+      advertenciaTamano: snapshot.advertenciaTamano,
     },
     summary: {
       nuevos,
@@ -1675,19 +1803,44 @@ async function especialidadPuestoIdFinal(
   return resolverEspecialidadPuestoId(tx, cache, puestoCargoId, especialidadLegacy, nombrePuesto)
 }
 
-export async function aprobarSnapshotService(id: string, usuarioId: string) {
+export async function aprobarSnapshotService(
+  id: string,
+  usuarioId: string,
+  overrideRatioTamano = false,
+  overrideBajaSial = false,
+) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')
     throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
-  // Bloquear si hay diffs nuevos sin decisión (aprobado IS NULL)
-  const pendientes = await prisma.padronDiff.count({
-    where: { snapshotId: id, tipo: 'nuevo', aprobado: null },
-  })
-  if (pendientes > 0)
-    throw AppError.conflict(
-      `Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`,
-    )
+  // Guarda contra padrón parcial — BLOQUEO BLANDO. Se re-evalúa el ratio contra
+  // el último aprobado EN ESTE MOMENTO (fuente de verdad al aprobar, no la foto
+  // guardada al procesar, que pudo quedar desactualizada si cambió la
+  // referencia). Si el padrón es anómalo y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const evalRatio = await evaluarRatioContraUltimoAprobado(snapshot.totalRegistros, id)
+  if (evalRatio.anomalo && evalRatio.advertencia && !overrideRatioTamano) {
+    throw AppError.conflict(evalRatio.advertencia)
+  }
+
+  // Guarda contra padrón sin la baja SIAL de la semana — BLOQUEO BLANDO. Exige
+  // que exista al menos una baja SIAL SUBIDA (estado IN ('pendiente','aprobado')
+  // — basta con que esté subida, no hace falta que esté aprobada) cuya
+  // fecha_archivo caiga dentro de ±PADRON_BAJA_SIAL_VENTANA_DIAS de la fecha del
+  // padrón (snapshot.fechaAsignada). Si falta y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const fechasBajaSial = await fechasBajaSialValidas()
+  const evalBajaSial = evaluarBajaSialRequerida(
+    snapshot.fechaAsignada,
+    fechasBajaSial,
+    env.PADRON_EXIGIR_BAJA_SIAL,
+    env.PADRON_BAJA_SIAL_VENTANA_DIAS,
+  )
+  if (evalBajaSial.falta && evalBajaSial.advertencia && !overrideBajaSial) {
+    throw AppError.conflict(evalBajaSial.advertencia)
+  }
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 
@@ -1901,6 +2054,57 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       )
     }
 
+    // ── 2c. Contexto para la derivación automática del código de registro ──
+    // Para decidir "cuántos CRs tiene el escalafón" hace falta el catálogo
+    // COMPLETO de CRs (no el filtrado al batch de codigoRegistroCache). La
+    // cardinalidad es chica (~16 filas), así que se carga una sola vez y se
+    // construyen los mapas que consume derivarCodigoRegistroId. Ver
+    // derivarCodigoRegistro.ts.
+    const crCatalogoCompleto = (await tx.codigoRegistro.findMany({
+      select: {
+        id: true,
+        codigo: true,
+        escalafonId: true,
+        escalafon: { select: { codigo: true } },
+      },
+    })) as { id: string; codigo: string; escalafonId: string; escalafon: { codigo: string } }[]
+    const crCtxEscalafonCodigoPorId = new Map<string, string>()
+    const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
+    const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+    // id de CR -> su código string. Lo necesita la derivación de régimen, que
+    // recibe el id del CR resuelto y debe traducirlo al código (85/83/22/...)
+    // que consume derivarRegimen.
+    const crCtxCodigoPorId = new Map<string, string>()
+    for (const row of crCatalogoCompleto) {
+      const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
+      crCtxCrPorCodigo.set(row.codigo, cr)
+      crCtxCodigoPorId.set(row.id, row.codigo)
+      crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
+      const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
+      lista.push(cr)
+      crCtxCrsPorEscalafonId.set(row.escalafonId, lista)
+    }
+    const derivarCrCtx = {
+      escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
+      crsPorEscalafonId: crCtxCrsPorEscalafonId,
+      crPorCodigo: crCtxCrPorCodigo,
+    }
+    // Traduce el id del CR resuelto al código string que consume derivarRegimen.
+    const crCodigoDe = (id: string | null): string | null =>
+      id ? (crCtxCodigoPorId.get(id) ?? null) : null
+
+    // ── 2d. Contexto para la derivación automática del RÉGIMEN ──
+    // El régimen se deriva SIEMPRE después de resolver el CR. Se carga el
+    // catálogo `regimenes` una sola vez por transacción (cardinalidad chica,
+    // ~12 filas) y se arma el mapa nombre→{ id, nombre } que consume
+    // derivarRegimenId. Ver derivarRegimen.ts.
+    const regimenesCatalogo = await tx.regimen.findMany({
+      select: { id: true, nombre: true },
+    })
+    const regimenCtx = {
+      regimenPorNombre: new Map(regimenesCatalogo.map((r) => [r.nombre, r])),
+    }
+
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
     const personasACrear = new Map<
       string,
@@ -1939,6 +2143,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         codigoRepa: string | null
         descripcionRepa: string | null
         agrupamiento: string | null
+        codigoRegistroId: string | null
+        regimenId: string | null
+        revisionDato?: boolean
+        revisionMotivo?: string | null
       }
     >()
     // Set de idSialRol de altas 1:1 desdobladas: su persona SÍ se precarga/crea
@@ -1994,6 +2202,20 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // ese cargo en vez de crear uno nuevo. Helper compartido con los demás
         // flujos del padrón — ver reconciliarConduccion.ts.
         if (datos.id_sial) {
+          // Derivación automática del código de registro (cascada 1→4) para el
+          // cargo de conducción que se cubre. Si no es derivable, se marca para
+          // revisión en vez de dejarlo silenciosamente en NULL.
+          const decisionCrConduccion = derivarCodigoRegistroId(
+            escalafon.id,
+            datos.codigo_de_registro ?? null,
+            derivarCrCtx,
+          )
+          // Régimen derivado SIEMPRE después de resolver el CR.
+          const decisionRegC = derivarRegimenId(
+            crCodigoDe(decisionCrConduccion.codigoRegistroId),
+            datos.literal_puesto ?? null,
+            regimenCtx,
+          )
           const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
             codigoRepa: datos.codigo_repa,
             codigoJefaturas: datos.codigo_jefaturas,
@@ -2001,9 +2223,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             escalafonId: escalafon.id,
             literalPuesto: datos.literal_puesto,
             especialidadLegacy: datos.especialidad,
-            codigoRegistroId: datos.codigo_de_registro
-              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-              : null,
+            codigoRegistroId: decisionCrConduccion.codigoRegistroId,
+            revisionCr: decisionCrConduccion.revision ?? null,
+            regimenId: decisionRegC.regimenId,
+            revisionRegimen: decisionRegC.revision ?? null,
           })
           if (cargoVinculado) {
             cargoCache.set(datos.id_sial, {
@@ -2082,6 +2305,23 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
         // de asignación de códigos más abajo.
+        // Derivación automática del código de registro (cascada 1→4). Estas
+        // filas nacen sin revisión previa, así que marcar revisión es aditivo.
+        const decisionCrA = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
+        // Régimen derivado SIEMPRE después de resolver el CR. La marca de
+        // revisión combina las causas de CR y de régimen (aditiva).
+        const decisionRegA = derivarRegimenId(
+          crCodigoDe(decisionCrA.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosA: string[] = []
+        if (decisionCrA.revision) motivosA.push(decisionCrA.revision.motivo)
+        if (decisionRegA.revision) motivosA.push(decisionRegA.revision.motivo)
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
@@ -2098,9 +2338,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
           agrupamiento: datos.agrupamiento || null,
-          codigoRegistroId: datos.codigo_de_registro
-            ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-            : null,
+          codigoRegistroId: decisionCrA.codigoRegistroId,
+          regimenId: decisionRegA.regimenId,
+          ...(motivosA.length > 0
+            ? { revisionDato: true, revisionMotivo: motivosA.join(' | ').slice(0, 200) }
+            : {}),
           _prefijo: prefijo,
         } as never)
       }
@@ -2239,6 +2481,23 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
         const codigo = await proximoCodigoDesdoblado(prefijo)
 
+        // Derivación automática del código de registro (cascada 1→4). El cargo
+        // desdoblado nace sin revisión previa: marcar revisión es aditivo.
+        const decisionCrDesd = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
+        // Régimen derivado SIEMPRE después de resolver el CR. Marca de revisión
+        // aditiva (CR + régimen).
+        const decisionRegDesd = derivarRegimenId(
+          crCodigoDe(decisionCrDesd.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosDesd: string[] = []
+        if (decisionCrDesd.revision) motivosDesd.push(decisionCrDesd.revision.motivo)
+        if (decisionRegDesd.revision) motivosDesd.push(decisionRegDesd.revision.motivo)
         const cargoId = randomUUID()
         await tx.cargo.create({
           data: {
@@ -2258,9 +2517,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             codigoRepa: datos.codigo_repa || null,
             descripcionRepa: datos.descripcion_repa || null,
             agrupamiento: datos.agrupamiento || null,
-            codigoRegistroId: datos.codigo_de_registro
-              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-              : null,
+            codigoRegistroId: decisionCrDesd.codigoRegistroId,
+            regimenId: decisionRegDesd.regimenId,
+            ...(motivosDesd.length > 0
+              ? { revisionDato: true, revisionMotivo: motivosDesd.join(' | ').slice(0, 200) }
+              : {}),
           },
         })
 
@@ -2398,16 +2659,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         .filter((c) => c.codigoRegistro?.codigo === '24' || c.codigoRegistro?.codigo === '07')
         .map((c) => c.id),
     )
-    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } =
-      particionarValidacionPorIdSial(
-        cargosEnValidacion.map((c) => ({
-          id: c.id,
-          idSial: c.idSial,
-          es24y07: es24y07Set.has(c.id),
-        })),
-        idSialsNuevos,
-        es24y07Set,
-      )
+    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } = particionarValidacionPorIdSial(
+      cargosEnValidacion.map((c) => ({
+        id: c.id,
+        idSial: c.idSial,
+        es24y07: es24y07Set.has(c.id),
+      })),
+      idSialsNuevos,
+      es24y07Set,
+    )
 
     for (const lote of chunk(aRechazarBaja, 2000)) {
       await tx.cargo.updateMany({
@@ -2516,7 +2776,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       // (marcador __especialidad_puesto_id__). null si la fila no lo trae
       // (sin cambio de especialidad/puesto/carrera, o snapshot viejo) -> el
       // helper cae al fallback por texto (comportamiento actual).
-      const idDotaEsp = cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
+      const idDotaEsp =
+        cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
         // Si cambió el código de registro, resolver el id de la relación
         // (normaliza el prefijo 'completado:' igual que el resto, DECISIÓN 1)
@@ -2537,6 +2798,34 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
+
+          // Régimen (FEAT-003): al cambiar el CR, el régimen se re-deriva
+          // SIEMPRE. crCambio.valorNuevo es ya el CÓDIGO string del CR nuevo.
+          // Se lee el literal del cargo de forma INCONDICIONAL (puede hacer
+          // falta aunque no haya reclasificación de carrera), y se prefiere el
+          // literal entrante del update si vino en este snapshot.
+          const crCodigoNuevo = crCambio.valorNuevo
+          const cargoLitU = (await tx.cargo.findUnique({
+            where: { id: ocupExistente.cargoId },
+            select: { literalPuesto: true },
+          })) as { literalPuesto: string | null } | null
+          const litEfectivo =
+            (updateCargo['literalPuesto'] as string | null) ?? cargoLitU?.literalPuesto ?? null
+          const decisionRegU = derivarRegimenId(crCodigoNuevo, litEfectivo, regimenCtx)
+          updateCargo['regimenId'] = decisionRegU.regimenId
+          if (decisionRegU.regimenId === null && decisionRegU.revision) {
+            // Marca de revisión ADITIVA: no pisa un motivo de CR ya seteado ni
+            // limpia una revisión preexistente; concatena con ' | ', truncado.
+            // revisionDato es boolean en el modelo; el Record es string|null,
+            // así que se escribe vía cast (Prisma acepta el boolean en runtime).
+            ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+            const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+            updateCargo['revisionMotivo'] = (
+              motivoPrevio
+                ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                : decisionRegU.revision.motivo
+            ).slice(0, 200)
+          }
 
           // RECLASIFICACIÓN DE CARRERA: el código de registro MANDA sobre la
           // carrera (escalafón). Si el nuevo cod. registro pertenece a un
@@ -2678,13 +2967,38 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (litNuevo) {
             const cargoActualP = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
-              select: { escalafonId: true, puestoCargoId: true, unificadorPuesto: true },
+              select: {
+                escalafonId: true,
+                puestoCargoId: true,
+                unificadorPuesto: true,
+                codigoRegistro: { select: { codigo: true } },
+              },
             })) as {
               escalafonId: string
               puestoCargoId: string | null
               unificadorPuesto: string | null
+              codigoRegistro: { codigo: string } | null
             } | null
             if (cargoActualP) {
+              // Régimen (FEAT-003): el régimen puede cambiar por el nuevo literal
+              // aunque el CR no cambie (ej. CR 85 que pasa de 'auxiliar de
+              // enfermeria' a otro literal). Se re-deriva y se setea FUERA de la
+              // guarda de reasignación de puesto. Marca de revisión aditiva.
+              const decisionRegU = derivarRegimenId(
+                cargoActualP.codigoRegistro?.codigo ?? null,
+                litNuevo,
+                regimenCtx,
+              )
+              updateCargo['regimenId'] = decisionRegU.regimenId
+              if (decisionRegU.regimenId === null && decisionRegU.revision) {
+                ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+                const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+                updateCargo['revisionMotivo'] = (
+                  motivoPrevio
+                    ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                    : decisionRegU.revision.motivo
+                ).slice(0, 200)
+              }
               const unif =
                 ((updateCargo['unificadorPuesto'] as string | null) ??
                   cargoActualP.unificadorPuesto) ||
@@ -2912,44 +3226,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
     })
 
-    const mesSnapshot = snapshot.fechaAsignada.toISOString().slice(0, 7) // YYYY-MM
-
-    // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
-    // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
-    // (fecha, codigo_registro, situacion_revista) no choque.
-    await tx.$executeRaw(
-      Prisma.sql`
-        DELETE FROM kpis_dotacion_snapshot
-        WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
-      `,
-    )
-
-    // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
-    // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
-    // carrera en cualquier estado, NO la suma de los estados). El estado sale de
-    // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
-    await tx.$executeRaw(
-      Prisma.sql`
-        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
-        WITH estado AS (${estadoActivoAcumuladoSql(mesSnapshot, mesSnapshot)}),
-        norm AS (
-          SELECT
-            p.cuil,
-            coalesce(cr.codigo, '(sin codigo)') AS codigo,
-            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
-          FROM estado
-          JOIN cargos c ON c.id = estado.cargo_id
-          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
-          JOIN personas p ON p.id = estado.persona_id
-          WHERE p.cuil IS NOT NULL
-        )
-        SELECT ${snapshot.fechaAsignada}::date, codigo, sit, count(DISTINCT cuil)::int
-          FROM norm GROUP BY codigo, sit
-        UNION ALL
-        SELECT ${snapshot.fechaAsignada}::date, codigo, '(total)', count(DISTINCT cuil)::int
-          FROM norm GROUP BY codigo
-      `,
-    )
+    await repopularKpiDotacionMes(tx, snapshot.fechaAsignada)
 
     // ── 9. Sincronizar universo_totalizador en organigramas desde hospitales ─
     // Cada aprobación de padrón puede traer hospitales nuevos o actualizados
@@ -3221,6 +3498,121 @@ const normalizarEsp = (s: string | null | undefined): string =>
 
 const soloDigitos = (s: string | null | undefined): string => (s ?? '').replace(/\D/g, '')
 
+// Fila de concurso usada para cruzar contra el padrón por CUIL del designado.
+// Incluye lo necesario para calcular `validable` (carrera + especialidad) y
+// para ocupar/vincular el cargo del concurso.
+const CONCURSO_INDEX_SELECT = {
+  id: true,
+  validado: true,
+  especialidadSolicitada: true,
+  designadoRefCuil: true,
+  designadoRefIdSialRol: true,
+  concurso: {
+    select: {
+      cargo: {
+        select: { id: true, codigo: true, idSial: true, escalafonId: true },
+      },
+    },
+  },
+  personaDesignada: { select: { cuil: true, apellidoNombre: true } },
+  inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
+} satisfies Prisma.ConcursoCphSelect
+
+export type ConcursoIndexRow = Prisma.ConcursoCphGetPayload<{ select: typeof CONCURSO_INDEX_SELECT }>
+
+// Construye el índice de concursos por CUIL (normalizado a dígitos) del
+// designado. Prioridad al insertar en el Map: persona designada > inscripto
+// reservado > referencia manual (designadoRefCuil) — cada fuente sólo se
+// escribe si no hay ya una entrada para ese CUIL (la de mayor prioridad gana).
+//
+// `where` lo decide el caller porque difiere entre usos:
+//  - Preview (getValidacionesPreviewService): mantiene su filtro histórico
+//    (estado != 'finalizado', suspendido=false, con persona del OM).
+//  - Enganche automático del Paso 2 (loop masivo): NO filtra por estado — un
+//    designado queda `finalizado` (regla n-designado ⇒ finalizado), así que
+//    ese filtro excluiría justo a los designados. Filtra validado=false e
+//    incluye designadoRefCuil en el OR para enganchar cargas manuales.
+async function resolverConcursoDesignadoPorCuil(
+  where: Prisma.ConcursoCphWhereInput,
+): Promise<Map<string, ConcursoIndexRow>> {
+  const concursos = await prisma.concursoCph.findMany({
+    where,
+    select: CONCURSO_INDEX_SELECT,
+  })
+
+  const concursoPorCuil = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursos) {
+    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
+    if (cuilDesig && !concursoPorCuil.has(cuilDesig)) concursoPorCuil.set(cuilDesig, cc)
+  }
+  for (const cc of concursos) {
+    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
+    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
+  }
+  for (const cc of concursos) {
+    const cuilRef = soloDigitos(cc.designadoRefCuil)
+    if (cuilRef && !concursoPorCuil.has(cuilRef)) concursoPorCuil.set(cuilRef, cc)
+  }
+  return concursoPorCuil
+}
+
+// Decide si un diff del padrón es "validable" contra un concurso designado:
+// coincide la carrera (escalafón) Y la especialidad. Pura y testeable — se usa
+// tanto en el preview como en el enganche automático del Paso 2.
+export function esValidableContraConcurso(args: {
+  escalafonDiffId: string | null
+  especialidadDiff: string | null | undefined
+  escalafonConcursoId: string | null | undefined
+  especialidadConcurso: string | null | undefined
+}): { carreraCoincide: boolean; especialidadCoincide: boolean; validable: boolean } {
+  const carreraCoincide =
+    !!args.escalafonDiffId && args.escalafonDiffId === (args.escalafonConcursoId ?? null)
+  const especialidadCoincide =
+    !!args.especialidadDiff &&
+    !!args.especialidadConcurso &&
+    normalizarEsp(args.especialidadDiff) === normalizarEsp(args.especialidadConcurso)
+  return { carreraCoincide, especialidadCoincide, validable: carreraCoincide && especialidadCoincide }
+}
+
+// Extrae los campos de calcConcursoCph() de una fila completa de ConcursoCph —
+// espejo de toCalcInput() de concursos-cph.service, replicado acá para no
+// acoplar el módulo padrón al service de concursos (el calc en sí es puro).
+function toCalcInputPadron(
+  row: Prisma.ConcursoCphGetPayload<Record<string, never>>,
+): ConcursoCphCalcInput {
+  return {
+    suspendido: row.suspendido,
+    eeBaja: row.eeBaja,
+    fechaBaja: row.fechaBaja,
+    eeConcurso: row.eeConcurso,
+    fechaEeConcurso: row.fechaEeConcurso,
+    fechaAutorizacion: row.fechaAutorizacion,
+    sorteoJurado: row.sorteoJurado,
+    disposicion: row.disposicion,
+    fechaInscDesde: row.fechaInscDesde,
+    fechaInscHasta: row.fechaInscHasta,
+    inscripcionCerrada: row.inscripcionCerrada,
+    ordenMeritoConfirmado: row.ordenMeritoConfirmado,
+    fechaExamen: row.fechaExamen,
+    fechaOrdenMerito: row.fechaOrdenMerito,
+    fechaIfacs: row.fechaIfacs,
+    fechaInsal: row.fechaInsal,
+    eeDesignacion: row.eeDesignacion,
+    cargaDocumentacion: row.cargaDocumentacion,
+    fechaAptoMedico: row.fechaAptoMedico,
+    fechaIte: row.fechaIte,
+    proyectoResolucion: row.proyectoResolucion,
+    resoALaFirma: row.resoALaFirma,
+    resolucionDesignacion: row.resolucionDesignacion,
+    fechaResolucion: row.fechaResolucion,
+    cargoSial: row.cargoSial,
+    dispoDesierta: row.dispoDesierta,
+    fechaDispoDesierta: row.fechaDispoDesierta,
+    validado: row.validado,
+    validadoIdSialRol: row.validadoIdSialRol,
+  }
+}
+
 export async function getValidacionesPreviewService(snapshotId: string) {
   await getSnapshotOrThrow(snapshotId)
 
@@ -3270,39 +3662,13 @@ export async function getValidacionesPreviewService(snapshotId: string) {
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
 
   // Concursos abiertos con persona del orden de mérito (reservada o designada).
-  // Traemos el CUIL de ambas fuentes + escalafón + especialidad para cruzar.
-  const concursos = await prisma.concursoCph.findMany({
-    where: {
-      estado: { not: 'finalizado' },
-      suspendido: false,
-      OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
-    },
-    select: {
-      id: true,
-      validado: true,
-      especialidadSolicitada: true,
-      concurso: {
-        select: {
-          cargo: {
-            select: { id: true, codigo: true, idSial: true, escalafonId: true },
-          },
-        },
-      },
-      personaDesignada: { select: { cuil: true, apellidoNombre: true } },
-      inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
-    },
+  // Índice de concursos por CUIL (normalizado a dígitos). WHERE histórico del
+  // preview (distinto del que usa el enganche automático del Paso 2).
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    estado: { not: 'finalizado' },
+    suspendido: false,
+    OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
   })
-
-  // Índice de concursos por CUIL (normalizado a dígitos) de su persona.
-  type ConcursoRow = (typeof concursos)[number]
-  const concursoPorCuil = new Map<string, ConcursoRow>()
-  for (const cc of concursos) {
-    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
-    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
-    if (cuilDesig) concursoPorCuil.set(cuilDesig, cc)
-    // El reservado solo si no hay ya uno por designado (designado tiene prioridad).
-    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
-  }
 
   const detalle = parsed
     .map((p) => {
@@ -3314,12 +3680,12 @@ export async function getValidacionesPreviewService(snapshotId: string) {
         (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
         (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
         null
-      const carreraCoincide =
-        !!escalafonDiff && escalafonDiff === (cc.concurso?.cargo?.escalafonId ?? null)
-      const especialidadCoincide =
-        !!p.especialidad &&
-        !!cc.especialidadSolicitada &&
-        normalizarEsp(p.especialidad) === normalizarEsp(cc.especialidadSolicitada)
+      const { carreraCoincide, especialidadCoincide } = esValidableContraConcurso({
+        escalafonDiffId: escalafonDiff,
+        especialidadDiff: p.especialidad,
+        escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+        especialidadConcurso: cc.especialidadSolicitada,
+      })
 
       const nombre =
         cc.personaDesignada?.apellidoNombre ??
@@ -3397,9 +3763,93 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
 
   const pendientes = await prisma.padronDiff.findMany({
     where: { snapshotId, tipo: 'nuevo', aprobado: null },
-    select: { id: true, idSialRol: true },
+    select: { id: true, idSialRol: true, campo: true, valorNuevo: true },
   })
   if (pendientes.length === 0) return { ok: true, total: 0, procesados: 0 }
+
+  // ── Paso 2: enganche automático padrón → concurso designado ───────────────
+  // Antes del loop (una sola vez, no por diff) armamos el índice de concursos
+  // designados por CUIL y los lookups de escalafón para decidir `validable`.
+  // Para cada diff se resuelve `vincularConcursoId` SOLO si el match es validable
+  // (CUIL + carrera + especialidad). Un match no validable (o sin concurso) deja
+  // `vincularConcursoId` undefined → camino normal (comportamiento actual intacto).
+  const parsedPendientes = pendientes.map((d) => {
+    const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+    return {
+      diffId: d.id,
+      campo: d.campo,
+      idSialRol: d.idSialRol,
+      cuil: cuilDe(datos),
+      escalafon: datos.escalafon as string | undefined,
+      especialidad: datos.especialidad as string | undefined,
+      codigoDeRegistro: datos.codigo_de_registro as string | undefined,
+    }
+  })
+
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    suspendido: false,
+    validado: false,
+    OR: [
+      { personaDesignadaId: { not: null } },
+      { inscriptoReservadoId: { not: null } },
+      { designadoRefCuil: { not: null } },
+    ],
+  })
+
+  // Índice por id_sial_rol tipeado manualmente (match directo, prioridad superior).
+  const concursoPorIdSialRol = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursoPorCuil.values()) {
+    if (cc.designadoRefIdSialRol && !concursoPorIdSialRol.has(cc.designadoRefIdSialRol)) {
+      concursoPorIdSialRol.set(cc.designadoRefIdSialRol, cc)
+    }
+  }
+
+  const codRegs = [
+    ...new Set(parsedPendientes.map((p) => p.codigoDeRegistro).filter((v): v is string => !!v)),
+  ]
+  const escNames = [
+    ...new Set(parsedPendientes.map((p) => p.escalafon).filter((v): v is string => !!v)),
+  ]
+  const [codRegsLookup, escalafonesLookup] = await Promise.all([
+    prisma.codigoRegistro.findMany({
+      where: { codigo: { in: codRegs } },
+      select: { codigo: true, escalafonId: true },
+    }),
+    prisma.escalafon.findMany({
+      where: { nombre: { in: escNames }, activo: true },
+      select: { id: true, nombre: true },
+    }),
+  ])
+  const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+
+  // Resuelve el concurso a vincular para un diff, o undefined si no engancha.
+  const resolverVinculo = (p: (typeof parsedPendientes)[number]): string | undefined => {
+    // Los desdoblados 24/07 se materializan por el camino dedicado del snapshot;
+    // no se enganchan acá (aprobarDiffNuevoService los rechaza igual).
+    if (p.campo === '__alta_desdoblada__') return undefined
+    // 1) Match directo por id_sial_rol tipeado manualmente (prioridad superior).
+    const porId = concursoPorIdSialRol.get(p.idSialRol)
+    // 2) Match por CUIL del designado.
+    const porCuil = p.cuil ? concursoPorCuil.get(soloDigitos(p.cuil)) : undefined
+    const cc = porId ?? porCuil
+    if (!cc) return undefined
+    const escalafonDiffId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
+      null
+    const { validable } = esValidableContraConcurso({
+      escalafonDiffId,
+      especialidadDiff: p.especialidad,
+      escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+      especialidadConcurso: cc.especialidadSolicitada,
+    })
+    // Guarda: sólo enganchar si el match es confiable (CUIL + carrera +
+    // especialidad). Los no-validables quedan para la decisión manual existente.
+    return validable ? cc.id : undefined
+  }
+  const vinculoPorDiff = new Map<string, string | undefined>()
+  for (const p of parsedPendientes) vinculoPorDiff.set(p.diffId, resolverVinculo(p))
 
   const progreso: AprobacionProgreso = {
     estado: 'procesando',
@@ -3418,7 +3868,7 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   void (async () => {
     for (const diff of pendientes) {
       try {
-        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId, vinculoPorDiff.get(diff.id))
         progreso.aprobados++
       } catch (err) {
         progreso.fallidos.push({
@@ -3567,12 +4017,20 @@ export async function aprobarDiffNuevoService(
       })) as { cargo: CargoRow } | null
       if (concurso?.cargo) {
         cargo = concurso.cargo
-        // Actualizar idSial del cargo del concurso al id_sial del padrón
+        // Paso 2 — ocupar el cargo del concurso: idSial real del padrón +
+        // estado vigente + sub_estado 'ocupado' (invariante del backfill:
+        // ocupado = vigente + ocupación viva). Incondicional: el designado que
+        // aparece en el padrón ocupa el cargo aunque ya estuviera vigente.
         await tx.cargo.update({
           where: { id: cargo.id },
-          data: { idSial: datos.id_sial },
+          data: {
+            idSial: datos.id_sial,
+            estado: 'vigente',
+            subEstado: 'ocupado',
+            estadoDesde: new Date(),
+          },
         })
-        cargo = { ...cargo, idSial: datos.id_sial }
+        cargo = { ...cargo, idSial: datos.id_sial, estado: 'vigente' }
       }
     }
 
@@ -3659,6 +4117,41 @@ export async function aprobarDiffNuevoService(
       })) as CargoRow
     }
 
+    // Paso 2 — reconciliación de la ocupación MANUAL. Si el cargo del concurso
+    // ya tiene una ocupación viva sintética (idSialRol LIKE 'MANUAL-{cargo8}-%'),
+    // creada por la designación manual antes de que el padrón trajera a la
+    // persona, se ACTUALIZA su idSialRol al real del padrón en vez de crear otra
+    // (evita violar Ocupacion.idSialRol @unique y duplicar). Sólo en la rama de
+    // vínculo a concurso y sólo si no hay ya una ocupación con el idSialRol real
+    // (idempotencia ante reejecución de "aprobar todos").
+    if (vincularConcursoId && persona && cargo) {
+      const yaReconciliada = await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+      })
+      if (!yaReconciliada) {
+        const ocupManual = await tx.ocupacion.findFirst({
+          where: {
+            cargoId: cargo.id,
+            hasta: null,
+            idSialRol: { startsWith: `MANUAL-${cargo.id.slice(0, 8)}-` },
+          },
+        })
+        if (ocupManual) {
+          await tx.ocupacion.update({
+            where: { id: ocupManual.id },
+            data: {
+              idSialRol: diff.idSialRol,
+              personaId: persona.id,
+              cuil: cuilDe(datos),
+              situacionRevista: datos.situacion_de_revista ?? null,
+              estadoPersona: datos.estado ?? null,
+              snapshotId,
+            },
+          })
+        }
+      }
+    }
+
     // Crear ocupación si no existe
     if (persona && cargo) {
       const ocupExistente = await tx.ocupacion.findUnique({ where: { idSialRol: diff.idSialRol } })
@@ -3734,6 +4227,29 @@ export async function aprobarDiffNuevoService(
       })
 
       if (debeValidar) {
+        // Paso 2 — recalcular el concurso tras encender `validado`. El primer
+        // update escribe validado pero NO recalcula el sub-estado; con el
+        // disparador por `validado` (Parte A), un concurso validado debe quedar
+        // en 'o-alta sial'. Releemos la fila completa y persistimos el recálculo.
+        const rowCompleta = await tx.concursoCph.findUnique({ where: { id: vincularConcursoId } })
+        if (rowCompleta) {
+          const calc = calcConcursoCph(toCalcInputPadron(rowCompleta))
+          await tx.concursoCph.update({
+            where: { id: vincularConcursoId },
+            data: {
+              estado: calc.estado,
+              subEstado: calc.subEstado,
+              subEstado3: calc.subEstado3,
+            },
+          })
+        } else {
+          // No debería ocurrir dentro de la tx; se deja el concurso validado con
+          // el sub-estado viejo y se registra para diagnóstico (no bloquea el batch).
+          console.warn(
+            `[padron] recálculo omitido: concurso ${vincularConcursoId} no encontrado tras validar`,
+          )
+        }
+
         const cargoCodigo = concursoActual?.concurso?.cargo?.codigo ?? nombrePersona
         await crearNotificacion({
           tipo: 'autorizacion_resuelta',
@@ -3747,9 +4263,54 @@ export async function aprobarDiffNuevoService(
       }
     }
 
+    // ── Opción A §5.3: al GESTIONAR un id_sial nuevo, el cargo recién creado
+    //    cuenta en el histórico/KPI del MES DE GESTIÓN (now()), NO en la
+    //    fechaAsignada del snapshot del padrón (que puede ser de un mes ya
+    //    cerrado). Se preserva la serie histórica previa intacta (no se tocan
+    //    meses cerrados) y el cargo suma recién en el mes real de gestión.
+    //
+    // (1) Histórico: una fila padron_historico del id_sial recién creado, armada
+    //     igual que el paso 7 del aprobar (persona/cargo/hospital/escalafón/
+    //     literalPuesto/especialidad/estadoPersona/situacionRevista), con
+    //     fechaAsignada = now().
+    if (persona && cargo) {
+      const ocupacionFinal = (await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+        include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
+      })) as OcupacionFinalRow | null
+      if (ocupacionFinal) {
+        const fechaGestion = new Date()
+        await tx.padronHistorico.create({
+          data: {
+            id: randomUUID(),
+            snapshotId,
+            fechaAsignada: fechaGestion,
+            personaId: ocupacionFinal.personaId,
+            cargoId: ocupacionFinal.cargoId,
+            idSialRol: ocupacionFinal.idSialRol,
+            cuil: ocupacionFinal.persona.cuil,
+            escalafon: ocupacionFinal.cargo.escalafon.nombre,
+            hospitalSigla: ocupacionFinal.cargo.hospital.sigla,
+            literalPuesto: ocupacionFinal.cargo.literalPuesto,
+            especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
+            agrupador: ocupacionFinal.cargo.agrupador,
+            unificadorPuesto: ocupacionFinal.cargo.unificadorPuesto,
+            estadoPersona: ocupacionFinal.estadoPersona,
+            situacionRevista: ocupacionFinal.situacionRevista,
+          },
+        })
+
+        // (2) Repoblar el resumen KPI del MES DE GESTIÓN (now()).
+        await repopularKpiDotacionMes(tx, fechaGestion)
+      }
+    }
+
     // Marcar diff como aprobado
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: true } })
-  })
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: true, resolucion: vincularConcursoId ? 'concurso_vinculado' : 'cargo' },
+    })
+  }, TRANSACTION_OPTS) // timeout largo: aprobar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }
@@ -3828,6 +4389,10 @@ export async function marcarTransferenciaService(
       solicitadoPorId: usuarioId,
     },
   })
+
+  // El histórico + KPI del mes de gestión ya los escribió aprobarDiffNuevoService
+  // (NO duplicar). Acá solo se afina la resolución del diff a 'transferencia'.
+  await prisma.padronDiff.update({ where: { id: diffId }, data: { resolucion: 'transferencia' } })
 
   return { ok: true, diffId }
 }
@@ -3988,8 +4553,13 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       }
     }
 
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: false } })
-  })
+    // Sin código: NO escribe padron_historico ni repuebla KPI (consistente con
+    // "no cuenta hasta gestionar como cargo real"); solo marca el diff.
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: false, resolucion: 'sin_codigo' },
+    })
+  }, TRANSACTION_OPTS) // timeout largo: rechazar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }

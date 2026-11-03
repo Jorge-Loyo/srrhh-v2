@@ -1,8 +1,36 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import type { Baja, ConcursoCph, PaginatedResponse } from '@srrhh/types'
+import { formatDateMask, dmyToIso, isoToDmy } from '../lib/bajasHelpers'
+
+// Una baja tiene datos pendientes si le falta alguno de los 2 campos diferidos:
+// Doc. respaldatoria o Fecha pase paralelo/GT (ver flujo de campos diferidos).
+function tieneCamposDiferidosPendientes(b: Baja): boolean {
+  return !b.docRespaldatoria || !b.fechaPaseParalelo
+}
+
+// Opciones de origen que ofrece el modal de "Gestión de Cargos". Cada una
+// abre el mismo formulario de baja con el origen fijado y bloqueado. El texto
+// explicativo es editable por negocio (placeholders a confirmar con Jorge).
+const ORIGENES_GESTION = [
+  {
+    valor: 'Alta por Baja',
+    titulo: 'Alta por Baja',
+    desc: 'La persona se da de baja del cargo y se genera un concurso para cubrir la vacante que deja. [descripción a confirmar]',
+  },
+  {
+    valor: 'Retención de Cargo',
+    titulo: 'Retención de Cargo',
+    desc: 'La persona deja la función pero retiene su cargo. [descripción a confirmar]',
+  },
+  {
+    valor: 'Cobertura Dotación',
+    titulo: 'Cobertura de Dotación',
+    desc: 'Se cubre una vacante de dotación existente. [descripción a confirmar]',
+  },
+] as const
 
 const ESTADO_CLASSES: Record<string, string> = {
   resolucion_a_la_firma: 'badge-default',
@@ -149,16 +177,105 @@ function ModalDetalleBaja({
   )
 }
 
+// Modal chico para completar los 2 campos diferidos sin reabrir el formulario
+// completo de la baja. Prellenado con los valores actuales (si los hay).
+function ModalCamposDiferidos({
+  baja,
+  onClose,
+}: {
+  baja: Baja
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [docRespaldatoria, setDocRespaldatoria] = useState(baja.docRespaldatoria ?? '')
+  const [fechaPaseDmy, setFechaPaseDmy] = useState(isoToDmy(baja.fechaPaseParalelo))
+  const [error, setError] = useState('')
+
+  const mut = useMutation({
+    mutationFn: async () => {
+      const fechaIso = fechaPaseDmy ? dmyToIso(fechaPaseDmy) : ''
+      if (fechaPaseDmy && fechaIso === null) {
+        throw new Error('Fecha pase paralelo inválida (usá dd/mm/aaaa)')
+      }
+      const res = await apiClient.patch<{ data: Baja }>(
+        `/api/v1/bajas/${baja.id}/campos-diferidos`,
+        { docRespaldatoria, fechaPaseParalelo: fechaIso ?? '' },
+      )
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bajas'] })
+      onClose()
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { message?: string } }; message?: string }
+      setError(err?.response?.data?.message ?? err?.message ?? 'No se pudieron guardar los datos.')
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="font-primary text-base font-bold text-gray-900">Completar datos pendientes</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none" aria-label="Cerrar">&times;</button>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Doc. respaldatoria</label>
+            <input
+              type="text"
+              value={docRespaldatoria}
+              onChange={(e) => setDocRespaldatoria(e.target.value.replace(/\s/g, ''))}
+              className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Fecha pase paralelo / GT</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="dd/mm/aaaa"
+              value={fechaPaseDmy}
+              onChange={(e) => setFechaPaseDmy(formatDateMask(e.target.value))}
+              className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+          </div>
+          {error && <p className="text-sm text-danger">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
+          <button className="btn-outline" onClick={onClose} disabled={mut.isPending}>Cancelar</button>
+          <button className="btn-primary" onClick={() => { setError(''); mut.mutate() }} disabled={mut.isPending}>
+            {mut.isPending ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AltaPorBajaPage() {
   const [search, setSearch] = useState('')
+  const [estadoFiltro, setEstadoFiltro] = useState('')
   const [bajaSeleccionada, setBajaSeleccionada] = useState<Baja | null>(null)
+  const [bajaDiferidos, setBajaDiferidos] = useState<Baja | null>(null)
+  const [modalOrigenAbierto, setModalOrigenAbierto] = useState(false)
   const navigate = useNavigate()
 
+  function elegirOrigen(valor: string) {
+    setModalOrigenAbierto(false)
+    navigate(`/cargos/baja/nueva?origen=${encodeURIComponent(valor)}`)
+  }
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['bajas', search],
+    queryKey: ['bajas', search, estadoFiltro],
     queryFn: async () => {
       const res = await apiClient.get<PaginatedResponse<Baja>>('/api/v1/bajas', {
-        params: { limit: 50, ...(search.length >= 2 && { search }) },
+        params: {
+          limit: 50,
+          ...(search.length >= 2 && { search }),
+          ...(estadoFiltro && { estado: estadoFiltro }),
+        },
       })
       return res.data
     },
@@ -170,18 +287,66 @@ export function AltaPorBajaPage() {
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-primary text-xl font-bold text-gray-900">Alta por Baja</h1>
-          <button className="btn-outline" onClick={() => navigate('/cargos/baja/nueva')}>
-            + Nueva Baja
+          <button className="btn-outline" onClick={() => setModalOrigenAbierto(true)}>
+            Gestión de Cargos
           </button>
         </div>
 
-        <input
-          type="text"
-          placeholder="Buscar por código de cargo, persona, motivo..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-10 px-3 border border-gray-300 rounded w-full focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-        />
+        {modalOrigenAbierto && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setModalOrigenAbierto(false)}
+          >
+            <div
+              className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="font-primary text-lg font-bold text-gray-900">Gestión de Cargos</h2>
+                <button
+                  className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+                  onClick={() => setModalOrigenAbierto(false)}
+                  aria-label="Cerrar"
+                >
+                  ×
+                </button>
+              </div>
+              <p className="text-sm text-gray-500">Elegí el origen de la gestión. Cada uno tiene su propia lógica.</p>
+              <div className="space-y-3">
+                {ORIGENES_GESTION.map((o) => (
+                  <button
+                    key={o.valor}
+                    onClick={() => elegirOrigen(o.valor)}
+                    className="w-full text-left border border-gray-200 rounded-lg p-4 hover:border-secondary hover:bg-secondary/5 transition-colors"
+                  >
+                    <div className="font-semibold text-gray-900">{o.titulo}</div>
+                    <div className="text-sm text-gray-500 mt-1">{o.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <input
+            type="text"
+            placeholder="Buscar por código de cargo, persona, motivo..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded flex-1 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          />
+          <select
+            value={estadoFiltro}
+            onChange={(e) => setEstadoFiltro(e.target.value)}
+            className="h-10 px-3 border border-gray-300 rounded w-56 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+          >
+            <option value="">Todos los estados</option>
+            <option value="resolucion_a_la_firma">Borradores (resolución a la firma)</option>
+            <option value="confirmada">Confirmada</option>
+            <option value="anulada">Anulada</option>
+          </select>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -204,7 +369,9 @@ export function AltaPorBajaPage() {
                 <th className="px-4 py-3 font-semibold">Hospital</th>
                 <th className="px-4 py-3 font-semibold">Persona</th>
                 <th className="px-4 py-3 font-semibold">Motivo</th>
+                <th className="px-4 py-3 font-semibold">Origen</th>
                 <th className="px-4 py-3 font-semibold">Concurso</th>
+                <th className="px-4 py-3 font-semibold">SIAL</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold" />
               </tr>
@@ -222,6 +389,7 @@ export function AltaPorBajaPage() {
                   <td className="px-4 py-3 text-gray-600">{b.cargo?.hospital?.sigla ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{b.persona?.apellidoNombre ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{b.motivo ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{b.tipificadorOrigen ?? '—'}</td>
                   <td className="px-4 py-3">
                     {b.generaConcurso
                       ? <span className="badge-info">Sí</span>
@@ -229,9 +397,38 @@ export function AltaPorBajaPage() {
                     }
                   </td>
                   <td className="px-4 py-3">
-                    <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
-                      {fmtEstado(b.estado)}
-                    </span>
+                    {b.enSial ? (
+                      <span
+                        className="badge-success"
+                        title={
+                          'Baja registrada en SIAL' +
+                          (b.persona?.apellidoNombre ? ` — ${b.persona.apellidoNombre}` : '') +
+                          (b.eeBaja ? ` · Exp: ${b.eeBaja}` : '')
+                        }
+                      >
+                        En SIAL ✓
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={ESTADO_CLASSES[b.estado] ?? 'badge-default'}>
+                        {fmtEstado(b.estado)}
+                      </span>
+                      {tieneCamposDiferidosPendientes(b) && (
+                        <button
+                          type="button"
+                          onClick={() => setBajaDiferidos(b)}
+                          title="Datos pendientes: completar Doc. respaldatoria / Fecha pase paralelo"
+                          aria-label="Completar datos pendientes"
+                          className="text-amber-500 hover:text-amber-600 leading-none"
+                        >
+                          ⚠️
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right">
                     {(b.estado as string) === 'resolucion_a_la_firma' ? (
@@ -261,6 +458,13 @@ export function AltaPorBajaPage() {
         <ModalDetalleBaja
           baja={bajaSeleccionada}
           onClose={() => setBajaSeleccionada(null)}
+        />
+      )}
+
+      {bajaDiferidos && (
+        <ModalCamposDiferidos
+          baja={bajaDiferidos}
+          onClose={() => setBajaDiferidos(null)}
         />
       )}
     </div>

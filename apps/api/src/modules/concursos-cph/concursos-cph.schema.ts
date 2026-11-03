@@ -12,6 +12,17 @@ export const concursosCphQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   hospitalId: z.string().uuid().optional(),
+  // Filtro multi-sigla (efector) — CSV de ids de hospital. Replica el patrón
+  // de `etiquetaIds` (CSV→array) con validación uuid por elemento. Prioridad:
+  // si viene `hospitalIds` (array no vacío) gana y se filtra con IN; si no, se
+  // usa `hospitalId` single (compatibilidad con links/bookmarks viejos).
+  hospitalIds: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((v) => v.split(',').filter(Boolean))
+    .pipe(z.array(z.string().uuid()))
+    .optional(),
   cargoId: z.string().uuid().optional(),
   estado: z.nativeEnum(EstadoConcursoCph).optional(),
   subEstado: z.string().trim().min(1).optional(),
@@ -64,6 +75,21 @@ export const concursosCphQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  // Ordenamiento de la lista por fecha. `ordenarPor` elige la columna
+  // (fecha_ee_concurso = fecha del expediente de concurso, fecha_baja = fecha
+  // de la baja) y `orden` la dirección. DEFAULT: fecha_ee_concurso desc (más
+  // reciente primero). Los concursos SIN esa fecha (null) quedan al final
+  // (NULLS LAST) sin importar asc/desc — ver listConcursosCphService.
+  ordenarPor: z.enum(['fecha_ee_concurso', 'fecha_baja']).default('fecha_ee_concurso'),
+  orden: z.enum(['asc', 'desc']).default('desc'),
+  // Filtros de rango por fecha, independientes para cada una de las dos
+  // fechas (se combinan por AND). Todos opcionales: solo-desde filtra >=,
+  // solo-hasta filtra <=, ambos filtran el intervalo. Mismo validador de
+  // fecha YYYY-MM-DD que usan los demás campos de fecha del módulo.
+  fechaBajaDesde: fecha.optional(),
+  fechaBajaHasta: fecha.optional(),
+  fechaEeConcursoDesde: fecha.optional(),
+  fechaEeConcursoHasta: fecha.optional(),
 })
 
 export type ConcursosCphQuery = z.infer<typeof concursosCphQuerySchema>
@@ -162,6 +188,41 @@ export const designarCphSchema = z.object({
 })
 
 export type DesignarCphBody = z.infer<typeof designarCphSchema>
+
+// Asignar manualmente la persona designada SIN crear ocupación. Dos formas
+// (union discriminada por la presencia de personaId vs refCuil):
+//
+//  (1) forma existente `{ personaId }`: vincular una Persona real ya en la BD
+//      (caso histórico: concurso finalizado con resolución cargada pero sin
+//      persona vinculada). El sub-estado (n-designado) lo recalcula el backend.
+//
+//  (2) forma manual por referencia `{ refCuil, refNombre, idSialRol? }`: el
+//      candidato NO está en la BD de personas ni en la orden de mérito. NO se
+//      crea Persona: se guarda sólo la referencia (CUIL normalizado + nombre).
+//      `idSialRol` es opcional: si el operador lo conoce, se persiste para el
+//      match directo contra el padrón (Paso 2). La persona real se crea/vincula
+//      cuando el padrón la traiga.
+const asignarDesignadoPersonaSchema = z.object({
+  personaId: z.string().uuid(),
+})
+
+const asignarDesignadoManualSchema = z.object({
+  // CUIL de referencia: se normaliza a dígitos y debe quedar en exactamente 11.
+  refCuil: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\D/g, ''))
+    .refine((s) => s.length === 11, 'El CUIL debe tener 11 dígitos'),
+  refNombre: z.string().trim().min(1).max(200),
+  idSialRol: z.string().trim().max(50).optional(),
+})
+
+export const asignarDesignadoCphSchema = z.union([
+  asignarDesignadoPersonaSchema,
+  asignarDesignadoManualSchema,
+])
+
+export type AsignarDesignadoCphBody = z.infer<typeof asignarDesignadoCphSchema>
 
 // PS16D-3: declarar desierto — guarda snapshot en ConcursoCphDesierto,
 // limpia campos de la ronda, pone suspendido=true, sub-estado Q-DESIERTO.

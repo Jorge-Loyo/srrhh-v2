@@ -19,6 +19,16 @@ export const EstadoCargo = {
 } as const
 export type EstadoCargo = (typeof EstadoCargo)[keyof typeof EstadoCargo]
 
+// Sub-estado del cargo vigente (ocupado | vacante | concurso) — columna
+// persistida, mutuamente excluyente, null cuando el cargo NO es vigente.
+// Ver SPRINT_estado_subestado_cargo.md (decisión A1-corregido).
+export const SubEstadoCargo = {
+  OCUPADO: 'ocupado',
+  VACANTE: 'vacante',
+  CONCURSO: 'concurso',
+} as const
+export type SubEstadoCargo = (typeof SubEstadoCargo)[keyof typeof SubEstadoCargo]
+
 export const EstadoSnapshot = {
   PROCESANDO: 'procesando',
   PENDIENTE: 'pendiente',
@@ -196,6 +206,10 @@ export interface Cargo {
   estado: EstadoCargo
   // S8A-1: días en estado actual (calculado por el backend)
   estadoDesde: string | null
+  // Sub-estado persistido del cargo vigente (null si no es vigente, o si el
+  // backfill todavía no corrió). Los consumidores leen esta columna; mientras
+  // esté en null, usan `ocupado` como fallback transitorio (ver D4 del plan).
+  subEstado: SubEstadoCargo | null
   ocupado: boolean
   ocupadoDesde: string | null
   // S7-1/S7-2: campos de trazabilidad de alta manual
@@ -217,6 +231,9 @@ export interface Cargo {
   hospital?: Hospital
   escalafon?: Escalafon
   codigoRegistro?: CodigoRegistro | null
+  // Etiquetas asignadas (aplanadas desde la tabla join por el backend; hoy las
+  // incluye el detalle GET /cargos/:id).
+  etiquetas?: Etiqueta[]
 }
 
 export interface Ocupacion {
@@ -264,6 +281,11 @@ export interface PadronSnapshot {
   estado: EstadoSnapshot
   pasoActual: string | null
   errorMsg: string | null
+  // Guarda contra padrón parcial: ratio totalRegistros / total del último
+  // aprobado y texto de advertencia cuando el padrón vino sospechosamente chico.
+  // null = la guarda no aplicó (primer padrón) o el ratio fue normal.
+  ratioTamano: number | null
+  advertenciaTamano: string | null
   aprobadoAt: string | null
   createdAt: string
   procesadoPor: { username: string } | null
@@ -398,6 +420,13 @@ export interface ConcursoCph {
   fechaDispoDesierta: string | null
   cantidadCargos: number
   personaDesignadaId: string | null
+  // Carga manual por referencia (Paso 2): designado que no está en la BD de
+  // personas. Sólo referencia (no crea Persona); la Persona real se vincula
+  // cuando el padrón la traiga. designadoRefIdSialRol = id_sial_rol tipeado
+  // por el operador para el match directo.
+  designadoRefCuil: string | null
+  designadoRefNombre: string | null
+  designadoRefIdSialRol: string | null
   suspendido: boolean
   ifacs: string | null
   insal: string | null
@@ -633,6 +662,9 @@ export interface Baja {
   registradoPorId: string | null
   createdAt: string
   updatedAt: string
+  // Flag calculado por el listado GET /bajas: true si el cargo.idSial figura
+  // en el padrón de bajas SIAL (informativo, no persistido).
+  enSial?: boolean
   // Relaciones expandidas
   cargo?: Cargo & { hospital: Hospital; escalafon: Escalafon }
   hospital?: Hospital
@@ -875,7 +907,7 @@ export interface DiffSummary {
 export interface SnapshotDiffResponse {
   // Subconjunto de PadronSnapshot: getSnapshotDiffService devuelve solo estos
   // campos (no aprobadoAt/createdAt/procesadoPor/aprobadoPor).
-  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado'>
+  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado' | 'ratioTamano' | 'advertenciaTamano'>
   summary: DiffSummary
   diffs: PaginatedResponse<PadronDiff>
 }
@@ -939,7 +971,12 @@ export type SituacionRevista = 'activo' | 'comision' | 'retencion de cargo' | st
 
 // Orden canónico de las series por situación de revista en el front
 // ('(sin dato)' agrupa las ocupaciones sin situacion_revista).
-export const ORDEN_SITUACION_REVISTA = ['activo', 'comision', 'retencion de cargo', '(sin dato)'] as const
+export const ORDEN_SITUACION_REVISTA = [
+  'activo',
+  'comision',
+  'retencion de cargo',
+  '(sin dato)',
+] as const
 
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
@@ -1137,12 +1174,54 @@ export interface CargoFilters {
   grupos?: string
   estado?: EstadoCargo
   ocupado?: boolean
+  // Filtro por el sub-estado persistido del cargo vigente (aditivo a `ocupado`).
+  subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
   // Inverso de soloJefes: todos los cargos que NO son de jefatura.
   sinJefes?: boolean
+  // Literal del puesto del cargo (texto canónico del catálogo). Match exacto
+  // normalizado — usado por "Cobertura Dotación" (desplegable de puestos POU).
+  literalPuesto?: string
+  // Especialidad del cargo (catálogo o legacy). Match exacto normalizado —
+  // cascada del puesto en "Cobertura Dotación".
+  especialidad?: string
+  // Situación de revista del ocupante vigente (estado de la persona en el
+  // puesto). Catálogo normalizado minúscula sin tilde.
+  situacionRevista?: 'activo' | 'comision' | 'retencion de cargo'
   page?: number
   limit?: number
+}
+
+// Export de /cargos: fila ya resuelta y FORMATEADA en el backend para el Excel
+// de dos niveles de encabezado (ver GET /api/v1/cargos/export y
+// downloadExcelConGrupos). Cada clave es una de las 9 columnas, como string
+// listo para volcar a la celda (sin más transformación en el front).
+export interface CargoExportRow {
+  // Grupo 1 — INFORMACIÓN DE CARGOS (siempre, el cargo existe)
+  codigo: string
+  codigoRegistro: string
+  regimen: string
+  // Sigla del hospital/repartición del cargo (= cargo.hospital.sigla).
+  sigla: string
+  // Código y descripción de la repartición del CARGO (siempre).
+  codigoReparticion: string
+  reparticionCargo: string
+  tipo: string
+  estado: string
+  situacion: string
+  // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO (solo si ocupado)
+  literalPuesto: string
+  // Código, descripción y sigla de la repartición del OCUPANTE. Vacías si el
+  // cargo está vacante (coinciden con las del cargo cuando está ocupado).
+  codigoReparticionOcupacion: string
+  reparticion: string
+  siglaOcupacion: string
+  cuilOExpediente: string
+  // ID SIAL Rol del ocupante (identificador natural del rol en el padrón).
+  idSialRolOcupante: string
+  situacionRevistaOcupante: string
+  especialidadOcupante: string
 }
 
 export interface ConcursoFilters {
@@ -1160,6 +1239,10 @@ export interface ConcursoCphFilters {
   page?: number
   limit?: number
   hospitalId?: string
+  // CSV de ids de hospital (efector) — filtro multi-sigla; un concurso matchea
+  // si pertenece a alguno de los efectores pedidos (IN/OR). Tiene prioridad
+  // sobre hospitalId single en el back.
+  hospitalIds?: string
   estado?: EstadoConcursoCph
   subEstado?: string
   subEstado3?: string
@@ -1182,6 +1265,15 @@ export interface ConcursoCphFilters {
   personaOm?: boolean
   // Etapa 5: concursos validados contra el padrón (flag validado).
   validado?: boolean
+  // Ordenamiento por fecha: columna + dirección. DEFAULT en el back es
+  // fecha_ee_concurso desc (más reciente primero), con NULLS LAST.
+  ordenarPor?: 'fecha_ee_concurso' | 'fecha_baja'
+  orden?: 'asc' | 'desc'
+  // Filtros de rango por fecha (YYYY-MM-DD), independientes y combinables.
+  fechaBajaDesde?: string
+  fechaBajaHasta?: string
+  fechaEeConcursoDesde?: string
+  fechaEeConcursoHasta?: string
 }
 
 // ─── Etapa 5 CPH: estado de designación / validación contra el padrón ────────
@@ -1710,13 +1802,24 @@ export interface DesignarConcursoRequest {
   observaciones?: string | null
 }
 
+// POST /api/v1/concursos-cph/:id/asignar-designado — vincula el designado SIN
+// ocupar el cargo. Dos formas:
+//  (1) `{ personaId }`: vincular una Persona real ya en la BD (caso histórico:
+//      finalizado sin persona vinculada).
+//  (2) `{ refCuil, refNombre, idSialRol? }`: carga manual por referencia cuando
+//      el designado NO está en la BD. No crea Persona; sólo guarda la referencia.
+//      idSialRol opcional (match directo contra el padrón si el operador lo conoce).
+export type AsignarDesignadoCphRequest =
+  | { personaId: string }
+  | { refCuil: string; refNombre: string; idSialRol?: string }
+
 // ---- SPRINT 18 — Retención de cargos ----
 
 export const TipoOrigen = {
-  R: 'R',     // remplazante de ejecución
+  R: 'R', // remplazante de ejecución
   TTR: 'TTR', // remplazante de conducción (Titular Transitorio por Reemplazo)
 } as const
-export type TipoOrigen = typeof TipoOrigen[keyof typeof TipoOrigen] | null
+export type TipoOrigen = (typeof TipoOrigen)[keyof typeof TipoOrigen] | null
 
 // Nodo de una cadena de retención — distinto de `NodoCadena` (useCadenaMando.ts,
 // feature no relacionada de "cadena de mando"/jerarquía org).
@@ -1831,17 +1934,16 @@ export interface VencimientoCargo {
 // PATCH /api/v1/retenciones/:cargoId/renovar
 export interface RenovarPeriodoRequest {
   periodoHasta: string // 'YYYY-MM-DD'
-  docRespaldo: string  // acto administrativo que respalda la renovación
+  docRespaldo: string // acto administrativo que respalda la renovación
 }
 
 // POST /api/v1/comisiones — registrar una comisión sobre una ocupación activa
 export interface ComisionInput {
   ocupacionId: string
-  comision: string      // motivo / descripción
-  repaComision: string  // repartición / hospital de destino
+  comision: string // motivo / descripción
+  repaComision: string // repartición / hospital de destino
   crComentario?: string
 }
-
 
 // ─── Jornada de sorteos CPH ─────────────────────────────────────────────────
 

@@ -3,14 +3,20 @@ import { Link } from 'react-router-dom'
 import { EstadoConcursoCph } from '@srrhh/types'
 import type { ConcursoCph, ConcursoCphFilters } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
-import { useHospitales } from '@/shared/hooks/useCatalogos'
+import {
+  useHospitales,
+  useEscalafones,
+  usePuestosCargoNormalizados,
+  useEspecialidadesDePuestoId,
+} from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
+import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
-import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '../hooks/useEtiquetas'
+import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '@/shared/hooks/useEtiquetas'
 import { FlujoConcursoModal } from '../components/FlujoConcursoModal'
-import { EtiquetasControl } from '../components/EtiquetasControl'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { JuradosTab } from '../components/JuradosTab'
 import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
 import { JornadasSorteoTab } from '../components/JornadasSorteoTab'
@@ -44,7 +50,9 @@ function semaforoLabel(c: ConcursoCph): string {
 }
 
 // Clasifica la documentación respaldatoria del concurso en uno de 3 tipos:
-//  - Baja: el concurso viene de una baja (tiene baja asociada) → expediente de baja
+//  - Baja: el concurso tiene expediente de baja cargado (eeBaja) → expediente de baja.
+//    Se basa en eeBaja (no en la FK baja/bajaId) porque los concursos importados
+//    traen el expediente de baja como texto sin estar vinculados a una fila `bajas`.
 //  - Ampliación: cargo nuevo con expediente de alta cargado (cargo.expediente)
 //  - Cobertura: cargo sin baja ni expediente de alta (cobertura de dotación, sin doc)
 function respaldatoria(c: ConcursoCph): {
@@ -52,10 +60,11 @@ function respaldatoria(c: ConcursoCph): {
   expediente: string | null
   badgeClass: string
 } {
-  if (c.concurso?.baja) {
+  const eeBaja = c.eeBaja?.trim()
+  if (eeBaja) {
     return {
       tipo: 'Baja',
-      expediente: c.eeBaja ?? null,
+      expediente: eeBaja,
       badgeClass: 'bg-orange-100 text-orange-700',
     }
   }
@@ -184,7 +193,8 @@ export function ConcursosCphPage() {
 function ConcursosListaTab() {
   const [search, setSearch] = useState('')
   const [especialidad, setEspecialidad] = useState('')
-  const [hospitalId, setHospitalId] = useState('')
+  // Filtro multi-sigla (efector): ids de hospital seleccionados. [] = todas.
+  const [hospitalIds, setHospitalIds] = useState<string[]>([])
   const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
   const [subEstado, setSubEstado] = useState('')
   // Filtro por ETAPA (1..5 del stepper), reemplaza al viejo filtro por
@@ -195,8 +205,23 @@ function ConcursosListaTab() {
   const [personaOm, setPersonaOm] = useState<'' | 'true' | 'false'>('')
   const [validado, setValidado] = useState<'' | 'true' | 'false'>('')
   const [puesto, setPuesto] = useState('')
+  // Id del puesto elegido en el catálogo. Estado SOLO-UI: habilita y alimenta
+  // la especialidad dependiente (useEspecialidadesDePuestoId). NO viaja al
+  // backend — el back sigue filtrando por `puesto` (nombre string).
+  const [puestoCargoId, setPuestoCargoId] = useState('')
   const [conduccion, setConduccion] = useState<'' | 'true' | 'false'>('')
   const [etiquetasFiltro, setEtiquetasFiltro] = useState<string[]>([]) // nombres de etiqueta
+  // Ordenamiento por fecha. DEFAULT: fecha de expediente, descendente (más
+  // reciente primero), alineado con el default del backend.
+  const [ordenarPor, setOrdenarPor] = useState<'fecha_ee_concurso' | 'fecha_baja'>(
+    'fecha_ee_concurso',
+  )
+  const [orden, setOrden] = useState<'asc' | 'desc'>('desc')
+  // Rangos de fecha (YYYY-MM-DD), independientes: baja y expediente de concurso.
+  const [fechaBajaDesde, setFechaBajaDesde] = useState('')
+  const [fechaBajaHasta, setFechaBajaHasta] = useState('')
+  const [fechaEeConcursoDesde, setFechaEeConcursoDesde] = useState('')
+  const [fechaEeConcursoHasta, setFechaEeConcursoHasta] = useState('')
   const [detalle, setDetalle] = useState<ConcursoCph | null>(null)
   const [page, setPage] = useState(1)
   const [showFlujo, setShowFlujo] = useState(false)
@@ -261,7 +286,7 @@ function ConcursosListaTab() {
     ...(especialidadDebounced && { especialidad: especialidadDebounced }),
     ...(puestoDebounced && { puesto: puestoDebounced }),
     ...(conduccion && { conduccion: conduccion === 'true' }),
-    ...(hospitalId && { hospitalId }),
+    ...(hospitalIds.length && { hospitalIds: hospitalIds.join(',') }),
     ...(estado && { estado }),
     ...(subEstado && { subEstado }),
     ...(etapa !== '' && { etapa }),
@@ -269,6 +294,12 @@ function ConcursosListaTab() {
     ...(conFaltantes && { conFaltantes: true }),
     ...(personaOm && { personaOm: personaOm === 'true' }),
     ...(validado && { validado: validado === 'true' }),
+    ordenarPor,
+    orden,
+    ...(fechaBajaDesde && { fechaBajaDesde }),
+    ...(fechaBajaHasta && { fechaBajaHasta }),
+    ...(fechaEeConcursoDesde && { fechaEeConcursoDesde }),
+    ...(fechaEeConcursoHasta && { fechaEeConcursoHasta }),
     ...(etiquetasFiltro.length && {
       etiquetaIds: etiquetasFiltro
         .map((nombre) => catalogoEtiquetas.find((e) => e.nombre === nombre)?.id)
@@ -279,6 +310,31 @@ function ConcursosListaTab() {
 
   const { data, isLoading, isFetching, isError } = useConcursosCph(filters)
   const { data: hospitales } = useHospitales()
+
+  // Catálogo de puestos CPH para el autocompletar del filtro "Puesto".
+  // Se acota al escalafón CPH (igual que el wizard y FiltrosCatalogo): sin
+  // escalafonId el hook no trae nada (query enabled: !!escalafonId).
+  const { data: escalafones = [] } = useEscalafones(true)
+  // Match flexible del escalafón CPH: el nombre real en la BD es "Nueva Carrera
+  // Prof. Hosp" (NO "Nueva Carrera Profesional Hospitalaria", que es el literal
+  // del código de registro). Se normaliza (minúsculas + sin acentos) y se busca
+  // por "prof"+"hosp" o "cph" para no depender del texto exacto y evitar el
+  // "Catálogo no disponible" por un nombre que no matchea.
+  const normEsc = (s: string) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+  const escalafonCphId = escalafones.find((e) => {
+    const n = normEsc(e.nombre)
+    return (n.includes('prof') && n.includes('hosp')) || n.includes('cph')
+  })?.id
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonCphId || undefined)
+  // Especialidades del puesto EXACTO por id (preferido en filtros: evita el bug
+  // de puestos homónimos). Alimenta el combo de Especialidad dependiente.
+  const { data: especialidadesPuesto = [] } = useEspecialidadesDePuestoId(
+    puestoCargoId || undefined,
+  )
 
   function resetPage<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -335,7 +391,11 @@ function ConcursosListaTab() {
       let ok = 0
       for (const concursoCphId of ids) {
         try {
-          await asignarEtiqueta.mutateAsync({ etiquetaId, concursoCphId })
+          await asignarEtiqueta.mutateAsync({
+            etiquetaId,
+            entidad: 'concurso_cph',
+            entidadId: concursoCphId,
+          })
           ok++
         } catch {
           // sigue con los demás
@@ -476,17 +536,20 @@ function ConcursosListaTab() {
             onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
-          <SearchableSelect
-            value={hospitalId}
-            onChange={resetPage(setHospitalId)}
-            options={hospitales?.map((h) => hospitalLabel(h)) ?? []}
-            placeholder="Todas las siglas"
+          {/* Multi-sigla: varios efectores a la vez (OR/IN). El value guarda
+              ids de hospital; formatOption muestra "SIGLA — Nombre". Sin
+              selección muestra "Todas las siglas"; con selección el propio
+              componente agrega el conteo ("Todas las siglas (3)"). */}
+          <MultiSelectDropdown
+            label="Todas las siglas"
+            value={hospitalIds}
+            options={hospitales?.map((h) => h.id) ?? []}
+            onChange={resetPage(setHospitalIds)}
             className="min-w-[220px]"
-            valueToDisplay={(id) => {
+            formatOption={(id) => {
               const h = hospitales?.find((x) => x.id === id)
-              return h ? hospitalLabel(h) : ''
+              return h ? hospitalLabel(h) : id
             }}
-            displayToValue={(label) => hospitales?.find((h) => hospitalLabel(h) === label)?.id ?? ''}
           />
         </div>
 
@@ -506,10 +569,37 @@ function ConcursosListaTab() {
               {ESTADO_LABEL[e]}
             </button>
           ))}
+          {/* Ordenamiento por fecha: columna + dirección (default fecha de
+              expediente, más reciente primero). */}
+          <div className="flex items-center gap-2 ml-auto">
+            <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">
+              Ordenar por
+            </label>
+            <select
+              value={ordenarPor}
+              onChange={(e) =>
+                resetPage(setOrdenarPor)(e.target.value as 'fecha_ee_concurso' | 'fecha_baja')
+              }
+              aria-label="Ordenar por fecha"
+              className="h-8 px-2 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="fecha_ee_concurso">Fecha de expediente</option>
+              <option value="fecha_baja">Fecha de baja</option>
+            </select>
+            <select
+              value={orden}
+              onChange={(e) => resetPage(setOrden)(e.target.value as 'asc' | 'desc')}
+              aria-label="Dirección del orden"
+              className="h-8 px-2 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            >
+              <option value="desc">Más reciente primero</option>
+              <option value="asc">Más antiguo primero</option>
+            </select>
+          </div>
           <button
             type="button"
             onClick={() => setDrawerAvanzado(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-secondary hover:text-secondary transition-colors ml-auto"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-secondary hover:text-secondary transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -526,10 +616,25 @@ function ConcursosListaTab() {
               validado ||
               puesto ||
               conduccion ||
+              fechaBajaDesde ||
+              fechaBajaHasta ||
+              fechaEeConcursoDesde ||
+              fechaEeConcursoHasta ||
               etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {[subEstado, etapa !== '', origen, personaOm, validado, puesto, conduccion].filter(Boolean).length +
-                  (etiquetasFiltro.length > 0 ? 1 : 0)}
+                {[
+                  subEstado,
+                  etapa !== '',
+                  origen,
+                  personaOm,
+                  validado,
+                  puesto,
+                  conduccion,
+                  fechaBajaDesde,
+                  fechaBajaHasta,
+                  fechaEeConcursoDesde,
+                  fechaEeConcursoHasta,
+                ].filter(Boolean).length + (etiquetasFiltro.length > 0 ? 1 : 0)}
               </span>
             )}
           </button>
@@ -553,20 +658,25 @@ function ConcursosListaTab() {
           if (puestoDebounced)
             chips.push({
               label: `Puesto: "${puestoDebounced}"`,
-              onClear: () => setPuesto(''),
+              onClear: () => {
+                setPuesto('')
+                setPuestoCargoId('')
+                setEspecialidad('')
+              },
             })
           if (conduccion)
             chips.push({
               label: conduccion === 'true' ? 'Cargo de conducción' : 'Cargo de ejecución',
               onClear: () => resetPage(setConduccion)(''),
             })
-          if (hospitalId) {
-            const h = hospitales?.find((x) => x.id === hospitalId)
+          // Un chip por sigla seleccionada; se puede quitar individualmente.
+          hospitalIds.forEach((id) => {
+            const h = hospitales?.find((x) => x.id === id)
             chips.push({
-              label: `Sigla: ${h ? hospitalLabel(h) : hospitalId}`,
-              onClear: () => resetPage(setHospitalId)(''),
+              label: `Sigla: ${h ? hospitalLabel(h) : id}`,
+              onClear: () => resetPage(setHospitalIds)(hospitalIds.filter((x) => x !== id)),
             })
-          }
+          })
           if (estado)
             chips.push({
               label: `Estado: ${ESTADO_LABEL[estado]}`,
@@ -608,6 +718,22 @@ function ConcursosListaTab() {
               label: validado === 'true' ? 'Validados' : 'Sin validar',
               onClear: () => resetPage(setValidado)(''),
             })
+          if (fechaBajaDesde || fechaBajaHasta)
+            chips.push({
+              label: `Fecha de baja: ${fechaBajaDesde || '…'} → ${fechaBajaHasta || '…'}`,
+              onClear: () => {
+                resetPage(setFechaBajaDesde)('')
+                setFechaBajaHasta('')
+              },
+            })
+          if (fechaEeConcursoDesde || fechaEeConcursoHasta)
+            chips.push({
+              label: `Fecha de expediente: ${fechaEeConcursoDesde || '…'} → ${fechaEeConcursoHasta || '…'}`,
+              onClear: () => {
+                resetPage(setFechaEeConcursoDesde)('')
+                setFechaEeConcursoHasta('')
+              },
+            })
           if (etiquetasFiltro.length > 0)
             chips.push({
               label: `Etiquetas: ${etiquetasFiltro.join(', ')}`,
@@ -638,7 +764,7 @@ function ConcursosListaTab() {
                 onClick={() => {
                   setSearch('')
                   setEspecialidad('')
-                  setHospitalId('')
+                  setHospitalIds([])
                   setEstado('')
                   setSubEstado('')
                   setEtapa('')
@@ -647,7 +773,12 @@ function ConcursosListaTab() {
                   setPersonaOm('')
                   setValidado('')
                   setPuesto('')
+                  setPuestoCargoId('')
                   setConduccion('')
+                  setFechaBajaDesde('')
+                  setFechaBajaHasta('')
+                  setFechaEeConcursoDesde('')
+                  setFechaEeConcursoHasta('')
                   setEtiquetasFiltro([])
                   setPage(1)
                 }}
@@ -769,7 +900,8 @@ function ConcursosListaTab() {
                           </td>
                           <td className="px-4 py-3">
                             <EtiquetasControl
-                              concursoCphId={c.id}
+                              entidad="concurso_cph"
+                              entidadId={c.id}
                               asignadas={c.etiquetas ?? []}
                               variant="compacto"
                             />
@@ -950,13 +1082,124 @@ function ConcursosListaTab() {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Puesto
                 </p>
-                <input
-                  type="text"
-                  placeholder="Buscar puesto…"
+                {/* Autocompletar contra el catálogo CPH: solo puestos mapeados
+                    (SearchableSelect solo emite onChange al elegir una opción).
+                    El estado `puesto` guarda el NOMBRE crudo del catálogo (el
+                    mismo string que viaja al backend); `puestoCargoId` guarda
+                    el id para habilitar/poblar la especialidad dependiente. */}
+                <SearchableSelect
                   value={puesto}
-                  onChange={(e) => resetPage(setPuesto)(e.target.value)}
-                  className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                  onChange={(nombre) => {
+                    resetPage(setPuesto)(nombre)
+                    setPuestoCargoId(
+                      puestosCatalogo.find(
+                        (p) => p.nombre === nombre || capitalizar(p.nombre) === nombre,
+                      )?.id ?? '',
+                    )
+                    // Al cambiar de puesto, limpiar la especialidad dependiente.
+                    resetPage(setEspecialidad)('')
+                  }}
+                  options={puestosCatalogo.map((p) => capitalizar(p.nombre))}
+                  valueToDisplay={(v) =>
+                    capitalizar(
+                      puestosCatalogo.find((p) => p.nombre === v || capitalizar(p.nombre) === v)
+                        ?.nombre,
+                    ) || v
+                  }
+                  displayToValue={(label) =>
+                    puestosCatalogo.find((p) => capitalizar(p.nombre) === label)?.nombre ?? label
+                  }
+                  placeholder={escalafonCphId ? 'Buscar puesto…' : 'Catálogo no disponible'}
+                  disabled={!escalafonCphId}
+                  className="w-full"
                 />
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Especialidad del puesto
+                </p>
+                {/* Especialidad DEPENDIENTE del puesto elegido. Deshabilitada
+                    hasta elegir un puesto o si el puesto no tiene especialidades
+                    en el catálogo. Escribe sobre el MISMO estado `especialidad`
+                    (nombre string) que viaja al backend. */}
+                <SearchableSelect
+                  value={especialidad}
+                  onChange={(nombre) => resetPage(setEspecialidad)(nombre)}
+                  options={especialidadesPuesto.map((e) => capitalizar(e.nombre))}
+                  valueToDisplay={(v) =>
+                    capitalizar(
+                      especialidadesPuesto.find(
+                        (e) => e.nombre === v || capitalizar(e.nombre) === v,
+                      )?.nombre,
+                    ) || v
+                  }
+                  displayToValue={(label) =>
+                    especialidadesPuesto.find((e) => capitalizar(e.nombre) === label)?.nombre ??
+                    label
+                  }
+                  placeholder={
+                    !puestoCargoId
+                      ? 'Elegí un puesto primero'
+                      : especialidadesPuesto.length === 0
+                        ? 'El puesto no tiene especialidades'
+                        : 'Todas las especialidades'
+                  }
+                  disabled={!puestoCargoId || especialidadesPuesto.length === 0}
+                  className="w-full"
+                />
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Fecha de baja
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Desde</span>
+                    <input
+                      type="date"
+                      value={fechaBajaDesde}
+                      onChange={(e) => resetPage(setFechaBajaDesde)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Hasta</span>
+                    <input
+                      type="date"
+                      value={fechaBajaHasta}
+                      onChange={(e) => resetPage(setFechaBajaHasta)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Fecha de expediente de concurso
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Desde</span>
+                    <input
+                      type="date"
+                      value={fechaEeConcursoDesde}
+                      onChange={(e) => resetPage(setFechaEeConcursoDesde)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] text-gray-500 mb-1">Hasta</span>
+                    <input
+                      type="date"
+                      value={fechaEeConcursoHasta}
+                      onChange={(e) => resetPage(setFechaEeConcursoHasta)(e.target.value)}
+                      className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                    />
+                  </label>
+                </div>
               </section>
 
               <section>
@@ -985,6 +1228,10 @@ function ConcursosListaTab() {
                 validado ||
                 puesto ||
                 conduccion ||
+                fechaBajaDesde ||
+                fechaBajaHasta ||
+                fechaEeConcursoDesde ||
+                fechaEeConcursoHasta ||
                 etiquetasFiltro.length > 0) && (
                 <button
                   onClick={() => {
@@ -994,7 +1241,13 @@ function ConcursosListaTab() {
                     resetPage(setPersonaOm)('')
                     resetPage(setValidado)('')
                     resetPage(setPuesto)('')
+                    setPuestoCargoId('')
+                    resetPage(setEspecialidad)('')
                     resetPage(setConduccion)('')
+                    resetPage(setFechaBajaDesde)('')
+                    setFechaBajaHasta('')
+                    resetPage(setFechaEeConcursoDesde)('')
+                    setFechaEeConcursoHasta('')
                     resetPage(setEtiquetasFiltro)([])
                   }}
                   className="flex-1 btn-outline text-danger border-danger hover:bg-danger/5"

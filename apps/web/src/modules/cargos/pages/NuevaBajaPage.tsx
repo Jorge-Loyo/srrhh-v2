@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useCodigosRegistro } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
@@ -8,54 +8,108 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import type { Baja, Cargo, CargoDetail, PaginatedResponse, TipoConcurso } from '@srrhh/types'
 import {
   OPCIONES_ORIGEN, OPCIONES_MOTIVO_BAJA,
-  CEETPS_CODIGOS,
+  CEETPS_CODIGOS, origenToMotivoConcurso,
+  getPuestoOptions, getEspecialidadOptions,
 } from '../lib/bajasHelpers'
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 
 type Paso = 1 | 2 | 3
 
 function ModalBuscarCargo({
+  origen,
   onSeleccionar,
   onCerrar,
 }: {
+  origen: string
   onSeleccionar: (c: Cargo) => void
   onCerrar: () => void
 }) {
+  // Modo "Cobertura Dotación": se buscan cargos VACANTES (sin ocupante), que
+  // siempre son POU + CPH (código de registro 37). No hay persona ni id_sial que
+  // buscar → se ocultan los inputs de texto y el filtro de carrera queda fijo en
+  // 37. Puesto (solo POU) y especialidad (cascada) son desplegables.
+  const esCobertura = origen === 'Cobertura Dotación'
+  // Modo "Retención de Cargo": solo tiene sentido buscar personas en situación
+  // de revista "retención de cargo", y el cargo siempre vigente. Por eso la
+  // situación de revista queda fija y el filtro de estado del cargo se oculta.
+  const esRetencion = origen === 'Retención de Cargo'
+
   const [hospitalId, setHospitalId] = useState('')
   const [codigoRegistroId, setCodigoRegistroId] = useState('')
+  const [estadoFiltro, setEstadoFiltro] = useState('')
+  const [situacionRevista, setSituacionRevista] = useState(esRetencion ? 'retencion de cargo' : '')
   const [busqueda, setBusqueda] = useState('')
   const [personaBusq, setPersonaBusq] = useState('')
+  // Cobertura Dotación: puesto (POU) y especialidad en cascada.
+  const [puestoCob, setPuestoCob] = useState('')
+  const [especialidadCob, setEspecialidadCob] = useState('')
   const { data: hospitales } = useHospitales()
   const { data: codigosRegistro } = useCodigosRegistro()
 
-  const activo = !!(hospitalId || codigoRegistroId || busqueda.length >= 2 || personaBusq.length >= 2)
+  // Código de registro 37 (CPH) — en Cobertura Dotación la carrera va fija a 37.
+  const codigoReg37 = codigosRegistro?.find((cr) => cr.codigo === '37')
+  // Puestos POU (guardia) para el desplegable de Cobertura Dotación.
+  const puestosPou = getPuestoOptions('POU', '')
+  const especialidadesCob = puestoCob ? getEspecialidadOptions(puestoCob) : []
+
+  const activoCobertura = !!(codigoReg37 && (hospitalId || puestoCob || especialidadCob))
+  const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
+  const activo = esCobertura ? activoCobertura : activoDefault
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['cargo-modal-baja', hospitalId, codigoRegistroId, busqueda, personaBusq],
+    queryKey: esCobertura
+      ? ['cargo-modal-baja-cobertura', hospitalId, codigoReg37?.id, puestoCob, especialidadCob]
+      : ['cargo-modal-baja', hospitalId, codigoRegistroId, estadoFiltro, situacionRevista, busqueda, personaBusq],
     enabled: activo,
     placeholderData: (prev) => prev,
     queryFn: async () => {
+      if (esCobertura) {
+        // Vacante = cargo vigente SIN ocupante (ocupado=false). Siempre POU +
+        // código de registro 37. Puesto/especialidad filtran server-side.
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: {
+            limit: 40,
+            estado: 'vigente',
+            ocupado: 'false',
+            ...(codigoReg37 && { codigoRegistroId: codigoReg37.id }),
+            ...(hospitalId && { hospitalId }),
+            ...(puestoCob && { literalPuesto: puestoCob }),
+            ...(especialidadCob && { especialidad: especialidadCob }),
+          },
+        })
+        return res.data.data
+      }
+      const comunes = {
+        ...(hospitalId && { hospitalId }),
+        ...(codigoRegistroId && { codigoRegistroId }),
+        ...(situacionRevista && { situacionRevista }),
+        ...(busqueda.length >= 2 && { search: busqueda }),
+        ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
+      }
+      // Retención de Cargo: el filtro de estado del cargo no se muestra; siempre
+      // se traen cargos vigentes (es donde la persona retiene el cargo).
+      if (esRetencion) {
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: { limit: 40, estado: 'vigente', ...comunes },
+        })
+        return res.data.data
+      }
+      // Si el usuario eligió un estado, se consulta solo ese. Si no, se mantiene
+      // el comportamiento por defecto: vigentes + en validación.
+      if (estadoFiltro) {
+        const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
+          params: { limit: 40, estado: estadoFiltro, ...comunes },
+        })
+        return res.data.data
+      }
       const [r1, r2] = await Promise.all([
         apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
-          params: {
-            limit: 30,
-            estado: 'vigente',
-            ...(hospitalId && { hospitalId }),
-            ...(codigoRegistroId && { codigoRegistroId }),
-            ...(busqueda.length >= 2 && { search: busqueda }),
-            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
-          },
+          params: { limit: 30, estado: 'vigente', ...comunes },
         }),
         apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos', {
-          params: {
-            limit: 10,
-            estado: 'validacion_vacante',
-            ...(hospitalId && { hospitalId }),
-            ...(codigoRegistroId && { codigoRegistroId }),
-            ...(busqueda.length >= 2 && { search: busqueda }),
-            ...(personaBusq.length >= 2 && { personaSearch: personaBusq }),
-          },
+          params: { limit: 10, estado: 'validacion_vacante', ...comunes },
         }),
       ])
       return [...r1.data.data, ...r2.data.data]
@@ -69,36 +123,123 @@ function ModalBuscarCargo({
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="font-primary text-base font-bold text-gray-900">Buscar cargo</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Filtrá por sigla, código, puesto, especialidad o persona</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {esCobertura
+                ? 'Cargos vacantes POU (CPH 37) — filtrá por sigla, puesto y especialidad'
+                : 'Filtrá por sigla, código, puesto, especialidad o persona'}
+            </p>
           </div>
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 border-b border-gray-100 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
-              <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Todas</option>
-                {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-              <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
-                <option value="">Todas</option>
-                {codigosRegistro?.map((cr) => (
-                  <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
-            <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
-          </div>
+          {esCobertura ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
+                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+                  {/* Fija en CPH (código 37) — no elegible en Cobertura Dotación. */}
+                  <select value="37" disabled className="input h-9 w-full text-sm bg-gray-50 text-gray-600">
+                    <option value="37">37{codigoReg37?.literal ? ` — ${codigoReg37.literal}` : ''}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto (POU)</label>
+                  <select
+                    value={puestoCob}
+                    onChange={(e) => { setPuestoCob(e.target.value); setEspecialidadCob('') }}
+                    className="input h-9 w-full text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {puestosPou.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Especialidad</label>
+                  <select
+                    value={especialidadCob}
+                    onChange={(e) => setEspecialidadCob(e.target.value)}
+                    disabled={!puestoCob}
+                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option value="">{puestoCob ? 'Todas' : 'Elegí un puesto primero'}</option>
+                    {especialidadesCob.map((e) => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla</label>
+                  <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {hospitales?.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+                  <select value={codigoRegistroId} onChange={(e) => setCodigoRegistroId(e.target.value)} className="input h-9 w-full text-sm">
+                    <option value="">Todas</option>
+                    {codigosRegistro?.map((cr) => (
+                      <option key={cr.id} value={cr.id}>{cr.codigo} — {cr.literal}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Código, ID SIAL, puesto, especialidad..." className="input h-9 w-full text-sm" />
+                <input type="text" value={personaBusq} onChange={(e) => setPersonaBusq(e.target.value)} placeholder="Nombre o CUIL de la persona..." className="input h-9 w-full text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {/* En Retención de Cargo el estado del cargo no se elige: siempre vigente. */}
+                {!esRetencion && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Estado del cargo</label>
+                    <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)} className="input h-9 w-full text-sm">
+                      <option value="">Vigentes + en validación</option>
+                      <option value="vigente">Vigente</option>
+                      <option value="validacion_vacante">En validación</option>
+                      <option value="no_vigente">No vigente</option>
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Estado de la persona en el puesto</label>
+                  {/* En Retención de Cargo queda fija en "retención de cargo" (única opción posible). */}
+                  <select
+                    value={situacionRevista}
+                    onChange={(e) => setSituacionRevista(e.target.value)}
+                    disabled={esRetencion}
+                    className="input h-9 w-full text-sm disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed"
+                  >
+                    {!esRetencion && <option value="">Todos</option>}
+                    {!esRetencion && <option value="activo">Activo</option>}
+                    {!esRetencion && <option value="comision">Comisión</option>}
+                    <option value="retencion de cargo">Retención de cargo</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
+          {!activo && (
+            <p className="p-6 text-sm text-gray-400 text-center">
+              {esCobertura
+                ? 'Seleccioná una sigla, un puesto o una especialidad'
+                : 'Seleccioná una sigla o escribí al menos 2 caracteres'}
+            </p>
+          )}
           {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
           {activo && !isLoading && isError && (
             <p className="p-6 text-sm text-danger text-center">
@@ -111,6 +252,7 @@ function ModalBuscarCargo({
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Código</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">ID SIAL Rol</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Puesto</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Especialidad</th>
@@ -122,6 +264,7 @@ function ModalBuscarCargo({
                 {data?.map((c) => (
                   <tr key={c.id} onClick={() => onSeleccionar(c)} className="cursor-pointer hover:bg-blue-50 transition-colors">
                     <td className="px-3 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">{c.codigo ?? '—'}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">{c.idSial ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{c.hospital?.sigla ?? '—'}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[220px]">
                       <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
@@ -133,9 +276,17 @@ function ModalBuscarCargo({
                       {c.personaOcupante ? c.personaOcupante.apellidoNombre : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className={c.estado === 'validacion_vacante' ? 'badge-warning' : c.ocupado ? 'badge-success' : 'badge-warning'}>
-                        {c.estado === 'validacion_vacante' ? 'En validación' : c.ocupado ? 'Ocupado' : 'Vacante'}
-                      </span>
+                      {(() => {
+                        if (c.estado === 'validacion_vacante') {
+                          return <span className="badge-warning">En validación</span>
+                        }
+                        // Lee el sub-estado persistido; fallback transitorio a la
+                        // ocupación mientras el backfill no haya corrido (ver D4).
+                        const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
+                        const label = sub === 'ocupado' ? 'Ocupado' : sub === 'concurso' ? 'Concurso' : 'Vacante'
+                        const cls = sub === 'ocupado' ? 'badge-success' : sub === 'concurso' ? 'badge-info' : 'badge-warning'
+                        return <span className={cls}>{label}</span>
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -213,6 +364,7 @@ function derivarDesdeCargo(det: CargoDetail) {
 // ── Página principal ──────────────────────────────────────────────────────────
 export function NuevaBajaPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const { bajaId } = useParams<{ bajaId?: string }>()
   const modoEdicion = !!bajaId
@@ -240,7 +392,10 @@ export function NuevaBajaPage() {
   const [especialidad, setEspecialidad] = useState('')
 
   // ── campos editables ──
-  const [origen, setOrigen] = useState('')
+  // Origen puede venir fijado por el modal "Gestión de Cargos" (query ?origen=...).
+  // Si viene, se inicializa con ese valor y el dropdown queda bloqueado.
+  const origenFijado = searchParams.get('origen') ?? ''
+  const [origen, setOrigen] = useState(origenFijado)
   const [exBaja, setExBaja] = useState('')
   const [partida, setPartida] = useState('')
   const [fechaBaja, setFechaBaja] = useState('')   // siempre ISO yyyy-mm-dd en el input
@@ -258,6 +413,20 @@ export function NuevaBajaPage() {
   const [guardando, setGuardando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [error, setError] = useState('')
+
+  // Campos diferidos: Doc. respaldatoria y Fecha pase paralelo/GT pueden quedar
+  // pendientes. Si al avanzar/guardar alguno está vacío, se pide confirmación
+  // previa y, si el usuario acepta, se ejecuta la acción diferida guardada acá.
+  const [avisoDiferidos, setAvisoDiferidos] = useState<null | (() => void)>(null)
+  const hayCamposDiferidosPendientes = !docRespaldatoria || !fechaPaseParalelo
+  // Ejecuta `accion` directo si no hay pendientes; si los hay, muestra el aviso.
+  function conAvisoDiferidos(accion: () => void) {
+    if (hayCamposDiferidosPendientes) {
+      setAvisoDiferidos(() => accion)
+    } else {
+      accion()
+    }
+  }
 
   // ── cargar baja existente (modo edición) ──
   const { data: bajaExistente } = useQuery({
@@ -299,8 +468,31 @@ export function NuevaBajaPage() {
     }
   }, [bajaExistente])
 
+  // Si el origen vino fijado por el modal "Gestión de Cargos", aplicar su lógica
+  // (ej. "Cobertura Dotación" fuerza el motivo) una sola vez al montar.
+  useEffect(() => {
+    if (origenFijado) handleOrigenChange(origenFijado)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const codigoNum = Number(codigoRegistro)
   const esCeetps = CEETPS_CODIGOS.includes(codigoNum)
+  // Origen "Retención de Cargo": label de fecha y motivo fijo/bloqueado.
+  const esRetencion = origen === 'Retención de Cargo'
+
+  // Refresca solo las etiquetas del cargo tras asignar/quitar una, sin pisar los
+  // campos derivados (algunos editables como CUIL/nombre en alta manual).
+  async function refrescarEtiquetasCargo() {
+    if (!cargo) return
+    try {
+      const res = await apiClient.get<{ data: CargoDetail }>(`/api/v1/cargos/${cargo.id}`)
+      const det = res.data.data
+      setCargo((prev) => (prev ? { ...prev, etiquetas: det.etiquetas ?? [] } : prev))
+    } catch {
+      // Silencioso: el EtiquetasControl ya muestra su propio toast en error de
+      // asignación/quita; un fallo de refresco no debe bloquear el formulario.
+    }
+  }
 
   function aplicarCargo(det: CargoDetail) {
     const d = derivarDesdeCargo(det)
@@ -343,6 +535,11 @@ export function NuevaBajaPage() {
       setDocRespaldatoria('')
       setMotivo('Cobertura Dotación')
     }
+    // Retención de Cargo: el motivo queda fijo y bloqueado en 'Retención de
+    // Cargo' (mismo patrón que Cobertura Dotación, pero solo fija el motivo).
+    if (v === 'Retención de Cargo') {
+      setMotivo('Retención de Cargo')
+    }
   }
 
   const paso1Valido = !!(cargo && fechaBaja && motivo && origen)
@@ -372,7 +569,11 @@ export function NuevaBajaPage() {
       cargaHoraria: cargaHoraria ? Number(cargaHoraria) : undefined,
       observaciones: observaciones || undefined,
       generaConcurso: conConcurso,
-      ...(conConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
+      ...(conConcurso && {
+        tipoConcurso: tipoConcursoSeleccionado,
+        // Propaga el tipo elegido en "Origen" al concurso que se genera.
+        motivoConcurso: origenToMotivoConcurso(origen),
+      }),
     }
   }
 
@@ -411,7 +612,10 @@ export function NuevaBajaPage() {
         // Si ya pasó por paso 2 y decidió, preservar la decisión
         ...(generaConcurso !== null && {
           generaConcurso,
-          ...(generaConcurso && { tipoConcurso: tipoConcursoSeleccionado }),
+          ...(generaConcurso && {
+            tipoConcurso: tipoConcursoSeleccionado,
+            motivoConcurso: origenToMotivoConcurso(origen),
+          }),
         }),
       }
       if (modoEdicion) {
@@ -436,6 +640,33 @@ export function NuevaBajaPage() {
       }
     } catch {
       setError('No se pudo guardar el borrador.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  // Anular borrador: solo disponible en modo edición sobre una baja en
+  // 'resolucion_a_la_firma'. Lleva la baja a 'anulada' sin tocar el cargo.
+  const puedeAnular = modoEdicion && (bajaExistente?.estado as string | undefined) === 'resolucion_a_la_firma'
+
+  const mutAnular = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<{ data: Baja }>(`/api/v1/bajas/${bajaId}/anular`)
+      return res.data.data
+    },
+  })
+
+  async function anular() {
+    if (!bajaId) return
+    if (!window.confirm('¿Anular esta baja? El borrador quedará anulado y el cargo no se modifica.')) return
+    setGuardando(true); setError('')
+    try {
+      await mutAnular.mutateAsync()
+      queryClient.invalidateQueries({ queryKey: ['bajas'] })
+      navigate('/cargos/alta-por-baja')
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message ?? ''
+      setError(msg || 'No se pudo anular la baja. Intentá de nuevo.')
     } finally {
       setGuardando(false)
     }
@@ -480,9 +711,43 @@ export function NuevaBajaPage() {
     <>
       {modalAbierto && (
         <ModalBuscarCargo
+          origen={origen}
           onSeleccionar={seleccionarCargo}
           onCerrar={() => setModalAbierto(false)}
         />
+      )}
+
+      {/* Aviso previo — campos diferidos pendientes (Doc. respaldatoria / Fecha
+          pase paralelo). Al confirmar se ejecuta la acción diferida guardada. */}
+      {avisoDiferidos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setAvisoDiferidos(null)} />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-start gap-3">
+              <span className="text-xl">⚠️</span>
+              <h2 className="font-primary text-base font-bold text-gray-900">Datos pendientes de completar</h2>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-gray-600">
+                Doc. respaldatoria y/o Fecha pase paralelo quedarán pendientes de completar. Podés
+                cargarlos después desde la lista de bajas. ¿Continuar?
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button className="btn-outline" onClick={() => setAvisoDiferidos(null)}>Cancelar</button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const accion = avisoDiferidos
+                  setAvisoDiferidos(null)
+                  accion()
+                }}
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="max-w-3xl mx-auto space-y-6">
@@ -539,7 +804,12 @@ export function NuevaBajaPage() {
               <Section title="Identificación">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Origen" required>
-                    <select value={origen} onChange={(e) => handleOrigenChange(e.target.value)} className="input h-10 w-full">
+                    <select
+                      value={origen}
+                      onChange={(e) => handleOrigenChange(e.target.value)}
+                      disabled={!!origenFijado || modoEdicion}
+                      className="input h-10 w-full disabled:bg-gray-100 disabled:text-gray-600 disabled:cursor-not-allowed"
+                    >
                       <option value="">Seleccioná...</option>
                       {OPCIONES_ORIGEN.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
@@ -587,7 +857,24 @@ export function NuevaBajaPage() {
                       Cambiar
                     </button>
                   </div>
-                ) : (
+                ) : null}
+
+                {/* Etiquetas del cargo — disponibles en cualquier formulario que
+                    gestione un cargo. Solo se muestran cuando hay un cargo
+                    seleccionado. */}
+                {cargo && !cargandoCargo && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-500">Etiquetas:</span>
+                    <EtiquetasControl
+                      entidad="cargo"
+                      entidadId={cargo.id}
+                      asignadas={cargo.etiquetas ?? []}
+                      onCambio={refrescarEtiquetasCargo}
+                    />
+                  </div>
+                )}
+
+                {!cargandoCargo && !cargo && (
                   <button
                     type="button"
                     onClick={() => setModalAbierto(true)}
@@ -652,7 +939,7 @@ export function NuevaBajaPage() {
               {/* Fechas */}
               <Section title="Fechas y expediente">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <Field label="Fecha de baja" required>
+                  <Field label={esRetencion ? 'Fecha de retención' : 'Fecha de baja'} required>
                     <input
                       type="date"
                       value={fechaBaja}
@@ -673,8 +960,8 @@ export function NuevaBajaPage() {
                     <select
                       value={motivo}
                       onChange={(e) => setMotivo(e.target.value)}
-                      disabled={['Cobertura Dotación', 'Ampliación', 'POU a POF'].includes(origen)}
-                      className="input h-10 w-full"
+                      disabled={esRetencion || ['Cobertura Dotación', 'Ampliación', 'POU a POF'].includes(origen)}
+                      className="input h-10 w-full disabled:bg-gray-100 disabled:text-gray-600 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccioná...</option>
                       {OPCIONES_MOTIVO_BAJA.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -714,19 +1001,31 @@ export function NuevaBajaPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">
-                {[!cargo && 'Asigná un cargo', !fechaBaja && 'Completá la fecha', !motivo && 'Seleccioná un motivo'].filter(Boolean).join(' · ')}
-              </p>
+              <div className="flex items-center gap-3">
+                {puedeAnular && (
+                  <button
+                    type="button"
+                    disabled={guardando}
+                    onClick={anular}
+                    className="px-4 h-10 rounded-lg border-2 border-danger text-danger text-sm font-semibold hover:bg-danger hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Anular baja
+                  </button>
+                )}
+                <p className="text-xs text-gray-400">
+                  {[!cargo && 'Asigná un cargo', !fechaBaja && 'Completá la fecha', !motivo && 'Seleccioná un motivo'].filter(Boolean).join(' · ')}
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 {guardadoOk && <span className="text-sm text-green-600 font-medium">✓ Guardado</span>}
                 {error && <span className="text-sm text-danger">{error}</span>}
                 {modoEdicion && (
                   <button className="btn-outline" onClick={() => navigate(volverUrl)}>← Volver</button>
                 )}
-                <button className="btn-outline" disabled={!cargo || guardando} onClick={guardarBorrador}>
+                <button className="btn-outline" disabled={!cargo || guardando} onClick={() => conAvisoDiferidos(guardarBorrador)}>
                   {guardando ? 'Guardando...' : 'Guardar borrador'}
                 </button>
-                <button className="btn-primary" disabled={!paso1Valido} onClick={avanzar}>
+                <button className="btn-primary" disabled={!paso1Valido} onClick={() => conAvisoDiferidos(avanzar)}>
                   Continuar →
                 </button>
               </div>
@@ -839,7 +1138,7 @@ export function NuevaBajaPage() {
                 <Row label="POU/POF"          value={pouPof} />
                 <Row label="Puesto"           value={puesto} />
                 <Row label="Especialidad"     value={especialidad} />
-                <Row label="Fecha de baja"    value={fechaBaja} />
+                <Row label={esRetencion ? 'Fecha de retención' : 'Fecha de baja'} value={fechaBaja} />
                 <Row label="Carga horaria"    value={cargaHoraria ? `${cargaHoraria} hs` : ''} />
                 <Row label="Motivo"           value={motivo} />
                 {docRespaldatoria && <Row label="Doc. respaldatoria" value={docRespaldatoria} />}

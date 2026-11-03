@@ -11,6 +11,19 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  // Guarda contra padrón parcial: ratio mínimo (totalNuevo / totalÚltimoAprobado)
+  // por debajo del cual el padrón se considera sospechosamente chico (posible
+  // exportación parcial del SIAL) y la aprobación queda bloqueada salvo override.
+  // Datos reales: parciales dan 0.06–0.60; un completo normal ~1.0.
+  PADRON_RATIO_MINIMO: z.coerce.number().min(0).max(1).default(0.7),
+  // Guarda contra padrón aprobado sin la baja SIAL de la semana. Exige que, al
+  // aprobar un snapshot de padrón, exista al menos una baja SIAL SUBIDA
+  // (estado IN ('pendiente','aprobado')) cuya fecha_archivo caiga dentro de
+  // ±PADRON_BAJA_SIAL_VENTANA_DIAS de la fecha del padrón; de lo contrario la
+  // aprobación queda bloqueada salvo override explícito auditado. Previene el
+  // backlog de validacion_vacante por bajas SIAL no cargadas.
+  PADRON_EXIGIR_BAJA_SIAL: z.coerce.boolean().default(true),
+  PADRON_BAJA_SIAL_VENTANA_DIAS: z.coerce.number().int().min(0).default(7),
 })
 
 // Bajo Vitest (process.env.VITEST) se completan valores placeholder para las

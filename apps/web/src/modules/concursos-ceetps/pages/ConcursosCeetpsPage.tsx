@@ -9,6 +9,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCeetps } from '../hooks/useConcursosCeetps'
 import { AlertasSinMovimientoCeetps } from '../components/AlertasSinMovimientoCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 
 const LIMIT = 50
 
@@ -138,11 +139,10 @@ export function ConcursosCeetpsPage() {
                             <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
                           </td>
                           <td className="px-4 py-3">
-                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
-                              <span className="badge-info text-xs">Nuevo cargo</span>
-                            )}
-                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            {motivoConcursoLabel(c.concurso?.motivoConcurso) && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                                {motivoConcursoLabel(c.concurso?.motivoConcurso)}
+                              </span>
                             )}
                           </td>
                           <td className="px-4 py-3">

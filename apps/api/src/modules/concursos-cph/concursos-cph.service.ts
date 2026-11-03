@@ -7,6 +7,7 @@ import type {
   PatchConcursoCphBody,
   SuspenderConcursoCphBody,
   DesignarCphBody,
+  AsignarDesignadoCphBody,
   DeclararDesiertoBody,
 } from './concursos-cph.schema.js'
 import {
@@ -21,6 +22,7 @@ import {
 } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
+import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
 
 const include = {
   concurso: {
@@ -30,7 +32,11 @@ const include = {
       // en vez de especialidadLegacy (snapshot que dejó de mantenerse).
       cargo: { include: { hospital: true, codigoRegistro: true, especialidadPuesto: true } },
       persona: true,
-      baja: true,
+      // baja.persona: los concursos importados no tienen concurso.persona (el
+      // Concurso base no guardó personaId), pero la persona que se fue SÍ está
+      // en la baja. Se incluye para que el encabezado del wizard muestre quién
+      // se dio de baja (fallback a baja.persona cuando concurso.persona es null).
+      baja: { include: { persona: true } },
     },
   },
   hospital: true,
@@ -88,6 +94,8 @@ function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
     cargoSial: row.cargoSial,
     dispoDesierta: row.dispoDesierta,
     fechaDispoDesierta: row.fechaDispoDesierta,
+    validado: row.validado,
+    validadoIdSialRol: row.validadoIdSialRol,
   }
 }
 
@@ -97,6 +105,7 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     page,
     limit,
     hospitalId,
+    hospitalIds,
     cargoId,
     estado,
     subEstado,
@@ -113,6 +122,12 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     etiquetaIds,
     personaOm,
     validado,
+    ordenarPor,
+    orden,
+    fechaBajaDesde,
+    fechaBajaHasta,
+    fechaEeConcursoDesde,
+    fechaEeConcursoHasta,
   } = query
   const offset = (page - 1) * limit
 
@@ -273,27 +288,55 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     etapaWhere = { subEstado: { in: SUB_ESTADOS_POR_ETAPA[etapa as 2 | 3 | 4 | 5] } }
   }
 
+  // Filtros de rango por fecha (independientes y combinables por AND). Las
+  // columnas fecha_baja / fecha_ee_concurso son scalar en ConcursoCph, así que
+  // se expresan como condiciones gte/lte directas. El "hasta" se parsea con
+  // T23:59:59.999 para incluir el día completo (las fechas pueden venir con
+  // componente horario). Cada rango se arma solo si llegó al menos un extremo.
+  const rangoFechaBaja: Prisma.DateTimeNullableFilter | undefined =
+    fechaBajaDesde || fechaBajaHasta
+      ? {
+          ...(fechaBajaDesde && { gte: new Date(`${fechaBajaDesde}T00:00:00.000`) }),
+          ...(fechaBajaHasta && { lte: new Date(`${fechaBajaHasta}T23:59:59.999`) }),
+        }
+      : undefined
+  const rangoFechaEeConcurso: Prisma.DateTimeNullableFilter | undefined =
+    fechaEeConcursoDesde || fechaEeConcursoHasta
+      ? {
+          ...(fechaEeConcursoDesde && { gte: new Date(`${fechaEeConcursoDesde}T00:00:00.000`) }),
+          ...(fechaEeConcursoHasta && { lte: new Date(`${fechaEeConcursoHasta}T23:59:59.999`) }),
+        }
+      : undefined
+
   const where: Prisma.ConcursoCphWhereInput = {
     // etapaWhere se combina por AND para que su NOT (etapa 1) no colisione con
     // la clave OR de personaOm (ambos usarían claves de nivel superior).
     ...(etapa !== undefined && { AND: [etapaWhere] }),
-    ...(hospitalId && { hospitalId }),
+    // Filtro por efector: si viene multi-sigla (hospitalIds) se filtra con IN
+    // (OR entre efectores); si no, se usa el hospitalId single (compatibilidad).
+    ...(hospitalIds?.length ? { hospitalId: { in: hospitalIds } } : hospitalId ? { hospitalId } : {}),
     ...(cargoId && { cargoId }),
     ...estadoWhere,
     ...(subEstado && { subEstado }),
     ...(suspendido !== undefined && { suspendido }),
     ...(pendienteAutorizacion !== undefined && { pendienteAutorizacion }),
     ...(idIn !== undefined && { id: { in: idIn } }),
-    // Origen / documentación respaldatoria:
-    //  - baja: tiene baja asociada
-    //  - ampliacion: sin baja, pero el cargo tiene expediente de alta
-    //  - cobertura: sin baja y sin expediente de cargo (sin documentación)
-    ...(origen === 'baja' && { concurso: { is: { bajaId: { not: null } } } }),
+    // Origen / documentación respaldatoria. Se basa en eeBaja (texto del
+    // expediente de baja en el propio ConcursoCph), NO en la FK concurso.bajaId:
+    // los concursos importados traen el expediente de baja como texto sin estar
+    // vinculados a una fila `bajas`, así que filtrar por bajaId dejaba afuera a
+    // la mayoría. Alinea con la clasificación visual respaldatoria() del front.
+    //  - baja: tiene eeBaja cargado (expediente de baja)
+    //  - ampliacion: sin eeBaja, pero el cargo tiene expediente de alta
+    //  - cobertura: sin eeBaja y sin expediente de cargo (sin documentación)
+    ...(origen === 'baja' && { eeBaja: { not: null } }),
     ...(origen === 'ampliacion' && {
-      concurso: { is: { bajaId: null, cargo: { is: { expediente: { not: null } } } } },
+      eeBaja: null,
+      concurso: { is: { cargo: { is: { expediente: { not: null } } } } },
     }),
     ...(origen === 'cobertura' && {
-      concurso: { is: { bajaId: null, cargo: { is: { expediente: null } } } },
+      eeBaja: null,
+      concurso: { is: { cargo: { is: { expediente: null } } } },
     }),
     ...(etiquetaIds?.length && { etiquetas: { some: { etiquetaId: { in: etiquetaIds } } } }),
     // Etapa 5 — "tiene persona del orden de mérito": reserva de Etapa 4
@@ -307,15 +350,30 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     }),
     // Etapa 5 — validado contra el padrón.
     ...(validado !== undefined && { validado }),
+    // Rango por fecha de baja / fecha de expediente de concurso (opcionales,
+    // independientes; cada uno es una condición gte/lte sobre su columna).
+    ...(rangoFechaBaja && { fechaBaja: rangoFechaBaja }),
+    ...(rangoFechaEeConcurso && { fechaEeConcurso: rangoFechaEeConcurso }),
   }
+
+  // Orden dinámico por la fecha elegida (fecha_ee_concurso / fecha_baja) en la
+  // dirección pedida, con NULLS LAST: los concursos sin esa fecha quedan al
+  // final sin importar asc/desc. Prisma 5.22 soporta la forma
+  // `{ sort, nulls }`. Se agrega un desempate estable por createdAt desc
+  // (orden anterior) para que páginas con muchas fechas iguales/null no bailen.
+  const campoOrden: 'fechaEeConcurso' | 'fechaBaja' =
+    ordenarPor === 'fecha_baja' ? 'fechaBaja' : 'fechaEeConcurso'
+  const orderBy: Prisma.ConcursoCphOrderByWithRelationInput[] = [
+    { [campoOrden]: { sort: orden, nulls: 'last' } },
+    { createdAt: 'desc' },
+  ]
 
   const [total, data] = await Promise.all([
     prisma.concursoCph.count({ where }),
     prisma.concursoCph.findMany({
       where,
       include,
-      // Orden: por fecha de creación, más recientes primero.
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip: offset,
       take: limit,
     }),
@@ -382,27 +440,53 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   // Detectar cambio de sigla o código de registro (campos que requieren autorización doble: director → sgrasv)
   const cargo = (
     existing.concurso as unknown as {
-      cargo?: { hospital?: { sigla?: string }; codigoRegistro?: { id?: string } }
+      cargo?: {
+        escalafonId?: string
+        hospital?: { sigla?: string }
+        codigoRegistro?: { id?: string; escalafonId?: string }
+      }
     }
   )?.cargo
   const siglaActual = cargo?.hospital?.sigla ?? ''
-  const crIdActual = cargo?.codigoRegistro?.id ?? ''
-  // Comparación de sigla normalizada (trim + case-insensitive): 'HGAT' vs
-  // 'hgat' o ' HGAT ' NO cuenta como cambio y no debe enrutar al Director.
+  // Escalafón real del cargo = identidad ESTABLE de la carrera. Se prefiere el
+  // escalafón del CR del cargo y, si no hay CR, se cae al escalafonId del
+  // propio cargo (ambos apuntan al mismo escalafón para un cargo consistente).
+  const escalafonActual = cargo?.codigoRegistro?.escalafonId ?? cargo?.escalafonId ?? ''
+  // Comparación de sigla normalizada (acentos/espacios/invisibles fuera): 'HGAT'
+  // vs 'hgat' o ' HGAT ' NO cuenta como cambio y no debe enrutar al Director.
   // Un cambio real de sigla (otro hospital) sí difiere normalizado → sigue
   // disparando autorización doble, como corresponde.
-  const normSigla = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+  const normSigla = (s: string | null | undefined) =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
   const cambiaSigla = body.sigla !== undefined && normSigla(body.sigla) !== normSigla(siglaActual)
-  // CR: se compara el id enviado contra el id del CR real del cargo. OJO: esta
-  // comparación solo es fiable si el cliente envía el id del CR del cargo
-  // (cargo.codigoRegistro.id) cuando NO cambió la carrera. El frontend ya no
-  // envía `codigoRegistroId` salvo que la carrera cambie de verdad (ver
-  // confirmarCambios en ConcursoCphWizard.tsx). Si otro cliente derivara el id
-  // de una fuente distinta — p. ej. "el primer CR del escalafón" cuando CPH
-  // tiene 2 CRs (22 y 37) — esta igualdad daría falso-positivo aunque la
-  // carrera no haya cambiado; por eso el fix principal vive en el front (no
-  // enviar el campo si no cambió) y esto es solo la red de seguridad.
-  const cambiaCr = body.codigoRegistroId !== undefined && body.codigoRegistroId !== crIdActual
+  // CARRERA por ESCALAFÓN, no por id de CR (FIX B del informe diag-bug1-persiste):
+  // el escalafón CPH tiene DOS codigos_registro con literal IDÉNTICO (CR 22 y
+  // CR 37). Comparar `body.codigoRegistroId !== crIdActual` marcaba cambio de
+  // carrera al mandar CR 22 vs CR 37 aunque sean la MISMA carrera (mismo
+  // escalafón). Ahora se resuelve el escalafón del CR enviado (lookup en
+  // codigos_registro) y solo cuenta como cambio si cambia el ESCALAFÓN. Un
+  // cambio real de carrera (otro escalafón) sí difiere → sigue enrutando a
+  // Director, como corresponde.
+  let cambiaCr = false
+  if (body.codigoRegistroId !== undefined) {
+    if (!body.codigoRegistroId) {
+      // Se pidió desvincular el CR explícitamente (null): cuenta como cambio
+      // solo si había un escalafón de carrera definido.
+      cambiaCr = escalafonActual !== ''
+    } else {
+      const crEnviado = await prisma.codigoRegistro.findUnique({
+        where: { id: body.codigoRegistroId },
+        select: { escalafonId: true },
+      })
+      const escalafonEnviado = crEnviado?.escalafonId ?? ''
+      cambiaCr = escalafonEnviado !== escalafonActual
+    }
+  }
   const requiereAutorizacionDoble = (cambiaSigla || cambiaCr) && !body.pendienteAutorizacion
 
   // Detectar cambios que requieren solo autorización de SGRASV (sin director)
@@ -460,6 +544,19 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     patch.fechaEeConcurso = new Date()
   }
 
+  // FIX C (informe diag-bug1-persiste): cuando el PATCH NO trae cambio
+  // estructural real de sigla/carrera, hay que borrar los restos de un disparo
+  // falso viejo (sigla_solicitada / codigo_registro_solicitado_id pegados por
+  // el bug del CR arbitrario) y resetear aprobadoDirector. Sin esto el concurso
+  // seguía mostrando el "cambio" falso y quedaba congelado esperando al
+  // Director. NUNCA se llama cuando requiereAutorizacionDoble es true (cambio
+  // real de sigla/escalafón), para no romper el flujo legítimo Director→SGRASV.
+  const limpiarRestosSolicitado = () => {
+    patch.siglaSolicitada = null
+    patch.codigoRegistroSolicitado = { disconnect: true }
+    patch.aprobadoDirector = false
+  }
+
   if (requiereAutorizacionDoble) {
     patch.pendienteAutorizacion = true
     patch.siglaSolicitada = body.sigla ?? null
@@ -470,6 +567,13 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     }
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     patch.pendienteAutorizacion = true
+    limpiarRestosSolicitado()
+  } else if (!body.pendienteAutorizacion) {
+    // Guardado normal sin autorización: limpia restos de un disparo falso
+    // viejo para destrabar el estado congelado. Se excluye el caso en que el
+    // cliente mantiene explícitamente pendienteAutorizacion=true (no pisar un
+    // flujo de autorización legítimo en curso).
+    limpiarRestosSolicitado()
   }
 
   // puestoCargoSolicitadoId / especialidadPuestoSolicitadaId son relaciones
@@ -485,6 +589,23 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     patch.especialidadPuestoSolicitada = body.especialidadPuestoSolicitadaId
       ? { connect: { id: body.especialidadPuestoSolicitadaId } }
       : { disconnect: true }
+  }
+
+  // Atajo de compatibilidad (Decisión A): el disparador real de o-alta sial es
+  // `validado` (la persona apareció en el padrón). Pero históricamente el alta
+  // SIAL se cargaba a mano completando `cargoSial`. Para no perder ese flujo,
+  // SOLO en este PATCH manual: si llega `cargoSial` no-vacío y el concurso no
+  // estaba validado, encender `validado`/`validadoAt` para que el recálculo
+  // devuelva o-alta sial. Este atajo vive únicamente acá; NO aplica al
+  // `cargoSial` que escribe aprobarDiffNuevoService (ese valida por el padrón).
+  if (
+    body.cargoSial !== undefined &&
+    body.cargoSial !== null &&
+    body.cargoSial !== '' &&
+    !existing.validado
+  ) {
+    patch.validado = true
+    patch.validadoAt = new Date()
   }
 
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
@@ -847,6 +968,63 @@ export async function suspenderConcursoCphService(id: string, body: SuspenderCon
   })
 }
 
+// ─── Asignar persona designada SIN ocupar el cargo ──────────────────────────
+// Caso histórico: concurso finalizado con resolución de designación cargada
+// pero sin persona_designada_id. Vincula la persona y recalcula el sub-estado
+// (→ n-designado). NO crea Ocupacion, NO modifica el Cargo, NO genera
+// id_sial_rol. La persona entra a la dotación recién cuando aparezca en el
+// padrón (import del padrón, otro flujo). A diferencia de
+// designarConcursoCphService, NO bloquea por estado==='finalizado'.
+export async function asignarDesignadoConcursoCphService(
+  id: string,
+  body: AsignarDesignadoCphBody,
+) {
+  const existing = await prisma.concursoCph.findUnique({ where: { id } })
+  if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+
+  // Reasignación permitida por defecto: si ya había persona vinculada, se
+  // sobreescribe (regla confirmada). El sub-estado se recalcula sobre la fila
+  // existente (personaDesignadaId no es input de calcConcursoCph: n-designado
+  // depende de resolucionDesignacion, ya presente en estos casos), igual que
+  // patch/suspender. NINGUNA de las dos formas ocupa el cargo ni enciende
+  // validado: la ocupación/validación llega recién con el padrón (Paso 2).
+  const data: Prisma.ConcursoCphUpdateInput = {}
+
+  if ('refCuil' in body && body.refCuil) {
+    // Forma manual por referencia. refCuil ya viene normalizado (11 dígitos)
+    // desde el schema. Guardar siempre la referencia; NO crear Persona.
+    data.designadoRefCuil = body.refCuil
+    data.designadoRefNombre = body.refNombre
+    // id_sial tipeado (opcional): se persiste en una columna dedicada para el
+    // match directo contra el padrón en el Paso 2. NO se escribe en
+    // validadoIdSialRol (ese es el rol real del padrón, lo setea el enganche).
+    data.designadoRefIdSialRol = body.idSialRol ?? null
+    // Si el CUIL de referencia matchea una Persona real ya en la BD, vincularla
+    // también por personaDesignadaId (RF-B5); si no, queda sólo la referencia y
+    // la Persona se vincula cuando el padrón la traiga.
+    const persona = await prisma.persona.findUnique({ where: { cuil: body.refCuil } })
+    if (persona) data.personaDesignada = { connect: { id: persona.id } }
+  } else if ('personaId' in body && body.personaId) {
+    // Forma existente: vincular Persona real por id. Debe existir.
+    const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
+    if (!persona) throw AppError.notFound('Persona no encontrada')
+    data.personaDesignada = { connect: { id: body.personaId } }
+  }
+
+  const calc = calcConcursoCph(toCalcInput(existing))
+
+  return prisma.concursoCph.update({
+    where: { id },
+    data: {
+      ...data,
+      estado: calc.estado,
+      subEstado: calc.subEstado,
+      subEstado3: calc.subEstado3,
+    },
+    include,
+  })
+}
+
 // ─── S16-1: registrar designación — crea Ocupacion, avanza a N-DESIGNADO ────
 export async function designarConcursoCphService(id: string, body: DesignarCphBody) {
   const concurso = await prisma.concursoCph.findUnique({
@@ -881,10 +1059,12 @@ export async function designarConcursoCphService(id: string, body: DesignarCphBo
       },
     })
 
-    // Cargo → vigente (ocupado)
+    // Cargo → vigente + ocupado. Mantener sub_estado en runtime (Paso 2,
+    // invariante del backfill: ocupado = vigente + ocupación viva). Antes la
+    // designación manual ocupaba pero dejaba sub_estado sin tocar.
     await tx.cargo.update({
       where: { id: cargoId },
-      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+      data: { estado: 'vigente', subEstado: 'ocupado', estadoDesde: new Date(body.fechaDesde) },
     })
 
     // Avanzar sub-estado a N-DESIGNADO y estado a finalizado
@@ -1020,6 +1200,10 @@ export async function importarConcursosCsvService(buffer: Buffer) {
         cargoSial: str(row['cargo_sial']),
         dispoDesierta: str(row['dispo_desierta']),
         fechaDispoDesierta: fecha(row['fecha_dispo_desierta']),
+        // Import CSV: el concurso se crea sin validar contra el padrón. El alta
+        // SIAL (o-alta sial) llega con el enganche del padrón o el PATCH manual.
+        validado: false,
+        validadoIdSialRol: null,
       }
       // Si el CSV dice FINALIZADO, forzar estado finalizado independientemente del calc
       const calc = calcConcursoCph(calcInput)
@@ -1154,6 +1338,8 @@ export async function importarConcursosCsvService(buffer: Buffer) {
       cargoSial: merged.cargoSial,
       dispoDesierta: merged.dispoDesierta,
       fechaDispoDesierta: merged.fechaDispoDesierta,
+      validado: merged.validado,
+      validadoIdSialRol: merged.validadoIdSialRol,
     })
 
     await prisma.concursoCph.update({
@@ -1254,6 +1440,36 @@ const normEsp = (s: string | null | undefined): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim()
+
+// ¿El concurso EXIGE una especialidad concreta? Reutiliza el helper canónico
+// `especialidadSialReal`, que descarta los placeholders de "sin dato" ("SIN
+// ESPECIALIDAD", "(sin especificar)", "s/e"…) y los valores vacíos/null,
+// tratándolos EXACTAMENTE igual que vacío (misma decisión de negocio que el
+// import del padrón). Si devuelve null, la especialidad NO se usa como criterio
+// de bloqueo: alcanza con que coincida la carrera.
+export function especialidadConcursoExigida(espConcurso: string | null | undefined): boolean {
+  return especialidadSialReal(espConcurso ?? null) != null
+}
+
+// Lógica pura de coincidencia de especialidad entre el concurso y un rol del
+// padrón. Extraída para poder testearla aislada (ver concursos-cph.validacion.test.ts):
+//  - Si el concurso NO exige especialidad concreta (null/vacío/placeholder "sin
+//    especialidad") → true: no bloquea por especialidad.
+//  - Si SÍ exige una especialidad concreta → se mantiene EXACTAMENTE el
+//    comportamiento previo: match (normEsp) contra la especialidad del rol o
+//    contra especialidadCph de la persona.
+export function especialidadCoincide(
+  espConcurso: string | null | undefined,
+  espOcupacion: string | null | undefined,
+  espPersonaCph: string | null | undefined,
+): boolean {
+  if (!especialidadConcursoExigida(espConcurso)) return true
+  const eNorm = normEsp(espConcurso)
+  return (
+    (!!espOcupacion && normEsp(espOcupacion) === eNorm) ||
+    (!!espPersonaCph && normEsp(espPersonaCph) === eNorm)
+  )
+}
 
 export async function getDesignacionEstadoService(id: string) {
   const concurso = await prisma.concursoCph.findUnique({
@@ -1402,14 +1618,8 @@ export async function getDesignacionEstadoService(id: string) {
     `
   }
 
-  const especialidadCoincideOcup = (o: OcupRow): boolean => {
-    if (!espConcurso) return false
-    const eNorm = normEsp(espConcurso)
-    return (
-      (!!o.especialidad && normEsp(o.especialidad) === eNorm) ||
-      (!!persona?.especialidadCph && normEsp(persona.especialidadCph) === eNorm)
-    )
-  }
+  const especialidadCoincideOcup = (o: OcupRow): boolean =>
+    especialidadCoincide(espConcurso, o.especialidad, persona?.especialidadCph)
   const carreraCoincideOcup = (o: OcupRow): boolean =>
     !!concursoInfo.escalafonId && o.escalafonId === concursoInfo.escalafonId
 

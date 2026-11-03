@@ -15,6 +15,11 @@
  */
 import { Prisma, PrismaClient } from '@prisma/client'
 import { prefijoDeCargo, siguienteCodigoCargo } from './codigoCargo.js'
+import {
+  derivarCodigoRegistroId,
+  type CrCatalogo,
+} from '../modules/padron/derivarCodigoRegistro.js'
+import { derivarRegimenId } from '../modules/padron/derivarRegimen.js'
 
 // ── Mapeo régimen_empleo del organigrama → escalafón (código canónico) ──
 const REGIMEN_A_ESCALAFON: Record<string, string> = {
@@ -117,6 +122,42 @@ export async function derivarCargosConduccionService(
   // ── 2. Catálogos ──
   const escalafones = await prisma.escalafon.findMany({ where: { activo: true } })
   const escalafonPorCodigo = new Map(escalafones.map((e) => [e.codigo, e]))
+
+  // Catálogo COMPLETO de CRs para derivar el código de registro del nodo (el
+  // organigrama no trae texto de CR → se deriva sólo del escalafón del nodo).
+  // Cardinalidad chica (~16 filas); se carga una vez. Ver derivarCodigoRegistro.ts.
+  const crCatalogo = (await prisma.codigoRegistro.findMany({
+    select: { id: true, codigo: true, escalafonId: true, escalafon: { select: { codigo: true } } },
+  })) as { id: string; codigo: string; escalafonId: string; escalafon: { codigo: string } }[]
+  const crCtxEscalafonCodigoPorId = new Map<string, string>()
+  const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
+  const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+  const crCtxCodigoPorId = new Map<string, string>()
+  for (const row of crCatalogo) {
+    const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
+    crCtxCrPorCodigo.set(row.codigo, cr)
+    crCtxCodigoPorId.set(row.id, row.codigo)
+    crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
+    const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
+    lista.push(cr)
+    crCtxCrsPorEscalafonId.set(row.escalafonId, lista)
+  }
+  const derivarCrCtx = {
+    escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
+    crsPorEscalafonId: crCtxCrsPorEscalafonId,
+    crPorCodigo: crCtxCrPorCodigo,
+  }
+  // Traduce el id del CR resuelto al código string que consume derivarRegimen.
+  const crCodigoDe = (id: string | null): string | null =>
+    id ? (crCtxCodigoPorId.get(id) ?? null) : null
+
+  // Catálogo de regímenes para la derivación del régimen del cargo de
+  // conducción (se carga una vez; ver derivarRegimen.ts). El régimen se deriva
+  // SIEMPRE después de resolver el CR.
+  const regimenesCatalogo = await prisma.regimen.findMany({ select: { id: true, nombre: true } })
+  const regimenCtx = {
+    regimenPorNombre: new Map(regimenesCatalogo.map((r) => [r.nombre, r])),
+  }
   const hospitales = await prisma.hospital.findMany()
   const hospitalPorSigla = new Map(hospitales.map((h) => [h.sigla, h]))
   const jcats = await prisma.$queryRaw<{ jcat: string; cargo_jefatura: string; familia: string }[]>(
@@ -181,11 +222,32 @@ export async function derivarCargosConduccionService(
       agrupador: tipoInfo.literal,
       puestoCargo: { nombre: tipoInfo.literal, tipoPuesto: 'conduccion', modalidad: 'pof' },
     })
-    const revisionDato = !nodo.tiene_personal_activo
-    const revisionMotivo = revisionDato ? 'Nodo del organigrama sin personal activo (vacante fría)' : null
+    // Derivación automática del código de registro desde el escalafón del nodo.
+    // El organigrama no trae texto de CR → se pasa null y la cascada entra por
+    // las reglas 2/3/4. Gerencial (escalafón '60', CR único '60') lo resuelve
+    // la regla 2. Nodo sin CR derivable → NULL + revisión.
+    const decisionCr = derivarCodigoRegistroId(escalafon.id, null, derivarCrCtx)
+    // Régimen derivado SIEMPRE después de resolver el CR (literal del nodo).
+    const decisionReg = derivarRegimenId(
+      crCodigoDe(decisionCr.codigoRegistroId),
+      tipoInfo.literal,
+      regimenCtx,
+    )
+
+    // La revisión "fría" (nodo sin personal activo), la revisión por CR no
+    // derivable y la de régimen no derivable se COMBINAN: el cargo queda a
+    // revisión si aplica cualquiera, y el motivo une las causas sin perder
+    // ninguna.
+    const frio = !nodo.tiene_personal_activo
+    const motivos: string[] = []
+    if (frio) motivos.push('Nodo del organigrama sin personal activo (vacante fría)')
+    if (decisionCr.revision) motivos.push(decisionCr.revision.motivo)
+    if (decisionReg.revision) motivos.push(decisionReg.revision.motivo)
+    const revisionDato = frio || !!decisionCr.revision || !!decisionReg.revision
+    const revisionMotivo = motivos.length > 0 ? motivos.join(' | ') : null
 
     if (dryRun) {
-      res.detalle.push({ codigoRepa: nodo.codigo_reparticion, codigo: `${prefijo}-XXXXXX`, frio: revisionDato })
+      res.detalle.push({ codigoRepa: nodo.codigo_reparticion, codigo: `${prefijo}-XXXXXX`, frio })
       res.creados++
       continue
     }
@@ -205,12 +267,14 @@ export async function derivarCargosConduccionService(
           regimen: escalafon.nombre.toLowerCase(),
           estado: 'vigente',
           origen: 'organigrama',
+          codigoRegistroId: decisionCr.codigoRegistroId,
+          regimenId: decisionReg.regimenId,
           revisionDato,
           revisionMotivo,
           agrupador: jcat ? `jcat:${jcat}` : null,
         },
       })
-      res.detalle.push({ codigoRepa: nodo.codigo_reparticion, codigo, frio: revisionDato })
+      res.detalle.push({ codigoRepa: nodo.codigo_reparticion, codigo, frio })
     })
     res.creados++
   }

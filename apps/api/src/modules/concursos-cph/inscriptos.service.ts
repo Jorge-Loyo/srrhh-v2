@@ -261,6 +261,8 @@ function recalcCph(c: ConcursoCph) {
     cargoSial: c.cargoSial,
     dispoDesierta: c.dispoDesierta,
     fechaDispoDesierta: c.fechaDispoDesierta,
+    validado: c.validado,
+    validadoIdSialRol: c.validadoIdSialRol,
   })
 }
 

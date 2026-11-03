@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { EstadoCargo } from '@srrhh/types'
-import type { Cargo, CargoFilters, PaginatedResponse } from '@srrhh/types'
+import { EstadoCargo, SubEstadoCargo } from '@srrhh/types'
+import type { CargoExportRow, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
-import { downloadExcel, fetchAllPages } from '@/shared/lib/exportExcel'
+import { downloadExcelConGrupos, fetchAllPages } from '@/shared/lib/exportExcel'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones, useCodigosRegistro, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import type { FiltrosCatalogoValores } from '@/shared/components/filtros/FiltrosCatalogo'
@@ -34,6 +34,20 @@ const ESTADO_LABEL: Record<EstadoCargo, string> = {
   [EstadoCargo.VALIDACION_VACANTE]: 'En validación',
 }
 
+const SUB_ESTADO_LABEL: Record<SubEstadoCargo, string> = {
+  [SubEstadoCargo.OCUPADO]: 'Ocupado',
+  [SubEstadoCargo.VACANTE]: 'Vacante',
+  [SubEstadoCargo.CONCURSO]: 'Concurso',
+}
+
+// Sub-estado a mostrar en la columna "Ocupación": lee la columna persistida
+// `subEstado`; mientras esté en null (backfill pendiente) usa `ocupado` como
+// fallback transitorio (ver D4 del plan).
+function subEstadoLabel(c: { subEstado: SubEstadoCargo | null; ocupado: boolean }): string {
+  if (c.subEstado) return SUB_ESTADO_LABEL[c.subEstado]
+  return c.ocupado ? 'Ocupado' : 'Vacante'
+}
+
 export function CargosPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -46,7 +60,9 @@ export function CargosPage() {
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
-  const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false'
+  // Filtro de ocupación: ''|true|false mapean al filtro `ocupado` (sobre la
+  // relación); 'concurso' mapea al filtro `subEstado=concurso` (columna).
+  const ocupado       = (searchParams.get('ocupado') ?? '') as '' | 'true' | 'false' | 'concurso'
   const soloJefes     = searchParams.get('soloJefes') === 'true'
   const sinJefes      = searchParams.get('sinJefes') === 'true'
   const page          = Number(searchParams.get('page') ?? '1')
@@ -97,7 +113,8 @@ export function CargosPage() {
     ...(especialidadPuestoId && { especialidadPuestoId }),
     ...(grupos.length > 0 && { grupos: serializarGrupos(grupos) }),
     ...(estado      && { estado }),
-    ...(ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
+    ...(ocupado && ocupado !== 'concurso' && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { ocupado: ocupado === 'true' }),
+    ...(ocupado === 'concurso' && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE && { subEstado: SubEstadoCargo.CONCURSO }),
     ...(soloJefes && { soloJefes: true }),
     ...(sinJefes && { sinJefes: true }),
   }
@@ -208,26 +225,57 @@ export function CargosPage() {
     setExportando(true)
     setExportError(false)
     try {
-      const { page: _page, limit: _limit, ...filtrosSinPaginado } = filters
-      const cargos = await fetchAllPages<Cargo>((p, l) =>
+      // Universo completo: pega al endpoint dedicado SIN pasar los filtros de
+      // pantalla (trae todos los cargos, excluyendo solo borrados lógicos).
+      const cargos = await fetchAllPages<CargoExportRow>((p, l) =>
         apiClient
-          .get<PaginatedResponse<Cargo>>('/api/v1/cargos', { params: { ...filtrosSinPaginado, page: p, limit: l } })
+          .get<PaginatedResponse<CargoExportRow>>('/api/v1/cargos/export', { params: { page: p, limit: l } })
           .then((r) => r.data)
       )
-      downloadExcel(
+      downloadExcelConGrupos(
         `cargos_${new Date().toISOString().slice(0, 10)}.xlsx`,
-        cargos.map((c) => ({
-          'Código Cargo': c.codigo ?? '',
-          Puesto: capitalizar(c.literalPuesto),
-          Especialidad: capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? c.especialidad),
-          Agrupador: c.agrupador ?? '',
-          'Unificador de Puesto': c.unificadorPuesto ?? '',
-          Repartición: c.hospital?.sigla ?? '',
-          Carrera: c.escalafon?.nombre ?? '',
-          Régimen: c.regimen ?? '',
-          Estado: ESTADO_LABEL[c.estado],
-          Ocupación: c.ocupado ? 'Ocupado' : 'Vacante',
-        }))
+        [
+          { titulo: 'INFORMACIÓN DE CARGOS', span: 9 },
+          { titulo: 'INFORMACIÓN DE OCUPACIÓN DEL CARGO', span: 8 },
+        ],
+        [
+          'Código de Cargo',
+          'Código de Registro',
+          'Carrera',
+          'Sigla',
+          'Código de Repartición',
+          'Repartición',
+          'Tipo',
+          'Estado',
+          'Situación',
+          'CUIL / Expediente',
+          'Situación de revista del ocupante',
+          'ID SIAL Rol',
+          'Literal Puesto',
+          'Especialidad del ocupante',
+          'Código de Repartición',
+          'Repartición',
+          'Sigla',
+        ],
+        cargos.map((c) => [
+          c.codigo,
+          c.codigoRegistro,
+          c.regimen,
+          c.sigla,
+          c.codigoReparticion,
+          c.reparticionCargo,
+          c.tipo,
+          c.estado,
+          c.situacion,
+          c.cuilOExpediente,
+          c.situacionRevistaOcupante,
+          c.idSialRolOcupante,
+          c.literalPuesto,
+          c.especialidadOcupante,
+          c.codigoReparticionOcupacion,
+          c.reparticion,
+          c.siglaOcupacion,
+        ])
       )
     } catch {
       setExportError(true)
@@ -305,6 +353,7 @@ export function CargosPage() {
             <option value="">Ocupados y vacantes</option>
             <option value="true">Solo ocupados</option>
             <option value="false">Solo vacantes</option>
+            <option value="concurso">Solo en concurso</option>
           </select>
           <button
             type="button"
@@ -372,7 +421,7 @@ export function CargosPage() {
             chips.push({ label: capitalizar(esp?.nombre) || especialidadPuestoId, key: 'especialidadPuestoId' })
           }
           if (estado) chips.push({ label: ESTADO_LABEL[estado as EstadoCargo], key: 'estado' })
-          if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : 'Solo vacantes', key: 'ocupado' })
+          if (ocupado && estado !== EstadoCargo.NO_VIGENTE && estado !== EstadoCargo.VALIDACION_VACANTE) chips.push({ label: ocupado === 'true' ? 'Solo ocupados' : ocupado === 'concurso' ? 'Solo en concurso' : 'Solo vacantes', key: 'ocupado' })
           if (soloJefes) chips.push({ label: 'Solo jefes', key: 'soloJefes' })
           if (sinJefes) chips.push({ label: 'Sin jefes', key: 'sinJefes' })
           if (chips.length === 0) return null
@@ -472,11 +521,14 @@ export function CargosPage() {
                             : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        {c.estado === EstadoCargo.VIGENTE && (
-                          <span className={c.ocupado ? 'badge-success' : 'badge-warning'}>
-                            {c.ocupado ? 'Ocupado' : 'Vacante'}
-                          </span>
-                        )}
+                        {c.estado === EstadoCargo.VIGENTE && (() => {
+                          const label = subEstadoLabel(c)
+                          const cls =
+                            label === 'Ocupado' ? 'badge-success'
+                            : label === 'Concurso' ? 'badge-info'
+                            : 'badge-warning'
+                          return <span className={cls}>{label}</span>
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link to={`/cargos/${c.id}`} state={{ from: searchParams.toString() }} className="btn-outline">

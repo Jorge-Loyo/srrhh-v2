@@ -24,6 +24,7 @@ import { InicioPage } from '../modules/inicio/pages/InicioPage'
 import { PadronPage } from '../modules/padron/pages/PadronPage'
 import { PadronDiffPage } from '../modules/padron/pages/PadronDiffPage'
 import { PersonasPage } from '../modules/personas/pages/PersonasPage'
+import { GestionPuestosPage } from '../modules/gestion-puestos/pages/GestionPuestosPage'
 import { DotacionPage } from '../modules/dotacion/pages/DotacionPage'
 import { ReportesPage } from '../modules/reportes/pages/ReportesPage'
 import { TokensPage } from '../modules/tokens/pages/TokensPage'
@@ -104,6 +105,7 @@ export const router = createBrowserRouter([
           },
           { path: 'padron/:snapshotId', element: <PadronDiffPage /> },
           { path: 'personas', element: <PersonasPage /> },
+          { path: 'gestion-puestos', element: <GestionPuestosPage /> },
           { path: 'personas/:id', element: <PersonaDetailPanel /> },
           {
             element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,

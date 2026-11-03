@@ -75,6 +75,76 @@ export function categoriaBaja(
   return esBajaNueva ? null : 'baja_previa'
 }
 
+// ─── GUARDA CONTRA PADRÓN PARCIAL (ratio de tamaño) ──────────────────────────
+// Previene que un padrón PARCIAL (error de exportación del SIAL) se procese como
+// completo y genere miles de falsas bajas (validacion_vacante). Funciones PURAS,
+// sin Prisma/env, para testearlas como el resto de los helpers del diff.
+
+export interface EvaluacionRatioTamano {
+  // Ratio nuevo/últimoAprobado. null cuando la guarda NO aplica (sin referencia).
+  ratio: number | null
+  // true cuando ratio < umbral (padrón sospechosamente chico). false si no aplica.
+  anomalo: boolean
+}
+
+// Calcula el ratio de tamaño del padrón nuevo contra el último snapshot APROBADO
+// y decide si es anómalo (ratio < umbral). La guarda NO aplica (ratio null,
+// anomalo false) cuando no hay referencia de tamaño: primer padrón sin aprobado
+// previo, o referencia con total <= 0 (evita división por cero / dato corrupto).
+// Pura: recibe los conteos y el umbral, no toca BD ni env.
+export function evaluarRatioTamano(
+  totalNuevo: number,
+  totalUltimoAprobado: number | null | undefined,
+  umbral: number,
+): EvaluacionRatioTamano {
+  if (totalUltimoAprobado == null || totalUltimoAprobado <= 0) {
+    return { ratio: null, anomalo: false }
+  }
+  const ratio = totalNuevo / totalUltimoAprobado
+  return { ratio, anomalo: ratio < umbral }
+}
+
+// ─── GUARDA CONTRA PADRÓN SIN BAJA SIAL DE LA SEMANA ─────────────────────────
+// Previene que un padrón se apruebe sin haber subido las bajas SIAL de esa
+// semana: eso hace que el padrón detecte como "eliminados" a personas que en
+// realidad ya son bajas registradas en SIAL y las deje en validacion_vacante
+// sin vincular (causa del backlog de 2.214 bajas recién limpiado por backfill).
+// Bloqueo BLANDO con override auditado, igual que la guarda de ratio. Función
+// PURA, sin Prisma/env, para testearla como el resto de los helpers del diff.
+
+// Milisegundos en un día (ventana ±ventanaDias). Local al helper.
+const MS_POR_DIA = 24 * 60 * 60 * 1000
+
+// Decide si falta la baja SIAL de la semana del padrón. Si `exigir` es false la
+// guarda NO aplica (nunca falta). Si `exigir` es true, basta con que exista al
+// menos una fecha en `fechasBajaSialDisponibles` (fecha_archivo de snapshots
+// SIAL válidos) dentro de ±`ventanaDias` de `fechaPadron` para que NO falte.
+// `ventanaDias === 0` exige fecha exacta (mismo día). Si no hay ninguna dentro
+// de la ventana (incluida la lista vacía) ⇒ falta=true con una advertencia que
+// menciona la fecha del padrón y la ventana. PURA: no toca BD ni env.
+export function evaluarBajaSialRequerida(
+  fechaPadron: Date,
+  fechasBajaSialDisponibles: Date[],
+  exigir: boolean,
+  ventanaDias: number,
+): { falta: boolean; advertencia: string | null } {
+  if (!exigir) return { falta: false, advertencia: null }
+
+  const toleranciaMs = ventanaDias * MS_POR_DIA
+  const refMs = fechaPadron.getTime()
+  const hayDentroDeVentana = fechasBajaSialDisponibles.some(
+    (f) => Math.abs(f.getTime() - refMs) <= toleranciaMs,
+  )
+  if (hayDentroDeVentana) return { falta: false, advertencia: null }
+
+  const fechaIso = fechaPadron.toISOString().slice(0, 10)
+  const advertencia =
+    `No hay una baja SIAL subida para la semana del padrón (${fechaIso}, ventana ±${ventanaDias} día(s)). ` +
+    `Aprobar sin la baja SIAL de la semana reacumula bajas en validacion_vacante sin vincular. ` +
+    `Subí la baja SIAL de la semana o confirmá el override para aprobar igual.`
+  return { falta: true, advertencia }
+}
+
 // ─── DESDOBLADO (24 Residencias / 07 Docentes) ───────────────────────────────
 // Fix del pipeline: estos dos cod_registro llevan un cargo 1:1 por rol (1 cargo
 // = 1 rol = 1 persona), identificado por id_sial_rol, NO por cargo.id_sial. El
@@ -212,4 +282,26 @@ export function clasificacionEliminadoDesdoblado(
 // la BD (maxSecuencialCargo + count), acá solo el formateo determinista.
 export function formatearCodigoDesdoblado(prefijo: string, n: number): string {
   return `${prefijo}-${String(n).padStart(6, '0')}`
+}
+
+// Clasifica un grupo de diffs de un mismo id_sial_rol en el cubo que el paso 4
+// del aprobar (padron.service.ts) usa para materializar. Réplica PURA de la
+// cadena de ramas del `for (const [idSialRol, cambios] of porSialRol)`: la
+// condición "¿es desdoblada?" (campo '__alta_desdoblada__') se evalúa PRIMERO
+// para que un desdoblado NUNCA caiga en nuevos/rechazados. Clave para FASE 0:
+// un tipo 'nuevo' con aprobado=null (pendiente, sin decisión) NO matchea
+// ninguna rama → devuelve null → NO se materializa (no crea cargo/ocupación ni
+// entra a padron_historico). Puro y testeable sin Prisma.
+export function clasificarGrupoAprobar(
+  primerCambio: { tipo: string; campo: string; aprobado: boolean | null },
+): 'nuevosDesdoblados' | 'rechazadosDesdoblados' | 'nuevos' | 'rechazados' | 'eliminados' | 'modificados' | null {
+  const { tipo, campo, aprobado } = primerCambio
+  const esDesd = campo === '__alta_desdoblada__'
+  if (tipo === 'nuevo' && esDesd && aprobado === true) return 'nuevosDesdoblados'
+  if (tipo === 'nuevo' && esDesd && aprobado === false) return 'rechazadosDesdoblados'
+  if (tipo === 'nuevo' && aprobado === true) return 'nuevos'
+  if (tipo === 'nuevo' && aprobado === false) return 'rechazados'
+  if (tipo === 'eliminado') return 'eliminados'
+  if (tipo === 'modificado') return 'modificados'
+  return null
 }

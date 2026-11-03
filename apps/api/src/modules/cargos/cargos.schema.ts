@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { EstadoCargo } from '@srrhh/types'
+import { EstadoCargo, SubEstadoCargo } from '@srrhh/types'
 
 // S21: un grupo de la cascada de catálogo. Varios grupos se combinan con OR
 // (uniones), ver `grupos` abajo y cargos.service.
@@ -53,6 +53,8 @@ export const cargosQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  // Filtro por el sub-estado persistido del cargo vigente (aditivo a `ocupado`).
+  subEstado: z.nativeEnum(SubEstadoCargo).optional(),
   // Solo jefes: cargos cuya ocupación vigente es de jefatura.
   soloJefes: z
     .enum(['true', 'false'])
@@ -64,9 +66,35 @@ export const cargosQuerySchema = z.object({
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   personaSearch: z.string().trim().min(1).optional(),
+  // Filtro por el literal del puesto del cargo (texto canónico del catálogo,
+  // ej. "PROFESIONAL GUARDIA MEDICO"). Pedido desde "Cobertura Dotación" en el
+  // form de baja, donde el puesto se elige de un desplegable con los literales
+  // POU; el front no tiene el id de catálogo, manda el literal. Match exacto
+  // normalizado (unaccent + lower + trim) contra `literal_puesto`.
+  literalPuesto: z.string().trim().min(1).optional(),
+  // Filtro por la especialidad del cargo (literal del catálogo/legacy). Cascada
+  // del puesto en "Cobertura Dotación". Match exacto normalizado contra la
+  // especialidad del catálogo (especialidadPuesto.nombre) o el snapshot legacy.
+  especialidad: z.string().trim().min(1).optional(),
+  // Filtro por la situación de revista del ocupante vigente (estado de la
+  // persona en el puesto). Pedido desde "Retención de Cargo" en el form de
+  // baja, pero es un filtro genérico del listado. Valores del catálogo
+  // cerrado normalizado (minúscula sin tilde): 'activo' | 'comision' |
+  // 'retencion de cargo'. Ver normalizarSituacionRevista en kpis.service.
+  situacionRevista: z.enum(['activo', 'comision', 'retencion de cargo']).optional(),
 })
 
 export type CargosQuery = z.infer<typeof cargosQuerySchema>
+
+// Export de /cargos (GET /api/v1/cargos/export): trae la totalidad de los
+// cargos (excluyendo solo borrados lógicos), SIN filtros de pantalla. Solo
+// acepta paginado para que `fetchAllPages` (pageSize 1000) pueda recorrer todo.
+export const cargosExportQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(1000).default(1000),
+})
+
+export type CargosExportQuery = z.infer<typeof cargosExportQuerySchema>
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 

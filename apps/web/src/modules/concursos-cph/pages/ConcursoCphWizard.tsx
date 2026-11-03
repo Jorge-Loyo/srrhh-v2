@@ -26,8 +26,10 @@ import {
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import {
   useDesignarConcursoCph,
+  useAsignarDesignadoCph,
   useDeclararDesiertoCph,
   useSuspenderConcursoCph,
   useGenerarSorteoJurado,
@@ -63,7 +65,7 @@ import {
 } from '../lib/wizard.constants'
 import { PanelSubEstados } from '../components/PanelSubEstados'
 import { HistorialCambios } from '../components/HistorialCambios'
-import { EtiquetasControl } from '../components/EtiquetasControl'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
 
 // Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
@@ -134,9 +136,31 @@ export function ConcursoCphWizard() {
   const escalafonesOrdenados = [...escalafones].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es'),
   )
-  // Helper: dado un escalafonId, devuelve el primer codigoRegistroId asociado
-  const crIdDeEscalafon = (escId: string) =>
-    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null
+  // Helper: dado un escalafonId, devuelve un codigoRegistroId DETERMINÍSTICO
+  // del escalafón. FIX A (informe diag-bug1-persiste): antes se usaba
+  // `codigosRegistro.find(...)`, que devuelve el PRIMER CR según el orden del
+  // array — arbitrario. Cuando un escalafón tiene 2 CRs con el mismo literal
+  // (CPH: CR 22 y CR 37), ese orden elegía uno al azar y disparaba el falso
+  // "cambio de carrera". Ahora se elige por una regla estable: el CR de menor
+  // `codigo` (comparado numérico si aplica, si no alfabético), y como desempate
+  // el menor `id`. Esto solo se usa cuando la carrera REALMENTE cambió de
+  // escalafón; el backend compara por escalafón, así que cualquier CR válido de
+  // ese escalafón representa la misma carrera.
+  const crIdDeEscalafon = (escId: string) => {
+    const delEsc = codigosRegistro.filter((cr) => cr.escalafonId === escId)
+    if (delEsc.length === 0) return null
+    const ordenados = [...delEsc].sort((a, b) => {
+      const ca = a.codigo ?? ''
+      const cb = b.codigo ?? ''
+      const na = Number(ca)
+      const nb = Number(cb)
+      if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb
+      const byCodigo = ca.localeCompare(cb, 'es')
+      if (byCodigo !== 0) return byCodigo
+      return a.id.localeCompare(b.id)
+    })
+    return ordenados[0].id
+  }
   const escalafonCph = escalafones.find(
     (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
   )
@@ -157,6 +181,7 @@ export function ConcursoCphWizard() {
           partidaPresupuestaria?: string | null
           cargaHoraria?: number | null
           fechaPaseParalelo?: string | Date | null
+          persona?: { apellidoNombre?: string | null; numeroDoc?: string | null; cuil?: string | null } | null
         }
       }
     )?.baja
@@ -179,13 +204,16 @@ export function ConcursoCphWizard() {
         c?.cargo?.especialidad ??
         '—',
       escalafon: 'CPH',
-      personaBaja: c?.persona?.apellidoNombre ?? '—',
-      dniBaja: c?.persona?.numeroDoc ?? '',
+      // Fallback a baja.persona: los concursos importados no tienen
+      // concurso.persona, pero la persona que se fue está en la baja.
+      personaBaja: c?.persona?.apellidoNombre ?? baja?.persona?.apellidoNombre ?? '—',
+      cuilBaja: c?.persona?.cuil ?? baja?.persona?.cuil ?? '',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
       subEstado: cphData.subEstado ?? 'vacante',
       subEstado3: cphData.subEstado3 ?? '',
       suspendido: cphData.suspendido,
+      motivoConcurso: c?.motivoConcurso ?? null,
       observaciones: cphData.observaciones ?? '',
     }
   }, [cphData])
@@ -508,13 +536,25 @@ export function ConcursoCphWizard() {
   // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
   // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
   // oficial real, crea la ocupación — comportamiento existente sin cambios.
-  const [modalDesignarModo, setModalDesignarModo] = useState<'proponer' | 'designar'>('designar')
+  // 'asignar': vincular la persona designada SIN ocupar el cargo (caso
+  // histórico: concurso finalizado sin persona vinculada). Oculta fecha/idSial
+  // y usa asignarDesignadoMutation.
+  // 'manual': carga manual por referencia (tercera vía) — el candidato no está
+  // en la orden de mérito ni en la BD de personas. Guarda solo la referencia
+  // (CUIL + nombre + id_sial opcional); NO crea Persona ni ocupa el cargo.
+  const [modalDesignarModo, setModalDesignarModo] = useState<
+    'proponer' | 'designar' | 'asignar' | 'manual'
+  >('designar')
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
   const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<string | null>(null)
   const [designarFechaDesde, setDesignarFechaDesde] = useState('')
   const [designarIdSialRol, setDesignarIdSialRol] = useState('')
   const [designarSearch, setDesignarSearch] = useState('')
+  // Vía manual por referencia: CUIL (11 díg), apellido/nombre y id_sial opcional.
+  const [manualCuil, setManualCuil] = useState('')
+  const [manualNombre, setManualNombre] = useState('')
+  const [manualIdSial, setManualIdSial] = useState('')
   // Inscripto (de este concurso) que corresponde a la persona propuesta —
   // se necesita para poder marcarlo en insalRechazados si no acepta.
   const [designarInscriptoId, setDesignarInscriptoId] = useState('')
@@ -697,6 +737,7 @@ export function ConcursoCphWizard() {
   const inscriptoFileRef = useRef<HTMLInputElement>(null)
 
   const designarMutation = useDesignarConcursoCph(id!)
+  const asignarDesignadoMutation = useAsignarDesignadoCph(id!)
   const declararDesiertoMutation = useDeclararDesiertoCph(id!)
   const suspenderMutation = useSuspenderConcursoCph(id!)
 
@@ -786,6 +827,67 @@ export function ConcursoCphWizard() {
     },
     enabled: !!designarPersonaId,
   })
+
+  // Búsqueda libre de personas por texto (nombre/CUIL/DNI) — solo en el modo
+  // 'asignar', donde no hay orden de mérito con la persona ganadora (casos
+  // históricos). Mismo endpoint y shape que usa seleccionarCandidatoOM.
+  const { data: personasBusqueda = [] } = useQuery({
+    queryKey: ['personas-busqueda', designarSearch],
+    enabled:
+      modalDesignar &&
+      modalDesignarModo === 'asignar' &&
+      designarSearch.trim().length >= 2,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: designarSearch.trim(), limit: 10 } })
+      return res.data.data
+    },
+  })
+
+  // Vía 'manual': lookup por CUIL contra la BD de personas. Cuando el operador
+  // tipea 11 dígitos, se busca el match exacto por CUIL para informar si la
+  // persona ya existe (y qué roles SIAL vincularían). NO crea nada: solo informa.
+  const manualCuilNorm = manualCuil.replace(/\D/g, '')
+  const { data: manualMatch = null } = useQuery({
+    queryKey: ['personas-busqueda-manual', manualCuilNorm],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && manualCuilNorm.length === 11,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: manualCuilNorm, limit: 5 } })
+      return res.data.data.find((p) => p.cuil.replace(/\D/g, '') === manualCuilNorm) ?? null
+    },
+  })
+  // Roles SIAL de la persona que matcheó por CUIL (para mostrar qué vincularía).
+  const { data: manualSialRoles = [] } = useQuery({
+    queryKey: ['persona-sial-roles-manual', manualMatch?.id],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && !!manualMatch?.id,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          idSialRol: string
+          codigoCargo: string | null
+          literalPuesto: string | null
+          hospitalSigla: string
+        }[]
+      }>(`/api/v1/personas/${manualMatch!.id}/sial-roles`)
+      return res.data.data
+    },
+  })
+
   const formRef = useRef<HTMLDivElement>(null)
   const tipoGestionRef = useRef<HTMLSelectElement>(null)
   // Valores originales para detectar cambios en etapa baja
@@ -796,6 +898,22 @@ export function ConcursoCphWizard() {
     especialidad: '',
   }
   const [originales, setOriginales] = useState(originalesRef)
+  // FIX A.2 (informe diag-bug1-persiste): fuente de verdad INMUTABLE de los
+  // valores originales de SIGLA y ESCALAFÓN, poblada UNA sola vez cuando llega
+  // cphData y NO re-pisada por refetches de codigosRegistro. La comparación de
+  // "cambió sigla/carrera" en confirmarCambios usa este ref, no el estado
+  // `originales` (que puede quedar desalineado en un re-render intermedio y
+  // producía el falso-positivo que enrutaba al Director). `inicializado=false`
+  // mientras no haya cargado ⇒ no se evalúan cambios ni se envían
+  // sigla/codigoRegistroId.
+  const originalesSiglaCarreraRef = useRef<{
+    inicializado: boolean
+    sigla: string
+    escalafonId: string
+  }>({ inicializado: false, sigla: '', escalafonId: '' })
+  // Guarda para "cargar una sola vez" los campos del cargo desde cphData, sin
+  // que un refetch de codigosRegistro los re-pise (FIX A.3).
+  const cargaInicialHechaRef = useRef<string | null>(null)
   const { data: especialidadesDisponiblesCatalogo = [] } = useEspecialidadesPuesto(
     escalafonId || undefined,
     puestoConcurso || undefined,
@@ -848,6 +966,15 @@ export function ConcursoCphWizard() {
     }
   }, [especialidadesDisponibles])
 
+  // FIX A.3 (informe diag-bug1-persiste): CARGAR UNA SOLA VEZ los campos del
+  // cargo desde cphData. Antes este efecto dependía también de
+  // `codigosRegistro`, así que cada refetch de ese catálogo re-pisaba
+  // siglaConcurso/escalafonId/originales — una ventana de re-render en la que
+  // `originales` podía quedar a medio cargar mientras el estado vivo ya estaba
+  // poblado, lo que producía el falso "cambió sigla/carrera". Ahora el efecto
+  // depende SOLO de cphData y se guarda con `cargaInicialHechaRef` por id del
+  // concurso. La resolución de fallback por CR (cuando el cargo no trae
+  // escalafonId propio) vive en un efecto aparte dep [codigosRegistro].
   useEffect(() => {
     if (!cphData) return
     type CargoCph = {
@@ -859,25 +986,16 @@ export function ConcursoCphWizard() {
       especialidadLegacy?: string
     }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const cphId = cphData.id
+    // Si ya se inicializó para ESTE concurso, no re-pisar (evita que un
+    // re-render por otra dependencia resetee lo que el usuario está editando).
+    if (cargaInicialHechaRef.current === cphId) return
+
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // El cargo ya trae escalafonId propio (FK real) — se usa directo. Antes
-    // esto se re-derivaba SOLO a través de cargo.codigoRegistro, que puede
-    // ser null (cargos sin codigoRegistroId vinculado, ej. altas más viejas o
-    // datos legacy) y dejaba escalafonId vacío en silencio, rompiendo los
-    // combos de puesto/especialidad de todo el wizard. Se deja el fallback
-    // por codigoRegistro por compatibilidad, pero ya no es la vía principal.
-    let resolvedEscalafonId = cargo?.escalafonId ?? ''
-    if (!resolvedEscalafonId) {
-      const crId = cargo?.codigoRegistro?.id ?? ''
-      const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-      if (crId && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.id === crId)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      } else if (crLiteral && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.literal === crLiteral)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      }
-    }
+    // El cargo ya trae escalafonId propio (FK real) — se usa directo. El
+    // fallback por codigoRegistro (cuando escalafonId viene vacío) se resuelve
+    // en el efecto separado dep [codigosRegistro] más abajo.
+    const resolvedEscalafonId = cargo?.escalafonId ?? ''
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
     setIfAutorizacionInput(cphData.ifAutorizacion ?? '')
@@ -895,6 +1013,45 @@ export function ConcursoCphWizard() {
       puesto: rawPuesto,
       especialidad: rawEspecialidad,
     })
+    // Fuente de verdad inmutable para sigla/carrera (FIX A.2). Si el cargo trae
+    // escalafonId propio, ya queda inicializado; si no, se completa en el
+    // efecto de fallback por CR. Solo se marca `inicializado` cuando hay un
+    // escalafonId resuelto, para no evaluar cambios contra un ref vacío.
+    originalesSiglaCarreraRef.current = {
+      inicializado: resolvedEscalafonId !== '',
+      sigla: cargo?.hospital?.sigla ?? '',
+      escalafonId: resolvedEscalafonId,
+    }
+    cargaInicialHechaRef.current = cphId
+  }, [cphData])
+
+  // FIX A.3: resolución de FALLBACK del escalafón por codigoRegistro, separada
+  // del "cargar una vez". Solo corre si el escalafón aún no se resolvió (cargo
+  // sin escalafonId propio, datos legacy) y ya llegó el catálogo de CRs. No
+  // re-pisa nada si el escalafón ya está puesto.
+  useEffect(() => {
+    if (!cphData) return
+    if (originalesSiglaCarreraRef.current.inicializado) return
+    if (codigosRegistro.length === 0) return
+    type CargoCph = { codigoRegistro?: { id?: string; literal?: string } }
+    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const crId = cargo?.codigoRegistro?.id ?? ''
+    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+    let resolved = ''
+    if (crId) {
+      resolved = codigosRegistro.find((c) => c.id === crId)?.escalafonId ?? ''
+    }
+    if (!resolved && crLiteral) {
+      resolved = codigosRegistro.find((c) => c.literal === crLiteral)?.escalafonId ?? ''
+    }
+    if (!resolved) return
+    setEscalafonId(resolved)
+    setOriginales((prev) => ({ ...prev, escalafonId: resolved }))
+    originalesSiglaCarreraRef.current = {
+      inicializado: true,
+      sigla: originalesSiglaCarreraRef.current.sigla,
+      escalafonId: resolved,
+    }
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
   const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })
@@ -1032,19 +1189,29 @@ export function ConcursoCphWizard() {
       // solo-capitalización ('Medico de Planta' vs 'medico de planta') NO
       // cuenta como cambio y no dispara autorización. El valor que se muestra
       // y se persiste conserva el texto que escribió el usuario.
-      const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+      // FIX D: normalización robusta (acentos/espacios/invisibles).
+      const norm = (s: string | null | undefined) =>
+        (s ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase()
       const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
-      // Sigla y escalafón: autorización doble (director → sgrasv)
-      if (norm(siglaConcurso) !== norm(originales.sigla))
+      // Sigla y escalafón: autorización doble (director → sgrasv). FIX A.2: se
+      // comparan contra el ref inmutable y solo si ya está inicializado, para
+      // no abrir el modal por un falso-positivo de timing.
+      const origRef = originalesSiglaCarreraRef.current
+      if (origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla))
         cambiosConAutorizacion.push({
           campo: 'Sigla',
-          de: originales.sigla,
+          de: origRef.sigla,
           a: siglaConcurso,
         })
-      if (escalafonId !== originales.escalafonId)
+      if (origRef.inicializado && escalafonId !== origRef.escalafonId)
         cambiosConAutorizacion.push({
           campo: 'Carrera',
-          de: escalafonLabel(labelEsc(originales.escalafonId)),
+          de: escalafonLabel(labelEsc(origRef.escalafonId)),
           a: escalafonLabel(labelEsc(escalafonId)),
         })
       // Especialidad y puesto: autorización simple (solo sgrasv)
@@ -1186,9 +1353,25 @@ export function ConcursoCphWizard() {
     // normalizada trim+toLowerCase; carrera por `escalafonId`). Si el usuario
     // solo tocó especialidad/puesto, no viajan y el backend cae en
     // tieneCambioProtegido (solo SGRASV), no en autorización doble.
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
-    const cambioSigla = norm(siglaConcurso) !== norm(originales.sigla)
-    const cambioCarrera = escalafonId !== originales.escalafonId
+    // FIX D: normalización robusta (acentos/espacios internos/invisibles fuera)
+    // para que diferencias solo de formato no cuenten como cambio.
+    const norm = (s: string | null | undefined) =>
+      (s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    // FIX A.2: la comparación de sigla/carrera usa el ref INMUTABLE poblado una
+    // vez desde cphData, no el estado `originales` (que podía quedar a medio
+    // cargar en un re-render y disparar el falso "cambio"). Si el ref aún no se
+    // inicializó (escalafón sin resolver), NO evaluamos ni enviamos
+    // sigla/codigoRegistroId — así un guardado prematuro nunca arrastra esos
+    // campos al PATCH.
+    const origRef = originalesSiglaCarreraRef.current
+    const cambioSigla = origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla)
+    // Carrera por ESCALAFÓN (identidad estable), no por id de CR.
+    const cambioCarrera = origRef.inicializado && escalafonId !== origRef.escalafonId
     // Puesto: un cambio de solo-capitalización ('Medico de Planta' vs 'medico
     // de planta') NO cuenta como cambio. Se compara normalizado (trim +
     // toLowerCase); si solo difiere el casing, no se envía como cambio. El
@@ -1203,7 +1386,16 @@ export function ConcursoCphWizard() {
       ifAutorizacion: ifAutorizacionInput || null,
     }
     if (cambioSigla) body.sigla = siglaConcurso || null
-    if (cambioCarrera) body.codigoRegistroId = crIdDeEscalafon(escalafonId)
+    // FIX A.1: NO mandar un CR arbitrario. `codigoRegistroId` solo viaja cuando
+    // el ESCALAFÓN realmente cambió, y se deriva de forma DETERMINÍSTICA del
+    // nuevo escalafón (crIdDeEscalafon elige por regla estable, no por orden de
+    // array). El backend compara por escalafón, así que cualquier CR válido de
+    // ese escalafón representa la misma carrera; mientras la carrera no cambie,
+    // este campo nunca se envía y el guardado cae en el flujo sin Director.
+    if (cambioCarrera) {
+      const crNuevo = crIdDeEscalafon(escalafonId)
+      if (crNuevo) body.codigoRegistroId = crNuevo
+    }
     if (cambioEspecialidad) {
       body.especialidadSolicitada = especialidadConcurso || null
       body.especialidadPuestoSolicitadaId = especialidadConcursoId
@@ -1743,25 +1935,180 @@ export function ConcursoCphWizard() {
               <span className="text-green-500 text-xl">👤</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
-                  {modalDesignarModo === 'proponer' ? 'Proponer candidato' : 'Registrar designación'}
+                  {modalDesignarModo === 'proponer'
+                    ? 'Proponer candidato'
+                    : modalDesignarModo === 'asignar'
+                      ? 'Asignar persona designada'
+                      : modalDesignarModo === 'manual'
+                        ? 'Carga manual por referencia'
+                        : 'Registrar designación'}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {modalDesignarModo === 'proponer'
                     ? 'Elegí a quién notificar por INSAL. Esto no ocupa el cargo — la designación oficial es en la Etapa 5.'
-                    : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
+                    : modalDesignarModo === 'asignar'
+                      ? 'Solo vincula a la persona que ganó el concurso. NO ocupa el cargo — el cargo pasa a ocupado recién cuando la persona aparezca en el padrón semanal.'
+                      : modalDesignarModo === 'manual'
+                        ? 'Cargá al designado cuando NO está en la orden de mérito ni en la base de personas. Se guarda solo la referencia (CUIL + nombre); la persona real se vincula cuando el padrón la traiga. No ocupa el cargo.'
+                        : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
                 </p>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
+              {/* Modo 'asignar': buscador libre de personas por texto. Estos
+                  concursos históricos no tienen orden de mérito con la persona
+                  ganadora, así que se busca directo contra /api/v1/personas. */}
+              {modalDesignarModo === 'asignar' && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Buscar persona (nombre, CUIL o DNI){' '}
+                    <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={designarSearch}
+                    onChange={(e) => setDesignarSearch(e.target.value)}
+                    placeholder="Escribí al menos 2 caracteres..."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  {designarSearch.trim().length >= 2 && (
+                    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                      {personasBusqueda.length === 0 ? (
+                        <p className="px-3 py-2.5 text-xs text-gray-400">
+                          Sin resultados para «{designarSearch.trim()}».
+                        </p>
+                      ) : (
+                        personasBusqueda.map((p) => {
+                          const elegido = designarPersonaId === p.id
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setDesignarPersonaId(p.id)
+                                setDesignarPersonaNombre(p.apellidoNombre)
+                                setDesignarPersonaEspCph(p.especialidadCph ?? null)
+                                setDesignarSearch(p.apellidoNombre)
+                              }}
+                              className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3 ${
+                                elegido ? 'bg-green-50' : ''
+                              }`}
+                            >
+                              <span className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                <span className="col-span-2 font-medium text-gray-800 truncate">
+                                  {p.apellidoNombre}
+                                </span>
+                                <span className="text-xs text-gray-400 font-mono">
+                                  CUIL {p.cuil ?? '—'}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  DNI {p.numeroDoc ?? '—'}
+                                </span>
+                                {p.especialidadCph && (
+                                  <span className="col-span-2 text-xs text-gray-500 truncate">
+                                    🩺 {p.especialidadCph}
+                                  </span>
+                                )}
+                              </span>
+                              {elegido && <span className="text-green-600 shrink-0">✓</span>}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Modo 'manual': carga por referencia. CUIL + apellido/nombre
+                  requeridos, id_sial opcional. Al tipear 11 dígitos de CUIL se
+                  consulta la BD y se informa si la persona ya existe. */}
+              {modalDesignarModo === 'manual' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      CUIL <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={manualCuil}
+                      onChange={(e) => setManualCuil(e.target.value)}
+                      placeholder="11 dígitos"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                    {manualCuil.trim().length > 0 && manualCuilNorm.length !== 11 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        El CUIL debe tener 11 dígitos ({manualCuilNorm.length} hasta ahora).
+                      </p>
+                    )}
+                    {manualCuilNorm.length === 11 && (
+                      <div className="mt-2 rounded-lg border px-3 py-2 text-xs">
+                        {manualMatch ? (
+                          <div className="text-emerald-700">
+                            <p className="font-semibold">
+                              ✓ Esta persona ya está en la base: {manualMatch.apellidoNombre}
+                            </p>
+                            {manualSialRoles.length > 0 ? (
+                              <p className="mt-1 text-gray-600">
+                                Roles SIAL que vincularían:{' '}
+                                {manualSialRoles.map((r) => r.idSialRol).join(', ')}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-gray-500">
+                                Sin roles SIAL activos — se vinculará y ocupará cuando aparezca en
+                                el padrón.
+                              </p>
+                            )}
+                            <p className="mt-1 text-gray-500">
+                              Se vinculará la persona real además de guardar la referencia.
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-blue-700">
+                            No está en la base — se guardará solo la referencia. La persona se
+                            creará/vinculará cuando el padrón la traiga.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Apellido y nombre <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualNombre}
+                      onChange={(e) => setManualNombre(e.target.value)}
+                      placeholder="Apellido, Nombre"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      id_sial (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualIdSial}
+                      onChange={(e) => setManualIdSial(e.target.value)}
+                      placeholder="Si lo conocés, para el match directo con el padrón"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Elegibles del orden de mérito de este concurso */}
-              {elegiblesOM.length === 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   ⚠ Todavía no hay orden de mérito calculado para este concurso — no hay
                   candidatos para proponer. Andá a la Etapa 3 (Inscripción/Examen/OM), cargá las
                   notas de los presentados y apretá «📊 Cargar notas / calcular orden».
                 </div>
               )}
-              {elegiblesOM.length > 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length > 0 && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Orden de mérito — elegí a quién proponer <span className="text-danger">*</span>
@@ -2014,6 +2361,94 @@ export function ConcursoCphWizard() {
                   }
                 >
                   {patchMutation.isPending ? 'Guardando...' : 'Proponer candidato'}
+                </button>
+              ) : modalDesignarModo === 'asignar' ? (
+                <button
+                  className="btn-primary"
+                  disabled={!designarPersonaId || asignarDesignadoMutation.isPending}
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      { personaId: designarPersonaId },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            'Persona designada vinculada — el cargo se ocupará cuando aparezca en el padrón.',
+                          )
+                          setModalDesignar(false)
+                          setDesignarPersonaId('')
+                          setDesignarPersonaNombre('')
+                          setDesignarPersonaEspCph(null)
+                          setDesignarSearch('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: {
+                                    message?: string
+                                    error?: { message?: string }
+                                  }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo vincular la persona.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending
+                    ? 'Guardando...'
+                    : 'Vincular persona designada'}
+                </button>
+              ) : modalDesignarModo === 'manual' ? (
+                <button
+                  className="btn-primary"
+                  disabled={
+                    manualCuilNorm.length !== 11 ||
+                    manualNombre.trim().length === 0 ||
+                    asignarDesignadoMutation.isPending
+                  }
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      {
+                        refCuil: manualCuilNorm,
+                        refNombre: manualNombre.trim(),
+                        ...(manualIdSial.trim() ? { idSialRol: manualIdSial.trim() } : {}),
+                      },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            manualMatch
+                              ? 'Designado vinculado por referencia (persona encontrada en la base). El cargo se ocupará cuando el padrón lo confirme.'
+                              : 'Designado guardado por referencia. La persona se vinculará cuando el padrón la traiga.',
+                          )
+                          setModalDesignar(false)
+                          setManualCuil('')
+                          setManualNombre('')
+                          setManualIdSial('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: { message?: string; error?: { message?: string } }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo guardar la referencia del designado.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending ? 'Guardando...' : 'Guardar referencia'}
                 </button>
               ) : (
                 <button
@@ -2580,7 +3015,7 @@ export function ConcursoCphWizard() {
                 {c.personaBaja !== '—' && (
                   <span className="font-medium text-gray-700">{c.personaBaja}</span>
                 )}
-                {c.dniBaja && <span className="text-gray-500">DNI {c.dniBaja}</span>}
+                {c.cuilBaja && <span className="text-gray-500">CUIL {c.cuilBaja}</span>}
                 {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
                 {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
               </div>
@@ -2596,6 +3031,11 @@ export function ConcursoCphWizard() {
               {c.subEstado3 && (
                 <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
                   {c.subEstado3}
+                </span>
+              )}
+              {motivoConcursoLabel(c.motivoConcurso) && (
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                  {motivoConcursoLabel(c.motivoConcurso)}
                 </span>
               )}
               {c.suspendido && (
@@ -2620,7 +3060,11 @@ export function ConcursoCphWizard() {
                         <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                           Etiquetas
                         </p>
-                        <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />
+                        <EtiquetasControl
+                          entidad="concurso_cph"
+                          entidadId={id}
+                          asignadas={cphData.etiquetas ?? []}
+                        />
                       </div>
                     )}
                     {/* Ver baja */}
@@ -2633,6 +3077,36 @@ export function ConcursoCphWizard() {
                     >
                       📋 Ver baja
                     </button>
+                    {/* Asignar designado (sin ocupar) — solo si el concurso aún
+                        no tiene persona vinculada (caso histórico). NO ocupa el
+                        cargo; eso ocurre cuando la persona aparezca en el padrón. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('asignar')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        👤 Asignar designado (sin ocupar)
+                      </button>
+                    )}
+                    {/* Carga manual por referencia — candidato que no está en la
+                        orden de mérito ni en la base de personas. Guarda solo la
+                        referencia; no ocupa el cargo. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('manual')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        ✍ Cargar designado manual (por referencia)
+                      </button>
+                    )}
                     {/* Suspender / Activar */}
                     <button
                       disabled={suspenderMutation.isPending}
@@ -4795,6 +5269,78 @@ export function ConcursoCphWizard() {
                   const ocup = v?.ocupacionVigente ?? v?.ultimaOcupacion ?? null
                   return (
                     <div className="space-y-5">
+                      {/* Asignar persona designada manualmente (caso histórico:
+                          concurso sin persona vinculada NI referencia manual).
+                          Solo vincula; NO ocupa el cargo (eso pasa cuando aparezca
+                          en el padrón). */}
+                      {cphData && !cphData.personaDesignadaId && !cphData.designadoRefCuil && !cphData.designadoRefNombre && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              Asignar persona designada
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              Este concurso no tiene persona vinculada. Vinculá a quien ganó
+                              (caso histórico). No ocupa el cargo — eso pasa cuando aparezca en
+                              el padrón.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-primary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('asignar')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              👤 Asignar designado
+                            </button>
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✍ Carga manual por referencia
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {/* Designado cargado por REFERENCIA manual (sin persona en la
+                          BD todavía). Muestra los datos cargados y permite editar.
+                          El cargo se ocupará cuando el padrón traiga a la persona. */}
+                      {cphData && !cphData.personaDesignadaId && (cphData.designadoRefCuil || cphData.designadoRefNombre) && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              ✍ Designado cargado por referencia
+                            </p>
+                            <p className="text-sm font-bold text-gray-900 mt-1">
+                              {cphData.designadoRefNombre ?? '—'}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {cphData.designadoRefCuil && <>CUIL <span className="font-mono">{cphData.designadoRefCuil}</span></>}
+                              {cphData.designadoRefIdSialRol && <> · ID SIAL rol <span className="font-mono">{cphData.designadoRefIdSialRol}</span></>}
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              A la espera del padrón. Cuando la persona aparezca con este CUIL, el
+                              cargo pasa a ocupado automáticamente.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✏ Editar referencia
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {/* ── ARRIBA: detalle informativo de la persona ── */}
                       {v && (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">

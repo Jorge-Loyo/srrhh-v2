@@ -11,7 +11,7 @@ const CARGOS_SUBITEMS = [
   { to: '/cargos',               label: 'Ver cargos',    permiso: { modulo: 'cargos', accion: 'ver' } },
   { to: '/cargos/alta',          label: 'Alta de cargo',  permiso: { modulo: 'cargos', accion: 'crear' } },
   { to: '/cargos/baja',          label: 'Baja de cargo',  permiso: { modulo: 'bajas', accion: 'crear' } },
-  { to: '/cargos/alta-por-baja', label: 'Alta por baja',  permiso: { modulo: 'bajas', accion: 'crear' } },
+  { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes',  permiso: { modulo: 'bajas', accion: 'crear' } },
 ]
 
 const IMPORTACION_SUBITEMS = [
@@ -165,6 +165,18 @@ export function AppShell() {
               title={collapsed ? 'Personas' : undefined}>
               <span className="text-base shrink-0">👤</span>
               {!collapsed && <span className="truncate">Personas</span>}
+            </NavLink>
+          )}
+
+          {/* Gestión de Puestos — cola de id_sial nuevos pendientes de gestionar
+              tras aprobar el padrón (crear cargo / vincular o crear concurso /
+              transferencia / sin código). */}
+          {can(user, 'gestion-puestos', 'ver') && (
+            <NavLink to="/gestion-puestos"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`}
+              title={collapsed ? 'Gestión de Puestos' : undefined}>
+              <span className="text-base shrink-0">📌</span>
+              {!collapsed && <span className="truncate">Gestión de Puestos</span>}
             </NavLink>
           )}
 

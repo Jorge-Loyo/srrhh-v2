@@ -3,37 +3,27 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody } from './concursos-ceetps.schema.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
+import { calcEstadoCeetps } from './concursosCeetps.calc.js'
 
 const include = {
-  // cargo.codigoRegistro: distingue Enfermería(87)/Técnicos(85)/Serv. Generales(83)
-  // — las tres carreras comparten el mismo Escalafon "CEETPS" en el modelo
-  // normalizado, así que `escalafon` (abajo) no alcanza para esa distinción.
-  // La usan los documentos exportables (Validación/Autorización).
+  // cargo.codigoRegistro: clasificador FINO de la carrera —
+  // Enfermería(87)/Técnicos(85)/Administrativa(83). Las tres carreras tienen
+  // escalafones DISTINTOS en el modelo normalizado actual (seed/QB:
+  // 87 Nueva Carrera Enfermería, 85 CEETPS, 83 Nueva Carrera Administrativa),
+  // así que el filtro por `escalafonId` ya las separa; `codigoRegistro` sigue
+  // siendo el clasificador fino que usan los documentos exportables
+  // (Validación/Autorización). (El comentario anterior decía que las tres
+  // compartían un único escalafón "CEETPS" — eso describía un modelo viejo
+  // pre-reset S21 y quedó desactualizado.)
   concurso: { include: { cargo: { include: { codigoRegistro: true } }, persona: true, baja: true } },
   hospital: true,
   escalafon: true,
   personaDesignada: true,
 } satisfies Prisma.ConcursoCeetpsInclude
 
-// Estado calculado server-side a partir de los campos del concurso.
-// Flujo CEETPS (ver PLAN_SCRUM_2026.md §4.2):
-//   sin_autorizar → autorizado → en_proceso → finalizado / desierto
-function calcEstadoCeetps(row: {
-  expedienteConcurso: string | null
-  puestoSolicitado: string | null
-  dispoLlamado: string | null
-  fechaIfacs: Date | null
-  fechaInsal: Date | null
-  expedienteDesignacion: string | null
-  dispoDesignacion: string | null
-  resolucionDesignacion: string | null
-}) {
-  if (row.resolucionDesignacion) return 'finalizado' as const
-  if (row.dispoDesignacion || row.expedienteDesignacion) return 'en_proceso' as const
-  if (row.dispoLlamado || row.fechaIfacs || row.fechaInsal) return 'en_proceso' as const
-  if (row.puestoSolicitado) return 'autorizado' as const
-  return 'sin_autorizar' as const
-}
+// `calcEstadoCeetps` se extrajo a ./concursosCeetps.calc.ts (módulo exportable,
+// reutilizado por el script de carga masiva) — misma lógica, sin cambio de
+// comportamiento.
 
 const CAMPOS_FECHA = new Set<keyof PatchConcursoCeetpsBody>(['fechaIfacs', 'fechaInsal'])
 

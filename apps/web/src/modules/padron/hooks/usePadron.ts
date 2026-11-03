@@ -82,11 +82,26 @@ export function useSnapshotEstado(snapshotId: string | undefined) {
 export function useAprobarSnapshot() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (snapshotId: string) => {
-      const res = await apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/aprobar`)
+    // overrideRatioTamano: confirmación explícita del operador para saltar el
+    // bloqueo blando de la guarda contra padrón parcial (padrón chico).
+    // overrideBajaSial: ídem para la guarda contra padrón sin la baja SIAL de la
+    // semana (el backend responde 409 si falta; se reintenta con el flag en true).
+    mutationFn: async ({
+      snapshotId,
+      overrideRatioTamano = false,
+      overrideBajaSial = false,
+    }: {
+      snapshotId: string
+      overrideRatioTamano?: boolean
+      overrideBajaSial?: boolean
+    }) => {
+      const res = await apiClient.post(`/api/v1/padron/snapshots/${snapshotId}/aprobar`, {
+        overrideRatioTamano,
+        overrideBajaSial,
+      })
       return res.data.data
     },
-    onSuccess: (_data, snapshotId) => {
+    onSuccess: (_data, { snapshotId }) => {
       queryClient.invalidateQueries({ queryKey: ['padron', 'snapshots'] })
       queryClient.invalidateQueries({ queryKey: ['padron', 'snapshots', snapshotId] })
     },
