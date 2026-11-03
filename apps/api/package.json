@@ -9,6 +9,7 @@
     "start": "node dist/app.js",
     "clean": "rm -rf dist",
     "test": "vitest run",
+    "test:http": "vitest run --config vitest.http.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "import:organigrama": "tsx scripts/import-organigrama.ts"
