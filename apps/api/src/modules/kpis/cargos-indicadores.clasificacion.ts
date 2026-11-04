@@ -1,0 +1,547 @@
+// Indicadores de cargos — lógica PURA (sin Prisma, sin BD).
+//
+// Cada cargo existente en una fecha de corte F cae en UNA sola hoja (cascada
+// R1..R9). La SQL del servicio solo agrupa "hechos" y esta función decide la
+// hoja; las columnas padre (ocupado, vigente, total) son sumas de hojas, así
+// que los grupos son excluyentes y la conciliación vale por construcción.
+// Pensado para ser reutilizable por otros módulos (p. ej. Incidencias).
+import type {
+  CargosIndicadores,
+  CargosIndicadoresCelda,
+  CargosIndicadoresColumnaId,
+  CargosIndicadoresColumnaMeta,
+  CargosIndicadoresFila,
+  CargosIndicadoresPeriodo,
+  CargosIndicadoresTablaMeta,
+  CargosIndicadoresTendencia,
+} from '@srrhh/types'
+import { AppError } from '../../shared/errors/AppError.js'
+
+export type HojaCargo =
+  | 'no_vigente'
+  | 'validacion'
+  | 'ocupado_activo'
+  | 'ocupado_comision'
+  | 'ocupado_retencion'
+  | 'ocupado_otra'
+  | 'vacante'
+  | 'concurso'
+  | 'indeterminado'
+
+export const HOJAS: readonly HojaCargo[] = [
+  'no_vigente',
+  'validacion',
+  'ocupado_activo',
+  'ocupado_comision',
+  'ocupado_retencion',
+  'ocupado_otra',
+  'vacante',
+  'concurso',
+  'indeterminado',
+]
+
+// Sub-estados CPH de Etapa 2+ (admisión a conc_rows; la pertenencia "en curso"
+// se decide por fechas, no por este valor). Excluye a propósito 'o-alta sial',
+// 'n-designado', 'h-tad' y 'm-reso a la firma', que la SQL agrega en línea.
+export const SUB_ESTADOS_CONCURSO_CPH: readonly string[] = [
+  'a-autzn',
+  'b-sorteo jur',
+  'c-dispo de llamado',
+  'c2-inscripcion ex',
+  'd-examen publicado',
+  'e-orden de merito',
+  'f-ifacs',
+  'g-insal',
+  'i-carga docu',
+  'j-apto med',
+  'k-ite',
+  'l-pycto de reso',
+]
+
+export type ConcursoFact = 'si' | 'no' | 'desconocido'
+export type EdRel = 'null' | 'le' | 'gt'
+export type ModoCorte = 'vivo' | 'corte'
+
+export interface HechosCargo {
+  estado: string
+  edRel: EdRel
+  /** Situaciones de revista (normalizadas) de los ocupantes en F; null/vacío = sin ocupante. */
+  sits: string[] | null
+  sitAprox: boolean
+  concurso: ConcursoFact
+  modo: ModoCorte
+}
+
+export interface Clasificacion {
+  hoja: HojaCargo
+  aprox: boolean
+}
+
+type HojaOcupado = 'ocupado_activo' | 'ocupado_comision' | 'ocupado_retencion' | 'ocupado_otra'
+
+/** Situación representante de un cargo con varios ocupantes: activo > comisión > retención > otra. */
+export function elegirSituacion(sits: readonly string[]): HojaOcupado {
+  if (sits.includes('activo')) return 'ocupado_activo'
+  if (sits.includes('comision')) return 'ocupado_comision'
+  if (sits.includes('retencion de cargo')) return 'ocupado_retencion'
+  return 'ocupado_otra'
+}
+
+/** Cascada de clasificación. Total: toda combinación de hechos devuelve exactamente una hoja. */
+export function clasificarCargo(h: HechosCargo): Clasificacion {
+  const esCorte = h.modo === 'corte'
+  const { estado, edRel } = h
+  if (estado !== 'vigente' && estado !== 'validacion_vacante' && estado !== 'no_vigente') {
+    return { hoja: 'indeterminado', aprox: true } // R1
+  }
+  if (estado === 'validacion_vacante' && edRel === 'le') return { hoja: 'validacion', aprox: false } // R2
+  if (estado === 'no_vigente' && edRel === 'le') return { hoja: 'no_vigente', aprox: esCorte } // R2a
+  if (edRel === 'null' && estado !== 'vigente') {
+    // R2b: sin fecha de entrada al estado
+    return { hoja: estado === 'no_vigente' ? 'no_vigente' : 'validacion', aprox: true }
+  }
+  if (h.sits && h.sits.length > 0) return { hoja: elegirSituacion(h.sits), aprox: h.sitAprox } // R3
+  if (h.concurso === 'si') return { hoja: 'concurso', aprox: true } // R4
+  if (h.concurso === 'desconocido') return { hoja: 'indeterminado', aprox: true } // R5
+  if (estado === 'vigente' && edRel === 'gt') return { hoja: 'indeterminado', aprox: true } // R6
+  if (estado === 'no_vigente') return { hoja: 'validacion', aprox: true } // R7
+  if (estado === 'validacion_vacante') return { hoja: 'indeterminado', aprox: true } // R8
+  return { hoja: 'vacante', aprox: true } // R9
+}
+
+// ─── Concursos ───────────────────────────────────────────────────────────────
+// Fechas como 'YYYY-MM-DD' (la comparación lexicográfica es válida).
+
+export interface ConcursoFechas {
+  ini: string | null
+  fin: string | null
+  cierreSinFecha: boolean
+}
+
+/** Tri-estado de UN concurso en la fecha F (transcripción de la SQL de `conc`). */
+export function concursoAlCorte(c: ConcursoFechas, F: string): ConcursoFact {
+  const finLeF = c.fin !== null && c.fin <= F
+  const iniLeF = c.ini !== null && c.ini <= F
+  const si = iniLeF && !(c.cierreSinFecha && c.fin === null) && (c.fin === null || c.fin > F)
+  if (si) return 'si'
+  const desconocido = !finLeF && (c.ini === null || (c.cierreSinFecha && c.fin === null && iniLeF))
+  return desconocido ? 'desconocido' : 'no'
+}
+
+/** Un cargo es 'si' si algún concurso da 'si'; si no 'desconocido' si alguno lo da; si no 'no'. */
+export function concursosAlCorte(cs: readonly ConcursoFechas[], F: string): ConcursoFact {
+  let res: ConcursoFact = 'no'
+  for (const c of cs) {
+    const r = concursoAlCorte(c, F)
+    if (r === 'si') return 'si'
+    if (r === 'desconocido') res = 'desconocido'
+  }
+  return res
+}
+
+/** Fin de un concurso: mínimo de los cierres no nulos (desierto, alta posterior, concurso siguiente). */
+export function finConcurso(x: {
+  desierto?: string | null
+  ocupacionPosterior?: string | null
+  concursoSiguiente?: string | null
+}): string | null {
+  const fechas = [x.desierto, x.ocupacionPosterior, x.concursoSiguiente].filter(
+    (f): f is string => typeof f === 'string' && f.length > 0,
+  )
+  if (fechas.length === 0) return null
+  return fechas.reduce((a, b) => (b < a ? b : a))
+}
+
+// ─── Disponibilidad de un período reconstruido ───────────────────────────────
+
+export function evaluarDisponibilidad(
+  F: string,
+  x: { primerDatos: string | null; cargaInicial: string | null; override: string | null },
+): { disponible: boolean; motivo: string | null } {
+  if (!x.primerDatos) return { disponible: false, motivo: 'sin padrones aprobados' }
+  if (F < x.primerDatos) {
+    return { disponible: false, motivo: `anterior al primer padrón aprobado (${x.primerDatos})` }
+  }
+  if (x.override === null && x.cargaInicial !== null && F < x.cargaInicial) {
+    return { disponible: false, motivo: `anterior a la carga inicial de cargos (${x.cargaInicial})` }
+  }
+  return { disponible: true, motivo: null }
+}
+
+// ─── Agregación ──────────────────────────────────────────────────────────────
+
+export interface FilaHecho extends Omit<HechosCargo, 'modo'> {
+  carreraId: string | null
+  n: number
+}
+export interface FilaHoja {
+  carreraId: string | null
+  hoja: HojaCargo
+  aprox: boolean
+  n: number
+}
+export interface ConteoHoja {
+  n: number
+  aprox: number
+}
+export type HojasConteo = Record<HojaCargo, ConteoHoja>
+export type ColumnasBase = Exclude<CargosIndicadoresColumnaId, 'personas_ref'>
+export type ColumnasConteo = Record<ColumnasBase, ConteoHoja>
+
+export function clasificarFilas(filas: readonly FilaHecho[], modo: ModoCorte): FilaHoja[] {
+  return filas.map((f) => {
+    const { hoja, aprox } = clasificarCargo({ ...f, modo })
+    return { carreraId: f.carreraId, hoja, aprox, n: f.n }
+  })
+}
+
+function hojasVacias(): HojasConteo {
+  const r = {} as HojasConteo
+  for (const h of HOJAS) r[h] = { n: 0, aprox: 0 }
+  return r
+}
+
+/** Suma n por carrera y hoja. Clave de carrera: id o '' para "(sin código)". */
+export function agregarHojas(filas: readonly FilaHoja[]): Map<string, HojasConteo> {
+  const out = new Map<string, HojasConteo>()
+  for (const f of filas) {
+    const k = f.carreraId ?? ''
+    let hojas = out.get(k)
+    if (!hojas) {
+      hojas = hojasVacias()
+      out.set(k, hojas)
+    }
+    hojas[f.hoja].n += f.n
+    if (f.aprox) hojas[f.hoja].aprox += f.n
+  }
+  return out
+}
+
+function sumar(hojas: HojasConteo, ids: readonly HojaCargo[]): ConteoHoja {
+  return ids.reduce(
+    (acc, id) => ({ n: acc.n + hojas[id].n, aprox: acc.aprox + hojas[id].aprox }),
+    { n: 0, aprox: 0 },
+  )
+}
+
+const OCUPADO_HOJAS: readonly HojaCargo[] = [
+  'ocupado_activo',
+  'ocupado_comision',
+  'ocupado_retencion',
+  'ocupado_otra',
+]
+
+/** Columnas derivadas: ocupado, vigente y total son SUMAS de hojas. */
+export function derivarColumnas(hojas: HojasConteo): ColumnasConteo {
+  return {
+    total: sumar(hojas, HOJAS),
+    no_vigente: hojas.no_vigente,
+    validacion: hojas.validacion,
+    vigente: sumar(hojas, [...OCUPADO_HOJAS, 'vacante', 'concurso']),
+    ocupado: sumar(hojas, OCUPADO_HOJAS),
+    ocupado_activo: hojas.ocupado_activo,
+    ocupado_comision: hojas.ocupado_comision,
+    ocupado_retencion: hojas.ocupado_retencion,
+    ocupado_otra: hojas.ocupado_otra,
+    vacante: hojas.vacante,
+    concurso: hojas.concurso,
+    indeterminado: hojas.indeterminado,
+  }
+}
+
+export function sumarHojas(a: HojasConteo, b: HojasConteo): HojasConteo {
+  const r = hojasVacias()
+  for (const h of HOJAS) r[h] = { n: a[h].n + b[h].n, aprox: a[h].aprox + b[h].aprox }
+  return r
+}
+
+export function variacion(
+  actual: number | null,
+  anterior: number | null,
+): { abs: number | null; pct: number | null; tendencia: CargosIndicadoresTendencia | null } {
+  if (actual === null || anterior === null) return { abs: null, pct: null, tendencia: null }
+  const abs = actual - anterior
+  const tendencia: CargosIndicadoresTendencia = abs > 0 ? 'sube' : abs < 0 ? 'baja' : 'igual'
+  let pct: number | null
+  if (anterior === 0) pct = actual === 0 ? 0 : null
+  else pct = Math.round((abs / anterior) * 10000) / 100
+  return { abs, pct, tendencia }
+}
+
+/** Verificación de runtime: detecta filas descartadas o una hoja sin sumar (no una falla de la partición). */
+export function verificarConciliacion(
+  filas: readonly FilaHoja[],
+  totalBase: number,
+): { ok: boolean; total: number } {
+  const suma = filas.reduce((a, f) => a + f.n, 0)
+  const derivado = derivarColumnas(
+    [...agregarHojas(filas).values()].reduce(sumarHojas, hojasVacias()),
+  ).total.n
+  return { ok: suma === totalBase && derivado === totalBase, total: derivado }
+}
+
+// ─── Períodos ────────────────────────────────────────────────────────────────
+
+export interface PeriodoResuelto {
+  mes: string
+  fechaCorte: string
+  modo: 'vivo' | 'reconstruido'
+}
+
+/** Fecha civil argentina ('YYYY-MM-DD') de un instante. */
+export function fechaCivilArgentina(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+function ultimoDiaDelMes(anio: number, mes1a12: number): string {
+  const d = new Date(Date.UTC(anio, mes1a12, 0)).getUTCDate()
+  return `${anio}-${String(mes1a12).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+function mesAnterior(mes: string): string {
+  const [y, m] = mes.split('-').map(Number) as [number, number]
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+}
+
+function finDeMes(mes: string): string {
+  const [y, m] = mes.split('-').map(Number) as [number, number]
+  return ultimoDiaDelMes(y, m)
+}
+
+export function resolverPeriodos(
+  mes: string | undefined,
+  hoy: string,
+): { actual: PeriodoResuelto; anterior: PeriodoResuelto } {
+  const mesHoy = hoy.slice(0, 7)
+  const mesRef = mes ?? mesHoy
+  if (mesRef > mesHoy) throw AppError.badRequest('El mes no puede ser futuro')
+  const prev = mesAnterior(mesRef)
+  const anterior: PeriodoResuelto = { mes: prev, fechaCorte: finDeMes(prev), modo: 'reconstruido' }
+  if (mesRef === mesHoy) {
+    return { actual: { mes: mesRef, fechaCorte: hoy, modo: 'vivo' }, anterior }
+  }
+  return { actual: { mes: mesRef, fechaCorte: finDeMes(mesRef), modo: 'reconstruido' }, anterior }
+}
+
+// ─── Respuesta ───────────────────────────────────────────────────────────────
+
+export interface CarreraCatalogo {
+  id: string
+  codigo: string
+  literal: string
+}
+
+export interface DatosPeriodo {
+  periodo: CargosIndicadoresPeriodo
+  /** null = período no disponible (todas las celdas n/d). */
+  filas: FilaHoja[] | null
+  /** Personas por código de carrera (kpis_dotacion_snapshot '(total)'); null = sin dato. */
+  personas: { codigo: string; personas: number }[] | null
+  personasFecha: string | null
+}
+
+const SIN_CODIGO = '(sin codigo)'
+
+const COLUMNAS_META: Record<ColumnasBase | 'personas_ref', { etiqueta: string; nota: string | null }> = {
+  total: { etiqueta: 'Total de cargos', nota: 'Vigente + En validación + No vigente (+ Sin determinar).' },
+  no_vigente: { etiqueta: 'No vigente', nota: null },
+  validacion: { etiqueta: 'En validación', nota: 'Estado validacion_vacante.' },
+  vigente: { etiqueta: 'Vigente', nota: 'Ocupado + Vacante + Concurso.' },
+  ocupado: { etiqueta: 'Ocupado', nota: 'Cargos con ocupante vigente a la fecha.' },
+  ocupado_activo: { etiqueta: 'Activo', nota: null },
+  ocupado_comision: { etiqueta: 'Comisión', nota: null },
+  ocupado_retencion: { etiqueta: 'Retención de cargo', nota: null },
+  ocupado_otra: { etiqueta: 'Otras / sin dato', nota: 'Situación de revista fuera del catálogo o sin dato.' },
+  vacante: { etiqueta: 'Vacante', nota: 'Vigente sin ocupante ni concurso en curso.' },
+  concurso: { etiqueta: 'Concurso', nota: 'Vigente sin ocupante, con concurso en curso (Etapa 2+).' },
+  indeterminado: {
+    etiqueta: 'Sin determinar (n/d)',
+    nota: 'No se puede inferir con los datos disponibles; nunca se cuenta como otro grupo.',
+  },
+  personas_ref: {
+    etiqueta: 'Personas (Evolución de dotación)',
+    nota: 'Referencia informativa de personas (no cargos). No entra en las sumas.',
+  },
+}
+
+function meta(id: CargosIndicadoresColumnaId, destacada: boolean): CargosIndicadoresColumnaMeta {
+  return { id, etiqueta: COLUMNAS_META[id].etiqueta, destacada, nota: COLUMNAS_META[id].nota }
+}
+
+export function columnasVisibles(hayIndeterminado: boolean): CargosIndicadoresTablaMeta[] {
+  const estado: CargosIndicadoresColumnaMeta[] = [
+    meta('total', true),
+    meta('no_vigente', false),
+    meta('validacion', false),
+    meta('vigente', false),
+  ]
+  if (hayIndeterminado) estado.push(meta('indeterminado', false))
+  return [
+    { id: 'estado', titulo: 'Estado del cargo', nota: null, columnas: estado },
+    {
+      id: 'vigente',
+      titulo: 'Dentro de Vigente',
+      nota: null,
+      columnas: [meta('vigente', true), meta('ocupado', false), meta('vacante', false), meta('concurso', false)],
+    },
+    {
+      id: 'ocupado',
+      titulo: 'Dentro de Ocupado, por situación de revista',
+      nota: null,
+      columnas: [
+        meta('ocupado', true),
+        meta('ocupado_activo', false),
+        meta('ocupado_comision', false),
+        meta('ocupado_retencion', false),
+        meta('ocupado_otra', false),
+        meta('personas_ref', false),
+      ],
+    },
+  ]
+}
+
+const COLUMNAS_TODAS: CargosIndicadoresColumnaId[] = [
+  'total',
+  'no_vigente',
+  'validacion',
+  'vigente',
+  'ocupado',
+  'ocupado_activo',
+  'ocupado_comision',
+  'ocupado_retencion',
+  'ocupado_otra',
+  'vacante',
+  'concurso',
+  'indeterminado',
+  'personas_ref',
+]
+
+function celdaDe(
+  act: ConteoHoja | null,
+  ant: ConteoHoja | null,
+): CargosIndicadoresCelda {
+  return celdaNum(act?.n ?? null, act?.aprox ?? 0, ant?.n ?? null, ant?.aprox ?? 0)
+}
+
+function celdaNum(actual: number | null, aA: number, anterior: number | null, aP: number): CargosIndicadoresCelda {
+  const v = variacion(actual, anterior)
+  return {
+    actual,
+    actualAprox: aA,
+    anterior,
+    anteriorAprox: aP,
+    variacionAbs: v.abs,
+    variacionPct: v.pct,
+    tendencia: v.tendencia,
+  }
+}
+
+function ordenarCodigos(a: string, b: string): number {
+  const na = /^\d+$/.test(a)
+  const nb = /^\d+$/.test(b)
+  if (na && nb) return Number(a) - Number(b)
+  if (na) return -1
+  if (nb) return 1
+  return a.localeCompare(b, 'es')
+}
+
+export function construirRespuesta(args: {
+  actual: DatosPeriodo
+  anterior: DatosPeriodo
+  carreras: readonly CarreraCatalogo[]
+  carreraFiltrada: boolean
+  hospitalFiltrado: boolean
+  conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null }
+}): CargosIndicadores {
+  const { actual, anterior, carreras } = args
+  const aggA = actual.filas ? agregarHojas(actual.filas) : null
+  const aggP = anterior.filas ? agregarHojas(anterior.filas) : null
+  const claves = new Set<string>([...(aggA?.keys() ?? []), ...(aggP?.keys() ?? [])])
+  const porId = new Map(carreras.map((c) => [c.id, c]))
+  const porCodigo = new Map(carreras.map((c) => [c.codigo, c.id]))
+
+  const personasPor = (d: DatosPeriodo): Map<string, number> | null => {
+    if (args.hospitalFiltrado || !d.personas) return null
+    const m = new Map<string, number>()
+    for (const p of d.personas) {
+      const id = p.codigo === SIN_CODIGO ? '' : porCodigo.get(p.codigo)
+      if (id === undefined) continue // código ausente del catálogo: se descarta
+      m.set(id, (m.get(id) ?? 0) + p.personas)
+    }
+    return m
+  }
+  const perA = actual.filas ? personasPor(actual) : null
+  const perP = anterior.filas ? personasPor(anterior) : null
+
+  const armarCeldas = (
+    k: string,
+    a: HojasConteo | null,
+    p: HojasConteo | null,
+    esTotal: boolean,
+  ): Record<CargosIndicadoresColumnaId, CargosIndicadoresCelda> => {
+    const dA = a ? derivarColumnas(a) : null
+    const dP = p ? derivarColumnas(p) : null
+    const celdas = {} as Record<CargosIndicadoresColumnaId, CargosIndicadoresCelda>
+    for (const id of COLUMNAS_TODAS) {
+      if (id === 'personas_ref') {
+        const val = (m: Map<string, number> | null): number | null => {
+          if (!m) return null
+          if (esTotal) return args.carreraFiltrada ? [...m.values()].reduce((x, y) => x + y, 0) : null
+          return m.get(k) ?? 0
+        }
+        celdas[id] = celdaNum(val(perA), 0, val(perP), 0)
+      } else {
+        celdas[id] = celdaDe(dA ? dA[id] : null, dP ? dP[id] : null)
+      }
+    }
+    return celdas
+  }
+
+  const filas: CargosIndicadoresFila[] = []
+  for (const k of claves) {
+    const a = aggA?.get(k) ?? (aggA ? hojasVacias() : null)
+    const p = aggP?.get(k) ?? (aggP ? hojasVacias() : null)
+    const cat = k === '' ? undefined : porId.get(k)
+    const codigo = k === '' ? SIN_CODIGO : (cat?.codigo ?? SIN_CODIGO)
+    const literal = cat?.literal ?? null
+    filas.push({
+      carreraId: k === '' ? null : k,
+      codigo,
+      literal,
+      etiqueta: literal ? `${codigo} — ${literal}` : codigo,
+      celdas: armarCeldas(k, a, p, false),
+    })
+  }
+  filas.sort((x, y) => {
+    if (x.carreraId === null) return 1
+    if (y.carreraId === null) return -1
+    return ordenarCodigos(x.codigo, y.codigo)
+  })
+
+  const sumaTodas = (agg: Map<string, HojasConteo> | null) =>
+    agg ? [...agg.values()].reduce(sumarHojas, hojasVacias()) : null
+  const totA = sumaTodas(aggA)
+  const totP = sumaTodas(aggP)
+  const total: CargosIndicadoresFila = {
+    carreraId: null,
+    codigo: 'Total',
+    literal: null,
+    etiqueta: 'Total',
+    celdas: armarCeldas('', totA, totP, true),
+  }
+  const hayIndeterminado = (totA?.indeterminado.n ?? 0) > 0 || (totP?.indeterminado.n ?? 0) > 0
+  return {
+    actual: actual.periodo,
+    anterior: anterior.periodo,
+    tablas: columnasVisibles(hayIndeterminado),
+    filas,
+    total,
+    referenciaPersonas: { actualFecha: actual.personasFecha, anteriorFecha: anterior.personasFecha },
+    conciliacion: args.conciliacion,
+  }
+}

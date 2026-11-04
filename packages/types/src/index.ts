@@ -2045,3 +2045,73 @@ export interface CrearJornadaRequest {
   observaciones?: string
   concursoCphIds: string[]
 }
+
+// ─── Indicadores de cargos (Reportes) ────────────────────────────────────────
+// GET /api/v1/kpis/cargos-indicadores — tablas de cantidad de cargos por carrera
+// y estado, mes actual vs mes anterior (solo lectura).
+export type CargosIndicadoresColumnaId =
+  | 'total'
+  | 'no_vigente'
+  | 'validacion'
+  | 'vigente'
+  | 'ocupado'
+  | 'ocupado_activo'
+  | 'ocupado_comision'
+  | 'ocupado_retencion'
+  | 'ocupado_otra'
+  | 'vacante'
+  | 'concurso'
+  | 'indeterminado'
+  | 'personas_ref' // informativa (kpis_dotacion_snapshot); no entra en sumas
+
+export type CargosIndicadoresTendencia = 'sube' | 'baja' | 'igual'
+
+export interface CargosIndicadoresCelda {
+  actual: number | null // null = n/d (período no disponible o referencia sin dato)
+  actualAprox: number // cargos inferidos dentro de `actual`
+  anterior: number | null // null = n/d
+  anteriorAprox: number
+  variacionAbs: number | null // actual - anterior; null si alguno es n/d
+  variacionPct: number | null // 2 decimales; null si hay n/d o anterior = 0 con actual > 0; 0 si ambos son 0
+  tendencia: CargosIndicadoresTendencia | null // signo de variacionAbs; null si variacionAbs es null
+}
+
+export interface CargosIndicadoresFila {
+  carreraId: string | null // null = "(sin código)" y también la fila Total
+  codigo: string // '(sin codigo)' si no tiene; 'Total' en la fila total
+  literal: string | null
+  etiqueta: string // `${codigo} — ${literal}`, o el código solo
+  celdas: Record<CargosIndicadoresColumnaId, CargosIndicadoresCelda>
+}
+
+export interface CargosIndicadoresColumnaMeta {
+  id: CargosIndicadoresColumnaId
+  etiqueta: string
+  destacada: boolean // columna "padre" de la tabla (se muestra en negrita)
+  nota: string | null // tooltip
+}
+
+export interface CargosIndicadoresTablaMeta {
+  id: 'estado' | 'vigente' | 'ocupado'
+  titulo: string
+  nota: string | null
+  columnas: CargosIndicadoresColumnaMeta[] // ya filtradas por visibilidad (decide la API)
+}
+
+export interface CargosIndicadoresPeriodo {
+  mes: string // 'YYYY-MM'
+  fechaCorte: string // 'YYYY-MM-DD'
+  modo: 'vivo' | 'reconstruido'
+  disponible: boolean
+  motivoNoDisponible: string | null
+}
+
+export interface CargosIndicadores {
+  actual: CargosIndicadoresPeriodo
+  anterior: CargosIndicadoresPeriodo
+  tablas: CargosIndicadoresTablaMeta[]
+  filas: CargosIndicadoresFila[] // por carrera; código numérico asc, texto después, "(sin código)" al final
+  total: CargosIndicadoresFila
+  referenciaPersonas: { actualFecha: string | null; anteriorFecha: string | null }
+  conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null }
+}
