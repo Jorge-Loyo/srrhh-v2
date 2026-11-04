@@ -19,6 +19,7 @@ import {
   type DatosPeriodo,
   type EdRel,
   type FilaHecho,
+  type FilaPaso,
   type PeriodoResuelto,
 } from './cargos-indicadores.clasificacion.js'
 
@@ -93,6 +94,58 @@ conc AS (
 )`
 }
 
+/**
+ * Fecha de pasaje a no_vigente por cargo (solo cargos hoy no_vigente). Ver design.md §18.
+ *  - Por defecto la fecha es `estado_desde` (bajas, retenciones y fantasmas de jefatura la escriben al pasar).
+ *  - Baja confirmada por el padrón (aprobarSnapshotService paso 4): NO toca estado_desde, que queda en la fecha
+ *    en que el cargo entró a validación. Se reconoce porque hubo una ocupación cerrada ese mismo día por un diff
+ *    `eliminado` de baja nueva (campo NULL) de un snapshot aprobado de esa fecha. La confirmación ocurre en la
+ *    primera aprobación posterior: se toma el primer snapshot aprobado con fecha_asignada > estado_desde (~).
+ *  - Sin estado_desde -> fecha NULL (no se puede fechar; no se inventa).
+ * Columnas: id, fecha, por_padron (true = fecha inferida).
+ */
+export const SQL_PASO_NO_VIGENTE: Prisma.Sql = Prisma.sql`
+SELECT x.id, x.por_padron,
+       CASE WHEN x.por_padron
+            THEN coalesce((SELECT min(s2.fecha_asignada) FROM padron_snapshots s2
+                            WHERE s2.estado::text = 'aprobado' AND s2.fecha_asignada > x.ed), x.ed)
+            ELSE x.ed END AS fecha
+FROM (
+  SELECT c.id, c.estado_desde AS ed,
+         (c.estado_desde IS NOT NULL AND EXISTS (
+            SELECT 1 FROM ocupaciones o
+              JOIN padron_diff d ON d.id_sial_rol = o.id_sial_rol
+              JOIN padron_snapshots s ON s.id = d.snapshot_id
+             WHERE o.cargo_id = c.id AND o.hasta = c.estado_desde
+               AND d.tipo::text = 'eliminado' AND d.campo IS NULL
+               AND s.estado::text = 'aprobado' AND s.fecha_asignada = c.estado_desde)) AS por_padron
+  FROM cargos c
+  WHERE c.estado::text = 'no_vigente'
+) x`
+
+/** Cargos hoy no vigentes cuyo pasaje cae en [desde, hasta], por carrera (agregado en la base). */
+export function sqlPasaronNoVigente(desde: string, hasta: string, f: Filtros): Prisma.Sql {
+  return Prisma.sql`
+SELECT c.codigo_registro_id::text AS codigo_registro_id,
+       count(*)::int AS n,
+       (count(*) FILTER (WHERE p.por_padron))::int AS aprox
+FROM cargos c
+JOIN (${SQL_PASO_NO_VIGENTE}) p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente' ${filtros('c', f)}
+  AND p.fecha BETWEEN ${desde}::date AND ${hasta}::date
+GROUP BY 1`
+}
+
+/** Cargos hoy no vigentes sin fecha de pasaje determinable. */
+export function sqlNoVigenteSinFecha(f: Filtros): Prisma.Sql {
+  return Prisma.sql`
+SELECT count(*)::int AS n
+FROM cargos c
+JOIN (${SQL_PASO_NO_VIGENTE}) p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente' ${filtros('c', f)}
+  AND p.fecha IS NULL`
+}
+
 const ESTADOS = new Set(['vigente', 'validacion_vacante', 'no_vigente'])
 
 interface FilaSql {
@@ -102,6 +155,7 @@ interface FilaSql {
   sits: string[] | null
   sit_aprox: boolean
   concurso: 'si' | 'no' | 'desconocido'
+  paso_aprox: boolean
   n: number
   total_base: number
 }
@@ -126,6 +180,7 @@ ${sqlConcursos(hoy)}
 SELECT b.codigo_registro_id::text AS codigo_registro_id, b.estado, 'le' AS ed_rel,
        occ.sits, false AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso,
+       false AS paso_aprox,
        count(*)::int AS n,
        (SELECT count(*)::int FROM cargos t
          WHERE t.deleted_at IS NULL ${filtros('t', f)}) AS total_base
@@ -139,9 +194,14 @@ export function sqlPeriodoReconstruido(corte: string, override: string | null, f
   return Prisma.sql`
 WITH base AS (
   SELECT c.id, c.codigo_registro_id, c.estado::text AS estado,
-         CASE WHEN c.estado_desde IS NULL THEN 'null'
-              WHEN c.estado_desde <= ${corte}::date THEN 'le' ELSE 'gt' END AS ed_rel
+         -- no_vigente: la fecha de pasaje (SQL_PASO_NO_VIGENTE); resto: estado_desde
+         CASE WHEN c.estado::text = 'no_vigente'
+                   THEN (CASE WHEN p.fecha IS NULL THEN 'null' WHEN p.fecha <= ${corte}::date THEN 'le' ELSE 'gt' END)
+              WHEN c.estado_desde IS NULL THEN 'null'
+              WHEN c.estado_desde <= ${corte}::date THEN 'le' ELSE 'gt' END AS ed_rel,
+         coalesce(p.por_padron, false) AS paso_aprox
   FROM cargos c
+  LEFT JOIN (${SQL_PASO_NO_VIGENTE}) p ON p.id = c.id
   WHERE ((c.created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date <= ${corte}::date
          OR (c.created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date <= ${override}::date)
     AND (c.deleted_at IS NULL
@@ -171,12 +231,13 @@ ${sqlConcursos(corte)}
 SELECT b.codigo_registro_id::text AS codigo_registro_id, b.estado, b.ed_rel,
        occ.sits, coalesce(occ.sit_aprox, false) AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso,
+       b.paso_aprox,
        count(*)::int AS n,
        (SELECT count(*)::int FROM base) AS total_base
 FROM base b
 LEFT JOIN occ  ON occ.cargo_id  = b.id
 LEFT JOIN conc ON conc.cargo_id = b.id
-GROUP BY 1, 2, 3, 4, 5, 6`
+GROUP BY 1, 2, 3, 4, 5, 6, 7`
 }
 
 function aFilaHecho(r: FilaSql): FilaHecho {
@@ -187,6 +248,7 @@ function aFilaHecho(r: FilaSql): FilaHecho {
     sits: r.sits,
     sitAprox: r.sit_aprox,
     concurso: r.concurso,
+    pasoAprox: Boolean(r.paso_aprox),
     n: Number(r.n),
   }
 }
@@ -258,6 +320,7 @@ export async function getCargosIndicadoresService(
     }
     const periodo: CargosIndicadoresPeriodo = {
       mes: p.mes,
+      desde: p.desde,
       fechaCorte: p.fechaCorte,
       modo: p.modo,
       disponible,
@@ -272,14 +335,30 @@ export async function getCargosIndicadoresService(
         personasFecha = rows[0]?.fecha ?? null
       }
     }
+    // Pasajes a no vigente dentro de la ventana [1° del mes, corte]; agregado en la base.
+    let pasaron: FilaPaso[] | null = null
+    if (disponible) {
+      const rows = await prisma.$queryRaw<{ codigo_registro_id: string | null; n: number; aprox: number }[]>(
+        sqlPasaronNoVigente(p.desde, p.fechaCorte, f),
+      )
+      pasaron = rows.map((r) => ({
+        carreraId: r.codigo_registro_id,
+        n: Number(r.n),
+        aprox: Number(r.aprox),
+      }))
+    }
     const hechos = filas.map(aFilaHecho)
     const estadosRaros = hechos.some((h) => !ESTADOS.has(h.estado))
     const hojas = disponible ? clasificarFilas(hechos, p.modo === 'vivo' ? 'vivo' : 'corte') : null
     const totalBase = disponible ? Number(filas[0]?.total_base ?? 0) : null
-    return { periodo, hojas, personas, personasFecha, totalBase, estadosRaros }
+    return { periodo, pasaron, hojas, personas, personasFecha, totalBase, estadosRaros }
   }
 
-  const [a, p] = await Promise.all([cargarPeriodo(per.actual), cargarPeriodo(per.anterior)])
+  const [a, p, sinFecha] = await Promise.all([
+    cargarPeriodo(per.actual),
+    cargarPeriodo(per.anterior),
+    prisma.$queryRaw<{ n: number }[]>(sqlNoVigenteSinFecha(f)).then((r) => Number(r[0]?.n ?? 0)),
+  ])
 
   const concil = (x: typeof a) => (x.hojas && x.totalBase !== null ? verificarConciliacion(x.hojas, x.totalBase) : null)
   const cA = concil(a)
@@ -296,8 +375,8 @@ export async function getCargosIndicadoresService(
   }
 
   return construirRespuesta({
-    actual: { periodo: a.periodo, filas: a.hojas, personas: a.personas, personasFecha: a.personasFecha },
-    anterior: { periodo: p.periodo, filas: p.hojas, personas: p.personas, personasFecha: p.personasFecha },
+    actual: { periodo: a.periodo, pasaron: a.pasaron, filas: a.hojas, personas: a.personas, personasFecha: a.personasFecha },
+    anterior: { periodo: p.periodo, pasaron: p.pasaron, filas: p.hojas, personas: p.personas, personasFecha: p.personasFecha },
     carreras,
     carreraFiltrada: Boolean(f.codigoRegistroId),
     hospitalFiltrado: Boolean(f.hospitalId),
@@ -306,5 +385,6 @@ export async function getCargosIndicadoresService(
       totalActual: cA ? cA.total : null,
       totalAnterior: cP ? cP.total : null,
     },
+    noVigenteSinFecha: sinFecha,
   })
 }

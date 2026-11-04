@@ -27,17 +27,20 @@ function fila(over: Record<string, unknown>) {
     sits: null,
     sit_aprox: false,
     concurso: 'no',
+    paso_aprox: false,
     n: 1,
     total_base: 10,
     ...over,
   }
 }
 
-function configurar(opts: { primerDatos?: string | null; cargaInicial?: string | null; filasVivo?: unknown[]; filasRec?: unknown[] } = {}) {
+function configurar(opts: { primerDatos?: string | null; cargaInicial?: string | null; filasVivo?: unknown[]; filasRec?: unknown[]; pasaron?: unknown[]; sinFecha?: number } = {}) {
   const { primerDatos = '2026-01-31', cargaInicial = '2026-02-10' } = opts
   queryRaw.mockImplementation(async (q: Capt) => {
     capturas.push({ sql: q.sql, values: q.values })
-    if (q.sql.includes('FROM padron_snapshots')) return [{ d: primerDatos }]
+    if (q.sql.includes('min(fecha_asignada)::text')) return [{ d: primerDatos }]
+    if (q.sql.includes('count(*) FILTER (WHERE p.por_padron)')) return opts.pasaron ?? [{ codigo_registro_id: U1, n: 3, aprox: 1 }]
+    if (q.sql.includes('AND p.fecha IS NULL')) return [{ n: opts.sinFecha ?? 2 }]
     if (q.sql.includes('GROUP BY 1 ORDER BY count(*) DESC')) return [{ d: cargaInicial }]
     if (q.sql.includes('kpis_dotacion_snapshot')) return [{ codigo: '37', personas: 5, fecha: '2026-10-01' }]
     if (q.sql.includes('WITH base AS') && q.sql.includes("'le' AS ed_rel")) {
@@ -68,13 +71,38 @@ describe('getCargosIndicadoresService', () => {
     expect(r.actual).toMatchObject({ mes: '2026-11', modo: 'vivo', disponible: true })
     expect(r.anterior).toMatchObject({ mes: '2026-10', fechaCorte: '2026-10-31', modo: 'reconstruido', disponible: true })
     expect(r.total.celdas.total.actual).toBe(10)
-    expect(r.total.celdas.total.anterior).toBe(9)
-    expect(r.total.celdas.total.variacionAbs).toBe(1)
+    // anterior: 9 cargos en la base, 2 no vigentes quedan fuera del total a gestionar
+    expect(r.total.celdas.total.anterior).toBe(7)
+    expect(r.total.celdas.total.variacionAbs).toBe(3)
     expect(r.total.celdas.ocupado.actual).toBe(6)
-    expect(r.conciliacion).toEqual({ ok: true, totalActual: 10, totalAnterior: 9 })
+    expect(r.conciliacion).toEqual({ ok: true, totalActual: 10, totalAnterior: 7 })
     expect(log.error).not.toHaveBeenCalled()
   })
 
+  it('pasaron a no vigente: ventana del período, agregado en SQL, bloque aparte y sin fecha', async () => {
+    configurar()
+    const r = await getCargosIndicadoresService({}, log, NOW)
+    const ventanas = capturas.filter((c) => c.sql.includes('p.fecha BETWEEN'))
+    expect(ventanas).toHaveLength(2)
+    expect(ventanas.map((c) => c.values.filter((v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)))).toEqual(
+      expect.arrayContaining([
+        ['2026-11-01', '2026-11-05'], // mes actual: 1° del mes hasta hoy
+        ['2026-10-01', '2026-10-31'], // mes anterior: completo
+      ]),
+    )
+    for (const c of ventanas) expect(c.sql).toContain('GROUP BY 1')
+    expect(r.total.pasaronNoVigente).toMatchObject({ actual: 3, actualAprox: 1, anterior: 3 })
+    expect(r.total.celdas.total.actual).toBe(10) // no se suma al total
+    expect(r.noVigenteSinFecha).toBe(2)
+    expect(r.actual.desde).toBe('2026-11-01')
+  })
+  it('pasaron a no vigente: período no disponible no consulta y queda n/d', async () => {
+    configurar({ primerDatos: '2026-11-01' })
+    const r = await getCargosIndicadoresService({}, log, NOW)
+    expect(capturas.filter((c) => c.sql.includes('p.fecha BETWEEN'))).toHaveLength(1)
+    expect(r.total.pasaronNoVigente.anterior).toBeNull()
+    expect(r.total.pasaronNoVigente.actual).toBe(3)
+  })
   it('Σ n distinto de total_base -> conciliacion.ok=false y log de error', async () => {
     configurar({ filasVivo: [fila({ n: 6, total_base: 10 })] })
     const r = await getCargosIndicadoresService({}, log, NOW)

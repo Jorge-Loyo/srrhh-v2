@@ -151,6 +151,73 @@ export function IndicadoresCargosTabla({ meta, filas, total, actual, anterior, r
   )
 }
 
+// Bloque APARTE y visualmente diferenciado (ámbar, borde punteado): cargos que pasaron a no
+// vigente dentro de cada período. Es informativo y NO se suma al total a gestionar. Una
+// columna con ~ incluye fechas de pasaje inferidas; n/d = período sin datos reconstruibles.
+export function PasaronNoVigenteBloque({
+  filas,
+  total,
+  actual,
+  anterior,
+  noVigenteSinFecha,
+}: {
+  filas: CargosIndicadoresFila[]
+  total: CargosIndicadoresFila
+  actual: CargosIndicadores['actual']
+  anterior: CargosIndicadores['anterior']
+  noVigenteSinFecha: number | null
+}) {
+  const mesA = rotuloMes(actual.mes)
+  const mesP = rotuloMes(anterior.mes)
+  const ventana = (p: CargosIndicadores['actual']) => `${p.desde} al ${p.fechaCorte}`
+  return (
+    <div className="overflow-x-auto border-2 border-dashed border-amber-400 rounded-md bg-amber-50/40" data-testid="pasaron-no-vigente">
+      <table className="min-w-full text-sm font-primary border-collapse">
+        <caption className="text-left px-3 py-2 bg-amber-50 border-b border-amber-200">
+          <span className="font-bold text-amber-900">Salieron de la gestión: pasaron a no vigente en el período</span>
+          <span className="ml-2 text-xs text-amber-800">
+            Informativo: NO forma parte del total a gestionar ni se suma a ninguna columna. Cuenta los cargos que hoy
+            son no vigentes y cuyo pasaje ocurrió en el período ({mesA}: {ventana(actual)}; {mesP}: {ventana(anterior)}).
+            ~ = fecha de pasaje inferida del padrón. n/d = período sin datos.
+          </span>
+        </caption>
+        <thead>
+          <tr className="bg-amber-50 text-xs text-amber-900">
+            <th scope="col" className="sticky left-0 z-10 bg-amber-50 px-3 py-2 text-left font-semibold border-b border-amber-200">
+              Carrera
+            </th>
+            <th scope="col" className="px-2 py-1 text-right font-medium border-l border-amber-200">{mesA}</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium">{mesP}</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium" title="Variación absoluta (color por signo del cambio, no por juicio)">Var.</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium" title="Variación porcentual">Var. %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.carreraId ?? 'sin-codigo'} className="border-t border-amber-100">
+              <th scope="row" className="sticky left-0 bg-amber-50 px-3 py-1.5 text-left font-normal text-gray-800 whitespace-nowrap">
+                {f.etiqueta}
+              </th>
+              <Celdas celda={f.pasaronNoVigente} negrita={false} />
+            </tr>
+          ))}
+          <tr className="border-t-2 border-amber-300 bg-amber-50 font-bold">
+            <th scope="row" className="sticky left-0 bg-amber-50 px-3 py-1.5 text-left">
+              Total
+            </th>
+            <Celdas celda={total.pasaronNoVigente} negrita />
+          </tr>
+        </tbody>
+      </table>
+      {noVigenteSinFecha !== null && noVigenteSinFecha > 0 && (
+        <p className="px-3 py-2 text-xs text-amber-800 border-t border-amber-200">
+          n/d: {noVigenteSinFecha.toLocaleString('es-AR')} cargos no vigentes no tienen fecha de pasaje determinable y no
+          están incluidos en ningún período.
+        </p>
+      )}
+    </div>
+  )
+}
 function ColumnasMes({ mesA, mesP }: { mesA: string; mesP: string }) {
   return (
     <>

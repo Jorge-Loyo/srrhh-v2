@@ -1,7 +1,9 @@
 // Indicadores de cargos — lógica PURA (sin Prisma, sin BD).
 //
 // Cada cargo existente en una fecha de corte F cae en UNA sola hoja (cascada
-// R1..R9). La SQL del servicio solo agrupa "hechos" y esta función decide la
+// R1..R9). Los no vigentes caen en la hoja 'excluido': existe para que la suma
+// por construcción cierre contra el total de cargos de la base, pero NO suma al
+// "Total a gestionar" (validación + vigente [+ sin determinar]). La SQL del servicio solo agrupa "hechos" y esta función decide la
 // hoja; las columnas padre (ocupado, vigente, total) son sumas de hojas, así
 // que los grupos son excluyentes y la conciliación vale por construcción.
 // Pensado para ser reutilizable por otros módulos (p. ej. Incidencias).
@@ -18,7 +20,7 @@ import type {
 import { AppError } from '../../shared/errors/AppError.js'
 
 export type HojaCargo =
-  | 'no_vigente'
+  | 'excluido'
   | 'validacion'
   | 'ocupado_activo'
   | 'ocupado_comision'
@@ -29,7 +31,7 @@ export type HojaCargo =
   | 'indeterminado'
 
 export const HOJAS: readonly HojaCargo[] = [
-  'no_vigente',
+  'excluido',
   'validacion',
   'ocupado_activo',
   'ocupado_comision',
@@ -58,6 +60,9 @@ export const SUB_ESTADOS_CONCURSO_CPH: readonly string[] = [
   'l-pycto de reso',
 ]
 
+/** Hojas que componen el "Total a gestionar" (todas menos 'excluido'). */
+export const HOJAS_GESTIONABLES: readonly HojaCargo[] = HOJAS.filter((h) => h !== 'excluido')
+
 export type ConcursoFact = 'si' | 'no' | 'desconocido'
 export type EdRel = 'null' | 'le' | 'gt'
 export type ModoCorte = 'vivo' | 'corte'
@@ -70,6 +75,11 @@ export interface HechosCargo {
   sitAprox: boolean
   concurso: ConcursoFact
   modo: ModoCorte
+  /**
+   * Solo para estado 'no_vigente': la fecha de pasaje (edRel) fue INFERIDA (baja
+   * confirmada por el padrón, que no toca estado_desde). Ver design.md §18.
+   */
+  pasoAprox?: boolean
 }
 
 export interface Clasificacion {
@@ -95,10 +105,11 @@ export function clasificarCargo(h: HechosCargo): Clasificacion {
     return { hoja: 'indeterminado', aprox: true } // R1
   }
   if (estado === 'validacion_vacante' && edRel === 'le') return { hoja: 'validacion', aprox: false } // R2
-  if (estado === 'no_vigente' && edRel === 'le') return { hoja: 'no_vigente', aprox: esCorte } // R2a
+  // R2a: no vigente al corte -> fuera del total a gestionar (aprox solo si la fecha de pasaje es inferida)
+  if (estado === 'no_vigente' && edRel === 'le') return { hoja: 'excluido', aprox: esCorte && h.pasoAprox === true }
   if (edRel === 'null' && estado !== 'vigente') {
     // R2b: sin fecha de entrada al estado
-    return { hoja: estado === 'no_vigente' ? 'no_vigente' : 'validacion', aprox: true }
+    return { hoja: estado === 'no_vigente' ? 'excluido' : 'validacion', aprox: true }
   }
   if (h.sits && h.sits.length > 0) return { hoja: elegirSituacion(h.sits), aprox: h.sitAprox } // R3
   if (h.concurso === 'si') return { hoja: 'concurso', aprox: true } // R4
@@ -234,8 +245,7 @@ const OCUPADO_HOJAS: readonly HojaCargo[] = [
 /** Columnas derivadas: ocupado, vigente y total son SUMAS de hojas. */
 export function derivarColumnas(hojas: HojasConteo): ColumnasConteo {
   return {
-    total: sumar(hojas, HOJAS),
-    no_vigente: hojas.no_vigente,
+    total: sumar(hojas, HOJAS_GESTIONABLES),
     validacion: hojas.validacion,
     vigente: sumar(hojas, [...OCUPADO_HOJAS, 'vacante', 'concurso']),
     ocupado: sumar(hojas, OCUPADO_HOJAS),
@@ -268,22 +278,26 @@ export function variacion(
   return { abs, pct, tendencia }
 }
 
-/** Verificación de runtime: detecta filas descartadas o una hoja sin sumar (no una falla de la partición). */
+/**
+ * Verificación de runtime: detecta filas descartadas o una hoja sin sumar (no una falla de la partición).
+ * `totalBase` = todos los cargos existentes; gestionables + excluidos debe darlo. `total` = total a gestionar.
+ */
 export function verificarConciliacion(
   filas: readonly FilaHoja[],
   totalBase: number,
 ): { ok: boolean; total: number } {
   const suma = filas.reduce((a, f) => a + f.n, 0)
-  const derivado = derivarColumnas(
-    [...agregarHojas(filas).values()].reduce(sumarHojas, hojasVacias()),
-  ).total.n
-  return { ok: suma === totalBase && derivado === totalBase, total: derivado }
+  const hojas = [...agregarHojas(filas).values()].reduce(sumarHojas, hojasVacias())
+  const derivado = derivarColumnas(hojas).total.n
+  return { ok: suma === totalBase && derivado + hojas.excluido.n === totalBase, total: derivado }
 }
 
 // ─── Períodos ────────────────────────────────────────────────────────────────
 
 export interface PeriodoResuelto {
   mes: string
+  /** Primer día del mes ('YYYY-MM-01'): inicio de la ventana de "pasaron a no vigente". */
+  desde: string
   fechaCorte: string
   modo: 'vivo' | 'reconstruido'
 }
@@ -321,11 +335,19 @@ export function resolverPeriodos(
   const mesRef = mes ?? mesHoy
   if (mesRef > mesHoy) throw AppError.badRequest('El mes no puede ser futuro')
   const prev = mesAnterior(mesRef)
-  const anterior: PeriodoResuelto = { mes: prev, fechaCorte: finDeMes(prev), modo: 'reconstruido' }
-  if (mesRef === mesHoy) {
-    return { actual: { mes: mesRef, fechaCorte: hoy, modo: 'vivo' }, anterior }
+  const anterior: PeriodoResuelto = {
+    mes: prev,
+    desde: `${prev}-01`,
+    fechaCorte: finDeMes(prev),
+    modo: 'reconstruido',
   }
-  return { actual: { mes: mesRef, fechaCorte: finDeMes(mesRef), modo: 'reconstruido' }, anterior }
+  if (mesRef === mesHoy) {
+    return { actual: { mes: mesRef, desde: `${mesRef}-01`, fechaCorte: hoy, modo: 'vivo' }, anterior }
+  }
+  return {
+    actual: { mes: mesRef, desde: `${mesRef}-01`, fechaCorte: finDeMes(mesRef), modo: 'reconstruido' },
+    anterior,
+  }
 }
 
 // ─── Respuesta ───────────────────────────────────────────────────────────────
@@ -336,8 +358,18 @@ export interface CarreraCatalogo {
   literal: string
 }
 
+/** Cargos hoy no vigentes cuya transición cae en la ventana del período (por carrera). */
+export interface FilaPaso {
+  carreraId: string | null
+  n: number
+  /** De esos n, cuántos tienen fecha de pasaje inferida (~). */
+  aprox: number
+}
+
 export interface DatosPeriodo {
   periodo: CargosIndicadoresPeriodo
+  /** Pasajes a no vigente en la ventana del período; null = período no disponible (n/d). */
+  pasaron: FilaPaso[] | null
   /** null = período no disponible (todas las celdas n/d). */
   filas: FilaHoja[] | null
   /** Personas por código de carrera (kpis_dotacion_snapshot '(total)'); null = sin dato. */
@@ -348,8 +380,10 @@ export interface DatosPeriodo {
 const SIN_CODIGO = '(sin codigo)'
 
 const COLUMNAS_META: Record<ColumnasBase | 'personas_ref', { etiqueta: string; nota: string | null }> = {
-  total: { etiqueta: 'Total de cargos', nota: 'Vigente + En validación + No vigente (+ Sin determinar).' },
-  no_vigente: { etiqueta: 'No vigente', nota: null },
+  total: {
+    etiqueta: 'Total a gestionar',
+    nota: 'En validación + Vigente (+ Sin determinar). No incluye los cargos no vigentes.',
+  },
   validacion: { etiqueta: 'En validación', nota: 'Estado validacion_vacante.' },
   vigente: { etiqueta: 'Vigente', nota: 'Ocupado + Vacante + Concurso.' },
   ocupado: { etiqueta: 'Ocupado', nota: 'Cargos con ocupante vigente a la fecha.' },
@@ -376,7 +410,6 @@ function meta(id: CargosIndicadoresColumnaId, destacada: boolean): CargosIndicad
 export function columnasVisibles(hayIndeterminado: boolean): CargosIndicadoresTablaMeta[] {
   const estado: CargosIndicadoresColumnaMeta[] = [
     meta('total', true),
-    meta('no_vigente', false),
     meta('validacion', false),
     meta('vigente', false),
   ]
@@ -407,7 +440,6 @@ export function columnasVisibles(hayIndeterminado: boolean): CargosIndicadoresTa
 
 const COLUMNAS_TODAS: CargosIndicadoresColumnaId[] = [
   'total',
-  'no_vigente',
   'validacion',
   'vigente',
   'ocupado',
@@ -441,6 +473,35 @@ function celdaNum(actual: number | null, aA: number, anterior: number | null, aP
   }
 }
 
+function agregarPasos(filas: readonly FilaPaso[] | null): Map<string, ConteoHoja> | null {
+  if (!filas) return null
+  const out = new Map<string, ConteoHoja>()
+  for (const f of filas) {
+    const k = f.carreraId ?? ''
+    const c = out.get(k) ?? { n: 0, aprox: 0 }
+    c.n += f.n
+    c.aprox += f.aprox
+    out.set(k, c)
+  }
+  return out
+}
+
+function sumaPasos(m: Map<string, ConteoHoja> | null): ConteoHoja | null {
+  if (!m) return null
+  return [...m.values()].reduce((a, c) => ({ n: a.n + c.n, aprox: a.aprox + c.aprox }), { n: 0, aprox: 0 })
+}
+
+/** Período disponible sin pasajes en la carrera = 0; período no disponible = n/d (null). */
+function celdaPaso(
+  a: ConteoHoja | null,
+  p: ConteoHoja | null,
+  dispA: boolean,
+  dispP: boolean,
+): CargosIndicadoresCelda {
+  const cero = { n: 0, aprox: 0 }
+  return celdaDe(dispA ? (a ?? cero) : null, dispP ? (p ?? cero) : null)
+}
+
 function ordenarCodigos(a: string, b: string): number {
   const na = /^\d+$/.test(a)
   const nb = /^\d+$/.test(b)
@@ -457,11 +518,20 @@ export function construirRespuesta(args: {
   carreraFiltrada: boolean
   hospitalFiltrado: boolean
   conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null }
+  /** Cargos hoy no vigentes sin fecha de pasaje determinable (no entran en ningún período). */
+  noVigenteSinFecha: number | null
 }): CargosIndicadores {
   const { actual, anterior, carreras } = args
   const aggA = actual.filas ? agregarHojas(actual.filas) : null
   const aggP = anterior.filas ? agregarHojas(anterior.filas) : null
-  const claves = new Set<string>([...(aggA?.keys() ?? []), ...(aggP?.keys() ?? [])])
+  const pasoA = agregarPasos(actual.pasaron)
+  const pasoP = agregarPasos(anterior.pasaron)
+  const claves = new Set<string>([
+    ...(aggA?.keys() ?? []),
+    ...(aggP?.keys() ?? []),
+    ...(pasoA?.keys() ?? []),
+    ...(pasoP?.keys() ?? []),
+  ])
   const porId = new Map(carreras.map((c) => [c.id, c]))
   const porCodigo = new Map(carreras.map((c) => [c.codigo, c.id]))
 
@@ -515,6 +585,7 @@ export function construirRespuesta(args: {
       literal,
       etiqueta: literal ? `${codigo} — ${literal}` : codigo,
       celdas: armarCeldas(k, a, p, false),
+      pasaronNoVigente: celdaPaso(pasoA?.get(k) ?? null, pasoP?.get(k) ?? null, pasoA !== null, pasoP !== null),
     })
   }
   filas.sort((x, y) => {
@@ -533,6 +604,7 @@ export function construirRespuesta(args: {
     literal: null,
     etiqueta: 'Total',
     celdas: armarCeldas('', totA, totP, true),
+    pasaronNoVigente: celdaPaso(sumaPasos(pasoA), sumaPasos(pasoP), pasoA !== null, pasoP !== null),
   }
   const hayIndeterminado = (totA?.indeterminado.n ?? 0) > 0 || (totP?.indeterminado.n ?? 0) > 0
   return {
@@ -543,5 +615,6 @@ export function construirRespuesta(args: {
     total,
     referenciaPersonas: { actualFecha: actual.personasFecha, anteriorFecha: anterior.personasFecha },
     conciliacion: args.conciliacion,
+    noVigenteSinFecha: args.noVigenteSinFecha,
   }
 }

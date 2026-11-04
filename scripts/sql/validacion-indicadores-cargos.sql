@@ -8,9 +8,10 @@
 --   mes actual:  -v corte=$(date +%F)
 --   override opcional de la carga inicial (design §5.4): -v carga_inicial_override=YYYY-MM-DD
 --
--- Qué comprobar: V1 -> total_independiente = total_vista = suma_hojas (diferencia 0);
--- V1c -> vigente = ocupado + vacante + concurso y total = vigente + validacion + no_vigente
--- + indeterminado. Implementa la cascada R1..R9 como CASE de SQL: una segunda
+-- Qué comprobar: V1 -> total_independiente = total_vista = suma_hojas (diferencia 0; incluye los 'excluido');
+-- V1c -> vigente = ocupado + vacante + concurso y TOTAL A GESTIONAR = vigente + validacion + indeterminado.
+-- Los no vigentes ('excluido') NO suman al total a gestionar: V1c los muestra aparte, solo para cerrar con V1.
+-- V10 -> cuántos cargos 'pasaron a no vigente' en el mes del corte (y en el mes anterior), con la fuente de design.md §18. Implementa la cascada R1..R9 como CASE de SQL: una segunda
 -- implementación, escrita aparte del TypeScript, para comparar con la pantalla.
 -- Con corte = hoy, el resultado debe coincidir con la columna "Mes actual" de la pantalla.
 -- Abajo, V2..V9 miden la calidad del método (ver design.md §12).
@@ -28,13 +29,40 @@
 
 DROP VIEW IF EXISTS pg_temp.v_ind_hoja;      -- calificado con pg_temp: nunca toca una vista permanente homónima
 DROP VIEW IF EXISTS pg_temp.v_ind_hechos;
+DROP VIEW IF EXISTS pg_temp.v_ind_paso;
+
+-- Fecha de pasaje a no_vigente (MISMA regla que SQL_PASO_NO_VIGENTE del servicio; design.md §18).
+-- fecha = estado_desde; si la baja la confirmó el padrón (no toca estado_desde): primer snapshot aprobado posterior (~).
+CREATE TEMP VIEW v_ind_paso AS
+SELECT x.id, x.por_padron,
+       CASE WHEN x.por_padron
+            THEN coalesce((SELECT min(s2.fecha_asignada) FROM padron_snapshots s2
+                            WHERE s2.estado::text = 'aprobado' AND s2.fecha_asignada > x.ed), x.ed)
+            ELSE x.ed END AS fecha
+FROM (
+  SELECT c.id, c.estado_desde AS ed,
+         (c.estado_desde IS NOT NULL AND EXISTS (
+            SELECT 1 FROM ocupaciones o
+              JOIN padron_diff d ON d.id_sial_rol = o.id_sial_rol
+              JOIN padron_snapshots s ON s.id = d.snapshot_id
+             WHERE o.cargo_id = c.id AND o.hasta = c.estado_desde
+               AND d.tipo::text = 'eliminado' AND d.campo IS NULL
+               AND s.estado::text = 'aprobado' AND s.fecha_asignada = c.estado_desde)) AS por_padron
+  FROM cargos c
+  WHERE c.estado::text = 'no_vigente'
+) x;
 
 CREATE TEMP VIEW v_ind_hechos AS
 WITH base AS (
   SELECT c.id, c.codigo_registro_id, c.estado::text AS estado,
-         CASE WHEN c.estado_desde IS NULL THEN 'null'
-              WHEN c.estado_desde <= :'corte'::date THEN 'le' ELSE 'gt' END AS ed_rel
+         -- no_vigente: fecha de pasaje (v_ind_paso); resto: estado_desde
+         CASE WHEN c.estado::text = 'no_vigente'
+                   THEN (CASE WHEN p.fecha IS NULL THEN 'null' WHEN p.fecha <= :'corte'::date THEN 'le' ELSE 'gt' END)
+              WHEN c.estado_desde IS NULL THEN 'null'
+              WHEN c.estado_desde <= :'corte'::date THEN 'le' ELSE 'gt' END AS ed_rel,
+         coalesce(p.por_padron, false) AS paso_aprox
   FROM cargos c
+  LEFT JOIN v_ind_paso p ON p.id = c.id
   WHERE ((c.created_at AT TIME ZONE :'tz')::date <= :'corte'::date
          OR (c.created_at AT TIME ZONE :'tz')::date <= nullif(:'carga_inicial_override', '')::date)  -- override (§5.4)
     AND (c.deleted_at IS NULL OR (c.deleted_at AT TIME ZONE :'tz')::date > :'corte'::date)
@@ -90,7 +118,7 @@ conc AS (
             AND (ini IS NULL OR (cierre_sin_fecha AND fin IS NULL AND ini <= :'corte'::date))) AS desconocido
   FROM conc_rows GROUP BY cargo_id
 )
-SELECT b.id, b.codigo_registro_id, b.estado, b.ed_rel, occ.sits, coalesce(occ.sit_aprox, false) AS sit_aprox,
+SELECT b.id, b.codigo_registro_id, b.estado, b.ed_rel, b.paso_aprox, occ.sits, coalesce(occ.sit_aprox, false) AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso
 FROM base b LEFT JOIN occ ON occ.cargo_id = b.id LEFT JOIN conc ON conc.cargo_id = b.id;
 
@@ -98,9 +126,9 @@ CREATE TEMP VIEW v_ind_hoja AS
 SELECT f.*,
   CASE
     WHEN f.estado NOT IN ('vigente','validacion_vacante','no_vigente') THEN 'indeterminado'              -- R1
-    WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'le'   THEN 'no_vigente'                          -- R2a (aprox: pudo ser validación, V5b)
+    WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'le'   THEN 'excluido'                            -- R2a (fuera del total a gestionar; ~ si paso_aprox)
     WHEN f.estado = 'validacion_vacante' AND f.ed_rel = 'le'   THEN 'validacion'                          -- R2 (exacto)
-    WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'null' THEN 'no_vigente'                          -- R2b
+    WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'null' THEN 'excluido'                            -- R2b
     WHEN f.estado = 'validacion_vacante' AND f.ed_rel = 'null' THEN 'validacion'                          -- R2b
     WHEN f.sits IS NOT NULL THEN 'ocupado'                                                                -- R3
     WHEN f.concurso = 'si' THEN 'concurso'                                                                -- R4
@@ -129,12 +157,14 @@ FROM padron_historico GROUP BY 1 ORDER BY 2 DESC;
 -- V1b. Distribución por hoja (revisión visual: ¿cuánto cae en 'indeterminado'?)
 SELECT hoja, count(*) FROM v_ind_hoja GROUP BY hoja ORDER BY 1;
 
--- V1c. Jerarquía de Jorge: vigente = ocupado + vacante + concurso; total = vigente + validacion + no_vigente + indeterminado
+-- V1c. Jerarquía de Jorge: vigente = ocupado + vacante + concurso; TOTAL A GESTIONAR = vigente + validacion + indeterminado.
+-- 'excluido' (no vigentes) queda FUERA del total a gestionar; total_con_excluidos solo cierra contra V1.
 SELECT count(*) FILTER (WHERE hoja IN ('ocupado','vacante','concurso'))                                  AS vigente,
        count(*) FILTER (WHERE hoja = 'validacion')                                                       AS validacion,
-       count(*) FILTER (WHERE hoja = 'no_vigente')                                                       AS no_vigente,
        count(*) FILTER (WHERE hoja = 'indeterminado')                                                    AS indeterminado,
-       count(*)                                                                                          AS total
+       count(*) FILTER (WHERE hoja <> 'excluido')                                                        AS total_a_gestionar,
+       count(*) FILTER (WHERE hoja = 'excluido')                                                         AS excluido_fuera_del_total,
+       count(*)                                                                                          AS total_con_excluidos
 FROM v_ind_hoja;
 
 -- V2. Por carrera, para comparar con la tabla de la pantalla
@@ -142,14 +172,14 @@ SELECT coalesce(cr.codigo, '(sin codigo)') AS carrera, h.hoja, count(*) AS cargo
 FROM v_ind_hoja h LEFT JOIN codigos_registro cr ON cr.id = h.codigo_registro_id
 GROUP BY 1, 2 ORDER BY 1, 2;
 
-SELECT CASE WHEN c.estado = 'no_vigente' THEN 'no_vigente'
+SELECT CASE WHEN c.estado = 'no_vigente' THEN 'no_vigente (excluido)'
             WHEN c.estado = 'validacion_vacante' THEN 'validacion'
             WHEN EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) THEN 'ocupado'
             ELSE 'vigente_sin_ocupante' END AS grupo,   -- = vacante + concurso + indeterminado de la vista
        count(*) AS cargos
 FROM cargos c WHERE c.deleted_at IS NULL GROUP BY 1 ORDER BY 1;
 SELECT count(*) AS total_vivo FROM cargos WHERE deleted_at IS NULL;
--- Comparación esperada con `-v corte=$(date +%F)` (sin override): no_vigente, validacion y ocupado idénticos a V1b;
+-- Comparación esperada con `-v corte=$(date +%F)` (sin override): no_vigente = excluido de V1b; validacion y ocupado idénticos a V1b;
 -- vigente_sin_ocupante = vacante + concurso + indeterminado de V1b; total_vivo = total_independiente de V1.
 
 SELECT CASE WHEN c.estado = 'vigente' THEN 'vigente/' || coalesce(c.sub_estado::text, 'null')
@@ -256,3 +286,28 @@ SELECT caso, esperado,
        ELSE 'no' END AS obtenido
 FROM casos;
 
+-- V10. 'Pasaron a no vigente' por período (métrica informativa, FUERA del total a gestionar; design.md §18).
+-- Cuenta cargos HOY no_vigente (no borrados) cuya fecha de pasaje cae en el mes. Mes del corte: del 1° al corte;
+-- mes anterior: el mes completo. 'aproximadas' = fecha inferida del snapshot (~). Comparar con el bloque
+-- 'Pasaron a no vigente' de la pantalla (con corte = hoy).
+SELECT 'mes del corte' AS periodo, count(*) AS pasaron, count(*) FILTER (WHERE p.por_padron) AS aproximadas
+FROM cargos c JOIN v_ind_paso p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente'
+  AND p.fecha BETWEEN date_trunc('month', :'corte'::date)::date AND :'corte'::date
+UNION ALL
+SELECT 'mes anterior', count(*), count(*) FILTER (WHERE p.por_padron)
+FROM cargos c JOIN v_ind_paso p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente'
+  AND p.fecha BETWEEN (date_trunc('month', :'corte'::date) - interval '1 month')::date
+                  AND (date_trunc('month', :'corte'::date) - interval '1 day')::date;
+-- V10b. No vigentes sin fecha de pasaje (n/d: no entran en ningún período) y no vigentes por mes de pasaje.
+SELECT count(*) AS no_vigente_sin_fecha FROM cargos c JOIN v_ind_paso p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente' AND p.fecha IS NULL;
+SELECT date_trunc('month', p.fecha)::date AS mes_de_pasaje, count(*) AS cargos, count(*) FILTER (WHERE p.por_padron) AS aproximadas
+FROM cargos c JOIN v_ind_paso p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente' GROUP BY 1 ORDER BY 1;
+-- V10c. Sospecha de importación inicial: no vigentes cuya fecha de pasaje coincide con el día de carga de cargos
+-- (si es un pico, la carga inicial inflaría ese mes; design.md §18 límite 2).
+SELECT p.fecha, count(*) AS cargos FROM cargos c JOIN v_ind_paso p ON p.id = c.id
+WHERE c.deleted_at IS NULL AND c.estado::text = 'no_vigente' AND p.fecha = (c.created_at AT TIME ZONE :'tz')::date
+GROUP BY 1 ORDER BY 2 DESC LIMIT 5;

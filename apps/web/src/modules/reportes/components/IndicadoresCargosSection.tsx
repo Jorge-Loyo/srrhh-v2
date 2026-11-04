@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { useCodigosRegistro, useHospitales } from '@/shared/hooks/useCatalogos'
 import { useCargosIndicadores } from '../hooks/useReportes'
-import { IndicadoresCargosTabla } from './IndicadoresCargosTabla'
+import { IndicadoresCargosTabla, PasaronNoVigenteBloque } from './IndicadoresCargosTabla'
 
 function mesEnCurso(): string {
   const d = new Date()
@@ -10,7 +10,9 @@ function mesEnCurso(): string {
 }
 
 // Sección colapsable "Indicadores de cargos": tres tablas (estado, vigente,
-// ocupado por situación de revista), mes actual vs mes anterior. Solo lectura.
+// ocupado por situación de revista), mes actual vs mes anterior, más un bloque aparte
+// con los cargos que pasaron a no vigente en el período. El total es "a gestionar"
+// (en validación + vigente): los no vigentes no suman. Solo lectura.
 export function IndicadoresCargosSection() {
   const [abierto, setAbierto] = useState(false)
   const [mes, setMes] = useState('')
@@ -61,7 +63,8 @@ export function IndicadoresCargosSection() {
       {abierto && (
         <div className="px-6 pb-6 space-y-4">
           <p className="text-xs text-gray-400">
-            Cantidad de cargos por carrera y estado, comparada con el mes anterior. Vista informativa (solo lectura).
+            Cantidad de cargos a gestionar (en validación + vigentes) por carrera, comparada con el mes anterior. Los
+            cargos no vigentes no se cuentan. Vista informativa (solo lectura).
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -142,7 +145,7 @@ export function IndicadoresCargosSection() {
               )}
               {!data.conciliacion.ok && (
                 <p role="alert" className="text-xs font-semibold text-red-700">
-                  La suma de grupos no coincide con el total de cargos. Avisar a Sistemas.
+                  La suma de grupos no coincide con el total de cargos (a gestionar + no vigentes). Avisar a Sistemas.
                 </p>
               )}
               {data.tablas.map((t) => (
@@ -156,6 +159,13 @@ export function IndicadoresCargosSection() {
                   referenciaPersonas={data.referenciaPersonas}
                 />
               ))}
+              <PasaronNoVigenteBloque
+                filas={data.filas}
+                total={data.total}
+                actual={data.actual}
+                anterior={data.anterior}
+                noVigenteSinFecha={data.noVigenteSinFecha}
+              />
               {data.filas.length === 0 && <p className="text-sm text-gray-500">Sin cargos para los filtros elegidos.</p>}
             </>
           )}

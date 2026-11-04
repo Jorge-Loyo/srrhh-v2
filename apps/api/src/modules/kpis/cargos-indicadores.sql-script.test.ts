@@ -21,5 +21,15 @@ describe('scripts/sql/validacion-indicadores-cargos.sql', () => {
     expect(sinComentarios).not.toMatch(/\b(INSERT|UPDATE|DELETE|ALTER|TRUNCATE)\b/i)
     expect(sinComentarios).not.toMatch(/DROP\s+TABLE/i)
     expect(sinComentarios).toMatch(/DROP VIEW IF EXISTS pg_temp\.v_ind_hoja/)
+    expect(sinComentarios).toMatch(/DROP VIEW IF EXISTS pg_temp\.v_ind_paso/)
+  })
+
+  it('refleja la nueva jerarquía: no vigente = excluido (fuera del total a gestionar) y cuenta los pasajes por período', () => {
+    const sinComentarios = sql.replace(/--.*$/gm, '')
+    expect(sinComentarios).not.toMatch(/THEN 'no_vigente'/)
+    expect(sinComentarios).toMatch(/THEN 'excluido'/)
+    expect(sinComentarios).toMatch(/total_a_gestionar/)
+    expect(sinComentarios).toMatch(/'mes del corte'/)
+    expect(sinComentarios).toMatch(/'mes anterior'/)
   })
 })

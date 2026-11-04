@@ -46,7 +46,7 @@ describe('elegirSituacion', () => {
 describe('clasificarCargo (vivo)', () => {
   const vivo = (o: Partial<HechosCargo> = {}) => base({ modo: 'vivo', ...o })
   it('no_vigente y validación pisan ocupante y concurso', () => {
-    expect(clasificarCargo(vivo({ estado: 'no_vigente', sits: ['activo'] }))).toEqual({ hoja: 'no_vigente', aprox: false })
+    expect(clasificarCargo(vivo({ estado: 'no_vigente', sits: ['activo'] }))).toEqual({ hoja: 'excluido', aprox: false })
     expect(clasificarCargo(vivo({ estado: 'validacion_vacante', sits: ['activo'], concurso: 'si' }))).toEqual({
       hoja: 'validacion',
       aprox: false,
@@ -73,19 +73,20 @@ describe('clasificarCargo (vivo)', () => {
 })
 
 describe('clasificarCargo (corte)', () => {
-  it('no_vigente con estado_desde <= corte: aproximado (R2a); validación exacta (R2)', () => {
-    expect(clasificarCargo(base({ estado: 'no_vigente' }))).toEqual({ hoja: 'no_vigente', aprox: true })
+  it('no_vigente con pasaje <= corte: excluido del total, exacto salvo fecha inferida (R2a); validación exacta (R2)', () => {
+    expect(clasificarCargo(base({ estado: 'no_vigente' }))).toEqual({ hoja: 'excluido', aprox: false })
+    expect(clasificarCargo(base({ estado: 'no_vigente', pasoAprox: true }))).toEqual({ hoja: 'excluido', aprox: true })
     expect(clasificarCargo(base({ estado: 'validacion_vacante' }))).toEqual({ hoja: 'validacion', aprox: false })
   })
   it('R2b: sin estado_desde -> hoja del estado, aproximada', () => {
-    expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'null' }))).toEqual({ hoja: 'no_vigente', aprox: true })
+    expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'null' }))).toEqual({ hoja: 'excluido', aprox: true })
     expect(clasificarCargo(base({ estado: 'validacion_vacante', edRel: 'null' }))).toEqual({
       hoja: 'validacion',
       aprox: true,
     })
   })
-  it('R2a antes de R3: no_vigente le + ocupante -> no_vigente; gt + ocupante -> ocupado', () => {
-    expect(clasificarCargo(base({ estado: 'no_vigente', sits: ['activo'] })).hoja).toBe('no_vigente')
+  it('R2a antes de R3: no_vigente le + ocupante -> excluido; gt + ocupante -> ocupado', () => {
+    expect(clasificarCargo(base({ estado: 'no_vigente', sits: ['activo'] })).hoja).toBe('excluido')
     expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt', sits: ['activo'] })).hoja).toBe('ocupado_activo')
   })
   it('baja después del corte sin ocupante ni concurso: no_vigente -> validación (R7); validación -> indeterminado (R8)', () => {
@@ -165,12 +166,16 @@ describe('exclusión mutua y suma = total (propiedad)', () => {
     for (const hojas of agg.values()) {
       const d = derivarColumnas(hojas)
       expect(d.ocupado.n + d.vacante.n + d.concurso.n).toBe(d.vigente.n)
-      expect(d.vigente.n + d.validacion.n + d.no_vigente.n + d.indeterminado.n).toBe(d.total.n)
+      // total a gestionar = validación + vigente (+ indeterminado); el excluido (no vigente) NO suma
+      expect(d.vigente.n + d.validacion.n + d.indeterminado.n).toBe(d.total.n)
+      expect(d.total.n + hojas.excluido.n).toBe(Object.values(hojas).reduce((a, h) => a + h.n, 0))
       expect(d.ocupado_activo.n + d.ocupado_comision.n + d.ocupado_retencion.n + d.ocupado_otra.n).toBe(d.ocupado.n)
       suma += d.total.n
     }
-    expect(suma).toBe(total)
-    expect(verificarConciliacion(filas, total)).toEqual({ ok: true, total })
+    // suma de totales a gestionar = todos los cargos menos los excluidos (no vigentes)
+    const excl = filas.filter((f) => f.hoja === 'excluido').reduce((x, f) => x + f.n, 0)
+    expect(suma).toBe(total - excl)
+    expect(verificarConciliacion(filas, total)).toEqual({ ok: true, total: total - excl })
   })
 
   it('verificarConciliacion detecta una fila descartada', () => {
@@ -189,6 +194,29 @@ describe('exclusión mutua y suma = total (propiedad)', () => {
   })
 })
 
+describe('no vigentes y período anterior (reconstrucción)', () => {
+  it('hoy no vigente cuyo pasaje fue DESPUÉS del corte: sigue gestionable en el mes anterior', () => {
+    expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt', pasoAprox: true })).hoja).toBe('validacion')
+    expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt', sits: ['activo'] })).hoja).toBe('ocupado_activo')
+    expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt', concurso: 'si' })).hoja).toBe('concurso')
+  })
+  it('no vigente desde antes del corte: excluido; nunca cae en hojas gestionables', () => {
+    for (const sits of [null, ['activo']])
+      for (const concurso of ['si', 'no', 'desconocido'] as ConcursoFact[]) {
+        const c = clasificarCargo(base({ estado: 'no_vigente', edRel: 'le', sits, concurso }))
+        expect(c.hoja).toBe('excluido')
+      }
+  })
+  it('conciliación: gestionables + excluidos = total de la base; total devuelto = a gestionar', () => {
+    const filas: FilaHoja[] = [
+      { carreraId: 'a', hoja: 'vacante', aprox: false, n: 3 },
+      { carreraId: 'a', hoja: 'validacion', aprox: false, n: 2 },
+      { carreraId: 'a', hoja: 'excluido', aprox: false, n: 4 },
+    ]
+    expect(verificarConciliacion(filas, 9)).toEqual({ ok: true, total: 5 })
+    expect(verificarConciliacion(filas, 5).ok).toBe(false)
+  })
+})
 describe('SUB_ESTADOS_CONCURSO_CPH', () => {
   it('12 valores sin repetidos y sin las etapas finales', () => {
     expect(SUB_ESTADOS_CONCURSO_CPH).toHaveLength(12)
@@ -277,13 +305,14 @@ describe('variacion', () => {
 describe('resolverPeriodos', () => {
   it('sin mes: actual vivo y anterior reconstruido al fin del mes previo', () => {
     const r = resolverPeriodos(undefined, '2026-11-05')
-    expect(r.actual).toEqual({ mes: '2026-11', fechaCorte: '2026-11-05', modo: 'vivo' })
-    expect(r.anterior).toEqual({ mes: '2026-10', fechaCorte: '2026-10-31', modo: 'reconstruido' })
+    expect(r.actual).toEqual({ mes: '2026-11', desde: '2026-11-01', fechaCorte: '2026-11-05', modo: 'vivo' })
+    expect(r.anterior).toEqual({ mes: '2026-10', desde: '2026-10-01', fechaCorte: '2026-10-31', modo: 'reconstruido' })
     expect(resolverPeriodos('2026-11', '2026-11-05').actual.modo).toBe('vivo')
   })
   it('enero y febrero bisiesto', () => {
     expect(resolverPeriodos(undefined, '2027-01-10').anterior).toEqual({
       mes: '2026-12',
+      desde: '2026-12-01',
       fechaCorte: '2026-12-31',
       modo: 'reconstruido',
     })
@@ -291,7 +320,8 @@ describe('resolverPeriodos', () => {
   })
   it('mes pasado: ambos reconstruidos', () => {
     const r = resolverPeriodos('2026-09', '2026-11-05')
-    expect(r.actual).toEqual({ mes: '2026-09', fechaCorte: '2026-09-30', modo: 'reconstruido' })
+    expect(r.actual).toEqual({ mes: '2026-09', desde: '2026-09-01', fechaCorte: '2026-09-30', modo: 'reconstruido' })
+    expect(r.anterior.desde).toBe('2026-08-01')
     expect(r.anterior.fechaCorte).toBe('2026-08-31')
   })
   it('mes futuro -> error 400', () => {
@@ -310,6 +340,7 @@ describe('construirRespuesta', () => {
   ]
   const per = (modo: 'vivo' | 'reconstruido', disponible = true) => ({
     mes: '2026-11',
+    desde: '2026-11-01',
     fechaCorte: '2026-11-05',
     modo,
     disponible,
@@ -318,7 +349,8 @@ describe('construirRespuesta', () => {
   const filasA: FilaHoja[] = [
     { carreraId: 'u2', hoja: 'ocupado_activo', aprox: false, n: 10 },
     { carreraId: 'u2', hoja: 'vacante', aprox: true, n: 2 },
-    { carreraId: 'u1', hoja: 'no_vigente', aprox: false, n: 1 },
+    { carreraId: 'u1', hoja: 'validacion', aprox: false, n: 1 },
+    { carreraId: 'u1', hoja: 'excluido', aprox: false, n: 3 }, // no vigente: fuera del total
     { carreraId: null, hoja: 'concurso', aprox: true, n: 1 },
   ]
   const filasP: FilaHoja[] = [
@@ -327,12 +359,13 @@ describe('construirRespuesta', () => {
   ]
   const armar = (extra: Partial<Parameters<typeof construirRespuesta>[0]> = {}) =>
     construirRespuesta({
-      actual: { periodo: per('vivo'), filas: filasA, personas: [{ codigo: '37', personas: 9 }, { codigo: 'zz', personas: 4 }], personasFecha: '2026-11-01' },
-      anterior: { periodo: per('reconstruido'), filas: filasP, personas: [{ codigo: '37', personas: 7 }], personasFecha: '2026-10-01' },
+      actual: { periodo: per('vivo'), pasaron: [{ carreraId: 'u2', n: 4, aprox: 1 }, { carreraId: 'u1', n: 1, aprox: 0 }], filas: filasA, personas: [{ codigo: '37', personas: 9 }, { codigo: 'zz', personas: 4 }], personasFecha: '2026-11-01' },
+      anterior: { periodo: per('reconstruido'), pasaron: [{ carreraId: 'u2', n: 2, aprox: 2 }], filas: filasP, personas: [{ codigo: '37', personas: 7 }], personasFecha: '2026-10-01' },
       carreras,
       carreraFiltrada: false,
       hospitalFiltrado: false,
       conciliacion: { ok: true, totalActual: 14, totalAnterior: 9 },
+      noVigenteSinFecha: 6,
       ...extra,
     })
 
@@ -361,7 +394,7 @@ describe('construirRespuesta', () => {
     const r = armar()
     expect(r.tablas.find((t) => t.id === 'estado')!.columnas.map((c) => c.id)).toContain('indeterminado')
     const sin = armar({
-      anterior: { periodo: per('reconstruido'), filas: [{ carreraId: 'u2', hoja: 'vacante', aprox: true, n: 1 }], personas: null, personasFecha: null },
+      anterior: { periodo: per('reconstruido'), pasaron: [], filas: [{ carreraId: 'u2', hoja: 'vacante', aprox: true, n: 1 }], personas: null, personasFecha: null },
     })
     expect(sin.tablas.find((t) => t.id === 'estado')!.columnas.map((c) => c.id)).not.toContain('indeterminado')
     expect(r.tablas.find((t) => t.id === 'ocupado')!.columnas.map((c) => c.id)).toContain('personas_ref')
@@ -378,7 +411,7 @@ describe('construirRespuesta', () => {
     expect(h.filas[1]!.celdas.personas_ref.actual).toBeNull()
   })
   it('período no disponible: todas sus celdas null', () => {
-    const r = armar({ anterior: { periodo: per('reconstruido', false), filas: null, personas: null, personasFecha: null } })
+    const r = armar({ anterior: { periodo: per('reconstruido', false), pasaron: null, filas: null, personas: null, personasFecha: null } })
     for (const f of [...r.filas, r.total]) {
       for (const c of Object.values(f.celdas)) {
         expect(c.anterior).toBeNull()
@@ -386,6 +419,40 @@ describe('construirRespuesta', () => {
       }
     }
     expect(r.total.celdas.total.actual).toBe(14)
+  })
+  it('no vigentes: ni columna de estado ni suma del total; el excluido no entra en total a gestionar', () => {
+    const r = armar()
+    for (const t of r.tablas) expect(t.columnas.map((c) => c.id as string)).not.toContain('no_vigente')
+    for (const f of [...r.filas, r.total]) expect(Object.keys(f.celdas)).not.toContain('no_vigente')
+    expect(r.tablas.find((t) => t.id === 'estado')!.columnas[0]!.etiqueta).toBe('Total a gestionar')
+    const u1 = r.filas.find((f) => f.carreraId === 'u1')!
+    expect(u1.celdas.total.actual).toBe(1) // 1 validación; los 3 excluidos quedan fuera
+    for (const f of [...r.filas, r.total]) {
+      for (const k of ['actual', 'anterior'] as const) {
+        const c = f.celdas
+        if (c.total[k] === null) continue
+        expect((c.vigente[k] ?? 0) + (c.validacion[k] ?? 0) + (c.indeterminado[k] ?? 0)).toBe(c.total[k])
+        expect((c.ocupado[k] ?? 0) + (c.vacante[k] ?? 0) + (c.concurso[k] ?? 0)).toBe(c.vigente[k])
+      }
+    }
+  })
+  it('pasaronNoVigente: por carrera y total, fuera del total, con ~ y variación', () => {
+    const r = armar()
+    const u2 = r.filas.find((f) => f.carreraId === 'u2')!.pasaronNoVigente
+    expect(u2).toMatchObject({ actual: 4, actualAprox: 1, anterior: 2, anteriorAprox: 2, variacionAbs: 2, tendencia: 'sube' })
+    const u1 = r.filas.find((f) => f.carreraId === 'u1')!.pasaronNoVigente
+    expect(u1).toMatchObject({ actual: 1, anterior: 0 }) // período disponible sin pasajes = 0, no n/d
+    expect(r.total.pasaronNoVigente).toMatchObject({ actual: 5, anterior: 2, variacionAbs: 3 })
+    expect(r.total.celdas.total.actual).toBe(14) // no suma pasaronNoVigente
+    expect(r.noVigenteSinFecha).toBe(6)
+  })
+  it('pasaronNoVigente: período no disponible -> n/d (nunca 0 inventado)', () => {
+    const r = armar({ anterior: { periodo: per('reconstruido', false), pasaron: null, filas: null, personas: null, personasFecha: null } })
+    for (const f of [...r.filas, r.total]) {
+      expect(f.pasaronNoVigente.anterior).toBeNull()
+      expect(f.pasaronNoVigente.variacionAbs).toBeNull()
+    }
+    expect(r.total.pasaronNoVigente.actual).toBe(5)
   })
   it('sumarHojas conserva n y aprox', () => {
     const a = agregarHojas(filasA).get('u2')!

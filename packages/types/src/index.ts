@@ -2048,10 +2048,12 @@ export interface CrearJornadaRequest {
 
 // ─── Indicadores de cargos (Reportes) ────────────────────────────────────────
 // GET /api/v1/kpis/cargos-indicadores — tablas de cantidad de cargos por carrera
-// y estado, mes actual vs mes anterior (solo lectura).
+// y estado, mes actual vs mes anterior (solo lectura). Los cargos NO VIGENTES no
+// suman al total ni son columna: el total es "a gestionar" (validación + vigente
+// [+ sin determinar]) y los pasajes a no vigente se informan aparte
+// (`pasaronNoVigente`, fuera de toda suma).
 export type CargosIndicadoresColumnaId =
-  | 'total'
-  | 'no_vigente'
+  | 'total' // total a gestionar
   | 'validacion'
   | 'vigente'
   | 'ocupado'
@@ -2082,6 +2084,9 @@ export interface CargosIndicadoresFila {
   literal: string | null
   etiqueta: string // `${codigo} — ${literal}`, o el código solo
   celdas: Record<CargosIndicadoresColumnaId, CargosIndicadoresCelda>
+  // Cargos que pasaron a no vigente DENTRO del período (informativo, FUERA del total).
+  // actualAprox/anteriorAprox = cuántos tienen fecha de pasaje inferida (~). null = n/d.
+  pasaronNoVigente: CargosIndicadoresCelda
 }
 
 export interface CargosIndicadoresColumnaMeta {
@@ -2100,7 +2105,8 @@ export interface CargosIndicadoresTablaMeta {
 
 export interface CargosIndicadoresPeriodo {
   mes: string // 'YYYY-MM'
-  fechaCorte: string // 'YYYY-MM-DD'
+  desde: string // 'YYYY-MM-01': inicio de la ventana de pasajes a no vigente
+  fechaCorte: string // 'YYYY-MM-DD' (fin de la ventana)
   modo: 'vivo' | 'reconstruido'
   disponible: boolean
   motivoNoDisponible: string | null
@@ -2113,5 +2119,7 @@ export interface CargosIndicadores {
   filas: CargosIndicadoresFila[] // por carrera; código numérico asc, texto después, "(sin código)" al final
   total: CargosIndicadoresFila
   referenciaPersonas: { actualFecha: string | null; anteriorFecha: string | null }
-  conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null }
+  conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null } // totales A GESTIONAR
+  // Cargos hoy no vigentes cuya fecha de pasaje no se puede determinar: no entran en ningún período.
+  noVigenteSinFecha: number | null
 }
