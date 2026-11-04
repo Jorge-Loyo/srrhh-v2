@@ -112,7 +112,7 @@ const ACCION_LABEL: Record<string, string> = {
   'ver_auditoria':         'Ver Auditoría',
 }
 
-// Labels fijos de los tab:* de Concursos CPH (el title-case del slug perdería
+// Labels fijos de los tab:* de Concursos CPH e Incidencias (el title-case del slug perdería
 // acentos y preposiciones).
 const TAB_LABEL: Record<string, string> = {
   'tab:concursos': 'Pestaña: Concursos',
@@ -124,6 +124,10 @@ const TAB_LABEL: Record<string, string> = {
   'tab:inscripcion-examen-om': 'Etapa 3: Inscripción / Examen / OM',
   'tab:ifacs-insal': 'Etapa 4: IFACS / INSAL',
   'tab:designacion': 'Etapa 5: Designación',
+  // Incidencias
+  'tab:todo': 'Pestaña: Todo',
+  'tab:sial-sin-cargo': 'Pestaña: SIAL sin cargo',
+  'tab:baja-sin-concurso': 'Pestaña: Baja sin concurso',
 }
 export function accionLabel(accion: string) {
   if (TAB_LABEL[accion]) return TAB_LABEL[accion]
