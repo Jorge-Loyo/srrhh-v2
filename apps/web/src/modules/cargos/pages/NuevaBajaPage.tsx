@@ -838,7 +838,7 @@ export function NuevaBajaPage() {
         {/* breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
           <Link to={volverUrl} className="text-secondary hover:underline">
-            ← {sinConcurso ? 'Baja de Cargos' : 'Alta por Baja'}
+            ← {sinConcurso ? 'Baja de Cargos' : 'Gestión de Cargos'}
           </Link>
           <span className="text-gray-300">/</span>
           <span className="text-gray-500">{modoEdicion ? 'Editar Baja' : 'Nueva Baja'}</span>
