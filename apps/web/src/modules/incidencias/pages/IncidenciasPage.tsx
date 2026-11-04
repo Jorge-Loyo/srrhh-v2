@@ -1,607 +1,120 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
-import { useEscalafones } from '@/shared/hooks/useCatalogos'
-import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { useIncidenciasResumen, useActualizarIncidencias } from '../hooks/useIncidencias'
 import {
-  useIncidenciasPendientes,
-  useCrearCargo,
-  useVincularConcurso,
-  useTransferencia,
-  useSinCodigo,
-  useCrearConcurso,
-  buscarConcursosParaPendiente,
-  type PendienteItem,
-  type ConcursoCandidato,
-  type CrearConcursoBody,
-} from '../hooks/useIncidencias'
+  pestanasVisibles,
+  pestanaActiva,
+  type TabIncidenciasId,
+} from '../lib/tabsIncidencias'
+import { SialSinCargoTab } from '../components/SialSinCargoTab'
+import { BajaSinConcursoTab } from '../components/BajaSinConcursoTab'
+import { TodoTab } from '../components/TodoTab'
+import { PanelConciliacion } from '../components/PanelConciliacion'
 
-// Normaliza texto para comparar sin distinguir mayúsculas ni acentos — mismo
-// criterio de búsqueda laxa que usan otras listas del sistema.
-function norm(s: string | null | undefined): string {
-  return (s ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-}
-
-// Sub-pestañas: con/sin concurso. Se derivan del diagnóstico que trae el
-// backend por fila (diagnostico.concursoCphId presente = genera concurso),
-// misma lógica ingreso/cambio_rol que el padrón expone en el diagnóstico.
-type FiltroConcurso = 'todos' | 'con_concurso' | 'sin_concurso'
-
-const FILTROS: { key: FiltroConcurso; label: string }[] = [
-  { key: 'todos', label: 'Todos' },
-  { key: 'con_concurso', label: 'Con concurso' },
-  { key: 'sin_concurso', label: 'Sin concurso' },
-]
-
-const TIPO_CONCURSO_OPCIONES = [
-  { value: 'cph', label: 'CPH' },
-  { value: 'ceetps', label: 'CEETPS' },
-  { value: 'sin_concurso', label: 'Sin concurso' },
-]
-
-type Feedback = { tipo: 'ok' | 'error'; texto: string } | null
-
+// Incidencias como conciliación de la dotación: pestañas Todo / SIAL sin cargo /
+// Baja sin concurso, cada una gateada por `incidencias/tab:<slug>`. Solo se monta
+// la pestaña activa (cada una tiene sus propias queries).
 export function IncidenciasPage() {
   const { user } = useAuth()
-  const puedeGestionar = can(user, 'incidencias', 'gestionar')
+  const [estado, setEstado] = useState<{ tab: TabIncidenciasId | null; busquedaInicial?: string }>({
+    tab: null,
+  })
+  const [ahora, setAhora] = useState(() => Date.now())
+  const [actualizando, setActualizando] = useState(false)
+  const actualizar = useActualizarIncidencias()
 
-  const { data, isLoading, isError } = useIncidenciasPendientes()
-  // Catálogo de escalafones (carreras) — misma fuente que CargosPage.
-  const { data: escalafones } = useEscalafones(true)
-  const crearCargo = useCrearCargo()
-  const vincularConcurso = useVincularConcurso()
-  const transferencia = useTransferencia()
-  const sinCodigo = useSinCodigo()
-  const crearConcurso = useCrearConcurso()
-
-  const [filtro, setFiltro] = useState<FiltroConcurso>('todos')
-  // Filtro por carrera (escalafón) y buscador de texto único (persona / id_sial / CUIL).
-  const [carrera, setCarrera] = useState('')
-  const [busqueda, setBusqueda] = useState('')
-  const [feedback, setFeedback] = useState<Feedback>(null)
-  const [busyDiffId, setBusyDiffId] = useState<string | null>(null)
-
-  // Modal de búsqueda/vinculación de concurso
-  const [modalConcurso, setModalConcurso] = useState<PendienteItem | null>(null)
-  const [concursoSearch, setConcursoSearch] = useState('')
-  const [concursoResultados, setConcursoResultados] = useState<ConcursoCandidato[]>([])
-  const [concursoLoading, setConcursoLoading] = useState(false)
-  const concursoSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Modal de creación de concurso
-  const [modalCrear, setModalCrear] = useState<PendienteItem | null>(null)
-
-  // Búsqueda de concursos con debounce cuando el modal está abierto.
   useEffect(() => {
-    if (!modalConcurso) return
-    if (concursoSearchRef.current) clearTimeout(concursoSearchRef.current)
-    concursoSearchRef.current = setTimeout(async () => {
-      setConcursoLoading(true)
-      try {
-        setConcursoResultados(await buscarConcursosParaPendiente(modalConcurso.diffId, concursoSearch))
-      } catch {
-        setConcursoResultados([])
-      } finally {
-        setConcursoLoading(false)
-      }
-    }, 300)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [concursoSearch, modalConcurso])
+    const t = setInterval(() => setAhora(Date.now()), 15_000)
+    return () => clearInterval(t)
+  }, [])
 
-  function abrirModalConcurso(item: PendienteItem) {
-    setConcursoSearch('')
-    setConcursoResultados([])
-    setModalConcurso(item)
-  }
+  const visibles = pestanasVisibles(user)
+  const activa = pestanaActiva(visibles, estado.tab)
+  const { data: resumen, isError: resumenError } = useIncidenciasResumen(visibles.length > 0)
 
-  function cerrarModalConcurso() {
-    setModalConcurso(null)
-    setConcursoSearch('')
-    setConcursoResultados([])
-  }
+  const puedeGestionar = can(user, 'incidencias', 'gestionar') && can(user, 'incidencias', 'tab:sial-sin-cargo')
+  const advertencia = resumen?.contexto.ultimoPadron?.advertenciaTamano ?? null
+  const segundos = resumen ? Math.max(0, Math.round((ahora - new Date(resumen.generadoAt).getTime()) / 1000)) : null
 
-  // Ejecuta una acción, muestra feedback y marca la fila ocupada mientras corre.
-  async function ejecutar(diffId: string, accion: () => Promise<unknown>, okMsg: string) {
-    setBusyDiffId(diffId)
-    setFeedback(null)
+  async function onActualizar() {
+    setActualizando(true)
     try {
-      await accion()
-      setFeedback({ tipo: 'ok', texto: okMsg })
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string } } }
-      setFeedback({ tipo: 'error', texto: err?.response?.data?.message ?? 'No se pudo completar la acción. Volvé a intentar.' })
+      await actualizar()
     } finally {
-      setBusyDiffId(null)
+      setActualizando(false)
     }
   }
-
-  if (isLoading) return <p className="text-sm text-gray-400">Cargando cola de pendientes...</p>
-  if (isError) return <p className="text-sm text-danger">No se pudo cargar la cola de Incidencias.</p>
-  if (!data) return null
-
-  const { pendientes, resumen } = data
-  // Filtrado en cliente: la cola de pendientes ya viene completa del backend
-  // (GET /pendientes sin paginación), así que carrera y búsqueda se resuelven
-  // acá, sin round-trips extra por tecla (lo más simple y consistente para una
-  // lista chica). El buscador matchea en un solo campo contra persona (ayn),
-  // id_sial e id_sial_rol, y CUIL. Mínimo 2 caracteres, como el resto del repo.
-  const carreraNorm = norm(carrera)
-  const q = norm(busqueda)
-  const buscarActivo = q.length >= 2
-
-  const pendientesFiltrados = pendientes.filter((p) => {
-    if (filtro === 'con_concurso' && p.diagnostico?.concursoCphId == null) return false
-    if (filtro === 'sin_concurso' && p.diagnostico?.concursoCphId != null) return false
-    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
-    if (buscarActivo) {
-      const v = p.valorNuevo
-      const matchBusqueda =
-        norm(v.ayn).includes(q) ||
-        norm(v.idSial).includes(q) ||
-        norm(p.idSialRol).includes(q) ||
-        norm(v.cuil).includes(q)
-      if (!matchBusqueda) return false
-    }
-    return true
-  })
-
-  // Conteos de las sub-pestañas: reflejan carrera + búsqueda aplicadas (pero no
-  // el propio filtro con/sin concurso), para que los números coincidan con lo
-  // que ve el usuario tras filtrar por carrera o buscar.
-  const baseFiltrada = pendientes.filter((p) => {
-    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
-    if (buscarActivo) {
-      const v = p.valorNuevo
-      return (
-        norm(v.ayn).includes(q) ||
-        norm(v.idSial).includes(q) ||
-        norm(p.idSialRol).includes(q) ||
-        norm(v.cuil).includes(q)
-      )
-    }
-    return true
-  })
-  const hayFiltroExtra = carreraNorm !== '' || buscarActivo
-  const CONTEOS: Record<FiltroConcurso, number> = hayFiltroExtra
-    ? {
-        todos: baseFiltrada.length,
-        con_concurso: baseFiltrada.filter((p) => p.diagnostico?.concursoCphId != null).length,
-        sin_concurso: baseFiltrada.filter((p) => p.diagnostico?.concursoCphId == null).length,
-      }
-    : {
-        todos: resumen.total,
-        con_concurso: resumen.conConcurso,
-        sin_concurso: resumen.sinConcurso,
-      }
 
   return (
-    <>
-      <div className="space-y-6">
-        {/* Encabezado */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="font-primary text-xl font-bold text-gray-900">Incidencias</h1>
-              <p className="text-sm text-gray-500">
-                Id_sial nuevos pendientes de gestionar tras aprobar el padrón. Cada fila es una
-                persona en un puesto; acá se decide cómo se le asigna el cargo.
-              </p>
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-primary text-xl font-bold text-gray-900">Incidencias</h1>
+          {visibles.length > 0 && (
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              {segundos != null && <span>Datos de hace {segundos} s</span>}
+              <button className="btn-outline text-xs px-2 py-1" onClick={onActualizar} disabled={actualizando}>
+                {actualizando ? 'Actualizando…' : 'Actualizar'}
+              </button>
             </div>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="inline-flex items-center justify-center px-2 py-1 rounded-full bg-orange-100 text-orange-700 font-bold">
-                {resumen.total} pendientes
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Feedback de la última acción */}
-        {feedback && (
-          <div
-            className={`rounded-md border px-3 py-2 text-sm ${
-              feedback.tipo === 'ok'
-                ? 'border-green-300 bg-green-50 text-green-700'
-                : 'border-red-300 bg-red-50 text-red-700'
-            }`}
-          >
-            {feedback.texto}
-          </div>
-        )}
-
-        {/* Filtros: carrera (escalafón) + buscador único (persona / id_sial / CUIL) */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="block text-sm sm:w-64">
-            <span className="text-gray-700 font-medium">Carrera</span>
-            <select
-              value={carrera}
-              onChange={(e) => setCarrera(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="">Todas las carreras</option>
-              {(escalafones ?? []).map((e) => (
-                <option key={e.id} value={e.nombre}>
-                  {escalafonLabel(e.nombre)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm flex-1">
-            <span className="text-gray-700 font-medium">Buscar persona, id_sial o CUIL</span>
-            <input
-              type="search"
-              placeholder="Nombre, id_sial o CUIL (mín. 2 caracteres)"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-        </div>
-
-        {/* Sub-pestañas con/sin concurso */}
-        <div className="border-b border-gray-200 flex gap-1">
-          {FILTROS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFiltro(f.key)}
-              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                filtro === f.key
-                  ? 'border-primary text-gray-900'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {f.label} <span className="text-gray-400">({CONTEOS[f.key]})</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Tabla de pendientes */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          {pendientesFiltrados.length === 0 ? (
-            <p className="p-6 text-sm text-gray-400 text-center">
-              {carreraNorm || buscarActivo
-                ? 'No hay incidencias que coincidan con los filtros.'
-                : 'No hay id_sial pendientes para este filtro.'}
-            </p>
-          ) : (
-            <table className="w-full text-sm border-separate border-spacing-0">
-              <thead className="bg-navy text-white text-left sticky top-0 z-10">
-                <tr>
-                  <th className="px-4 py-3 font-semibold rounded-tl-lg">ID SIAL</th>
-                  <th className="px-4 py-3 font-semibold">Apellido y Nombre</th>
-                  <th className="px-4 py-3 font-semibold">Hospital</th>
-                  <th className="px-4 py-3 font-semibold">Carrera</th>
-                  <th className="px-4 py-3 font-semibold">Puesto</th>
-                  <th className="px-4 py-3 font-semibold">Especialidad</th>
-                  <th className="px-4 py-3 font-semibold">Concurso</th>
-                  <th className="px-4 py-3 rounded-tr-lg" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pendientesFiltrados.map((p) => {
-                  const v = p.valorNuevo
-                  const tieneConcurso = p.diagnostico?.concursoCphId != null
-                  const busy = busyDiffId === p.diffId
-                  return (
-                    <tr key={p.diffId} className="hover:bg-gray-50 align-top">
-                      <td className="px-4 py-3 text-gray-600 font-mono text-xs">{v.idSial ?? p.idSialRol}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{v.ayn ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.siglas ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.escalafon ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.literalPuesto ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.especialidad ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        {tieneConcurso ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
-                            Genera concurso
-                            {p.diagnostico?.concursoCodigo ? `: ${p.diagnostico.concursoCodigo}` : ''}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
-                            Sin concurso
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {puedeGestionar && (
-                          <div className="flex flex-col items-end gap-1.5">
-                            {/* Aviso de baja asociada: exige atención antes de crear el cargo. */}
-                            {p.tieneBajaAsociada && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                                ⚠ Baja asociada — revisá antes de crear el cargo
-                              </span>
-                            )}
-                            <div className="flex flex-wrap justify-end gap-1">
-                              <button
-                                className="btn-primary text-xs px-2 py-1"
-                                disabled={busy}
-                                onClick={() =>
-                                  ejecutar(p.diffId, () => crearCargo.mutateAsync(p.diffId), 'Cargo creado.')
-                                }
-                              >
-                                Crear cargo
-                              </button>
-                              <button
-                                className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-green-50 border-green-300 text-green-700 hover:bg-green-100 disabled:opacity-50"
-                                disabled={busy}
-                                onClick={() => abrirModalConcurso(p)}
-                              >
-                                Vincular a concurso
-                              </button>
-                              <button
-                                className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                                disabled={busy}
-                                onClick={() => setModalCrear(p)}
-                              >
-                                Crear concurso
-                              </button>
-                              <button
-                                className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                                disabled={busy}
-                                onClick={() =>
-                                  ejecutar(p.diffId, () => transferencia.mutateAsync(p.diffId), 'Marcado como transferencia.')
-                                }
-                              >
-                                Transferencia
-                              </button>
-                              <button
-                                className="btn-outline text-xs px-2 py-1"
-                                disabled={busy}
-                                onClick={() =>
-                                  ejecutar(p.diffId, () => sinCodigo.mutateAsync(p.diffId), 'Cargo creado sin código.')
-                                }
-                              >
-                                Sin código
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
           )}
         </div>
+        {user && visibles.length === 0 && (
+          <p className="mt-3 text-sm text-gray-500">No tenés acceso a ninguna pestaña de Incidencias.</p>
+        )}
+        {!user && <p className="mt-3 text-sm text-gray-400">Cargando…</p>}
+        {visibles.length > 0 && (
+          <div role="tablist" aria-label="Incidencias" className="mt-4 border-b border-gray-200 flex gap-1">
+            {visibles.map((t) => {
+              const n = resumen?.tabs[t.id]
+              const seleccionada = activa === t.id
+              return (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={seleccionada}
+                  onClick={() => setEstado({ tab: t.id })}
+                  className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                    seleccionada ? 'border-primary text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {t.label}
+                  {n != null ? (
+                    <span className="text-gray-400"> ({n})</span>
+                  ) : resumenError ? (
+                    <span className="text-gray-400"> (—)</span>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Modal: vincular a concurso existente */}
-      {modalConcurso && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) cerrarModalConcurso()
-          }}
-        >
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-primary text-lg font-bold text-gray-900">Vincular a concurso CPH</h2>
-              <button onClick={cerrarModalConcurso} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
-                &times;
-              </button>
-            </div>
-            <p className="text-sm text-gray-500">
-              Buscá el concurso al que pertenece esta designación. El cargo tomará el código del
-              concurso — no se generará uno nuevo.
-            </p>
-            <input
-              autoFocus
-              type="search"
-              placeholder="Buscar por puesto, hospital, código de cargo..."
-              value={concursoSearch}
-              onChange={(e) => setConcursoSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 rounded-md border border-gray-200">
-              {concursoLoading && <p className="p-4 text-sm text-gray-400 text-center">Buscando...</p>}
-              {!concursoLoading && concursoResultados.length === 0 && (
-                <p className="p-4 text-sm text-gray-400 text-center">
-                  {concursoSearch ? 'Sin resultados para esa búsqueda.' : 'Cargando concursos del hospital...'}
-                </p>
-              )}
-              {!concursoLoading &&
-                concursoResultados.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={async () => {
-                      const diffId = modalConcurso.diffId
-                      cerrarModalConcurso()
-                      await ejecutar(
-                        diffId,
-                        () => vincularConcurso.mutateAsync({ diffId, concursoCphId: c.id }),
-                        'Cargo vinculado al concurso.',
-                      )
-                    }}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">
-                          {c.codigoCargo ?? <span className="text-gray-400 font-normal">Sin código</span>}{' '}
-                          <span className="font-normal text-gray-600">{c.literalPuesto}</span>
-                        </p>
-                        {c.especialidad && (
-                          <p className="text-xs text-indigo-600 font-medium mt-0.5 truncate">{c.especialidad}</p>
-                        )}
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {c.hospital}
-                          {c.eeConcurso && <> · {c.eeConcurso}</>}
-                          {c.expediente && <> · Exp: {c.expediente}</>}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                            c.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                          }`}
-                        >
-                          {c.estado}
-                        </span>
-                        {!c.estaCompleto && (
-                          <span className="text-[10px] text-orange-600 font-medium">⚠ Pendiente de completar</span>
-                        )}
-                        {c.yaDesignado && <span className="text-[10px] text-blue-600 font-medium">Ya tiene designado</span>}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-            </div>
-            <div className="flex justify-end pt-1">
-              <button className="btn-outline" onClick={cerrarModalConcurso}>
-                Cancelar
-              </button>
-            </div>
-          </div>
+      {advertencia && (
+        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          El último padrón aprobado fue marcado como posible exportación parcial: los cargos "ausentes del padrón"
+          pueden ser falsos positivos.
         </div>
       )}
 
-      {/* Modal: crear concurso */}
-      {modalCrear && (
-        <CrearConcursoModal
-          item={modalCrear}
-          onClose={() => setModalCrear(null)}
-          onSubmit={async (body) => {
-            const diffId = modalCrear.diffId
-            setModalCrear(null)
-            await ejecutar(
-              diffId,
-              () => crearConcurso.mutateAsync({ diffId, body }),
-              'Concurso creado.',
-            )
-          }}
+      {resumen && visibles.length > 0 && (
+        <PanelConciliacion
+          key={activa}
+          conciliacion={resumen.conciliacion}
+          abiertoInicial={activa === 'baja-sin-concurso'}
         />
       )}
-    </>
-  )
-}
 
-// ─── Modal de creación de concurso ──────────────────────────────────────────
-// cargoId/hospitalId los resuelve el backend desde el diff; acá solo se piden
-// los campos que el usuario debe aportar (origen, fecha de vacante, tipo y
-// datos opcionales).
-function CrearConcursoModal({
-  item,
-  onClose,
-  onSubmit,
-}: {
-  item: PendienteItem
-  onClose: () => void
-  onSubmit: (body: CrearConcursoBody) => void
-}) {
-  const [origen, setOrigen] = useState('')
-  const [fechaVacante, setFechaVacante] = useState('')
-  const [tipoConcurso, setTipoConcurso] = useState('cph')
-  const [motivo, setMotivo] = useState('')
-  const [expediente, setExpediente] = useState('')
-  const [especialidadSolicitada, setEspecialidadSolicitada] = useState(item.valorNuevo.especialidad ?? '')
-
-  const valido = origen.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(fechaVacante)
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-primary text-lg font-bold text-gray-900">Crear concurso</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
-            &times;
-          </button>
-        </div>
-        <p className="text-sm text-gray-500">
-          Se creará el cargo del id_sial <span className="font-mono">{item.valorNuevo.idSial ?? item.idSialRol}</span> y
-          un concurso asociado. El hospital y el cargo se toman del padrón.
-        </p>
-        <div className="space-y-3">
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Origen *</span>
-            <input
-              type="text"
-              value={origen}
-              onChange={(e) => setOrigen(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Fecha de vacante *</span>
-            <input
-              type="date"
-              value={fechaVacante}
-              onChange={(e) => setFechaVacante(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Tipo de concurso *</span>
-            <select
-              value={tipoConcurso}
-              onChange={(e) => setTipoConcurso(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              {TIPO_CONCURSO_OPCIONES.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Especialidad solicitada</span>
-            <input
-              type="text"
-              value={especialidadSolicitada}
-              onChange={(e) => setEspecialidadSolicitada(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Motivo</span>
-            <input
-              type="text"
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-gray-700 font-medium">Expediente</span>
-            <input
-              type="text"
-              value={expediente}
-              onChange={(e) => setExpediente(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </label>
-        </div>
-        <div className="flex justify-end gap-3 pt-1">
-          <button className="btn-outline" onClick={onClose}>
-            Cancelar
-          </button>
-          <button
-            className="btn-primary"
-            disabled={!valido}
-            onClick={() =>
-              onSubmit({
-                origen: origen.trim(),
-                fechaVacante,
-                tipoConcurso,
-                motivo: motivo.trim() || undefined,
-                expediente: expediente.trim() || undefined,
-                especialidadSolicitada: especialidadSolicitada.trim() || undefined,
-              })
-            }
-          >
-            Crear concurso
-          </button>
-        </div>
-      </div>
+      {activa === 'todo' && (
+        <TodoTab
+          puedeGestionar={puedeGestionar}
+          onGestionar={(idSial) => setEstado({ tab: 'sial-sin-cargo', busquedaInicial: idSial })}
+        />
+      )}
+      {activa === 'sial-sin-cargo' && <SialSinCargoTab busquedaInicial={estado.busquedaInicial} />}
+      {activa === 'baja-sin-concurso' && <BajaSinConcursoTab />}
     </div>
   )
 }
