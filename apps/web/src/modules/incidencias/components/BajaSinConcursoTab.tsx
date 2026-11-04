@@ -3,30 +3,11 @@ import { Link } from 'react-router-dom'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
-import { useBajaSinConcurso, type BajaSinConcursoItem } from '../hooks/useIncidencias'
+import { useBajaSinConcurso } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
 
 type FiltroOrigen = '' | 'baja_sial' | 'padron'
 type FiltroEstado = '' | 'vigente' | 'validacion_vacante'
-
-const CHIP_BAJA_FORMAL: Record<string, string> = {
-  resolucion_a_la_firma: 'Baja a la firma',
-  pendiente: 'Baja pendiente',
-  anulada: 'Baja anulada',
-}
-
-function chipBajaFormal(bf: BajaSinConcursoItem['bajaFormal']): { texto: string; clase: string } {
-  if (!bf) return { texto: '—', clase: 'bg-gray-100 text-gray-400 border-gray-200' }
-  if (bf.estado === 'confirmada') {
-    return bf.generaConcurso
-      ? { texto: 'Baja confirmada · genera concurso (sin crear)', clase: 'bg-amber-100 text-amber-700 border-amber-200' }
-      : { texto: 'Baja confirmada · sin concurso', clase: 'bg-gray-100 text-gray-600 border-gray-200' }
-  }
-  return {
-    texto: CHIP_BAJA_FORMAL[bf.estado] ?? bf.estado,
-    clase: bf.estado === 'anulada' ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-100 text-blue-700 border-blue-200',
-  }
-}
 
 function chipDias(dias: number | null): string {
   if (dias == null) return 'text-gray-400'
@@ -161,13 +142,11 @@ export function BajaSinConcursoTab() {
                   <th scope="col" className="px-4 py-3 font-semibold">Fecha</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Días sin cubrir</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Estado</th>
-                  <th scope="col" className="px-4 py-3 font-semibold">Baja formal</th>
                   <th scope="col" className="px-4 py-3 rounded-tr-lg" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {data.items.map((i) => {
-                  const chip = chipBajaFormal(i.bajaFormal)
                   const fecha = i.deteccion.fechaBaja ?? i.deteccion.fechaDeteccion
                   return (
                     <tr key={i.cargoId} className="hover:bg-gray-50 align-top">
@@ -199,11 +178,6 @@ export function BajaSinConcursoTab() {
                       <td className="px-4 py-3 text-gray-600">
                         {i.estadoCargo === 'vigente' ? 'Vigente' : 'Validación de vacante'}
                         {i.subEstado && <> · {i.subEstado}</>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${chip.clase}`}>
-                          {chip.texto}
-                        </span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link to={`/cargos/${i.cargoId}`} className="text-xs text-primary hover:underline">
