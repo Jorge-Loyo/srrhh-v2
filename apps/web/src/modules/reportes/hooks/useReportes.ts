@@ -11,6 +11,7 @@ import type {
   KpiDotacionEvolucionOpciones,
   KpiDotacionEvolucion,
   FiltrosDotacionEvolucion,
+  CargosIndicadores,
 } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
@@ -151,5 +152,31 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
     },
     enabled: haySeleccion,
     staleTime: 60_000,
+  })
+}
+
+// Indicadores de cargos: mes actual vs anterior (solo lectura). `enabled` evita
+// consultar mientras la sección está colapsada.
+export interface CargosIndicadoresParams {
+  mes?: string
+  hospitalId?: string
+  codigoRegistroId?: string
+}
+export function useCargosIndicadores(params: CargosIndicadoresParams, enabled: boolean) {
+  return useQuery({
+    queryKey: ['kpis', 'cargos-indicadores', params],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CargosIndicadores }>('/api/v1/kpis/cargos-indicadores', {
+        params: {
+          ...(params.mes && { mes: params.mes }),
+          ...(params.hospitalId && { hospitalId: params.hospitalId }),
+          ...(params.codigoRegistroId && { codigoRegistroId: params.codigoRegistroId }),
+        },
+      })
+      return res.data.data
+    },
+    enabled,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 }
