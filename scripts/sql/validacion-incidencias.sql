@@ -248,19 +248,25 @@ GROUP BY 1,2,3 ORDER BY 4 DESC;
 
 \echo '== V5. Solape con SIAL sin cargo: diffs nuevo pendientes cuyo id_sial YA existe como cargo (cualquier estado) =='
 -- Esperado: 0 para candidatos (alta_pendiente). Para ocupado / en_concurso / no_vigente se tolera, pero se cuantifica.
-SELECT g.grupo, count(DISTINCT d.id) AS diffs_nuevo_pendientes_con_cargo
-FROM padron_diff d
-JOIN padron_snapshots s ON s.id = d.snapshot_id AND s.estado::text = 'aprobado'
+-- Se aislan primero los diffs pendientes (MATERIALIZED) y recien despues se cruzan con cargos:
+-- sin esto el planner puede recorrer cargos x padron_diff completo (miles de millones de comparaciones).
+WITH pend AS MATERIALIZED (
+  SELECT d.id, d.id_sial_rol
+  FROM padron_diff d
+  JOIN padron_snapshots s ON s.id = d.snapshot_id AND s.estado::text = 'aprobado'
+  WHERE d.tipo::text = 'nuevo' AND d.aprobado IS NULL
+    AND (d.campo IS NULL OR d.campo <> '__alta_desdoblada__')
+)
+SELECT g.grupo, count(DISTINCT pend.id) AS diffs_nuevo_pendientes_con_cargo
+FROM pend
 JOIN cargos c ON c.deleted_at IS NULL AND c.id_sial IS NOT NULL
-  AND (d.id_sial_rol = c.id_sial OR starts_with(d.id_sial_rol, c.id_sial || '-'))
+  AND (pend.id_sial_rol = c.id_sial OR starts_with(pend.id_sial_rol, c.id_sial || '-'))
 LEFT JOIN LATERAL (
   SELECT CASE
     WHEN c.estado::text = 'no_vigente' THEN 'no_vigente'
     WHEN c.estado::text = 'vigente' AND EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) THEN 'ocupado'
     ELSE COALESCE((SELECT grupo FROM v_inc_clasif WHERE cargo_id = c.id), 'en_concurso/otro') END AS grupo
 ) g ON true
-WHERE d.tipo::text = 'nuevo' AND d.aprobado IS NULL
-  AND (d.campo IS NULL OR d.campo <> '__alta_desdoblada__')
 GROUP BY g.grupo ORDER BY 2 DESC;
 
 \echo '== V6. Cobertura del cruce de baja SIAL: registros de la ultima carga sin cargo por id_sial cuyo CUIL fue ocupante de un cargo candidato sin baja SIAL =='
