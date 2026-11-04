@@ -23,6 +23,7 @@ import {
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
 import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
+import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import {
   normalizarCrCphDeCargo,
   normalizarCrCphId,
@@ -1408,7 +1409,7 @@ export async function declararDesiertoService(
       },
     })
 
-    return tx.concursoCph.update({
+    const actualizado = await tx.concursoCph.update({
       where: { id },
       data: {
         suspendido: true,
@@ -1436,6 +1437,19 @@ export async function declararDesiertoService(
       },
       include,
     })
+
+    // El concurso 'suspendido' sigue activo (ronda desierta): el cargo vigente
+    // sin ocupante queda 'concurso'. Recalcular tras suspender el concurso.
+    const cargo = await tx.cargo.findUnique({
+      where: { id: concurso.cargoId },
+      select: { estado: true },
+    })
+    if (cargo) {
+      const subEstado = await recalcularSubEstado(tx, concurso.cargoId, cargo.estado)
+      await tx.cargo.update({ where: { id: concurso.cargoId }, data: { subEstado } })
+    }
+
+    return actualizado
   })
 }
 

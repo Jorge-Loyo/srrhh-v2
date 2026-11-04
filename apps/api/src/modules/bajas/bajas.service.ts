@@ -6,6 +6,7 @@ import type { BajasQuery, CamposDiferidosBody, CreateBajaBody, VinculacionQuery 
 import { createConcursoTx } from '../concursos/concursos.service.js'
 import { TipoConcurso } from '@srrhh/types'
 import { datosTrasConfirmar } from './bajas.validacion.helpers.js'
+import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 
 const include = {
   cargo: { include: { hospital: true, escalafon: true } },
@@ -211,10 +212,10 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
           id
         )
       } else {
-        // Sin concurso: cargo pasa a no_vigente (baja definitiva)
+        // Sin concurso: cargo pasa a no_vigente (baja definitiva) -> sub_estado null
         await tx.cargo.update({
           where: { id: baja.cargoId },
-          data: { estado: 'no_vigente', estadoDesde: new Date() },
+          data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
         })
       }
 
@@ -728,9 +729,12 @@ export async function rechazarValidacionService(cargoId: string) {
       await tx.ocupacion.update({ where: { id: ultimaOcup.id }, data: { hasta: null } })
       await tx.persona.update({ where: { id: ultimaOcup.personaId }, data: { activo: true } })
     }
+    // El cargo vuelve a vigente: si se reabrió una ocupación queda 'ocupado';
+    // si no, recalcula según concurso/vacante. Se lee tras reabrir la ocupación.
+    const subEstado = await recalcularSubEstado(tx, cargoId, 'vigente')
     return tx.cargo.update({
       where: { id: cargoId },
-      data: { estado: 'vigente', estadoDesde: null },
+      data: { estado: 'vigente', estadoDesde: null, subEstado },
     })
   })
 }
@@ -917,10 +921,10 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
         baja.id
       )
     } else {
-      // Sin concurso: cargo pasa a no_vigente (baja definitiva)
+      // Sin concurso: cargo pasa a no_vigente (baja definitiva) -> sub_estado null
       await tx.cargo.update({
         where: { id: body.cargoId },
-        data: { estado: 'no_vigente', estadoDesde: new Date() },
+        data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
       })
     }
 

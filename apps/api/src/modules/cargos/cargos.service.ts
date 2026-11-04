@@ -659,6 +659,8 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           fechaDesde: body.desde ? new Date(body.desde) : null,
           createdById: createdById ?? null,
           estado: 'vigente',
+          // Cargo recién creado, vigente sin ocupante ni concurso -> 'vacante'.
+          subEstado: 'vacante',
         },
         include: { hospital: true, escalafon: true },
       })

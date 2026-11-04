@@ -266,6 +266,9 @@ export async function derivarCargosConduccionService(
           descripcionRepa: nodo.desc_rep,
           regimen: escalafon.nombre.toLowerCase(),
           estado: 'vigente',
+          // Cargo de conducción derivado del organigrama: vigente sin ocupante
+          // ni concurso -> 'vacante'.
+          subEstado: 'vacante',
           origen: 'organigrama',
           codigoRegistroId: decisionCr.codigoRegistroId,
           regimenId: decisionReg.regimenId,

@@ -7,6 +7,7 @@ import { calcConcursoCph, type ConcursoCphCalcInput } from '../concursos-cph/con
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { prefijoRemplazante, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import { normalizarCrCphDeCargo, type CargoCrCphDb } from '../../shared/crCph.js'
+import { recalcularSubEstado, type SubEstadoTx } from '../cargos/subEstado.repo.js'
 
 // Label legible de cada motivo para la notificación concurso_iniciado a sgrasv.
 const MOTIVO_CONCURSO_LABEL: Record<MotivoConcurso, string> = {
@@ -140,6 +141,11 @@ export async function createConcursoTx(
       })
     }
 
+    // El cargo vigente sin ocupante al que se le abre un concurso pasa a
+    // sub_estado 'concurso'. Se recalcula con el helper (no se hardcodea) tras
+    // crear el concurso, en la MISMA transacción.
+    await recalcularSubEstadoCargo(tx, body.cargoId)
+
     return { concurso, concursoCph }
   }
 
@@ -174,10 +180,22 @@ export async function createConcursoTx(
       })
     }
 
+    await recalcularSubEstadoCargo(tx, body.cargoId)
+
     return { concurso, concursoCeetps }
   }
 
   return { concurso }
+}
+
+// Recalcula y persiste `cargos.sub_estado` del cargo dentro de `tx`, leyendo su
+// estado actual (ocupante/concurso los lee el helper). Centraliza el patrón
+// usado tras abrir/cerrar un concurso.
+async function recalcularSubEstadoCargo(tx: SubEstadoTx, cargoId: string): Promise<void> {
+  const cargo = await tx.cargo.findUnique({ where: { id: cargoId }, select: { estado: true } })
+  if (!cargo) return
+  const subEstado = await recalcularSubEstado(tx, cargoId, cargo.estado)
+  await tx.cargo.update({ where: { id: cargoId }, data: { subEstado } })
 }
 
 // ─── S4-6: crear concurso (entrada pública — valida y delega a createConcursoTx) ─

@@ -23,6 +23,7 @@ import {
 } from './resolverPuestoCargo.js'
 import { decidirEspecialidad } from './padron.especialidad.helpers.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
+import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import {
@@ -3261,6 +3262,42 @@ export async function aprobarSnapshotService(
         )
     `
 
+    // ── 11. Recalcular cargos.sub_estado ───────────────────────────────────
+    // La aprobación toca estado y ocupaciones de muchos cargos por lotes
+    // (altas/createMany, reaperturas, aRechazar→vigente, aConfirmar→no_vigente,
+    // eliminados→validacion_vacante, fantasmas de jefatura→no_vigente). En vez
+    // de recalcular fila a fila en cada lote, se hace una única pasada final
+    // idempotente con la MISMA definición que calcularSubEstado (subEstado.ts)
+    // y que el script scripts/sql/recalcular-sub-estado-cargos.sql:
+    //   no vigente -> NULL; vigente + ocupante vivo -> 'ocupado';
+    //   vigente + concurso activo -> 'concurso'; vigente resto -> 'vacante'.
+    // "Concurso activo" = espejo del CTE conc de incidencias.baja-sin-concurso.ts.
+    // Solo escribe donde el valor cambia (IS DISTINCT FROM).
+    await tx.$executeRaw`
+      UPDATE cargos c
+      SET sub_estado = calc.esperado, updated_at = now()
+      FROM (
+        SELECT c.id,
+          CASE
+            WHEN c.estado <> 'vigente' THEN NULL
+            WHEN EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL)
+              THEN 'ocupado'
+            WHEN EXISTS (
+                   SELECT 1 FROM concursos_cph cph
+                   WHERE cph.cargo_id = c.id AND cph.estado::text IN ('no_iniciado','activo','suspendido'))
+                 OR EXISTS (
+                   SELECT 1 FROM concursos_ceetps ce
+                   WHERE ce.cargo_id = c.id AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso'))
+              THEN 'concurso'
+            ELSE 'vacante'
+          END::"SubEstadoCargo" AS esperado
+        FROM cargos c
+        WHERE c.deleted_at IS NULL
+      ) calc
+      WHERE calc.id = c.id
+        AND c.sub_estado IS DISTINCT FROM calc.esperado
+    `
+
     // Nota: el snapshot se marcó como 'aprobado' en el paso 8 (el populate de
     // KPIs lo requiere para que su propia foto entre en estadoActivoAcumuladoSql).
   }, TRANSACTION_OPTS)
@@ -4305,6 +4342,20 @@ export async function aprobarDiffNuevoService(
       }
     }
 
+    // Recalcular sub_estado del cargo gestionado: acaba de quedar vigente y
+    // (si hay persona) con ocupación viva -> 'ocupado'; si no, según concurso/
+    // vacante. Misma definición que calcularSubEstado (subEstado.ts).
+    if (cargo) {
+      const cargoFinal = await tx.cargo.findUnique({
+        where: { id: cargo.id },
+        select: { estado: true },
+      })
+      if (cargoFinal) {
+        const subEstado = await recalcularSubEstado(tx, cargo.id, cargoFinal.estado)
+        await tx.cargo.update({ where: { id: cargo.id }, data: { subEstado } })
+      }
+    }
+
     // Marcar diff como aprobado
     await tx.padronDiff.update({
       where: { id: diffId },
@@ -4550,6 +4601,19 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             snapshotId,
           },
         })
+      }
+    }
+
+    // Recalcular sub_estado del cargo recién creado/ocupado (vigente + ocupación
+    // viva -> 'ocupado'). Misma definición que calcularSubEstado (subEstado.ts).
+    if (cargo) {
+      const cargoFinal = await tx.cargo.findUnique({
+        where: { id: cargo.id },
+        select: { estado: true },
+      })
+      if (cargoFinal) {
+        const subEstado = await recalcularSubEstado(tx, cargo.id, cargoFinal.estado)
+        await tx.cargo.update({ where: { id: cargo.id }, data: { subEstado } })
       }
     }
 

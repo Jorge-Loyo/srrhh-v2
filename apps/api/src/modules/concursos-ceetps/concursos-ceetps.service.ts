@@ -172,9 +172,10 @@ export async function designarConcursoCeetpsService(id: string, body: DesignarCe
       },
     })
 
+    // Designación CEETPS: el cargo queda vigente con ocupación viva -> 'ocupado'.
     await tx.cargo.update({
       where: { id: cargoId },
-      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde) },
+      data: { estado: 'vigente', estadoDesde: new Date(body.fechaDesde), subEstado: 'ocupado' },
     })
 
     const updated = await tx.concursoCeetps.update({

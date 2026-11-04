@@ -6,6 +6,7 @@ import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
+import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -231,9 +232,11 @@ export async function rechazarAutorizacionService(
       // Revertir el cargo a vigente (corrección administrativa)
       const baja = await tx.baja.findUnique({ where: { id: aut.referenciaId }, select: { cargoId: true } })
       if (baja) {
+        // Vuelve a vigente: recalcular sub_estado según ocupante/concurso.
+        const subEstado = await recalcularSubEstado(tx, baja.cargoId, 'vigente')
         await tx.cargo.update({
           where: { id: baja.cargoId },
-          data:  { estado: 'vigente', estadoDesde: null },
+          data:  { estado: 'vigente', estadoDesde: null, subEstado },
         })
       }
     }
@@ -409,6 +412,8 @@ async function _aprobarAltaCargo(
           fechaDesde:       solicitud.desde ?? null,
           createdById:      resueltoPorId,
           estado:           'vigente',
+          // Alta aprobada: cargo vigente sin ocupante ni concurso -> 'vacante'.
+          subEstado:        'vacante',
         },
       })
       cargosCreadosIds.push(cargo.id)
