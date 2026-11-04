@@ -64,7 +64,8 @@ JOIN v_cr_cph v ON c.codigo_registro_id = v.cr22_id
 WHERE c.deleted_at IS NULL;
 \echo '== UPDATE por defecto: solo cargos CR 22 CON concurso_cph vinculado -> CR 37 =='
 UPDATE cargos c
-SET codigo_registro_id = v.cr37_id
+SET codigo_registro_id = v.cr37_id,
+    updated_at = now()
 FROM v_cr_cph v
 WHERE c.codigo_registro_id = v.cr22_id
   AND EXISTS (SELECT 1 FROM concursos_cph cc WHERE cc.cargo_id = c.id);
@@ -72,7 +73,8 @@ WHERE c.codigo_registro_id = v.cr22_id
 -- concurso vinculado. Descomentar solo si Jorge decide, tras ver el
 -- diagnostico, que tambien quiere corregir los cargos CR 22 sin concurso.
 -- UPDATE cargos c
--- SET codigo_registro_id = v.cr37_id
+-- SET codigo_registro_id = v.cr37_id,
+--     updated_at = now()
 -- FROM v_cr_cph v
 -- WHERE c.codigo_registro_id = v.cr22_id
 --   AND c.deleted_at IS NULL;
