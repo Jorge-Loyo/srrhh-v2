@@ -1,7 +1,7 @@
 # Contrato de Backend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del servidor.
-> Última actualización: 2026-09-22 — Sincronizado el árbol de módulos contra `apps/api/src/modules` (35 módulos reales) y corregido el desfase de `cantidadCargos` en la sección Exportables (columna eliminada de la BD).
+> Última actualización: 2026-11-04 — Agregado el módulo `incidencias` (ex "gestion-puestos", renombrado) y su regla de indicadores de cargos. Previa (2026-09-22): sincronizado el árbol de módulos contra `apps/api/src/modules` y corregido el desfase de `cantidadCargos` en la sección Exportables.
 > Estado: VIGENTE
 
 ---
@@ -26,7 +26,7 @@
 ```
 apps/api/
 ├── src/
-│   ├── modules/              ← Un módulo por dominio (35 módulos)
+│   ├── modules/              ← Un módulo por dominio (incluye `incidencias`)
 │   │   ├── auth/
 │   │   ├── auditoria/            ← consulta de audit_logs
 │   │   ├── personas/
@@ -49,6 +49,7 @@ apps/api/
 │   │   ├── postulantes/          ← postulantes a concursos CPH
 │   │   ├── bajas/
 │   │   ├── bajas-sial/
+│   │   ├── incidencias/          ← conciliación de la dotación (ex "gestion-puestos"); pestañas Todo / SIAL sin cargo / Baja sin concurso. Permisos: incidencias/ver, incidencias/gestionar
 │   │   ├── retenciones/          ← cadena de retención (S18)
 │   │   ├── cadena-mando/         ← cadena de mando / conducción
 │   │   ├── comisiones/           ← comisiones de servicio
@@ -200,12 +201,25 @@ GET    /api/v1/bajas-sial/snapshots/:id/diff
 POST   /api/v1/bajas-sial/snapshots/:id/aprobar
 GET    /api/v1/bajas-sial/registros
 
+# Incidencias (conciliación de la dotación; permiso incidencias/ver, acciones incidencias/gestionar)
+GET    /api/v1/incidencias/resumen                    ← conciliación por grupos
+GET    /api/v1/incidencias/todo                        ← unión de tipos (Todo)
+GET    /api/v1/incidencias/baja-sin-concurso
+GET    /api/v1/incidencias/pendientes                  ← SIAL sin cargo (id_sial nuevos)
+GET    /api/v1/incidencias/pendientes/:diffId/concursos
+POST   /api/v1/incidencias/pendientes/:diffId/crear-cargo
+POST   /api/v1/incidencias/pendientes/:diffId/vincular-concurso
+POST   /api/v1/incidencias/pendientes/:diffId/crear-concurso
+POST   /api/v1/incidencias/pendientes/:diffId/transferencia
+POST   /api/v1/incidencias/pendientes/:diffId/sin-codigo
+
 # KPIs
 GET    /api/v1/kpis/concursos-cph
 GET    /api/v1/kpis/concursos-ceetps
 GET    /api/v1/kpis/dotacion
 GET    /api/v1/kpis/concursos
 GET    /api/v1/kpis/dotacion-historica
+GET    /api/v1/kpis/cargos-indicadores            ← Indicadores de cargos: total a gestionar = validacion + vigente (no vigentes = hoja 'excluido', no suman); sin hoja 'indeterminado'. Permiso reportes/ver
 GET    /api/v1/kpis/alertas
 
 # Notificaciones (Sprint 10)

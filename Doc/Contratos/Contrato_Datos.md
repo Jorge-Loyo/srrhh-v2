@@ -263,6 +263,7 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 | `lit_familia`         | VARCHAR(150)                      | Literal de familia                                                                                                                                                                                              |
 | `puesto_codigo_sial`  | VARCHAR(20)                       | Código de puesto en SIAL                                                                                                                                                                                        |
 | `estado`              | ENUM                              | `vigente` \| `no_vigente` \| `validacion_vacante`                                                                                                                                                               |
+| `sub_estado`          | ENUM `SubEstadoCargo` nullable    | `ocupado` \| `vacante` \| `concurso` cuando `estado=vigente`; `null` si no vigente. Persistido, recalculado server-side en cada escritura que toca estado/ocupación/concurso del cargo                          |
 | `estado_desde`        | DATE                              | Fecha en que el cargo entró al estado actual                                                                                                                                                                    |
 | `expediente`          | VARCHAR(150)                      | Expediente de alta manual                                                                                                                                                                                       |
 | `fecha_desde`         | DATE                              | Fecha de inicio del cargo (alta manual)                                                                                                                                                                         |
@@ -279,7 +280,7 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 | `updated_at`          | TIMESTAMPTZ                       | —                                                                                                                                                                                                               |
 | `deleted_at`          | TIMESTAMPTZ                       | Soft delete                                                                                                                                                                                                     |
 
-**Índices:** `id_sial` (UNIQUE), `codigo` (UNIQUE), `hospital_id`, `escalafon_id`, `estado`, `cargo_base_id`, `cargo_retenido_id`
+**Índices:** `id_sial` (UNIQUE), `codigo` (UNIQUE), `hospital_id`, `escalafon_id`, `estado`, `sub_estado`, `cargo_base_id`, `cargo_retenido_id`
 
 **Estados:**
 
@@ -295,43 +296,52 @@ Una posición estructural. Existe independientemente de quién lo ocupa.
 
 La relación persona↔cargo con vigencia temporal. Fuente de verdad de quién ocupa qué hoy.
 
-| Columna                  | Tipo                       | Descripción                                               |
-| ------------------------ | -------------------------- | --------------------------------------------------------- |
-| `id`                     | UUID PK                    | —                                                         |
-| `persona_id`             | UUID FK → personas         | —                                                         |
-| `cargo_id`               | UUID FK → cargos           | —                                                         |
-| `id_sial_rol`            | VARCHAR(50) UNIQUE         | ID del rol en SIAL (ej: 000110898-2)                      |
-| `cuil_y_rol`             | VARCHAR(80)                | CUIL + número de rol                                      |
-| `situacion_revista`      | VARCHAR(50)                | Activo \| Retencion de Cargo \| Comision                  |
-| `estado_persona`         | VARCHAR(50)                | Activo \| Bloqueado \| Comision                           |
-| `desde`                  | DATE                       | Inicio de la ocupación                                    |
-| `hasta`                  | DATE                       | Fin (NULL = activo actualmente)                           |
-| `cargo_desde`            | DATE                       | Fecha de inicio del cargo en SIAL (CARGO_DESDE del Excel) |
-| `cargo_hasta`            | DATE                       | Fecha de fin del cargo en SIAL (CARGO_HASTA del Excel)    |
-| `codigo_jefaturas`       | VARCHAR(10)                | Código de jefatura (ej: P60, P61)                         |
-| `jefe_escalafon`         | VARCHAR(50)                | —                                                         |
-| `documentacion_jefatura` | TEXT                       | —                                                         |
-| `comentarios_jefaturas`  | TEXT                       | —                                                         |
-| `escritorio`             | VARCHAR(100)               | —                                                         |
-| `pou_desde`              | DATE                       | —                                                         |
-| `documentacion_pou`      | TEXT                       | —                                                         |
-| `comision`               | VARCHAR(150)               | —                                                         |
-| `repa_comision`          | VARCHAR(200)               | —                                                         |
-| `sr_doc_respaldo`        | TEXT                       | —                                                         |
-| `sr_comentario`          | TEXT                       | —                                                         |
-| `cr_comentario`          | TEXT                       | —                                                         |
-| `fecha_bloqueo`          | DATE                       | —                                                         |
-| `bloqueo_comentario`     | TEXT                       | —                                                         |
-| `bloq_motivo`            | VARCHAR(200)               | —                                                         |
-| `cod_situacion`          | VARCHAR(10)                | —                                                         |
-| `documentacion_del_rol`  | TEXT                       | —                                                         |
-| `documentacion_baja`     | TEXT                       | —                                                         |
-| `dias_guardia`           | String[]                   | Array de días de guardia                                  |
-| `snapshot_id`            | UUID FK → padron_snapshots | Snapshot que originó este registro                        |
-| `created_at`             | TIMESTAMPTZ                | —                                                         |
-| `updated_at`             | TIMESTAMPTZ                | —                                                         |
+| Columna                  | Tipo                       | Descripción                                                                                       |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `id`                     | UUID PK                    | —                                                                                                 |
+| `persona_id`             | UUID FK → personas         | —                                                                                                 |
+| `cargo_id`               | UUID FK → cargos           | —                                                                                                 |
+| `id_sial_rol`            | VARCHAR(50) UNIQUE         | ID del rol en SIAL (ej: 000110898-2)                                                              |
+| `cuil_y_rol`             | VARCHAR(80)                | CUIL + número de rol                                                                              |
+| `situacion_revista`      | VARCHAR(50)                | Activo \| Retencion de Cargo \| Comision                                                          |
+| `estado_persona`         | VARCHAR(50)                | ⚠️ PENDIENTE DE REEMPLAZO (ver nota abajo). Activo \| Bloqueado \| Comision \| Retención de Cargo |
+| `desde`                  | DATE                       | Inicio de la ocupación                                                                            |
+| `hasta`                  | DATE                       | Fin (NULL = activo actualmente)                                                                   |
+| `cargo_desde`            | DATE                       | Fecha de inicio del cargo en SIAL (CARGO_DESDE del Excel)                                         |
+| `cargo_hasta`            | DATE                       | Fecha de fin del cargo en SIAL (CARGO_HASTA del Excel)                                            |
+| `codigo_jefaturas`       | VARCHAR(10)                | Código de jefatura (ej: P60, P61)                                                                 |
+| `jefe_escalafon`         | VARCHAR(50)                | —                                                                                                 |
+| `documentacion_jefatura` | TEXT                       | —                                                                                                 |
+| `comentarios_jefaturas`  | TEXT                       | —                                                                                                 |
+| `escritorio`             | VARCHAR(100)               | —                                                                                                 |
+| `pou_desde`              | DATE                       | —                                                                                                 |
+| `documentacion_pou`      | TEXT                       | —                                                                                                 |
+| `comision`               | VARCHAR(150)               | —                                                                                                 |
+| `repa_comision`          | VARCHAR(200)               | —                                                                                                 |
+| `sr_doc_respaldo`        | TEXT                       | —                                                                                                 |
+| `sr_comentario`          | TEXT                       | —                                                                                                 |
+| `cr_comentario`          | TEXT                       | —                                                                                                 |
+| `fecha_bloqueo`          | DATE                       | —                                                                                                 |
+| `bloqueo_comentario`     | TEXT                       | —                                                                                                 |
+| `bloq_motivo`            | VARCHAR(200)               | —                                                                                                 |
+| `cod_situacion`          | VARCHAR(10)                | —                                                                                                 |
+| `documentacion_del_rol`  | TEXT                       | —                                                                                                 |
+| `documentacion_baja`     | TEXT                       | —                                                                                                 |
+| `dias_guardia`           | String[]                   | Array de días de guardia                                                                          |
+| `snapshot_id`            | UUID FK → padron_snapshots | Snapshot que originó este registro                                                                |
+| `created_at`             | TIMESTAMPTZ                | —                                                                                                 |
+| `updated_at`             | TIMESTAMPTZ                | —                                                                                                 |
 
 **Índices:** `persona_id`, `cargo_id`, `id_sial_rol`, `hasta`
+
+> **Decisión (2026-11) — `estado_persona` pendiente de reemplazo por `situacion_revista`.**
+> `estado_persona` se considera **redundante** con `situacion_revista` (activo / comisión / retención)
+> y se va a retirar. **Sigue VIVO en el código** por ahora (lo escribe/lee `padron.service.ts`,
+> `concursos-cph.service.ts`, etc.), por eso esta tabla aún lo documenta. Matiz a resolver antes de
+> eliminarlo: `estado_persona` trae el valor **`Bloqueado`** (deriva de `fecha_bloqueo`), que **no existe**
+> en `situacion_revista` — hay que preservar ese significado al reemplazar (no perder el bloqueo). El
+> reemplazo es la **Fase 5** del sprint `Sprints/SPRINT_incidencias_expansion.md`; cuando se ejecute y
+> despliegue, se actualiza esta tabla.
 
 **Invariante:** `hasta IS NULL` = ocupación activa. No hay campo `activo` boolean.
 
@@ -383,23 +393,23 @@ Cambios detectados entre el snapshot nuevo y el estado actual. Se genera al proc
 
 Foto completa del padrón en cada fecha aprobada.
 
-| Columna             | Tipo                       | Descripción                                                                        |
-| ------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
-| `id`                | UUID PK                    | —                                                                                  |
-| `snapshot_id`       | UUID FK → padron_snapshots | —                                                                                  |
-| `fecha_asignada`    | DATE                       | Desnormalizado para queries rápidas                                                |
-| `persona_id`        | UUID FK → personas         | —                                                                                  |
-| `cargo_id`          | UUID FK → cargos           | —                                                                                  |
-| `id_sial_rol`       | VARCHAR(50)                | —                                                                                  |
-| `cuil`              | VARCHAR(11) null           | Nullable en filas anteriores a S6-0 hasta el backfill; toda fila nueva lo completa |
-| `escalafon`         | VARCHAR(50)                | Desnormalizado para performance                                                    |
-| `hospital_sigla`    | VARCHAR(20)                | Desnormalizado para performance                                                    |
-| `literal_puesto`    | VARCHAR(200)               | —                                                                                  |
-| `especialidad`      | VARCHAR(200)               | —                                                                                  |
-| `agrupador`         | VARCHAR(150)               | —                                                                                  |
-| `unificador_puesto` | VARCHAR(200) null          | —                                                                                  |
-| `estado_persona`    | VARCHAR(50)                | —                                                                                  |
-| `situacion_revista` | VARCHAR(50)                | —                                                                                  |
+| Columna             | Tipo                       | Descripción                                                                         |
+| ------------------- | -------------------------- | ----------------------------------------------------------------------------------- |
+| `id`                | UUID PK                    | —                                                                                   |
+| `snapshot_id`       | UUID FK → padron_snapshots | —                                                                                   |
+| `fecha_asignada`    | DATE                       | Desnormalizado para queries rápidas                                                 |
+| `persona_id`        | UUID FK → personas         | —                                                                                   |
+| `cargo_id`          | UUID FK → cargos           | —                                                                                   |
+| `id_sial_rol`       | VARCHAR(50)                | —                                                                                   |
+| `cuil`              | VARCHAR(11) null           | Nullable en filas anteriores a S6-0 hasta el backfill; toda fila nueva lo completa  |
+| `escalafon`         | VARCHAR(50)                | Desnormalizado para performance                                                     |
+| `hospital_sigla`    | VARCHAR(20)                | Desnormalizado para performance                                                     |
+| `literal_puesto`    | VARCHAR(200)               | —                                                                                   |
+| `especialidad`      | VARCHAR(200)               | —                                                                                   |
+| `agrupador`         | VARCHAR(150)               | —                                                                                   |
+| `unificador_puesto` | VARCHAR(200) null          | —                                                                                   |
+| `estado_persona`    | VARCHAR(50)                | ⚠️ Pendiente de reemplazo por `situacion_revista` (ver nota en tabla `ocupaciones`) |
+| `situacion_revista` | VARCHAR(50)                | —                                                                                   |
 
 **Índices:** `snapshot_id`, `fecha_asignada`, `persona_id`, `cargo_id`, `cuil`.
 

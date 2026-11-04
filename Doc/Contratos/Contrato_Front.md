@@ -1,7 +1,7 @@
 ﻿# Contrato de Frontend — SRRHH v2
 
 > Define la arquitectura, estructura, convenciones y reglas del cliente web.
-> Última actualización: 2026-09-22 — Sincronizado el stack (Zustand, @xyflow/react, docx, html-to-image) y el árbol de módulos contra `apps/web/src/modules` (22 módulos reales; agregados auditoria, comisiones, dotacion, importacion, pou, retenciones, tokens). Documentada la duplicación de `AdminUsuariosPage`.
+> Última actualización: 2026-11-04 — Agregados al árbol los módulos `incidencias` (ex gestion-puestos, renombrado) y `reportes`; marcado el bloque Routing como desfasado (hoy el router usa layouts con pestañas + permisos `tab:*` + lazy-loading; fuente de verdad `router.tsx`). Previa (2026-09-22): sincronizado el stack (Zustand, @xyflow/react, docx, html-to-image) y el árbol de módulos; documentada la duplicación de `AdminUsuariosPage`.
 > Estado: VIGENTE
 
 ---
@@ -88,7 +88,13 @@ apps/web/
 │   │   │       ├── BajasPage.tsx
 │   │   │       ├── BajasConsolidasPage.tsx
 │   │   │       ├── BajasSialDiffPage.tsx
-│   │   │       └── ValidacionBajasPage.tsx  ← sub-tabs: Todos / Triangulados / Solo padrón / Solo SIAL / Histórico
+│   │   │       └── ValidacionBajasPage.tsx  ← ⚠️ pantalla VIEJA /bajas/validacion, a reemplazar por el módulo Incidencias
+│   │   ├── incidencias/                ← conciliación de la dotación (ex "gestion-puestos", renombrado 2026-11)
+│   │   │   ├── components/             ← TodoTab, SialSinCargoTab, BajaSinConcursoTab, PanelConciliacion
+│   │   │   ├── lib/tabsIncidencias.ts  ← TABS_INCIDENCIAS (pestañas sin permisos tab:*)
+│   │   │   ├── hooks/useIncidencias.ts
+│   │   │   └── pages/IncidenciasPage.tsx  ← ruta /incidencias; pestañas Todo / SIAL sin cargo / Baja sin concurso; gatea por incidencias/ver
+│   │   ├── reportes/                   ← incluye sección "Indicadores de cargos" (total a gestionar = validación + vigente, sin no vigentes)
 │   │   ├── autorizaciones/             ← Sprint 13
 │   │   │   └── pages/
 │   │   │       └── AutorizacionesPage.tsx
@@ -277,6 +283,15 @@ function BajaForm() {
 
 ## Routing
 
+> ⚠️ **Desfasado (2026-11).** El snippet de abajo es una foto vieja: no refleja los **layouts con
+> pestañas** (`CargosLayout`, `BajasLayout`, `ConfiguracionLayout`, `ImportacionLayout`,
+> `OrganigramaLayout` con `Outlet`), los **permisos por pestaña** (`tab:*`) ni el **lazy-loading** que
+> hoy usa el router. Tampoco incluye las rutas nuevas **`/incidencias`** (módulo de conciliación de la
+> dotación, ex gestion-puestos) ni **`/reportes`** (con la sección Indicadores de cargos). La pestaña de
+> `/cargos/alta-por-baja` hoy se llama **"Cobertura de vacantes"** (página `AltaPorBajaPage`, título
+> "Bajas históricas", botón "Gestión de Cargos"). **Fuente de verdad: `apps/web/src/app/router.tsx`.**
+> Este bloque se deja como referencia histórica hasta reescribirlo contra el router actual.
+
 ```typescript
 const router = createBrowserRouter([
   {
@@ -297,7 +312,9 @@ const router = createBrowserRouter([
           { path: 'cargos/baja', element: <BajaCargosPage /> },
           { path: 'cargos/baja/nueva', element: <NuevaBajaPage /> },
           { path: 'cargos/baja/:bajaId/editar', element: <NuevaBajaPage /> },
-          { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },
+          { path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> },  // pestaña "Cobertura de vacantes"
+          { path: 'incidencias', element: <IncidenciasPage /> },           // conciliación de la dotación (ex gestion-puestos)
+          { path: 'reportes', element: <ReportesPage /> },                 // incluye "Indicadores de cargos"
           { path: 'concursos/cph', element: <ConcursosCphPage /> },
           // Ruta vieja pre-S13 — redirect por si alguien la tiene en favoritos
           { path: 'concursos/cph/autorizaciones', element: <Navigate to="/autorizaciones" replace /> },

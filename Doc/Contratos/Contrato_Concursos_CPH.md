@@ -96,6 +96,27 @@ Mapeo sub-estado → etapa (columna "Etapa" / stepper de la lista):
 
 Al cambiar de etapa en el wizard, el scroll sube al tope automáticamente.
 
+### 2.1 Permisos por pestaña / etapa (solo UI)
+
+Cada pestaña de `ConcursosCphPage` y cada etapa del wizard está gateada por un permiso propio
+`concursos-cph/tab:<slug>` (`apps/web/src/modules/concursos-cph/lib/etapasVisibles.ts`,
+`puedeVerEtapa` con `can(user,'concursos-cph',\`tab:${slug}\`)`). Slugs:
+
+- `tab:baja-apertura` (Etapa 1), `tab:autorizacion-jurado` (Etapa 2), `tab:inscripcion-examen-om` (Etapa 3), `tab:ifacs-insal` (Etapa 4), `tab:designacion` (Etapa 5).
+
+Son **solo de visibilidad de UI**: NO alteran el estado del concurso, ni la validación, ni el cálculo
+de la etapa actual. Si un rol no ve una etapa, esa etapa no aparece en el stepper y la navegación cae
+en la primera visible. Requieren **re-login** para tomar efecto (los permisos viajan en el token).
+
+### 2.2 Código de registro: CR 22 → 37 (duplicado histórico)
+
+El escalafón CPH tiene dos códigos de registro con el mismo literal: `22` (histórico) y `37` (vigente).
+**Ningún cargo CPH gestionable debe quedar en el código 22**: al crear o normalizar un cargo/concurso
+CPH el sistema fuerza el `37` (`derivarCodigoRegistro.ts` mapea `'22'→'37'`; guardas en
+`cargos.service.ts`, `autorizaciones.service.ts`, `concursos.service.ts`, `concursos-cph.service.ts`).
+La lectura de datos históricos sigue tolerando el 22. **Cobertura de Dotación** acepta las carreras
+`37` y `23`.
+
 ---
 
 ## 3. IF de autorización y flujo de apertura (Etapa 1 → autorización SGRASV)

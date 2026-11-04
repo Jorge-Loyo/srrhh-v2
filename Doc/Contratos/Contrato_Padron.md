@@ -140,25 +140,25 @@ COLUMNAS_CON_TILDE         = { ... }   # → sin efecto (inerte): ya no se conse
 
 El diff se calcula en Node (`calcularDiff()`) comparando el DataFrame de Dotaneitor contra `cargos` vigentes en Postgres.
 
-| Campo Python            | Tabla BD  | Campo Prisma            |
-| ----------------------- | --------- | ----------------------- |
-| `literal_puesto`        | cargo     | `literalPuesto`         |
-| `especialidad`          | cargo     | `especialidadLegacy`    |
-| `agrupador`             | cargo     | `agrupador`             |
-| `unificador_de_puestos` | cargo     | `unificadorPuesto`      |
-| `codigo_repa`           | cargo     | `codigoRepa`            |
-| `descripcion_repa`      | cargo     | `descripcionRepa`       |
-| `codigo_de_registro`    | cargo     | `codigoRegistro.codigo` |
-| `agrupamiento`          | cargo     | `agrupamiento`          |
-| `situacion_de_revista`  | ocupacion | `situacionRevista`      |
-| `estado`                | ocupacion | `estadoPersona`         |
-| `codigo_jefaturas`      | ocupacion | `codigoJefaturas`       |
-| `jefe_escalafon`        | ocupacion | `jefeEscalafon`         |
-| `comision`              | ocupacion | `comision`              |
-| `repa_comision`         | ocupacion | `repaComision`          |
-| `cod_situacion`         | ocupacion | `codSituacion`          |
-| `cargo_desde`           | ocupacion | `cargoDesdeFecha`       |
-| `cargo_hasta`           | ocupacion | `cargoHastaFecha`       |
+| Campo Python            | Tabla BD  | Campo Prisma                                                                                                    |
+| ----------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
+| `literal_puesto`        | cargo     | `literalPuesto`                                                                                                 |
+| `especialidad`          | cargo     | `especialidadLegacy`                                                                                            |
+| `agrupador`             | cargo     | `agrupador`                                                                                                     |
+| `unificador_de_puestos` | cargo     | `unificadorPuesto`                                                                                              |
+| `codigo_repa`           | cargo     | `codigoRepa`                                                                                                    |
+| `descripcion_repa`      | cargo     | `descripcionRepa`                                                                                               |
+| `codigo_de_registro`    | cargo     | `codigoRegistro.codigo`                                                                                         |
+| `agrupamiento`          | cargo     | `agrupamiento`                                                                                                  |
+| `situacion_de_revista`  | ocupacion | `situacionRevista`                                                                                              |
+| `estado`                | ocupacion | `estadoPersona` ⚠️ pendiente de reemplazo por `situacionRevista` (ver `Contrato_Datos.md`, tabla `ocupaciones`) |
+| `codigo_jefaturas`      | ocupacion | `codigoJefaturas`                                                                                               |
+| `jefe_escalafon`        | ocupacion | `jefeEscalafon`                                                                                                 |
+| `comision`              | ocupacion | `comision`                                                                                                      |
+| `repa_comision`         | ocupacion | `repaComision`                                                                                                  |
+| `cod_situacion`         | ocupacion | `codSituacion`                                                                                                  |
+| `cargo_desde`           | ocupacion | `cargoDesdeFecha`                                                                                               |
+| `cargo_hasta`           | ocupacion | `cargoHastaFecha`                                                                                               |
 
 ---
 

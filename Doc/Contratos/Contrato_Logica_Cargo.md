@@ -140,7 +140,21 @@ Estado terminal. El cargo fue suprimido de la estructura. No puede reactivarse.
 
 ## 3. Condiciones derivadas: VACANTE y OCUPADO
 
-`VACANTE` y `OCUPADO` **no son estados del cargo** — son condiciones calculadas en tiempo de consulta. No existe ningún campo `vacante` ni `ocupado` en la tabla `cargos`.
+`VACANTE`, `OCUPADO` y `CONCURSO` son los tres **sub-estados** de un cargo vigente, y
+**SÍ se persisten** en la columna `cargos.sub_estado` (enum `SubEstadoCargo = ocupado | vacante | concurso`,
+`null` cuando el cargo no es `vigente`). Es una foto del presente del cargo vigente que el sistema
+**recalcula en cada escritura** que toque su estado, ocupación o concurso, mediante
+`recalcularSubEstado(tx, cargoId, estado)` (`apps/api/src/modules/cargos/subEstado.repo.ts`), cuya
+regla pura es `calcularSubEstado` (`apps/api/src/modules/cargos/subEstado.ts`):
+
+- vigente **con** ocupante vigente (`ocupaciones.hasta IS NULL`) → `ocupado`
+- vigente **sin** ocupante y **con** concurso activo → `concurso`
+- vigente **sin** ocupante y **sin** concurso → `vacante`
+- no vigente / validación → `null`
+
+> La **verdad temporal** sigue estando en `ocupaciones` (`hasta IS NULL` = ocupación viva); `sub_estado`
+> es la foto persistida derivada de esa verdad más el concurso activo. Las condiciones SQL de abajo
+> describen cómo se **deriva** cada sub-estado (son la base del recálculo), no una alternativa a la columna.
 
 ### 3.1 VACANTE
 
@@ -164,8 +178,8 @@ El cargo está vigente pero no tiene ninguna persona asignada actualmente.
 
 **Validaciones**:
 
-- No es un campo en la tabla `cargos` — se calcula en tiempo de consulta.
-- Un cargo vacante puede o no tener un concurso abierto asociado.
+- Se persiste en `cargos.sub_estado = 'vacante'` y se recalcula en cada escritura (ver §3).
+- Un cargo vacante puede o no tener un concurso abierto asociado (si tiene concurso activo, el sub-estado pasa a `concurso`).
 - Puede quedar vacante sin generar concurso (genera_concurso = false) o puede seguir Vacante si el concurso no prosperó.
 - Para CPH/ENF/TEC: la vacante puede disparar un concurso CEETPS.
 - Para RG: la vacante espera nueva designación directa (no concurso). Mandato fijo de 5 años.
@@ -435,25 +449,26 @@ prefijoRemplazante('CPH-J-POF', 'TTR') → 'CPH-J-POF-TTR'
 
 ### Tabla `cargos`
 
-| Campo                             | Tipo               | Descripción                                                                                                |
-| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `id`                              | UUID               | PK interno                                                                                                 |
-| `id_sial`                         | VARCHAR(50) UNIQUE | Legajo SIAL de la persona en la importación inicial (NO identifica el cargo estructural)                   |
-| `codigo`                          | VARCHAR(30) UNIQUE | Código interno del sistema (ej: `RG-CG-000047`)                                                            |
-| `hospital_id`                     | UUID               | FK → hospitales                                                                                            |
-| `escalafon_id`                    | UUID               | FK → escalafones                                                                                           |
-| `codigo_repa`                     | VARCHAR(20)        | Código de repartición SIAL                                                                                 |
-| `literal_puesto`                  | VARCHAR(200)       | Descripción del puesto                                                                                     |
-| `estado`                          | `EstadoCargo`      | `vigente` \| `validacion_vacante` \| `no_vigente`                                                          |
-| `estado_desde`                    | DATE               | Fecha en que el cargo entró al estado actual                                                               |
-| `tipo_origen`                     | VARCHAR(5) null    | Rol en la cadena (S18): `R` = remplazante de ejecución, `TTR` = remplazante de conducción, `null` = normal |
-| `cargo_retenido_id`               | UUID null          | FK → cargos. Cargo que este remplaza (null si no es remplazante)                                           |
-| `cargo_base_id`                   | UUID null          | FK → cargos. Cargo base de la cadena (desnormalizado). Null si este cargo ES el base                       |
-| `periodo_desde` / `periodo_hasta` | DATE null          | Período de conducción (solo TTR y bases de conducción)                                                     |
-| `periodo_renovado`                | BOOLEAN            | El período fue renovado                                                                                    |
-| `fecha_renovacion`                | DATE null          | Fecha de la última renovación de período                                                                   |
-| `doc_renovacion`                  | TEXT null          | Acto administrativo de la última renovación (S19-4)                                                        |
-| `created_by_id`                   | UUID null          | FK → usuarios. Usuario que creó el cargo (alta manual); null si vino del padrón                            |
+| Campo                             | Tipo                  | Descripción                                                                                                                                                                           |
+| --------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                              | UUID                  | PK interno                                                                                                                                                                            |
+| `id_sial`                         | VARCHAR(50) UNIQUE    | Legajo SIAL de la persona en la importación inicial (NO identifica el cargo estructural)                                                                                              |
+| `codigo`                          | VARCHAR(30) UNIQUE    | Código interno del sistema (ej: `RG-CG-000047`)                                                                                                                                       |
+| `hospital_id`                     | UUID                  | FK → hospitales                                                                                                                                                                       |
+| `escalafon_id`                    | UUID                  | FK → escalafones                                                                                                                                                                      |
+| `codigo_repa`                     | VARCHAR(20)           | Código de repartición SIAL                                                                                                                                                            |
+| `literal_puesto`                  | VARCHAR(200)          | Descripción del puesto                                                                                                                                                                |
+| `estado`                          | `EstadoCargo`         | `vigente` \| `validacion_vacante` \| `no_vigente`                                                                                                                                     |
+| `sub_estado`                      | `SubEstadoCargo` null | `ocupado` \| `vacante` \| `concurso` cuando `estado=vigente`; `null` si no vigente. Persistido y recalculado en cada escritura (`recalcularSubEstado`). Índice `@@index([subEstado])` |
+| `estado_desde`                    | DATE                  | Fecha en que el cargo entró al estado actual                                                                                                                                          |
+| `tipo_origen`                     | VARCHAR(5) null       | Rol en la cadena (S18): `R` = remplazante de ejecución, `TTR` = remplazante de conducción, `null` = normal                                                                            |
+| `cargo_retenido_id`               | UUID null             | FK → cargos. Cargo que este remplaza (null si no es remplazante)                                                                                                                      |
+| `cargo_base_id`                   | UUID null             | FK → cargos. Cargo base de la cadena (desnormalizado). Null si este cargo ES el base                                                                                                  |
+| `periodo_desde` / `periodo_hasta` | DATE null             | Período de conducción (solo TTR y bases de conducción)                                                                                                                                |
+| `periodo_renovado`                | BOOLEAN               | El período fue renovado                                                                                                                                                               |
+| `fecha_renovacion`                | DATE null             | Fecha de la última renovación de período                                                                                                                                              |
+| `doc_renovacion`                  | TEXT null             | Acto administrativo de la última renovación (S19-4)                                                                                                                                   |
+| `created_by_id`                   | UUID null             | FK → usuarios. Usuario que creó el cargo (alta manual); null si vino del padrón                                                                                                       |
 
 **Clave de identidad estructural**: `(hospital_id, escalafon_id, codigo_repa, literal_puesto)`
 
