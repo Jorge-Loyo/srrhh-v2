@@ -23,7 +23,9 @@ export function TodoTab({
   const [qInput, setQInput] = useState('')
   const [q, setQ] = useState('')
   const [carrera, setCarrera] = useState('')
-  const [tipo, setTipo] = useState<'' | TipoIncidenciaSlug>('')
+  // La pestaña "Todo" muestra la unión sin sub-filtro por tipo (la navegación
+  // por tipo ya está en las pestañas principales de arriba).
+  const tipo: '' | TipoIncidenciaSlug = ''
   const [page, setPage] = useState(1)
   const { data: escalafones } = useEscalafones()
 
@@ -42,13 +44,6 @@ export function TodoTab({
     carrera: carrera || undefined,
     tipo: tipo || undefined,
   })
-
-  const porTipo = data?.porTipo
-  const opcionesTipo: ['' | TipoIncidenciaSlug, string][] = [
-    ['', `Todos (${(porTipo?.['sial-sin-cargo'] ?? 0) + (porTipo?.['baja-sin-concurso'] ?? 0)})`],
-    ['sial-sin-cargo', `SIAL sin cargo (${porTipo?.['sial-sin-cargo'] ?? 0})`],
-    ['baja-sin-concurso', `Baja sin concurso (${porTipo?.['baja-sin-concurso'] ?? 0})`],
-  ]
 
   return (
     <div className="space-y-4">
@@ -80,22 +75,6 @@ export function TodoTab({
             className="mt-1"
           />
         </div>
-      </div>
-      <div className="flex gap-1 border-b border-gray-200">
-        {opcionesTipo.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => {
-              setTipo(key)
-              setPage(1)
-            }}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-              tipo === key ? 'border-primary text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
       </div>
       {isLoading && <p className="text-sm text-gray-400">Cargando…</p>}
       {isError && (
