@@ -11,7 +11,7 @@ import { getApiErrorMessage } from '@/shared/lib/utils'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { usePuestosCargoNormalizados } from '@/shared/hooks/useCatalogos'
 import { useConcursoCeetps, usePatchConcursoCeetps, useDesignarConcursoCeetps } from '../hooks/useConcursosCeetps'
-import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { ESTADO_LABEL, ESTADO_BADGE, SUB_ESTADO_LABEL, SUB_ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
@@ -23,29 +23,63 @@ const texto = z.string()
 // `personaDesignadaId` se saca del form — ahora se registra vía
 // POST /:id/designar (S16-4), no via PATCH.
 const formSchema = z.object({
+  // ── Proceso previo ─────────────────────────────────────────────────────────
   expedienteConcurso: texto,
+  fechaCaratulacion: fecha,
+  fechaAutorizacion: fecha,
+  tipificadorOrigen: texto,
+  // ── Puesto solicitado ──────────────────────────────────────────────────────
   // S20-10: id del catálogo — reemplaza el input libre de puestoSolicitado.
   puestoCargoSolicitadoId: texto,
   dispoLlamado: texto,
+  // ── Carga horaria / apertura (Enfermería/Técnicos) ─────────────────────────
   cargaHoraria: z.string().regex(/^\d{0,2}$/, 'Máximo 2 dígitos'),
   apertura2x18: z.boolean(),
   informeApertura: texto,
   expedienteConcurso2: texto,
+  // ── Cambio de especialidad ─────────────────────────────────────────────────
+  cambioEspecialidad: z.boolean(),
+  docCambioEspecialidad: texto,
+  // ── IFACS / INSAL ──────────────────────────────────────────────────────────
   fechaIfacs: fecha,
   fechaInsal: fecha,
+  // ── Designación ───────────────────────────────────────────────────────────
   expedienteDesignacion: texto,
   dispoDesignacion: texto,
   resolucionDesignacion: texto,
+  puestoDesignado: texto,
+  estadoApto: texto,
+  numeroAptoMedico: texto,
+  fechaProyectoDispo: fecha,
+  altaSial: z.boolean(),
+  codigoSial: texto,
+  // ── Observaciones ─────────────────────────────────────────────────────────
   observaciones: texto,
 })
 
 type FormValues = z.infer<typeof formSchema>
 
-function toPatchBody(values: FormValues): PatchConcursoCeetpsRequest {
+function toPatchBody(values: FormValues, dirtyFields: Partial<Record<keyof FormValues, boolean>>): PatchConcursoCeetpsRequest {
   const body = {} as Record<string, unknown>
   for (const [key, value] of Object.entries(values)) {
-    if (key === 'apertura2x18') { body[key] = value; continue }
-    if (key === 'cargaHoraria') { body[key] = value === '' ? null : Number(value); continue }
+    // puestoCargoSolicitadoId: solo incluir en el body si el usuario lo
+    // cambió explícitamente (shouldDirty). Si no se tocó, omitir para no
+    // disparar la lógica S20-10 del backend en cada guardado.
+    if (key === 'puestoCargoSolicitadoId') {
+      if (dirtyFields.puestoCargoSolicitadoId) {
+        body[key] = value === '' ? null : value
+      }
+      continue
+    }
+    // Booleanos: siempre se mandan tal cual
+    if (key === 'apertura2x18' || key === 'cambioEspecialidad' || key === 'altaSial') {
+      body[key] = value
+      continue
+    }
+    if (key === 'cargaHoraria') {
+      body[key] = value === '' ? null : Number(value)
+      continue
+    }
     body[key] = value === '' ? null : value
   }
   return body as PatchConcursoCeetpsRequest
@@ -88,26 +122,44 @@ export function ConcursoCeetpsDetail() {
     resolver: zodResolver(formSchema),
   })
 
+  // Limpia el mensaje de éxito cuando el usuario retoca el form
+  useEffect(() => {
+    if (formState.isDirty) setSaveOk(false)
+  }, [formState.isDirty])
+
   // S20-10: catálogo de puestos del escalafón del concurso, para el combobox.
   const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(concurso?.escalafonId)
   const puestoCargoSolicitadoId = watch('puestoCargoSolicitadoId')
+  const aperturaChecked = watch('apertura2x18')
+  const cambioEspecialidadChecked = watch('cambioEspecialidad')
 
   useEffect(() => {
     if (!concurso) return
     reset({
-      expedienteConcurso: concurso.expedienteConcurso ?? '',
+      expedienteConcurso:     concurso.expedienteConcurso ?? '',
+      fechaCaratulacion:      concurso.fechaCaratulacion?.slice(0, 10) ?? '',
+      fechaAutorizacion:      concurso.fechaAutorizacion?.slice(0, 10) ?? '',
+      tipificadorOrigen:      concurso.tipificadorOrigen ?? '',
       puestoCargoSolicitadoId: concurso.puestoCargoSolicitadoId ?? '',
-      dispoLlamado: concurso.dispoLlamado ?? '',
-      cargaHoraria: concurso.cargaHoraria != null ? String(concurso.cargaHoraria) : '',
-      apertura2x18: concurso.apertura2x18 ?? false,
-      informeApertura: concurso.informeApertura ?? '',
-      expedienteConcurso2: concurso.expedienteConcurso2 ?? '',
-      fechaIfacs: concurso.fechaIfacs?.slice(0, 10) ?? '',
-      fechaInsal: concurso.fechaInsal?.slice(0, 10) ?? '',
-      expedienteDesignacion: concurso.expedienteDesignacion ?? '',
-      dispoDesignacion: concurso.dispoDesignacion ?? '',
-      resolucionDesignacion: concurso.resolucionDesignacion ?? '',
-      observaciones: concurso.observaciones ?? '',
+      dispoLlamado:           concurso.dispoLlamado ?? '',
+      cargaHoraria:           concurso.cargaHoraria != null ? String(concurso.cargaHoraria) : '',
+      apertura2x18:           concurso.apertura2x18 ?? false,
+      informeApertura:        concurso.informeApertura ?? '',
+      expedienteConcurso2:    concurso.expedienteConcurso2 ?? '',
+      cambioEspecialidad:     concurso.cambioEspecialidad ?? false,
+      docCambioEspecialidad:  concurso.docCambioEspecialidad ?? '',
+      fechaIfacs:             concurso.fechaIfacs?.slice(0, 10) ?? '',
+      fechaInsal:             concurso.fechaInsal?.slice(0, 10) ?? '',
+      expedienteDesignacion:  concurso.expedienteDesignacion ?? '',
+      dispoDesignacion:       concurso.dispoDesignacion ?? '',
+      resolucionDesignacion:  concurso.resolucionDesignacion ?? '',
+      puestoDesignado:        concurso.puestoDesignado ?? '',
+      estadoApto:             concurso.estadoApto ?? '',
+      numeroAptoMedico:       concurso.numeroAptoMedico ?? '',
+      fechaProyectoDispo:     concurso.fechaProyectoDispo?.slice(0, 10) ?? '',
+      altaSial:               concurso.altaSial ?? false,
+      codigoSial:             concurso.codigoSial ?? '',
+      observaciones:          concurso.observaciones ?? '',
     })
   }, [concurso, reset])
 
@@ -124,13 +176,12 @@ export function ConcursoCeetpsDetail() {
   const codigoRegistro = concurso.concurso?.cargo?.codigoRegistro?.codigo ?? ''
   const esEnfermeria = codigoRegistro === '87'
   const conCarga = codigoRegistro === '87' || codigoRegistro === '85'
-  const aperturaChecked = watch('apertura2x18')
 
   async function onSubmit(values: FormValues) {
     setFormError('')
     setSaveOk(false)
     try {
-      await patchMutation.mutateAsync(toPatchBody(values))
+      await patchMutation.mutateAsync(toPatchBody(values, formState.dirtyFields as Partial<Record<keyof FormValues, boolean>>))
       setSaveOk(true)
     } catch (err) {
       setFormError(getApiErrorMessage(err))
@@ -256,6 +307,11 @@ export function ConcursoCeetpsDetail() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className={ESTADO_BADGE[concurso.estado]}>{ESTADO_LABEL[concurso.estado]}</span>
+            {concurso.subEstado && (
+              <span className={SUB_ESTADO_BADGE[concurso.subEstado] ?? 'badge-default'}>
+                {SUB_ESTADO_LABEL[concurso.subEstado] ?? concurso.subEstado}
+              </span>
+            )}
             {motivoConcursoLabel(concurso.concurso?.motivoConcurso) && (
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
                 {motivoConcursoLabel(concurso.concurso?.motivoConcurso)}
@@ -324,6 +380,15 @@ export function ConcursoCeetpsDetail() {
             <Campo label="Expediente de concurso">
               <input {...register('expedienteConcurso')} className="input h-10 w-full" />
             </Campo>
+            <Campo label="Fecha de caratulación">
+              <input type="date" {...register('fechaCaratulacion')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Fecha de autorización">
+              <input type="date" {...register('fechaAutorizacion')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Tipificador de origen">
+              <input {...register('tipificadorOrigen')} className="input h-10 w-full" placeholder="Ej: Bajas 2025, Ampliación 2026…" />
+            </Campo>
             <Campo label="Puesto solicitado">
               <select
                 value={puestoCargoSolicitadoId}
@@ -336,11 +401,11 @@ export function ConcursoCeetpsDetail() {
                 ))}
               </select>
             </Campo>
-            <Campo label="Disposición de llamado" ancho="sm:col-span-2 md:col-span-1">
+            <Campo label="Disposición de llamado">
               <input {...register('dispoLlamado')} className="input h-10 w-full" />
             </Campo>
             {conCarga && (
-              <Campo label="Carga Horaria (hs)">
+              <Campo label="Carga horaria (hs)">
                 <input {...register('cargaHoraria')} inputMode="numeric" maxLength={2} className="input h-10 w-full" />
               </Campo>
             )}
@@ -357,12 +422,34 @@ export function ConcursoCeetpsDetail() {
                     <Campo label="N° Informe apertura">
                       <input {...register('informeApertura')} className="input h-10 w-full" />
                     </Campo>
-                    <Campo label="2do Expediente Concurso">
+                    <Campo label="2do Expediente de concurso">
                       <input {...register('expedienteConcurso2')} className="input h-10 w-full" />
                     </Campo>
                   </>
                 )}
               </>
+            )}
+          </Fase>
+
+          {/* Cambio de especialidad — solo visible si el puesto solicitado
+              difiere del de la baja. Se puede marcar manualmente. */}
+          <Fase titulo="Cambio de especialidad">
+            <Campo label="Solicitud de cambio de especialidad" ancho="sm:col-span-2 md:col-span-3">
+              <label className="flex items-center gap-2 h-10">
+                <input type="checkbox" {...register('cambioEspecialidad')} className="h-4 w-4 rounded border-gray-300" />
+                <span className="text-sm text-gray-600">
+                  El puesto/especialidad solicitado difiere del de la baja de origen
+                </span>
+              </label>
+            </Campo>
+            {cambioEspecialidadChecked && (
+              <Campo label="Documentación del cambio de especialidad" ancho="sm:col-span-2 md:col-span-3">
+                <input
+                  {...register('docCambioEspecialidad')}
+                  className="input h-10 w-full"
+                  placeholder="N° de expediente o informe que documenta el cambio"
+                />
+              </Campo>
             )}
           </Fase>
 
@@ -376,14 +463,35 @@ export function ConcursoCeetpsDetail() {
           </Fase>
 
           <Fase titulo="Designación">
-            <Campo label="Expediente de designación">
+            <Campo label="Expediente de designación (TAD)">
               <input {...register('expedienteDesignacion')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Puesto designado">
+              <input {...register('puestoDesignado')} className="input h-10 w-full" placeholder="Si difiere del solicitado…" />
             </Campo>
             <Campo label="Disposición de designación">
               <input {...register('dispoDesignacion')} className="input h-10 w-full" />
             </Campo>
             <Campo label="Resolución de designación">
               <input {...register('resolucionDesignacion')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Estado del apto médico">
+              <input {...register('estadoApto')} className="input h-10 w-full" placeholder="Ej: Apto, En trámite…" />
+            </Campo>
+            <Campo label="N° Apto médico">
+              <input {...register('numeroAptoMedico')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Fecha proyecto de disposición">
+              <input type="date" {...register('fechaProyectoDispo')} className="input h-10 w-full" />
+            </Campo>
+            <Campo label="Alta en SIAL">
+              <label className="flex items-center gap-2 h-10">
+                <input type="checkbox" {...register('altaSial')} className="h-4 w-4 rounded border-gray-300" />
+                <span className="text-sm text-gray-600">Cargo dado de alta en SIAL</span>
+              </label>
+            </Campo>
+            <Campo label="Código SIAL">
+              <input {...register('codigoSial')} className="input h-10 w-full font-mono" placeholder="Ej: 001712179-3" />
             </Campo>
           </Fase>
 
@@ -424,7 +532,7 @@ function Fase({ titulo, children }: { titulo: string; children: ReactNode }) {
   )
 }
 
-function Campo({ label, children, ancho }: { label: string; children: ReactNode; ancho?: string }) {
+function Campo({ label, children, ancho = 'col-span-1' }: { label: string; children: ReactNode; ancho?: string }) {
   return (
     <div className={ancho}>
       <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>

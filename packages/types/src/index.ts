@@ -470,22 +470,44 @@ export interface ConcursoCeetps {
   hospitalId: string
   escalafonId: string
   estado: EstadoConcursoCeetps
+  // Sub-estado granular dentro del estado principal (calculado server-side).
+  // Valores: 'EXP_CARATULADO' | 'DISPO_LLAMADO' | 'IFACS' | 'INSAL' |
+  //          'TAD' | 'DISPO_DESIGNACION' | null
+  subEstado: string | null
+  // ── Proceso previo al concurso ──────────────────────────────────────────
   expedienteConcurso: string | null
+  fechaCaratulacion: string | null
+  fechaAutorizacion: string | null
+  tipificadorOrigen: string | null
+  // ── Puesto solicitado ───────────────────────────────────────────────────
   puestoCargoSolicitadoId: string | null
   puestoSolicitado: string | null
   dispoLlamado: string | null
-  // Carga horaria (hs, Enfermería/Técnicos) y apertura 2x18hs (solo Enfermería)
-  // — usados por los documentos exportables (Validación/Autorización).
+  // ── Carga horaria / apertura (Enfermería/Técnicos) ──────────────────────
+  // Usados por los documentos exportables (Validación/Autorización).
   cargaHoraria: number | null
   apertura2x18: boolean
   informeApertura: string | null
   expedienteConcurso2: string | null
+  // ── Cambio de especialidad ──────────────────────────────────────────────
+  // No dispara flujo de autorización: solo documenta el cambio con el
+  // expediente/informe respaldatorio (igual que CPH).
+  cambioEspecialidad: boolean
+  docCambioEspecialidad: string | null
+  // ── IFACS / INSAL ───────────────────────────────────────────────────────
   cantidadCargos: number
   fechaIfacs: string | null
   fechaInsal: string | null
+  // ── Designación ─────────────────────────────────────────────────────────
   expedienteDesignacion: string | null
   dispoDesignacion: string | null
   resolucionDesignacion: string | null
+  puestoDesignado: string | null
+  estadoApto: string | null
+  numeroAptoMedico: string | null
+  fechaProyectoDispo: string | null
+  altaSial: boolean | null
+  codigoSial: string | null
   personaDesignadaId: string | null
   observaciones: string | null
   createdAt: string
@@ -1382,6 +1404,15 @@ export interface ConcursoCeetpsFilters {
   hospitalId?: string
   escalafonId?: string
   estado?: EstadoConcursoCeetps
+  subEstado?: string
+  fechaCaratulacionDesde?: string
+  fechaCaratulacionHasta?: string
+  fechaAutorizacionDesde?: string
+  fechaAutorizacionHasta?: string
+  fechaIfacsDesde?: string
+  fechaIfacsHasta?: string
+  fechaInsalDesde?: string
+  fechaInsalHasta?: string
   search?: string
 }
 
@@ -1453,23 +1484,42 @@ export interface CreateBajaRequest {
 // S5-1 — PATCH /api/v1/concursos-ceetps/:id. `estado` queda afuera — lo
 // calcula el backend (calcEstadoCeetps), no es editable por el cliente.
 export interface PatchConcursoCeetpsRequest {
+  // ── Proceso previo ────────────────────────────────────────────────────────
   expedienteConcurso?: string | null
+  fechaCaratulacion?: string | null
+  fechaAutorizacion?: string | null
+  tipificadorOrigen?: string | null
+  // ── Puesto solicitado ─────────────────────────────────────────────────────
   // S20-10: el combobox manda el id del catálogo — puestoSolicitado (texto)
   // se sigue aceptando por compatibilidad/auditoría pero deja de ser la
   // fuente de verdad.
   puestoCargoSolicitadoId?: string | null
   puestoSolicitado?: string | null
   dispoLlamado?: string | null
+  // ── Carga horaria / apertura ──────────────────────────────────────────────
   cargaHoraria?: number | null
   apertura2x18?: boolean
   informeApertura?: string | null
   expedienteConcurso2?: string | null
+  // ── Cambio de especialidad ────────────────────────────────────────────────
+  cambioEspecialidad?: boolean
+  docCambioEspecialidad?: string | null
+  // ── IFACS / INSAL ─────────────────────────────────────────────────────────
+  cantidadCargos?: number
   fechaIfacs?: string | null
   fechaInsal?: string | null
+  // ── Designación ───────────────────────────────────────────────────────────
   expedienteDesignacion?: string | null
   dispoDesignacion?: string | null
   resolucionDesignacion?: string | null
-  personaDesignadaId?: string | null
+  puestoDesignado?: string | null
+  estadoApto?: string | null
+  numeroAptoMedico?: string | null
+  fechaProyectoDispo?: string | null
+  altaSial?: boolean | null
+  codigoSial?: string | null
+  // personaDesignadaId NO va en PATCH — usar POST /:id/designar
+  // ── Observaciones ─────────────────────────────────────────────────────────
   observaciones?: string | null
 }
 

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { EstadoConcursoCeetps } from '@srrhh/types'
 import type { ConcursoCeetps } from '@srrhh/types'
 import { useConcursosCeetpsAlertas } from '../hooks/useConcursosCeetps'
-import { diasSinMovimiento } from '../lib/labels'
+import { diasSinMovimiento, ESTADO_LABEL, SUB_ESTADO_LABEL } from '../lib/labels'
 
 // S5-9: alertas de concursos CEETPS sin movimiento > 30/60/90 días — mismo
 // criterio acumulativo que AlertasSinMovimiento (CPH, S4-10). A diferencia de
@@ -78,7 +78,14 @@ export function AlertasSinMovimientoCeetps() {
                 <tr key={concurso.id}>
                   <td className="py-2 text-gray-600">{concurso.hospital?.sigla ?? '—'}</td>
                   <td className="py-2 text-gray-600">{concurso.escalafon?.nombre ?? '—'}</td>
-                  <td className="py-2 text-gray-600">{concurso.estado}</td>
+                  <td className="py-2 text-gray-600">
+                    {ESTADO_LABEL[concurso.estado]}
+                    {concurso.subEstado && (
+                      <span className="ml-1 text-xs text-gray-400">
+                        · {SUB_ESTADO_LABEL[concurso.subEstado] ?? concurso.subEstado}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2 text-gray-600">{dias} días</td>
                   <td className="py-2 text-right">
                     <Link to={`/concursos/ceetps/${concurso.id}`} className="btn-outline">

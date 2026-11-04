@@ -146,6 +146,7 @@ export async function createConcursoTx(
         hospitalId: body.hospitalId,
         escalafonId: body.escalafonId as string,
         puestoSolicitado: body.puestoSolicitado ?? null,
+        ...(body.puestoSolicitado ? { estado: 'autorizado' as const } : {}),
       },
     })
 

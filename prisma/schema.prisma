@@ -1150,11 +1150,38 @@ model ConcursoCeetps {
   apertura2x18            Boolean              @default(false) @map("apertura_2x18")
   informeApertura         String?              @map("informe_apertura") @db.VarChar(150)
   expedienteConcurso2     String?              @map("expediente_concurso_2") @db.VarChar(150)
+  // Fechas del proceso previo al concurso (recuperadas del legacy)
+  fechaCaratulacion       DateTime?            @map("fecha_caratulacion") @db.Date
+  fechaAutorizacion       DateTime?            @map("fecha_autorizacion") @db.Date
+  tipificadorOrigen       String?              @map("tipificador_origen") @db.VarChar(200)
   fechaIfacs              DateTime?            @map("fecha_ifacs") @db.Date
   fechaInsal              DateTime?            @map("fecha_insal") @db.Date
+  // Cambio de especialidad respecto a la baja de origen (recuperado del legacy).
+  // No dispara flujo de autorización separado — solo documenta el cambio con
+  // la referencia al expediente/informe que lo respalda.
+  cambioEspecialidad      Boolean              @default(false) @map("cambio_especialidad")
+  docCambioEspecialidad   String?              @map("doc_cambio_especialidad") @db.VarChar(500)
+  // Sub-estado granular dentro del estado principal (sin_autorizar/autorizado/
+  // en_proceso/finalizado). Permite distinguir en la vista de detalle y en el
+  // listado qué etapa puntual alcanzó el concurso sin expandir el enum principal.
+  // Valores posibles: EXP_CARATULADO | DISPO_LLAMADO | IFACS | INSAL | TAD |
+  // DISPO_DESIGNACION (mirror de los 8 estados string del legacy).
+  subEstado               String?              @map("sub_estado") @db.VarChar(30)
+  // Cantidad de cargos a cubrir en el concurso (default 1). Puede ser > 1
+  // en casos de apertura 2x18hs o concursos de cobertura múltiple.
+  cantidadCargos          Int                  @default(1) @map("cantidad_cargos")
   expedienteDesignacion   String?              @map("expediente_designacion") @db.VarChar(150)
   dispoDesignacion        String?              @map("dispo_designacion") @db.VarChar(500)
   resolucionDesignacion   String?              @map("resolucion_designacion") @db.VarChar(500)
+  // Campos de designación granulares recuperados del legacy
+  puestoDesignado         String?              @map("puesto_designado") @db.VarChar(150)
+  estadoApto              String?              @map("estado_apto") @db.VarChar(100)
+  numeroAptoMedico        String?              @map("numero_apto_medico") @db.VarChar(100)
+  fechaProyectoDispo      DateTime?            @map("fecha_proyecto_dispo") @db.Date
+  altaSial                Boolean?             @map("alta_sial")
+  // Código del cargo en SIAL asignado tras la designación (equivalente a
+  // cargoSial en ConcursoCph).
+  codigoSial              String?              @map("codigo_sial") @db.VarChar(100)
   personaDesignadaId      String?              @map("persona_designada_id") @db.Uuid
   observaciones           String?              @db.Text
   createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz
@@ -1171,6 +1198,7 @@ model ConcursoCeetps {
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
+  @@index([subEstado])
   @@map("concursos_ceetps")
 }
 
