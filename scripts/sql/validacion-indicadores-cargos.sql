@@ -16,6 +16,13 @@
 -- Con corte = hoy, el resultado debe coincidir con la columna "Mes actual" de la pantalla.
 -- Abajo, V2..V9 miden la calidad del método (ver design.md §12).
 
+-- corte: si no se pasa -v corte=YYYY-MM-DD, por defecto = hoy (mes actual).
+\if :{?corte}
+\else
+  SELECT current_date::text AS corte \gset
+\endif
+\echo 'Usando corte =' :'corte'
+
 \set tz 'America/Argentina/Buenos_Aires'
 \set sub_estados '''a-autzn'',''b-sorteo jur'',''c-dispo de llamado'',''c2-inscripcion ex'',''d-examen publicado'',''e-orden de merito'',''f-ifacs'',''g-insal'',''i-carga docu'',''j-apto med'',''k-ite'',''l-pycto de reso'''
 -- (esa línea la valida cargos-indicadores.sql-script.test.ts contra SUB_ESTADOS_CONCURSO_CPH: 12 valores.
