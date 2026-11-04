@@ -5,7 +5,12 @@ import {
   buscarConcursosQuerySchema,
   vincularConcursoSchema,
   crearConcursoParaIdSialSchema,
+  bajaSinConcursoQuerySchema,
+  todoQuerySchema,
+  resumenQuerySchema,
 } from './incidencias.schema.js'
+import { listarBajaSinConcurso } from './incidencias.baja-sin-concurso.js'
+import { listarTodo, resumenIncidencias } from './incidencias.tipos.js'
 import {
   getPendientesService,
   buscarConcursosParaIdSialService,
@@ -95,6 +100,51 @@ export async function incidenciasRoutes(app: FastifyInstance) {
     { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'gestionar' }) },
     async (request, reply) => {
       const result = await sinCodigoParaIdSialService(request.params.diffId)
+      return reply.send({ data: result })
+    },
+  )
+  // ─── Pestañas de monitoreo (solo lectura; el gating por tab:* es de UI) ───
+  // GET /baja-sin-concurso — cargos sin ocupante, sin concurso activo, detectados
+  // en la baja SIAL semanal o ausentes del padrón.
+  app.get(
+    '/baja-sin-concurso',
+    { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'ver' }) },
+    async (request, reply) => {
+      const { refrescar, ...filtros } = bajaSinConcursoQuerySchema.parse(request.query)
+      const result = await listarBajaSinConcurso(
+        { ...filtros, page: filtros.page ?? 1, pageSize: filtros.pageSize ?? 50 },
+        { refrescar },
+      )
+      return reply.send({ data: result })
+    },
+  )
+  // GET /todo — unión de los tipos de incidencia.
+  app.get(
+    '/todo',
+    { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'ver' }) },
+    async (request, reply) => {
+      const { refrescar, ...filtros } = todoQuerySchema.parse(request.query)
+      const result = await listarTodo(
+        { ...filtros, page: filtros.page ?? 1, pageSize: filtros.pageSize ?? 50 },
+        undefined,
+        { refrescar },
+      )
+      return reply.send({ data: result })
+    },
+  )
+  // GET /resumen — contadores por pestaña + conciliación de la dotación.
+  app.get(
+    '/resumen',
+    { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'ver' }) },
+    async (request, reply) => {
+      const { refrescar } = resumenQuerySchema.parse(request.query)
+      const result = await resumenIncidencias({ refrescar })
+      if (result.conciliacion.sumaGrupos !== result.conciliacion.totalCargos) {
+        request.log.error(
+          { sumaGrupos: result.conciliacion.sumaGrupos, totalCargos: result.conciliacion.totalCargos },
+          'Incidencias: la suma de grupos no coincide con el total de cargos',
+        )
+      }
       return reply.send({ data: result })
     },
   )

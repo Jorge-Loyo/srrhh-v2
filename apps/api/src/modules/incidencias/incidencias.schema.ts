@@ -40,3 +40,39 @@ export const crearConcursoParaIdSialSchema = z
     path: ['escalafonId'],
   })
 export type CrearConcursoParaIdSialBody = z.infer<typeof crearConcursoParaIdSialSchema>
+
+// ─── Pestañas "Baja sin concurso" / "Todo" / resumen (solo lectura) ──────────
+// `q` vacío se trata como ausente; mínimo 2 caracteres si viene.
+const qSchema = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.string().trim().min(2).max(100).optional(),
+)
+const refrescarSchema = z
+  .enum(['true', 'false'])
+  .optional()
+  .transform((v) => v === 'true')
+const paginacion = {
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+}
+
+export const bajaSinConcursoQuerySchema = z.object({
+  ...paginacion,
+  q: qSchema,
+  carrera: z.string().trim().max(100).optional(),
+  origen: z.enum(['baja_sial', 'padron']).optional(),
+  estadoCargo: z.enum(['vigente', 'validacion_vacante']).optional(),
+  refrescar: refrescarSchema,
+})
+export type BajaSinConcursoQuery = z.infer<typeof bajaSinConcursoQuerySchema>
+
+export const todoQuerySchema = z.object({
+  ...paginacion,
+  q: qSchema,
+  carrera: z.string().trim().max(100).optional(),
+  tipo: z.enum(['sial-sin-cargo', 'baja-sin-concurso']).optional(),
+  refrescar: refrescarSchema,
+})
+export type TodoQuery = z.infer<typeof todoQuerySchema>
+
+export const resumenQuerySchema = z.object({ refrescar: refrescarSchema })
