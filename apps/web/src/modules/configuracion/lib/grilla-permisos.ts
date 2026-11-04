@@ -112,7 +112,21 @@ const ACCION_LABEL: Record<string, string> = {
   'ver_auditoria':         'Ver Auditoría',
 }
 
+// Labels fijos de los tab:* de Concursos CPH (el title-case del slug perdería
+// acentos y preposiciones).
+const TAB_LABEL: Record<string, string> = {
+  'tab:concursos': 'Pestaña: Concursos',
+  'tab:jurados': 'Pestaña: Jurados',
+  'tab:ordenes-merito': 'Pestaña: Órdenes de mérito',
+  'tab:jornadas-sorteo': 'Pestaña: Jornada de sorteos',
+  'tab:baja-apertura': 'Etapa 1: Baja / Apertura',
+  'tab:autorizacion-jurado': 'Etapa 2: Autorización / Jurado',
+  'tab:inscripcion-examen-om': 'Etapa 3: Inscripción / Examen / OM',
+  'tab:ifacs-insal': 'Etapa 4: IFACS / INSAL',
+  'tab:designacion': 'Etapa 5: Designación',
+}
 export function accionLabel(accion: string) {
+  if (TAB_LABEL[accion]) return TAB_LABEL[accion]
   // Permisos de pestaña `tab:<slug>` -> "Pestaña: <Title Case del slug>".
   // El label corto deriva del slug (puede perder preposiciones/acentos); la
   // descripción legible completa viene del campo `descripcion` del permiso.

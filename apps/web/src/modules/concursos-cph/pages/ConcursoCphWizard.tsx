@@ -64,6 +64,12 @@ import {
   SUB_ESTADOS,
 } from '../lib/wizard.constants'
 import { PanelSubEstados } from '../components/PanelSubEstados'
+import {
+  etapasVisiblesPara,
+  puedeVerEtapa,
+  siguienteVisible,
+  anteriorVisible,
+} from '../lib/etapasVisibles'
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
@@ -1136,9 +1142,23 @@ export function ConcursoCphWizard() {
     },
   })
 
-  const [etapaActiva, setEtapaActiva] = useState(
+  const [etapaActivaRaw, setEtapaActivaRaw] = useState(
     etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja',
   )
+  // Etapas que el rol puede ver (permiso concursos-cph/tab:<slug>). Solo UI:
+  // etapasActuales NO se filtra porque los cálculos usan índice por número.
+  const etapasVisibles = etapasVisiblesPara(etapasIniciales, user, !id)
+  // Etapa activa derivada: si la pedida/por defecto no es visible, cae en la
+  // primera visible (undefined si no hay ninguna).
+  const etapaActiva = etapasVisibles.some((e) => e.id === etapaActivaRaw)
+    ? etapaActivaRaw
+    : etapasVisibles[0]?.id
+  function setEtapaActiva(etapaId: string) {
+    if (!etapasVisibles.some((e) => e.id === etapaId) && etapasVisibles.length > 0) {
+      toast.info('El concurso volvió a la primera etapa disponible')
+    }
+    setEtapaActivaRaw(etapaId)
+  }
 
   // Al cambiar de etapa, subir el scroll al tope (la etapa nueva empieza arriba,
   // no a mitad de página donde quedó el scroll de la etapa anterior).
@@ -1168,7 +1188,7 @@ export function ConcursoCphWizard() {
   // hay concurso), por eso se usa directamente el useMemo.
   const etapasActuales = etapasIniciales
 
-  const etapa = etapasActuales.find((e) => e.id === etapaActiva)!
+  const etapa = etapasActuales.find((e) => e.id === etapaActiva) ?? etapasActuales[0]
 
   // Validación de campos requeridos en etapa baja antes de habilitar "Guardar y continuar"
   const etapaBajaCompleta =
@@ -1198,6 +1218,14 @@ export function ConcursoCphWizard() {
 
   if (isLoading) return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
   if (!concurso) return <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
+  if (!user) return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
+  if (etapasVisibles.length === 0) {
+    return (
+      <div className="p-8 text-sm text-gray-500">
+        No tenés acceso a ninguna etapa de este concurso.
+      </div>
+    )
+  }
   const c = concurso!
 
   function handleGuardar() {
@@ -1347,8 +1375,8 @@ export function ConcursoCphWizard() {
       setFaltantesEtapa4([])
     }
 
-    const siguiente = etapasActuales[etapa.numero]
-    if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
+    const siguiente = siguienteVisible(etapasVisibles, etapa.numero)
+    if (siguiente) setEtapaActiva(siguiente.id)
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
   }
@@ -3274,7 +3302,7 @@ export function ConcursoCphWizard() {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 px-2">
               Etapas
             </p>
-            {etapasActuales.map((e) => {
+            {etapasVisibles.map((e) => {
               const cfg = ESTADO_ETAPA_CONFIG[e.estado]
               const isActive = e.id === etapaActiva
               return (
@@ -3377,10 +3405,12 @@ export function ConcursoCphWizard() {
                 <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
                   {ESTADO_ETAPA_CONFIG[etapa.estado].label}
                 </span>
-                {pendienteAutorizacion && etapaActiva === 'baja' && (
-                  <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
-                )}
-                {puedeResolverAutorizacion && etapaActiva === 'baja' && (
+                {pendienteAutorizacion &&
+                  (etapaActiva === 'baja' || !puedeVerEtapa(user, 'baja')) && (
+                    <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
+                  )}
+                {puedeResolverAutorizacion &&
+                  (etapaActiva === 'baja' || !puedeVerEtapa(user, 'baja')) && (
                   <button
                     className="btn-primary text-xs py-1 px-3"
                     onClick={() => setModalAutorizacion(true)}
@@ -5950,11 +5980,11 @@ export function ConcursoCphWizard() {
 
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
               <div className="flex gap-2">
-                {etapa.numero > 1 && (
+                {anteriorVisible(etapasVisibles, etapa.numero) && (
                   <button
                     className="btn-outline"
                     onClick={() => {
-                      const prev = etapasActuales[etapa.numero - 2]
+                      const prev = anteriorVisible(etapasVisibles, etapa.numero)
                       if (prev) setEtapaActiva(prev.id)
                     }}
                   >
@@ -6019,7 +6049,7 @@ export function ConcursoCphWizard() {
                         }
                         onClick={handleGuardar}
                       >
-                        {etapa.numero < etapasActuales.length
+                        {siguienteVisible(etapasVisibles, etapa.numero)
                           ? 'Guardar y continuar →'
                           : 'Guardar cambios'}
                       </button>

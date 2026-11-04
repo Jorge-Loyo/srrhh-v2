@@ -20,6 +20,8 @@ import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { JuradosTab } from '../components/JuradosTab'
 import { OrdenesMeritoTab } from '../components/OrdenesMeritoTab'
 import { JornadasSorteoTab } from '../components/JornadasSorteoTab'
+import { useAuth } from '@/modules/auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { apiClient } from '@/shared/lib/api-client'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -154,15 +156,28 @@ type TabId = 'concursos' | 'jurados' | 'ordenes' | 'jornadas'
 
 // Contenedor con pestañas: Concursos (listado) | Jurados | Órdenes de mérito.
 export function ConcursosCphPage() {
-  const [tab, setTab] = useState<TabId>('concursos')
-
-  const tabs: { id: TabId; label: string }[] = [
+  const { user } = useAuth()
+  const [tabRaw, setTab] = useState<TabId>('concursos')
+  // Permiso concursos-cph/tab:<slug> por pestaña (solo visibilidad de UI).
+  const TAB_SLUG: Record<TabId, string> = {
+    concursos: 'concursos',
+    jurados: 'jurados',
+    ordenes: 'ordenes-merito',
+    jornadas: 'jornadas-sorteo',
+  }
+  const todasLasTabs: { id: TabId; label: string }[] = [
     { id: 'concursos', label: 'Concursos' },
     { id: 'jurados', label: 'Jurados' },
     { id: 'ordenes', label: 'Órdenes de mérito' },
     { id: 'jornadas', label: 'Jornada de sorteos' },
   ]
-
+  const tabs = todasLasTabs.filter((t) => can(user, 'concursos-cph', `tab:${TAB_SLUG[t.id]}`))
+  // Si la pestaña actual no es visible, cae en la primera visible.
+  const tab = tabs.some((t) => t.id === tabRaw) ? tabRaw : tabs[0]?.id
+  if (!user) return <div className="p-8 text-sm text-gray-400">Cargando...</div>
+  if (tabs.length === 0) {
+    return <div className="p-8 text-sm text-gray-500">Sin acceso a ninguna pestaña.</div>
+  }
   return (
     <div className="space-y-6">
       <div className="flex gap-1 border-b border-gray-200">
