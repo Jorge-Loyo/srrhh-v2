@@ -23,6 +23,12 @@ import {
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
 import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
+import {
+  normalizarCrCphDeCargo,
+  normalizarCrCphId,
+  type CargoCrCphDb,
+  type CrCphDb,
+} from '../../shared/crCph.js'
 
 const include = {
   concurso: {
@@ -775,7 +781,10 @@ export async function aprobarAutorizacionCphService(
             if (hospital) cargoUpdate.hospitalId = hospital.id
           }
           if (existing.codigoRegistroSolicitadoId) {
-            cargoUpdate.codigoRegistroId = existing.codigoRegistroSolicitadoId
+            cargoUpdate.codigoRegistroId = await normalizarCrCphId(
+              tx as unknown as CrCphDb,
+              existing.codigoRegistroSolicitadoId,
+            )
           }
           if (Object.keys(cargoUpdate).length > 0) {
             await tx.cargo.update({ where: { id: cargo.id }, data: cargoUpdate })
@@ -1210,6 +1219,8 @@ export async function importarConcursosCsvService(buffer: Buffer) {
       const estadoFinal = estadoCsv === 'FINALIZADO' ? ('finalizado' as const) : calc.estado
 
       await prisma.$transaction(async (tx) => {
+        // El concurso CPH no queda sobre un cargo con CR 22 (duplicado del 37).
+        await normalizarCrCphDeCargo(tx as unknown as CargoCrCphDb, cargo.id)
         const concurso = await tx.concurso.create({
           data: {
             cargoId: cargo.id,

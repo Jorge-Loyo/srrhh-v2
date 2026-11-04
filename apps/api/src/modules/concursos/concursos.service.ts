@@ -6,6 +6,7 @@ import type { CreateConcursoBody } from './concursos.schema.js'
 import { calcConcursoCph, type ConcursoCphCalcInput } from '../concursos-cph/concursosCph.calc.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { prefijoRemplazante, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { normalizarCrCphDeCargo, type CargoCrCphDb } from '../../shared/crCph.js'
 
 // Label legible de cada motivo para la notificación concurso_iniciado a sgrasv.
 const MOTIVO_CONCURSO_LABEL: Record<MotivoConcurso, string> = {
@@ -78,6 +79,10 @@ export async function createConcursoTx(
     }
   }
 
+  // Un concurso CPH nunca queda sobre un cargo con CR 22 (duplicado del 37).
+  if (body.tipoConcurso === TipoConcurso.CPH) {
+    await normalizarCrCphDeCargo(tx as unknown as CargoCrCphDb, body.cargoId)
+  }
   const concurso = await tx.concurso.create({
     data: {
       cargoId: body.cargoId,

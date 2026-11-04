@@ -75,14 +75,16 @@ function ModalBuscarCargo({
     const h = (hospitales ?? []).find((x) => hospitalLabel(x) === label)
     return h?.id ?? ''
   }
-  // Carrera (rama default): catálogo completo de códigos de registro.
-  const carreraOptions = (codigosRegistro ?? []).map((cr) => `${cr.codigo} — ${cr.literal}`)
+  // Carrera (rama default): catálogo de códigos de registro SIN el 22 duplicado
+  // de CPH (mismo literal que el 37; los concursos CPH usan siempre el 37).
+  const codigosRegCarrera = (codigosRegistro ?? []).filter((cr) => cr.codigo !== '22')
+  const carreraOptions = codigosRegCarrera.map((cr) => `${cr.codigo} — ${cr.literal}`)
   const carreraIdToLabel = (id: string) => {
-    const cr = (codigosRegistro ?? []).find((x) => x.id === id)
+    const cr = codigosRegCarrera.find((x) => x.id === id)
     return cr ? `${cr.codigo} — ${cr.literal}` : ''
   }
   const labelToCarreraId = (label: string) => {
-    const cr = (codigosRegistro ?? []).find((x) => `${x.codigo} — ${x.literal}` === label)
+    const cr = codigosRegCarrera.find((x) => `${x.codigo} — ${x.literal}` === label)
     return cr?.id ?? ''
   }
   // Carrera (Cobertura): solo los códigos válidos 37/23; el value es el CÓDIGO.

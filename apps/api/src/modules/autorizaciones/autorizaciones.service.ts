@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -385,6 +386,8 @@ async function _aprobarAltaCargo(
       tieneEspecialidad: Boolean(solicitud.especialidadPuestoId),
     })
 
+    // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
+    const crIdCargo = await normalizarCrCphId(tx as unknown as CrCphDb, solicitud.codigoRegistroId)
     const cargosCreadosIds: string[] = []
     for (let i = 0; i < solicitud.cantidad; i++) {
       const codigo = await siguienteCodigoCargo(prefijo, tx as typeof prisma)
@@ -394,7 +397,7 @@ async function _aprobarAltaCargo(
           codigo,
           hospitalId:       solicitud.hospitalId,
           escalafonId:      solicitud.escalafonId,
-          codigoRegistroId: solicitud.codigoRegistroId ?? null,
+          codigoRegistroId: crIdCargo ?? null,
           puestoCargoId:      solicitud.puestoCargoId,
           especialidadPuestoId: solicitud.especialidadPuestoId,
           literalPuesto:    solicitud.literalPuesto,

@@ -15,6 +15,7 @@ import {
   PREFIJOS_CONDUCCION,
 } from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
+import { normalizarCrCphId } from '../../shared/crCph.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
 // sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
@@ -588,6 +589,8 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     const cr = await prisma.codigoRegistro.findUnique({ where: { id: body.codigoRegistroId } })
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
   }
+  // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
+  const codigoRegistroId = await normalizarCrCphId(prisma, body.codigoRegistroId)
 
   const puestoCargo = await prisma.puestoCargo.findUnique({ where: { id: body.puestoCargoId } })
   if (!puestoCargo || puestoCargo.escalafonId !== body.escalafonId) {
@@ -643,7 +646,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
           codigo,
           hospitalId: body.hospitalId,
           escalafonId: body.escalafonId,
-          codigoRegistroId: body.codigoRegistroId ?? null,
+          codigoRegistroId: codigoRegistroId ?? null,
           puestoCargoId: body.puestoCargoId,
           especialidadPuestoId: body.especialidadPuestoId ?? null,
           // Snapshot de auditoría — nombre canónico del catálogo al momento del alta.
