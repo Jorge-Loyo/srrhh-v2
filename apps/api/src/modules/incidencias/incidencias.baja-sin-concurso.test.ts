@@ -207,14 +207,12 @@ describe('listarTodo con tipos inyectados', () => {
     {
       slug: 'sial-sin-cargo',
       label: 'x',
-      permisoTab: 'tab:sial-sin-cargo',
       contar: async () => 2,
       listar: async () => [item('sial-sin-cargo', '1', '2026-11-05'), item('sial-sin-cargo', '2', null)],
     },
     {
       slug: 'baja-sin-concurso',
       label: 'y',
-      permisoTab: 'tab:baja-sin-concurso',
       contar: async () => 1,
       listar: async () => [item('baja-sin-concurso', '9', '2026-11-01')],
     },

@@ -1,9 +1,6 @@
-import type { Usuario } from '@srrhh/types'
-import { can } from '@/shared/lib/can'
 
-// Registro del lado web de las pestañas de Incidencias. El permiso de cada una
-// es `incidencias/tab:<slug>` (ver migración 20261107000000_permisos_incidencias_tabs).
-// Agregar un tipo de incidencia nuevo = una entrada acá + su permiso + su TAB_LABEL.
+// Registro del lado web de las pestañas de Incidencias. Son vistas, no funcionalidades:
+// no tienen permisos propios (el acceso lo da `incidencias/ver`).
 export type TabIncidenciasId = 'todo' | 'sial-sin-cargo' | 'baja-sin-concurso'
 
 export interface TabIncidencias {
@@ -18,16 +15,9 @@ export const TABS_INCIDENCIAS: TabIncidencias[] = [
   { id: 'baja-sin-concurso', slug: 'baja-sin-concurso', label: 'Baja sin concurso' },
 ]
 
-export function pestanasVisibles(user: Usuario | null | undefined): TabIncidencias[] {
-  return TABS_INCIDENCIAS.filter((t) => can(user, 'incidencias', 'tab:' + t.slug))
-}
-
-// Pestaña activa derivada: la elegida si sigue visible; si no, la primera visible.
-export function pestanaActiva(
-  visibles: TabIncidencias[],
-  elegida: TabIncidenciasId | null,
-): TabIncidenciasId | undefined {
-  return visibles.some((t) => t.id === elegida) ? (elegida as TabIncidenciasId) : visibles[0]?.id
+// Pestaña activa: la elegida o, por defecto, la primera (Todo).
+export function pestanaActiva(elegida: TabIncidenciasId | null): TabIncidenciasId {
+  return TABS_INCIDENCIAS.some((t) => t.id === elegida) ? (elegida as TabIncidenciasId) : TABS_INCIDENCIAS[0].id
 }
 
 // 'YYYY-MM-DD' -> 'dd/mm/aaaa'

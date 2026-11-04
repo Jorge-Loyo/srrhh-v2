@@ -3,7 +3,7 @@ import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { useIncidenciasResumen, useActualizarIncidencias } from '../hooks/useIncidencias'
 import {
-  pestanasVisibles,
+  TABS_INCIDENCIAS,
   pestanaActiva,
   type TabIncidenciasId,
 } from '../lib/tabsIncidencias'
@@ -13,7 +13,7 @@ import { TodoTab } from '../components/TodoTab'
 import { PanelConciliacion } from '../components/PanelConciliacion'
 
 // Incidencias como conciliación de la dotación: pestañas Todo / SIAL sin cargo /
-// Baja sin concurso, cada una gateada por `incidencias/tab:<slug>`. Solo se monta
+// Baja sin concurso, visibles para quien tenga `incidencias/ver`. Solo se monta
 // la pestaña activa (cada una tiene sus propias queries).
 export function IncidenciasPage() {
   const { user } = useAuth()
@@ -29,11 +29,10 @@ export function IncidenciasPage() {
     return () => clearInterval(t)
   }, [])
 
-  const visibles = pestanasVisibles(user)
-  const activa = pestanaActiva(visibles, estado.tab)
-  const { data: resumen, isError: resumenError } = useIncidenciasResumen(visibles.length > 0)
+  const activa = pestanaActiva(estado.tab)
+  const { data: resumen, isError: resumenError } = useIncidenciasResumen(!!user)
 
-  const puedeGestionar = can(user, 'incidencias', 'gestionar') && can(user, 'incidencias', 'tab:sial-sin-cargo')
+  const puedeGestionar = can(user, 'incidencias', 'gestionar')
   const advertencia = resumen?.contexto.ultimoPadron?.advertenciaTamano ?? null
   const segundos = resumen ? Math.max(0, Math.round((ahora - new Date(resumen.generadoAt).getTime()) / 1000)) : null
 
@@ -51,7 +50,7 @@ export function IncidenciasPage() {
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex items-center justify-between gap-4">
           <h1 className="font-primary text-xl font-bold text-gray-900">Incidencias</h1>
-          {visibles.length > 0 && (
+          {!!user && (
             <div className="flex items-center gap-3 text-xs text-gray-500">
               {segundos != null && <span>Datos de hace {segundos} s</span>}
               <button className="btn-outline text-xs px-2 py-1" onClick={onActualizar} disabled={actualizando}>
@@ -60,13 +59,10 @@ export function IncidenciasPage() {
             </div>
           )}
         </div>
-        {user && visibles.length === 0 && (
-          <p className="mt-3 text-sm text-gray-500">No tenés acceso a ninguna pestaña de Incidencias.</p>
-        )}
         {!user && <p className="mt-3 text-sm text-gray-400">Cargando…</p>}
-        {visibles.length > 0 && (
+        {!!user && (
           <div role="tablist" aria-label="Incidencias" className="mt-4 border-b border-gray-200 flex gap-1">
-            {visibles.map((t) => {
+            {TABS_INCIDENCIAS.map((t) => {
               const n = resumen?.tabs[t.id]
               const seleccionada = activa === t.id
               return (
@@ -99,7 +95,7 @@ export function IncidenciasPage() {
         </div>
       )}
 
-      {resumen && visibles.length > 0 && (
+      {resumen && (
         <PanelConciliacion
           key={activa}
           conciliacion={resumen.conciliacion}

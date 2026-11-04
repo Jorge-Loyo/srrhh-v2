@@ -46,7 +46,6 @@ export interface IncidenciaItem {
 export interface TipoIncidencia {
   slug: TipoSlug
   label: string
-  permisoTab: `tab:${string}`
   contar(opts?: OpcionesLectura): Promise<number>
   listar(f: FiltrosComunes, opts?: OpcionesLectura): Promise<IncidenciaItem[]>
 }
@@ -69,7 +68,6 @@ function cuilDeDatos(datos: Record<string, string>): string | null {
 const sialSinCargo: TipoIncidencia = {
   slug: 'sial-sin-cargo',
   label: 'SIAL sin cargo',
-  permisoTab: 'tab:sial-sin-cargo',
   contar: () => prisma.padronDiff.count({ where: WHERE_SIAL_SIN_CARGO }),
   async listar(f) {
     // Lectura liviana: sin diagnóstico de concurso (Todo no lo muestra).
@@ -128,7 +126,6 @@ const sialSinCargo: TipoIncidencia = {
 const bajaSinConcurso: TipoIncidencia = {
   slug: 'baja-sin-concurso',
   label: 'Baja sin concurso',
-  permisoTab: 'tab:baja-sin-concurso',
   async contar(opts) {
     const snap = await obtenerSnapshotIncidencias(opts)
     return itemsBajaSinConcurso(snap).length
