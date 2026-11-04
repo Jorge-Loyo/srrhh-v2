@@ -9,7 +9,7 @@
 --   override opcional de la carga inicial (design §5.4): -v carga_inicial_override=YYYY-MM-DD
 --
 -- Qué comprobar: V1 -> total_independiente = total_vista = suma_hojas (diferencia 0; incluye los 'excluido');
--- V1c -> vigente = ocupado + vacante + concurso y TOTAL A GESTIONAR = vigente + validacion + indeterminado.
+-- V1c -> vigente = ocupado + vacante + concurso y TOTAL A GESTIONAR = vigente + validacion.
 -- Los no vigentes ('excluido') NO suman al total a gestionar: V1c los muestra aparte, solo para cerrar con V1.
 -- V10 -> cuántos cargos 'pasaron a no vigente' en el mes del corte (y en el mes anterior), con la fuente de design.md §18. Implementa la cascada R1..R9 como CASE de SQL: una segunda
 -- implementación, escrita aparte del TypeScript, para comparar con la pantalla.
@@ -94,7 +94,10 @@ occ AS (
   FROM occ_rows GROUP BY cargo_id
 ),
 conc_rows AS (
-  -- MISMO texto que sqlConcursos(corte) del servicio (§6.1), válido para el mes actual (corte = hoy) y el anterior
+  -- MISMO texto que sqlConcursos(corte, modoVivo) del servicio (§6.1). Pensado para corte = hoy
+  -- (columna "Mes actual", modo vivo): un CEETPS autorizado/en_proceso (en_curso) cuenta como
+  -- concurso aunque no tenga fecha de autorización; el estado manda. Para un corte pasado la fecha
+  -- sería la que mande (el servicio reconstruye con modoVivo = false).
   SELECT cc.cargo_id, cc.fecha_autorizacion AS ini,
          least(
            cc.fecha_dispo_desierta,
@@ -104,7 +107,7 @@ conc_rows AS (
            (SELECT min((x.created_at AT TIME ZONE :'tz')::date) FROM concursos_cph x
              WHERE x.cargo_id = cc.cargo_id AND (x.created_at, x.id) > (cc.created_at, cc.id))
          ) AS fin,
-         false AS cierre_sin_fecha
+         false AS cierre_sin_fecha, false AS en_curso
   FROM concursos_cph cc JOIN base b ON b.id = cc.cargo_id
   WHERE cc.fecha_autorizacion IS NOT NULL OR cc.fecha_dispo_desierta IS NOT NULL
      OR lower(cc.sub_estado) IN (:sub_estados, 'n-designado', 'o-alta sial', 'h-tad', 'm-reso a la firma')
@@ -113,36 +116,43 @@ conc_rows AS (
          (SELECT min(coalesce(o2.desde, (o2.created_at AT TIME ZONE :'tz')::date)) FROM ocupaciones o2
            WHERE o2.cargo_id = ce.cargo_id
              AND coalesce(o2.desde, (o2.created_at AT TIME ZONE :'tz')::date) >= ce.fecha_autorizacion),
-         (ce.estado::text IN ('finalizado','desierto'))
+         (ce.estado::text IN ('finalizado','desierto')),
+         (ce.estado::text IN ('autorizado','en_proceso'))
   FROM concursos_ceetps ce JOIN base b ON b.id = ce.cargo_id
   WHERE ce.estado::text IN ('autorizado','en_proceso','finalizado','desierto')
 ),
 conc AS (
   SELECT cargo_id,
-    bool_or(coalesce(ini <= :'corte'::date, false) AND NOT (cierre_sin_fecha AND fin IS NULL)
-            AND (fin IS NULL OR fin > :'corte'::date)) AS si,
+    bool_or((coalesce(ini <= :'corte'::date, false) AND NOT (cierre_sin_fecha AND fin IS NULL)
+             AND (fin IS NULL OR fin > :'corte'::date))
+            OR (en_curso AND NOT coalesce(fin <= :'corte'::date, false))) AS si,
     bool_or(NOT coalesce(fin <= :'corte'::date, false)
-            AND (ini IS NULL OR (cierre_sin_fecha AND fin IS NULL AND ini <= :'corte'::date))) AS desconocido
+            AND (ini IS NULL OR (cierre_sin_fecha AND fin IS NULL AND ini <= :'corte'::date))
+            AND NOT en_curso) AS desconocido
   FROM conc_rows GROUP BY cargo_id
 )
 SELECT b.id, b.codigo_registro_id, b.estado, b.ed_rel, b.paso_aprox, occ.sits, coalesce(occ.sit_aprox, false) AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso
 FROM base b LEFT JOIN occ ON occ.cargo_id = b.id LEFT JOIN conc ON conc.cargo_id = b.id;
 
+-- NO EXISTE hoja 'indeterminado': todo cargo cae en algo concreto (cascada R1..R9 de
+-- clasificarCargo). Pensado para corte = hoy (modo vivo): R5 (concurso 'desconocido')
+-- cae en 'concurso' porque el estado del concurso manda; en modo corte el servicio lo
+-- mandaría a 'validacion' (conservador).
 CREATE TEMP VIEW v_ind_hoja AS
 SELECT f.*,
   CASE
-    WHEN f.estado NOT IN ('vigente','validacion_vacante','no_vigente') THEN 'indeterminado'              -- R1
+    WHEN f.estado NOT IN ('vigente','validacion_vacante','no_vigente') THEN 'excluido'                    -- R1 (estado inesperado; no debería haber ninguno)
     WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'le'   THEN 'excluido'                            -- R2a (fuera del total a gestionar; ~ si paso_aprox)
     WHEN f.estado = 'validacion_vacante' AND f.ed_rel = 'le'   THEN 'validacion'                          -- R2 (exacto)
     WHEN f.estado = 'no_vigente'         AND f.ed_rel = 'null' THEN 'excluido'                            -- R2b
     WHEN f.estado = 'validacion_vacante' AND f.ed_rel = 'null' THEN 'validacion'                          -- R2b
     WHEN f.sits IS NOT NULL THEN 'ocupado'                                                                -- R3
     WHEN f.concurso = 'si' THEN 'concurso'                                                                -- R4
-    WHEN f.concurso = 'desconocido' THEN 'indeterminado'                                                  -- R5
-    WHEN f.estado = 'vigente' AND f.ed_rel = 'gt' THEN 'indeterminado'                                    -- R6
+    WHEN f.concurso = 'desconocido' THEN 'concurso'                                                       -- R5 (modo vivo: el estado del concurso manda)
+    WHEN f.estado = 'vigente' AND f.ed_rel = 'gt' THEN 'validacion'                                       -- R6
     WHEN f.estado = 'no_vigente' THEN 'validacion'                                                        -- R7
-    WHEN f.estado = 'validacion_vacante' THEN 'indeterminado'                                             -- R8
+    WHEN f.estado = 'validacion_vacante' THEN 'validacion'                                                -- R8
     ELSE 'vacante'                                                                                        -- R9
   END AS hoja
 FROM v_ind_hechos f;
@@ -161,14 +171,13 @@ FROM ocupaciones WHERE hasta IS NULL GROUP BY 1 ORDER BY 2 DESC;
 SELECT lower(unaccent(trim(coalesce(situacion_revista,'')))) AS sit, count(*) AS filas_historico
 FROM padron_historico GROUP BY 1 ORDER BY 2 DESC;
 
--- V1b. Distribución por hoja (revisión visual: ¿cuánto cae en 'indeterminado'?)
+-- V1b. Distribución por hoja (revisión visual)
 SELECT hoja, count(*) FROM v_ind_hoja GROUP BY hoja ORDER BY 1;
 
--- V1c. Jerarquía de Jorge: vigente = ocupado + vacante + concurso; TOTAL A GESTIONAR = vigente + validacion + indeterminado.
+-- V1c. Jerarquía de Jorge: vigente = ocupado + vacante + concurso; TOTAL A GESTIONAR = vigente + validacion.
 -- 'excluido' (no vigentes) queda FUERA del total a gestionar; total_con_excluidos solo cierra contra V1.
 SELECT count(*) FILTER (WHERE hoja IN ('ocupado','vacante','concurso'))                                  AS vigente,
        count(*) FILTER (WHERE hoja = 'validacion')                                                       AS validacion,
-       count(*) FILTER (WHERE hoja = 'indeterminado')                                                    AS indeterminado,
        count(*) FILTER (WHERE hoja <> 'excluido')                                                        AS total_a_gestionar,
        count(*) FILTER (WHERE hoja = 'excluido')                                                         AS excluido_fuera_del_total,
        count(*)                                                                                          AS total_con_excluidos
@@ -182,12 +191,12 @@ GROUP BY 1, 2 ORDER BY 1, 2;
 SELECT CASE WHEN c.estado = 'no_vigente' THEN 'no_vigente (excluido)'
             WHEN c.estado = 'validacion_vacante' THEN 'validacion'
             WHEN EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) THEN 'ocupado'
-            ELSE 'vigente_sin_ocupante' END AS grupo,   -- = vacante + concurso + indeterminado de la vista
+            ELSE 'vigente_sin_ocupante' END AS grupo,   -- = vacante + concurso de la vista
        count(*) AS cargos
 FROM cargos c WHERE c.deleted_at IS NULL GROUP BY 1 ORDER BY 1;
 SELECT count(*) AS total_vivo FROM cargos WHERE deleted_at IS NULL;
 -- Comparación esperada con `-v corte=$(date +%F)` (sin override): no_vigente = excluido de V1b; validacion y ocupado idénticos a V1b;
--- vigente_sin_ocupante = vacante + concurso + indeterminado de V1b; total_vivo = total_independiente de V1.
+-- vigente_sin_ocupante = vacante + concurso de V1b; total_vivo = total_independiente de V1.
 
 SELECT CASE WHEN c.estado = 'vigente' THEN 'vigente/' || coalesce(c.sub_estado::text, 'null')
             ELSE c.estado::text END AS persistido,

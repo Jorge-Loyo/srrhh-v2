@@ -176,10 +176,12 @@ describe('getCargosIndicadoresService', () => {
       principales().find((c) => c.sql.includes("'le' AS ed_rel"))!,
       principales().find((c) => !c.sql.includes("'le' AS ed_rel"))!,
     ]
-    const frag = sqlConcursos('2026-11-05').sql
+    // El texto SQL (con placeholders) es idéntico en vivo y corte; solo cambia el
+    // valor del flag modoVivo, nunca el fragmento ni la clasificación por sub_estado.
+    const frag = sqlConcursos('2026-11-05', true).sql
     expect(viva.sql).toContain(frag)
     expect(rec.sql).toContain(frag)
-    expect(sqlConcursos('2026-10-31').sql).toBe(frag)
+    expect(sqlConcursos('2026-10-31', false).sql).toBe(frag)
     expect(viva.values).toContain('2026-11-05')
     expect(rec.values).toContain('2026-10-31')
     for (const c of [viva, rec]) {

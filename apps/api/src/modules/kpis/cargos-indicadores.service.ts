@@ -49,9 +49,12 @@ function filtros(alias: 'c' | 't', f: Filtros): Prisma.Sql {
 /**
  * Fragmento ÚNICO de concursos, usado por el período vivo (corte = hoy) y por el
  * reconstruido. Requiere un CTE `base(id, ...)` previo. Pertenencia por FECHAS,
- * no por el sub_estado actual del concurso.
+ * no por el sub_estado actual del concurso. En modo vivo (`modoVivo = true`) el
+ * estado del concurso CEETPS manda: un CEETPS autorizado/en_proceso (en_curso)
+ * cuenta como concurso activo aunque no tenga fecha de autorización (ini). En
+ * modo corte la fecha sigue mandando (no se sabe el pasado por el estado de hoy).
  */
-export function sqlConcursos(corte: string): Prisma.Sql {
+export function sqlConcursos(corte: string, modoVivo: boolean): Prisma.Sql {
   return Prisma.sql`
 conc_rows AS (
   SELECT cc.cargo_id, cc.fecha_autorizacion AS ini,
@@ -66,7 +69,8 @@ conc_rows AS (
               FROM concursos_cph x
              WHERE x.cargo_id = cc.cargo_id AND (x.created_at, x.id) > (cc.created_at, cc.id))
          ) AS fin,
-         false AS cierre_sin_fecha
+         false AS cierre_sin_fecha,
+         false AS en_curso
   FROM concursos_cph cc JOIN base b ON b.id = cc.cargo_id
   WHERE cc.fecha_autorizacion IS NOT NULL
      OR cc.fecha_dispo_desierta IS NOT NULL
@@ -79,17 +83,21 @@ conc_rows AS (
            WHERE o2.cargo_id = ce.cargo_id
              AND coalesce(o2.desde, (o2.created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date)
                  >= ce.fecha_autorizacion) AS fin,
-         ce.estado::text IN ('finalizado', 'desierto')
+         ce.estado::text IN ('finalizado', 'desierto'),
+         ce.estado::text IN ('autorizado', 'en_proceso')
   FROM concursos_ceetps ce JOIN base b ON b.id = ce.cargo_id
   WHERE ce.estado::text IN ('autorizado', 'en_proceso', 'finalizado', 'desierto')
 ),
 conc AS (
   SELECT cargo_id,
-    bool_or(coalesce(ini <= ${corte}::date, false)
-            AND NOT (cierre_sin_fecha AND fin IS NULL)
-            AND (fin IS NULL OR fin > ${corte}::date))               AS si,
+    bool_or((coalesce(ini <= ${corte}::date, false)
+             AND NOT (cierre_sin_fecha AND fin IS NULL)
+             AND (fin IS NULL OR fin > ${corte}::date))
+            OR (${modoVivo}::boolean AND en_curso
+                AND NOT coalesce(fin <= ${corte}::date, false)))     AS si,
     bool_or(NOT coalesce(fin <= ${corte}::date, false)
-            AND (ini IS NULL OR (cierre_sin_fecha AND fin IS NULL AND ini <= ${corte}::date))) AS desconocido
+            AND (ini IS NULL OR (cierre_sin_fecha AND fin IS NULL AND ini <= ${corte}::date))
+            AND NOT (${modoVivo}::boolean AND en_curso))             AS desconocido
   FROM conc_rows GROUP BY cargo_id
 )`
 }
@@ -176,7 +184,7 @@ occ AS (
     WHERE o.hasta IS NULL
   ) x GROUP BY cargo_id
 ),
-${sqlConcursos(hoy)}
+${sqlConcursos(hoy, true)}
 SELECT b.codigo_registro_id::text AS codigo_registro_id, b.estado, 'le' AS ed_rel,
        occ.sits, false AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso,
@@ -227,7 +235,7 @@ occ AS (
   SELECT cargo_id, array_agg(DISTINCT sit ORDER BY sit) AS sits, bool_or(sit_aprox) AS sit_aprox
   FROM occ_rows GROUP BY cargo_id
 ),
-${sqlConcursos(corte)}
+${sqlConcursos(corte, false)}
 SELECT b.codigo_registro_id::text AS codigo_registro_id, b.estado, b.ed_rel,
        occ.sits, coalesce(occ.sit_aprox, false) AS sit_aprox,
        CASE WHEN conc.si THEN 'si' WHEN conc.desconocido THEN 'desconocido' ELSE 'no' END AS concurso,
@@ -371,7 +379,7 @@ export async function getCargosIndicadoresService(
     )
   }
   if ([a, p].some((x) => x.estadosRaros)) {
-    log.warn({}, 'cargos-indicadores: hay cargos con estado fuera del enum (se cuentan como indeterminado)')
+    log.warn({}, 'cargos-indicadores: hay cargos con estado fuera del enum (se cuentan como excluido)')
   }
 
   return construirRespuesta({

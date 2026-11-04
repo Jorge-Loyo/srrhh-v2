@@ -2049,9 +2049,8 @@ export interface CrearJornadaRequest {
 // ─── Indicadores de cargos (Reportes) ────────────────────────────────────────
 // GET /api/v1/kpis/cargos-indicadores — tablas de cantidad de cargos por carrera
 // y estado, mes actual vs mes anterior (solo lectura). Los cargos NO VIGENTES no
-// suman al total ni son columna: el total es "a gestionar" (validación + vigente
-// [+ sin determinar]) y los pasajes a no vigente se informan aparte
-// (`pasaronNoVigente`, fuera de toda suma).
+// suman al total ni son columna: el total es "a gestionar" (validación + vigente)
+// y los pasajes a no vigente se informan aparte (`pasaronNoVigente`, fuera de toda suma).
 export type CargosIndicadoresColumnaId =
   | 'total' // total a gestionar
   | 'validacion'
@@ -2063,7 +2062,6 @@ export type CargosIndicadoresColumnaId =
   | 'ocupado_otra'
   | 'vacante'
   | 'concurso'
-  | 'indeterminado'
   | 'personas_ref' // informativa (kpis_dotacion_snapshot); no entra en sumas
 
 export type CargosIndicadoresTendencia = 'sube' | 'baja' | 'igual'

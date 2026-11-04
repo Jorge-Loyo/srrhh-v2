@@ -59,16 +59,16 @@ describe('clasificarCargo (vivo)', () => {
     expect(clasificarCargo(vivo({ sits: ['(sin dato)'] })).hoja).toBe('ocupado_otra')
     expect(clasificarCargo(vivo({ sits: ['otra rara'] })).hoja).toBe('ocupado_otra')
   })
-  it('vigente sin ocupante: concurso / vacante / indeterminado', () => {
+  it('vigente sin ocupante: concurso / vacante; desconocido en vivo cae en concurso (el estado manda)', () => {
     expect(clasificarCargo(vivo({ concurso: 'si' }))).toEqual({ hoja: 'concurso', aprox: true })
     expect(clasificarCargo(vivo({}))).toEqual({ hoja: 'vacante', aprox: true })
-    expect(clasificarCargo(vivo({ concurso: 'desconocido' }))).toEqual({ hoja: 'indeterminado', aprox: true })
+    expect(clasificarCargo(vivo({ concurso: 'desconocido' }))).toEqual({ hoja: 'concurso', aprox: true })
   })
   it('ocupante gana a concurso (R3 antes de R4)', () => {
     expect(clasificarCargo(vivo({ sits: ['activo'], concurso: 'si' })).hoja).toBe('ocupado_activo')
   })
-  it('estado fuera del enum -> indeterminado sin lanzar', () => {
-    expect(clasificarCargo(vivo({ estado: 'zzz' }))).toEqual({ hoja: 'indeterminado', aprox: true })
+  it('estado fuera del enum -> excluido sin lanzar (R1)', () => {
+    expect(clasificarCargo(vivo({ estado: 'zzz' }))).toEqual({ hoja: 'excluido', aprox: true })
   })
 })
 
@@ -89,17 +89,17 @@ describe('clasificarCargo (corte)', () => {
     expect(clasificarCargo(base({ estado: 'no_vigente', sits: ['activo'] })).hoja).toBe('excluido')
     expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt', sits: ['activo'] })).hoja).toBe('ocupado_activo')
   })
-  it('baja después del corte sin ocupante ni concurso: no_vigente -> validación (R7); validación -> indeterminado (R8)', () => {
+  it('baja después del corte sin ocupante ni concurso: no_vigente -> validación (R7); validación -> validación (R8)', () => {
     expect(clasificarCargo(base({ estado: 'no_vigente', edRel: 'gt' }))).toEqual({ hoja: 'validacion', aprox: true })
     expect(clasificarCargo(base({ estado: 'validacion_vacante', edRel: 'gt' }))).toEqual({
-      hoja: 'indeterminado',
+      hoja: 'validacion',
       aprox: true,
     })
   })
-  it('concurso abierto / cerrado al corte', () => {
+  it('concurso abierto / cerrado al corte; desconocido en corte cae en validación (conservador)', () => {
     expect(clasificarCargo(base({ concurso: 'si' }))).toEqual({ hoja: 'concurso', aprox: true })
     expect(clasificarCargo(base({ concurso: 'no' }))).toEqual({ hoja: 'vacante', aprox: true })
-    expect(clasificarCargo(base({ concurso: 'desconocido' })).hoja).toBe('indeterminado')
+    expect(clasificarCargo(base({ concurso: 'desconocido' }))).toEqual({ hoja: 'validacion', aprox: true })
     expect(clasificarCargo(base({ concurso: 'desconocido', sits: ['activo'] })).hoja).toBe('ocupado_activo')
   })
   it('situación aproximada marca aprox', () => {
@@ -109,8 +109,8 @@ describe('clasificarCargo (corte)', () => {
     })
     expect(clasificarCargo(base({ sits: ['comision'] })).aprox).toBe(false)
   })
-  it('vigente reactivado después del corte -> indeterminado (R6)', () => {
-    expect(clasificarCargo(base({ edRel: 'gt' }))).toEqual({ hoja: 'indeterminado', aprox: true })
+  it('vigente reactivado después del corte -> validación (R6)', () => {
+    expect(clasificarCargo(base({ edRel: 'gt' }))).toEqual({ hoja: 'validacion', aprox: true })
   })
 })
 
@@ -137,10 +137,17 @@ describe('exclusión mutua y suma = total (propiedad)', () => {
             for (const sitAprox of [false, true]) {
               const c = clasificarCargo({ estado, edRel, sits, sitAprox, concurso, modo: 'corte' })
               expect(HOJAS).toContain(c.hoja)
-              // vivo siempre llega con edRel = 'le'
+              // vivo siempre llega con edRel = 'le'. Vivo y corte coinciden salvo cuando
+              // el concurso es 'desconocido' y lo decide la cascada (R5): vivo -> 'concurso',
+              // corte -> 'validacion'. Si un ocupante o el estado resuelven antes, coinciden.
               if (edRel === 'le') {
                 const v = clasificarCargo({ estado, edRel, sits, sitAprox, concurso, modo: 'vivo' })
-                expect(v.hoja).toBe(c.hoja)
+                expect(HOJAS).toContain(v.hoja)
+                if (c.hoja === 'validacion' && v.hoja === 'concurso') {
+                  expect(concurso).toBe('desconocido')
+                } else {
+                  expect(v.hoja).toBe(c.hoja)
+                }
               }
               n++
             }
@@ -166,8 +173,8 @@ describe('exclusión mutua y suma = total (propiedad)', () => {
     for (const hojas of agg.values()) {
       const d = derivarColumnas(hojas)
       expect(d.ocupado.n + d.vacante.n + d.concurso.n).toBe(d.vigente.n)
-      // total a gestionar = validación + vigente (+ indeterminado); el excluido (no vigente) NO suma
-      expect(d.vigente.n + d.validacion.n + d.indeterminado.n).toBe(d.total.n)
+      // total a gestionar = validación + vigente; el excluido (no vigente) NO suma
+      expect(d.vigente.n + d.validacion.n).toBe(d.total.n)
       expect(d.total.n + hojas.excluido.n).toBe(Object.values(hojas).reduce((a, h) => a + h.n, 0))
       expect(d.ocupado_activo.n + d.ocupado_comision.n + d.ocupado_retencion.n + d.ocupado_otra.n).toBe(d.ocupado.n)
       suma += d.total.n
@@ -252,6 +259,21 @@ describe('concursoAlCorte / finConcurso', () => {
   it('con F = hoy: h-tad sin fin -> si; CEETPS cerrado sin ocupación -> desconocido', () => {
     expect(concursoAlCorte(c('2026-05-01', null), '2026-11-05')).toBe('si')
     expect(concursoAlCorte(c('2026-05-01', null, true), '2026-11-05')).toBe('desconocido')
+  })
+  it('modo vivo: CEETPS autorizado/en_proceso sin fecha de autorización (en curso) cuenta como si', () => {
+    const enCurso = { ini: null, fin: null, cierreSinFecha: false, enCurso: true }
+    // Sin modo vivo (corte): el estado no manda, sigue 'desconocido'
+    expect(concursoAlCorte(enCurso, F)).toBe('desconocido')
+    // En modo vivo: el estado del concurso manda, cuenta como 'si' aunque no tenga ini
+    expect(concursoAlCorte(enCurso, F, true)).toBe('si')
+    // Con ini también da 'si' en vivo
+    expect(concursoAlCorte({ ini: '2026-09-01', fin: null, cierreSinFecha: false, enCurso: true }, F, true)).toBe('si')
+    // En vivo, un concurso ya cerrado (fin <= F) no cuenta aunque enCurso sea true
+    expect(concursoAlCorte({ ini: '2026-08-01', fin: '2026-10-01', cierreSinFecha: false, enCurso: true }, F, true)).toBe(
+      'no',
+    )
+    // En vivo, varios concursos: el en curso gana
+    expect(concursosAlCorte([c('2026-11-02', null), enCurso], F, true)).toBe('si')
   })
   it('finConcurso: mínimo e ignora nulos', () => {
     expect(finConcurso({})).toBeNull()
@@ -355,7 +377,7 @@ describe('construirRespuesta', () => {
   ]
   const filasP: FilaHoja[] = [
     { carreraId: 'u2', hoja: 'ocupado_activo', aprox: false, n: 8 },
-    { carreraId: 'u2', hoja: 'indeterminado', aprox: true, n: 1 },
+    { carreraId: 'u2', hoja: 'concurso', aprox: true, n: 1 },
   ]
   const armar = (extra: Partial<Parameters<typeof construirRespuesta>[0]> = {}) =>
     construirRespuesta({
@@ -390,13 +412,10 @@ describe('construirRespuesta', () => {
       }
     }
   })
-  it('columnas: indeterminado visible solo si hay valor; personas_ref solo en tabla ocupado', () => {
+  it('columnas: no existe la columna indeterminado; personas_ref solo en tabla ocupado', () => {
     const r = armar()
-    expect(r.tablas.find((t) => t.id === 'estado')!.columnas.map((c) => c.id)).toContain('indeterminado')
-    const sin = armar({
-      anterior: { periodo: per('reconstruido'), pasaron: [], filas: [{ carreraId: 'u2', hoja: 'vacante', aprox: true, n: 1 }], personas: null, personasFecha: null },
-    })
-    expect(sin.tablas.find((t) => t.id === 'estado')!.columnas.map((c) => c.id)).not.toContain('indeterminado')
+    for (const t of r.tablas) expect(t.columnas.map((c) => c.id as string)).not.toContain('indeterminado')
+    expect(r.tablas.find((t) => t.id === 'estado')!.columnas.map((c) => c.id)).toEqual(['total', 'validacion', 'vigente'])
     expect(r.tablas.find((t) => t.id === 'ocupado')!.columnas.map((c) => c.id)).toContain('personas_ref')
     expect(r.tablas.find((t) => t.id === 'vigente')!.columnas.map((c) => c.id)).not.toContain('personas_ref')
   })
@@ -431,7 +450,7 @@ describe('construirRespuesta', () => {
       for (const k of ['actual', 'anterior'] as const) {
         const c = f.celdas
         if (c.total[k] === null) continue
-        expect((c.vigente[k] ?? 0) + (c.validacion[k] ?? 0) + (c.indeterminado[k] ?? 0)).toBe(c.total[k])
+        expect((c.vigente[k] ?? 0) + (c.validacion[k] ?? 0)).toBe(c.total[k])
         expect((c.ocupado[k] ?? 0) + (c.vacante[k] ?? 0) + (c.concurso[k] ?? 0)).toBe(c.vigente[k])
       }
     }
@@ -459,8 +478,9 @@ describe('construirRespuesta', () => {
     const s = sumarHojas(a, a)
     expect(s.vacante).toEqual({ n: 4, aprox: 4 })
   })
-  it('HojaCargo cubre las hojas esperadas', () => {
+  it('HojaCargo cubre las hojas esperadas (sin indeterminado)', () => {
     const h: HojaCargo[] = [...HOJAS]
-    expect(h).toHaveLength(9)
+    expect(h).toHaveLength(8)
+    expect((h as string[])).not.toContain('indeterminado')
   })
 })

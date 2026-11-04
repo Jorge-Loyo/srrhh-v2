@@ -3,9 +3,12 @@
 // Cada cargo existente en una fecha de corte F cae en UNA sola hoja (cascada
 // R1..R9). Los no vigentes caen en la hoja 'excluido': existe para que la suma
 // por construcción cierre contra el total de cargos de la base, pero NO suma al
-// "Total a gestionar" (validación + vigente [+ sin determinar]). La SQL del servicio solo agrupa "hechos" y esta función decide la
-// hoja; las columnas padre (ocupado, vigente, total) son sumas de hojas, así
-// que los grupos son excluyentes y la conciliación vale por construcción.
+// "Total a gestionar" (validación + vigente). NO existe hoja 'indeterminado':
+// todo cargo cae en algo concreto (un cargo en validacion_vacante sin concurso
+// va a 'validacion'; vigente sin ocupante con concurso en curso va a 'concurso').
+// La SQL del servicio solo agrupa "hechos" y esta función decide la hoja; las
+// columnas padre (ocupado, vigente, total) son sumas de hojas, así que los
+// grupos son excluyentes y la conciliación vale por construcción.
 // Pensado para ser reutilizable por otros módulos (p. ej. Incidencias).
 import type {
   CargosIndicadores,
@@ -28,7 +31,6 @@ export type HojaCargo =
   | 'ocupado_otra'
   | 'vacante'
   | 'concurso'
-  | 'indeterminado'
 
 export const HOJAS: readonly HojaCargo[] = [
   'excluido',
@@ -39,7 +41,6 @@ export const HOJAS: readonly HojaCargo[] = [
   'ocupado_otra',
   'vacante',
   'concurso',
-  'indeterminado',
 ]
 
 // Sub-estados CPH de Etapa 2+ (admisión a conc_rows; la pertenencia "en curso"
@@ -102,7 +103,7 @@ export function clasificarCargo(h: HechosCargo): Clasificacion {
   const esCorte = h.modo === 'corte'
   const { estado, edRel } = h
   if (estado !== 'vigente' && estado !== 'validacion_vacante' && estado !== 'no_vigente') {
-    return { hoja: 'indeterminado', aprox: true } // R1
+    return { hoja: 'excluido', aprox: true } // R1: estado inesperado -> excluido (no debería haber ninguno)
   }
   if (estado === 'validacion_vacante' && edRel === 'le') return { hoja: 'validacion', aprox: false } // R2
   // R2a: no vigente al corte -> fuera del total a gestionar (aprox solo si la fecha de pasaje es inferida)
@@ -113,10 +114,12 @@ export function clasificarCargo(h: HechosCargo): Clasificacion {
   }
   if (h.sits && h.sits.length > 0) return { hoja: elegirSituacion(h.sits), aprox: h.sitAprox } // R3
   if (h.concurso === 'si') return { hoja: 'concurso', aprox: true } // R4
-  if (h.concurso === 'desconocido') return { hoja: 'indeterminado', aprox: true } // R5
-  if (estado === 'vigente' && edRel === 'gt') return { hoja: 'indeterminado', aprox: true } // R6
+  // R5: concurso 'desconocido'. En vivo el estado del concurso manda -> 'concurso'.
+  // En corte no se inventa un número para el pasado: cae en 'validacion' (conservador).
+  if (h.concurso === 'desconocido') return { hoja: esCorte ? 'validacion' : 'concurso', aprox: true } // R5
+  if (estado === 'vigente' && edRel === 'gt') return { hoja: 'validacion', aprox: true } // R6: vigente entrado tras el corte -> validacion
   if (estado === 'no_vigente') return { hoja: 'validacion', aprox: true } // R7
-  if (estado === 'validacion_vacante') return { hoja: 'indeterminado', aprox: true } // R8
+  if (estado === 'validacion_vacante') return { hoja: 'validacion', aprox: true } // R8
   return { hoja: 'vacante', aprox: true } // R9
 }
 
@@ -127,23 +130,32 @@ export interface ConcursoFechas {
   ini: string | null
   fin: string | null
   cierreSinFecha: boolean
+  /**
+   * El concurso está en curso por su estado (CEETPS autorizado/en_proceso). En modo
+   * vivo el estado manda: cuenta como 'si' aunque no tenga fecha de autorización (ini).
+   * En modo corte la fecha sigue mandando (no se sabe el pasado por el estado de hoy).
+   */
+  enCurso?: boolean
 }
 
 /** Tri-estado de UN concurso en la fecha F (transcripción de la SQL de `conc`). */
-export function concursoAlCorte(c: ConcursoFechas, F: string): ConcursoFact {
+export function concursoAlCorte(c: ConcursoFechas, F: string, modoVivo = false): ConcursoFact {
   const finLeF = c.fin !== null && c.fin <= F
   const iniLeF = c.ini !== null && c.ini <= F
-  const si = iniLeF && !(c.cierreSinFecha && c.fin === null) && (c.fin === null || c.fin > F)
+  // En vivo, un concurso en curso por su estado (CEETPS autorizado/en_proceso) sin cierre
+  // cuenta como 'si' aunque no tenga fecha de autorización: el estado manda.
+  const enCursoVivo = modoVivo && c.enCurso === true && !finLeF
+  const si = enCursoVivo || (iniLeF && !(c.cierreSinFecha && c.fin === null) && (c.fin === null || c.fin > F))
   if (si) return 'si'
   const desconocido = !finLeF && (c.ini === null || (c.cierreSinFecha && c.fin === null && iniLeF))
   return desconocido ? 'desconocido' : 'no'
 }
 
 /** Un cargo es 'si' si algún concurso da 'si'; si no 'desconocido' si alguno lo da; si no 'no'. */
-export function concursosAlCorte(cs: readonly ConcursoFechas[], F: string): ConcursoFact {
+export function concursosAlCorte(cs: readonly ConcursoFechas[], F: string, modoVivo = false): ConcursoFact {
   let res: ConcursoFact = 'no'
   for (const c of cs) {
-    const r = concursoAlCorte(c, F)
+    const r = concursoAlCorte(c, F, modoVivo)
     if (r === 'si') return 'si'
     if (r === 'desconocido') res = 'desconocido'
   }
@@ -255,7 +267,6 @@ export function derivarColumnas(hojas: HojasConteo): ColumnasConteo {
     ocupado_otra: hojas.ocupado_otra,
     vacante: hojas.vacante,
     concurso: hojas.concurso,
-    indeterminado: hojas.indeterminado,
   }
 }
 
@@ -382,7 +393,7 @@ const SIN_CODIGO = '(sin codigo)'
 const COLUMNAS_META: Record<ColumnasBase | 'personas_ref', { etiqueta: string; nota: string | null }> = {
   total: {
     etiqueta: 'Total a gestionar',
-    nota: 'En validación + Vigente (+ Sin determinar). No incluye los cargos no vigentes.',
+    nota: 'En validación + Vigente. No incluye los cargos no vigentes.',
   },
   validacion: { etiqueta: 'En validación', nota: 'Estado validacion_vacante.' },
   vigente: { etiqueta: 'Vigente', nota: 'Ocupado + Vacante + Concurso.' },
@@ -393,10 +404,6 @@ const COLUMNAS_META: Record<ColumnasBase | 'personas_ref', { etiqueta: string; n
   ocupado_otra: { etiqueta: 'Otras / sin dato', nota: 'Situación de revista fuera del catálogo o sin dato.' },
   vacante: { etiqueta: 'Vacante', nota: 'Vigente sin ocupante ni concurso en curso.' },
   concurso: { etiqueta: 'Concurso', nota: 'Vigente sin ocupante, con concurso en curso (Etapa 2+).' },
-  indeterminado: {
-    etiqueta: 'Sin determinar (n/d)',
-    nota: 'No se puede inferir con los datos disponibles; nunca se cuenta como otro grupo.',
-  },
   personas_ref: {
     etiqueta: 'Personas (Evolución de dotación)',
     nota: 'Referencia informativa de personas (no cargos). No entra en las sumas.',
@@ -407,13 +414,12 @@ function meta(id: CargosIndicadoresColumnaId, destacada: boolean): CargosIndicad
   return { id, etiqueta: COLUMNAS_META[id].etiqueta, destacada, nota: COLUMNAS_META[id].nota }
 }
 
-export function columnasVisibles(hayIndeterminado: boolean): CargosIndicadoresTablaMeta[] {
+export function columnasVisibles(): CargosIndicadoresTablaMeta[] {
   const estado: CargosIndicadoresColumnaMeta[] = [
     meta('total', true),
     meta('validacion', false),
     meta('vigente', false),
   ]
-  if (hayIndeterminado) estado.push(meta('indeterminado', false))
   return [
     { id: 'estado', titulo: 'Estado del cargo', nota: null, columnas: estado },
     {
@@ -449,7 +455,6 @@ const COLUMNAS_TODAS: CargosIndicadoresColumnaId[] = [
   'ocupado_otra',
   'vacante',
   'concurso',
-  'indeterminado',
   'personas_ref',
 ]
 
@@ -606,11 +611,10 @@ export function construirRespuesta(args: {
     celdas: armarCeldas('', totA, totP, true),
     pasaronNoVigente: celdaPaso(sumaPasos(pasoA), sumaPasos(pasoP), pasoA !== null, pasoP !== null),
   }
-  const hayIndeterminado = (totA?.indeterminado.n ?? 0) > 0 || (totP?.indeterminado.n ?? 0) > 0
   return {
     actual: actual.periodo,
     anterior: anterior.periodo,
-    tablas: columnasVisibles(hayIndeterminado),
+    tablas: columnasVisibles(),
     filas,
     total,
     referenciaPersonas: { actualFecha: actual.personasFecha, anteriorFecha: anterior.personasFecha },
