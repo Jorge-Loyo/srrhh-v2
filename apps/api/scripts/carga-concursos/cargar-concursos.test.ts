@@ -21,7 +21,7 @@ import type { Warnings } from './helpers.js'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CR_CPH: CrInfo = {
-  id: 'cr-22',
+  id: 'cr-37',
   escalafonId: 'esc-cph',
   escalafonNombre: 'Nueva Carrera Prof. Hosp',
 }
@@ -134,7 +134,7 @@ describe('resolverDesignadoActivo — Paso G', () => {
 })
 
 describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
-  it('CPH: usa CR 22, escalafón del CR, prefijo CPH-*', async () => {
+  it('CPH: usa CR 37, escalafón del CR, prefijo CPH-*', async () => {
     const { tx, cargosCreados } = mockTx()
     const caches = nuevoCaches()
     const fila: Fila = {
@@ -150,7 +150,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     })
     expect(id).toMatch(/^cargo-/)
     const c = cargosCreados[0]!
-    expect(c.codigoRegistroId).toBe('cr-22')
+    expect(c.codigoRegistroId).toBe('cr-37')
     expect(c.escalafonId).toBe('esc-cph')
     expect(String(c.codigo)).toMatch(/^CPH-/)
     expect(c.estado).toBe('validacion_vacante')

@@ -57,12 +57,13 @@ import {
 const EXCEL_DEFAULT =
   'c:/Desarrollo/SRH/SRRHH-Legacy/Doc/Referencias/Concursos/3CONCURSOS_LIMPIO_2026-10-26_v2.xlsx'
 
-// El DISEÑO fija los CR por su UUID (CR 22 CPH `2c597732-…`; CEETPS 87/85/83),
+// El DISEÑO fija los CR por su UUID (CPH: CR 37 — el 22 es un duplicado con el
+// mismo literal y NO se usa en concursos; CEETPS 87/85/83),
 // pero solo expone prefijos de los UUIDs. Para no hardcodear UUIDs truncados, el
-// script resuelve el codigoRegistroId por el CÓDIGO canónico (22/87/85/83) contra
+// script resuelve el codigoRegistroId por el CÓDIGO canónico (37/87/85/83) contra
 // la tabla codigos_registro y cachea el par {id, escalafonId}. Es equivalente y
 // robusto (`codigo` es @unique), y respeta la regla de oro escalafonId = CR.escalafon_id.
-const COD_CR_CPH = '22'
+const COD_CR_CPH = '37'
 const COD_CR_POR_SUBCARRERA: Record<string, string> = {
   ENFERMERIA: '87',
   TECNICOS: '85',
