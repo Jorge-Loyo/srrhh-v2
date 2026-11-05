@@ -136,18 +136,30 @@ export const router = createBrowserRouter([
           {
             element: <OrganigramaLayout />,
             children: [
-              // "Estructura" — acceso ABIERTO por código (decisión E2 §7): la ruta
-              // /organigrama NO lleva RequirePermiso. El permiso cosmético
-              // organigrama/tab:estructura aparece en la grilla pero no gobierna.
-              { path: 'organigrama', element: <OrganigramaHomePage /> },
+              // "Estructura" (vista /organigrama) — GATE NUEVO organigrama/ver.
+              // Antes era acceso abierto por código; ahora la visibilidad es
+              // asignable por rol. El permiso cosmético organigrama/tab:estructura
+              // sigue existiendo en la grilla pero no gobierna la ruta.
+              {
+                element: <RequirePermiso permiso={{ modulo: 'organigrama', accion: 'ver' }} />,
+                children: [{ path: 'organigrama', element: <OrganigramaHomePage /> }],
+              },
               {
                 element: <RequirePermiso permiso={{ modulo: 'organigrama', accion: 'tab:areas-programaticas' }} />,
                 children: [{ path: 'organigrama/areas-programaticas', element: <AreasProgramaticasPage /> }],
               },
             ],
           },
-          { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
-          { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+          // Detalles de la VISTA de organigrama — mismo gate organigrama/ver.
+          // NO incluye /organigrama/arbol (vive bajo Importación con su permiso
+          // configuracion/tab:arbol-organigrama propio).
+          {
+            element: <RequirePermiso permiso={{ modulo: 'organigrama', accion: 'ver' }} />,
+            children: [
+              { path: 'organigrama/seccion/:seccion', element: <OrganigramaDetallePage /> },
+              { path: 'organigrama/:code', element: <OrganigramaDetallePage /> },
+            ],
+          },
           {
             element: <RequirePermiso permiso={{ modulo: 'dotacion', accion: 'ver' }} />,
             children: [
@@ -156,10 +168,18 @@ export const router = createBrowserRouter([
               { path: 'organigrama/unidades-fijas/:id', element: <UnidadFijaDetailPage /> },
             ],
           },
-          { path: 'pou', element: <PouHomePage /> },
-          { path: 'pou/comparativa', element: <PouComparativaPage /> },
-          { path: 'pou/triangulacion', element: <PouTriangulacionPage /> },
-          { path: 'pou/:sigla', element: <PouDetallePage /> },
+          // POU — vista (grupo Visualización). GATE NUEVO pou/ver sobre la vista
+          // /pou y sus sub-rutas de visualización. NO incluye /pou/carga (vive
+          // bajo Importación con su permiso configuracion/tab:carga-pou propio).
+          {
+            element: <RequirePermiso permiso={{ modulo: 'pou', accion: 'ver' }} />,
+            children: [
+              { path: 'pou', element: <PouHomePage /> },
+              { path: 'pou/comparativa', element: <PouComparativaPage /> },
+              { path: 'pou/triangulacion', element: <PouTriangulacionPage /> },
+              { path: 'pou/:sigla', element: <PouDetallePage /> },
+            ],
+          },
           // Cargos con pestañas sincronizadas con la URL (CargosLayout + Outlet).
           // Las 4 acciones principales cuelgan del layout; el detalle y los
           // formularios de baja quedan fuera (no llevan la barra de pestañas).

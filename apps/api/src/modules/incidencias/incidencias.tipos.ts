@@ -1,6 +1,8 @@
 // Registro de tipos de incidencia (design §7): cada tipo = slug + contar() +
-// listar(); "Todo" es la unión. Agregar un tipo = un objeto acá + su permiso
-// `incidencias/tab:<slug>` + su entrada en TABS_INCIDENCIAS del web.
+// listar(); "Todo" es la unión. Agregar un tipo = un objeto acá + su entrada en
+// TABS_INCIDENCIAS del web. Las pestañas de incidencias NO llevan permiso
+// `tab:*` propio (son vistas bajo `incidencias/ver`); esos permisos por pestaña
+// se eliminaron en el commit c3cf0cf.
 import { prisma } from '../../shared/prisma.js'
 import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
 import { esCargoGestionable } from './incidencias.gestionable.js'

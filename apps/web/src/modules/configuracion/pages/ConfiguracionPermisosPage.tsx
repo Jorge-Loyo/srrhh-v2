@@ -12,7 +12,7 @@ import {
   useSetRolePermisos,
 } from '../hooks/useRoles'
 import { usePermisosCatalogo } from '../hooks/usePermisosCatalogo'
-import { construirGrupos, accionLabel } from '../lib/grilla-permisos'
+import { construirGruposPanel, accionLabel } from '../lib/grilla-permisos'
 
 const nuevoRolSchema = z.object({
   nombre: z.string().min(2, 'Mínimo 2 caracteres').max(100),
@@ -106,7 +106,9 @@ export function ConfiguracionPermisosPage() {
     () => roles?.find((r) => r.id === selectedId) ?? null,
     [roles, selectedId]
   )
-  const grupos = useMemo(() => construirGrupos(catalogo ?? []), [catalogo])
+  const gruposPanel = useMemo(() => construirGruposPanel(catalogo ?? []), [catalogo])
+  // Lista plana de secciones (para expandir/colapsar todo), derivada del panel.
+  const grupos = useMemo(() => gruposPanel.flatMap((gp) => gp.grupos), [gruposPanel])
   const totalPermisos = catalogo?.length ?? 0
   const otorgados = selected?.slug === 'admin' ? totalPermisos : selected?.permisos?.length ?? 0
 
@@ -335,8 +337,15 @@ export function ConfiguracionPermisosPage() {
             </div>
 
             <div className="divide-y divide-gray-200">
-              {grupos.map((grupo) => {
-                const { seccion, subgrupos, permisosPlanos } = grupo
+              {gruposPanel.map((gp) => (
+                <div key={gp.grupo}>
+                  {/* Cabecera de GRUPO (Visualización / Gestión / Vista Admin /
+                      Sistema): agrupa varias secciones colapsables. */}
+                  <div className="px-4 py-2 bg-navy/5 border-b border-gray-200">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-navy">{gp.label}</p>
+                  </div>
+                  {gp.grupos.map((grupo) => {
+                    const { seccion, subgrupos, permisosPlanos } = grupo
                 const abierto = expandidos.has(seccion.id)
                 const panelId = `grilla-panel-${seccion.id}`
                 const botonId = `grilla-boton-${seccion.id}`
@@ -440,7 +449,9 @@ export function ConfiguracionPermisosPage() {
                     )}
                   </div>
                 )
-              })}
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         )}
