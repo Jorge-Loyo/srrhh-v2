@@ -1,28 +1,40 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 
-// Layout con pestañas para el módulo Cargos. Reemplaza el desplegable del menú:
-// "Cargos" es un NavLink simple a /cargos y las acciones (Alta, Baja, Alta por
-// baja) son pestañas sincronizadas con la URL — cada una conserva su ruta, así
-// no se rompen los enlaces directos existentes. Cada pestaña se filtra por su
-// permiso PROPIO `tab:*` (permisos granulares por pestaña), administrable por
-// rol desde /configuracion/permisos.
-const TABS = [
-  { to: '/cargos',               label: 'Ver cargos',   end: true,  permiso: { modulo: 'cargos', accion: 'tab:ver-cargos' } },
+// Layout con pestañas para el módulo Cargos. El menú lateral parte Cargos en
+// dos entradas independientes (ver AppShell): "Cargos" (Visualización → vista
+// de consulta /cargos) y "Gestión de Cargos" (Gestión → Alta/Baja/Cobertura).
+// La barra de pestañas de abajo refleja ese corte según la ruta activa:
+//   - VISTA (/cargos y el detalle /cargos/:id): consulta pura, SIN barra de
+//     pestañas de gestión (no se muestran Alta/Baja/Cobertura).
+//   - GESTIÓN (/cargos/alta | /cargos/baja | /cargos/alta-por-baja): barra con
+//     solo las pestañas de gestión; "Ver cargos" NO aparece acá.
+// Cada pestaña de gestión se sigue filtrando por su permiso PROPIO `tab:*`
+// (granular por pestaña), administrable por rol desde /configuracion/permisos.
+const TABS_GESTION = [
   { to: '/cargos/alta',          label: 'Alta de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:alta-cargo' } },
   { to: '/cargos/baja',          label: 'Baja de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:baja-cargo' } },
   { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'cargos', accion: 'tab:cobertura-vacantes' } },
 ]
 
+// Prefijos de ruta que corresponden a la GESTIÓN de cargos. Si la ruta activa
+// no es ninguno de estos, estamos en la VISTA (consulta) y no se muestra la
+// barra de pestañas de gestión.
+const RUTAS_GESTION = ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja']
+
 export function CargosLayout() {
   const { user } = useAuth()
-  const tabs = TABS.filter((t) => can(user, t.permiso.modulo, t.permiso.accion))
+  const { pathname } = useLocation()
+
+  const enGestion = RUTAS_GESTION.some((r) => pathname === r || pathname.startsWith(r + '/'))
+  const tabs = enGestion ? TABS_GESTION.filter((t) => can(user, t.permiso.modulo, t.permiso.accion)) : []
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-1 border-b border-gray-200">
-        {tabs.map((t) => (
+      {tabs.length > 0 && (
+        <div className="flex gap-1 border-b border-gray-200">
+          {tabs.map((t) => (
           <NavLink
             key={t.to}
             to={t.to}
@@ -34,11 +46,12 @@ export function CargosLayout() {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`
             }
-          >
-            {t.label}
-          </NavLink>
-        ))}
-      </div>
+            >
+              {t.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
 
       <Outlet />
     </div>
