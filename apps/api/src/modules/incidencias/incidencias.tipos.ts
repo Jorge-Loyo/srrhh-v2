@@ -3,6 +3,7 @@
 // `incidencias/tab:<slug>` + su entrada en TABS_INCIDENCIAS del web.
 import { prisma } from '../../shared/prisma.js'
 import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
+import { esCargoGestionable } from './incidencias.gestionable.js'
 import {
   obtenerSnapshotIncidencias,
   itemsBajaSinConcurso,
@@ -65,10 +66,32 @@ function cuilDeDatos(datos: Record<string, string>): string | null {
   return datos.cuil_y_rol ? datos.cuil_y_rol.split('-')[0] : null
 }
 
+// Filtro gestionable (FASE 1) para la cola "SIAL sin cargo": un id_sial nuevo
+// solo es incidencia si su carrera cumple la regla (PLENOS o 83+Anexo II). El
+// código y el literal del puesto vienen del JSON valorNuevo del diff. Como el
+// filtro depende del JSON, el conteo NO puede hacerse con prisma.count: hay que
+// traer los diffs, parsear y filtrar en TS (misma fuente de verdad que
+// baja-sin-concurso vía esCargoGestionable).
+function esDiffSialGestionable(datos: Record<string, string>): boolean {
+  return esCargoGestionable({
+    codigoRegistro: datos.codigo_de_registro ?? null,
+    literalPuesto: datos.literal_puesto ?? null,
+  })
+}
+
 const sialSinCargo: TipoIncidencia = {
   slug: 'sial-sin-cargo',
   label: 'SIAL sin cargo',
-  contar: () => prisma.padronDiff.count({ where: WHERE_SIAL_SIN_CARGO }),
+  async contar() {
+    const diffs = await prisma.padronDiff.findMany({
+      where: WHERE_SIAL_SIN_CARGO,
+      select: { valorNuevo: true },
+    })
+    return diffs.reduce(
+      (n, d) => n + (esDiffSialGestionable(JSON.parse(d.valorNuevo ?? '{}')) ? 1 : 0),
+      0,
+    )
+  },
   async listar(f) {
     // Lectura liviana: sin diagnóstico de concurso (Todo no lo muestra).
     const diffs = await prisma.padronDiff.findMany({
@@ -85,6 +108,7 @@ const sialSinCargo: TipoIncidencia = {
     const out: IncidenciaItem[] = []
     for (const d of diffs) {
       const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+      if (!esDiffSialGestionable(datos)) continue
       const escalafon = datos.escalafon ?? null
       if (carreraNorm && normalizarBusqueda(escalafon) !== carreraNorm) continue
       const cuil = cuilDeDatos(datos)

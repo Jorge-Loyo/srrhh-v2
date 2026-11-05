@@ -12,6 +12,7 @@ import {
   aprobarTodosDiffsPendientesService,
   getAprobacionProgreso,
 } from '../padron/padron.service.js'
+import { esCargoGestionable } from './incidencias.gestionable.js'
 
 // ─── Re-exportación de los servicios de acción del padrón ───────────────────
 // Los 6 servicios de acción + getAprobacionProgreso quedan accesibles desde
@@ -145,6 +146,11 @@ export async function getPendientesService() {
       fechaAsignada: d.snapshot.fechaAsignada,
     }
   })
+    // Filtro gestionable (FASE 1): un id_sial nuevo solo es incidencia si su
+    // carrera cumple la regla de negocio (PLENOS o 83+Anexo II). El código y el
+    // literal del puesto vienen del JSON valor_nuevo del diff. Misma fuente de
+    // verdad que la pestaña baja-sin-concurso (esCargoGestionable).
+    .filter((p) => esCargoGestionable({ codigoRegistro: p.codigoDeRegistro, literalPuesto: p.literalPuesto }))
 
   // Diagnóstico (concursoCphId/clasificacion) reusando diagnosticarDiffsNuevosService
   // por snapshot (un solo llamado por snapshot distinto). Se indexa por diffId.

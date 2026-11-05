@@ -19,7 +19,12 @@ import {
   type HechoRow,
   type SnapshotIncidencias,
 } from './incidencias.baja-sin-concurso.js'
-import { listarTodo, type TipoIncidencia, type IncidenciaItem } from './incidencias.tipos.js'
+import {
+  listarTodo,
+  TIPOS_INCIDENCIA,
+  type TipoIncidencia,
+  type IncidenciaItem,
+} from './incidencias.tipos.js'
 
 const hecho = (over: Partial<HechoRow> = {}): HechoRow => ({
   cargo_id: 'c1',
@@ -232,5 +237,51 @@ describe('listarTodo con tipos inyectados', () => {
     const p = await listarTodo({ page: 2, pageSize: 2 }, tipos)
     expect(p.items).toHaveLength(1)
     expect(p.meta.pages).toBe(2)
+  })
+})
+
+// ─── Filtro gestionable (FASE 1) en la cola "SIAL sin cargo" (tipos.ts) ──────
+describe('tipo SIAL sin cargo — filtro gestionable', () => {
+  const sialSinCargo = TIPOS_INCIDENCIA.find((t) => t.slug === 'sial-sin-cargo') as TipoIncidencia
+
+  const diffJson = (codigo: string, literal: string, idSial: string) => ({
+    id: `d-${idSial}`,
+    idSialRol: `${idSial}-1`,
+    valorNuevo: JSON.stringify({
+      id_sial: idSial,
+      ayn: 'Perez, Juan',
+      siglas: 'HOSP',
+      escalafon: 'X',
+      literal_puesto: literal,
+      codigo_de_registro: codigo,
+    }),
+    snapshot: { fechaAsignada: new Date('2026-11-05') },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    _resetCacheIncidencias()
+  })
+
+  it('listar() deja solo los gestionables (37 pleno y 83 Anexo II; excluye 60 y 83 fuera)', async () => {
+    prismaMock.padronDiff.findMany.mockResolvedValue([
+      diffJson('37', 'Médico', 'SIAL-37'),
+      diffJson('60', 'Residente', 'SIAL-60'),
+      diffJson('83', 'Capellán', 'SIAL-83ok'),
+      diffJson('83', 'Administrativo', 'SIAL-83no'),
+    ])
+    const items = await sialSinCargo.listar({})
+    expect(items.map((i) => i.idSial).sort()).toEqual(['SIAL-37', 'SIAL-83ok'])
+  })
+
+  it('contar() cuenta solo el universo gestionable (no usa prisma.count)', async () => {
+    prismaMock.padronDiff.findMany.mockResolvedValue([
+      diffJson('22', 'Médico', 'SIAL-22'),
+      diffJson('60', 'Residente', 'SIAL-60'),
+      diffJson('83', 'Morguero', 'SIAL-83ok'),
+      diffJson('83', 'Jefe de sector', 'SIAL-83no'),
+    ])
+    expect(await sialSinCargo.contar()).toBe(2)
+    expect(prismaMock.padronDiff.count).not.toHaveBeenCalled()
   })
 })

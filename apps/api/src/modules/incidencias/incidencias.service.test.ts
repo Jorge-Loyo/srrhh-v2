@@ -66,7 +66,9 @@ const diffNuevo = (over: Partial<Record<string, unknown>> = {}) => ({
     siglas: 'HOSP',
     escalafon: 'Profesional',
     literal_puesto: 'Médico',
-    codigo_de_registro: '16A',
+    // Código gestionable pleno (CPH 37): el diff entra a la cola "SIAL sin cargo".
+    // Ver incidencias.gestionable.ts (regla PLENOS/83+Anexo II, FASE 1).
+    codigo_de_registro: '37',
     especialidad: 'Clínica',
     situacion_de_revista: 'planta',
     estado: 'A',
@@ -101,6 +103,69 @@ function setupPendientesUnDiff(opts: { bajas?: Array<{ persona: { cuil: string }
   prismaMock.concursoCph.findMany.mockResolvedValue([])
   prismaMock.baja.findMany.mockResolvedValue(opts.bajas ?? [])
 }
+
+// Variante: la query principal devuelve los diffs que se le pasen (para
+// ejercitar el filtro gestionable). El diagnóstico se neutraliza a vacío.
+function setupPendientesConDiffs(diffs: Array<ReturnType<typeof diffNuevo>>) {
+  prismaMock.padronDiff.findMany.mockImplementation((args: { where?: Record<string, unknown> }) => {
+    const where = args?.where ?? {}
+    if ('snapshotId' in where) {
+      return Promise.resolve(
+        diffs.map((d) => ({ id: d.id, idSialRol: d.idSialRol, valorNuevo: d.valorNuevo })),
+      )
+    }
+    return Promise.resolve(diffs)
+  })
+  prismaMock.padronSnapshot.findUnique.mockResolvedValue({ id: 'snap-1', estado: 'aprobado' })
+  prismaMock.cargo.findMany.mockResolvedValue([])
+  prismaMock.persona.findMany.mockResolvedValue([])
+  prismaMock.hospital.findMany.mockResolvedValue([])
+  prismaMock.codigoRegistro.findMany.mockResolvedValue([])
+  prismaMock.escalafon.findMany.mockResolvedValue([])
+  prismaMock.concursoCph.findMany.mockResolvedValue([])
+  prismaMock.baja.findMany.mockResolvedValue([])
+}
+
+// Arma un diff nuevo con código y literal de puesto a medida (para el filtro).
+function diffConCargo(id: string, codigo: string, literal: string) {
+  return diffNuevo({
+    id,
+    idSialRol: `ROL-${id}`,
+    valorNuevo: JSON.stringify({
+      id_sial: `SIAL-${id}`,
+      cuil_y_rol: '20111111113-1',
+      ayn: 'Perez, Juan',
+      siglas: 'HOSP',
+      escalafon: 'X',
+      literal_puesto: literal,
+      codigo_de_registro: codigo,
+      especialidad: null,
+    }),
+  })
+}
+
+describe('getPendientesService — filtro gestionable (FASE 1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('excluye un id_sial nuevo no gestionable (Residencias código 60)', async () => {
+    setupPendientesConDiffs([diffConCargo('g', '37', 'Médico'), diffConCargo('ng', '60', 'Residente')])
+    const result = await getPendientesService()
+    expect(result.pendientes.map((p) => p.diffId)).toEqual(['g']) // solo el gestionable (código 37)
+    expect(result.resumen.total).toBe(1)
+  })
+
+  it('excluye un 83 fuera del Anexo II y conserva un 83 del Anexo II', async () => {
+    setupPendientesConDiffs([
+      diffConCargo('anexo', '83', 'Capellán'), // ∈ ANEXO_II_83 → gestionable
+      diffConCargo('fuera', '83', 'Administrativo'), // ∉ Anexo II → fuera
+    ])
+    const result = await getPendientesService()
+    expect(result.pendientes.map((p) => p.idSialRol)).toEqual(['ROL-anexo'])
+    expect(result.resumen.total).toBe(1)
+  })
+})
 
 describe('getPendientesService — cola §4.2', () => {
   beforeEach(() => {

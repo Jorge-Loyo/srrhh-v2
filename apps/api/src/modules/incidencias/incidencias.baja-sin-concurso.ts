@@ -1,7 +1,10 @@
 // Acceso a datos de la pestaña "Baja sin concurso" (SOLO LECTURA). La query
 // reúne HECHOS por cargo candidato; la decisión de grupo la toma la función pura
 // `clasificarCargo`. Ver .agents/tasks/incidencias-tabs/design.md §5 y §6.
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
+import { ANEXO_II_83 } from '../padron/derivarRegimen.js'
+import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from './incidencias.gestionable.js'
 import {
   clasificarCargo,
   contarGrupos,
@@ -105,6 +108,37 @@ export interface SnapshotIncidencias {
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null)
 
+// ─── Predicado SQL "gestionable" (espejo de esCargoGestionable) ──────────────
+// Devuelve un EXISTS sobre codigos_registro para el cargo `c`, equivalente al
+// helper puro `esCargoGestionable` (incidencias.gestionable.ts): PLENOS entran
+// completos; el '83' entra solo si el literal normalizado del puesto ∈ ANEXO_II_83.
+//
+// Normalización del literal en SQL = regla de @srrhh/normalizacion aplicada al
+// '83': minúscula + sin acento + espacios colapsados + trim. Se usa
+// `lower(unaccent(...))` (la extensión `unaccent` está instalada, ver migración
+// 20261003000003_unaccent_search_config) más `regexp_replace('\s+',' ')` + btrim.
+// unaccent() también quita la tilde de la ñ (ñ→n), a diferencia del TS que la
+// mantiene; como NINGUNO de los 9 literales de ANEXO_II_83 tiene ñ, ambos lados
+// dan EXACTAMENTE los mismos 9 match (ver reporte.md). Las listas se inyectan con
+// Prisma.join desde CODIGOS_REGISTRO_GESTIONABLES_PLENOS y ANEXO_II_83 (una sola
+// fuente de verdad, sin hardcodear dos veces).
+function sqlCargoGestionable(alias: string): Prisma.Sql {
+  const c = Prisma.raw(alias)
+  const plenos = Prisma.join([...CODIGOS_REGISTRO_GESTIONABLES_PLENOS])
+  const anexoII = Prisma.join([...ANEXO_II_83])
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM codigos_registro cr
+    WHERE cr.id = ${c}.codigo_registro_id
+      AND (
+        cr.codigo IN (${plenos})
+        OR (
+          cr.codigo = '83'
+          AND btrim(regexp_replace(lower(unaccent(${c}.literal_puesto)), '\\s+', ' ', 'g')) IN (${anexoII})
+        )
+      )
+  )`
+}
+
 // ─── Queries (solo lectura, sin parámetros de usuario) ───────────────────────
 
 // IMPORTANTE: el cuerpo de esta query es el mismo de la vista temporal
@@ -130,6 +164,7 @@ cand AS (
   SELECT c.*
   FROM cargos c
   WHERE c.deleted_at IS NULL
+    AND ${sqlCargoGestionable('c')}
     AND (
       c.estado::text = 'validacion_vacante'
       OR (c.estado::text = 'vigente'
@@ -268,7 +303,8 @@ FROM cargos c
 CROSS JOIN LATERAL (
   SELECT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) AS tiene
 ) oc
-WHERE c.deleted_at IS NULL`
+WHERE c.deleted_at IS NULL
+  AND ${sqlCargoGestionable('c')}`
   const r = rows[0]
   return {
     totalCargos: Number(r?.total_cargos ?? 0),
