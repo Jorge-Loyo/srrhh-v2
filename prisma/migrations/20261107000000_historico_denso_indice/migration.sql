@@ -1,0 +1,22 @@
+-- FASE 2 (histórico denso del padrón, design §C.3): índice compuesto nuevo en
+-- `padron_historico` por (fecha_asignada, cargo_id). Es el ÚNICO índice que
+-- agrega esta fase; los 7 índices existentes (pkey, cargo_id, cuil,
+-- fecha_asignada, (id_sial_rol, fecha_asignada), persona_id, snapshot_id) NO se
+-- tocan ni se recrean.
+--
+-- Por qué: con el paso 7 denso, `padron_historico` crece a millones de filas
+-- (una foto semanal de ~39k cargos gestionables vivos, verificado contra Neon
+-- 2026-11-05). La consulta "estado del subuniverso gestionable en la semana S"
+-- del paso 12 (fase posterior) filtra por (fecha_asignada, cargo_id); el
+-- compuesto evita un bitmap-and sobre (fecha_asignada) + (cargo_id) por
+-- separado. Hoy el simple (fecha_asignada) alcanza (EXPLAIN 4.9 ms / 3.184
+-- filas), pero no escala con el denso.
+--
+-- Nombre de índice estilo Prisma (coincide con el que genera el schema
+-- declarativo para @@index([fechaAsignada, cargoId])). Idempotente
+-- (IF NOT EXISTS) para poder re-correrlo sin error.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). El usuario (Jorge) corre este .sql en Neon al desplegar.
+CREATE INDEX IF NOT EXISTS "padron_historico_fecha_asignada_cargo_id_idx"
+  ON "padron_historico" ("fecha_asignada", "cargo_id");

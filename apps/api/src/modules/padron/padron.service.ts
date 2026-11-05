@@ -22,6 +22,11 @@ import {
   type CatalogoPuestosCache,
 } from './resolverPuestoCargo.js'
 import { decidirEspecialidad } from './padron.especialidad.helpers.js'
+import {
+  deduplicarOcupacionesHistorico,
+  filtrarGestionablesVivas,
+} from './padron.historico.helpers.js'
+import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from '../incidencias/incidencias.gestionable.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
@@ -139,6 +144,11 @@ interface OcupacionFinalRow {
     unificadorPuesto: string | null
     hospital: { sigla: string }
     escalafon: { nombre: string }
+    // FASE 2 (histórico denso): el paso 7 incluye el código de registro para
+    // evaluar el filtro gestionable en memoria (esCargoGestionable) sobre la
+    // rama del '83'. Opcional porque otro consumidor de OcupacionFinalRow (la
+    // gestión individual de un id_sial, ~L4369) no lo necesita ni lo incluye.
+    codigoRegistro?: { codigo: string } | null
   }
 }
 
@@ -3182,13 +3192,59 @@ export async function aprobarSnapshotService(
       WHERE c.id = f.cargo_id
     `
 
-    // ── 7. Histórico: una sola lectura en bloque del estado final de todas
-    //       las ocupaciones tocadas, y un createMany en vez de un create por
-    //       fila ────────────────────────────────────────────────────────────
-    const ocupacionesFinales = (await tx.ocupacion.findMany({
+    // ── 7. Histórico DENSO del subuniverso gestionable (FASE 2, design §C) ──
+    //       Hoy el histórico de los roles NO gestionables sigue como antes
+    //       (solo los que tuvieron diff esa semana). Para el subuniverso
+    //       GESTIONABLE pasa a ser DENSO: cada aprobación guarda el estado de
+    //       TODA la dotación gestionable viva de esa semana, acumulándose
+    //       semana a semana (cimiento de "cayó del padrón"/"reapareció", §C.2).
+    //
+    //       Idempotencia (§C.5): borrar primero las filas de ESTE snapshot para
+    //       que una reaprobación regenere sin duplicar (padron_historico NO
+    //       tiene unique (snapshot_id, id_sial_rol)). Barato: borra solo este
+    //       snapshot. Hoy el guard estado!=='pendiente' impide reaprobar, pero
+    //       esto desacopla la correctitud de ese guard.
+    await tx.$executeRaw`DELETE FROM padron_historico WHERE snapshot_id = ${id}::uuid`
+
+    // (a) Roles con diff esta semana (comportamiento previo, intacto). Incluye
+    //     los NO gestionables, que siguen historiándose solo si tuvieron diff.
+    const ocupacionesConDiff = (await tx.ocupacion.findMany({
       where: { idSialRol: { in: todosLosIdSialRol } },
-      include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
+      include: {
+        persona: true,
+        cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } },
+      },
     })) as OcupacionFinalRow[]
+
+    // (b) Dotación gestionable VIVA (hasta: null). El `where` acota a los
+    //     códigos plenos + '83' por relación; la rama del '83' (literal ∈
+    //     ANEXO_II_83) no se puede expresar en el query builder (requiere
+    //     unaccent/regexp), así que se filtra en memoria con esCargoGestionable
+    //     (helper puro de Fase 1) sobre el resultado — design §C.4, Opción A(ii).
+    //     Misma include que (a) para no perder ningún campo de historicoEntries.
+    const ocupacionesGestionablesCrudas = (await tx.ocupacion.findMany({
+      where: {
+        hasta: null,
+        cargo: {
+          deletedAt: null,
+          codigoRegistro: {
+            codigo: { in: [...CODIGOS_REGISTRO_GESTIONABLES_PLENOS, '83'] },
+          },
+        },
+      },
+      include: {
+        persona: true,
+        cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } },
+      },
+    })) as OcupacionFinalRow[]
+    const ocupacionesGestionablesVivas = filtrarGestionablesVivas(ocupacionesGestionablesCrudas)
+
+    // (c) (a) ∪ (b) deduplicado por id_sial_rol (un rol gestionable que además
+    //     tuvo diff aparece en ambos conjuntos). Dedupe OBLIGATORIA en memoria.
+    const ocupacionesFinales = deduplicarOcupacionesHistorico(
+      ocupacionesConDiff,
+      ocupacionesGestionablesVivas,
+    )
     const historicoEntries = ocupacionesFinales.map((ocupacion) => ({
       id: randomUUID(),
       snapshotId: id,

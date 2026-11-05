@@ -738,6 +738,11 @@ model PadronHistorico {
   // S24: evolución de dotación — intervalo de vigencia por rol (LEAD sobre
   // id_sial_rol ordenado por fecha). Sin este índice la serie tardaba minutos.
   @@index([idSialRol, fechaAsignada])
+  // FASE 2 (histórico denso): consulta "estado del subuniverso gestionable en
+  // la semana S" del paso 12 — filtro por (fecha_asignada, cargo_id). Con el
+  // denso la tabla crece a millones de filas; el compuesto evita un bitmap-and
+  // sobre (fecha_asignada) + (cargo_id) por separado (design §C.3).
+  @@index([fechaAsignada, cargoId])
   @@map("padron_historico")
 }
 
