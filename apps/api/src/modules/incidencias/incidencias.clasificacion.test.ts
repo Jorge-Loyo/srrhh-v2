@@ -33,10 +33,10 @@ const hechos = (over: Partial<HechosIncidencia> = {}): HechosIncidencia => ({
   situacionRevistaAnt: null,
   situacionRevistaNue: null,
   cambioPuestoDiff: false,
-  puestoCargoIdAnt: null,
-  puestoCargoIdNue: null,
-  especialidadPuestoIdAnt: null,
-  especialidadPuestoIdNue: null,
+  literalPuestoAnt: null,
+  literalPuestoNue: null,
+  especialidadAnt: null,
+  especialidadNue: null,
   cuilAnt: null,
   cuilNue: null,
   tipoOrigen: null,
@@ -489,38 +489,54 @@ describe('clasificarCambiosDelPuesto (tipo 5)', () => {
       'cambios-del-puesto',
     )
   })
-  it('dispara por cambio de puesto_cargo_id que el diff NO ve (respaldo histórico)', () => {
+  it('dispara por cambio de literal_puesto (texto) que el diff NO ve (respaldo histórico)', () => {
     expect(
       clasificarCambiosDelPuesto(
-        hechos({ cambioPuestoDiff: false, puestoCargoIdAnt: 'p1', puestoCargoIdNue: 'p2' }),
+        hechos({
+          cambioPuestoDiff: false,
+          literalPuestoAnt: 'Enfermero',
+          literalPuestoNue: 'Enfermero Jefe',
+        }),
       ),
     ).toBe('cambios-del-puesto')
   })
-  it('dispara por cambio de especialidad_puesto_id (respaldo histórico)', () => {
+  it('dispara por cambio de especialidad (texto) por respaldo histórico', () => {
     expect(
       clasificarCambiosDelPuesto(
-        hechos({ especialidadPuestoIdAnt: 'e1', especialidadPuestoIdNue: 'e2' }),
+        hechos({ especialidadAnt: 'Clinica', especialidadNue: 'Pediatria' }),
       ),
     ).toBe('cambios-del-puesto')
+  })
+  it('el respaldo histórico normaliza (tildes/mayúsculas) antes de comparar', () => {
+    expect(
+      clasificarCambiosDelPuesto(
+        hechos({ literalPuestoAnt: 'Médico', literalPuestoNue: 'MEDICO' }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si el ant es null (solo cubre texto→texto; el resto lo cubre el diff)', () => {
+    expect(
+      clasificarCambiosDelPuesto(hechos({ literalPuestoAnt: null, literalPuestoNue: 'Enfermero' })),
+    ).toBeNull()
   })
   it('no dispara si el puesto/especialidad no cambió y no hay señal de diff', () => {
     expect(
       clasificarCambiosDelPuesto(
         hechos({
-          puestoCargoIdAnt: 'p1',
-          puestoCargoIdNue: 'p1',
-          especialidadPuestoIdAnt: 'e1',
-          especialidadPuestoIdNue: 'e1',
+          literalPuestoAnt: 'Enfermero',
+          literalPuestoNue: 'Enfermero',
+          especialidadAnt: 'Clinica',
+          especialidadNue: 'Clinica',
         }),
       ),
     ).toBeNull()
   })
   it('detalleCambioPuesto distingue puesto vs especialidad (puesto manda)', () => {
-    expect(detalleCambioPuesto(hechos({ puestoCargoIdAnt: 'p1', puestoCargoIdNue: 'p2' }))).toBe(
-      'cambio puesto',
-    )
     expect(
-      detalleCambioPuesto(hechos({ especialidadPuestoIdAnt: 'e1', especialidadPuestoIdNue: 'e2' })),
+      detalleCambioPuesto(hechos({ literalPuestoAnt: 'Enfermero', literalPuestoNue: 'Médico' })),
+    ).toBe('cambio puesto')
+    expect(
+      detalleCambioPuesto(hechos({ especialidadAnt: 'Clinica', especialidadNue: 'Pediatria' })),
     ).toBe('cambio especialidad')
   })
 })

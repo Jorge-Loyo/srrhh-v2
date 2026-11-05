@@ -228,10 +228,14 @@ export interface HechosIncidencia {
   cambioPuestoDiff: boolean
   // Respaldo histórico del cambio de puesto/especialidad que el diff NO ve
   // (cambio de FK sin cambio de texto; no hay marcador __puesto_cargo_id__).
-  puestoCargoIdAnt: string | null
-  puestoCargoIdNue: string | null
-  especialidadPuestoIdAnt: string | null
-  especialidadPuestoIdNue: string | null
+  // `padron_historico` NO guarda puesto_cargo_id/especialidad_puesto_id (solo
+  // el TEXTO literal_puesto/especialidad; schema PadronHistorico), así que el
+  // respaldo compara el TEXTO histórico de S-1 (ant) vs el TEXTO del cargo
+  // (nue), que es la única fuente disponible (design §E.5).
+  literalPuestoAnt: string | null
+  literalPuestoNue: string | null
+  especialidadAnt: string | null
+  especialidadNue: string | null
   // CUIL anterior (histórico denso, por cargo_id) vs nuevo (ocupación viva).
   cuilAnt: string | null
   cuilNue: string | null
@@ -285,38 +289,38 @@ export function esElegibleReemplazante(h: HechosIncidencia): boolean {
 }
 
 // 5 — Cambios del puesto (§E.5): unión de la señal del diff (texto SIAL +
-// marcador de FK de especialidad) y el respaldo histórico (cambio de
-// puesto_cargo_id/especialidad_puesto_id que el diff NO ve). Gobernado por SIAL.
+// marcador de FK de especialidad) y el respaldo histórico (comparación del
+// TEXTO literal_puesto/especialidad ant de S-1 vs el del cargo nuevo). Gobernado
+// por SIAL. El respaldo captura el caso que el diff NO ve (cambio de puesto que
+// re-resuelve la FK sin que el pipeline emita marcador __puesto_cargo_id__);
+// como padron_historico solo guarda el TEXTO (no la FK), la única fuente
+// comparable es el texto histórico vs el texto actual del cargo (design §E.5).
 export function clasificarCambiosDelPuesto(h: HechosIncidencia): 'cambios-del-puesto' | null {
-  if (cambioPuestoCargo(h) || cambioEspecialidadPuesto(h) || h.cambioPuestoDiff) {
+  if (cambioLiteralPuesto(h) || cambioEspecialidad(h) || h.cambioPuestoDiff) {
     return 'cambios-del-puesto'
   }
   return null
 }
 
-// Cambio de puesto_cargo_id por respaldo histórico (ambos presentes y distintos).
-function cambioPuestoCargo(h: HechosIncidencia): boolean {
-  return (
-    h.puestoCargoIdAnt != null &&
-    h.puestoCargoIdNue != null &&
-    h.puestoCargoIdAnt !== h.puestoCargoIdNue
-  )
+// Cambio de literal_puesto por respaldo histórico (texto ant vs nue, normalizado;
+// ambos presentes y distintos). Null en cualquiera de los dos lados se deja a la
+// señal del diff (el respaldo solo cubre el cambio silencioso texto→texto).
+function cambioLiteralPuesto(h: HechosIncidencia): boolean {
+  if (h.literalPuestoAnt == null || h.literalPuestoNue == null) return false
+  return normalizarBusqueda(h.literalPuestoAnt) !== normalizarBusqueda(h.literalPuestoNue)
 }
 
-// Cambio de especialidad_puesto_id por respaldo histórico (ambos presentes y
-// distintos). Null→valor o valor→null se dejan al diff (señal del snapshot).
-function cambioEspecialidadPuesto(h: HechosIncidencia): boolean {
-  return (
-    h.especialidadPuestoIdAnt != null &&
-    h.especialidadPuestoIdNue != null &&
-    h.especialidadPuestoIdAnt !== h.especialidadPuestoIdNue
-  )
+// Cambio de especialidad por respaldo histórico (texto ant vs nue, normalizado;
+// ambos presentes y distintos). Null→valor o valor→null se dejan al diff.
+function cambioEspecialidad(h: HechosIncidencia): boolean {
+  if (h.especialidadAnt == null || h.especialidadNue == null) return false
+  return normalizarBusqueda(h.especialidadAnt) !== normalizarBusqueda(h.especialidadNue)
 }
 
 // Distingue "cambio puesto" vs "cambio especialidad" para el `detalle` (§E.5).
 // El cambio de puesto manda sobre el de especialidad cuando ambos aplican.
 export function detalleCambioPuesto(h: HechosIncidencia): 'cambio puesto' | 'cambio especialidad' {
-  return cambioPuestoCargo(h) ? 'cambio puesto' : 'cambio especialidad'
+  return cambioLiteralPuesto(h) ? 'cambio puesto' : 'cambio especialidad'
 }
 
 // 6a — Nueva baja detectada (§E.6a): ventana "baja SIAL antes que el padrón".

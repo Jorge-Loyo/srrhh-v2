@@ -20,10 +20,6 @@ const row = (over: Partial<HechoPaso12Row> = {}): HechoPaso12Row => ({
   situacion_revista_ant: null,
   situacion_revista_nue: null,
   cambio_puesto_diff: false,
-  puesto_cargo_id_ant: null,
-  puesto_cargo_id_nue: null,
-  especialidad_puesto_id_ant: null,
-  especialidad_puesto_id_nue: null,
   literal_puesto_ant: null,
   literal_puesto_nue: null,
   especialidad_ant: null,
@@ -86,15 +82,39 @@ describe('construirIncidencias (orquestador puro del paso 12)', () => {
   })
 
   it('cambios del puesto: detalle distingue puesto vs especialidad', () => {
-    const porPuesto = incidenciasDe(row({ puesto_cargo_id_ant: 'p1', puesto_cargo_id_nue: 'p2' }))
+    const porPuesto = incidenciasDe(
+      row({ literal_puesto_ant: 'Enfermero', literal_puesto_nue: 'Enfermero Jefe' }),
+    )
     expect(porPuesto).toHaveLength(1)
     expect(porPuesto[0]!.tipo).toBe('cambios-del-puesto')
     expect(porPuesto[0]!.detalle).toBe('cambio puesto')
+    expect(porPuesto[0]!.estadoAnterior).toEqual({ literalPuesto: 'Enfermero', especialidad: null })
+    expect(porPuesto[0]!.estadoNuevo).toEqual({
+      literalPuesto: 'Enfermero Jefe',
+      especialidad: null,
+    })
 
     const porEsp = incidenciasDe(
-      row({ especialidad_puesto_id_ant: 'e1', especialidad_puesto_id_nue: 'e2' }),
+      row({ especialidad_ant: 'Clinica', especialidad_nue: 'Pediatria' }),
     )
     expect(porEsp[0]!.detalle).toBe('cambio especialidad')
+  })
+
+  it('cambio de persona (6b): el CUIL anterior se compara por cargo_id (rol vivo distinto)', () => {
+    // Al cambiar la persona el id_sial_rol vivo es NUEVO; cuil_ant viene del
+    // histórico por cargo_id (CTE hist_ant_cargo), no del rol vivo. Aquí el
+    // factory ya entrega cuil_ant poblado, emulando ese wiring por cargo_id.
+    const out = incidenciasDe(
+      row({
+        cargo_id: 'cargo-9',
+        id_sial_rol: '001788157-NUEVO',
+        tiene_ocupante_vigente: true,
+        cuil_ant: '20111111113',
+        cuil_nue: '27222222228',
+      }),
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]!.tipo).toBe('otras:cambio-persona')
   })
 
   it('nueva baja (6a) emite estadoAnterior Json null', () => {

@@ -46,10 +46,6 @@ export interface HechoPaso12Row {
   situacion_revista_ant: string | null
   situacion_revista_nue: string | null
   cambio_puesto_diff: boolean
-  puesto_cargo_id_ant: string | null
-  puesto_cargo_id_nue: string | null
-  especialidad_puesto_id_ant: string | null
-  especialidad_puesto_id_nue: string | null
   literal_puesto_ant: string | null
   literal_puesto_nue: string | null
   especialidad_ant: string | null
@@ -87,10 +83,10 @@ export function factsPaso12DeHecho(row: HechoPaso12Row, esReaparicion: boolean):
     situacionRevistaAnt: row.situacion_revista_ant,
     situacionRevistaNue: row.situacion_revista_nue,
     cambioPuestoDiff: row.cambio_puesto_diff,
-    puestoCargoIdAnt: row.puesto_cargo_id_ant,
-    puestoCargoIdNue: row.puesto_cargo_id_nue,
-    especialidadPuestoIdAnt: row.especialidad_puesto_id_ant,
-    especialidadPuestoIdNue: row.especialidad_puesto_id_nue,
+    literalPuestoAnt: row.literal_puesto_ant,
+    literalPuestoNue: row.literal_puesto_nue,
+    especialidadAnt: row.especialidad_ant,
+    especialidadNue: row.especialidad_nue,
     cuilAnt: row.cuil_ant,
     cuilNue: row.cuil_nue,
     tipoOrigen: row.tipo_origen,
@@ -147,17 +143,33 @@ occ_viva AS (
   WHERE o.hasta IS NULL
   ORDER BY o.cargo_id, o.desde DESC NULLS LAST
 ),
--- "Anterior" del histórico denso: última foto ESTRICTAMENTE anterior a S por
--- id_sial_rol (seccion C.6). El filtro fecha_asignada < fecha(S) es OBLIGATORIO.
+-- "Anterior" del histórico denso POR ROL: última foto ESTRICTAMENTE anterior a
+-- S por id_sial_rol (seccion C.6). Alimenta la situación de revista anterior
+-- (tipo 4), que se compara rol a rol. El filtro fecha_asignada < fecha(S) es
+-- OBLIGATORIO.
 hist_ant AS (
   SELECT DISTINCT ON (ph.id_sial_rol)
          ph.id_sial_rol, ph.cargo_id,
-         ph.situacion_revista AS sit_rev_ant, ph.cuil AS cuil_ant,
+         ph.situacion_revista AS sit_rev_ant,
          ph.literal_puesto AS literal_puesto_ant, ph.especialidad AS especialidad_ant
   FROM padron_historico ph
   JOIN cand ON cand.id = ph.cargo_id
   WHERE ph.fecha_asignada < ${fecha}
   ORDER BY ph.id_sial_rol, ph.fecha_asignada DESC
+),
+-- "Anterior" del histórico denso POR CARGO: última foto ESTRICTAMENTE anterior
+-- a S por cargo_id (seccion C.6, E.6b). El CUIL del período anterior se busca
+-- por cargo_id (NO por id_sial_rol): id_sial_rol embebe el CUIL (calcularDiff
+-- arma idSial + rol + CUIL), así que al cambiar la persona el rol vivo es NUEVO
+-- y por id_sial_rol no habría anterior. La clave correcta para cambio de
+-- persona es cargo_id.
+hist_ant_cargo AS (
+  SELECT DISTINCT ON (ph.cargo_id)
+         ph.cargo_id, ph.cuil AS cuil_ant
+  FROM padron_historico ph
+  JOIN cand ON cand.id = ph.cargo_id
+  WHERE ph.fecha_asignada < ${fecha}
+  ORDER BY ph.cargo_id, ph.fecha_asignada DESC
 ),
 -- ¿El cargo estaba presente el período anterior? (alguna foto densa < S).
 presente_ant AS (
@@ -222,26 +234,23 @@ SELECT
   hist_ant.sit_rev_ant AS situacion_revista_ant,
   occ_viva.sit_rev_nue AS situacion_revista_nue,
   (diff_puesto.cargo_id IS NOT NULL) AS cambio_puesto_diff,
-  NULL::uuid AS puesto_cargo_id_ant,
-  cand.puesto_cargo_id AS puesto_cargo_id_nue,
-  NULL::uuid AS especialidad_puesto_id_ant,
-  cand.especialidad_puesto_id AS especialidad_puesto_id_nue,
   hist_ant.literal_puesto_ant,
   cand.literal_puesto AS literal_puesto_nue,
   hist_ant.especialidad_ant,
   cand.especialidad_legacy AS especialidad_nue,
-  hist_ant.cuil_ant,
+  hist_ant_cargo.cuil_ant,
   occ_viva.cuil_nue,
   cand.tipo_origen,
   cand.cargo_retenido_id
 FROM cand
-LEFT JOIN occ_viva     ON occ_viva.cargo_id = cand.id
-LEFT JOIN hist_ant     ON hist_ant.id_sial_rol = occ_viva.id_sial_rol
-LEFT JOIN presente_ant ON presente_ant.cargo_id = cand.id
-LEFT JOIN diff_puesto  ON diff_puesto.cargo_id = cand.id
-LEFT JOIN elim_ult     ON elim_ult.cargo_id = cand.id
-LEFT JOIN bs           ON bs.cargo_id = cand.id
-LEFT JOIN bs_nueva     ON bs_nueva.cargo_id = cand.id`
+LEFT JOIN occ_viva        ON occ_viva.cargo_id = cand.id
+LEFT JOIN hist_ant        ON hist_ant.id_sial_rol = occ_viva.id_sial_rol
+LEFT JOIN hist_ant_cargo  ON hist_ant_cargo.cargo_id = cand.id
+LEFT JOIN presente_ant    ON presente_ant.cargo_id = cand.id
+LEFT JOIN diff_puesto     ON diff_puesto.cargo_id = cand.id
+LEFT JOIN elim_ult        ON elim_ult.cargo_id = cand.id
+LEFT JOIN bs              ON bs.cargo_id = cand.id
+LEFT JOIN bs_nueva        ON bs_nueva.cargo_id = cand.id`
   const hechos = rows.map((r) => factsPaso12DeHecho(r, idsRechazarBaja.has(r.cargo_id)))
   return { hechos, rows }
 }
@@ -296,14 +305,10 @@ export function construirIncidencias(
         id: randomUUID(),
         tipo: 'cambios-del-puesto',
         estadoAnterior: {
-          puestoCargoId: h.puestoCargoIdAnt,
-          especialidadPuestoId: h.especialidadPuestoIdAnt,
           literalPuesto: row.literal_puesto_ant,
           especialidad: row.especialidad_ant,
         },
         estadoNuevo: {
-          puestoCargoId: h.puestoCargoIdNue,
-          especialidadPuestoId: h.especialidadPuestoIdNue,
           literalPuesto: row.literal_puesto_nue,
           especialidad: row.especialidad_nue,
         },
