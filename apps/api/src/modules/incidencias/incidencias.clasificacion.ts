@@ -124,9 +124,7 @@ export function resolverDeteccion(i: DeteccionInput): Deteccion {
     : { fecha: null, fuente: 'desconocida' as FuenteFechaPadron }
   const origen: OrigenDeteccion = i.enBajaSial ? 'baja_sial' : 'padron'
   const fechaBaja = i.enBajaSial ? (i.bsCargoHasta ?? i.ocupacionHasta) : i.ocupacionHasta
-  const fechaDeteccion = i.enBajaSial
-    ? (i.bsPrimeraFecha ?? i.bsFechaArchivoUltima)
-    : padron.fecha
+  const fechaDeteccion = i.enBajaSial ? (i.bsPrimeraFecha ?? i.bsFechaArchivoUltima) : padron.fecha
   return {
     origen,
     fechaDeteccion,
@@ -178,6 +176,176 @@ export interface BusquedaCampos {
   cuil?: string | null
   idSial?: string | null
   codigo?: string | null
+}
+
+// ─── FASE 3 (paso 12): incidencias del ciclo de vida del cargo ──────────────
+// Núcleo PURO (DB-free, testeable) de los tipos 3/4/5/6a/6b/6c. La SQL del paso
+// 12 (incidencias.paso12.ts) solo aporta HECHOS; la decisión de tipo vive acá,
+// igual que `clasificarCargo` es la única fuente de verdad de la pestaña
+// "baja sin concurso". Ver .agents/tasks/incidencias-expansion/design.md §D/§E.
+//
+// A DIFERENCIA de `clasificarCargo` (cascada total, un grupo por cargo), un
+// mismo cargo PUEDE disparar varias incidencias a la vez (p. ej. "cayó del
+// padrón" y "cambios del puesto"): no son excluyentes. Por eso cada tipo tiene
+// su propia función pura `clasificar*` que devuelve su slug o null, y el
+// orquestador (construirIncidencias) evalúa las 6 y emite una fila por cada
+// no-null (NO hay cascada excluyente entre tipos).
+
+// Slugs persistidos en padron_incidencias.tipo (design §D.2).
+export type TipoIncidenciaSlug =
+  | 'cayo-del-padron'
+  | 'cambio-situacion-revista'
+  | 'cambios-del-puesto'
+  | 'otras:nueva-baja'
+  | 'otras:cambio-persona'
+  | 'otras:reaparecio'
+
+// Normalización del vocabulario de situación de revista (design §E.4). Reusa
+// `normalizarBusqueda` (sin tildes, minúsculas, trim). Valores reales del
+// padrón: 'activo', 'retencion de cargo', 'comision'.
+export type SituacionRevista = 'activo' | 'comision' | 'retencion' | 'otro'
+export function normalizarSituacionRevista(raw: string | null): SituacionRevista {
+  const s = normalizarBusqueda(raw)
+  if (s.includes('retenc')) return 'retencion'
+  if (s.includes('comis')) return 'comision'
+  if (s.includes('activ')) return 'activo'
+  return 'otro'
+}
+
+// HECHOS (DB-free) que alimentan las reglas de §E. Todos derivan de la SQL del
+// paso 12 (ocupación viva + padron_historico de S-1 + padron_diff del snapshot +
+// baja SIAL + conjunto aRechazarBaja del paso 4). La clasificación no toca BD.
+export interface HechosIncidencia {
+  estado: 'vigente' | 'validacion_vacante' | 'no_vigente' | string
+  tieneOcupanteVigente: boolean
+  ausenteUltimoPadron: boolean
+  enBajaSial: boolean
+  enBajaSialNueva: boolean
+  presentePeriodoAnterior: boolean
+  situacionRevistaAnt: string | null
+  situacionRevistaNue: string | null
+  // Señal del diff del snapshot para cambio de puesto/especialidad (§E.5).
+  cambioPuestoDiff: boolean
+  // Respaldo histórico del cambio de puesto/especialidad que el diff NO ve
+  // (cambio de FK sin cambio de texto; no hay marcador __puesto_cargo_id__).
+  puestoCargoIdAnt: string | null
+  puestoCargoIdNue: string | null
+  especialidadPuestoIdAnt: string | null
+  especialidadPuestoIdNue: string | null
+  // CUIL anterior (histórico denso, por cargo_id) vs nuevo (ocupación viva).
+  cuilAnt: string | null
+  cuilNue: string | null
+  // Retención elegible para reemplazante (§E.4): 'R'/'TTR' + cadena armada.
+  tipoOrigen: string | null
+  cargoRetenidoId: string | null
+  // El cargo está en el conjunto aRechazarBaja del paso 4 (validacion_vacante →
+  // vigente): es la reaparición (§E.6c), leída, no reconstruida.
+  esReaparicion: boolean
+}
+
+// 3 — Cayó del padrón (§E.3): estaba presente el período anterior y ahora está
+// ausente del padrón (o en validación de vacante), SIN baja SIAL que lo explique.
+export function clasificarCayoDelPadron(h: HechosIncidencia): 'cayo-del-padron' | null {
+  if (
+    h.presentePeriodoAnterior &&
+    (h.ausenteUltimoPadron || h.estado === 'validacion_vacante') &&
+    !h.enBajaSial &&
+    !h.enBajaSialNueva
+  ) {
+    return 'cayo-del-padron'
+  }
+  return null
+}
+
+// 4 — Cambió la situación de revista (§E.4): mismo rol en ant y nue, con
+// situación normalizada distinta. La comparación normalizada ant/nue es la
+// regla CANÓNICA (el diff es solo refuerzo, lo aporta la SQL como ant/nue).
+export function clasificarCambioSituacionRevista(
+  h: HechosIncidencia,
+): 'cambio-situacion-revista' | null {
+  if (h.situacionRevistaAnt == null || h.situacionRevistaNue == null) return null
+  if (
+    normalizarSituacionRevista(h.situacionRevistaAnt) !==
+    normalizarSituacionRevista(h.situacionRevistaNue)
+  ) {
+    return 'cambio-situacion-revista'
+  }
+  return null
+}
+
+// Transición activo→retención con cadena de reemplazo armada → "elegible para
+// reemplazante" (§E.4). Solo para el `detalle`, no cambia el tipo.
+export function esElegibleReemplazante(h: HechosIncidencia): boolean {
+  return (
+    normalizarSituacionRevista(h.situacionRevistaAnt) === 'activo' &&
+    normalizarSituacionRevista(h.situacionRevistaNue) === 'retencion' &&
+    (h.tipoOrigen === 'R' || h.tipoOrigen === 'TTR') &&
+    h.cargoRetenidoId != null
+  )
+}
+
+// 5 — Cambios del puesto (§E.5): unión de la señal del diff (texto SIAL +
+// marcador de FK de especialidad) y el respaldo histórico (cambio de
+// puesto_cargo_id/especialidad_puesto_id que el diff NO ve). Gobernado por SIAL.
+export function clasificarCambiosDelPuesto(h: HechosIncidencia): 'cambios-del-puesto' | null {
+  if (cambioPuestoCargo(h) || cambioEspecialidadPuesto(h) || h.cambioPuestoDiff) {
+    return 'cambios-del-puesto'
+  }
+  return null
+}
+
+// Cambio de puesto_cargo_id por respaldo histórico (ambos presentes y distintos).
+function cambioPuestoCargo(h: HechosIncidencia): boolean {
+  return (
+    h.puestoCargoIdAnt != null &&
+    h.puestoCargoIdNue != null &&
+    h.puestoCargoIdAnt !== h.puestoCargoIdNue
+  )
+}
+
+// Cambio de especialidad_puesto_id por respaldo histórico (ambos presentes y
+// distintos). Null→valor o valor→null se dejan al diff (señal del snapshot).
+function cambioEspecialidadPuesto(h: HechosIncidencia): boolean {
+  return (
+    h.especialidadPuestoIdAnt != null &&
+    h.especialidadPuestoIdNue != null &&
+    h.especialidadPuestoIdAnt !== h.especialidadPuestoIdNue
+  )
+}
+
+// Distingue "cambio puesto" vs "cambio especialidad" para el `detalle` (§E.5).
+// El cambio de puesto manda sobre el de especialidad cuando ambos aplican.
+export function detalleCambioPuesto(h: HechosIncidencia): 'cambio puesto' | 'cambio especialidad' {
+  return cambioPuestoCargo(h) ? 'cambio puesto' : 'cambio especialidad'
+}
+
+// 6a — Nueva baja detectada (§E.6a): ventana "baja SIAL antes que el padrón".
+export function clasificarNuevaBaja(h: HechosIncidencia): 'otras:nueva-baja' | null {
+  if (
+    h.enBajaSialNueva &&
+    h.estado === 'vigente' &&
+    h.tieneOcupanteVigente &&
+    !h.ausenteUltimoPadron
+  ) {
+    return 'otras:nueva-baja'
+  }
+  return null
+}
+
+// 6b — Cambió la persona (§E.6b): mismo cargo ocupado por otro CUIL. Fallback
+// histórico (roles_persona está vacía → no se programa, sería código muerto):
+// cuil_nue != cuil_ant, ambos no nulos.
+export function clasificarCambioPersona(h: HechosIncidencia): 'otras:cambio-persona' | null {
+  if (h.tieneOcupanteVigente && h.cuilAnt != null && h.cuilNue != null && h.cuilAnt !== h.cuilNue) {
+    return 'otras:cambio-persona'
+  }
+  return null
+}
+
+// 6c — Reapareció (§E.6c): el cargo está en aRechazarBaja del paso 4
+// (validacion_vacante → vigente). Leído, no reconstruido.
+export function clasificarReaparecio(h: HechosIncidencia): 'otras:reaparecio' | null {
+  return h.esReaparicion ? 'otras:reaparecio' : null
 }
 
 // `qNorm` ya normalizado (normalizarBusqueda). Mínimo 2 caracteres, si no no filtra.

@@ -122,7 +122,7 @@ const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString().
 // dan EXACTAMENTE los mismos 9 match (ver reporte.md). Las listas se inyectan con
 // Prisma.join desde CODIGOS_REGISTRO_GESTIONABLES_PLENOS y ANEXO_II_83 (una sola
 // fuente de verdad, sin hardcodear dos veces).
-function sqlCargoGestionable(alias: string): Prisma.Sql {
+export function sqlCargoGestionable(alias: string): Prisma.Sql {
   const c = Prisma.raw(alias)
   const plenos = Prisma.join([...CODIGOS_REGISTRO_GESTIONABLES_PLENOS])
   const anexoII = Prisma.join([...ANEXO_II_83])

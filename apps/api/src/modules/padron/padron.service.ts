@@ -27,6 +27,7 @@ import {
   filtrarGestionablesVivas,
 } from './padron.historico.helpers.js'
 import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from '../incidencias/incidencias.gestionable.js'
+import { leerHechosPaso12, construirIncidencias } from '../incidencias/incidencias.paso12.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
@@ -3356,6 +3357,30 @@ export async function aprobarSnapshotService(
 
     // Nota: el snapshot se marcó como 'aprobado' en el paso 8 (el populate de
     // KPIs lo requiere para que su propia foto entre en estadoActivoAcumuladoSql).
+
+    // ── 12. Incidencias del snapshot (FASE 3, design §D/§E) ─────────────────
+    //       Calcula y PERSISTE las incidencias del ciclo de vida del cargo del
+    //       subuniverso gestionable (tipos 3/4/5/6a/6b/6c) comparando el estado
+    //       final (tras paso 11) contra la foto anterior del histórico denso
+    //       (§C.6) y las señales del diff / baja SIAL. Dentro de la MISMA
+    //       transacción (atomicidad: si falla, rollback total de la aprobación).
+    //
+    //       Idempotencia (§D.4): borrar primero las filas de ESTE snapshot para
+    //       que una reaprobación regenere sin duplicar. Combinado con el DELETE
+    //       del paso 7 denso, reaprobar regenera histórico e incidencias.
+    //
+    //       Reaparición (§E.6c): se LEE el conjunto aRechazarBaja del paso 4
+    //       (IDs de cargo validacion_vacante → vigente, ya calculado en este
+    //       mismo callback), NO se reconstruye estado de cargo desde el histórico.
+    //
+    //       Todo con `tx` (la transacción), nunca `prisma`.
+    await tx.$executeRaw`DELETE FROM padron_incidencias WHERE snapshot_id = ${id}::uuid`
+    const idsRechazarBaja = new Set(aRechazarBaja)
+    const { hechos, rows } = await leerHechosPaso12(tx, id, snapshot.fechaAsignada, idsRechazarBaja)
+    const incidencias = construirIncidencias(rows, hechos, id)
+    for (const lote of chunk(incidencias, 2000)) {
+      await tx.padronIncidencia.createMany({ data: lote })
+    }
   }, TRANSACTION_OPTS)
 
   return { ok: true, snapshotId: id }

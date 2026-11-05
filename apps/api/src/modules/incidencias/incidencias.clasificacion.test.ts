@@ -9,9 +9,41 @@ import {
   normalizarBusqueda,
   coincideBusqueda,
   GRUPOS_CARGO,
+  normalizarSituacionRevista,
+  clasificarCayoDelPadron,
+  clasificarCambioSituacionRevista,
+  esElegibleReemplazante,
+  clasificarCambiosDelPuesto,
+  detalleCambioPuesto,
+  clasificarNuevaBaja,
+  clasificarCambioPersona,
+  clasificarReaparecio,
   type CargoFacts,
   type DeteccionInput,
+  type HechosIncidencia,
 } from './incidencias.clasificacion.js'
+
+const hechos = (over: Partial<HechosIncidencia> = {}): HechosIncidencia => ({
+  estado: 'vigente',
+  tieneOcupanteVigente: true,
+  ausenteUltimoPadron: false,
+  enBajaSial: false,
+  enBajaSialNueva: false,
+  presentePeriodoAnterior: false,
+  situacionRevistaAnt: null,
+  situacionRevistaNue: null,
+  cambioPuestoDiff: false,
+  puestoCargoIdAnt: null,
+  puestoCargoIdNue: null,
+  especialidadPuestoIdAnt: null,
+  especialidadPuestoIdNue: null,
+  cuilAnt: null,
+  cuilNue: null,
+  tipoOrigen: null,
+  cargoRetenidoId: null,
+  esReaparicion: false,
+  ...over,
+})
 
 const facts = (over: Partial<CargoFacts> = {}): CargoFacts => ({
   estado: 'vigente',
@@ -28,7 +60,12 @@ describe('clasificarCargo', () => {
     expect(clasificarCargo(facts({ estado: 'no_vigente' }))).toBe('no_vigente')
     expect(
       clasificarCargo(
-        facts({ estado: 'no_vigente', enBajaSial: true, ausenteUltimoPadron: true, concursoActivo: true }),
+        facts({
+          estado: 'no_vigente',
+          enBajaSial: true,
+          ausenteUltimoPadron: true,
+          concursoActivo: true,
+        }),
       ),
     ).toBe('no_vigente')
   })
@@ -38,7 +75,9 @@ describe('clasificarCargo', () => {
   })
 
   it('vigente con ocupante y concurso activo es ocupado', () => {
-    expect(clasificarCargo(facts({ tieneOcupanteVigente: true, concursoActivo: true }))).toBe('ocupado')
+    expect(clasificarCargo(facts({ tieneOcupanteVigente: true, concursoActivo: true }))).toBe(
+      'ocupado',
+    )
   })
 
   it('vigente con ocupante y en baja SIAL es ocupado', () => {
@@ -47,7 +86,9 @@ describe('clasificarCargo', () => {
 
   it('con concurso activo es en_concurso (vigente vacante y validacion_vacante)', () => {
     expect(clasificarCargo(facts({ concursoActivo: true }))).toBe('en_concurso')
-    expect(clasificarCargo(facts({ estado: 'validacion_vacante', concursoActivo: true }))).toBe('en_concurso')
+    expect(clasificarCargo(facts({ estado: 'validacion_vacante', concursoActivo: true }))).toBe(
+      'en_concurso',
+    )
   })
 
   it('el concurso gana sobre la baja SIAL', () => {
@@ -67,7 +108,9 @@ describe('clasificarCargo', () => {
   })
 
   it('ambos (baja SIAL + ausente del padrón) es baja_sin_concurso', () => {
-    expect(clasificarCargo(facts({ enBajaSial: true, ausenteUltimoPadron: true }))).toBe('baja_sin_concurso')
+    expect(clasificarCargo(facts({ enBajaSial: true, ausenteUltimoPadron: true }))).toBe(
+      'baja_sin_concurso',
+    )
   })
 
   it('ninguno (vigente vacante sin evidencia) es sin_clasificar', () => {
@@ -75,15 +118,15 @@ describe('clasificarCargo', () => {
   })
 
   it('altaPendiente es alta_pendiente y nunca baja_sin_concurso', () => {
-    expect(clasificarCargo(facts({ altaPendiente: true, enBajaSial: true, ausenteUltimoPadron: true }))).toBe(
-      'alta_pendiente',
-    )
+    expect(
+      clasificarCargo(facts({ altaPendiente: true, enBajaSial: true, ausenteUltimoPadron: true })),
+    ).toBe('alta_pendiente')
   })
 
   it('validacion_vacante con ocupante vigente (inconsistente) y sin concurso es sin_clasificar', () => {
-    expect(clasificarCargo(facts({ estado: 'validacion_vacante', tieneOcupanteVigente: true }))).toBe(
-      'sin_clasificar',
-    )
+    expect(
+      clasificarCargo(facts({ estado: 'validacion_vacante', tieneOcupanteVigente: true })),
+    ).toBe('sin_clasificar')
   })
 
   it('estado desconocido es sin_clasificar', () => {
@@ -146,7 +189,12 @@ const det = (over: Partial<DeteccionInput> = {}): DeteccionInput => ({
 describe('resolverDeteccion', () => {
   it('solo baja SIAL: origen baja_sial, fecha de primera carga y cargo_hasta', () => {
     const d = resolverDeteccion(
-      det({ enBajaSial: true, bsCargoHasta: '2026-10-30', bsPrimeraFecha: '2026-11-01', bsFechaArchivoUltima: '2026-11-08' }),
+      det({
+        enBajaSial: true,
+        bsCargoHasta: '2026-10-30',
+        bsPrimeraFecha: '2026-11-01',
+        bsFechaArchivoUltima: '2026-11-08',
+      }),
     )
     expect(d.origen).toBe('baja_sial')
     expect(d.fechaDeteccion).toBe('2026-11-01')
@@ -162,7 +210,12 @@ describe('resolverDeteccion', () => {
 
   it('solo padrón (vigente): fuente padron_diff', () => {
     const d = resolverDeteccion(
-      det({ ausenteUltimoPadron: true, fechaBajaPadronDiff: '2026-11-01', ocupacionDesdeUlt: '2025-01-01', ocupacionHasta: '2026-10-31' }),
+      det({
+        ausenteUltimoPadron: true,
+        fechaBajaPadronDiff: '2026-11-01',
+        ocupacionDesdeUlt: '2025-01-01',
+        ocupacionHasta: '2026-10-31',
+      }),
     )
     expect(d.origen).toBe('padron')
     expect(d.fechaPadron).toBe('2026-11-01')
@@ -172,7 +225,12 @@ describe('resolverDeteccion', () => {
 
   it('validacion_vacante usa estado_desde aunque exista un diff más viejo', () => {
     const d = resolverDeteccion(
-      det({ estado: 'validacion_vacante', estadoDesde: '2026-11-01', fechaBajaPadronDiff: '2026-08-01', ausenteUltimoPadron: true }),
+      det({
+        estado: 'validacion_vacante',
+        estadoDesde: '2026-11-01',
+        fechaBajaPadronDiff: '2026-08-01',
+        ausenteUltimoPadron: true,
+      }),
     )
     expect(d.fechaPadron).toBe('2026-11-01')
     expect(d.fuenteFechaPadron).toBe('estado_desde')
@@ -180,7 +238,11 @@ describe('resolverDeteccion', () => {
 
   it('validacion_vacante sin estado_desde y diff >= ultima_desde usa padron_diff', () => {
     const d = resolverDeteccion(
-      det({ estado: 'validacion_vacante', fechaBajaPadronDiff: '2026-11-01', ocupacionDesdeUlt: '2026-01-01' }),
+      det({
+        estado: 'validacion_vacante',
+        fechaBajaPadronDiff: '2026-11-01',
+        ocupacionDesdeUlt: '2026-01-01',
+      }),
     )
     expect(d.fuenteFechaPadron).toBe('padron_diff')
     expect(d.fechaPadron).toBe('2026-11-01')
@@ -188,7 +250,12 @@ describe('resolverDeteccion', () => {
 
   it('vigente con diff anterior a la última ocupación descarta el diff y usa ocupacion_hasta', () => {
     const d = resolverDeteccion(
-      det({ ausenteUltimoPadron: true, fechaBajaPadronDiff: '2026-03-01', ocupacionDesdeUlt: '2026-05-01', ocupacionHasta: '2026-10-31' }),
+      det({
+        ausenteUltimoPadron: true,
+        fechaBajaPadronDiff: '2026-03-01',
+        ocupacionDesdeUlt: '2026-05-01',
+        ocupacionHasta: '2026-10-31',
+      }),
     )
     expect(d.fuenteFechaPadron).toBe('ocupacion_hasta')
     expect(d.fechaPadron).toBe('2026-10-31')
@@ -208,7 +275,12 @@ describe('resolverDeteccion', () => {
 
   it('ambos: origen baja_sial y fechaPadron presente', () => {
     const d = resolverDeteccion(
-      det({ enBajaSial: true, ausenteUltimoPadron: true, bsPrimeraFecha: '2026-11-08', fechaBajaPadronDiff: '2026-11-01' }),
+      det({
+        enBajaSial: true,
+        ausenteUltimoPadron: true,
+        bsPrimeraFecha: '2026-11-08',
+        fechaBajaPadronDiff: '2026-11-01',
+      }),
     )
     expect(d.origen).toBe('baja_sial')
     expect(d.ausentePadron).toBe(true)
@@ -218,24 +290,38 @@ describe('resolverDeteccion', () => {
 
 describe('describirDeteccion', () => {
   it('textos de baja SIAL', () => {
-    const base = { origen: 'baja_sial' as const, fechaPadron: null, fuenteFechaPadron: 'desconocida' as const, enBajaSial: true, ausentePadron: false }
-    expect(describirDeteccion({ ...base, fechaDeteccion: '2026-11-01', fechaBaja: '2026-10-30' })).toBe(
-      'Baja SIAL cargada el 01/11/2026 (baja al 30/10/2026)',
-    )
+    const base = {
+      origen: 'baja_sial' as const,
+      fechaPadron: null,
+      fuenteFechaPadron: 'desconocida' as const,
+      enBajaSial: true,
+      ausentePadron: false,
+    }
+    expect(
+      describirDeteccion({ ...base, fechaDeteccion: '2026-11-01', fechaBaja: '2026-10-30' }),
+    ).toBe('Baja SIAL cargada el 01/11/2026 (baja al 30/10/2026)')
     expect(describirDeteccion({ ...base, fechaDeteccion: '2026-11-01', fechaBaja: null })).toBe(
       'Baja SIAL cargada el 01/11/2026',
     )
-    expect(describirDeteccion({ ...base, fechaDeteccion: null, fechaBaja: null })).toBe('Figura en la baja SIAL')
+    expect(describirDeteccion({ ...base, fechaDeteccion: null, fechaBaja: null })).toBe(
+      'Figura en la baja SIAL',
+    )
   })
 
   it('textos de padrón', () => {
-    const base = { origen: 'padron' as const, fechaDeteccion: null, fechaBaja: null, enBajaSial: false, ausentePadron: true }
-    expect(describirDeteccion({ ...base, fechaPadron: '2026-11-01', fuenteFechaPadron: 'padron_diff' })).toBe(
-      'Ausente del padrón desde el 01/11/2026',
-    )
-    expect(describirDeteccion({ ...base, fechaPadron: null, fuenteFechaPadron: 'desconocida' })).toBe(
-      'Ausente del padrón (fecha desconocida)',
-    )
+    const base = {
+      origen: 'padron' as const,
+      fechaDeteccion: null,
+      fechaBaja: null,
+      enBajaSial: false,
+      ausentePadron: true,
+    }
+    expect(
+      describirDeteccion({ ...base, fechaPadron: '2026-11-01', fuenteFechaPadron: 'padron_diff' }),
+    ).toBe('Ausente del padrón desde el 01/11/2026')
+    expect(
+      describirDeteccion({ ...base, fechaPadron: null, fuenteFechaPadron: 'desconocida' }),
+    ).toBe('Ausente del padrón (fecha desconocida)')
   })
 })
 
@@ -262,7 +348,12 @@ describe('búsqueda', () => {
     expect(normalizarBusqueda('  PÉREZ ')).toBe('perez')
   })
   it('coincide por nombre, CUIL con/sin guiones, id_sial y código; mínimo 2 caracteres', () => {
-    const item = { nombre: 'Pérez, Juan', cuil: '20-11111111-3', idSial: '001788157-2', codigo: 'POF-000123' }
+    const item = {
+      nombre: 'Pérez, Juan',
+      cuil: '20-11111111-3',
+      idSial: '001788157-2',
+      codigo: 'POF-000123',
+    }
     expect(coincideBusqueda(item, normalizarBusqueda('perez'))).toBe(true)
     expect(coincideBusqueda(item, normalizarBusqueda('20-11111111'))).toBe(true)
     expect(coincideBusqueda(item, normalizarBusqueda('111111113'))).toBe(true)
@@ -270,5 +361,247 @@ describe('búsqueda', () => {
     expect(coincideBusqueda(item, normalizarBusqueda('pof-000'))).toBe(true)
     expect(coincideBusqueda(item, normalizarBusqueda('zzz'))).toBe(false)
     expect(coincideBusqueda(item, 'z')).toBe(true) // < 2 caracteres: no filtra
+  })
+})
+
+// ─── FASE 3: clasificadores de incidencias (tipos 3/4/5/6a/6b/6c) ───────────
+
+describe('normalizarSituacionRevista', () => {
+  it('mapea los valores reales del padrón y el residual', () => {
+    expect(normalizarSituacionRevista('activo')).toBe('activo')
+    expect(normalizarSituacionRevista('retencion de cargo')).toBe('retencion')
+    expect(normalizarSituacionRevista('Retención de Cargo')).toBe('retencion')
+    expect(normalizarSituacionRevista('comision')).toBe('comision')
+    expect(normalizarSituacionRevista('Comisión')).toBe('comision')
+    expect(normalizarSituacionRevista('algo raro')).toBe('otro')
+    expect(normalizarSituacionRevista(null)).toBe('otro')
+  })
+})
+
+describe('clasificarCayoDelPadron (tipo 3)', () => {
+  it('dispara: presente antes + ausente del padrón + sin baja SIAL', () => {
+    expect(
+      clasificarCayoDelPadron(hechos({ presentePeriodoAnterior: true, ausenteUltimoPadron: true })),
+    ).toBe('cayo-del-padron')
+  })
+  it('dispara también por estado validacion_vacante', () => {
+    expect(
+      clasificarCayoDelPadron(
+        hechos({ presentePeriodoAnterior: true, estado: 'validacion_vacante' }),
+      ),
+    ).toBe('cayo-del-padron')
+  })
+  it('no dispara si no estaba presente el período anterior', () => {
+    expect(
+      clasificarCayoDelPadron(
+        hechos({ presentePeriodoAnterior: false, ausenteUltimoPadron: true }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si sigue presente (no ausente y no validacion_vacante)', () => {
+    expect(clasificarCayoDelPadron(hechos({ presentePeriodoAnterior: true }))).toBeNull()
+  })
+  it('no dispara si lo explica la baja SIAL (vieja o nueva)', () => {
+    expect(
+      clasificarCayoDelPadron(
+        hechos({ presentePeriodoAnterior: true, ausenteUltimoPadron: true, enBajaSial: true }),
+      ),
+    ).toBeNull()
+    expect(
+      clasificarCayoDelPadron(
+        hechos({ presentePeriodoAnterior: true, ausenteUltimoPadron: true, enBajaSialNueva: true }),
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('clasificarCambioSituacionRevista (tipo 4)', () => {
+  it('dispara cuando la situación normalizada cambia', () => {
+    expect(
+      clasificarCambioSituacionRevista(
+        hechos({ situacionRevistaAnt: 'activo', situacionRevistaNue: 'retencion de cargo' }),
+      ),
+    ).toBe('cambio-situacion-revista')
+  })
+  it('no dispara si normalizan igual pese a texto distinto', () => {
+    expect(
+      clasificarCambioSituacionRevista(
+        hechos({ situacionRevistaAnt: 'activo', situacionRevistaNue: 'ACTIVO' }),
+      ),
+    ).toBeNull()
+    expect(
+      clasificarCambioSituacionRevista(
+        hechos({ situacionRevistaAnt: 'retencion de cargo', situacionRevistaNue: 'Retención' }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si falta ant o nue', () => {
+    expect(
+      clasificarCambioSituacionRevista(
+        hechos({ situacionRevistaAnt: null, situacionRevistaNue: 'activo' }),
+      ),
+    ).toBeNull()
+    expect(
+      clasificarCambioSituacionRevista(
+        hechos({ situacionRevistaAnt: 'activo', situacionRevistaNue: null }),
+      ),
+    ).toBeNull()
+  })
+  it('esElegibleReemplazante: activo→retención con cadena armada', () => {
+    expect(
+      esElegibleReemplazante(
+        hechos({
+          situacionRevistaAnt: 'activo',
+          situacionRevistaNue: 'retencion de cargo',
+          tipoOrigen: 'R',
+          cargoRetenidoId: 'c1',
+        }),
+      ),
+    ).toBe(true)
+    // misma transición pero sin cadena → no elegible
+    expect(
+      esElegibleReemplazante(
+        hechos({
+          situacionRevistaAnt: 'activo',
+          situacionRevistaNue: 'retencion de cargo',
+          tipoOrigen: null,
+          cargoRetenidoId: null,
+        }),
+      ),
+    ).toBe(false)
+    // retención→activo (sentido inverso) → no elegible
+    expect(
+      esElegibleReemplazante(
+        hechos({
+          situacionRevistaAnt: 'retencion de cargo',
+          situacionRevistaNue: 'activo',
+          tipoOrigen: 'TTR',
+          cargoRetenidoId: 'c1',
+        }),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('clasificarCambiosDelPuesto (tipo 5)', () => {
+  it('dispara por señal del diff', () => {
+    expect(clasificarCambiosDelPuesto(hechos({ cambioPuestoDiff: true }))).toBe(
+      'cambios-del-puesto',
+    )
+  })
+  it('dispara por cambio de puesto_cargo_id que el diff NO ve (respaldo histórico)', () => {
+    expect(
+      clasificarCambiosDelPuesto(
+        hechos({ cambioPuestoDiff: false, puestoCargoIdAnt: 'p1', puestoCargoIdNue: 'p2' }),
+      ),
+    ).toBe('cambios-del-puesto')
+  })
+  it('dispara por cambio de especialidad_puesto_id (respaldo histórico)', () => {
+    expect(
+      clasificarCambiosDelPuesto(
+        hechos({ especialidadPuestoIdAnt: 'e1', especialidadPuestoIdNue: 'e2' }),
+      ),
+    ).toBe('cambios-del-puesto')
+  })
+  it('no dispara si el puesto/especialidad no cambió y no hay señal de diff', () => {
+    expect(
+      clasificarCambiosDelPuesto(
+        hechos({
+          puestoCargoIdAnt: 'p1',
+          puestoCargoIdNue: 'p1',
+          especialidadPuestoIdAnt: 'e1',
+          especialidadPuestoIdNue: 'e1',
+        }),
+      ),
+    ).toBeNull()
+  })
+  it('detalleCambioPuesto distingue puesto vs especialidad (puesto manda)', () => {
+    expect(detalleCambioPuesto(hechos({ puestoCargoIdAnt: 'p1', puestoCargoIdNue: 'p2' }))).toBe(
+      'cambio puesto',
+    )
+    expect(
+      detalleCambioPuesto(hechos({ especialidadPuestoIdAnt: 'e1', especialidadPuestoIdNue: 'e2' })),
+    ).toBe('cambio especialidad')
+  })
+})
+
+describe('clasificarNuevaBaja (tipo 6a)', () => {
+  it('dispara: baja SIAL nueva + cargo vigente con ocupante + no ausente', () => {
+    expect(
+      clasificarNuevaBaja(
+        hechos({ enBajaSialNueva: true, estado: 'vigente', tieneOcupanteVigente: true }),
+      ),
+    ).toBe('otras:nueva-baja')
+  })
+  it('no dispara si no hay baja SIAL nueva', () => {
+    expect(
+      clasificarNuevaBaja(
+        hechos({ enBajaSialNueva: false, estado: 'vigente', tieneOcupanteVigente: true }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si el padrón ya lo bajó (ausente)', () => {
+    expect(
+      clasificarNuevaBaja(
+        hechos({
+          enBajaSialNueva: true,
+          estado: 'vigente',
+          tieneOcupanteVigente: true,
+          ausenteUltimoPadron: true,
+        }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si el cargo ya no tiene ocupante vigente', () => {
+    expect(
+      clasificarNuevaBaja(
+        hechos({ enBajaSialNueva: true, estado: 'vigente', tieneOcupanteVigente: false }),
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('clasificarCambioPersona (tipo 6b)', () => {
+  it('dispara: ocupado con CUIL nuevo != CUIL anterior', () => {
+    expect(
+      clasificarCambioPersona(
+        hechos({ tieneOcupanteVigente: true, cuilAnt: '20111111113', cuilNue: '27222222228' }),
+      ),
+    ).toBe('otras:cambio-persona')
+  })
+  it('no dispara con CUILs iguales', () => {
+    expect(
+      clasificarCambioPersona(
+        hechos({ tieneOcupanteVigente: true, cuilAnt: '20111111113', cuilNue: '20111111113' }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si algún CUIL es nulo', () => {
+    expect(
+      clasificarCambioPersona(
+        hechos({ tieneOcupanteVigente: true, cuilAnt: null, cuilNue: '27222222228' }),
+      ),
+    ).toBeNull()
+    expect(
+      clasificarCambioPersona(
+        hechos({ tieneOcupanteVigente: true, cuilAnt: '20111111113', cuilNue: null }),
+      ),
+    ).toBeNull()
+  })
+  it('no dispara si el cargo no tiene ocupante vigente', () => {
+    expect(
+      clasificarCambioPersona(
+        hechos({ tieneOcupanteVigente: false, cuilAnt: '20111111113', cuilNue: '27222222228' }),
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('clasificarReaparecio (tipo 6c)', () => {
+  it('dispara si el cargo está en aRechazarBaja (esReaparicion)', () => {
+    expect(clasificarReaparecio(hechos({ esReaparicion: true }))).toBe('otras:reaparecio')
+  })
+  it('no dispara si no es reaparición', () => {
+    expect(clasificarReaparecio(hechos({ esReaparicion: false }))).toBeNull()
   })
 })
