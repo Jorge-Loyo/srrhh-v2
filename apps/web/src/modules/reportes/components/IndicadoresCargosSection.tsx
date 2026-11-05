@@ -12,7 +12,9 @@ function mesEnCurso(): string {
 // Sección colapsable "Indicadores de cargos": tres tablas (estado, vigente,
 // ocupado por situación de revista), mes actual vs mes anterior, más un bloque aparte
 // con los cargos que pasaron a no vigente en el período. El total es "a gestionar"
-// (en validación + vigente): los no vigentes no suman. Solo lectura.
+// (en validación + vigente): los no vigentes no suman. Solo cuenta cargos
+// gestionables (el subconjunto sobre el que se generan bajas, concursos y nuevos
+// cargos), NO la dotación total. Solo lectura.
 export function IndicadoresCargosSection() {
   const [abierto, setAbierto] = useState(false)
   const [mes, setMes] = useState('')
@@ -63,8 +65,9 @@ export function IndicadoresCargosSection() {
       {abierto && (
         <div className="px-6 pb-6 space-y-4">
           <p className="text-xs text-gray-400">
-            Cantidad de cargos a gestionar (en validación + vigentes) por carrera, comparada con el mes anterior. Los
-            cargos no vigentes no se cuentan. Vista informativa (solo lectura).
+            Cantidad de cargos gestionables a gestionar (en validación + vigentes) por carrera, comparada con el mes
+            anterior. Son los cargos sobre los que se generan bajas, concursos y nuevos cargos, no la dotación total.
+            Los cargos no vigentes no se cuentan. Vista informativa (solo lectura).
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -145,7 +148,8 @@ export function IndicadoresCargosSection() {
               )}
               {!data.conciliacion.ok && (
                 <p role="alert" className="text-xs font-semibold text-red-700">
-                  La suma de grupos no coincide con el total de cargos (a gestionar + no vigentes). Avisar a Sistemas.
+                  La suma de grupos no coincide con el total de cargos gestionables (a gestionar + no vigentes).
+                  Avisar a Sistemas.
                 </p>
               )}
               {data.tablas.map((t) => (

@@ -393,7 +393,7 @@ const SIN_CODIGO = '(sin codigo)'
 const COLUMNAS_META: Record<ColumnasBase | 'personas_ref', { etiqueta: string; nota: string | null }> = {
   total: {
     etiqueta: 'Total a gestionar',
-    nota: 'En validación + Vigente. No incluye los cargos no vigentes.',
+    nota: 'Cargos gestionables (sobre los que se generan bajas, concursos y nuevos cargos), no la dotación total. En validación + Vigente. No incluye los cargos no vigentes.',
   },
   validacion: { etiqueta: 'En validación', nota: 'Estado validacion_vacante.' },
   vigente: { etiqueta: 'Vigente', nota: 'Ocupado + Vacante + Concurso.' },
