@@ -1,7 +1,14 @@
 
 // Registro del lado web de las pestañas de Incidencias. Son vistas, no funcionalidades:
 // no tienen permisos propios (el acceso lo da `incidencias/ver`).
-export type TabIncidenciasId = 'todo' | 'sial-sin-cargo' | 'baja-sin-concurso'
+export type TabIncidenciasId =
+  | 'todo'
+  | 'sial-sin-cargo'
+  | 'baja-sin-concurso'
+  | 'cayo-del-padron'
+  | 'cambio-situacion-revista'
+  | 'cambios-del-puesto'
+  | 'otras'
 
 export interface TabIncidencias {
   id: TabIncidenciasId
@@ -13,6 +20,10 @@ export const TABS_INCIDENCIAS: TabIncidencias[] = [
   { id: 'todo', slug: 'todo', label: 'Todo' },
   { id: 'sial-sin-cargo', slug: 'sial-sin-cargo', label: 'SIAL sin cargo' },
   { id: 'baja-sin-concurso', slug: 'baja-sin-concurso', label: 'Baja sin concurso' },
+  { id: 'cayo-del-padron', slug: 'cayo-del-padron', label: 'Cayó del padrón' },
+  { id: 'cambio-situacion-revista', slug: 'cambio-situacion-revista', label: 'Cambió la situación de revista' },
+  { id: 'cambios-del-puesto', slug: 'cambios-del-puesto', label: 'Cambios del puesto' },
+  { id: 'otras', slug: 'otras', label: 'Otras incidencias' },
 ]
 
 // Pestaña activa: la elegida o, por defecto, la primera (Todo).

@@ -15,8 +15,22 @@ import {
   type ConciliacionGrupos,
   type ContextoIncidencias,
 } from './incidencias.baja-sin-concurso.js'
+import {
+  leerIncidenciasPersistidas,
+  filtrarPersistidas,
+  construirItemPersistido,
+  ordenarPersistidas,
+} from './incidencias.persistidas.js'
 
-export type TipoSlug = 'sial-sin-cargo' | 'baja-sin-concurso'
+// Slugs de pestaña (web). 'otras' AGRUPA los tres 'otras:*' persistidos en una
+// sola pestaña (decisión de negocio); el resto mapea 1:1 con el slug persistido.
+export type TipoSlug =
+  | 'sial-sin-cargo'
+  | 'baja-sin-concurso'
+  | 'cayo-del-padron'
+  | 'cambio-situacion-revista'
+  | 'cambios-del-puesto'
+  | 'otras'
 
 export interface FiltrosComunes {
   q?: string
@@ -179,7 +193,103 @@ const bajaSinConcurso: TipoIncidencia = {
   },
 }
 
-export const TIPOS_INCIDENCIA: TipoIncidencia[] = [sialSinCargo, bajaSinConcurso]
+// ─── Tipos persistidos (FASE 4): leen de padron_incidencias ──────────────────
+// Cada uno LEE las filas que el paso 12 ya persistió (del último snapshot
+// aprobado), sin recalcular. Para la unión "Todo" / resumen exponen el
+// IncidenciaItem común; las pestañas dedicadas usan el shape rico
+// (incidencias.persistidas.ts) vía listarPersistidas.
+
+// Slugs persistidos que alimentan cada pestaña. 'otras' agrupa los tres.
+const SLUGS_POR_PESTANA: Record<
+  'cayo-del-padron' | 'cambio-situacion-revista' | 'cambios-del-puesto' | 'otras',
+  readonly string[]
+> = {
+  'cayo-del-padron': ['cayo-del-padron'],
+  'cambio-situacion-revista': ['cambio-situacion-revista'],
+  'cambios-del-puesto': ['cambios-del-puesto'],
+  otras: ['otras:nueva-baja', 'otras:cambio-persona', 'otras:reaparecio'],
+}
+
+// Factory: un TipoIncidencia por pestaña persistida. `listar` devuelve el
+// IncidenciaItem común (para /todo y resumen); el detalle de la pestaña "otras"
+// incluye el sub-tipo para distinguir cuál de los tres es.
+function tipoPersistido(
+  slug: 'cayo-del-padron' | 'cambio-situacion-revista' | 'cambios-del-puesto' | 'otras',
+  label: string,
+): TipoIncidencia {
+  const slugs = SLUGS_POR_PESTANA[slug]
+  return {
+    slug,
+    label,
+    async contar() {
+      const rows = await leerIncidenciasPersistidas(slugs)
+      return rows.length
+    },
+    async listar(f) {
+      const rows = filtrarPersistidas(await leerIncidenciasPersistidas(slugs), f)
+      return rows.map((r) => {
+        const it = construirItemPersistido(r)
+        const detalle =
+          slug === 'otras' && it.subTipo
+            ? `${it.subTipo}: ${it.detalle ?? ''}`.trim()
+            : it.detalle ?? label
+        return {
+          clave: it.clave,
+          tipo: slug,
+          tipoLabel: label,
+          idSial: it.idSial,
+          codigo: it.codigo,
+          hospitalSigla: it.hospitalSigla,
+          carrera: it.carrera,
+          puesto: it.puesto,
+          especialidad: it.especialidad,
+          personaCuil: it.personaCuil,
+          personaNombre: it.personaNombre,
+          fecha: it.fecha,
+          detalle,
+          cargoId: it.cargoId,
+          diffId: null,
+        }
+      })
+    },
+  }
+}
+
+const cayoDelPadron = tipoPersistido('cayo-del-padron', 'Cayó del padrón')
+const cambioSituacionRevista = tipoPersistido('cambio-situacion-revista', 'Cambió la situación de revista')
+const cambiosDelPuesto = tipoPersistido('cambios-del-puesto', 'Cambios del puesto')
+const otras = tipoPersistido('otras', 'Otras incidencias')
+
+export const TIPOS_INCIDENCIA: TipoIncidencia[] = [
+  sialSinCargo,
+  bajaSinConcurso,
+  cayoDelPadron,
+  cambioSituacionRevista,
+  cambiosDelPuesto,
+  otras,
+]
+
+// ─── Listado dedicado (shape rico) por pestaña persistida ─────────────────────
+// Lo usan las rutas GET /incidencias/<slug> de las pestañas nuevas. Devuelve el
+// IncidenciaPersistidaItem completo (campos ant/nue por tipo) + paginación, con
+// el mismo contrato de meta que /todo y /baja-sin-concurso. `subTipo` solo en
+// 'otras'.
+export async function listarPersistidas(
+  slug: 'cayo-del-padron' | 'cambio-situacion-revista' | 'cambios-del-puesto' | 'otras',
+  f: FiltrosComunes & { page: number; pageSize: number },
+) {
+  const slugs = SLUGS_POR_PESTANA[slug]
+  const rows = filtrarPersistidas(await leerIncidenciasPersistidas(slugs), f)
+  const items = ordenarPersistidas(rows.map(construirItemPersistido))
+  const total = items.length
+  const pages = Math.max(1, Math.ceil(total / f.pageSize))
+  const start = (f.page - 1) * f.pageSize
+  return {
+    items: items.slice(start, start + f.pageSize),
+    meta: { total, page: f.page, pageSize: f.pageSize, pages },
+    generadoAt: new Date().toISOString(),
+  }
+}
 
 // ─── Unión ("Todo") ──────────────────────────────────────────────────────────
 

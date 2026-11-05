@@ -9,6 +9,10 @@ import { fechaCorta } from '../lib/tabsIncidencias'
 const CHIP_TIPO: Record<TipoIncidenciaSlug, string> = {
   'sial-sin-cargo': 'bg-orange-100 text-orange-700 border-orange-200',
   'baja-sin-concurso': 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'cayo-del-padron': 'bg-red-100 text-red-700 border-red-200',
+  'cambio-situacion-revista': 'bg-amber-100 text-amber-700 border-amber-200',
+  'cambios-del-puesto': 'bg-sky-100 text-sky-700 border-sky-200',
+  otras: 'bg-gray-100 text-gray-700 border-gray-200',
 }
 
 // Unión de los tipos de incidencia. Las acciones que modifican datos viven solo

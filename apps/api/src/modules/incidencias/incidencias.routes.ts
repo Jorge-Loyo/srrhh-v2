@@ -8,9 +8,10 @@ import {
   bajaSinConcursoQuerySchema,
   todoQuerySchema,
   resumenQuerySchema,
+  persistidaQuerySchema,
 } from './incidencias.schema.js'
 import { listarBajaSinConcurso } from './incidencias.baja-sin-concurso.js'
-import { listarTodo, resumenIncidencias } from './incidencias.tipos.js'
+import { listarTodo, resumenIncidencias, listarPersistidas } from './incidencias.tipos.js'
 import {
   getPendientesService,
   buscarConcursosParaIdSialService,
@@ -132,6 +133,27 @@ export async function incidenciasRoutes(app: FastifyInstance) {
       return reply.send({ data: result })
     },
   )
+  // ─── Pestañas persistidas (FASE 4, solo lectura desde padron_incidencias) ──
+  // GET /cayo-del-padron | /cambio-situacion-revista | /cambios-del-puesto |
+  // /otras — leen las incidencias que el paso 12 ya persistió en el último
+  // snapshot aprobado. 'otras' agrupa los tres slugs 'otras:*'. Mismo gating
+  // que el resto: `incidencias/ver`.
+  for (const slug of ['cayo-del-padron', 'cambio-situacion-revista', 'cambios-del-puesto', 'otras'] as const) {
+    app.get(
+      `/${slug}`,
+      { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'ver' }) },
+      async (request, reply) => {
+        const filtros = persistidaQuerySchema.parse(request.query)
+        const result = await listarPersistidas(slug, {
+          q: filtros.q,
+          carrera: filtros.carrera,
+          page: filtros.page ?? 1,
+          pageSize: filtros.pageSize ?? 50,
+        })
+        return reply.send({ data: result })
+      },
+    )
+  }
   // GET /resumen — contadores por pestaña + conciliación de la dotación.
   app.get(
     '/resumen',

@@ -70,9 +70,28 @@ export const todoQuerySchema = z.object({
   ...paginacion,
   q: qSchema,
   carrera: z.string().trim().max(100).optional(),
-  tipo: z.enum(['sial-sin-cargo', 'baja-sin-concurso']).optional(),
+  tipo: z
+    .enum([
+      'sial-sin-cargo',
+      'baja-sin-concurso',
+      'cayo-del-padron',
+      'cambio-situacion-revista',
+      'cambios-del-puesto',
+      'otras',
+    ])
+    .optional(),
   refrescar: refrescarSchema,
 })
 export type TodoQuery = z.infer<typeof todoQuerySchema>
 
 export const resumenQuerySchema = z.object({ refrescar: refrescarSchema })
+
+// Query de las pestañas persistidas (FASE 4, solo lectura): mismo molde que
+// bajaSinConcursoQuerySchema (q / carrera / paginación). No llevan `refrescar`
+// porque leen directo de padron_incidencias (sin caché en proceso).
+export const persistidaQuerySchema = z.object({
+  ...paginacion,
+  q: qSchema,
+  carrera: z.string().trim().max(100).optional(),
+})
+export type PersistidaQuery = z.infer<typeof persistidaQuerySchema>

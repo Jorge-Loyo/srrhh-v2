@@ -10,6 +10,7 @@ import {
 import { SialSinCargoTab } from '../components/SialSinCargoTab'
 import { BajaSinConcursoTab } from '../components/BajaSinConcursoTab'
 import { TodoTab } from '../components/TodoTab'
+import { PestanaPersistidaTab } from '../components/PestanaPersistidaTab'
 import { PanelConciliacion } from '../components/PanelConciliacion'
 
 // Incidencias como conciliación de la dotación: pestañas Todo / SIAL sin cargo /
@@ -111,6 +112,10 @@ export function IncidenciasPage() {
       )}
       {activa === 'sial-sin-cargo' && <SialSinCargoTab busquedaInicial={estado.busquedaInicial} />}
       {activa === 'baja-sin-concurso' && <BajaSinConcursoTab />}
+      {activa === 'cayo-del-padron' && <PestanaPersistidaTab slug="cayo-del-padron" />}
+      {activa === 'cambio-situacion-revista' && <PestanaPersistidaTab slug="cambio-situacion-revista" />}
+      {activa === 'cambios-del-puesto' && <PestanaPersistidaTab slug="cambios-del-puesto" />}
+      {activa === 'otras' && <PestanaPersistidaTab slug="otras" />}
     </div>
   )
 }

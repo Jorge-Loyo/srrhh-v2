@@ -171,8 +171,15 @@ export async function buscarConcursosParaPendiente(diffId: string, q?: string) {
 }
 
 // ─── Pestañas "Todo" / "Baja sin concurso" / contadores (solo lectura) ───────
-// Contrato: apps/api/src/modules/incidencias (rutas /resumen, /todo, /baja-sin-concurso).
-export type TipoIncidenciaSlug = 'sial-sin-cargo' | 'baja-sin-concurso'
+// Contrato: apps/api/src/modules/incidencias (rutas /resumen, /todo, /baja-sin-concurso
+// y las persistidas /cayo-del-padron, /cambio-situacion-revista, /cambios-del-puesto, /otras).
+export type TipoIncidenciaSlug =
+  | 'sial-sin-cargo'
+  | 'baja-sin-concurso'
+  | 'cayo-del-padron'
+  | 'cambio-situacion-revista'
+  | 'cambios-del-puesto'
+  | 'otras'
 
 export interface ContextoIncidencias {
   ultimoPadron: {
@@ -340,6 +347,69 @@ export function useTodoIncidencias(params: TodoParams) {
   })
 }
 
+// ─── Pestañas persistidas (FASE 4, solo lectura desde padron_incidencias) ────
+// Contrato: GET /incidencias/{cayo-del-padron|cambio-situacion-revista|cambios-del-puesto|otras}.
+// Una sola forma de ítem (campos ant/nue por tipo); cada pestaña usa lo que
+// necesita. 'otras' trae subTipo para distinguir nueva baja / cambió persona /
+// reapareció.
+export type PestanaPersistidaSlug =
+  | 'cayo-del-padron'
+  | 'cambio-situacion-revista'
+  | 'cambios-del-puesto'
+  | 'otras'
+
+export interface IncidenciaPersistidaItem {
+  clave: string
+  id: string
+  tipo: PestanaPersistidaSlug | 'otras:nueva-baja' | 'otras:cambio-persona' | 'otras:reaparecio'
+  subTipo: string | null
+  idSial: string | null
+  idSialRol: string | null
+  codigo: string | null
+  hospitalSigla: string | null
+  carrera: string | null
+  puesto: string | null
+  especialidad: string | null
+  personaCuil: string | null
+  personaNombre: string | null
+  fecha: string | null
+  detalle: string | null
+  cargoId: string | null
+  situacionAnterior: string | null
+  situacionNueva: string | null
+  elegibleReemplazante: boolean
+  puestoAnterior: string | null
+  puestoNuevo: string | null
+  especialidadAnterior: string | null
+  especialidadNueva: string | null
+}
+
+export interface PersistidaResponse {
+  items: IncidenciaPersistidaItem[]
+  meta: Paginacion
+  generadoAt: string
+}
+
+export interface PersistidaParams {
+  page: number
+  pageSize: number
+  q?: string
+  carrera?: string
+}
+
+export function usePestanaPersistida(slug: PestanaPersistidaSlug, params: PersistidaParams) {
+  return useQuery({
+    queryKey: ['incidencias', slug, params],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: PersistidaResponse }>(`/api/v1/incidencias/${slug}`, {
+        params: limpiarParams(params),
+      })
+      return res.data.data
+    },
+  })
+}
+
 // Botón "Actualizar": fuerza la recarga de la caché del servidor (refrescar=true
 // en /resumen) y luego refresca resumen y listas de las pestañas de monitoreo.
 export function useActualizarIncidencias() {
@@ -353,6 +423,10 @@ export function useActualizarIncidencias() {
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'todo'] }),
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'baja-sin-concurso'] }),
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'pendientes'] }),
+      queryClient.invalidateQueries({ queryKey: ['incidencias', 'cayo-del-padron'] }),
+      queryClient.invalidateQueries({ queryKey: ['incidencias', 'cambio-situacion-revista'] }),
+      queryClient.invalidateQueries({ queryKey: ['incidencias', 'cambios-del-puesto'] }),
+      queryClient.invalidateQueries({ queryKey: ['incidencias', 'otras'] }),
     ])
   }
 }
