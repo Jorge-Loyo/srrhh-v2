@@ -31,10 +31,17 @@ ventana donde la baja ya se conoce pero el padrón aún muestra a la persona.
 
 ## 2. Decisiones de negocio (Jorge, 2026-11-04 — fuente de verdad)
 
-1. **Universo gestionable = códigos de registro `{22, 23, 37, 60, 83, 85, 87}`.**
-   (22/37 = CPH; 23 y 60 también gestionados; 83/85/87 = CEETPS.) Residencias (24) y Docentes (07)
-   quedan FUERA. NO es "todo menos Residencias/Docentes" (ese era el criterio aproximado de KPIs);
-   es esta lista explícita. Incidencias y el reporte filtran por `codigos_registro.codigo IN (...)`.
+1. **Universo gestionable (definición definitiva, Jorge).** Un cargo es gestionable si:
+   `codigo IN ('37','22','23','85','87')` **OR** (`codigo = '83'` **AND** literal de puesto
+   normalizado ∈ Anexo II — los 9 literales). Es decir: **códigos plenos 37/22/23/85/87** (entran
+   enteros) **más el código 83 SOLO en sus puestos del Anexo II**, detectados por literal de puesto
+   (opción b por literal, elegida por Jorge). **El código 60 SALE** (ya no es gestionable) y el
+   **83 ya no entra entero**. Residencias (24) y Docentes (07) quedan FUERA. NO es "todo menos
+   Residencias/Docentes" (ese era el criterio aproximado de KPIs); es esta definición explícita.
+   **Ver todos vs. gestionar estos:** el sistema NECESITA VER todos los cargos de la dotación; los
+   gestionables son solo aquellos sobre los que generamos bajas, concursos y nuevos cargos. Por eso
+   **Incidencias filtra ESTRICTO** (solo cargos gestionables, que son los accionables) y el
+   **Reporte de Indicadores NO filtra** (muestra TODOS los cargos, dotación completa).
    **Hoy Incidencias NO aplica ningún filtro de carrera → es un bug a corregir.**
 
 2. **Histórico del padrón DENSO.** Hoy `padron_historico` solo guarda los roles con diff de la
@@ -71,15 +78,15 @@ ventana donde la baja ya se conoce pero el padrón aún muestra a la persona.
 
 ## 3. Pestañas (7)
 
-| # | Pestaña | Estado | Qué detecta |
-|---|---------|--------|-------------|
-| 1 | **SIAL sin cargo** | ✅ existe | id_sial en el padrón sin cargo en el sistema (= "cargo nuevo" gestionable). |
-| 2 | **Baja sin concurso** | ✅ existe | Cargo gestionable que cayó del padrón / está en validación, sin concurso. |
-| 3 | **Cayó del padrón** | 🆕 | Estaba el período anterior, ya no está, sin baja SIAL que lo explique. |
-| 4 | **Cambió la situación de revista** | 🆕 | Misma persona, cambió activo/comisión/retención. Importante: retención → elegible para reemplazante. |
-| 5 | **Cambios del puesto** | 🆕 | Cambió la info del PUESTO (puesto/especialidad, gobernado por el SIAL), no del cargo. |
-| 6 | **Otras incidencias** | 🆕 | Agrupa casos raros: nueva baja detectada (en baja SIAL pero el padrón aún no la bajó), cambió la persona (CUIL distinto), reapareció (volvió al padrón tras validación). |
-| 7 | **Validación** | ✅ existe | Se deja. |
+| #   | Pestaña                            | Estado    | Qué detecta                                                                                                                                                              |
+| --- | ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **SIAL sin cargo**                 | ✅ existe | id_sial en el padrón sin cargo en el sistema (= "cargo nuevo" gestionable).                                                                                              |
+| 2   | **Baja sin concurso**              | ✅ existe | Cargo gestionable que cayó del padrón / está en validación, sin concurso.                                                                                                |
+| 3   | **Cayó del padrón**                | 🆕        | Estaba el período anterior, ya no está, sin baja SIAL que lo explique.                                                                                                   |
+| 4   | **Cambió la situación de revista** | 🆕        | Misma persona, cambió activo/comisión/retención. Importante: retención → elegible para reemplazante.                                                                     |
+| 5   | **Cambios del puesto**             | 🆕        | Cambió la info del PUESTO (puesto/especialidad, gobernado por el SIAL), no del cargo.                                                                                    |
+| 6   | **Otras incidencias**              | 🆕        | Agrupa casos raros: nueva baja detectada (en baja SIAL pero el padrón aún no la bajó), cambió la persona (CUIL distinto), reapareció (volvió al padrón tras validación). |
+| 7   | **Validación**                     | ✅ existe | Se deja.                                                                                                                                                                 |
 
 Las 2 existentes usan el patrón **HECHOS (SQL) → clasificación PURA → ítem** en
 `incidencias.clasificacion.ts` / `incidencias.tipos.ts`. Agregar pestaña = objeto en
@@ -96,8 +103,9 @@ Las 2 existentes usan el patrón **HECHOS (SQL) → clasificación PURA → íte
   (normalización, completado de especialidades, reaperturas, fantasmas de jefatura).
 - **Persistencia:** el informe recomienda una tabla de incidencias por snapshot; el diseño decide
   entre eso y cálculo on-demand (como `baja-sin-concurso` hoy). Resolver idempotencia ante reaprobación.
-- **Filtro gestionable compartido:** helper/CTE con los 7 códigos, aplicado también a las 2 pestañas
-  existentes (hoy sin filtro).
+- **Filtro gestionable compartido:** helper/CTE con la definición definitiva (plenos 37/22/23/85/87
+  - código 83 SOLO Anexo II por literal; ya no son 7 códigos enteros), aplicado también a las 2
+    pestañas existentes (hoy sin filtro).
 - **Reuso:** `obtenerHechosCandidatos()` (query de HECHOS por cargo) + `clasificarCargo()` (función
   pura). Ampliar los HECHOS con situación de revista anterior/nueva, puesto anterior/nuevo, CUIL
   anterior, señal de reaparición.
@@ -109,14 +117,14 @@ Las 2 existentes usan el patrón **HECHOS (SQL) → clasificación PURA → íte
 > El detalle fino sale del diseño en curso (`.agents/tasks/incidencias-expansion/design.md`). Esta
 > es la descomposición tentativa; se ajusta cuando el diseño quede APPROVED.
 
-| Fase | Alcance | Riesgo | Toca pipeline del padrón |
-|------|---------|--------|--------------------------|
-| **F1 — Filtro gestionable** | Helper/CTE de los 7 códigos; aplicarlo a las 2 pestañas existentes y al reporte de indicadores. | Bajo | No |
-| **F2 — Histórico denso** | Cambiar el paso 7 de `aprobarSnapshotService` para guardar toda la dotación gestionable viva por snapshot. Migración + índices. | **Alto** | Sí |
-| **F3 — Paso 12 + persistencia** | Paso de comparación anterior/nuevo + tabla/cálculo de incidencias. Idempotencia ante reaprobación. | **Alto** | Sí |
-| **F4 — Pestañas nuevas** | Cayó del padrón, cambió situación de revista, cambios del puesto, otras incidencias. Patrón existente. | Medio | No |
-| **F5 — `estado_persona` → `situacion_revista`** | Investigar usos, resolver `Bloqueado`, reemplazar donde sea seguro. | Medio | Parcial |
-| **F6 — Reemplazar `/bajas/validacion`** | Jubilar la pantalla vieja; conservar helpers que usa el pipeline (`particionarValidacionPorIdSial`). | Medio | No |
+| Fase                                            | Alcance                                                                                                                                                                                                                                                                                                                                | Riesgo   | Toca pipeline del padrón |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------ |
+| **F1 — Filtro gestionable** ✅ **COMPLETADA**   | Helper/CTE con la definición definitiva (plenos 37/22/23/85/87 + 83 Anexo II por literal; ya no son 7 códigos enteros), aplicado a las 2 pestañas existentes. El reporte de indicadores NO se tocó (muestra todos los cargos, no filtra por gestionable). Commit `8e19ad9`, mergeada a `jorge`, validada en Neon: 42.868 gestionables. | Bajo     | No                       |
+| **F2 — Histórico denso**                        | Cambiar el paso 7 de `aprobarSnapshotService` para guardar toda la dotación gestionable viva por snapshot. Migración + índices.                                                                                                                                                                                                        | **Alto** | Sí                       |
+| **F3 — Paso 12 + persistencia**                 | Paso de comparación anterior/nuevo + tabla/cálculo de incidencias. Idempotencia ante reaprobación.                                                                                                                                                                                                                                     | **Alto** | Sí                       |
+| **F4 — Pestañas nuevas**                        | Cayó del padrón, cambió situación de revista, cambios del puesto, otras incidencias. Patrón existente.                                                                                                                                                                                                                                 | Medio    | No                       |
+| **F5 — `estado_persona` → `situacion_revista`** | Investigar usos, resolver `Bloqueado`, reemplazar donde sea seguro.                                                                                                                                                                                                                                                                    | Medio    | Parcial                  |
+| **F6 — Reemplazar `/bajas/validacion`**         | Jubilar la pantalla vieja; conservar helpers que usa el pipeline (`particionarValidacionPorIdSial`).                                                                                                                                                                                                                                   | Medio    | No                       |
 
 **Orden sugerido:** F1 → F2 → F3 → F4, dejando F5 y F6 para el final. Las fases de alto riesgo (F2,
 F3) tocan el proceso de aprobación del padrón y requieren verificación cuidadosa con datos reales.
@@ -128,7 +136,9 @@ F3) tocan el proceso de aprobación del padrón y requieren verificación cuidad
 - Los datos actuales son de **prueba** (casi todos los cargos creados el 2026-09-30). El reporte y
   las incidencias deben calcular todo bien con la BD **real**, en especial al subir una baja SIAL
   nueva y un padrón nuevo.
-- Conteo del universo gestionable (7 códigos), volumen del histórico denso, valores reales de
+- Conteo del universo gestionable (plenos 37/22/23/85/87 + 83 Anexo II por literal; validado en
+  Neon 2026-11-05: 42.868 gestionables — del código 83: 1.529 Anexo II dentro / 5.328 fuera),
+  volumen del histórico denso, valores reales de
   `situacion_revista` / `estado_persona`, y poblamiento de `roles_persona`: todas quedan como
   consultas SQL para que Jorge corra en WSL (`psql "$NEON_DIRECT"`).
 
@@ -147,8 +157,8 @@ F3) tocan el proceso de aprobación del padrón y requieren verificación cuidad
 ## 8. Estado
 
 - [x] Investigación de código (informe)
-- [ ] Diseño APPROVED (en curso)
-- [ ] F1 — Filtro gestionable
+- [x] Diseño APPROVED
+- [x] F1 — Filtro gestionable (commit `8e19ad9`, mergeada a `jorge`, validada en Neon: 42.868 gestionables)
 - [ ] F2 — Histórico denso
 - [ ] F3 — Paso 12 + persistencia de incidencias
 - [ ] F4 — Pestañas nuevas
