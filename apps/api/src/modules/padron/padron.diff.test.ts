@@ -3,6 +3,8 @@ import {
   toISO,
   stripCompletado,
   esCompletado,
+  esCampoFechaOcupacion,
+  evaluarCampoFecha,
   categoriaBaja,
   CENTINELA_ISO,
 } from './padron.diff.helpers.js'
@@ -74,6 +76,46 @@ describe('stripCompletado', () => {
   })
   it('despoja también campos de fecha', () => {
     expect(stripCompletado('completado:cargo_desde')).toBe('cargo_desde')
+  })
+})
+
+// FEAT-001 — bloqueo del rol: fecha_bloqueo entra al diff por la rama fecha
+// (igual que cargo_desde/cargo_hasta) para que se compare, se actualice y se
+// limpie a NULL (desbloqueo) en cada carga del padrón.
+describe('esCampoFechaOcupacion', () => {
+  it('true para fecha_bloqueo, cargo_desde y cargo_hasta', () => {
+    expect(esCampoFechaOcupacion('fecha_bloqueo')).toBe(true)
+    expect(esCampoFechaOcupacion('cargo_desde')).toBe(true)
+    expect(esCampoFechaOcupacion('cargo_hasta')).toBe(true)
+  })
+  it('false para campos no-fecha (situacion_de_revista)', () => {
+    expect(esCampoFechaOcupacion('situacion_de_revista')).toBe(false)
+  })
+})
+
+describe('evaluarCampoFecha — bloqueo', () => {
+  it('(a) agrega bloqueo: "" → "02/10/2026" ⇒ completado con valorNuevo ISO', () => {
+    const r = evaluarCampoFecha('', '02/10/2026')
+    expect(r.cambio).toBe(true)
+    expect(r.esCompletado).toBe(true)
+    expect(r.valorNuevo).toBe('2026-10-02')
+  })
+  it('(c) desbloqueo: "02/10/2026" → "" ⇒ cambio con valorNuevo null', () => {
+    const r = evaluarCampoFecha(toISO('02/10/2026'), '')
+    expect(r.cambio).toBe(true)
+    expect(r.esCompletado).toBe(false)
+    expect(r.valorNuevo).toBeNull()
+  })
+  it('(d) cambio de fecha: "02/10/2026" → "24/09/2026" ⇒ cambio con la fecha nueva', () => {
+    const r = evaluarCampoFecha(toISO('02/10/2026'), '24/09/2026')
+    expect(r.cambio).toBe(true)
+    expect(r.esCompletado).toBe(false)
+    expect(r.valorNuevo).toBe('2026-09-24')
+  })
+  it('sin cambio: misma fecha ⇒ cambio false', () => {
+    const r = evaluarCampoFecha(toISO('02/10/2026'), '02/10/2026')
+    expect(r.cambio).toBe(false)
+    expect(r.valorNuevo).toBe('2026-10-02')
   })
 })
 

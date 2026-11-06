@@ -48,6 +48,7 @@ import {
   parseFechaDDMMYYYY,
   toISO,
   stripCompletado,
+  esCampoFechaOcupacion,
   categoriaBaja,
   CENTINELA_ISO,
   strVal,
@@ -367,6 +368,15 @@ const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
   cod_situacion: 'ocupacion',
   cargo_desde: 'ocupacion',
   cargo_hasta: 'ocupacion',
+  // Bloqueo del rol (FEAT-001): fecha_bloqueo es la CONDICIÓN de bloqueo del
+  // puesto, no una situación de revista ni un estado. Es un valor que recalcula
+  // en CADA carga: fecha presente = bloqueado; fecha ausente = desbloqueado. Por
+  // eso entra al diff (se compara contra el valor guardado) y debe limpiarse a
+  // NULL cuando el padrón nuevo la trae vacía (desbloqueo). Va por la rama fecha
+  // (esCampoFechaOcupacion). bloq_motivo/bloqueo_comentario quedan FUERA de
+  // COLS_WATCH a propósito (cambio mínimo: solo la fecha gobierna el bloqueo;
+  // los comentarios se siguen seteando en altas pero no se diffean).
+  fecha_bloqueo: 'ocupacion',
 }
 
 type RegistroPython = Record<string, unknown>
@@ -408,6 +418,7 @@ const CAMPOS_OCUPACION: Record<string, string> = {
   cod_situacion: 'codSituacion',
   cargo_desde: 'cargoDesdeFecha',
   cargo_hasta: 'cargoHastaFecha',
+  fecha_bloqueo: 'fechaBloqueo', // FEAT-001: condición de bloqueo (rama fecha)
 }
 
 async function calcularDiff(registros: RegistroPython[]) {
@@ -469,6 +480,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           codSituacion: true,
           cargoDesdeFecha: true, // fix bug fechas: el diff nunca las leía
           cargoHastaFecha: true,
+          fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
           persona: { select: { activo: true } }, // criterio de baja nueva (DECISIÓN 2)
         },
         take: 1,
@@ -662,7 +674,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           : colPython.toUpperCase().replace(/_/g, ' ')
       const vNueStr = strVal(r[colUpper] ?? r[colPython])
 
-      const esFecha = colPython === 'cargo_desde' || colPython === 'cargo_hasta'
+      const esFecha = esCampoFechaOcupacion(colPython)
       if (esFecha) {
         // Fechas: comparar en ISO (partes UTC), almacenar strings (DECISIÓN 4).
         const mappedOcup = CAMPOS_OCUPACION[colPython]
@@ -769,6 +781,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           codSituacion: true,
           cargoDesdeFecha: true,
           cargoHastaFecha: true,
+          fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
           persona: { select: { activo: true } },
           cargo: {
             select: {
@@ -842,6 +855,7 @@ async function calcularDiff(registros: RegistroPython[]) {
               codSituacion: true,
               cargoDesdeFecha: true,
               cargoHastaFecha: true,
+              fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
               persona: { select: { activo: true } },
             },
             take: 1,
@@ -886,6 +900,7 @@ async function calcularDiff(registros: RegistroPython[]) {
         codSituacion: ocup?.codSituacion ?? null,
         cargoDesdeFecha: ocup?.cargoDesdeFecha ?? null,
         cargoHastaFecha: ocup?.cargoHastaFecha ?? null,
+        fechaBloqueo: ocup?.fechaBloqueo ?? null, // FEAT-001: valor anterior del bloqueo
         persona: ocup?.persona ?? null,
         cargo: cargoSinOcup,
       } as OcupDesdoblada)
@@ -986,7 +1001,7 @@ async function calcularDiff(registros: RegistroPython[]) {
             ? 'CODIGO DE REGISTRO'
             : colPython.toUpperCase().replace(/_/g, ' ')
         const vNueStr = strVal(r[colUpper] ?? r[colPython])
-        const esFecha = colPython === 'cargo_desde' || colPython === 'cargo_hasta'
+        const esFecha = esCampoFechaOcupacion(colPython)
         if (esFecha) {
           const mappedOcup = CAMPOS_OCUPACION[colPython]
           const isoAnterior = toISO(
@@ -2776,7 +2791,7 @@ export async function aprobarSnapshotService(
         const mappedOcupacion = CAMPOS_OCUPACION[campoReal]
         if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
         if (mappedOcupacion) {
-          const esFecha = campoReal === 'cargo_desde' || campoReal === 'cargo_hasta'
+          const esFecha = esCampoFechaOcupacion(campoReal)
           updateOcupacion[mappedOcupacion] = esFecha
             ? (parseFechaDDMMYYYY(cambio.valorNuevo ?? '') ?? null)
             : (cambio.valorNuevo ?? '')

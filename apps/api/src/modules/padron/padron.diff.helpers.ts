@@ -50,6 +50,33 @@ export function toISO(v: unknown): string {
   return iso === CENTINELA_ISO ? '' : iso
 }
 
+// Campos de Ocupacion cuyo valor es una FECHA y por lo tanto el diff los compara
+// en ISO (toISO) y los persiste parseados con parseFechaDDMMYYYY (null = campo
+// vacío -> NULL en BD), en vez de la comparación normalizada de texto. Única
+// fuente del literal que antes estaba triplicado en padron.service.ts. Incluye
+// fecha_bloqueo: es la CONDICIÓN de bloqueo del rol, recalculada en cada carga
+// del padrón (fecha presente = bloqueado; ausente = desbloqueado), por eso debe
+// compararse y limpiarse a NULL igual que cargo_desde/cargo_hasta.
+export function esCampoFechaOcupacion(colPython: string): boolean {
+  return colPython === 'cargo_desde' || colPython === 'cargo_hasta' || colPython === 'fecha_bloqueo'
+}
+
+// Réplica PURA de la rama fecha del diff (calcularDiff), para poder testear sin
+// BD los casos de completado / desbloqueo / cambio-de-fecha. Recibe el valor
+// anterior YA en ISO ('' si no había) y el valor nuevo crudo del padrón
+// ('DD/MM/YYYY' o '' si vino vacío). Devuelve si hubo `cambio`, si es un
+// `esCompletado` (vacío -> valor) y el `valorNuevo` que el diff emitiría:
+// la fecha nueva en ISO, o null cuando el padrón nuevo trae vacío (DESBLOQUEO).
+export function evaluarCampoFecha(
+  anteriorIso: string,
+  nuevoRaw: string,
+): { cambio: boolean; esCompletado: boolean; valorNuevo: string | null } {
+  const nuevoIso = toISO(nuevoRaw)
+  const cambio = anteriorIso !== nuevoIso
+  const completado = anteriorIso === '' && nuevoRaw !== ''
+  return { cambio, esCompletado: completado, valorNuevo: nuevoIso || null }
+}
+
 // Despoja el prefijo 'completado:' de un campo de diff. Idempotente para campos
 // no prefijados (incluido el marcador '__reabrir_ocupacion__').
 export function stripCompletado(campo: string): string {
@@ -292,9 +319,18 @@ export function formatearCodigoDesdoblado(prefijo: string, n: number): string {
 // un tipo 'nuevo' con aprobado=null (pendiente, sin decisión) NO matchea
 // ninguna rama → devuelve null → NO se materializa (no crea cargo/ocupación ni
 // entra a padron_historico). Puro y testeable sin Prisma.
-export function clasificarGrupoAprobar(
-  primerCambio: { tipo: string; campo: string; aprobado: boolean | null },
-): 'nuevosDesdoblados' | 'rechazadosDesdoblados' | 'nuevos' | 'rechazados' | 'eliminados' | 'modificados' | null {
+export function clasificarGrupoAprobar(primerCambio: {
+  tipo: string
+  campo: string
+  aprobado: boolean | null
+}):
+  | 'nuevosDesdoblados'
+  | 'rechazadosDesdoblados'
+  | 'nuevos'
+  | 'rechazados'
+  | 'eliminados'
+  | 'modificados'
+  | null {
   const { tipo, campo, aprobado } = primerCambio
   const esDesd = campo === '__alta_desdoblada__'
   if (tipo === 'nuevo' && esDesd && aprobado === true) return 'nuevosDesdoblados'
