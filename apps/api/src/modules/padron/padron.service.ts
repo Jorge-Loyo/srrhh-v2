@@ -136,7 +136,6 @@ interface OcupacionFinalRow {
   personaId: string
   cargoId: string
   idSialRol: string
-  estadoPersona: string | null
   situacionRevista: string | null
   persona: { cuil: string }
   cargo: {
@@ -410,7 +409,7 @@ const CAMPOS_CARGO: Record<string, string> = {
 // Única fuente de verdad columna Python -> campo Prisma de Ocupacion.
 const CAMPOS_OCUPACION: Record<string, string> = {
   situacion_de_revista: 'situacionRevista',
-  estado: 'estadoPersona',
+  // FASE 5: 'estado' ya no mapea (ocupaciones.estado_persona eliminada).
   codigo_jefaturas: 'codigoJefaturas',
   jefe_escalafon: 'jefeEscalafon',
   comision: 'comision',
@@ -471,7 +470,6 @@ async function calcularDiff(registros: RegistroPython[]) {
           idSialRol: true,
           hasta: true,
           situacionRevista: true,
-          estadoPersona: true,
           cuil: true,
           codigoJefaturas: true,
           jefeEscalafon: true,
@@ -613,7 +611,7 @@ async function calcularDiff(registros: RegistroPython[]) {
         especialidad: actual.especialidadLegacy,
         agrupador: actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
-        estado: ocup?.estadoPersona ?? null,
+        // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
         siglas: actual.hospital?.sigla ?? null,
         escalafon: actual.escalafon?.nombre ?? null,
       }),
@@ -772,7 +770,6 @@ async function calcularDiff(registros: RegistroPython[]) {
           idSialRol: true,
           hasta: true,
           situacionRevista: true,
-          estadoPersona: true,
           cuil: true,
           codigoJefaturas: true,
           jefeEscalafon: true,
@@ -846,7 +843,6 @@ async function calcularDiff(registros: RegistroPython[]) {
               idSialRol: true,
               hasta: true,
               situacionRevista: true,
-              estadoPersona: true,
               cuil: true,
               codigoJefaturas: true,
               jefeEscalafon: true,
@@ -891,7 +887,6 @@ async function calcularDiff(registros: RegistroPython[]) {
         idSialRol: m.id_sial_rol,
         hasta: ocup?.hasta ?? null,
         situacionRevista: ocup?.situacionRevista ?? null,
-        estadoPersona: ocup?.estadoPersona ?? null,
         cuil: ocup?.cuil ?? null,
         codigoJefaturas: ocup?.codigoJefaturas ?? null,
         jefeEscalafon: ocup?.jefeEscalafon ?? null,
@@ -1063,7 +1058,6 @@ async function calcularDiff(registros: RegistroPython[]) {
     select: {
       idSialRol: true,
       situacionRevista: true,
-      estadoPersona: true,
       cuil: true,
       hasta: true,
       persona: { select: { activo: true } },
@@ -1098,7 +1092,7 @@ async function calcularDiff(registros: RegistroPython[]) {
         especialidad: o.cargo.especialidadLegacy,
         agrupador: o.cargo.agrupador,
         situacion_de_revista: o.situacionRevista ?? null,
-        estado: o.estadoPersona ?? null,
+        // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
         siglas: o.cargo.hospital?.sigla ?? null,
         escalafon: o.cargo.escalafon?.nombre ?? null,
       }),
@@ -2560,7 +2554,6 @@ export async function aprobarSnapshotService(
             idSialRol,
             cuil: cuil ?? null,
             situacionRevista: datos.situacion_de_revista ?? null,
-            estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
             cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
@@ -2598,7 +2591,6 @@ export async function aprobarSnapshotService(
       idSialRol: string
       cuil: string | null
       situacionRevista: string | null
-      estadoPersona: string | null
       codigoJefaturas: string | null
       cargoJefaturaPuestoId: string | null
       jefeEscalafon: string | null
@@ -2630,7 +2622,6 @@ export async function aprobarSnapshotService(
         idSialRol,
         cuil: cuilDe(datos),
         situacionRevista: datos.situacion_de_revista ?? null,
-        estadoPersona: datos.estado ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
         cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
         jefeEscalafon: datos.jefe_escalafon || null,
@@ -3275,7 +3266,10 @@ export async function aprobarSnapshotService(
       especialidad: ocupacion.cargo.especialidadLegacy ?? null,
       agrupador: ocupacion.cargo.agrupador,
       unificadorPuesto: ocupacion.cargo.unificadorPuesto,
-      estadoPersona: ocupacion.estadoPersona,
+      // FASE 5: ocupaciones.estado_persona se eliminó (columna viva muerta). El
+      // histórico conserva su columna estado_persona como dato inmutable que v2
+      // ya no puebla → se escribe null en cada carga nueva.
+      estadoPersona: null,
       situacionRevista: ocupacion.situacionRevista,
     }))
     for (const lote of chunk(historicoEntries, 2000)) {
@@ -4277,7 +4271,6 @@ export async function aprobarDiffNuevoService(
               personaId: persona.id,
               cuil: cuilDe(datos),
               situacionRevista: datos.situacion_de_revista ?? null,
-              estadoPersona: datos.estado ?? null,
               snapshotId,
             },
           })
@@ -4296,7 +4289,6 @@ export async function aprobarDiffNuevoService(
             idSialRol: diff.idSialRol,
             cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
-            estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
             cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
@@ -4428,7 +4420,10 @@ export async function aprobarDiffNuevoService(
             especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
             agrupador: ocupacionFinal.cargo.agrupador,
             unificadorPuesto: ocupacionFinal.cargo.unificadorPuesto,
-            estadoPersona: ocupacionFinal.estadoPersona,
+            // FASE 5: ocupaciones.estado_persona se eliminó (columna viva
+            // muerta). El histórico conserva su columna como dato inmutable que
+            // v2 ya no puebla → null.
+            estadoPersona: null,
             situacionRevista: ocupacionFinal.situacionRevista,
           },
         })
@@ -4685,7 +4680,6 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             idSialRol: diff.idSialRol,
             cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
-            estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
             cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,

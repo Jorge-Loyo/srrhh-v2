@@ -223,7 +223,6 @@ describe('aprobarDiffNuevoService — Opción A §5.3 (padron_historico + KPI de
       personaId: 'per-1',
       cargoId: 'car-1',
       idSialRol: 'ROL-1',
-      estadoPersona: 'A',
       situacionRevista: 'planta',
       persona: { cuil: '20111111113' },
       cargo: {

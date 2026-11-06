@@ -562,7 +562,9 @@ model Ocupacion {
   // el CUIL puro.
   cuil                  String?   @map("cuil") @db.VarChar(11)
   situacionRevista      String?   @map("situacion_revista") @db.VarChar(50)
-  estadoPersona         String?   @map("estado_persona") @db.VarChar(50)
+  // FASE 5: `estado_persona` eliminada (columna muerta). La condición de
+  // bloqueo del puesto vive en `fechaBloqueo`. El histórico conserva su
+  // propia `padron_historico.estado_persona` como dato inmutable.
   desde                 DateTime? @db.Date
   hasta                 DateTime? @db.Date
   // S2-17: jefatura

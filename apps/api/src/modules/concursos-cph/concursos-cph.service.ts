@@ -903,7 +903,7 @@ export async function getPersonaDesignadaService(id: string) {
         idSial: true,
         codigo: true,
         ocupaciones: {
-          select: { personaId: true, situacionRevista: true, estadoPersona: true },
+          select: { personaId: true, situacionRevista: true, fechaBloqueo: true },
           orderBy: { desde: 'desc' },
           take: 1,
         },
@@ -1598,7 +1598,7 @@ export async function getDesignacionEstadoService(id: string) {
   type OcupRow = {
     idSialRol: string
     situacionRevista: string | null
-    estadoPersona: string | null
+    fechaBloqueo: Date | null
     desde: Date | null
     hasta: Date | null
     cargoCodigo: string | null
@@ -1621,7 +1621,7 @@ export async function getDesignacionEstadoService(id: string) {
       SELECT
         o.id_sial_rol       AS "idSialRol",
         o.situacion_revista AS "situacionRevista",
-        o.estado_persona    AS "estadoPersona",
+        o.fecha_bloqueo     AS "fechaBloqueo",
         o.desde,
         o.hasta,
         c.codigo            AS "cargoCodigo",
@@ -1659,7 +1659,7 @@ export async function getDesignacionEstadoService(id: string) {
     especialidad: o.especialidad,
     especialidadLegacy: o.especialidadLegacy,
     situacionRevista: o.situacionRevista,
-    estadoPersona: o.estadoPersona,
+    fechaBloqueo: o.fechaBloqueo ? o.fechaBloqueo.toISOString().slice(0, 10) : null,
     cargoEstado: o.cargoEstado,
     hospitalSigla: o.hospitalSigla,
     desde: o.desde?.toISOString() ?? null,

@@ -192,7 +192,12 @@ export function CargoDetailPanel() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 text-sm border-t border-gray-100 pt-4">
               <Dato label="En el cargo desde" value={desdeOcup} />
               <Dato label="Situación de revista" value={ocup?.situacionRevista} />
-              <Dato label="Estado"               value={ocup?.estadoPersona} />
+              {/* FASE 5: estado_persona (muerto) reemplazado por la marca de
+                  bloqueo derivada de fecha_bloqueo. */}
+              <Dato
+                label="Bloqueo"
+                value={ocup?.fechaBloqueo ? `Bloqueado desde ${fechaCorta(ocup.fechaBloqueo)}` : '—'}
+              />
               <Dato label="Comisión"             value={ocup?.comision} />
               <Dato label="ID SIAL Rol"          value={ocup?.idSialRol?.split('-').slice(0, 2).join('-')} />
               {ocup?.codigoJefaturas && (

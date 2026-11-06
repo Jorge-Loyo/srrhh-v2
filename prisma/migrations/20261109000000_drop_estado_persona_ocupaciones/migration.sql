@@ -1,0 +1,13 @@
+-- FASE 5 (PIEZA 2): elimina la columna `estado_persona` de `ocupaciones`.
+-- Es una columna MUERTA: el pipeline v2 (Dotaneitor) ya no emite la columna
+-- 'estado', así que cada carga del padrón la dejaba en null; los 'Bloqueado'
+-- que aún figuran en Neon son residuo legacy. La condición de bloqueo real
+-- del puesto vive ahora en `fecha_bloqueo` (FEAT-001). El histórico conserva
+-- su propia columna `padron_historico.estado_persona` como dato inmutable y
+-- NO se toca acá.
+--
+-- Idempotente (DROP COLUMN IF EXISTS) para poder re-correrlo sin error.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). El usuario (Jorge) corre este .sql a mano en Neon.
+ALTER TABLE ocupaciones DROP COLUMN IF EXISTS estado_persona;

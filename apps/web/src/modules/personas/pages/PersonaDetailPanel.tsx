@@ -515,6 +515,8 @@ export function PersonaDetailPanel() {
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.literalPuesto ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.especialidad ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{h.situacionRevista ?? '—'}</td>
+                    {/* HISTÓRICO: padron_historico.estado_persona (dato inmutable),
+                        NO la columna viva eliminada en Fase 5. No tocar. */}
                     <td className="px-4 py-2.5 text-xs text-gray-500">{h.estadoPersona ?? '—'}</td>
                   </tr>
                 ))}

@@ -243,7 +243,6 @@ export interface Ocupacion {
   idSialRol: string
   cuilYRol: string | null
   situacionRevista: string | null
-  estadoPersona: string | null
   desde: string | null
   hasta: string | null
   codigoJefaturas: string | null
@@ -1343,7 +1342,7 @@ export interface OcupacionResumen {
   especialidad: string | null
   especialidadLegacy: string | null
   situacionRevista: string | null // incluye 'Retencion de Cargo'
-  estadoPersona: string | null
+  fechaBloqueo: string | null // FASE 5: condición de bloqueo (reemplaza estado_persona muerto)
   cargoEstado: string // vigente | no_vigente | validacion_vacante
   hospitalSigla: string | null
   desde: string | null
