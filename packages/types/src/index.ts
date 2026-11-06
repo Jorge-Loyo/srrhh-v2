@@ -1481,6 +1481,13 @@ export interface CreateSolicitudAltaRequest {
   bajaOrigenId?: string
 }
 
+// POST /api/v1/solicitudes-alta/batch — envío a aprobación de un LOTE.
+// Los "Cargos pendientes" se mandan en UNA request (una transacción) en vez de
+// N requests separadas que se pasan del timeout contra Neon.
+export interface CreateSolicitudesAltaBatchRequest {
+  items: CreateSolicitudAltaRequest[]
+}
+
 // S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar
 export interface ResolverAutorizacionRequest {
   observaciones?: string

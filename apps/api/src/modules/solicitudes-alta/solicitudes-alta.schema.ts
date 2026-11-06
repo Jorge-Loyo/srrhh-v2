@@ -23,6 +23,15 @@ export const createSolicitudAltaSchema = z.object({
   esTransferencia:  z.boolean().optional(),
 })
 
+// Batch — envío de "Cargos pendientes" a aprobación como un solo lote.
+// El front acumula N cargos (que comparten el expediente del bloque) y los
+// manda en UNA request. Cada item lleva su propio hospital/escalafón/puesto/
+// etc. (son heterogéneos: distinto hospital/puesto, mismo expediente del lote).
+// Se reutiliza createSolicitudAltaSchema por item para no duplicar reglas.
+export const createSolicitudesAltaBatchSchema = z.object({
+  items: z.array(createSolicitudAltaSchema).min(1).max(100),
+})
+
 export const solicitudesAltaQuerySchema = z.object({
   page:            z.coerce.number().int().min(1).default(1),
   limit:           z.coerce.number().int().min(1).max(100).default(20),
@@ -31,5 +40,6 @@ export const solicitudesAltaQuerySchema = z.object({
   esTransferencia: z.coerce.boolean().optional(),
 })
 
-export type CreateSolicitudAltaBody  = z.infer<typeof createSolicitudAltaSchema>
+export type CreateSolicitudAltaBody       = z.infer<typeof createSolicitudAltaSchema>
+export type CreateSolicitudesAltaBatchBody = z.infer<typeof createSolicitudesAltaBatchSchema>
 export type SolicitudesAltaQuery     = z.infer<typeof solicitudesAltaQuerySchema>

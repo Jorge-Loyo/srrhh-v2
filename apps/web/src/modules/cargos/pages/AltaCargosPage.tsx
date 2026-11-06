@@ -6,7 +6,7 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
-import { useSolicitudesAlta, useCreateSolicitudAlta } from '../hooks/useSolicitudesAlta'
+import { useSolicitudesAlta, useCreateSolicitudesAltaBatch } from '../hooks/useSolicitudesAlta'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -416,34 +416,32 @@ export function AltaCargosPage() {
     ? solicitudes.filter((s) => (s.expediente ?? '').toLowerCase().includes(search.trim().toLowerCase()))
     : solicitudes
 
-  const crearSolicitud = useCreateSolicitudAlta()
+  const crearLote = useCreateSolicitudesAltaBatch()
 
   function handleAgregar(item: ItemPendiente) {
     setPendientes((prev) => [...prev, item])
-  }
-
-  async function registrarItem(item: ItemPendiente) {
-    return crearSolicitud.mutateAsync({
-      hospitalId:       item.hospitalId,
-      escalafonId:      item.escalafonId,
-      puestoCargoId:       item.puestoCargoId,
-      especialidadPuestoId: item.especialidadPuestoId,
-      unificadorPuesto: item.unificadorPuesto,
-      agrupador:        item.agrupador,
-      expediente:       item.expediente || undefined,
-      desde:            item.desde,
-      cantidad:         item.cantidad,
-      etiqueta:         item.etiqueta || undefined,
-    })
   }
 
   async function handleRegistrarTodos() {
     if (pendientes.length === 0) return
     setGuardando(true); setError(null)
     try {
-      for (const item of pendientes) {
-        await registrarItem(item)
-      }
+      // LOTE: una sola request → una transacción en el backend que crea las N
+      // solicitudes + autorizaciones (evita el timeout de 5 s de N requests).
+      await crearLote.mutateAsync({
+        items: pendientes.map((item) => ({
+          hospitalId:       item.hospitalId,
+          escalafonId:      item.escalafonId,
+          puestoCargoId:       item.puestoCargoId,
+          especialidadPuestoId: item.especialidadPuestoId,
+          unificadorPuesto: item.unificadorPuesto,
+          agrupador:        item.agrupador,
+          expediente:       item.expediente || undefined,
+          desde:            item.desde,
+          cantidad:         item.cantidad,
+          etiqueta:         item.etiqueta || undefined,
+        })),
+      })
       setPendientes([])
       refetchSolicitudes()
     } catch (err) {

@@ -1,9 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { createSolicitudAltaSchema, solicitudesAltaQuerySchema } from './solicitudes-alta.schema.js'
+import {
+  createSolicitudAltaSchema,
+  createSolicitudesAltaBatchSchema,
+  solicitudesAltaQuerySchema,
+} from './solicitudes-alta.schema.js'
 import {
   createSolicitudAltaService,
+  createSolicitudesAltaBatchService,
   listSolicitudesAltaService,
   getSolicitudAltaService,
 } from './solicitudes-alta.service.js'
@@ -18,6 +23,18 @@ export async function solicitudesAltaRoutes(app: FastifyInstance) {
     const user = request.user as { id: string }
     const body = createSolicitudAltaSchema.parse(request.body)
     const data = await createSolicitudAltaService(body, user.id)
+    return reply.status(201).send({ data })
+  })
+
+  // POST /batch --- crear un LOTE de solicitudes de alta en UNA sola transacción
+  // (los "Cargos pendientes" se envían a aprobación juntos; evita N requests que
+  // compiten por el pool y se pasan del timeout de 5 s contra Neon).
+  app.post('/batch', {
+    preHandler: requirePermiso({ modulo: 'solicitudes-alta', accion: 'crear' }),
+  }, async (request, reply) => {
+    const user = request.user as { id: string }
+    const body = createSolicitudesAltaBatchSchema.parse(request.body)
+    const data = await createSolicitudesAltaBatchService(body, user.id)
     return reply.status(201).send({ data })
   })
 
