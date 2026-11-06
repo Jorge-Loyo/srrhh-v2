@@ -11,8 +11,14 @@
 // Los códigos 60/24 (Residencias), 07 (Docentes) y cualquier cargo sin código
 // de registro quedan FUERA.
 //
-// El NÚCLEO (`esCargoGestionable`) es PURO y testeable DB-free. El predicado SQL
-// equivalente para inyectar en los CTE vive en incidencias.baja-sin-concurso.ts.
+// Esa MISMA lista gestionable se parte además en la dimensión CPH/CEETPS (Paso B
+// del flujo de concursos, confirmado por Jorge): CPH = {37,22,23}, CEETPS =
+// {85,87} + el 83 del Anexo II. El núcleo único de esa clasificación es
+// `tipoConcursoDeCargo`; `esCargoGestionable` se define EN TÉRMINOS de él para
+// que NO puedan divergir (tipoConcursoDeCargo(x) !== null ⟺ esCargoGestionable(x)).
+//
+// El NÚCLEO es PURO y testeable DB-free. El predicado SQL equivalente para
+// inyectar en los CTE vive en incidencias.baja-sin-concurso.ts.
 //
 // `ANEXO_II_83` y la normalización de literal (`normalizarTexto`) se REUSAN de
 // derivarRegimen.ts / @srrhh/normalizacion — NO se duplican acá, para que el
@@ -23,10 +29,51 @@ import { normalizarTexto } from '@srrhh/normalizacion'
 /** Códigos de registro que entran COMPLETOS: 37/22 (CPH), 23 (CPH guardia), 85/87 (CEETPS). */
 export const CODIGOS_REGISTRO_GESTIONABLES_PLENOS = ['37', '22', '23', '85', '87'] as const
 
+/** Códigos de registro que clasifican como CPH (Nueva Carrera Profesional Hospitalaria). */
+export const CODIGOS_REGISTRO_CPH = ['37', '22', '23'] as const
+
+/** Códigos de registro PLENOS que clasifican como CEETPS (el 83-AnexoII se resuelve por literal). */
+export const CODIGOS_REGISTRO_CEETPS_PLENOS = ['85', '87'] as const
+
+export type TipoConcurso = 'cph' | 'ceetps'
+
 /**
- * Núcleo PURO: ¿el cargo es gestionable? True si el código está en PLENOS, o si
- * es '83' y el literal del puesto (normalizado igual que derivarRegimen) está en
- * ANEXO_II_83. Código null/''/undefined → false (cargo sin CR no es gestionable).
+ * NÚCLEO PURO — FUENTE DE VERDAD ÚNICA de la regla CPH vs CEETPS por CÓDIGO DE
+ * REGISTRO (confirmada por Jorge). Clasifica un cargo/solicitud en:
+ *   - 'cph'    si el código ∈ {37,22,23}
+ *   - 'ceetps' si el código ∈ {85,87}, o es '83' y el literal del puesto
+ *              (normalizado igual que derivarRegimen) ∈ ANEXO_II_83
+ *   - null     en cualquier otro caso (NO gestionable → no genera concurso)
+ *
+ * Es PURO y determinístico (sin Prisma): recibe el código de registro y el
+ * literal del puesto, devuelve el tipo. `esCargoGestionable` se define sobre
+ * este núcleo, así que por construcción vale:
+ *   tipoConcursoDeCargo(x) !== null  ⟺  esCargoGestionable(x) === true
+ *
+ * @param codigoRegistro `CodigoRegistro.codigo` del cargo (puede ser null). OJO:
+ *   es el código de REGISTRO, NO el de escalafón (son valores distintos cuando
+ *   un escalafón agrupa varios CR, ej. CPH 22/37).
+ * @param literalPuesto Literal del puesto SIN normalizar (solo lo usa el '83').
+ */
+export function tipoConcursoDeCargo({
+  codigoRegistro,
+  literalPuesto,
+}: {
+  codigoRegistro: string | null | undefined
+  literalPuesto: string | null | undefined
+}): TipoConcurso | null {
+  const codigo = (codigoRegistro ?? '').trim()
+  if (codigo === '') return null
+  if ((CODIGOS_REGISTRO_CPH as readonly string[]).includes(codigo)) return 'cph'
+  if ((CODIGOS_REGISTRO_CEETPS_PLENOS as readonly string[]).includes(codigo)) return 'ceetps'
+  if (codigo === '83') return ANEXO_II_83.has(normalizarTexto(literalPuesto)) ? 'ceetps' : null
+  return null
+}
+
+/**
+ * Núcleo PURO: ¿el cargo es gestionable? Definido EN TÉRMINOS de
+ * `tipoConcursoDeCargo` para que no puedan divergir: gestionable ⟺ el cargo
+ * clasifica en algún tipo de concurso (CPH o CEETPS).
  *
  * @param codigoRegistro `CodigoRegistro.codigo` del cargo (puede ser null).
  * @param literalPuesto Literal del puesto SIN normalizar (solo lo usa el '83').
@@ -38,9 +85,5 @@ export function esCargoGestionable({
   codigoRegistro: string | null | undefined
   literalPuesto: string | null | undefined
 }): boolean {
-  const codigo = (codigoRegistro ?? '').trim()
-  if (codigo === '') return false
-  if ((CODIGOS_REGISTRO_GESTIONABLES_PLENOS as readonly string[]).includes(codigo)) return true
-  if (codigo === '83') return ANEXO_II_83.has(normalizarTexto(literalPuesto))
-  return false
+  return tipoConcursoDeCargo({ codigoRegistro, literalPuesto }) !== null
 }

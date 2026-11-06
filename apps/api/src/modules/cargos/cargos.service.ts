@@ -17,6 +17,7 @@ import {
 } from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
 import { normalizarCrCphId } from '../../shared/crCph.js'
+import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
 // sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
@@ -586,9 +587,13 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   const escalafon = await prisma.escalafon.findUnique({ where: { id: body.escalafonId } })
   if (!escalafon) throw AppError.notFound('Escalafon no encontrado')
 
+  // Código de REGISTRO del cargo (no el de escalafón): es la base de la regla
+  // unificada CPH/CEETPS (ver tipoConcursoDeCargo).
+  let codigoRegistroCodigo: string | null = null
   if (body.codigoRegistroId) {
     const cr = await prisma.codigoRegistro.findUnique({ where: { id: body.codigoRegistroId } })
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
+    codigoRegistroCodigo = cr.codigo
   }
   // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
   const codigoRegistroId = await normalizarCrCphId(prisma, body.codigoRegistroId)
@@ -670,17 +675,14 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     return creados
   })
 
-  // S14-3: determinar si el cargo puede iniciar concurso y qué tipo
-  // CPH = escalafones con código 22 o 37 (Carrera Profesional Hospitalaria)
-  // CEETPS = escalafones con código 83 (ENF), 85 (TEC), 87 (EG-CEETPS)
-  const CPH_CODIGOS = new Set(['22', '37'])
-  const CEETPS_CODIGOS = new Set(['83', '85', '87'])
-  const codigoEscalafon = escalafon.codigo
-  let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
-  if (CPH_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'cph'
-  else if (CEETPS_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'ceetps'
-
+  // S14-3 + Paso B: determinar si el cargo puede iniciar concurso y qué tipo.
+  // Regla ÚNICA por CÓDIGO DE REGISTRO (no escalafón): CPH {37,22,23},
+  // CEETPS {85,87} + 83-AnexoII. Fuente de verdad: tipoConcursoDeCargo.
   const primero = cargos[0]!
+  const tipoConcursoSugerido = tipoConcursoDeCargo({
+    codigoRegistro: codigoRegistroCodigo,
+    literalPuesto: primero.literalPuesto,
+  })
   const puedeIniciarConcurso = tipoConcursoSugerido !== null
 
   return {

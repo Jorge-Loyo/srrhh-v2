@@ -7,6 +7,7 @@ import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.servi
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
+import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -443,13 +444,13 @@ async function _aprobarAltaCargo(
       }
     }
 
-    // S14-3: determinar si el cargo puede iniciar concurso
-    const CPH_CODIGOS    = new Set(['22', '37'])
-    const CEETPS_CODIGOS = new Set(['83', '85', '87'])
-    const cod = solicitud.escalafon.codigo
-    let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
-    if (CPH_CODIGOS.has(cod))    tipoConcursoSugerido = 'cph'
-    else if (CEETPS_CODIGOS.has(cod)) tipoConcursoSugerido = 'ceetps'
+    // S14-3 + Paso B: determinar si el cargo puede iniciar concurso y qué tipo.
+    // Regla ÚNICA por CÓDIGO DE REGISTRO (no escalafón): CPH {37,22,23},
+    // CEETPS {85,87} + 83-AnexoII. Fuente de verdad: tipoConcursoDeCargo.
+    const tipoConcursoSugerido = tipoConcursoDeCargo({
+      codigoRegistro: solicitud.codigoRegistro?.codigo ?? null,
+      literalPuesto: solicitud.literalPuesto,
+    })
 
     const primeroId = cargosCreadosIds[0]!
     const puedeIniciarConcurso = tipoConcursoSugerido !== null
