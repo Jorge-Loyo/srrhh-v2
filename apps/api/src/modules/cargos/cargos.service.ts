@@ -736,15 +736,20 @@ export async function listAltasService(query: AltasQuery) {
 // Vista de SOLO LECTURA de los cargos creados por ALTA que están por concursar
 // o en concurso. Lee de la tabla `cargos` (NO del endpoint de concursos: un
 // cargo vacante sin concurso todavía no tiene fila en `concursos`). Criterio de
-// visibilidad EXACTO (reglas de Jorge, fuente de verdad):
-//   - idSial LIKE 'MANUAL-%'  → discriminador fiable de "creado por alta" (el
-//     campo `origen` nunca se setea a 'manual', queda en 'padron' — ver
-//     investigacion-nuevos-cargos.md §1; NO usar origen como filtro).
+// visibilidad EXACTO (fuente de verdad):
+//   - expediente IS NOT NULL AND expediente <> ''  → discriminador fiable de
+//     "creado por alta de cargo". La UI de "Nueva alta" exige el expediente
+//     como obligatorio, así que todo cargo de alta real lo tiene. NO se usa
+//     `idSial LIKE 'MANUAL-%'`: en la base real hay 913 cargos técnicos
+//     (TEC-POF-*) con idSial 'MANUAL-%' y origen 'manual' pero SIN expediente
+//     (carga masiva del 28/10) que NO son altas y ensuciaban la vista; tampoco
+//     sirve `origen`, porque esa carga masiva también usó 'manual'.
 //   - estado = 'vigente' AND subEstado IN ('vacante','concurso')  → deja solo
 //     VIGENTE/VACANTE y VIGENTE/CONCURSO. Al designar (pasa a VIGENTE/OCUPADO)
 //     el cargo se va de la vista solo (el filtro lo excluye).
 // Ordenado por `expediente` (el "bloque": todos los cargos de una misma alta
-// comparten expediente), NULLS LAST para cargos de alta legacy sin expediente.
+// comparten expediente). Ya no hace falta NULLS LAST porque el filtro exige
+// expediente no nulo/no vacío.
 // El include replica el de listCargosService para que el payload tenga la MISMA
 // forma que `Cargo` del front (codigo, hospital, escalafon, puesto, especialidad,
 // expediente, estado, subEstado, fecha, codigoRegistro, personaOcupante).
@@ -758,7 +763,8 @@ export async function listNuevosCargosService(query: NuevosCargosQuery) {
     : ['vacante', 'concurso']
 
   const where: Prisma.CargoWhereInput = {
-    idSial: { startsWith: 'MANUAL-' },
+    // Discriminador de "creado por alta": expediente obligatorio presente.
+    expediente: { not: null, notIn: [''] },
     estado: 'vigente',
     subEstado: { in: subEstadosVisibles },
     ...(hospitalId && { hospitalId }),
@@ -788,9 +794,10 @@ export async function listNuevosCargosService(query: NuevosCargosQuery) {
           take: 1,
         },
       },
-      // Bloque = ordenar por expediente de creación. NULLS LAST defensivo por si
-      // algún cargo de alta legacy tuviera expediente null (la UI de alta lo
-      // exige, pero el schema lo tolera). Desempate estable por createdAt.
+      // Bloque = ordenar por expediente de creación (todos los cargos de una
+      // misma alta lo comparten). El filtro ya garantiza expediente no nulo/no
+      // vacío, así que NULLS LAST es inofensivo pero redundante. Desempate
+      // estable por createdAt.
       orderBy: [{ expediente: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
       skip: (page - 1) * limit,
       take: limit,
