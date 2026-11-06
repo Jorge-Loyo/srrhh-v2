@@ -9,6 +9,7 @@ import {
 } from '../lib/tabsIncidencias'
 import { SialSinCargoTab } from '../components/SialSinCargoTab'
 import { BajaSinConcursoTab } from '../components/BajaSinConcursoTab'
+import { BloqueadosTab } from '../components/BloqueadosTab'
 import { TodoTab } from '../components/TodoTab'
 import { PestanaPersistidaTab } from '../components/PestanaPersistidaTab'
 import { PanelConciliacion } from '../components/PanelConciliacion'
@@ -116,6 +117,7 @@ export function IncidenciasPage() {
       {activa === 'cambio-situacion-revista' && <PestanaPersistidaTab slug="cambio-situacion-revista" />}
       {activa === 'cambios-del-puesto' && <PestanaPersistidaTab slug="cambios-del-puesto" />}
       {activa === 'otras' && <PestanaPersistidaTab slug="otras" />}
+      {activa === 'bloqueados' && <BloqueadosTab />}
     </div>
   )
 }

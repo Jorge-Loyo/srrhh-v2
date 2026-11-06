@@ -66,6 +66,17 @@ export const bajaSinConcursoQuerySchema = z.object({
 })
 export type BajaSinConcursoQuery = z.infer<typeof bajaSinConcursoQuerySchema>
 
+// Query de la pestaña "Bloqueados" (FASE 5, on-demand, solo lectura): mismo
+// molde que bajaSinConcursoQuerySchema (q / carrera / paginación / refrescar),
+// sin los filtros origen/estadoCargo que no aplican.
+export const bloqueadosQuerySchema = z.object({
+  ...paginacion,
+  q: qSchema,
+  carrera: z.string().trim().max(100).optional(),
+  refrescar: refrescarSchema,
+})
+export type BloqueadosQuery = z.infer<typeof bloqueadosQuerySchema>
+
 export const todoQuerySchema = z.object({
   ...paginacion,
   q: qSchema,
@@ -78,6 +89,7 @@ export const todoQuerySchema = z.object({
       'cambio-situacion-revista',
       'cambios-del-puesto',
       'otras',
+      'bloqueados',
     ])
     .optional(),
   refrescar: refrescarSchema,

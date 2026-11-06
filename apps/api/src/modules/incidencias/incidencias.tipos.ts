@@ -21,6 +21,7 @@ import {
   construirItemPersistido,
   ordenarPersistidas,
 } from './incidencias.persistidas.js'
+import { listarBloqueados } from './incidencias.bloqueados.js'
 
 // Slugs de pestaña (web). 'otras' AGRUPA los tres 'otras:*' persistidos en una
 // sola pestaña (decisión de negocio); el resto mapea 1:1 con el slug persistido.
@@ -31,6 +32,7 @@ export type TipoSlug =
   | 'cambio-situacion-revista'
   | 'cambios-del-puesto'
   | 'otras'
+  | 'bloqueados'
 
 export interface FiltrosComunes {
   q?: string
@@ -58,6 +60,9 @@ export interface IncidenciaItem {
   detalle: string
   cargoId: string | null
   diffId: string | null
+  // FASE 5 (aditivo): solo lo puebla la pestaña 'bloqueados'.
+  fechaBloqueo?: string | null
+  motivo?: string | null
 }
 
 export interface TipoIncidencia {
@@ -255,6 +260,42 @@ function tipoPersistido(
   }
 }
 
+// ─── Tipo: Bloqueados (on-demand, solo lectura — FASE 5) ─────────────────────
+// Ocupaciones vivas con fecha_bloqueo (universo gestionable). No persiste: es
+// una condición vigente del puesto, no un evento del paso 12. Query directa
+// (listarBloqueados). Para /todo y los contadores se pide un pageSize grande y
+// se usan los items/meta de esa misma lista.
+const bloqueados: TipoIncidencia = {
+  slug: 'bloqueados',
+  label: 'Bloqueados',
+  async contar() {
+    const { meta } = await listarBloqueados({ page: 1, pageSize: 1 })
+    return meta.total
+  },
+  async listar(f) {
+    const { items } = await listarBloqueados({ q: f.q, carrera: f.carrera, page: 1, pageSize: 1_000_000 })
+    return items.map((i) => ({
+      clave: `bloqueados:${i.cargoId}`,
+      tipo: 'bloqueados' as const,
+      tipoLabel: 'Bloqueados',
+      idSial: i.idSial,
+      codigo: i.codigoRegistro,
+      hospitalSigla: i.hospitalSigla,
+      carrera: i.carrera,
+      puesto: i.puesto,
+      especialidad: i.especialidad,
+      personaCuil: i.persona?.cuil ?? null,
+      personaNombre: i.persona?.nombre ?? null,
+      fecha: i.fechaBloqueo,
+      detalle: `Bloqueado desde ${i.fechaBloqueo ?? '—'}${i.bloqMotivo ? ` — ${i.bloqMotivo}` : ''}`,
+      cargoId: i.cargoId,
+      diffId: null,
+      fechaBloqueo: i.fechaBloqueo,
+      motivo: i.bloqMotivo,
+    }))
+  },
+}
+
 const cayoDelPadron = tipoPersistido('cayo-del-padron', 'Cayó del padrón')
 const cambioSituacionRevista = tipoPersistido('cambio-situacion-revista', 'Cambió la situación de revista')
 const cambiosDelPuesto = tipoPersistido('cambios-del-puesto', 'Cambios del puesto')
@@ -267,6 +308,7 @@ export const TIPOS_INCIDENCIA: TipoIncidencia[] = [
   cambioSituacionRevista,
   cambiosDelPuesto,
   otras,
+  bloqueados,
 ]
 
 // ─── Listado dedicado (shape rico) por pestaña persistida ─────────────────────

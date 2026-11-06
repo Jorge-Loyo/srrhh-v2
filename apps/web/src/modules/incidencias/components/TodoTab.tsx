@@ -13,6 +13,7 @@ const CHIP_TIPO: Record<TipoIncidenciaSlug, string> = {
   'cambio-situacion-revista': 'bg-amber-100 text-amber-700 border-amber-200',
   'cambios-del-puesto': 'bg-sky-100 text-sky-700 border-sky-200',
   otras: 'bg-gray-100 text-gray-700 border-gray-200',
+  bloqueados: 'bg-rose-100 text-rose-700 border-rose-200',
 }
 
 // Unión de los tipos de incidencia. Las acciones que modifican datos viven solo

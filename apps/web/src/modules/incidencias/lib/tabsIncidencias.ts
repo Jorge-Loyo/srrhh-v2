@@ -9,6 +9,7 @@ export type TabIncidenciasId =
   | 'cambio-situacion-revista'
   | 'cambios-del-puesto'
   | 'otras'
+  | 'bloqueados'
 
 export interface TabIncidencias {
   id: TabIncidenciasId
@@ -24,6 +25,7 @@ export const TABS_INCIDENCIAS: TabIncidencias[] = [
   { id: 'cambio-situacion-revista', slug: 'cambio-situacion-revista', label: 'Cambió la situación de revista' },
   { id: 'cambios-del-puesto', slug: 'cambios-del-puesto', label: 'Cambios del puesto' },
   { id: 'otras', slug: 'otras', label: 'Otras incidencias' },
+  { id: 'bloqueados', slug: 'bloqueados', label: 'Bloqueados' },
 ]
 
 // Pestaña activa: la elegida o, por defecto, la primera (Todo).

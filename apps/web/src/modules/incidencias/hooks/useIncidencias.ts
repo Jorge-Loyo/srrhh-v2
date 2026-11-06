@@ -180,6 +180,7 @@ export type TipoIncidenciaSlug =
   | 'cambio-situacion-revista'
   | 'cambios-del-puesto'
   | 'otras'
+  | 'bloqueados'
 
 export interface ContextoIncidencias {
   ultimoPadron: {
@@ -412,6 +413,50 @@ export function usePestanaPersistida(slug: PestanaPersistidaSlug, params: Persis
 
 // Botón "Actualizar": fuerza la recarga de la caché del servidor (refrescar=true
 // en /resumen) y luego refresca resumen y listas de las pestañas de monitoreo.
+// ─── Pestaña "Bloqueados" (FASE 5, on-demand, solo lectura) ──────────────────
+// Contrato: GET /incidencias/bloqueados. Ocupaciones vivas con fecha_bloqueo
+// (universo gestionable). No persiste: es una condición vigente del puesto.
+export interface BloqueadosItem {
+  cargoId: string
+  idSial: string | null
+  codigoRegistro: string | null
+  hospitalSigla: string | null
+  carrera: string | null
+  puesto: string | null
+  especialidad: string | null
+  persona: { cuil: string | null; nombre: string | null } | null
+  fechaBloqueo: string | null
+  bloqMotivo: string | null
+  bloqueoComentario: string | null
+}
+
+export interface BloqueadosResponse {
+  items: BloqueadosItem[]
+  meta: Paginacion
+  generadoAt: string
+}
+
+export interface BloqueadosParams {
+  page: number
+  pageSize: number
+  q?: string
+  carrera?: string
+}
+
+export function useBloqueados(params: BloqueadosParams) {
+  return useQuery({
+    queryKey: ['incidencias', 'bloqueados', params],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: BloqueadosResponse }>(
+        '/api/v1/incidencias/bloqueados',
+        { params: limpiarParams(params) },
+      )
+      return res.data.data
+    },
+  })
+}
+
 export function useActualizarIncidencias() {
   const queryClient = useQueryClient()
   return async () => {
@@ -427,6 +472,7 @@ export function useActualizarIncidencias() {
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'cambio-situacion-revista'] }),
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'cambios-del-puesto'] }),
       queryClient.invalidateQueries({ queryKey: ['incidencias', 'otras'] }),
+      queryClient.invalidateQueries({ queryKey: ['incidencias', 'bloqueados'] }),
     ])
   }
 }

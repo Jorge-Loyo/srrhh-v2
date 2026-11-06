@@ -6,11 +6,13 @@ import {
   vincularConcursoSchema,
   crearConcursoParaIdSialSchema,
   bajaSinConcursoQuerySchema,
+  bloqueadosQuerySchema,
   todoQuerySchema,
   resumenQuerySchema,
   persistidaQuerySchema,
 } from './incidencias.schema.js'
 import { listarBajaSinConcurso } from './incidencias.baja-sin-concurso.js'
+import { listarBloqueados } from './incidencias.bloqueados.js'
 import { listarTodo, resumenIncidencias, listarPersistidas } from './incidencias.tipos.js'
 import {
   getPendientesService,
@@ -116,6 +118,23 @@ export async function incidenciasRoutes(app: FastifyInstance) {
         { ...filtros, page: filtros.page ?? 1, pageSize: filtros.pageSize ?? 50 },
         { refrescar },
       )
+      return reply.send({ data: result })
+    },
+  )
+  // GET /bloqueados — ocupaciones vivas con fecha_bloqueo (universo gestionable),
+  // on-demand y solo lectura. NO persiste: es una condición vigente del puesto.
+  // `refrescar` se acepta por paridad de contrato pero la query es directa (sin
+  // caché en proceso), así que no tiene efecto.
+  app.get(
+    '/bloqueados',
+    { preHandler: requirePermiso({ modulo: 'incidencias', accion: 'ver' }) },
+    async (request, reply) => {
+      const { refrescar: _refrescar, ...filtros } = bloqueadosQuerySchema.parse(request.query)
+      const result = await listarBloqueados({
+        ...filtros,
+        page: filtros.page ?? 1,
+        pageSize: filtros.pageSize ?? 50,
+      })
       return reply.send({ data: result })
     },
   )
