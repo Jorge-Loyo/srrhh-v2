@@ -21,13 +21,31 @@ export async function crearNotificacion(data: {
   return prisma.notificacion.create({ data })
 }
 
-// ─── S10-2: listado paginado (propias del rol del usuario) ───────────────────
+// ─── Gobernanza admin ────────────────────────────────────────────────────────
+// El rol `admin` (slug fijo, protegido) tiene monitoreo total: VE y cuenta las
+// notificaciones de TODOS los roles, no solo las de su propio rolSlug. El resto
+// de los roles solo ve las dirigidas a su rol (filtro exacto por rolSlug).
+//
+// Nota de diseño (marcar-leída): el modelo Notificacion.leida es un único
+// booleano por fila (por rolSlug destinatario), no por usuario. Para que la
+// acción de monitoreo del admin NO oculte una notificación a su rol real,
+// marcarLeidaService/marcarTodasLeidasService mantienen el filtro exacto por
+// rolSlug (el admin solo puede marcar leídas las suyas, rolSlug 'admin'). Así el
+// admin VE todas (read) sin pisar el estado de los otros roles. Dar al admin
+// un estado leída propio por notificación requeriría un cambio de modelo (leída
+// por usuario) y queda fuera de este paso.
+function esAdmin(rolSlug: string): boolean {
+  return rolSlug === 'admin'
+}
+
+// ─── S10-2: listado paginado (propias del rol del usuario; admin: todas) ─────
 export async function listNotificacionesService(rolSlug: string, query: NotificacionesQuery) {
   const { page, limit, tipo, soloNoLeidas } = query
   const offset = (page - 1) * limit
 
   const where = {
-    rolSlug,
+    // Admin ve todas (sin filtro por rolSlug); el resto, solo las de su rol.
+    ...(esAdmin(rolSlug) ? {} : { rolSlug }),
     ...(tipo && { tipo }),
     ...(soloNoLeidas && { leida: false }),
   }
@@ -45,9 +63,11 @@ export async function listNotificacionesService(rolSlug: string, query: Notifica
   return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
-// ─── S10-2: contar no leídas (para el badge del header) ─────────────────────
+// ─── S10-2: contar no leídas (para el badge del header; admin: de todos) ─────
 export async function countNoLeidasService(rolSlug: string) {
-  return prisma.notificacion.count({ where: { rolSlug, leida: false } })
+  return prisma.notificacion.count({
+    where: { leida: false, ...(esAdmin(rolSlug) ? {} : { rolSlug }) },
+  })
 }
 
 // ─── S10-2: marcar una como leída ───────────────────────────────────────────
@@ -85,7 +105,8 @@ const cargoSelect = {
 export async function obtenerDetalleService(id: string, rolSlug: string) {
   const notif = await prisma.notificacion.findUnique({ where: { id } })
   if (!notif) throw AppError.notFound('Notificación no encontrada')
-  if (notif.rolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta notificación')
+  // Admin: monitoreo total, puede ver el detalle de cualquier notificación (read).
+  if (!esAdmin(rolSlug) && notif.rolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta notificación')
 
   if (!notif.origenTipo || !notif.origenId) return null
 

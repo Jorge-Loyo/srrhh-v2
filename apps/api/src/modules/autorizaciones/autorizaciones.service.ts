@@ -12,6 +12,15 @@ import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 
+// ─── Gobernanza admin ────────────────────────────────────────────────────────
+// El rol `admin` (slug fijo, protegido — ver roles.service.ts) tiene control
+// total del flujo: puede resolver CUALQUIER autorización pendiente, sin importar
+// a qué rol esté dirigida (resolverPorRolSlug). El resto de los roles solo
+// resuelve lo suyo. Mantiene el mismo criterio de bypass que requirePermiso.
+function esAdmin(rolSlug: string): boolean {
+  return rolSlug === 'admin'
+}
+
 // ─── Helper: resolver dinámicamente el slug del rol que resuelve ─────────────
 // En vez de hardcodear el slug (que en producción lleva hash, p.ej.
 // 'sgrasv_5ac494e'), se resuelve el rol que tiene asignado un permiso concreto
@@ -158,7 +167,8 @@ export async function aprobarAutorizacionService(
 ) {
   const aut = await prisma.autorizacion.findUnique({ where: { id } })
   if (!aut) throw AppError.notFound('Autorización no encontrada')
-  if (aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
+  // Admin: gobernanza total, puede resolver cualquier paso dirigido a otro rol.
+  if (!esAdmin(rolSlug) && aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
 
   if (aut.tipo === 'concurso_cph') {
@@ -183,7 +193,8 @@ export async function rechazarAutorizacionService(
 ) {
   const aut = await prisma.autorizacion.findUnique({ where: { id } })
   if (!aut) throw AppError.notFound('Autorización no encontrada')
-  if (aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
+  // Admin: gobernanza total, puede rechazar cualquier paso dirigido a otro rol.
+  if (!esAdmin(rolSlug) && aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
 
   return prisma.$transaction(async (tx) => {
@@ -281,7 +292,14 @@ async function _aprobarCph(
     const cph = await tx.concursoCph.findUnique({ where: { id: aut.referenciaId } })
     if (!cph) throw AppError.notFound('ConcursoCph no encontrado')
 
-    if (rolSlug === 'director') {
+    // Qué paso de la cadena es se determina por la autorización (resolverPorRolSlug),
+    // NO por el rol del usuario: el admin puede resolver ambos pasos y su rolSlug
+    // ('admin') no coincide con 'director' ni con el slug de sgrasv. La primera
+    // autorización CPH se crea siempre con resolverPorRolSlug === 'director'
+    // (concursos-cph.service.ts); la segunda, con el slug dinámico de sgrasv.
+    const esPasoDirector = aut.resolverPorRolSlug === 'director'
+
+    if (esPasoDirector) {
       // Primer paso del flujo estructural: director aprueba → crear autorizacion para sgrasv
       await tx.concursoCph.update({
         where: { id: aut.referenciaId },
