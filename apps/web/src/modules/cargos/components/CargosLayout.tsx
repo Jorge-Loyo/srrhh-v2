@@ -16,12 +16,14 @@ const TABS_GESTION = [
   { to: '/cargos/alta',          label: 'Alta de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:alta-cargo' } },
   { to: '/cargos/baja',          label: 'Baja de cargo', end: false, permiso: { modulo: 'cargos', accion: 'tab:baja-cargo' } },
   { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'cargos', accion: 'tab:cobertura-vacantes' } },
+  // Paso 1 flujo concursos: bandeja mixta CPH + CEETPS (gestión del inicio).
+  { to: '/cargos/concurso',      label: 'Concurso', end: false, permiso: { modulo: 'cargos', accion: 'tab:concurso' } },
 ]
 
 // Prefijos de ruta que corresponden a la GESTIÓN de cargos. Si la ruta activa
 // no es ninguno de estos, estamos en la VISTA (consulta) y no se muestra la
 // barra de pestañas de gestión.
-const RUTAS_GESTION = ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja']
+const RUTAS_GESTION = ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja', '/cargos/concurso']
 
 export function CargosLayout() {
   const { user } = useAuth()

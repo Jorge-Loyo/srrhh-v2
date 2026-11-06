@@ -1415,6 +1415,45 @@ export interface ConcursoCeetpsFilters {
   search?: string
 }
 
+// ─── Bandeja mixta de concursos (CPH + CEETPS) — /cargos/concurso ───────────
+// Fila unificada que lee del Concurso base y trae las columnas COMUNES a ambos
+// tipos. El discriminador `tipo` dice de qué extensión salió el estado/subEstado
+// (concursoCph vs concursoCeetps). Es la gestión del INICIO de todos los
+// concursos; NO reemplaza las pantallas /concursos/cph ni /concursos/ceetps.
+export interface ConcursoBandejaItem {
+  // id del Concurso base (no de la extensión)
+  id: string
+  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)
+  cargoId: string
+  hospitalId: string
+  hospitalSigla: string | null
+  // Carrera/Puesto: literalPuesto del cargo (snapshot) con fallback al puesto
+  // solicitado de la extensión.
+  puesto: string | null
+  especialidad: string | null
+  // Estado + sub-estado de la extensión que corresponda al tipo. Se exponen
+  // como string para que la tabla mixta los muestre sin ramificar por tipo.
+  estado: string | null
+  subEstado: string | null
+  motivoConcurso: string | null
+  // Último movimiento: updatedAt de la extensión (fallback a createdAt del base).
+  ultimoMovimiento: string
+  createdAt: string
+}
+
+export interface ConcursoBandejaFilters {
+  page?: number
+  limit?: number
+  hospitalId?: string
+  // Filtro por tipo: 'cph' | 'ceetps'. Omitido = ambos (todos).
+  tipo?: TipoConcurso
+  // Estado textual de la extensión (string, común a ambos tipos).
+  estado?: string
+  // Motivo tipificado del inicio del concurso (MotivoConcurso del Concurso base).
+  motivo?: string
+  search?: string
+}
+
 export interface BajaFilters {
   page?: number
   limit?: number

@@ -48,6 +48,7 @@ const CargoDetailPanel = lazy(() => import('../modules/cargos/pages/CargoDetailP
 const CargosLayout = lazy(() => import('../modules/cargos/components/CargosLayout').then((m) => ({ default: m.CargosLayout })))
 const AltaCargosPage = lazy(() => import('../modules/cargos/pages/AltaCargosPage').then((m) => ({ default: m.AltaCargosPage })))
 const AltaPorBajaPage = lazy(() => import('../modules/cargos/pages/AltaPorBajaPage').then((m) => ({ default: m.AltaPorBajaPage })))
+const BandejaConcursosPage = lazy(() => import('../modules/cargos/pages/BandejaConcursosPage').then((m) => ({ default: m.BandejaConcursosPage })))
 const BajaCargosPage = lazy(() => import('../modules/cargos/pages/BajaCargosPage').then((m) => ({ default: m.BajaCargosPage })))
 const NuevaBajaPage = lazy(() => import('../modules/cargos/pages/NuevaBajaPage').then((m) => ({ default: m.NuevaBajaPage })))
 const ConcursosCphPage = lazy(() => import('../modules/concursos-cph/pages/ConcursosCphPage').then((m) => ({ default: m.ConcursosCphPage })))
@@ -204,6 +205,10 @@ export const router = createBrowserRouter([
               {
                 element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:cobertura-vacantes' }} />,
                 children: [{ path: 'cargos/alta-por-baja', element: <AltaPorBajaPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'cargos', accion: 'tab:concurso' }} />,
+                children: [{ path: 'cargos/concurso', element: <BandejaConcursosPage /> }],
               },
             ],
           },

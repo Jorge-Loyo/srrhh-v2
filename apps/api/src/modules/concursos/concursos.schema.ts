@@ -30,3 +30,20 @@ export const createConcursoSchema = z
   })
 
 export type CreateConcursoBody = z.infer<typeof createConcursoSchema>
+
+// ─── Bandeja mixta de concursos (CPH + CEETPS) — GET /concursos/bandeja ──────
+// Filtros COMUNES a ambos tipos. Se lee del Concurso base, así que el filtro de
+// estado va contra el campo string de la extensión (ver bandeja.service.ts).
+export const bandejaConcursosQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  hospitalId: z.string().uuid().optional(),
+  // tipo: discriminador de la bandeja. Omitido = ambos.
+  tipo: z.nativeEnum(TipoConcurso).optional(),
+  // estado: valor textual de la extensión (EstadoConcursoCph o EstadoConcursoCeetps).
+  estado: z.string().trim().min(1).optional(),
+  motivo: z.nativeEnum(MotivoConcurso).optional(),
+  search: z.string().trim().min(1).optional(),
+})
+
+export type BandejaConcursosQuery = z.infer<typeof bandejaConcursosQuerySchema>

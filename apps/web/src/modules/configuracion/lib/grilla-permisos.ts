@@ -64,7 +64,7 @@ export const SECCIONES: SeccionPermisos[] = [
   { id: 'bajas', label: 'Bajas', icono: '🗑️', modulos: ['bajas'], grupo: 'visualizacion' },
   { id: 'retenciones', label: 'Retenciones', icono: '🔁', modulos: ['retenciones'], grupo: 'visualizacion' },
   // ── GESTIÓN ────────────────────────────────────────────────────────────
-  { id: 'cargos-gestion', label: 'Gestión de Cargos', icono: '🛠️', modulos: ['cargos'], acciones: ['ver', 'crear', 'tab:alta-cargo', 'tab:baja-cargo', 'tab:cobertura-vacantes'], grupo: 'gestion' },
+  { id: 'cargos-gestion', label: 'Gestión de Cargos', icono: '🛠️', modulos: ['cargos'], acciones: ['ver', 'crear', 'tab:alta-cargo', 'tab:baja-cargo', 'tab:cobertura-vacantes', 'tab:concurso'], grupo: 'gestion' },
   { id: 'concursos-cph', label: 'Concursos CPH', icono: '⚖️', modulos: ['concursos-cph'], grupo: 'gestion' },
   { id: 'concursos-ceetps', label: 'Concursos CEETPS', icono: '🏥', modulos: ['concursos-ceetps'], grupo: 'gestion' },
   { id: 'incidencias', label: 'Incidencias', icono: '📌', modulos: ['incidencias'], grupo: 'gestion' },
@@ -154,6 +154,8 @@ const ACCION_LABEL: Record<string, string> = {
 // Labels fijos de los tab:* de Concursos CPH (el title-case del slug perdería
 // acentos y preposiciones).
 const TAB_LABEL: Record<string, string> = {
+  // Pestaña "Concurso" de /cargos (bandeja mixta de inicio, paso 1 flujo concursos).
+  'tab:concurso': 'Pestaña: Concurso (bandeja de inicio)',
   'tab:concursos': 'Pestaña: Concursos',
   'tab:jurados': 'Pestaña: Jurados',
   'tab:ordenes-merito': 'Pestaña: Órdenes de mérito',
