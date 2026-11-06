@@ -2,9 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import { createConcursoSchema, bandejaConcursosQuerySchema } from './concursos.schema.js'
+import {
+  createConcursoSchema,
+  bandejaConcursosQuerySchema,
+  bandejaGestionQuerySchema,
+} from './concursos.schema.js'
 import { createConcursoService } from './concursos.service.js'
 import { listBandejaConcursosService } from './bandeja.service.js'
+import { listBandejaGestionService } from './bandeja-gestion.service.js'
 
 // Un único endpoint crea tanto concursos CPH como CEETPS (tipoConcurso viene en el
 // body, no en la ruta) — deja pasar a quien tenga CUALQUIERA de los dos permisos de
@@ -30,6 +35,20 @@ export async function concursosRoutes(app: FastifyInstance) {
     const result = await listBandejaConcursosService(query)
     return reply.send(result)
   })
+
+  // GET /bandeja-gestion — PASO 1b: bandeja RICA (tabla COMPLETA de CPH mudada
+  // a "Gestión de Concursos" en /cargos/concurso). Devuelve filas con la forma
+  // de ConcursoCph para CPH + CEETPS (opción i, ver bandeja-gestion.service.ts).
+  // Mismo gate que la pestaña (cargos/tab:concurso).
+  app.get(
+    '/bandeja-gestion',
+    { preHandler: requirePermiso(BANDEJA_PERMISO) },
+    async (request, reply) => {
+      const query = bandejaGestionQuerySchema.parse(request.query)
+      const result = await listBandejaGestionService(query)
+      return reply.send(result)
+    },
+  )
 
   // POST / — S4-6: crear concurso (cascada a ConcursoCph/ConcursoCeetps según tipoConcurso)
   app.post('/', { preHandler: requirePermiso(WRITE_PERMISOS) }, async (request, reply) => {
