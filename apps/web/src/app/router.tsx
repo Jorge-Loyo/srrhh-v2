@@ -58,7 +58,10 @@ const KpisPage = lazy(() => import('../modules/kpis/pages/KpisPage').then((m) =>
 const BajasPage = lazy(() => import('../modules/bajas/pages/BajasPage').then((m) => ({ default: m.BajasPage })))
 const BajasConsolidasPage = lazy(() => import('../modules/bajas/pages/BajasConsolidasPage').then((m) => ({ default: m.BajasConsolidasPage })))
 const BajasSialDiffPage = lazy(() => import('../modules/bajas/pages/BajasSialDiffPage').then((m) => ({ default: m.BajasSialDiffPage })))
-const ValidacionBajasPage = lazy(() => import('../modules/bajas/pages/ValidacionBajasPage').then((m) => ({ default: m.ValidacionBajasPage })))
+// FASE 6: /bajas/validacion (ValidacionBajasPage) jubilada de la navegación —
+// su función la cubren las pestañas nuevas de Incidencias (cayó del padrón /
+// baja sin concurso / validación). Ya no se importa ni se enruta; queda un
+// redirect a /bajas por si alguien la tiene en favoritos (ver más abajo).
 const BajaVinculacionPage = lazy(() => import('../modules/bajas/pages/BajaVinculacionPage').then((m) => ({ default: m.BajaVinculacionPage })))
 const BajasLayout = lazy(() => import('../modules/bajas/components/BajasLayout').then((m) => ({ default: m.BajasLayout })))
 const RetencionesPage = lazy(() => import('../modules/retenciones/pages/RetencionesPage').then((m) => ({ default: m.RetencionesPage })))
@@ -227,15 +230,17 @@ export const router = createBrowserRouter([
                 children: [{ path: 'bajas', element: <BajasPage /> }],
               },
               {
-                element: <RequirePermiso permiso={{ modulo: 'bajas', accion: 'tab:validacion' }} />,
-                children: [{ path: 'bajas/validacion', element: <ValidacionBajasPage /> }],
-              },
-              {
                 element: <RequirePermiso permiso={{ modulo: 'bajas', accion: 'tab:vinculaciones' }} />,
                 children: [{ path: 'bajas/vinculacion', element: <BajaVinculacionPage /> }],
               },
             ],
           },
+          // FASE 6: /bajas/validacion (ValidacionBajasPage) jubilada — su función
+          // la cubren las pestañas nuevas de Incidencias. Redirect a /bajas por si
+          // alguien la tiene guardada en favoritos (mismo patrón que las rutas
+          // viejas de concursos/admin). El permiso bajas/tab:validacion queda
+          // huérfano en la BD (sin UI); no se borra (F6 no lleva migración).
+          { path: 'bajas/validacion', element: <Navigate to="/bajas" replace /> },
           { path: 'retenciones/validacion', element: <RetencionesPage /> },
           { path: 'retenciones/vencimientos', element: <RetencionesPage /> },
           { path: 'notificaciones', element: <NotificacionesPage /> },

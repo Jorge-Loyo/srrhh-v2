@@ -27,7 +27,9 @@ const CARGOS_GESTION_SUBITEMS = [
 
 const BAJAS_SUBITEMS = [
   { to: '/bajas',            permiso: { modulo: 'bajas', accion: 'tab:bajas' } },
-  { to: '/bajas/validacion', permiso: { modulo: 'bajas', accion: 'tab:validacion' } },
+  // FASE 6: pestaña /bajas/validacion (ValidacionBajasPage) jubilada — su
+  // función la cubren las pestañas nuevas de Incidencias. El permiso
+  // bajas/tab:validacion queda sin UI (no se borra; F6 no lleva migración).
   { to: '/bajas/vinculacion', permiso: { modulo: 'bajas', accion: 'tab:vinculaciones' } },
 ]
 

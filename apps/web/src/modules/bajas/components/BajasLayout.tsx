@@ -2,12 +2,13 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 
-// Layout con pestañas para Bajas: Bajas / Validación / Vinculaciones.
+// Layout con pestañas para Bajas: Bajas / Vinculaciones.
 // Pestañas sincronizadas con la URL (cada una conserva su ruta). Reemplaza las
 // entradas sueltas del menú "Bajas" y "Validación de Bajas".
+// FASE 6: la pestaña "Validación" (/bajas/validacion → ValidacionBajasPage) se
+// jubiló — su función la cubren las pestañas nuevas de Incidencias.
 const TABS = [
   { to: '/bajas',            label: 'Bajas',         end: true,  permiso: { modulo: 'bajas', accion: 'tab:bajas' } },
-  { to: '/bajas/validacion', label: 'Validación',    end: false, permiso: { modulo: 'bajas', accion: 'tab:validacion' } },
   { to: '/bajas/vinculacion', label: 'Vinculaciones', end: false, permiso: { modulo: 'bajas', accion: 'tab:vinculaciones' } },
 ]
 
