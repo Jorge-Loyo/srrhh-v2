@@ -5,10 +5,11 @@ import type {
   CargosQuery,
   CreateCargoBody,
   AltasQuery,
+  NuevosCargosQuery,
   GrupoCatalogo,
   CargosExportQuery,
 } from './cargos.schema.js'
-import type { CargoExportRow } from '@srrhh/types'
+import type { CargoExportRow, SubEstadoCargo } from '@srrhh/types'
 import {
   prefijoDeCargo,
   siguienteCodigoCargo,
@@ -727,6 +728,89 @@ export async function listAltasService(query: AltasQuery) {
 
   return {
     data: cargos,
+    meta: { total, page, limit, pages: Math.ceil(total / limit) },
+  }
+}
+
+// ─── Paso A flujo concursos: "Nuevos cargos" ────────────────────────────────
+// Vista de SOLO LECTURA de los cargos creados por ALTA que están por concursar
+// o en concurso. Lee de la tabla `cargos` (NO del endpoint de concursos: un
+// cargo vacante sin concurso todavía no tiene fila en `concursos`). Criterio de
+// visibilidad EXACTO (reglas de Jorge, fuente de verdad):
+//   - idSial LIKE 'MANUAL-%'  → discriminador fiable de "creado por alta" (el
+//     campo `origen` nunca se setea a 'manual', queda en 'padron' — ver
+//     investigacion-nuevos-cargos.md §1; NO usar origen como filtro).
+//   - estado = 'vigente' AND subEstado IN ('vacante','concurso')  → deja solo
+//     VIGENTE/VACANTE y VIGENTE/CONCURSO. Al designar (pasa a VIGENTE/OCUPADO)
+//     el cargo se va de la vista solo (el filtro lo excluye).
+// Ordenado por `expediente` (el "bloque": todos los cargos de una misma alta
+// comparten expediente), NULLS LAST para cargos de alta legacy sin expediente.
+// El include replica el de listCargosService para que el payload tenga la MISMA
+// forma que `Cargo` del front (codigo, hospital, escalafon, puesto, especialidad,
+// expediente, estado, subEstado, fecha, codigoRegistro, personaOcupante).
+export async function listNuevosCargosService(query: NuevosCargosQuery) {
+  const { page, limit, search, hospitalId, subEstado } = query
+
+  // Sub-estados visibles de la vista. Si viene `subEstado` en el query, acota a
+  // ese único valor (dentro del universo permitido); si no, los dos.
+  const subEstadosVisibles: SubEstadoCargo[] = subEstado
+    ? [subEstado]
+    : ['vacante', 'concurso']
+
+  const where: Prisma.CargoWhereInput = {
+    idSial: { startsWith: 'MANUAL-' },
+    estado: 'vigente',
+    subEstado: { in: subEstadosVisibles },
+    ...(hospitalId && { hospitalId }),
+    ...(search && {
+      OR: [
+        { codigo: { contains: search, mode: 'insensitive' } },
+        { literalPuesto: { contains: search, mode: 'insensitive' } },
+        { especialidadLegacy: { contains: search, mode: 'insensitive' } },
+        { expediente: { contains: search, mode: 'insensitive' } },
+      ],
+    }),
+  }
+
+  const [total, cargos] = await Promise.all([
+    prisma.cargo.count({ where }),
+    prisma.cargo.findMany({
+      where,
+      include: {
+        hospital: true,
+        escalafon: true,
+        codigoRegistro: true,
+        especialidadPuesto: { select: { id: true, nombre: true } },
+        ocupaciones: {
+          where: { hasta: null },
+          include: { persona: { select: { id: true, apellidoNombre: true, cuil: true } } },
+          orderBy: { cargoDesdeFecha: 'desc' },
+          take: 1,
+        },
+      },
+      // Bloque = ordenar por expediente de creación. NULLS LAST defensivo por si
+      // algún cargo de alta legacy tuviera expediente null (la UI de alta lo
+      // exige, pero el schema lo tolera). Desempate estable por createdAt.
+      orderBy: [{ expediente: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ])
+
+  return {
+    data: cargos.map(({ ocupaciones, ...c }) => ({
+      ...c,
+      subEstado: c.subEstado,
+      ocupado: ocupaciones.length > 0,
+      ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha
+        ? ocupaciones[0].cargoDesdeFecha instanceof Date
+          ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
+          : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10)
+        : null,
+      personaOcupante: ocupaciones[0]?.persona
+        ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
+        : null,
+    })),
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   }
 }

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { cargosQuerySchema, createCargoSchema, altasQuerySchema, cargosExportQuerySchema } from './cargos.schema.js'
-import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService, exportCargosService } from './cargos.service.js'
+import { cargosQuerySchema, createCargoSchema, altasQuerySchema, nuevosCargosQuerySchema, cargosExportQuerySchema } from './cargos.schema.js'
+import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService, listNuevosCargosService, exportCargosService } from './cargos.service.js'
 
 export async function cargosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -20,6 +20,20 @@ export async function cargosRoutes(app: FastifyInstance) {
     const result = await listAltasService(query)
     return reply.send(result)
   })
+
+  // GET /nuevos — Paso A flujo concursos: vista "Nuevos cargos" (cargos de alta
+  // vigentes por concursar o en concurso, ordenados por expediente). Gateado
+  // con el mismo permiso que la pestaña UI. Declarado ANTES de GET /:id para
+  // que no lo capture la ruta param.
+  app.get(
+    '/nuevos',
+    { preHandler: requirePermiso({ modulo: 'cargos', accion: 'tab:nuevos-cargos' }) },
+    async (request, reply) => {
+      const query = nuevosCargosQuerySchema.parse(request.query)
+      const result = await listNuevosCargosService(query)
+      return reply.send(result)
+    },
+  )
 
   // GET /export — export de /cargos: universo completo (solo excluye borrados
   // lógicos), SIN filtros de pantalla, con las 9 columnas ya resueltas.

@@ -18,12 +18,15 @@ const TABS_GESTION = [
   { to: '/cargos/alta-por-baja', label: 'Cobertura de vacantes', end: false, permiso: { modulo: 'cargos', accion: 'tab:cobertura-vacantes' } },
   // Paso 1 flujo concursos: bandeja mixta CPH + CEETPS (gestión del inicio).
   { to: '/cargos/concurso',      label: 'Concurso', end: false, permiso: { modulo: 'cargos', accion: 'tab:concurso' } },
+  // Paso A flujo concursos: vista de los cargos de alta por concursar / en
+  // concurso, ordenados por expediente. Va al lado de "Concurso".
+  { to: '/cargos/nuevos-cargos', label: 'Nuevos cargos', end: false, permiso: { modulo: 'cargos', accion: 'tab:nuevos-cargos' } },
 ]
 
 // Prefijos de ruta que corresponden a la GESTIÓN de cargos. Si la ruta activa
 // no es ninguno de estos, estamos en la VISTA (consulta) y no se muestra la
 // barra de pestañas de gestión.
-const RUTAS_GESTION = ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja', '/cargos/concurso']
+const RUTAS_GESTION = ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja', '/cargos/concurso', '/cargos/nuevos-cargos']
 
 export function CargosLayout() {
   const { user } = useAuth()
