@@ -134,6 +134,43 @@ function fechaOrden(item: Record<string, unknown>, ordenarPor: string): number {
   return base ? new Date(base).getTime() : 0
 }
 
+// Estados válidos del enum CEETPS (EstadoConcursoCeetps). Se usa para decidir
+// si el filtro de estado se puede aplicar a la query CEETPS. El enum CPH
+// (no_iniciado/activo/suspendido) NO existe en CEETPS: solo 'finalizado'
+// solapa entre ambos. Pasar un valor CPH crudo a prisma.concursoCeetps rompe
+// con PrismaClientValidationError (no devuelve vacío), así que hay que filtrar.
+const ESTADOS_CEETPS = new Set<ConcursoCeetps['estado']>([
+  'sin_autorizar',
+  'autorizado',
+  'en_proceso',
+  'finalizado',
+  'desierto',
+])
+
+// Filtros CPH-only: no existen en CEETPS. Si uno de ellos está activo en modo
+// mixto, las filas CEETPS NO pueden satisfacerlo, así que se OCULTAN (no se
+// consultan) para que el filtro no muestre filas que no matchean. El estado
+// se maneja aparte (ver ESTADOS_CEETPS): un estado CPH-only también oculta
+// CEETPS, pero un estado que solape (finalizado) sí se aplica.
+function tieneFiltroCphOnlyActivo(query: BandejaGestionQuery): boolean {
+  return Boolean(
+    query.etapa !== undefined ||
+      query.origen ||
+      query.conFaltantes ||
+      query.personaOm !== undefined ||
+      query.validado !== undefined ||
+      query.especialidad ||
+      query.puesto ||
+      query.conduccion !== undefined ||
+      query.subEstado ||
+      query.fechaBajaDesde ||
+      query.fechaBajaHasta ||
+      query.fechaEeConcursoDesde ||
+      query.fechaEeConcursoHasta ||
+      query.etiquetaIds,
+  )
+}
+
 export async function listBandejaGestionService(query: BandejaGestionQuery) {
   const { tipo, page, limit, ordenarPor = 'fecha_ee_concurso', orden = 'desc' } = query
 
@@ -154,9 +191,14 @@ export async function listBandejaGestionService(query: BandejaGestionQuery) {
   // paginado en memoria. Para CPH se pide un limit alto y page 1 para traer
   // todo el conjunto filtrado (el límite duro del schema es 200; se itera si
   // hiciera falta, pero el volumen real entra holgado en una página grande).
+  //
+  // CEETPS en mixto: si hay un filtro CPH-only activo (etapa, origen, puesto,
+  // etc.), las filas CEETPS no pueden evaluarse contra ese criterio y se
+  // OCULTAN — así el filtro no "fuga" filas CEETPS que no matchean. Sin filtro
+  // CPH-only, se incluyen los CEETPS (aplicando solo hospital/estado/search).
   const [cphTodos, ceetps] = await Promise.all([
     fetchCphTodos(query),
-    fetchCeetpsMapeados(query),
+    tieneFiltroCphOnlyActivo(query) ? Promise.resolve([]) : fetchCeetpsMapeados(query),
   ])
   const combinado = [...cphTodos, ...ceetps]
   return paginarEnMemoria(combinado, page, limit, ordenarPor, orden)
@@ -181,8 +223,20 @@ async function fetchCphTodos(query: BandejaGestionQuery): Promise<Record<string,
 
 async function fetchCeetpsMapeados(query: BandejaGestionQuery): Promise<Record<string, unknown>[]> {
   // Subconjunto de filtros que aplican a CEETPS (los CPH-only se ignoran acá):
-  // hospital(es), estado (string del enum CEETPS), sub-estado, search.
-  const { hospitalId, hospitalIds, estado, subEstado, search } = query
+  // hospital(es), estado (solo si es un estado válido del enum CEETPS), search.
+  // El sub-estado es CPH-only (los valores con prefijo de letra son del flujo
+  // CPH), así que no se reenvía a CEETPS.
+  const { hospitalId, hospitalIds, estado, search } = query
+
+  // El filtro de estado llega como valor del enum CPH
+  // (no_iniciado/activo/finalizado/suspendido). Solo 'finalizado' es miembro
+  // válido de EstadoConcursoCeetps; reenviar cualquier otro a Prisma dispara
+  // PrismaClientValidationError. Si el estado pedido NO existe en CEETPS,
+  // ninguna fila CEETPS puede matchear → se devuelve vacío sin consultar.
+  if (estado && !ESTADOS_CEETPS.has(estado as ConcursoCeetps['estado'])) {
+    return []
+  }
+
   const where: Prisma.ConcursoCeetpsWhereInput = {
     ...(hospitalIds?.length
       ? { hospitalId: { in: hospitalIds } }
@@ -190,7 +244,6 @@ async function fetchCeetpsMapeados(query: BandejaGestionQuery): Promise<Record<s
         ? { hospitalId }
         : {}),
     ...(estado && { estado: estado as ConcursoCeetps['estado'] }),
-    ...(subEstado && { subEstado }),
     ...(search && {
       OR: [
         { expedienteConcurso: { contains: search, mode: 'insensitive' } },

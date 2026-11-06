@@ -46,6 +46,18 @@ function semaforoLabel(c: ConcursoCph): string {
   return 'No iniciado'
 }
 
+// Destino del botón "Ver"/"Abrir concurso". En la bandeja mixta CPH+CEETPS
+// (/cargos/concurso) las filas CEETPS traen el discriminador `tipoConcurso`
+// (lo agrega ceetpsToConcursoCphShape en el back) y su id es el de la extensión
+// ConcursoCeetps → van al detalle CEETPS (/concursos/ceetps/:id). Las filas CPH
+// (sin ese campo, o 'cph') van al wizard CPH como siempre. Evita la navegación
+// rota que apuntaba todo a /concursos/cph/:id/wizard con un id CEETPS.
+function concursoDetalleHref(c: ConcursoCph): string {
+  const tipo = (c as ConcursoCph & { tipoConcurso?: string }).tipoConcurso
+  if (tipo === 'ceetps') return `/concursos/ceetps/${c.id}`
+  return `/concursos/cph/${c.id}/wizard`
+}
+
 // Clasifica la documentación respaldatoria del concurso en uno de 3 tipos:
 //  - Baja: el concurso tiene expediente de baja cargado (eeBaja) → expediente de baja.
 //    Se basa en eeBaja (no en la FK baja/bajaId) porque los concursos importados
@@ -904,7 +916,7 @@ export function ConcursosListaTab({
                               >
                                 ⓘ
                               </button>
-                              <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-outline">
+                              <Link to={concursoDetalleHref(c)} className="btn-outline">
                                 Ver
                               </Link>
                             </div>
@@ -1322,7 +1334,7 @@ function DetalleConcursoModal({
           </dl>
         </div>
         <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
-          <Link to={`/concursos/cph/${c.id}/wizard`} className="btn-primary text-sm">
+          <Link to={concursoDetalleHref(c)} className="btn-primary text-sm">
             Abrir concurso
           </Link>
           <button onClick={onClose} className="btn-outline text-sm">
