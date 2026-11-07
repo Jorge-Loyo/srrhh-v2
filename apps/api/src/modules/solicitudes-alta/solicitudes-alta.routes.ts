@@ -5,6 +5,7 @@ import {
   createSolicitudAltaSchema,
   createSolicitudesAltaBatchSchema,
   solicitudesAltaQuerySchema,
+  grupoPdfQuerySchema,
 } from './solicitudes-alta.schema.js'
 import {
   createSolicitudAltaService,
@@ -12,6 +13,7 @@ import {
   listSolicitudesAltaService,
   getSolicitudAltaService,
 } from './solicitudes-alta.service.js'
+import { generarPdfGrupoSolicitudesAltaService } from './solicitudes-alta.pdf.js'
 
 export async function solicitudesAltaRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -45,6 +47,20 @@ export async function solicitudesAltaRoutes(app: FastifyInstance) {
     const query = solicitudesAltaQuerySchema.parse(request.query)
     const result = await listSolicitudesAltaService(query)
     return reply.send(result)
+  })
+
+  // GET /grupo/pdf?expediente=... --- PDF del grupo de cargos (unificado por
+  // expediente). On-demand del dato actual: lo usa el modal de confirmación al
+  // enviar a aprobación y también la vista de Cargos Históricos. Declarado ANTES
+  // de GET /:id para que la ruta param no capture "/grupo/pdf".
+  app.get('/grupo/pdf', {
+    preHandler: requirePermiso({ modulo: 'solicitudes-alta', accion: 'ver' }),
+  }, async (request, reply) => {
+    const { expediente } = grupoPdfQuerySchema.parse(request.query)
+    const { buffer, filename } = await generarPdfGrupoSolicitudesAltaService(expediente)
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(buffer)
   })
 
   // GET /:id --- detalle

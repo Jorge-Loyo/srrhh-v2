@@ -6,7 +6,7 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
-import { useSolicitudesAlta, useCreateSolicitudesAltaBatch } from '../hooks/useSolicitudesAlta'
+import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -394,6 +394,14 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   )
 }
 
+// Resumen del grupo enviado a aprobación — alimenta el modal de confirmación.
+// Se arma con los ítems recién enviados (comparten el expediente del lote).
+interface ResumenEnvio {
+  expediente: string
+  totalCargos: number
+  items: ItemPendiente[]
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 export function AltaCargosPage() {
   const [tab,        setTab]        = useState<'historial' | 'nueva' | 'transferencia'>('historial')
@@ -403,6 +411,7 @@ export function AltaCargosPage() {
   const [error,      setError]      = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
   const [filtroEstado, setFiltroEstado] = useState<SolicitudAltaEstado | ''>('')
+  const [confirmacion, setConfirmacion] = useState<ResumenEnvio | null>(null)
 
   // S13-D: historial ahora lista SolicitudAlta (con estado pendiente/aprobada/
   // rechazada) — el Cargo real recién existe cuando el director aprueba.
@@ -442,8 +451,15 @@ export function AltaCargosPage() {
           etiqueta:         item.etiqueta || undefined,
         })),
       })
+      // Resumen para el modal (todos los ítems del lote comparten el expediente).
+      const enviados = pendientes
+      const expediente = enviados[0]?.expediente ?? ''
+      const totalCargos = enviados.reduce((acc, p) => acc + p.cantidad, 0)
+      // Form limpio: se vacían los pendientes y se cierra el formulario abierto.
       setPendientes([])
+      setTipoActivo(null)
       refetchSolicitudes()
+      setConfirmacion({ expediente, totalCargos, items: enviados })
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -581,6 +597,96 @@ export function AltaCargosPage() {
             esTransferencia
           />
         )}
+      </div>
+
+      {/* Modal de confirmación tras enviar a aprobación */}
+      {confirmacion && (
+        <ModalConfirmacionEnvio
+          resumen={confirmacion}
+          onCerrar={() => setConfirmacion(null)}
+          onIrAHistorial={() => { setConfirmacion(null); setTab('historial') }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Modal de confirmación del envío a aprobación ──────────────────────────────
+// Se muestra al enviar el lote: confirma N cargos enviados a aprobación con el
+// detalle del grupo (expediente + una línea por cargo) y permite descargar el
+// PDF del expediente (on-demand del backend) o ir a Cargos Históricos.
+function ModalConfirmacionEnvio({ resumen, onCerrar, onIrAHistorial }: {
+  resumen: ResumenEnvio
+  onCerrar: () => void
+  onIrAHistorial: () => void
+}) {
+  const [descargando, setDescargando] = useState(false)
+  const [errorPdf, setErrorPdf] = useState<string | null>(null)
+
+  async function onDescargar() {
+    setDescargando(true); setErrorPdf(null)
+    try {
+      await descargarPdfGrupo(resumen.expediente)
+    } catch (err) {
+      setErrorPdf(getApiErrorMessage(err))
+    } finally {
+      setDescargando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="bg-navy px-6 py-4 rounded-t-xl flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+              <p className="text-white font-bold text-sm">Se enviaron {resumen.totalCargos} cargo(s) a aprobación</p>
+            </div>
+            <p className="text-white/60 text-xs mt-1">Expediente <span className="font-mono">{resumen.expediente || '(sin expediente)'}</span></p>
+          </div>
+          <button onClick={onCerrar} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto">
+          <p className="text-xs text-gray-500 mb-3">
+            Cada cargo queda como solicitud pendiente hasta que el director la apruebe.
+            Podés descargar el documento del expediente ahora o después desde el historial.
+          </p>
+          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600 text-left">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Hospital</th>
+                  <th className="px-3 py-2 font-semibold">Carrera</th>
+                  <th className="px-3 py-2 font-semibold">Puesto</th>
+                  <th className="px-3 py-2 font-semibold">Especialidad</th>
+                  <th className="px-3 py-2 font-semibold text-center">Cant.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {resumen.items.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-3 py-2 text-gray-700">{item.hospitalSigla}</td>
+                    <td className="px-3 py-2 text-gray-700">{item.escalafon}</td>
+                    <td className="px-3 py-2 text-gray-800">{item.puesto}</td>
+                    <td className="px-3 py-2 text-gray-500">{item.especialidad || '—'}</td>
+                    <td className="px-3 py-2 text-center font-bold text-secondary">{item.cantidad}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {errorPdf && <p className="mt-2 text-xs text-red-500">{errorPdf}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button onClick={onCerrar} className="btn-outline">Cerrar</button>
+          <button onClick={onIrAHistorial} className="btn-outline">Ir a Historial de solicitudes</button>
+          <button onClick={onDescargar} disabled={descargando} className="btn-primary disabled:opacity-40">
+            {descargando ? 'Generando...' : 'Descargar PDF'}
+          </button>
+        </div>
       </div>
     </div>
   )

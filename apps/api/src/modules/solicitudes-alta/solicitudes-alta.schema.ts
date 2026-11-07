@@ -32,6 +32,13 @@ export const createSolicitudesAltaBatchSchema = z.object({
   items: z.array(createSolicitudAltaSchema).min(1).max(100),
 })
 
+// PDF del grupo (unificado por expediente). El expediente puede traer barras
+// (ej. decretos "DEC-541/MSGC/26"), así que viaja como query param — no como
+// path param — para no romper el ruteo.
+export const grupoPdfQuerySchema = z.object({
+  expediente: z.string().trim().min(1).max(150),
+})
+
 export const solicitudesAltaQuerySchema = z.object({
   page:            z.coerce.number().int().min(1).default(1),
   limit:           z.coerce.number().int().min(1).max(100).default(20),
@@ -43,3 +50,4 @@ export const solicitudesAltaQuerySchema = z.object({
 export type CreateSolicitudAltaBody       = z.infer<typeof createSolicitudAltaSchema>
 export type CreateSolicitudesAltaBatchBody = z.infer<typeof createSolicitudesAltaBatchSchema>
 export type SolicitudesAltaQuery     = z.infer<typeof solicitudesAltaQuerySchema>
+export type GrupoPdfQuery            = z.infer<typeof grupoPdfQuerySchema>
