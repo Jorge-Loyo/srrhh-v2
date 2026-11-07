@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad, Etiqueta } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
@@ -7,6 +7,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
+import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -29,6 +30,23 @@ const ESTADO_BADGE: Record<SolicitudAltaEstado, string> = {
   pendiente: 'badge-warning',
   aprobada:  'badge-success',
   rechazada: 'badge-danger',
+}
+
+// Estado AGREGADO del grupo (expediente) para la vista Cargos Históricos.
+// "parcial" (mezcla de estados) se muestra en ámbar; el resto reusa el mismo
+// color/label que las solicitudes individuales.
+const ESTADO_GRUPO_LABEL: Record<EstadoGrupo, string> = {
+  pendiente: 'Pendiente',
+  aprobada:  'Aprobado',
+  rechazada: 'Rechazado',
+  parcial:   'Parcial',
+}
+
+const ESTADO_GRUPO_BADGE: Record<EstadoGrupo, string> = {
+  pendiente: 'badge-warning',
+  aprobada:  'badge-success',
+  rechazada: 'badge-danger',
+  parcial:   'bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium',
 }
 
 interface OpcionModalidad {
@@ -505,7 +523,7 @@ export function AltaCargosPage() {
                   ? 'border-secondary text-secondary'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'historial' ? 'Historial de solicitudes' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
+              {t === 'historial' ? 'Cargos Históricos' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
             </button>
           ))}
         </div>
@@ -579,9 +597,10 @@ export function AltaCargosPage() {
           </div>
         )}
 
-        {/* Contenido pestaña Historial */}
+        {/* Contenido pestaña Cargos Históricos — vista AGRUPADA por expediente,
+            solo lectura (ver + descargar PDF del grupo). */}
         {tab === 'historial' && (
-          <HistorialSolicitudes
+          <CargosHistoricos
             search={search} setSearch={setSearch}
             filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
             solicitudes={solicitudesFiltradas}
@@ -682,7 +701,7 @@ function ModalConfirmacionEnvio({ resumen, onCerrar, onIrAHistorial }: {
 
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
           <button onClick={onCerrar} className="btn-outline">Cerrar</button>
-          <button onClick={onIrAHistorial} className="btn-outline">Ir a Historial de solicitudes</button>
+          <button onClick={onIrAHistorial} className="btn-outline">Ir a Cargos Históricos</button>
           <button onClick={onDescargar} disabled={descargando} className="btn-primary disabled:opacity-40">
             {descargando ? 'Generando...' : 'Descargar PDF'}
           </button>
@@ -911,6 +930,157 @@ function HistorialSolicitudes({
       ) : (
         <p className="p-8 text-center text-sm text-gray-400">
           No hay {esTransferencia ? 'transferencias' : 'solicitudes de alta'}{search ? ` para "${search}"` : ''}.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Cargos Históricos (Paso 3) ────────────────────────────────────────────────
+// Vista AGRUPADA POR EXPEDIENTE del lote de creación: una fila por expediente
+// (el grupo), con estado AGREGADO del grupo. SOLO LECTURA: únicas acciones son
+// VER el detalle (expandir la fila → solicitudes del grupo con su estado
+// individual; link al cargo /cargos/:id si ya existe) y DESCARGAR el PDF del
+// grupo (reusa descargarPdfGrupo → GET /solicitudes-alta/grupo/pdf, el endpoint
+// que ya existe). No hay editar/borrar/aprobar.
+function CargosHistoricos({
+  search, setSearch, filtroEstado, setFiltroEstado, solicitudes,
+}: {
+  search: string
+  setSearch: (v: string) => void
+  filtroEstado: SolicitudAltaEstado | ''
+  setFiltroEstado: (v: SolicitudAltaEstado | '') => void
+  solicitudes: SolicitudAlta[]
+}) {
+  const [expandido, setExpandido] = useState<string | null>(null)
+  const [descargando, setDescargando] = useState<string | null>(null)
+  const [errorPdf, setErrorPdf] = useState<string | null>(null)
+
+  const grupos = agruparPorExpediente(solicitudes)
+
+  async function onDescargar(g: GrupoExpediente) {
+    if (!g.expediente) return
+    setDescargando(g.expediente); setErrorPdf(null)
+    try {
+      await descargarPdfGrupo(g.expediente)
+    } catch (err) {
+      setErrorPdf(getApiErrorMessage(err))
+    } finally {
+      setDescargando(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Filtros — la búsqueda por expediente se aplica aguas arriba (sobre las
+          solicitudes); el filtro por estado filtra las solicitudes subyacentes
+          que luego se agrupan. */}
+      <div className="p-6 border-b border-gray-100 flex flex-wrap gap-3">
+        <input type="text" placeholder="Buscar por expediente..."
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
+        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as SolicitudAltaEstado | '')}
+          className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary">
+          <option value="">Todos los estados</option>
+          {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+
+      {errorPdf && <p className="px-6 pt-3 text-xs text-red-500">{errorPdf}</p>}
+
+      {/* Tabla agrupada — una fila por expediente */}
+      {grupos.length > 0 ? (
+        <table className="w-full text-sm">
+          <thead className="bg-navy text-white text-left sticky top-0 z-10">
+            <tr>
+              <th className="px-4 py-3 font-semibold rounded-tl-lg">Expediente</th>
+              <th className="px-4 py-3 font-semibold">Fecha de creación</th>
+              <th className="px-4 py-3 font-semibold">Solicitante</th>
+              <th className="px-4 py-3 font-semibold text-center">Cargos</th>
+              <th className="px-4 py-3 font-semibold">Estado</th>
+              <th className="px-4 py-3 rounded-tr-lg" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {grupos.map((g) => {
+              const clave = g.expediente || '(sin-expediente)'
+              const abierto = expandido === clave
+              return (
+                <Fragment key={clave}>
+                  <tr className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[220px] truncate" title={g.expediente}>{g.expediente || '(sin expediente)'}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{g.createdAt.slice(0, 10)}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{g.solicitante ?? '—'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{g.totalCargos}</span>
+                    </td>
+                    <td className="px-4 py-3"><span className={`${ESTADO_GRUPO_BADGE[g.estado]} text-xs`}>{ESTADO_GRUPO_LABEL[g.estado]}</span></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => setExpandido(abierto ? null : clave)} className="btn-outline text-xs px-3 py-1">
+                          {abierto ? 'Ocultar' : 'Ver detalle'}
+                        </button>
+                        <button onClick={() => onDescargar(g)} disabled={!g.expediente || descargando === g.expediente}
+                          className="btn-primary text-xs px-3 py-1 disabled:opacity-40">
+                          {descargando === g.expediente ? 'Generando...' : 'Descargar PDF'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {abierto && (
+                    <tr className="bg-gray-50/60">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="overflow-x-auto border border-gray-100 rounded-lg bg-white">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 text-gray-600 text-left">
+                              <tr>
+                                <th className="px-3 py-2 font-semibold">Hospital</th>
+                                <th className="px-3 py-2 font-semibold">Carrera</th>
+                                <th className="px-3 py-2 font-semibold">Puesto</th>
+                                <th className="px-3 py-2 font-semibold text-center">Cant.</th>
+                                <th className="px-3 py-2 font-semibold">Estado</th>
+                                <th className="px-3 py-2 font-semibold">Cargos</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {g.solicitudes.map((s) => (
+                                <tr key={s.id}>
+                                  <td className="px-3 py-2 text-gray-700">{s.hospital?.sigla ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-700">{s.escalafon?.nombre ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-800">{s.literalPuesto}</td>
+                                  <td className="px-3 py-2 text-center font-bold text-secondary">{s.cantidad}</td>
+                                  <td className="px-3 py-2"><span className={`${ESTADO_BADGE[s.estado]} text-xs`}>{ESTADO_LABEL[s.estado]}</span></td>
+                                  <td className="px-3 py-2">
+                                    {/* Para solicitudes APROBADAS el cargo real ya existe → link al
+                                        detalle /cargos/:id. Para pendientes aún no existe el cargo. */}
+                                    {s.estado === 'aprobada' && s.cargosCreadosIds.length > 0 ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {s.cargosCreadosIds.map((cargoId, i) => (
+                                          <Link key={cargoId} to={`/cargos/${cargoId}`} className="text-secondary underline hover:text-secondary/80">
+                                            Ver cargo {s.cargosCreadosIds.length > 1 ? i + 1 : ''}
+                                          </Link>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400">Aún no creado</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <p className="p-8 text-center text-sm text-gray-400">
+          No hay cargos históricos{search ? ` para "${search}"` : ''}.
         </p>
       )}
     </div>
