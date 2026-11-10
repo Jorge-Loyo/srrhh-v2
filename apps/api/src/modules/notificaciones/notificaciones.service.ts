@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
+import { notificarSgrasvYHijos } from './notificarSgrasv.js'
 import type { NotificacionesQuery } from './notificaciones.schema.js'
 
 // ─── Helper: crear una notificación (con deduplicación por origenKey) ────────
@@ -333,9 +334,8 @@ export async function materializarAlertasVencimiento() {
           : diasRestantes === 0
             ? 'vence hoy'
             : `vence en ${diasRestantes} días`
-      await crearNotificacion({
+      await notificarSgrasvYHijos({
         tipo: 'vencimiento_conduccion',
-        rolSlug: 'sgrasv',
         titulo: `Vencimiento de período de conducción (${diasRestantes <= 0 ? 'HOY/VENCIDO' : diasRestantes + ' días'})`,
         mensaje: `El cargo ${codigo}${cargo.literalPuesto ? ` — ${cargo.literalPuesto}` : ''} — ${sigla} ${cuando}. Acción requerida: renovar el período o iniciar la cascada.`,
         origenTipo: 'cargo',

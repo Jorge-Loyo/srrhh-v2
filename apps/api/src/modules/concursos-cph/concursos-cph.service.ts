@@ -1,3 +1,4 @@
+import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import { Prisma, type ConcursoCph } from '@prisma/client'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
@@ -686,9 +687,8 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     const cargoCodigo =
       (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
       id.slice(0, 8)
-    await crearNotificacion({
+    await notificarSgrasvYHijos({
       tipo: 'autorizacion_pendiente',
-      rolSlug: 'sgrasv',
       titulo: `Nuevo expediente de concurso — ${cargoCodigo}`,
       mensaje: `Se cargó el expediente ${body.eeConcurso} para el concurso ${cargoCodigo}. Revisá y validá para habilitar la siguiente etapa.`,
       origenTipo: 'concurso_cph',
@@ -748,9 +748,8 @@ export async function aprobarAutorizacionCphService(
       data: { aprobadoDirector: true, ...(observaciones !== undefined && { observaciones }) },
       include,
     })
-    await crearNotificacion({
+    await notificarSgrasvYHijos({
       tipo: 'autorizacion_pendiente',
-      rolSlug: 'sgrasv',
       titulo: `Autorización aprobada por Director — ${cargoCodigo}`,
       mensaje: `El Director aprobó la modificación del concurso ${cargoCodigo}. Requiere segunda firma de SGRASV.`,
       origenTipo: 'concurso_cph',

@@ -1,3 +1,4 @@
+import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import { TipoConcurso } from '@srrhh/types'
 import type { MotivoConcurso, Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
@@ -130,15 +131,14 @@ export async function createConcursoTx(
       })
       const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
       const motivoLabel = MOTIVO_CONCURSO_LABEL[body.motivoConcurso]
-      await crearNotificacion({
+      await notificarSgrasvYHijos({
         tipo: 'concurso_iniciado',
-        rolSlug: 'sgrasv',
         titulo: `Nuevo concurso CPH iniciado — ${label}`,
         mensaje: `Se inició un concurso CPH para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
         origenTipo: 'concurso_cph',
         origenId: concursoCph.id,
         origenKey: `concurso_iniciado:cph:${concursoCph.id}`,
-      })
+      }, tx)
     }
 
     // El cargo vigente sin ocupante al que se le abre un concurso pasa a
@@ -169,15 +169,14 @@ export async function createConcursoTx(
       })
       const label = cargo?.codigo ?? body.cargoId.slice(0, 8)
       const motivoLabel = MOTIVO_CONCURSO_LABEL[body.motivoConcurso]
-      await crearNotificacion({
+      await notificarSgrasvYHijos({
         tipo: 'concurso_iniciado',
-        rolSlug: 'sgrasv',
         titulo: `Nuevo concurso CEETPS iniciado — ${label}`,
         mensaje: `Se inició un concurso CEETPS para el cargo ${label} (${cargo?.literalPuesto ?? ''}) en ${cargo?.hospital?.sigla ?? ''}. Motivo: ${motivoLabel}.`,
         origenTipo: 'concurso_ceetps',
         origenId: concursoCeetps.id,
         origenKey: `concurso_iniciado:ceetps:${concursoCeetps.id}`,
-      })
+      }, tx)
     }
 
     await recalcularSubEstadoCargo(tx, body.cargoId)
