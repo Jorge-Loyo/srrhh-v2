@@ -240,7 +240,7 @@ export function CargoDetailPanel() {
       {(concursoCphActivo || concursoCeetpsActivo) && (() => {
         const esCph = !!concursoCphActivo
         const c = (concursoCphActivo ?? concursoCeetpsActivo)!
-        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos-ceetps/${c.id}`
+        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos/ceetps/${c.id}`
         const tipo = esCph ? 'CPH' : 'CEETPS'
         const sub = esCph
           ? (concursoCphActivo!.subEstado3 ?? concursoCphActivo!.subEstado)
@@ -351,7 +351,7 @@ export function CargoDetailPanel() {
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.concurso.fechaVacante)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link to={`/concursos-ceetps/${c.id}`} className="btn-outline">Ver</Link>
+                    <Link to={`/concursos/ceetps/${c.id}`} className="btn-outline">Ver</Link>
                   </td>
                 </tr>
               ))}

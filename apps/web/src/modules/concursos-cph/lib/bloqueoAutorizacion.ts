@@ -38,3 +38,33 @@ export function avisoAutorizacionNuevoCargo(
   if (!c || c.motivoConcurso !== 'nuevo_cargo') return null
   return c.autorizadoAt ? 'Autorizado' : 'Pendiente de autorización de SGRASV'
 }
+
+// ─── Paso 2b: CEETPS ──────────────────────────────────────────────────────────
+// Campos de Etapa 2+ (Disposición, IFACS/INSAL, Designación) que el backend rechaza
+// con 409 si cambian en un nuevo_cargo sin autorizar (ver concursos-ceetps/autorizacionNuevoCargo.ts).
+export const CAMPOS_CEETPS_BLOQUEADOS_POR_AUTORIZACION = [
+  'fechaAutorizacion',
+  'dispoLlamado',
+  'fechaIfacs',
+  'fechaInsal',
+  'expedienteDesignacion',
+  'dispoDesignacion',
+  'resolucionDesignacion',
+  'puestoDesignado',
+  'estadoApto',
+  'numeroAptoMedico',
+  'fechaProyectoDispo',
+  'altaSial',
+  'codigoSial',
+]
+
+/** Copia del body sin los campos de Etapa 2+ si el concurso es nuevo_cargo sin autorizar. */
+export function omitirCamposCeetpsBloqueados<T extends Record<string, unknown>>(
+  body: T,
+  c: ConcursoAutorizable | null | undefined,
+): Partial<T> {
+  if (!esNuevoCargoSinAutorizar(c)) return body
+  const r: Record<string, unknown> = { ...body }
+  for (const k of CAMPOS_CEETPS_BLOQUEADOS_POR_AUTORIZACION) delete r[k]
+  return r as Partial<T>
+}

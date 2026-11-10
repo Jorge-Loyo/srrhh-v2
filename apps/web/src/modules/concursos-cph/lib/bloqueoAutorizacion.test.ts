@@ -3,6 +3,7 @@ import {
   aplicarBloqueoPorAutorizacion,
   avisoAutorizacionNuevoCargo,
   esNuevoCargoSinAutorizar,
+  omitirCamposCeetpsBloqueados,
 } from './bloqueoAutorizacion'
 
 const etapas = [
@@ -34,5 +35,17 @@ describe('bloqueo de etapas por autorización (nuevo_cargo)', () => {
     )
     expect(avisoAutorizacionNuevoCargo({ motivoConcurso: 'nuevo_cargo', autorizadoAt: '2026-11-10' })).toBe('Autorizado')
     expect(avisoAutorizacionNuevoCargo({ motivoConcurso: null })).toBeNull()
+  })
+})
+
+describe('bloqueo CEETPS (nuevo_cargo)', () => {
+  const body = { expedienteConcurso: 'EX-1', ifAutorizacion: 'IF-1', dispoLlamado: 'D', fechaIfacs: '2026-01-01', codigoSial: 'X', altaSial: false, observaciones: 'o' }
+  it('nuevo_cargo sin autorizar: omite campos de Etapa 2+ y conserva el resto', () => {
+    const r = omitirCamposCeetpsBloqueados(body, { motivoConcurso: 'nuevo_cargo', autorizadoAt: null })
+    expect(r).toEqual({ expedienteConcurso: 'EX-1', ifAutorizacion: 'IF-1', observaciones: 'o' })
+  })
+  it('autorizado o no nuevo_cargo: devuelve el body intacto', () => {
+    expect(omitirCamposCeetpsBloqueados(body, { motivoConcurso: 'nuevo_cargo', autorizadoAt: '2026-11-10' })).toBe(body)
+    expect(omitirCamposCeetpsBloqueados(body, { motivoConcurso: null })).toBe(body)
   })
 })

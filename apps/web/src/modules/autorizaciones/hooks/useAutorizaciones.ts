@@ -45,6 +45,7 @@ function invalidarTodo(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['solicitudes-alta'] })
   queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard'] })
   queryClient.invalidateQueries({ queryKey: ['concursos-cph'] })
+  queryClient.invalidateQueries({ queryKey: ['concursos-ceetps'] })
 }
 
 export function useAprobarAutorizacion() {

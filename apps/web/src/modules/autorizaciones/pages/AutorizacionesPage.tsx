@@ -155,15 +155,54 @@ function ReferenciaBaja({ id }: { id: string }) {
         <div className="flex items-center gap-2 pt-0.5">
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">CEETPS</span>
           <span className="text-xs text-gray-500">{ceetps.estado}</span>
-          <Link to={`/concursos-ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+          <Link to={`/concursos/ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
         </div>
       )}
     </div>
   )
 }
 
+type CeetpsRef = {
+  puestoSolicitado?: string | null
+  expedienteConcurso?: string | null
+  ifAutorizacion?: string | null
+  hospital?: { sigla?: string }
+  concurso?: { cargo?: { codigo?: string; literalPuesto?: string } }
+}
+
+function ReferenciaCeetps({ id }: { id: string }) {
+  const { data } = useQuery({
+    queryKey: ['concursos-ceetps', id, 'autorizaciones-ref'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CeetpsRef }>(`/api/v1/concursos-ceetps/${id}`)
+      return res.data.data
+    },
+  })
+  if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
+  const cargo = data.concurso?.cargo
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-sm font-semibold text-gray-900 truncate">
+        {cargo?.literalPuesto ?? data.puestoSolicitado ?? '—'}
+        {data.hospital?.sigla && <span className="font-normal text-gray-500"> · {data.hospital.sigla}</span>}
+      </p>
+      <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+      {data.expedienteConcurso && (
+        <p className="text-xs text-gray-500">
+          Exp. <span className="font-mono">{data.expedienteConcurso}</span>
+          {data.ifAutorizacion && <> · IF <span className="font-mono">{data.ifAutorizacion}</span></>}
+        </p>
+      )}
+      <Link to={`/concursos/ceetps/${id}`} className="text-xs text-secondary hover:underline">
+        Ver concurso →
+      </Link>
+    </div>
+  )
+}
+
 function Referencia({ autorizacion, onEsInformativa }: { autorizacion: Autorizacion; onEsInformativa?: (id: string) => void }) {
   if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} onEsInformativa={onEsInformativa} />
+  if (autorizacion.tipo === 'concurso_ceetps') return <ReferenciaCeetps id={autorizacion.referenciaId} />
   if (autorizacion.tipo === 'alta_cargo')   return <ReferenciaAlta id={autorizacion.referenciaId} />
   if (autorizacion.tipo === 'baja_cargo')   return <ReferenciaBaja id={autorizacion.referenciaId} />
   return <span className="text-xs text-gray-400">—</span>
@@ -212,6 +251,10 @@ export function AutorizacionesPage() {
 
   async function confirmar() {
     if (!modal) return
+    if (obsObligatoria && !obs.trim()) {
+      setErrorResolver('Ingresá el motivo del rechazo.')
+      return
+    }
     const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
     // BUG-FIX "al dar aprobar no avanza": antes este mutateAsync no tenía
     // try/catch, así que un 409 del backend (p. ej. resolverSlugPorPermiso
@@ -240,6 +283,9 @@ export function AutorizacionesPage() {
 
   const modalItem = items.find((a) => a.id === modal?.id)
   const enCurso = aprobar.isPending || rechazar.isPending
+  // Paso 2b: al rechazar un concurso (CPH o CEETPS) la observación es obligatoria.
+  const obsObligatoria =
+    modal?.accion === 'rechazar' && (modalItem?.tipo === 'concurso_cph' || modalItem?.tipo === 'concurso_ceetps')
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -326,7 +372,7 @@ export function AutorizacionesPage() {
               </div>
             </div>
             <div className="px-6 py-4 space-y-3">
-              <label className="block text-sm font-semibold text-gray-700">Observaciones (opcional)</label>
+              <label className="block text-sm font-semibold text-gray-700">Observaciones{obsObligatoria ? <span className="text-danger"> *</span> : ' (opcional)'}</label>
               <textarea
                 value={obs}
                 onChange={(e) => setObs(e.target.value)}
@@ -343,7 +389,7 @@ export function AutorizacionesPage() {
               <button className="btn-outline" onClick={cerrarModal} disabled={enCurso}>Cancelar</button>
               <button
                 className={modal.accion === 'aprobar' ? 'btn-primary' : 'btn-danger'}
-                disabled={enCurso}
+                disabled={enCurso || (obsObligatoria && !obs.trim())}
                 onClick={confirmar}
               >
                 {enCurso ? 'Guardando...' : modal.accion === 'aprobar' ? 'Aprobar' : 'Rechazar'}

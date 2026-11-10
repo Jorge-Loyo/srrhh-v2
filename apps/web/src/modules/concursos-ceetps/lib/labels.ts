@@ -30,6 +30,7 @@ export const SUB_ESTADO_LABEL: Record<string, string> = {
   INSAL:             'INSAL',
   TAD:               'TAD',
   DISPO_DESIGNACION: 'Dispo. de designación',
+  A_AUTORIZACION:    'A autorización',
 }
 
 export const SUB_ESTADO_BADGE: Record<string, string> = {
@@ -39,6 +40,7 @@ export const SUB_ESTADO_BADGE: Record<string, string> = {
   INSAL:             'badge-primary',
   TAD:               'badge-warning',
   DISPO_DESIGNACION: 'badge-warning',
+  A_AUTORIZACION:    'badge-warning',
 }
 
 // Mismo indicador de "sin movimiento" que concursos-cph/lib/labels.ts — se
