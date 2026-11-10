@@ -6,6 +6,7 @@ import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks
 import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
 import { useTareasPendientes } from '../../../modules/tareas/hooks/useTareas'
 import { can } from '../../lib/can'
+import { itemGestionActivo } from '../../lib/sidebarActivo'
 import { SuspenseFallback } from '../SuspenseFallback'
 
 // Permisos por pestaña `tab:*`: el sidebar oculta exactamente lo que el layout
@@ -111,6 +112,9 @@ export function AppShell() {
   const grupoGestion       = verGestionCargos || verConcursosCph || verConcursosCeetps || verIncidencias
   const grupoVistaAdmin    = verImportacion || verConfiguracion
 
+  const gestionActivo = itemGestionActivo(location.pathname)
+  const gestionItemClass = (item: 'concursos-cph' | 'concursos-ceetps') => () =>
+    `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${gestionActivo === item ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${isActive ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'}`
 
@@ -262,8 +266,7 @@ export function AppShell() {
           {verGestionCargos && (
             <NavLink to={cargosGestionSubitems[0].to}
               className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                ['/cargos/alta', '/cargos/baja', '/cargos/alta-por-baja'].some((p) => location.pathname.startsWith(p))
-                  ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+                gestionActivo === 'gestion-cargos' ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
               }`}
               title={collapsed ? 'Gestión de Cargos' : undefined}>
               <span className="text-base shrink-0">🛠️</span>
@@ -273,13 +276,13 @@ export function AppShell() {
 
           {/* Concursos */}
           {verConcursosCph && (
-            <NavLink to="/concursos/cph" className={itemClass} title={collapsed ? 'Concursos CPH' : undefined}>
+            <NavLink to="/concursos/cph" className={gestionItemClass('concursos-cph')} title={collapsed ? 'Concursos CPH' : undefined}>
               <span className="text-base shrink-0">⚖️</span>
               {!collapsed && <span className="truncate">Concursos CPH</span>}
             </NavLink>
           )}
           {verConcursosCeetps && (
-            <NavLink to="/concursos/ceetps" className={itemClass} title={collapsed ? 'Concursos CEETPS' : undefined}>
+            <NavLink to="/concursos/ceetps" className={gestionItemClass('concursos-ceetps')} title={collapsed ? 'Concursos CEETPS' : undefined}>
               <span className="text-base shrink-0">🏥</span>
               {!collapsed && <span className="truncate">Concursos CEETPS</span>}
             </NavLink>

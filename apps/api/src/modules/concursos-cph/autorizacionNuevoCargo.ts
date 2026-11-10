@@ -13,7 +13,7 @@ export interface ConcursoBaseAutorizable {
 
 /** Campos del PATCH que pertenecen a las Etapas 2 a 5 del wizard. */
 export const CAMPOS_ETAPA_2_EN_ADELANTE = [
-  // Etapa 2 — Autorización / Jurado
+  // Etapa 2 — Jurado / Dispo
   'fechaAutorizacion',
   'sorteoJurado',
   'tipoGestion',

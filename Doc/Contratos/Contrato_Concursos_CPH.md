@@ -74,9 +74,9 @@ sub-estado sigue en, p.ej., `I-CARGA DOCU`. Por eso `validado` **NO** entra en
 El concurso tiene **5 etapas**. "Declarar desierto" **NO es una etapa**: es una
 acción que relanza el concurso desde la Etapa 1.
 
-1. **Baja / Apertura** — datos de la baja (readonly) + Expediente de Concurso,
+1. **Apertura / Autorización** — datos de la baja (readonly) + Expediente de Concurso,
    Sigla, Escalafón, Puesto, Especialidad e **IF de autorización**.
-2. **Autorización / Jurado** — autorización DGAYDRH/SGRASV, sorteo de jurado y
+2. **Jurado / Dispo** — autorización DGAYDRH/SGRASV, sorteo de jurado y
    disposición de llamado.
 3. **Inscripción / Examen / OM** — inscriptos, cierre de inscripción, examen,
    presentados y orden de mérito.
@@ -475,10 +475,10 @@ En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
 
 ## 12. Ciclo de punta a punta (resumen)
 
-1. **Etapa 1 — Baja/Apertura**: cargar Expediente de Concurso + IF → solicitud
+1. **Etapa 1 — Apertura/Autorización**: cargar Expediente de Concurso + IF → solicitud
    de autorización a SGRASV. (Opcional: reservar un candidato de una OM
    compatible; si SGRASV autoriza, el concurso salta a Etapa 4.)
-2. **Etapa 2 — Autorización/Jurado**: sorteo (o reutilización) de jurado +
+2. **Etapa 2 — Jurado/Dispo**: sorteo (o reutilización) de jurado +
    disposición de llamado.
 3. **Etapa 3 — Inscripción/Examen/OM**: inscriptos → cierre → examen →
    presentados → orden de mérito (documento reutilizable).
@@ -498,7 +498,7 @@ En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
 flowchart TD
     Start([Baja o cargo nuevo]) --> E1
 
-    subgraph E1["Etapa 1 — Baja / Apertura"]
+    subgraph E1["Etapa 1 — Apertura / Autorización"]
         A1[Cargar Expediente de Concurso + IF autorizacion] --> A2{Reservar candidato<br/>de OM compatible?}
         A2 -->|Si| A3[Reserva OM<br/>PanelReutilizarOm]
         A2 -->|No| A4[Sin reserva]
@@ -511,7 +511,7 @@ flowchart TD
     AUTZ -->|Si + habia reserva OM| E4
     AUTZ -->|Si sin reserva| E2
 
-    subgraph E2["Etapa 2 — Autorizacion / Jurado"]
+    subgraph E2["Etapa 2 — Jurado / Dispo"]
         B1[Sorteo de jurado<br/>Regla 1 -> 2 -> 3] --> B2[Confirmar jurado]
         B2 --> B3[Disposicion de llamado]
     end

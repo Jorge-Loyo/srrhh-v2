@@ -17,7 +17,7 @@ PDF), confirmaciones formales y avance de sub-estados coherente.
 
 ---
 
-## Etapa 2 — Autorización / Jurado
+## Etapa 2 — Jurado / Dispo
 
 ### Sorteo de jurado
 

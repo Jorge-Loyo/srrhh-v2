@@ -412,7 +412,7 @@ describe('calcConcursoCph — invariantes', () => {
 
 // ─── Filtro por ETAPA (stepper 1..5) ↔ sub_estado ────────────────────────────
 describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
-  it('etapa 2: autorización / jurado', () => {
+  it('etapa 2: jurado / dispo', () => {
     for (const s of ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado']) {
       expect(etapaDeSubEstado(s)).toBe(2)
     }
@@ -446,7 +446,7 @@ describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
     }
   })
 
-  it('etapa 1: baja / apertura (complemento, incluye null, a-caratulado, no iniciado, vacante)', () => {
+  it('etapa 1: apertura / autorización (complemento, incluye null, a-caratulado, no iniciado, vacante)', () => {
     for (const s of ['a-caratulado', 'no iniciado', 'vacante', null, '', 'cualquier-cosa']) {
       expect(etapaDeSubEstado(s)).toBe(1)
     }

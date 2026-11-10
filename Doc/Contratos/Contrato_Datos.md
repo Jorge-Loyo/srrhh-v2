@@ -529,7 +529,7 @@ Seguimiento de concursos de la Carrera Profesional Hospitalaria (Ley 6.035).
 
 **Índice parcial único:** `CREATE UNIQUE INDEX ... WHERE estado NOT IN ('finalizado','suspendido')` — garantiza que no haya dos concursos CPH abiertos para el mismo cargo, incluso ante requests concurrentes.
 
-**Etapas (5) del wizard:** 1-Apertura → 2-Autorización/Jurado → 3-Inscripción/Examen/Orden de mérito → 4-Adjudicación → 5-Resolución. "Declarar desierto" **no** es una etapa; es una acción que registra una ronda desierta (`concursos_cph_desiertos`) y deja el concurso en `suspendido` + sub-estado `Q-DESIERTO`.
+**Etapas (5) del wizard:** 1-Apertura → 2-Jurado/Dispo → 3-Inscripción/Examen/Orden de mérito → 4-Adjudicación → 5-Resolución. "Declarar desierto" **no** es una etapa; es una acción que registra una ronda desierta (`concursos_cph_desiertos`) y deja el concurso en `suspendido` + sub-estado `Q-DESIERTO`.
 
 ---
 

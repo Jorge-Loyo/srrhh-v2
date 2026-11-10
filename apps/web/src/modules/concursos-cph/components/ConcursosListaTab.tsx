@@ -86,8 +86,8 @@ function respaldatoria(c: ConcursoCph): {
 
 // Las 5 etapas del concurso CPH (mismas que el wizard).
 const ETAPAS = [
-  'Baja / Apertura',
-  'Autorización / Jurado',
+  'Apertura / Autorización',
+  'Jurado / Dispo',
   'Inscripción / Examen / OM',
   'IFACS / INSAL',
   'Designación',

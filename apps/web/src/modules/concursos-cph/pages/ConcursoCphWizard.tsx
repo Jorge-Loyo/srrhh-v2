@@ -1,6 +1,6 @@
 // Wizard de seguimiento CPH — funciona en dos modos:
 // Wizard de seguimiento de un concurso CPH — carga el concurso real por su UUID
-// (id de la ruta) y guía las 5 etapas del proceso: Baja/Apertura, Autorización/
+// (id de la ruta) y guía las 5 etapas del proceso: Apertura/Autorización, Autorización/
 // Jurado, Inscripción/Examen/OM, IFACS/INSAL y Designación.
 // "Declarar desierto" NO es una etapa: es una acción disponible en la Etapa 3
 // que relanza el concurso desde la Etapa 1.
@@ -318,7 +318,7 @@ export function ConcursoCphWizard() {
       {
         id: 'baja',
         numero: 1,
-        titulo: 'Baja / Apertura',
+        titulo: 'Apertura / Autorización',
         descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
         estado: !cphData
           ? 'activa'
@@ -380,7 +380,7 @@ export function ConcursoCphWizard() {
       {
         id: 'autorizacion',
         numero: 2,
-        titulo: 'Autorización / Jurado',
+        titulo: 'Jurado / Dispo',
         descripcion: 'Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.',
         estado: estadoEtapa(
           etapa2Completa,
@@ -2632,7 +2632,7 @@ export function ConcursoCphWizard() {
                   setDesiertoDisp('')
                   setDesiertoFecha('')
                   setDesiertoObs('')
-                  // Relanzamiento: el concurso vuelve a la Etapa 1 (Baja / Apertura).
+                  // Relanzamiento: el concurso vuelve a la Etapa 1 (Apertura / Autorización).
                   setEtapaActiva('baja')
                 }}
               >
