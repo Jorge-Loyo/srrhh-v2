@@ -6,7 +6,8 @@ import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
-import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
+import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
+import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCargo.js'
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
@@ -196,6 +197,12 @@ export async function rechazarAutorizacionService(
   // Admin: gobernanza total, puede rechazar cualquier paso dirigido a otro rol.
   if (!esAdmin(rolSlug) && aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
+  // Paso 2a: rechazar una autorización de concurso exige un motivo, que se
+  // muestra en la pantalla del concurso. alta_cargo / baja_cargo no cambian.
+  if (aut.tipo === 'concurso_cph') {
+    observaciones = observaciones?.trim()
+    if (!observaciones) throw AppError.badRequest('La observación es obligatoria para rechazar la autorización')
+  }
 
   return prisma.$transaction(async (tx) => {
     const autActualizada = await tx.autorizacion.update({
@@ -274,6 +281,28 @@ export async function rechazarAutorizacionService(
 
     return autActualizada
   })
+}
+
+// ─── Paso 2a: marcar el concurso de cargo nuevo como autorizado ──────────────
+// Setea concursos.autorizado_at = now() SOLO si el concurso es nuevo_cargo y aún
+// no tiene autorizado_at (nunca re-fecha ni resetea uno existente: una
+// autorización estructural posterior de sigla/carrera no lo toca), y recalcula
+// el sub_estado del cargo con la misma tx. No toca fechaAutorizacion (manual de
+// la Etapa 2). Devuelve true si autorizó.
+export async function marcarConcursoAutorizado(tx: SubEstadoTx, concursoId: string): Promise<boolean> {
+  const concurso = await tx.concurso.findUnique({
+    where:  { id: concursoId },
+    select: { cargoId: true, motivoConcurso: true, autorizadoAt: true },
+  })
+  if (!esNuevoCargoSinAutorizar(concurso)) return false
+  // updateMany con autorizadoAt:null: atómico frente a una aprobación concurrente.
+  const { count } = await tx.concurso.updateMany({
+    where: { id: concursoId, autorizadoAt: null },
+    data:  { autorizadoAt: new Date() },
+  })
+  if (count === 0) return false
+  await recalcularSubEstadoCargo(tx, concurso!.cargoId)
+  return true
 }
 
 // ─── Lógica interna: aprobar CPH ─────────────────────────────────────────────
@@ -358,6 +387,10 @@ async function _aprobarCph(
         where: { id: aut.referenciaId },
         data:  { pendienteAutorizacion: false, aprobadoDirector: false },
       })
+
+      // Paso 2a: concurso de cargo nuevo → queda AUTORIZADO y el cargo se recalcula
+      // (pasa a 'concurso') en esta misma transacción. El paso del director NO llega acá.
+      if (cph.concursoId) await marcarConcursoAutorizado(tx, cph.concursoId)
 
       if (aut.solicitadoPorId) {
         const solicitante = await tx.usuario.findUnique({

@@ -26,6 +26,12 @@ import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
 import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import {
+  debeSolicitarAperturaNuevoCargo,
+  esNuevoCargoSinAutorizar,
+  validarBloqueoEtapa2,
+  validarIfAutorizacionNuevoCargo,
+} from './autorizacionNuevoCargo.js'
+import {
   normalizarCrCphDeCargo,
   normalizarCrCphId,
   type CargoCrCphDb,
@@ -397,7 +403,42 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
 export async function getConcursoCphByIdService(id: string) {
   const concursoCph = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!concursoCph) throw AppError.notFound('Concurso CPH no encontrado')
-  return flattenEtiquetas(concursoCph)
+  // Paso 2a: autorización pendiente y último rechazo del concurso. Las
+  // Autorizacion del tipo concurso_cph guardan referenciaId = ConcursoCph.id
+  // (mismo id con el que las crea patchConcursoCphService), por eso se consulta
+  // con `id` y no con concurso.id. Si hay una nueva solicitud pendiente, el
+  // rechazo anterior ya no se informa.
+  const [autorizacionPendiente, rechazada] = await Promise.all([
+    prisma.autorizacion.findFirst({
+      where: { referenciaId: id, tipo: 'concurso_cph', estado: 'pendiente' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, resolverPorRolSlug: true, createdAt: true },
+    }),
+    prisma.autorizacion.findFirst({
+      where: { referenciaId: id, tipo: 'concurso_cph', estado: 'rechazada' },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        observaciones: true,
+        updatedAt: true,
+        resueltoPor: { select: { nombre: true, apellido: true, username: true } },
+      },
+    }),
+  ])
+  const ultimaAutorizacionRechazada =
+    !autorizacionPendiente && rechazada
+      ? {
+          id: rechazada.id,
+          observaciones: rechazada.observaciones,
+          resueltaAt: rechazada.updatedAt,
+          resueltaPor: rechazada.resueltoPor
+            ? [rechazada.resueltoPor.nombre, rechazada.resueltoPor.apellido]
+                .filter(Boolean)
+                .join(' ') || rechazada.resueltoPor.username
+            : null,
+        }
+      : null
+  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada }
 }
 
 // Campos de tipo fecha del PATCH — explícito en vez de heurística por nombre
@@ -444,6 +485,14 @@ export function existeAutorizacionPendiente(
 export async function patchConcursoCphService(id: string, body: PatchConcursoCphBody, usuarioId: string) {
   const existing = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
+
+  // Paso 2a: un concurso de cargo nuevo sin autorizar no puede avanzar a la
+  // Etapa 2 ni modificar campos de etapas posteriores (409).
+  const concursoBase = existing.concurso as unknown as {
+    motivoConcurso?: string | null
+    autorizadoAt?: Date | null
+  }
+  validarBloqueoEtapa2(concursoBase, body)
 
   // Detectar cambio de sigla o código de registro (campos que requieren autorización doble: director → sgrasv)
   const cargo = (
@@ -517,12 +566,32 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   // ya existente). Este es el gatillo del paso Etapa 1 → autorización.
   const ifAutorizacionResuelto =
     body.ifAutorizacion !== undefined ? body.ifAutorizacion : existing.ifAutorizacion
-  const solicitaAutorizacionApertura =
-    !requiereAutorizacionDoble &&
-    !tieneCambioProtegido &&
-    !existing.pendienteAutorizacion &&
-    eeConcursoCargadoPorPrimeraVez &&
-    !!ifAutorizacionResuelto
+  // Paso 2a (solo nuevo_cargo): exige IF junto con el expediente y pide la
+  // autorización cada vez que la Etapa 1 queda completa (sin depender de "primera
+  // vez"). Los demás concursos mantienen el gatillo original.
+  const eeConcursoResuelto = body.eeConcurso !== undefined ? body.eeConcurso : existing.eeConcurso
+  const tocaEtapa1 = body.eeConcurso !== undefined || body.ifAutorizacion !== undefined
+  validarIfAutorizacionNuevoCargo({
+    concurso: concursoBase,
+    eeConcurso: eeConcursoResuelto,
+    ifAutorizacion: ifAutorizacionResuelto,
+    tocaEtapa1,
+  })
+  const solicitaAutorizacionApertura = esNuevoCargoSinAutorizar(concursoBase)
+    ? debeSolicitarAperturaNuevoCargo({
+        concurso: concursoBase,
+        eeConcurso: eeConcursoResuelto,
+        ifAutorizacion: ifAutorizacionResuelto,
+        tocaEtapa1,
+        pendienteAutorizacion: existing.pendienteAutorizacion,
+        requiereAutorizacionDoble,
+        tieneCambioProtegido,
+      })
+    : !requiereAutorizacionDoble &&
+      !tieneCambioProtegido &&
+      !existing.pendienteAutorizacion &&
+      eeConcursoCargadoPorPrimeraVez &&
+      !!ifAutorizacionResuelto
   const requiereAutorizacion =
     requiereAutorizacionDoble || tieneCambioProtegido || solicitaAutorizacionApertura
 

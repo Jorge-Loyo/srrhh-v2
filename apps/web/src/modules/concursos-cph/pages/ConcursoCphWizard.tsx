@@ -25,6 +25,7 @@ import {
 } from '@/shared/lib/exportConcursoDocs'
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import {
@@ -70,6 +71,11 @@ import {
   siguienteVisible,
   anteriorVisible,
 } from '../lib/etapasVisibles'
+import {
+  aplicarBloqueoPorAutorizacion,
+  avisoAutorizacionNuevoCargo,
+  esNuevoCargoSinAutorizar,
+} from '../lib/bloqueoAutorizacion'
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
@@ -132,8 +138,18 @@ export function ConcursoCphWizard() {
     },
     enabled: !!id,
   })
+  // Paso 2a: el GET del concurso trae la autorización pendiente; sirve de
+  // respaldo para el admin (el listado /autorizaciones filtra por el rol propio
+  // y no se la devuelve) y para evitar el límite de página del listado.
+  const autorizacionPendienteEfectiva = cphData?.autorizacionPendiente ?? autorizacionPendiente ?? null
   const puedeResolverAutorizacion =
-    !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
+    !!autorizacionPendienteEfectiva &&
+    (autorizacionPendienteEfectiva.resolverPorRolSlug === user?.rolSlug || user?.rolSlug === 'admin')
+  // Quien puede resolver como SGRASV (permiso autorizaciones/resolver_sgrasv, o
+  // admin que los tiene todos) puede corregir la Etapa 1 mientras hay una
+  // autorización pendiente; el PATCH sigue exigiendo concursos-cph/editar.
+  const puedeCorregirEtapa1 =
+    can(user, 'autorizaciones', 'resolver_sgrasv') && can(user, 'concursos-cph', 'editar')
 
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
@@ -298,7 +314,7 @@ export function ConcursoCphWizard() {
       return 'pendiente'
     }
 
-    return [
+    const etapasBase: Etapa[] = [
       {
         id: 'baja',
         numero: 1,
@@ -527,6 +543,8 @@ export function ConcursoCphWizard() {
         ],
       },
     ]
+    // Paso 2a: nuevo_cargo sin autorizar → Etapas 2–5 bloqueadas hasta que SGRASV autorice.
+    return aplicarBloqueoPorAutorizacion(etapasBase, cphData?.concurso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cphData, juradoData?.confirmado])
 
@@ -1083,6 +1101,11 @@ export function ConcursoCphWizard() {
     ?.pendienteAutorizacion
   const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })
     ?.aprobadoDirector
+  // Paso 2a: con una autorización pendiente la Etapa 1 queda de solo lectura,
+  // salvo para quien resuelve como SGRASV (puede corregir antes de aprobar).
+  const bloqueoEdicionEtapa1 = pendienteAutorizacion && !puedeCorregirEtapa1
+  const esNuevoCargoPendiente = esNuevoCargoSinAutorizar(cphData?.concurso)
+  const avisoNuevoCargo = avisoAutorizacionNuevoCargo(cphData?.concurso)
   const tieneCambioSiglaCr =
     !!(
       cphData as unknown as {
@@ -1117,10 +1140,10 @@ export function ConcursoCphWizard() {
   // "pendiente" porque nunca actualizaba esa tabla).
   const autorizarMutation = useMutation({
     mutationFn: ({ aprobado, observaciones }: { aprobado: boolean; observaciones?: string }) => {
-      if (!autorizacionPendiente) throw new Error('No hay autorización pendiente para resolver')
+      if (!autorizacionPendienteEfectiva) throw new Error('No hay autorización pendiente para resolver')
       const accion = aprobado ? 'aprobar' : 'rechazar'
       return apiClient
-        .post(`/api/v1/autorizaciones/${autorizacionPendiente.id}/${accion}`, {
+        .post(`/api/v1/autorizaciones/${autorizacionPendienteEfectiva.id}/${accion}`, {
           observaciones,
         })
         .then((r) => r.data.data)
@@ -1197,7 +1220,9 @@ export function ConcursoCphWizard() {
       !!siglaConcurso &&
       !!escalafonId &&
       !!puestoConcurso &&
-      (especialidadesDisponibles.length === 0 || !!especialidadConcurso))
+      (especialidadesDisponibles.length === 0 || !!especialidadConcurso) &&
+      // Paso 2a: en un concurso de cargo nuevo el IF de autorización es obligatorio.
+      (!esNuevoCargoPendiente || !!ifAutorizacionInput.trim()))
 
   // Índice del marcador "en curso" (amarillo) en el panel de sub-estados.
   // Regla: VERDE = lo ya completado, AMARILLO = el primer paso pendiente.
@@ -2745,7 +2770,7 @@ export function ConcursoCphWizard() {
             </div>
             <div className="px-6 py-4 space-y-3">
               <label className="block text-sm font-semibold text-gray-700">
-                Observaciones (opcional)
+                Observaciones <span className="font-normal text-gray-500">(obligatorias para rechazar)</span>
               </label>
               <textarea
                 value={obsAutorizacion}
@@ -2761,11 +2786,12 @@ export function ConcursoCphWizard() {
               </button>
               <button
                 className="btn-danger"
-                disabled={autorizarMutation.isPending}
+                disabled={autorizarMutation.isPending || !obsAutorizacion.trim()}
+                title={!obsAutorizacion.trim() ? 'Indicá el motivo del rechazo' : undefined}
                 onClick={() =>
                   autorizarMutation.mutate({
                     aprobado: false,
-                    observaciones: obsAutorizacion || undefined,
+                    observaciones: obsAutorizacion.trim(),
                   })
                 }
               >
@@ -3310,6 +3336,11 @@ export function ConcursoCphWizard() {
                   key={e.id}
                   onClick={() => e.estado !== 'bloqueada' && setEtapaActiva(e.id)}
                   disabled={e.estado === 'bloqueada'}
+                  title={
+                    e.estado === 'bloqueada' && esNuevoCargoPendiente
+                      ? 'Pendiente de autorización de SGRASV'
+                      : undefined
+                  }
                   className={[
                     'w-full text-left px-2.5 py-2 rounded flex items-center gap-2 transition-colors',
                     isActive
@@ -3456,6 +3487,54 @@ export function ConcursoCphWizard() {
                 </div>
               )}
 
+              {/* Paso 2a: estado de autorización de un concurso de cargo nuevo */}
+              {avisoNuevoCargo && (
+                <div
+                  className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+                    esNuevoCargoPendiente
+                      ? 'bg-amber-50 border-amber-200'
+                      : 'bg-green-50 border-green-200'
+                  }`}
+                >
+                  <span className="text-base mt-0.5">{esNuevoCargoPendiente ? '🔒' : '✅'}</span>
+                  <div>
+                    <p
+                      className={`font-semibold ${esNuevoCargoPendiente ? 'text-amber-800' : 'text-green-800'}`}
+                    >
+                      {avisoNuevoCargo}
+                    </p>
+                    {esNuevoCargoPendiente && (
+                      <p className="text-amber-700 text-xs mt-0.5">
+                        Las Etapas 2 a 5 se habilitan cuando SGRASV autoriza el concurso. Cargá el
+                        expediente y el IF de autorización en la Etapa 1 para solicitarla.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Paso 2a: observación del último rechazo, visible hasta que haya una nueva solicitud */}
+              {etapaActiva === 'baja' &&
+                !pendienteAutorizacion &&
+                cphData?.ultimaAutorizacionRechazada && (
+                  <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm">
+                    <span className="text-red-500 text-base mt-0.5">⛔</span>
+                    <div>
+                      <p className="font-semibold text-red-800">Autorización rechazada</p>
+                      <p className="text-red-700 text-xs mt-0.5 whitespace-pre-line">
+                        Motivo: {cphData.ultimaAutorizacionRechazada.observaciones || 'sin observación'}
+                      </p>
+                      <p className="text-red-600 text-[11px] mt-1">
+                        {cphData.ultimaAutorizacionRechazada.resueltaPor
+                          ? `Rechazada por ${cphData.ultimaAutorizacionRechazada.resueltaPor} el `
+                          : 'Rechazada el '}
+                        {new Date(cphData.ultimaAutorizacionRechazada.resueltaAt).toLocaleDateString(
+                          'es-AR',
+                        )}
+                        . Corregí y volvé a guardar para solicitarla de nuevo.
+                      </p>
+                    </div>
+                  </div>
+                )}
               {pendienteAutorizacion && etapaActiva === 'baja' && (
                 <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
                   <span className="text-amber-500 text-base mt-0.5">⏳</span>
@@ -3777,7 +3856,7 @@ export function ConcursoCphWizard() {
                                 data-key={campo.key}
                                 className="input h-10 w-full"
                                 disabled={
-                                  pendienteAutorizacion ||
+                                  bloqueoEdicionEtapa1 ||
                                   etapa.estado === 'pendiente' ||
                                   etapa.estado === 'bloqueada'
                                 }
@@ -3798,7 +3877,7 @@ export function ConcursoCphWizard() {
                             placeholder="Nro. de documento IF para autorizar"
                             className="input h-10 w-full"
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
@@ -3818,7 +3897,7 @@ export function ConcursoCphWizard() {
                             options={hospitales.map((h) => hospitalLabel(h))}
                             placeholder="Buscar sigla..."
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
@@ -3846,7 +3925,7 @@ export function ConcursoCphWizard() {
                             options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
                             placeholder="Buscar carrera..."
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
@@ -3876,7 +3955,7 @@ export function ConcursoCphWizard() {
                               escalafonId ? 'Buscar puesto...' : 'Elegí una carrera primero'
                             }
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               !escalafonId ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
@@ -3895,7 +3974,7 @@ export function ConcursoCphWizard() {
                               options={especialidadesDisponibles}
                               placeholder="Buscar especialidad..."
                               disabled={
-                                pendienteAutorizacion ||
+                                bloqueoEdicionEtapa1 ||
                                 etapa.estado === 'pendiente' ||
                                 etapa.estado === 'bloqueada'
                               }
@@ -3923,7 +4002,7 @@ export function ConcursoCphWizard() {
                                 className="input w-full py-2 border-amber-300 focus:border-amber-500"
                                 placeholder="Justificá por qué se cambia la especialidad del concurso..."
                                 disabled={
-                                  pendienteAutorizacion ||
+                                  bloqueoEdicionEtapa1 ||
                                   etapa.estado === 'pendiente' ||
                                   etapa.estado === 'bloqueada'
                                 }
@@ -6031,17 +6110,18 @@ export function ConcursoCphWizard() {
                     <>
                       {etapaActiva === 'baja' && !etapaBajaCompleta && (
                         <span className="text-xs text-gray-400">
-                          Completá expediente, sigla, carrera, puesto
+                          Completá expediente{esNuevoCargoPendiente ? ', IF de autorización' : ''},
+                          sigla, carrera, puesto
                           {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
                         </span>
                       )}
                       <button
                         className="btn-primary"
                         disabled={
-                          (pendienteAutorizacion && etapaActiva === 'baja') || !etapaBajaCompleta
+                          (bloqueoEdicionEtapa1 && etapaActiva === 'baja') || !etapaBajaCompleta
                         }
                         title={
-                          pendienteAutorizacion && etapaActiva === 'baja'
+                          bloqueoEdicionEtapa1 && etapaActiva === 'baja'
                             ? 'Hay una modificación pendiente de autorización por SGRASV'
                             : !etapaBajaCompleta
                               ? 'Completá todos los campos requeridos'

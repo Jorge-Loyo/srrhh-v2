@@ -338,6 +338,8 @@ export interface Concurso {
   expediente: string | null
   tipoConcurso: TipoConcurso
   motivoConcurso: string | null
+  // Paso 2a: fecha en que SGRASV autorizó un concurso de cargo nuevo (null = sin autorizar)
+  autorizadoAt?: string | null
   createdAt: string
   // Relaciones expandidas
   persona?: Persona
@@ -392,6 +394,14 @@ export interface ConcursoCph {
   eeConcurso: string | null
   fechaEeConcurso: string | null
   ifAutorizacion: string | null
+  // Paso 2a (solo GET /concursos-cph/:id): autorización pendiente y último rechazo
+  autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null
+  ultimaAutorizacionRechazada?: {
+    id: string
+    observaciones: string | null
+    resueltaAt: string
+    resueltaPor: string | null
+  } | null
   fechaAutorizacion: string | null
   sorteoJurado: string | null
   tipoGestion: 'centralizado' | 'descentralizado' | null

@@ -65,3 +65,14 @@ export async function recalcularSubEstado(
   ])
   return calcularSubEstado({ estado, tieneOcupanteVigente: ocupante, tieneConcursoActivo: concurso })
 }
+
+/**
+ * Recalcula y persiste `cargos.sub_estado` del cargo dentro de `tx`, leyendo su
+ * estado actual. Centraliza el patrón usado tras abrir/cerrar/autorizar un concurso.
+ */
+export async function recalcularSubEstadoCargo(tx: SubEstadoTx, cargoId: string): Promise<void> {
+  const cargo = await tx.cargo.findUnique({ where: { id: cargoId }, select: { estado: true } })
+  if (!cargo) return
+  const subEstado = await recalcularSubEstado(tx, cargoId, cargo.estado)
+  await tx.cargo.update({ where: { id: cargoId }, data: { subEstado } })
+}
