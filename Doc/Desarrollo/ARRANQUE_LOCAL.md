@@ -6,28 +6,83 @@
 
 ---
 
-## ⚡ Comandos rápidos (uso diario)
+## ⚡ Comandos rápidos (uso diario) — vigente desde 2026-11-07
 
-### Backend — desde WSL
+> **Estado actual de esta máquina:** todo se corre **desde WSL** (backend en Docker + Vite en WSL),
+> y la API dockerizada apunta a **Neon** (la misma base que producción), no al Postgres local.
+> Detalle y motivos en "Qué cambió respecto a antes" más abajo.
+
+### 1) Backend (Postgres + API + Dotaneitor) — terminal WSL nº 1
 
 ```bash
 wsl
 cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+
+# Arranque normal (hot-reload: los cambios en apps/api/src NO piden rebuild)
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+
+# Con --build SOLO si cambiaron dependencias (package.json / pnpm-lock.yaml, ej. pdfkit)
+# o prisma/schema.prisma:
 docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
 ```
 
-### Frontend — desde Windows (Git Bash, PowerShell o CMD)
+Verificar que quedó sano:
 
 ```bash
-cd C:\Desarrollo\SRH\SRRHH-Legacy
-pnpm --filter web dev --port 5180
+curl -s http://localhost:3000/health     # API  -> {"status":"ok",...}
+curl -s http://localhost:5001/health     # Dotaneitor
+docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'   # srrhh_api, srrhh_dotaneitor, srrhh_postgres
 ```
 
-### Abrir la app
+### 2) Frontend (Vite) — terminal WSL nº 2
+
+```bash
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+pnpm --filter @srrhh/web exec vite --port 5180
+```
+
+Tiene que mostrar `Local: http://localhost:5180/`. Si muestra `5173`, el flag no se pasó (ver
+Troubleshooting).
+
+### 3) Abrir la app
 
 ```
 http://localhost:5180
 ```
+
+Usuario/contraseña: ver sección 6 (el admin vive en la base a la que apunte el override, hoy Neon).
+
+### Utilidades del día a día
+
+```bash
+docker logs -f srrhh_api            # logs de la API (hot-reload, errores de arranque)
+docker logs -f srrhh_dotaneitor     # logs del servicio Python
+docker compose -f docker-compose.yml -f docker-compose.override.yml down     # parar todo
+# ⚠️ NO usar `down -v`: borra el volumen del Postgres local.
+```
+
+### Qué cambió respecto a antes (2026-11-07)
+
+1. **La base ya no es la local.** `docker-compose.override.yml` fija `DATABASE_URL` de `api` y
+   `dotaneitor` a **Neon, conexión directa (`:5432`, sin pooler)**. Los contenedores
+   `srrhh_postgres` siguen levantando (la API declara `depends_on`) pero **la API no los usa**.
+   Para volver a la base local: quitar esas dos líneas `DATABASE_URL` del override y recrear.
+   (El override es local y está fuera de git; **no copiar su contraseña a ningún documento**.)
+2. **Hot-reload dentro del contenedor.** El override monta `apps/api/src`, `packages/types/src`,
+   `packages/utils/src` y `prisma/` y activa polling: editar código del backend recarga la API
+   sola. Rebuild (`--build`) solo si cambian dependencias o el schema de Prisma (el cliente
+   Prisma se genera al construir la imagen).
+3. **El frontend corre en WSL, no en Windows.** `node_modules/` es **uno solo** para WSL y
+   Windows (mismo disco). El último `pnpm install` define dónde funcionan `vite`/`tsx`: si se
+   instaló desde WSL quedan binarios Linux y en Git Bash/PowerShell `vite` "no se reconoce"; si se
+   instaló desde Windows pasa al revés (`esbuild for another platform` en WSL). **Elegir un solo
+   entorno.** Hoy: WSL. Para volver a Windows hay que correr `pnpm install` desde Windows.
+4. **Comando del front:** `pnpm --filter @srrhh/web exec vite --port 5180`. El
+   `pnpm ... dev -- --port 5180` **no pasa el flag** (vite arranca en 5173) y
+   `--filter web` solo funciona si se resuelve el nombre; el paquete se llama `@srrhh/web`.
+5. **No levantar la API nativa** (`pnpm --filter @srrhh/api dev`) mientras `srrhh_api` esté
+   arriba: choca en el puerto 3000 (`EADDRINUSE`) y además lee `apps/api/.env`, cuyo
+   `DATABASE_URL` es el **pooler de Neon (`:6432`)**, que puede colgarse. Ver sección 5.
 
 ### Seed de Áreas Programáticas / CeSACs (pestaña "Área Programática" del Organigrama)
 
@@ -140,8 +195,13 @@ PostgreSQL (Docker)  ←→  API Fastify (Docker)  ←→  Web Vite (nativo, Win
 ```
 
 - **Postgres, API y Dotaneitor** corren en contenedores Docker (WSL2).
-- **El frontend (Vite) corre nativo en Windows**, no en Docker — `docker-compose.yml` no tiene
-  servicio `web`. Es más rápido para iterar (hot reload instantáneo) y así se verificó hoy.
+- **El frontend (Vite) corre nativo (fuera de Docker)** — `docker-compose.yml` no tiene servicio
+  `web`. Hoy se corre **desde WSL** (ver "Qué cambió respecto a antes", punto 3); antes se corría
+  desde Windows.
+- **Base de datos:** desde 2026-11 el override apunta `api` y `dotaneitor` a **Neon (directa,
+  `:5432`)**, la misma base que producción. El Postgres local de Docker queda levantado pero sin
+  uso. Consecuencia: **lo que se ve en `localhost:5180` es el dato real**; cuidado con probar
+  cosas destructivas.
 
 ---
 
@@ -191,6 +251,11 @@ docker compose ps                      # los 3 containers "Up"/"healthy"
 
 ### Primera vez con una base vacía — migraciones y seed
 
+> Aplica a la **base local de Docker** (`localhost:5433`). Mientras el override apunte a Neon
+> (estado actual), la API **no usa** esa base y esto no hace falta. Las migraciones contra Neon
+> se aplican a mano y hay que marcarlas como resueltas antes de pushear: ver
+> `Doc/Desarrollo/DEPLOY_PRODUCCION.md`, sección 7.
+
 Si `docker compose ps` muestra los containers arriba pero la app no tiene datos (tablas vacías):
 
 ```bash
@@ -218,10 +283,21 @@ El seed es idempotente (usa `upsert`), se puede correr de nuevo sin miedo a dupl
 
 ---
 
-## 4. Levantar el frontend (Vite, nativo en Windows)
+## 4. Levantar el frontend (Vite, nativo)
+
+**Desde WSL (vigente hoy):**
 
 ```bash
-pnpm --filter web dev --port 5180
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+pnpm --filter @srrhh/web exec vite --port 5180
+```
+
+**Desde Windows (Git Bash, PowerShell o CMD)** — solo si el último `pnpm install` se corrió desde
+Windows (ver "Qué cambió", punto 3):
+
+```bash
+cd C:\Desarrollo\SRH\SRRHH-Legacy
+pnpm --filter @srrhh/web exec vite --port 5180
 ```
 
 ### ⚠️ Por qué `--port 5180` y no el 5173 por defecto
@@ -245,6 +321,13 @@ http://localhost:5180
 ---
 
 ## 5. Alternativa: API nativa en vez de Docker (no verificada a fondo)
+
+> ⚠️ **No usar mientras `srrhh_api` esté arriba** (2026-11-07): ambos quieren el puerto 3000
+> (`EADDRINUSE`). Además la API nativa lee `apps/api/.env`, cuyo `DATABASE_URL` apunta al
+> **pooler de Neon (`:6432`)**; ese pooler se colgó (`psql` sin respuesta) mientras la conexión
+> directa `:5432` respondía bien. La API dockerizada usa la directa por el override, por eso
+> no se vio afectada. Para desarrollar el backend usar el hot-reload del contenedor (sección
+> "Comandos rápidos").
 
 `pnpm dev` en la raíz (`turbo run dev`) levanta API + Web en paralelo, ambos nativos en Node,
 usando `apps/api/.env`. Es más rápido para iterar en el backend sin rebuildear la imagen Docker
@@ -311,6 +394,20 @@ pnpm db:studio                                 # Prisma Studio (explorar la BD c
 | Prisma tira un error no-JSON raro al conectar (dentro de un container)                                            | Falta `libssl` en la imagen `node:20-alpine`                                                      | Ya resuelto en `apps/api/Dockerfile` (`apk add openssl`) — si reaparece, revisar que ese Dockerfile no se haya tocado                                                                      |
 | `tsx`/`vite` tira `You installed esbuild for another platform... @esbuild/win32-x64 ... needs @esbuild/linux-x64` | Corriste un script `tsx` desde WSL contra el `node_modules` instalado desde Windows (mismo disco) | Correr el script dentro del contenedor: `docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/<script>.ts` (tiene el esbuild de Linux). Ver sección "Seed de Áreas Programáticas" |
 | Pestaña "Área Programática" (Organigrama) vacía                                                                   | Falta correr el seed/backfill del Sprint 23 (no lo cubre `db:seed`)                               | Ver sección "Seed de Áreas Programáticas / CeSACs"                                                                                                                                         |
+
+---
+
+### Problemas nuevos (2026-11-07)
+
+| Síntoma                                                                                         | Causa                                                                                                              | Solución                                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"vite" no se reconoce` en Git Bash/PowerShell                                                  | `node_modules/` se instaló desde WSL (binarios Linux)                                                              | Correr el front desde WSL, o reinstalar desde Windows (`pnpm install` en Git Bash/PowerShell)                                                                                                    |
+| `ERR_PNPM_EACCES ... rename ... node_modules/.pnpm/...` al hacer `pnpm install` desde WSL      | Procesos con archivos de `node_modules` abiertos (vite, tsx, editor) bloquean el rename en `/mnt/c`               | Cortar vite/tsx del proyecto y reintentar; si pregunta "modules directories will be removed and reinstalled from scratch", responder **n** (el install incremental alcanza si el lockfile no cambió) |
+| `vite` arranca en `5173` aunque se pidió `5180`                                                 | Se usó `pnpm ... dev -- --port 5180` (el `--` extra hace que vite no reciba el flag)                               | Usar `pnpm --filter @srrhh/web exec vite --port 5180`. 5180 es el puerto recomendado: 5173 puede estar ocupado por otra app de esta máquina (ver "Por qué `--port 5180`" en la sección 4)                              |
+| `EADDRINUSE 0.0.0.0:3000` al levantar la API con `pnpm dev`                                     | `srrhh_api` (Docker) ya ocupa el 3000                                                                              | No levantar la API nativa; usar la dockerizada (hot-reload). Ver sección 5                                                                                                                      |
+| `Can't reach database server at ...-pooler...:6432` en la API nativa                            | El pooler de Neon (`:6432`) puede no responder aunque la conexión directa `:5432` funcione                        | La API dockerizada usa la directa (override). Para scripts/psql usar `NEON_DIRECT` (ver `DEPLOY_PRODUCCION.md`, "Reconstruir `NEON_DIRECT`")                                                    |
+| Un endpoint/dependencia nueva (ej. `pdfkit`) no existe en el contenedor                         | La imagen se construyó antes de que cambiara `package.json`/`pnpm-lock.yaml` (el hot-reload solo cubre `src/`)     | `docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build`                                                                                                              |
+| `Unsupported engine: wanted node 22.x` (WARN)                                                   | WSL tiene Node 20; el repo declara 22 (Render usa 22)                                                              | Solo advertencia, no bloquea. Si algo se comporta distinto entre local y Render, sospechar de esta diferencia de versión                                                                        |
 
 ---
 
