@@ -10,7 +10,7 @@ export const concursosCeetpsQuerySchema = z.object({
   hospitalId: z.string().uuid().optional(),
   escalafonId: z.string().uuid().optional(),
   estado: z.nativeEnum(EstadoConcursoCeetps).optional(),
-  subEstado: z.enum(['EXP_CARATULADO', 'DISPO_LLAMADO', 'IFACS', 'INSAL', 'TAD', 'DISPO_DESIGNACION']).optional(),
+  subEstado: z.enum(['EXP_CARATULADO', 'A_AUTORIZACION', 'DISPO_LLAMADO', 'IFACS', 'INSAL', 'TAD', 'DISPO_DESIGNACION']).optional(),
   // Rangos de fechas del proceso (recuperados del legacy)
   fechaCaratulacionDesde: fecha.optional(),
   fechaCaratulacionHasta: fecha.optional(),
@@ -31,6 +31,8 @@ export const patchConcursoCeetpsSchema = z
   .object({
     // ── Proceso previo ──────────────────────────────────────────────────────
     expedienteConcurso: z.string().trim().max(150).nullable(),
+    // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+    ifAutorizacion: z.string().trim().max(150).nullable(),
     fechaCaratulacion: fecha.nullable(),
     fechaAutorizacion: fecha.nullable(),
     tipificadorOrigen: z.string().trim().max(200).nullable(),

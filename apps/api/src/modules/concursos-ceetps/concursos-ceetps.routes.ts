@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
+import { AppError } from '../../shared/errors/AppError.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema, designarCeetpsSchema } from './concursos-ceetps.schema.js'
 import {
@@ -32,8 +33,10 @@ export async function concursosCeetpsRoutes(app: FastifyInstance) {
     '/:id',
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
+      const usuarioId = (request as any).user?.id as string | undefined
+      if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
       const body = patchConcursoCeetpsSchema.parse(request.body)
-      const data = await patchConcursoCeetpsService(request.params.id, body)
+      const data = await patchConcursoCeetpsService(request.params.id, body, usuarioId)
       return reply.send({ data })
     }
   )

@@ -5,7 +5,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '').trim()
 export const autorizacionesQuerySchema = z.object({
   page:  z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  tipo:  z.enum(['concurso_cph', 'alta_cargo']).optional(),
+  tipo:  z.enum(['concurso_cph', 'concurso_ceetps', 'alta_cargo']).optional(),
 })
 
 export const resolverAutorizacionSchema = z.object({

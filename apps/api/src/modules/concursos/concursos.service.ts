@@ -157,7 +157,8 @@ export async function createConcursoTx(
         hospitalId: body.hospitalId,
         escalafonId: body.escalafonId as string,
         puestoSolicitado: body.puestoSolicitado ?? null,
-        ...(body.puestoSolicitado ? { estado: 'autorizado' as const } : {}),
+        // Paso 2b: un cargo nuevo NO nace autorizado aunque traiga puesto; espera a SGRASV.
+        ...(body.puestoSolicitado && body.motivoConcurso !== 'nuevo_cargo' ? { estado: 'autorizado' as const } : {}),
       },
     })
 
@@ -204,5 +205,11 @@ export async function createConcursoService(body: CreateConcursoBody, usuarioId:
     if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
   }
 
+  if (body.tipoConcurso === TipoConcurso.CEETPS) {
+    const abierto = await prisma.concursoCeetps.findFirst({
+      where: { cargoId: body.cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+    })
+    if (abierto) throw AppError.conflict('Ya existe un concurso CEETPS abierto para este cargo')
+  }
   return prisma.$transaction((tx) => createConcursoTx(tx, body, usuarioId))
 }

@@ -19,6 +19,7 @@ const TIPO_LABEL: Record<TipoAutorizacion, string> = {
   concurso_cph: 'Concurso CPH',
   alta_cargo:   'Alta de cargo',
   baja_cargo:   'Baja de cargo',
+  concurso_ceetps: 'Concurso CEETPS',
 }
 
 function formatFecha(iso: string) {

@@ -1186,6 +1186,8 @@ model ConcursoCeetps {
   escalafonId             String               @map("escalafon_id") @db.Uuid
   estado                  EstadoConcursoCeetps @default(sin_autorizar)
   expedienteConcurso      String?              @map("expediente_concurso") @db.VarChar(150)
+  // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+  ifAutorizacion          String?              @map("if_autorizacion") @db.VarChar(150)
   puestoSolicitado        String?              @map("puesto_solicitado") @db.VarChar(200)
   // S20-3: FK al catálogo, nullable igual que puestoSolicitado (texto que reemplaza).
   puestoCargoSolicitadoId String?              @map("puesto_cargo_solicitado_id") @db.Uuid
@@ -1265,6 +1267,7 @@ enum TipoAutorizacion {
   concurso_cph
   alta_cargo
   baja_cargo
+  concurso_ceetps
 }
 
 enum EstadoAutorizacion {

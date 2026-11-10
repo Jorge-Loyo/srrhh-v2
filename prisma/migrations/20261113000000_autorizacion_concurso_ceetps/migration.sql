@@ -1,0 +1,22 @@
+-- Paso 2b del bloque "Concurso autorizado": autorización de SGRASV también para
+-- los concursos CEETPS de cargo nuevo.
+--   * TipoAutorizacion += 'concurso_ceetps' (la Autorizacion apunta al
+--     ConcursoCeetps.id, igual que 'concurso_cph' apunta al ConcursoCph.id).
+--   * concursos_ceetps.if_autorizacion: IF de autorización de apertura
+--     (CPH ya tiene su columna homónima). Obligatorio junto con el expediente
+--     solo para nuevo_cargo (se valida en el backend).
+--
+-- Sin backfill: los concursos existentes quedan igual.
+--
+-- Idempotente (ADD VALUE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS). Va SIN
+-- BEGIN/COMMIT a propósito: ALTER TYPE ... ADD VALUE no se puede usar en la
+-- misma transacción que lo referencia, y este archivo no usa el valor nuevo.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). Jorge corre este .sql a mano en Neon Y la marca resuelta
+-- ANTES del push, porque Render corre `prisma migrate deploy` en cada arranque
+-- (Doc/Desarrollo/DEPLOY_PRODUCCION.md sección 7, trampa 1):
+--   psql "$NEON_DIRECT" -f prisma/migrations/20261113000000_autorizacion_concurso_ceetps/migration.sql
+--   DATABASE_URL="$NEON_DIRECT" npx prisma migrate resolve --applied 20261113000000_autorizacion_concurso_ceetps --schema=./prisma/schema.prisma
+ALTER TYPE "TipoAutorizacion" ADD VALUE IF NOT EXISTS 'concurso_ceetps';
+ALTER TABLE concursos_ceetps ADD COLUMN IF NOT EXISTS if_autorizacion VARCHAR(150) NULL;

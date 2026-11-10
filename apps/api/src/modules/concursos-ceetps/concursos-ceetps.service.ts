@@ -4,6 +4,16 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody } from './concursos-ceetps.schema.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { calcEstadoCeetps } from './concursosCeetps.calc.js'
+import {
+  MENSAJE_BLOQUEO_ETAPA_2,
+  autorizacionParaCalcCeetps,
+  debeSolicitarAperturaCeetps,
+  esNuevoCargoSinAutorizar,
+  validarBloqueoEtapa2Ceetps,
+  validarIfCeetps,
+} from './autorizacionNuevoCargo.js'
+import { autoAprobarConcurso, resolverSlugPorPermiso, usuarioPuedeResolverSgrasv } from '../autorizaciones/autorizaciones.service.js'
+import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 
 const include = {
   // cargo.codigoRegistro: clasificador fino de la carrera —
@@ -98,17 +108,76 @@ export async function listConcursosCeetpsService(query: ConcursosCeetpsQuery) {
 export async function getConcursoCeetpsByIdService(id: string) {
   const concursoCeetps = await prisma.concursoCeetps.findUnique({ where: { id }, include })
   if (!concursoCeetps) throw AppError.notFound('Concurso CEETPS no encontrado')
-  return concursoCeetps
+  // Paso 2b: autorización pendiente y último rechazo, solo para nuevo_cargo sin
+  // autorizar. Las Autorizacion concurso_ceetps guardan referenciaId = ConcursoCeetps.id.
+  if (!esNuevoCargoSinAutorizar(concursoCeetps.concurso)) {
+    return { ...concursoCeetps, autorizacionPendiente: null, ultimaAutorizacionRechazada: null }
+  }
+  const [autorizacionPendiente, rechazada] = await Promise.all([
+    prisma.autorizacion.findFirst({
+      where: { referenciaId: id, tipo: 'concurso_ceetps', estado: 'pendiente' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, resolverPorRolSlug: true, createdAt: true },
+    }),
+    prisma.autorizacion.findFirst({
+      where: { referenciaId: id, tipo: 'concurso_ceetps', estado: 'rechazada' },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        observaciones: true,
+        updatedAt: true,
+        resueltoPor: { select: { nombre: true, apellido: true, username: true } },
+      },
+    }),
+  ])
+  const ultimaAutorizacionRechazada =
+    !autorizacionPendiente && rechazada
+      ? {
+          id: rechazada.id,
+          observaciones: rechazada.observaciones,
+          resueltaAt: rechazada.updatedAt,
+          resueltaPor: rechazada.resueltoPor
+            ? [rechazada.resueltoPor.nombre, rechazada.resueltoPor.apellido].filter(Boolean).join(' ') ||
+              rechazada.resueltoPor.username
+            : null,
+        }
+      : null
+  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada }
 }
 
 // ─── S5-1: actualizar campos por fase — estado y subEstado se recalculan ─────
-export async function patchConcursoCeetpsService(id: string, body: PatchConcursoCeetpsBody) {
-  const existing = await prisma.concursoCeetps.findUnique({ where: { id } })
-  if (!existing) throw AppError.notFound('Concurso CEETPS no encontrado')
+export async function patchConcursoCeetpsService(id: string, body: PatchConcursoCeetpsBody, usuarioId: string) {
+  const existingConConcurso = await prisma.concursoCeetps.findUnique({
+    where: { id },
+    include: { concurso: { select: { motivoConcurso: true, autorizadoAt: true, cargo: { select: { codigo: true } } } } },
+  })
+  if (!existingConConcurso) throw AppError.notFound('Concurso CEETPS no encontrado')
+  const { concurso: concursoBase, ...existing } = existingConConcurso
 
   if (existing.estado === 'finalizado' || existing.estado === 'desierto') {
     throw AppError.conflict(`No se puede modificar un concurso ${existing.estado}`)
   }
+
+  // Paso 2b — cargo nuevo: la Etapa 2+ requiere la autorización de SGRASV (409
+  // solo si el valor CAMBIA: el formulario reenvía todos los campos) y el IF es
+  // obligatorio junto con el expediente (400).
+  validarBloqueoEtapa2Ceetps(concursoBase, body, existing)
+  validarIfCeetps(concursoBase, body, existing)
+  const nuevoSinAutorizar = esNuevoCargoSinAutorizar(concursoBase)
+  const hayPendiente = nuevoSinAutorizar
+    ? !!(await prisma.autorizacion.findFirst({
+        where: { referenciaId: id, tipo: 'concurso_ceetps', estado: 'pendiente' },
+        select: { id: true },
+      }))
+    : false
+  const solicitaAutorizacion = debeSolicitarAperturaCeetps({
+    concurso: concursoBase,
+    body,
+    existing,
+    pendienteAutorizacion: hayPendiente,
+  })
+  // Quien completa la Etapa 1 y puede resolver como SGRASV (o es admin) auto-aprueba.
+  const autoAprobar = solicitaAutorizacion && (await usuarioPuedeResolverSgrasv(prisma, usuarioId))
 
   const patch: Prisma.ConcursoCeetpsUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCeetpsBody, unknown][]) {
@@ -132,13 +201,66 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
 
   // Recalcular estado + subEstado a partir del estado merged
   const merged = { ...existing, ...(patch as Partial<typeof existing>) }
-  const { estado, subEstado } = calcEstadoCeetps(merged)
-
-  return prisma.concursoCeetps.update({
-    where: { id },
-    data: { ...patch, estado, subEstado },
-    include,
+  const { estado, subEstado } = calcEstadoCeetps({
+    ...merged,
+    autorizacionNuevoCargo: autorizacionParaCalcCeetps(concursoBase, {
+      pendiente: hayPendiente || solicitaAutorizacion,
+      autoAprobar,
+    }),
   })
+
+  if (!solicitaAutorizacion) {
+    return prisma.concursoCeetps.update({
+      where: { id },
+      data: { ...patch, estado, subEstado },
+      include,
+    })
+  }
+
+  const cargoCodigo = concursoBase.cargo?.codigo ?? id.slice(0, 8)
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.concursoCeetps.update({ where: { id }, data: { ...patch, estado, subEstado } })
+    if (autoAprobar) {
+      // Autorizada en el acto: traza aprobada + autorizado_at + fechaAutorizacion + recálculo.
+      await autoAprobarConcurso(tx, {
+        tipo: 'concurso_ceetps',
+        referenciaId: id,
+        concursoId: existing.concursoId,
+        usuarioId,
+      })
+      await notificarSgrasvYHijos({
+        tipo: 'autorizacion_pendiente',
+        titulo: `Concurso autorizado automáticamente — ${cargoCodigo}`,
+        mensaje: `El concurso CEETPS ${cargoCodigo} fue autorizado automáticamente al completar la Etapa 1 un usuario con permiso de SGRASV.`,
+        origenTipo: 'concurso_ceetps',
+        origenId: id,
+        origenKey: `autorizacion_automatica:${id}`,
+      }, tx)
+    } else {
+      const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
+      const aut = await tx.autorizacion.create({
+        data: {
+          tipo: 'concurso_ceetps',
+          referenciaId: id,
+          referenciaTipo: 'concurso_ceetps',
+          solicitadoPorId: usuarioId,
+          resolverPorRolSlug: slugSgrasv,
+        },
+      })
+      // notificarSgrasvYHijos cubre SGRASV + descendientes (no se usa crearAutorizacion
+      // para no duplicar el aviso al rol SGRASV).
+      await notificarSgrasvYHijos({
+        tipo: 'autorizacion_pendiente',
+        titulo: `Autorización de concurso CEETPS pendiente — ${cargoCodigo}`,
+        mensaje: `Hay una autorización de apertura del concurso CEETPS ${cargoCodigo} esperando la resolución de SGRASV.`,
+        origenTipo: 'autorizacion',
+        origenId: aut.id,
+        origenKey: `autorizacion_pendiente:${aut.id}`,
+      }, tx)
+    }
+    return tx.concursoCeetps.findUniqueOrThrow({ where: { id }, include })
+  })
+  return updated
 }
 
 // ─── S16-2: registrar designación — crea Ocupacion, avanza estado a finalizado ──
@@ -150,6 +272,8 @@ export async function designarConcursoCeetpsService(id: string, body: DesignarCe
   if (!concurso) throw AppError.notFound('Concurso CEETPS no encontrado')
   if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')
   if (concurso.estado === 'desierto')   throw AppError.conflict('El concurso está desierto')
+  // Paso 2b: un cargo nuevo no se puede designar sin la autorización de SGRASV.
+  if (esNuevoCargoSinAutorizar(concurso.concurso)) throw AppError.conflict(MENSAJE_BLOQUEO_ETAPA_2)
 
   const persona = await prisma.persona.findUnique({ where: { id: body.personaId } })
   if (!persona) throw AppError.notFound('Persona no encontrada')

@@ -481,10 +481,12 @@ export interface ConcursoCeetps {
   estado: EstadoConcursoCeetps
   // Sub-estado granular dentro del estado principal (calculado server-side).
   // Valores: 'EXP_CARATULADO' | 'DISPO_LLAMADO' | 'IFACS' | 'INSAL' |
-  //          'TAD' | 'DISPO_DESIGNACION' | null
+  //          'TAD' | 'DISPO_DESIGNACION' | 'A_AUTORIZACION' | null
   subEstado: string | null
   // ── Proceso previo al concurso ──────────────────────────────────────────
   expedienteConcurso: string | null
+  // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+  ifAutorizacion: string | null
   fechaCaratulacion: string | null
   fechaAutorizacion: string | null
   tipificadorOrigen: string | null
@@ -526,6 +528,15 @@ export interface ConcursoCeetps {
   hospital?: Hospital
   escalafon?: Escalafon
   personaDesignada?: Persona
+  // Paso 2b (solo GET /concursos-ceetps/:id, nuevo_cargo sin autorizar): autorización
+  // pendiente y último rechazo. Misma forma que en ConcursoCph.
+  autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null
+  ultimaAutorizacionRechazada?: {
+    id: string
+    observaciones: string | null
+    resueltaAt: string
+    resueltaPor: string | null
+  } | null
 }
 
 export interface Usuario {
@@ -637,6 +648,7 @@ export type NotificacionDetalle =
     }
   | {
       tipo: 'concurso_ceetps'
+      estado?: string | null // estado de la autorización si vino de ese flujo
       concurso: {
         cargo: CargoRef
         hospital: HospitalRef
@@ -650,6 +662,7 @@ export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
   ALTA_CARGO: 'alta_cargo',
   BAJA_CARGO: 'baja_cargo',
+  CONCURSO_CEETPS: 'concurso_ceetps',
 } as const
 export type TipoAutorizacion = (typeof TipoAutorizacion)[keyof typeof TipoAutorizacion]
 
@@ -1541,6 +1554,7 @@ export interface CreateBajaRequest {
 export interface PatchConcursoCeetpsRequest {
   // ── Proceso previo ────────────────────────────────────────────────────────
   expedienteConcurso?: string | null
+  ifAutorizacion?: string | null
   fechaCaratulacion?: string | null
   fechaAutorizacion?: string | null
   tipificadorOrigen?: string | null

@@ -24,7 +24,12 @@ export interface ConcursoCeetpsCalcInput {
   expedienteDesignacion: string | null
   dispoDesignacion: string | null
   resolucionDesignacion: string | null
+  // Paso 2b: estado de autorización SGRASV de un concurso nuevo_cargo. `undefined`
+  // (resto de los concursos y callers que no lo pasan) = comportamiento de siempre.
+  autorizacionNuevoCargo?: AutorizacionNuevoCargoCeetpsCalc
 }
+
+export type AutorizacionNuevoCargoCeetpsCalc = 'sin_solicitar' | 'pendiente' | 'autorizado'
 
 // String literal en vez del enum de @prisma/client a propósito (mismo criterio
 // que EstadoConcursoCphCalc): son tipos nominalmente distintos aunque compartan
@@ -35,6 +40,7 @@ export type EstadoConcursoCeetpsCalc = 'sin_autorizar' | 'autorizado' | 'en_proc
 // Los valores en SCREAMING_SNAKE_CASE se persisten en la columna sub_estado.
 export type SubEstadoCeetps =
   | 'EXP_CARATULADO'    // expediente caratulado, sin autorización aún
+  | 'A_AUTORIZACION'    // nuevo_cargo: expediente + IF enviados, esperando a SGRASV
   | 'DISPO_LLAMADO'     // disposición de llamado emitida
   | 'IFACS'             // en etapa IFACS
   | 'INSAL'             // en etapa INSAL
@@ -72,8 +78,17 @@ export function calcEstadoCeetps(row: ConcursoCeetpsCalcInput): CalcCeetpsResult
     return { estado: 'en_proceso', subEstado: 'DISPO_LLAMADO' }
   }
 
-  // autorizado: se cargó puesto solicitado
-  if (row.puestoSolicitado) {
+  // Paso 2b (nuevo_cargo): la autorización de SGRASV manda sobre el puesto solicitado.
+  const aut = row.autorizacionNuevoCargo
+  if (aut === 'autorizado') {
+    return { estado: 'autorizado', subEstado: null }
+  }
+  if (aut === 'pendiente' && (row.expedienteConcurso || row.fechaCaratulacion)) {
+    return { estado: 'sin_autorizar', subEstado: 'A_AUTORIZACION' }
+  }
+
+  // autorizado: se cargó puesto solicitado (nuevo_cargo sin autorizar: no aplica)
+  if (row.puestoSolicitado && aut === undefined) {
     return { estado: 'autorizado', subEstado: null }
   }
 

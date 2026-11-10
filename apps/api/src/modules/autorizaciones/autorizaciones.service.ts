@@ -9,6 +9,7 @@ import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
 import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCargo.js'
 import { recalcularCalcCph } from '../concursos-cph/recalcularCph.js'
+import { recalcularCalcCeetps } from '../concursos-ceetps/recalcularCeetps.js'
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
@@ -95,7 +96,7 @@ export async function resolverSlugPorPermiso(
 export async function crearAutorizacion(
   tx: typeof prisma,
   data: {
-    tipo: 'concurso_cph' | 'alta_cargo' | 'baja_cargo'
+    tipo: 'concurso_cph' | 'concurso_ceetps' | 'alta_cargo' | 'baja_cargo'
     referenciaId: string
     referenciaTipo: string
     solicitadoPorId: string | undefined
@@ -176,6 +177,9 @@ export async function aprobarAutorizacionService(
   if (aut.tipo === 'concurso_cph') {
     return _aprobarCph(aut, resueltoPorId, rolSlug, observaciones)
   }
+  if (aut.tipo === 'concurso_ceetps') {
+    return _aprobarCeetps(aut, resueltoPorId, observaciones)
+  }
   if (aut.tipo === 'alta_cargo') {
     return _aprobarAltaCargo(aut, resueltoPorId, observaciones)
   }
@@ -200,7 +204,7 @@ export async function rechazarAutorizacionService(
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
   // Paso 2a: rechazar una autorización de concurso exige un motivo, que se
   // muestra en la pantalla del concurso. alta_cargo / baja_cargo no cambian.
-  if (aut.tipo === 'concurso_cph') {
+  if (aut.tipo === 'concurso_cph' || aut.tipo === 'concurso_ceetps') {
     observaciones = observaciones?.trim()
     if (!observaciones) throw AppError.badRequest('La observación es obligatoria para rechazar la autorización')
   }
@@ -252,6 +256,24 @@ export async function rechazarAutorizacionService(
       }
     }
 
+    if (aut.tipo === 'concurso_ceetps') {
+      // Paso 2b: un nuevo_cargo CEETPS rechazado vuelve a EXP_CARATULADO. La
+      // observación queda en la Autorizacion y se muestra en la pantalla del
+      // concurso. No hay tarea pendiente (las tareas están atadas a concurso_cph).
+      const ceetpsRech = await tx.concursoCeetps.findUnique({
+        where:  { id: aut.referenciaId },
+        select: { concursoId: true },
+      })
+      if (!ceetpsRech) throw AppError.notFound('Concurso CEETPS no encontrado')
+      const concRech = await tx.concurso.findUnique({
+        where:  { id: ceetpsRech.concursoId },
+        select: { motivoConcurso: true, autorizadoAt: true },
+      })
+      if (esNuevoCargoSinAutorizar(concRech)) {
+        await recalcularCalcCeetps(tx, aut.referenciaId, 'sin_solicitar')
+      }
+    }
+
     if (aut.tipo === 'alta_cargo') {
       await tx.solicitudAlta.update({
         where: { id: aut.referenciaId },
@@ -287,7 +309,7 @@ export async function rechazarAutorizacionService(
           tipo:      'autorizacion_resuelta',
           rolSlug:   solicitante.role.slug,
           titulo:    'Autorización rechazada',
-          mensaje:   `Tu solicitud de tipo "${aut.tipo}" fue rechazada.${observaciones ? ` Motivo: ${observaciones}` : ''}`,
+          mensaje:   `Tu solicitud de ${aut.tipo === 'concurso_ceetps' ? 'autorización de concurso CEETPS' : `tipo "${aut.tipo}"`} fue rechazada.${observaciones ? ` Motivo: ${observaciones}` : ''}`,
           origenTipo: 'autorizacion',
           origenId:   aut.id,
           origenKey:  `autorizacion_resuelta:${aut.id}`,
@@ -346,13 +368,20 @@ async function completarFechaAutorizacionCph(tx: Prisma.TransactionClient, cphId
   })
 }
 
+async function completarFechaAutorizacionCeetps(tx: Prisma.TransactionClient, ceetpsId: string) {
+  await tx.concursoCeetps.updateMany({
+    where: { id: ceetpsId, fechaAutorizacion: null },
+    data:  { fechaAutorizacion: new Date() },
+  })
+}
+
 // Quien completa la Etapa 1 y puede resolver como SGRASV aprueba en el mismo acto:
 // deja una Autorizacion ya aprobada (traza), marca el concurso autorizado y
 // recalcula el sub-estado. marcarConcursoAutorizado sigue siendo la única que
 // escribe autorizado_at.
 export async function autoAprobarConcurso(
   tx: Prisma.TransactionClient,
-  data: { tipo: 'concurso_cph'; referenciaId: string; concursoId: string | null; usuarioId: string },
+  data: { tipo: 'concurso_cph' | 'concurso_ceetps'; referenciaId: string; concursoId: string | null; usuarioId: string },
 ) {
   const usuario = await tx.usuario.findUnique({
     where:  { id: data.usuarioId },
@@ -371,8 +400,13 @@ export async function autoAprobarConcurso(
     },
   })
   if (data.concursoId) await marcarConcursoAutorizado(tx, data.concursoId)
-  await completarFechaAutorizacionCph(tx, data.referenciaId)
-  await recalcularCalcCph(tx, data.referenciaId, 'autorizado')
+  if (data.tipo === 'concurso_ceetps') {
+    await completarFechaAutorizacionCeetps(tx, data.referenciaId)
+    await recalcularCalcCeetps(tx, data.referenciaId, 'autorizado')
+  } else {
+    await completarFechaAutorizacionCph(tx, data.referenciaId)
+    await recalcularCalcCph(tx, data.referenciaId, 'autorizado')
+  }
   return autorizacion
 }
 
@@ -484,6 +518,51 @@ async function _aprobarCph(
             origenKey:  `autorizacion_resuelta:${aut.id}`,
           })
         }
+      }
+    }
+
+    return tx.autorizacion.findUnique({ where: { id: aut.id } })
+  })
+}
+
+// ─── Lógica interna: aprobar concurso CEETPS (cargo nuevo) ───────────────────
+// Una sola autorización (SGRASV). Setea autorizado_at (atómico e idempotente vía
+// marcarConcursoAutorizado), completa fechaAutorizacion si estaba vacía y pasa
+// el concurso a 'autorizado'.
+async function _aprobarCeetps(
+  aut: { id: string; referenciaId: string; solicitadoPorId: string | null },
+  resueltoPorId: string,
+  observaciones?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.autorizacion.update({
+      where: { id: aut.id },
+      data:  { estado: 'aprobada', resueltoPorId, observaciones: observaciones ?? null },
+    })
+
+    const ceetps = await tx.concursoCeetps.findUnique({ where: { id: aut.referenciaId } })
+    if (!ceetps) throw AppError.notFound('Concurso CEETPS no encontrado')
+
+    if (await marcarConcursoAutorizado(tx, ceetps.concursoId)) {
+      await completarFechaAutorizacionCeetps(tx, aut.referenciaId)
+      await recalcularCalcCeetps(tx, aut.referenciaId, 'autorizado')
+    }
+
+    if (aut.solicitadoPorId) {
+      const solicitante = await tx.usuario.findUnique({
+        where:  { id: aut.solicitadoPorId },
+        select: { role: { select: { slug: true } } },
+      })
+      if (solicitante?.role.slug) {
+        await crearNotificacion({
+          tipo:      'autorizacion_resuelta',
+          rolSlug:   solicitante.role.slug,
+          titulo:    'Autorización aprobada',
+          mensaje:   'Tu solicitud de autorización de concurso CEETPS fue aprobada.',
+          origenTipo: 'autorizacion',
+          origenId:   aut.id,
+          origenKey:  `autorizacion_resuelta:${aut.id}`,
+        })
       }
     }
 

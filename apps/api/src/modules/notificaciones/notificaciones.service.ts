@@ -156,6 +156,24 @@ export async function obtenerDetalleService(id: string, rolSlug: string) {
         }
       }
 
+      if (aut.tipo === 'concurso_ceetps') {
+        const ceetps = await prisma.concursoCeetps.findUnique({
+          where:   { id: aut.referenciaId },
+          include: {
+            concurso: { include: { cargo: { select: { codigo: true, literalPuesto: true } }, hospital: { select: { sigla: true, nombre: true } } } },
+          },
+        })
+        if (!ceetps) return null
+        return {
+          tipo: 'concurso_ceetps' as const,
+          estado: aut.estado,
+          concurso: {
+            cargo: ceetps.concurso.cargo, hospital: ceetps.concurso.hospital,
+            estadoConcurso: ceetps.estado, subEstado: ceetps.subEstado,
+          },
+        }
+      }
+
       return null
     }
 
