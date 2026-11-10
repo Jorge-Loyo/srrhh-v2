@@ -41,6 +41,7 @@ import {
   type CargoCrCphDb,
   type CrCphDb,
 } from '../../shared/crCph.js'
+import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
 
 const include = {
   concurso: {
@@ -674,16 +675,45 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     }),
   })
 
-  let updated = await prisma.concursoCph.update({
-    where: { id },
-    data: {
-      ...patch,
-      estado: calc.estado,
-      subEstado: calc.subEstado,
-      subEstado3: calc.subEstado3,
-    },
-    include,
-  })
+  const dataUpdate = {
+    ...patch,
+    estado: calc.estado,
+    subEstado: calc.subEstado,
+    subEstado3: calc.subEstado3,
+  }
+
+  // Auto-aprobación (paso 3, arreglo 2b-a): el update del concurso, el cierre de
+  // tareas, la Autorizacion aprobada + autorizado_at, el recálculo del cargo y la
+  // notificación van en UNA sola transacción (igual que CEETPS). Si algo falla,
+  // el concurso no queda a medias.
+  let updated = autoAprobar
+    ? await prisma.$transaction(async (tx) => {
+        const actualizado = await tx.concursoCph.update({ where: { id }, data: dataUpdate, include })
+        await cerrarTareasDeConcurso(tx as typeof prisma, id)
+        await autoAprobarConcurso(tx, {
+          tipo: 'concurso_cph',
+          referenciaId: id,
+          concursoId: existing.concursoId,
+          usuarioId,
+        })
+        const cargoCodigo =
+          (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
+          id.slice(0, 8)
+        await notificarSgrasvYHijos(
+          {
+            tipo: 'autorizacion_pendiente',
+            titulo: `Concurso autorizado automáticamente — ${cargoCodigo}`,
+            mensaje: `El concurso ${cargoCodigo} fue autorizado automáticamente al completar la Etapa 1 un usuario con permiso de SGRASV.`,
+            origenTipo: 'concurso_cph',
+            origenId: id,
+            origenKey: `autorizacion_automatica:${id}`,
+          },
+          tx,
+        )
+        // Refrescar la respuesta: autorizadoAt (concurso) y sub-estado recalculados.
+        return (await tx.concursoCph.findUnique({ where: { id }, include })) ?? actualizado
+      })
+    : await prisma.concursoCph.update({ where: { id }, data: dataUpdate, include })
 
   // Crear Autorizacion genérica según el tipo de cambio
   if (requiereAutorizacionDoble) {
@@ -707,28 +737,7 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     // AUNQUE el dedup haya evitado crear la autorización (idempotente).
     await cerrarTareasDeConcurso(prisma, id)
   } else if (autoAprobar) {
-    await prisma.$transaction(async (tx) => {
-      await cerrarTareasDeConcurso(tx as typeof prisma, id)
-      await autoAprobarConcurso(tx, {
-        tipo: 'concurso_cph',
-        referenciaId: id,
-        concursoId: existing.concursoId,
-        usuarioId,
-      })
-    })
-    const cargoCodigo =
-      (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
-      id.slice(0, 8)
-    await notificarSgrasvYHijos({
-      tipo: 'autorizacion_pendiente',
-      titulo: `Concurso autorizado automáticamente — ${cargoCodigo}`,
-      mensaje: `El concurso ${cargoCodigo} fue autorizado automáticamente al completar la Etapa 1 un usuario con permiso de SGRASV.`,
-      origenTipo: 'concurso_cph',
-      origenId: id,
-      origenKey: `autorizacion_automatica:${id}`,
-    })
-    // Refrescar la respuesta: autorizadoAt (concurso) y sub-estado recalculados.
-    updated = (await prisma.concursoCph.findUnique({ where: { id }, include })) ?? updated
+    // Ya resuelto de forma atómica en la transacción de arriba.
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     // Cambio de especialidad/puesto/eeConcurso modificado, o solicitud de
     // autorización de apertura (eeConcurso + IF cargados): solo sgrasv. Se
@@ -1072,6 +1081,7 @@ export async function asignarDesignadoConcursoCphService(
   id: string,
   body: AsignarDesignadoCphBody,
 ) {
+  await assertEtapa2Habilitada(id)
   const existing = await prisma.concursoCph.findUnique({ where: { id } })
   if (!existing) throw AppError.notFound('Concurso CPH no encontrado')
 
@@ -1120,6 +1130,7 @@ export async function asignarDesignadoConcursoCphService(
 
 // ─── S16-1: registrar designación — crea Ocupacion, avanza a N-DESIGNADO ────
 export async function designarConcursoCphService(id: string, body: DesignarCphBody) {
+  await assertEtapa2Habilitada(id)
   const concurso = await prisma.concursoCph.findUnique({
     where: { id },
     include: { concurso: { include: { cargo: true } } },
@@ -1458,6 +1469,7 @@ export async function declararDesiertoService(
   body: DeclararDesiertoBody,
   usuarioId: string,
 ) {
+  await assertEtapa2Habilitada(id)
   const concurso = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!concurso) throw AppError.notFound('Concurso CPH no encontrado')
   if (concurso.estado === 'finalizado') throw AppError.conflict('El concurso ya está finalizado')

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
@@ -9,8 +9,8 @@ import {
   useAutorizaciones,
   useAprobarAutorizacion,
   useRechazarAutorizacion,
-  useCrearConcurso,
 } from '../hooks/useAutorizaciones'
+import { mensajeAvisoAlta } from '../lib/avisoAltaConcursos'
 
 // S13-A — Panel de autorizaciones pendientes, filtrado server-side por el rol
 // del usuario logueado (ver GET /autorizaciones — resolverPorRolSlug === rolSlug).
@@ -214,19 +214,12 @@ export function AutorizacionesPage() {
   const [modal, setModal] = useState<{ id: string; accion: 'aprobar' | 'rechazar' } | null>(null)
   const [obs, setObs] = useState('')
   const [informativas, setInformativas] = useState<Set<string>>(new Set())
-  // S14-7: modal post-aprobación de alta_cargo
-  const [modalConcurso, setModalConcurso] = useState<{
-    cargoId: string; hospitalId: string; codigo: string | null
-    literalPuesto: string | null; hospitalSigla: string
-    tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
-  } | null>(null)
-  const [errorConcurso, setErrorConcurso] = useState<string | null>(null)
+  // Paso 3: aviso tras aprobar un alta de cargo (los concursos se crean solos).
+  const [avisoAlta, setAvisoAlta] = useState<string | null>(null)
   // Error de aprobar/rechazar: se muestra dentro del modal (y vía toast) para
   // que un 409/500 del backend sea visible en vez de dejar el botón mudo.
   const [errorResolver, setErrorResolver] = useState<string | null>(null)
   const { toast, ToastUI } = useToast()
-  const navigate = useNavigate()
-  const crearConcurso = useCrearConcurso()
 
   function marcarInformativa(referenciaId: string) {
     setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
@@ -266,12 +259,10 @@ export function AutorizacionesPage() {
     setErrorResolver(null)
     try {
       const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
-      // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
+      // Paso 3: al aprobar un alta de cargo el backend crea solo un concurso por
+      // cada cargo nuevo; se avisa cuántos quedaron pendientes de caratular.
       if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
-        const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
-        if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
-          setModalConcurso(res.data.concursoInfo)
-        }
+        setAvisoAlta(mensajeAvisoAlta(result))
       }
       cerrarModal()
     } catch (err) {
@@ -307,57 +298,14 @@ export function AutorizacionesPage() {
         </select>
       </div>
 
-      {/* Modal iniciar concurso post-alta (S14-7) */}
-      {modalConcurso && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="font-primary font-bold text-gray-900">¿Iniciar concurso?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                El cargo <span className="font-semibold">{modalConcurso.codigo ?? '—'}</span> ({modalConcurso.literalPuesto}) en <span className="font-semibold">{modalConcurso.hospitalSigla}</span> fue creado.
-              </p>
-            </div>
-            <div className="px-6 py-4 text-sm text-gray-600">
-              ¿Querés iniciar un concurso <span className="font-semibold uppercase">{modalConcurso.tipoConcursoSugerido}</span> para este cargo ahora?
-            </div>
-            {errorConcurso && <p className="px-6 pb-2 text-xs text-danger">{errorConcurso}</p>}
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button className="btn-outline" onClick={() => { setModalConcurso(null); setErrorConcurso(null) }} disabled={crearConcurso.isPending}>
-                Ahora no
-              </button>
-              <button
-                className="btn-primary disabled:opacity-40"
-                disabled={crearConcurso.isPending}
-                onClick={async () => {
-                  setErrorConcurso(null)
-                  try {
-                    // No hay wizard de creación "desde cero" — se crea directo
-                    // contra el mismo POST /concursos que usa bajas.service.ts
-                    // para el flujo alta_por_baja, y se navega al concurso real.
-                    const data = await crearConcurso.mutateAsync({
-                      cargoId: modalConcurso.cargoId,
-                      hospitalId: modalConcurso.hospitalId,
-                      tipoConcurso: modalConcurso.tipoConcursoSugerido,
-                      motivoConcurso: 'nuevo_cargo',
-                      origen: 'Alta de cargo',
-                      fechaVacante: new Date().toISOString().slice(0, 10),
-                      ...(modalConcurso.tipoConcursoSugerido === 'ceetps' && { escalafonId: modalConcurso.escalafonId }),
-                    })
-                    setModalConcurso(null)
-                    if (data.concursoCph) navigate(`/concursos/cph/${data.concursoCph.id}/wizard`)
-                    else if (data.concursoCeetps) navigate(`/concursos/ceetps/${data.concursoCeetps.id}`)
-                  } catch (err) {
-                    setErrorConcurso(getApiErrorMessage(err))
-                  }
-                }}
-              >
-                {crearConcurso.isPending ? 'Creando...' : 'Sí, iniciar concurso'}
-              </button>
-            </div>
-          </div>
+      {avisoAlta && (
+        <div role="status" className="flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <span>{avisoAlta}</span>
+          <button type="button" className="text-green-700 hover:underline shrink-0" onClick={() => setAvisoAlta(null)}>
+            Cerrar
+          </button>
         </div>
       )}
-
       {/* Modal resolver */}
       {modal && modalItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

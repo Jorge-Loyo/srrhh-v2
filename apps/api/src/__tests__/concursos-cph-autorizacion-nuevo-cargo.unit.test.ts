@@ -14,10 +14,16 @@ import {
 } from '../modules/concursos-cph/autorizacionNuevoCargo.js'
 
 // ── Mocks para patchConcursoCphService (Paso 2b) ─────────────────────────────
+// Cliente transaccional separado: permite verificar que la auto-aprobación CPH
+// escribe TODO a través de la tx (atomicidad) y no con el cliente global.
+const txMock = vi.hoisted(() => ({
+  concursoCph: { findUnique: vi.fn(), update: vi.fn() },
+  autorizacion: { findFirst: vi.fn(async () => null) },
+}))
 const prismaMock = vi.hoisted(() => ({
   concursoCph: { findUnique: vi.fn(), update: vi.fn() },
   autorizacion: { findFirst: vi.fn(async () => null) },
-  $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({ autorizacion: { findFirst: vi.fn(async () => null) } })),
+  $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(txMock)),
 }))
 const authMock = vi.hoisted(() => ({
   crearAutorizacion: vi.fn(async () => ({ id: 'aut1' })),
@@ -132,6 +138,9 @@ describe('patchConcursoCphService — Etapa 1 completa en nuevo_cargo (Paso 2b)'
   beforeEach(() => {
     vi.clearAllMocks()
     prismaMock.concursoCph.update.mockImplementation(async ({ data }: { data: object }) => ({ id: 'cph1', ...data }))
+    txMock.concursoCph.update.mockImplementation(async ({ data }: { data: object }) => ({ id: 'cph1', ...data }))
+    txMock.concursoCph.findUnique.mockResolvedValue(null)
+    authMock.autoAprobarConcurso.mockResolvedValue({ id: 'aut-auto' })
   })
 
   it('sin permiso: queda pendiente en A Autorización y crea la solicitud (sin auto-aprobar)', async () => {
@@ -149,15 +158,27 @@ describe('patchConcursoCphService — Etapa 1 completa en nuevo_cargo (Paso 2b)'
     prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
     authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
     await patchConcursoCphService('cph1', body as never, 'u1')
-    const data = prismaMock.concursoCph.update.mock.calls[0]![0].data
+    // Atómico: el update del concurso va por la tx, no por el cliente global.
+    expect(prismaMock.concursoCph.update).not.toHaveBeenCalled()
+    const data = txMock.concursoCph.update.mock.calls[0]![0].data
     expect(data).toMatchObject({ pendienteAutorizacion: false, subEstado: 'b-sorteo jur' })
     expect(data.fechaAutorizacion).toBeInstanceOf(Date)
+    expect(notifMock.notificarSgrasvYHijos).toHaveBeenCalledWith(expect.anything(), txMock)
     expect(authMock.autoAprobarConcurso).toHaveBeenCalledWith(expect.anything(), {
       tipo: 'concurso_cph', referenciaId: 'cph1', concursoId: 'c1', usuarioId: 'u1',
     })
     expect(authMock.crearAutorizacion).not.toHaveBeenCalled()
   })
 
+  it('con permiso: si falla la autorización automática, la promesa rechaza y nada se escribió fuera de la tx', async () => {
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    authMock.autoAprobarConcurso.mockRejectedValueOnce(new Error('boom'))
+    await expect(patchConcursoCphService('cph1', body as never, 'u1')).rejects.toThrow('boom')
+    // El update del concurso ocurrió DENTRO de la tx (que la DB real revierte); el cliente global no escribió.
+    expect(prismaMock.concursoCph.update).not.toHaveBeenCalled()
+    expect(notifMock.notificarSgrasvYHijos).not.toHaveBeenCalled()
+  })
   it('concurso que no es nuevo_cargo: sin cambios (no consulta permiso ni auto-aprueba)', async () => {
     prismaMock.concursoCph.findUnique.mockResolvedValue(existing(null))
     authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)

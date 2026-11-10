@@ -11,6 +11,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { InscriptoBody, InscriptoPatchBody } from './inscriptos.schema.js'
 import { calcConcursoCph } from './concursosCph.calc.js'
+import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
 
 function toDate(v: string | null | undefined): Date | null {
   return v ? new Date(v) : null
@@ -42,6 +43,7 @@ export async function listInscriptosService(concursoCphId: string) {
 
 // Alta manual de un inscripto.
 export async function createInscriptoService(concursoCphId: string, body: InscriptoBody) {
+  await assertEtapa2Habilitada(concursoCphId)
   await assertConcurso(concursoCphId)
   const inscripto = await prisma.inscriptoConcurso.create({
     data: {
@@ -71,6 +73,7 @@ export async function updateInscriptoService(
   inscriptoId: string,
   body: InscriptoPatchBody,
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const existe = await prisma.inscriptoConcurso.findFirst({
     where: { id: inscriptoId, concursoCphId },
     select: { id: true },
@@ -103,6 +106,7 @@ export async function updateInscriptoService(
 
 // Baja de un inscripto.
 export async function deleteInscriptoService(concursoCphId: string, inscriptoId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const existe = await prisma.inscriptoConcurso.findFirst({
     where: { id: inscriptoId, concursoCphId },
     select: { id: true },
@@ -179,6 +183,7 @@ function celdaAFecha(v: unknown): string | null {
 }
 
 export async function importarInscriptosService(concursoCphId: string, buffer: Buffer) {
+  await assertEtapa2Habilitada(concursoCphId)
   await assertConcurso(concursoCphId)
 
   const wb = XLSX.read(buffer, { type: 'buffer' })
@@ -276,6 +281,7 @@ export async function cerrarInscripcionService(
   concursoCphId: string,
   fechas?: { fechaInscDesde?: string | null; fechaInscHasta?: string | null },
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
 
@@ -308,6 +314,7 @@ export async function cerrarInscripcionService(
 // "Publicar examen": requiere inscripción publicada. Guarda la fecha de examen
 // (si viene en el body) → el sub-estado queda en D con E como próximo pendiente.
 export async function publicarExamenService(concursoCphId: string, fechaExamenStr?: string | null) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.inscripcionCerrada) throw AppError.conflict('Publicá primero las fechas de inscripción.')
@@ -330,6 +337,7 @@ export async function publicarExamenService(concursoCphId: string, fechaExamenSt
 
 // Despublica el examen (revertir): solo si presentados NO están confirmados.
 export async function despublicarExamenService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.fechaExamen) throw AppError.conflict('El examen no está publicado.')
@@ -352,6 +360,7 @@ export async function despublicarExamenService(concursoCphId: string) {
 // Reabre el período de inscripción (por si se cerró por error). Solo si el
 // examen aún no fue publicado.
 export async function reabrirInscripcionService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.inscripcionCerrada) throw AppError.conflict('Las inscripciones no están cerradas.')
@@ -375,6 +384,7 @@ export async function reabrirInscripcionService(concursoCphId: string) {
 // Congela quién se presentó (no se puede editar después). Requiere fecha de
 // examen cargada.
 export async function confirmarPresentadosService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.fechaExamen)
@@ -387,6 +397,7 @@ export async function confirmarPresentadosService(concursoCphId: string) {
 }
 
 export async function revertirPresentadosService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.presentadosConfirmados) throw AppError.conflict('Los presentados no están confirmados.')
@@ -403,6 +414,7 @@ export async function revertirPresentadosService(concursoCphId: string) {
 // y sin faltantes. Al confirmar: setea fechaOrdenMerito=hoy, marca el flag y
 // recalcula el sub-estado (avanza a E — Orden de mérito).
 export async function confirmarOrdenMeritoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
@@ -482,6 +494,7 @@ export async function confirmarOrdenMeritoService(concursoCphId: string) {
 }
 
 export async function revertirOrdenMeritoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.ordenMeritoConfirmado) throw AppError.conflict('El orden de mérito no está confirmado.')
@@ -577,6 +590,7 @@ export async function reservarIntegranteOmService(
   integranteId: string,
   _usuarioId: string | null,
 ) {
+  await assertEtapa2Habilitada(concursoDestinoId)
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoDestinoId },
     include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },

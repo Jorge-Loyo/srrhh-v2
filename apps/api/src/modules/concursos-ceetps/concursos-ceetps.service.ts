@@ -237,6 +237,14 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
         origenKey: `autorizacion_automatica:${id}`,
       }, tx)
     } else {
+      // Paso 3 (2b-c): se relee dentro de la transacción si ya hay una pendiente
+      // (el hayPendiente de afuera puede haber quedado viejo por una carrera) y
+      // no se crea una segunda autorización ni se duplica el aviso.
+      const yaPendiente = await tx.autorizacion.findFirst({
+        where: { referenciaId: id, tipo: 'concurso_ceetps', estado: 'pendiente' },
+        select: { id: true },
+      })
+      if (yaPendiente) return tx.concursoCeetps.findUniqueOrThrow({ where: { id }, include })
       const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
       const aut = await tx.autorizacion.create({
         data: {

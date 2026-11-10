@@ -60,7 +60,11 @@ export async function createConcursoTx(
   body: CreateConcursoBody,
   usuarioId: string,
   bajaId?: string,
+  // `notificar:false` evita el aviso individual a SGRASV por concurso (la creación
+  // automática del alta manda un único resumen por solicitud).
+  opciones?: { notificar?: boolean },
 ) {
+  const notificar = opciones?.notificar !== false
   // Retención de cargo: el titular retiene su cargo y se concursa un
   // reemplazante. El código del cargo del concurso conserva su número y se le
   // inserta -R- (CPH-POF-017530 → CPH-POF-R-000NNN), mismo criterio de
@@ -124,7 +128,7 @@ export async function createConcursoTx(
     })
 
     // S14-4/5: notificar a sgrasv cuando el concurso se inicia desde un alta
-    if (body.motivoConcurso) {
+    if (body.motivoConcurso && notificar) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
         select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
@@ -163,7 +167,7 @@ export async function createConcursoTx(
     })
 
     // S14-4/5: notificar a sgrasv cuando el concurso se inicia desde un alta
-    if (body.motivoConcurso) {
+    if (body.motivoConcurso && notificar) {
       const cargo = await tx.cargo.findUnique({
         where: { id: body.cargoId },
         select: { codigo: true, literalPuesto: true, hospital: { select: { sigla: true } } },
@@ -212,4 +216,72 @@ export async function createConcursoService(body: CreateConcursoBody, usuarioId:
     if (abierto) throw AppError.conflict('Ya existe un concurso CEETPS abierto para este cargo')
   }
   return prisma.$transaction((tx) => createConcursoTx(tx, body, usuarioId))
+}
+
+// ─── Paso 3: concursos automáticos al aprobar un alta de cargo ───────────────
+// Crea UN concurso "no iniciado" (motivo nuevo_cargo, autorizado_at NULL) por
+// cada cargo recién creado, EN LA TRANSACCIÓN de la aprobación y reutilizando
+// createConcursoTx (no se duplica la creación ni las filas hijas). Idempotente:
+// si el cargo ya tiene un concurso abierto (CPH o CEETPS) no crea otro. Si el
+// cargo no clasifica en CPH ni CEETPS (tipo null) no crea nada y lo informa.
+export interface AltaAutomaticaParams {
+  cargoIds: string[]
+  hospitalId: string
+  escalafonId: string
+  expediente: string | null
+  /** Resultado de tipoConcursoDeCargo para el CR/literal de la solicitud. */
+  tipoConcurso: 'cph' | 'ceetps' | null
+}
+
+export interface AltaAutomaticaResultado {
+  creados: { cargoId: string; concursoId: string; tipoConcurso: 'cph' | 'ceetps' }[]
+  yaExistentes: number
+  sinTipo: number
+}
+
+export async function crearConcursosAltaAutomaticaTx(
+  tx: Tx,
+  params: AltaAutomaticaParams,
+  usuarioId: string,
+): Promise<AltaAutomaticaResultado> {
+  const resultado: AltaAutomaticaResultado = { creados: [], yaExistentes: 0, sinTipo: 0 }
+  const { tipoConcurso } = params
+  if (tipoConcurso === null) {
+    resultado.sinTipo = params.cargoIds.length
+    return resultado
+  }
+  const fechaVacante = new Date().toISOString().slice(0, 10)
+  for (const cargoId of params.cargoIds) {
+    // Misma noción de "abierto" que createConcursoService (CPH y CEETPS).
+    const abiertoCph = await tx.concursoCph.findFirst({
+      where: { cargoId, estado: { not: 'finalizado' }, suspendido: false },
+      select: { id: true },
+    })
+    const abiertoCeetps = await tx.concursoCeetps.findFirst({
+      where: { cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
+      select: { id: true },
+    })
+    if (abiertoCph || abiertoCeetps) {
+      resultado.yaExistentes++
+      continue
+    }
+    const { concurso } = await createConcursoTx(
+      tx,
+      {
+        cargoId,
+        hospitalId: params.hospitalId,
+        origen: 'Alta de cargo',
+        fechaVacante,
+        motivoConcurso: 'nuevo_cargo',
+        tipoConcurso: tipoConcurso === 'cph' ? TipoConcurso.CPH : TipoConcurso.CEETPS,
+        ...(params.expediente && { expediente: params.expediente }),
+        ...(tipoConcurso === 'ceetps' && { escalafonId: params.escalafonId }),
+      },
+      usuarioId,
+      undefined,
+      { notificar: false },
+    )
+    resultado.creados.push({ cargoId, concursoId: concurso.id, tipoConcurso })
+  }
+  return resultado
 }

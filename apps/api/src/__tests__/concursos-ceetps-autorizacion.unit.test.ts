@@ -170,6 +170,15 @@ describe('patchConcursoCeetpsService', () => {
     }))
   })
 
+  it('carrera de hayPendiente: otra pendiente aparece entre la lectura y la tx => no crea ni notifica de nuevo', async () => {
+    dado(nuevoSin)
+    usuario.findUnique.mockResolvedValue({ role: { id: 'r1', slug: 'concursales_ceetps' } })
+    // 1ª lectura (fuera de la tx): sin pendiente; relectura dentro de la tx: ya hay una.
+    autorizacion.findFirst.mockResolvedValueOnce(null).mockResolvedValue({ id: 'pend' })
+    await patchConcursoCeetpsService('ce1', etapa1, 'u1')
+    expect(autorizacion.create).not.toHaveBeenCalled()
+    expect(notificarSgrasvYHijos).not.toHaveBeenCalled()
+  })
   it('con autorización pendiente no crea otra y queda A_AUTORIZACION', async () => {
     dado(nuevoSin, { expedienteConcurso: 'EE-1', ifAutorizacion: 'IF-1' })
     autorizacion.findFirst.mockResolvedValue({ id: 'pend' })

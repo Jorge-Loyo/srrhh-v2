@@ -11,6 +11,8 @@ import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCarg
 import { recalcularCalcCph } from '../concursos-cph/recalcularCph.js'
 import { recalcularCalcCeetps } from '../concursos-ceetps/recalcularCeetps.js'
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
+import { crearConcursosAltaAutomaticaTx } from '../concursos/concursos.service.js'
+import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -650,31 +652,53 @@ async function _aprobarAltaCargo(
       }
     }
 
-    // S14-3 + Paso B: determinar si el cargo puede iniciar concurso y qué tipo.
-    // Regla ÚNICA por CÓDIGO DE REGISTRO (no escalafón): CPH {37,22,23},
-    // CEETPS {85,87} + 83-AnexoII. Fuente de verdad: tipoConcursoDeCargo.
-    const tipoConcursoSugerido = tipoConcursoDeCargo({
+    // Paso 3: se crea AUTOMÁTICAMENTE un concurso "no iniciado" por cada cargo
+    // nuevo (motivo nuevo_cargo, sin autorizar), en esta misma transacción: si
+    // falla la creación de uno, se revierte toda la aprobación. Tipo por CÓDIGO
+    // DE REGISTRO (no escalafón): CPH {37,22,23}, CEETPS {85,87} + 83-AnexoII.
+    // Fuente de verdad: tipoConcursoDeCargo. Tipo null => sin concurso (el
+    // usuario define el tipo después; se informa en la respuesta y en el log).
+    const tipoConcurso = tipoConcursoDeCargo({
       codigoRegistro: solicitud.codigoRegistro?.codigo ?? null,
       literalPuesto: solicitud.literalPuesto,
     })
-
-    const primeroId = cargosCreadosIds[0]!
-    const puedeIniciarConcurso = tipoConcursoSugerido !== null
+    const auto = await crearConcursosAltaAutomaticaTx(
+      tx,
+      {
+        cargoIds: cargosCreadosIds,
+        hospitalId: solicitud.hospitalId,
+        escalafonId: solicitud.escalafonId,
+        expediente: solicitud.expediente ?? null,
+        tipoConcurso,
+      },
+      resueltoPorId,
+    )
+    if (auto.sinTipo > 0) {
+      logger.warn(
+        { autorizacionId: aut.id, solicitudId: solicitud.id, cargos: auto.sinTipo },
+        'alta_cargo aprobada: cargos sin tipo de concurso (CR fuera de CPH/CEETPS); no se crea concurso automático',
+      )
+    }
+    if (auto.creados.length > 0) {
+      const hospitalSigla = solicitud.hospital.sigla
+      await notificarSgrasvYHijos(
+        {
+          tipo: 'concurso_iniciado',
+          titulo: `Concursos nuevos pendientes de caratular — ${hospitalSigla}`,
+          mensaje: `El alta de cargo aprobada generó ${auto.creados.length} concurso(s) ${auto.creados[0]!.tipoConcurso.toUpperCase()} sin iniciar (${solicitud.literalPuesto ?? 'cargo nuevo'}, ${hospitalSigla}). Falta caratular y autorizar.`,
+          origenTipo: 'autorizacion',
+          origenId: aut.id,
+          origenKey: `concursos_alta_automaticos:${aut.id}`,
+        },
+        tx,
+      )
+    }
 
     return {
       autorizacion: await tx.autorizacion.findUnique({ where: { id: aut.id } }),
-      puedeIniciarConcurso,
-      ...(puedeIniciarConcurso && {
-        concursoInfo: {
-          cargoId:              primeroId,
-          hospitalId:           solicitud.hospitalId,
-          codigo:               null as string | null, // se resuelve en el frontend con el id
-          literalPuesto:        solicitud.literalPuesto,
-          hospitalSigla:        solicitud.hospital.sigla,
-          tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
-          escalafonId:          solicitud.escalafonId,
-        },
-      }),
+      concursosCreados: auto.creados.length,
+      concursosYaExistentes: auto.yaExistentes,
+      concursosSinTipo: auto.sinTipo,
     }
   })
 }
