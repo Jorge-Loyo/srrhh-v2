@@ -54,7 +54,12 @@ export interface ConcursoCphCalcInput {
   // (el rol real del padrón con el que se cerró).
   validado: boolean
   validadoIdSialRol: string | null
+  // Paso 2b — SOLO concursos nuevo_cargo. Estado de la autorización de SGRASV:
+  // fija el piso del sub-estado (a-caratulado / a-autzn / b-sorteo jur). Los
+  // campos de etapas posteriores siguen ganando. undefined = comportamiento de siempre.
+  autorizacionNuevoCargo?: AutorizacionNuevoCargoCalc
 }
+export type AutorizacionNuevoCargoCalc = 'sin_solicitar' | 'pendiente' | 'autorizado'
 
 // String literal en vez del enum de @srrhh/types o @prisma/client a propósito:
 // son dos tipos nominalmente distintos aunque compartan los mismos valores, y
@@ -112,6 +117,10 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaInscDesde && row.fechaInscHasta) return 'c2-inscripcion ex'
   if (row.disposicion) return 'c-dispo de llamado'
   if (row.sorteoJurado) return 'b-sorteo jur'
+  // Paso 2b (nuevo_cargo): el estado de la autorización decide el piso.
+  if (row.autorizacionNuevoCargo === 'autorizado') return 'b-sorteo jur'
+  if (row.autorizacionNuevoCargo === 'pendiente') return 'a-autzn'
+  if (row.autorizacionNuevoCargo === 'sin_solicitar') return row.eeConcurso ? 'a-caratulado' : 'vacante'
   if (row.fechaAutorizacion) return 'a-autzn'
   if (row.eeConcurso && row.eeBaja) return 'a-caratulado'
   if (!row.eeBaja && !row.eeConcurso) return 'vacante'

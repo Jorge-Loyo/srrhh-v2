@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 // =============================================================================
 // Paso 2a — reglas puras de autorización obligatoria para concursos nuevo_cargo.
 // Se importan las funciones REALES (sin Prisma). Aplica SOLO a motivo 'nuevo_cargo'.
@@ -12,6 +12,26 @@ import {
   validarBloqueoEtapa2,
   validarIfAutorizacionNuevoCargo,
 } from '../modules/concursos-cph/autorizacionNuevoCargo.js'
+
+// ── Mocks para patchConcursoCphService (Paso 2b) ─────────────────────────────
+const prismaMock = vi.hoisted(() => ({
+  concursoCph: { findUnique: vi.fn(), update: vi.fn() },
+  autorizacion: { findFirst: vi.fn(async () => null) },
+  $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({ autorizacion: { findFirst: vi.fn(async () => null) } })),
+}))
+const authMock = vi.hoisted(() => ({
+  crearAutorizacion: vi.fn(async () => ({ id: 'aut1' })),
+  resolverSlugPorPermiso: vi.fn(async () => 'sgrasv_x'),
+  usuarioPuedeResolverSgrasv: vi.fn(),
+  autoAprobarConcurso: vi.fn(async () => ({ id: 'aut-auto' })),
+}))
+const notifMock = vi.hoisted(() => ({ notificarSgrasvYHijos: vi.fn(async () => undefined) }))
+vi.mock('../shared/prisma.js', () => ({ prisma: prismaMock }))
+vi.mock('../modules/autorizaciones/autorizaciones.service.js', () => authMock)
+vi.mock('../modules/notificaciones/notificaciones.service.js', () => ({ crearNotificacion: vi.fn() }))
+vi.mock('../modules/notificaciones/notificarSgrasv.js', () => notifMock)
+vi.mock('../modules/tareas/tareas.service.js', () => ({ cerrarTareasDeConcurso: vi.fn(async () => undefined) }))
+const { patchConcursoCphService } = await import('../modules/concursos-cph/concursos-cph.service.js')
 
 const nuevoSinAut = { motivoConcurso: 'nuevo_cargo', autorizadoAt: null }
 const nuevoAut = { motivoConcurso: 'nuevo_cargo', autorizadoAt: new Date('2026-11-10') }
@@ -99,5 +119,50 @@ describe('IF obligatorio y solicitud de autorización en nuevo_cargo', () => {
   })
   it('concurso existente (no nuevo_cargo): nunca usa la regla nueva', () => {
     expect(debeSolicitarAperturaNuevoCargo({ ...base, concurso: existente })).toBe(false)
+  })
+})
+
+describe('patchConcursoCphService — Etapa 1 completa en nuevo_cargo (Paso 2b)', () => {
+  const existing = (motivo: string | null) => ({
+    id: 'cph1', concursoId: 'c1', eeConcurso: null, ifAutorizacion: null,
+    pendienteAutorizacion: false, fechaAutorizacion: null, validado: false, suspendido: false,
+    concurso: { motivoConcurso: motivo, autorizadoAt: null, cargo: { codigo: 'C1', hospital: { sigla: 'H' } } },
+  })
+  const body = { eeConcurso: 'EE-1', ifAutorizacion: 'IF-1' }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prismaMock.concursoCph.update.mockImplementation(async ({ data }: { data: object }) => ({ id: 'cph1', ...data }))
+  })
+
+  it('sin permiso: queda pendiente en A Autorización y crea la solicitud (sin auto-aprobar)', async () => {
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(false)
+    await patchConcursoCphService('cph1', body as never, 'u1')
+    expect(prismaMock.concursoCph.update.mock.calls[0]![0].data).toMatchObject({
+      pendienteAutorizacion: true, subEstado: 'a-autzn',
+    })
+    expect(authMock.crearAutorizacion).toHaveBeenCalledTimes(1)
+    expect(authMock.autoAprobarConcurso).not.toHaveBeenCalled()
+  })
+
+  it('con permiso: auto-aprueba (traza), no deja pendiente y salta a b-sorteo jur', async () => {
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    await patchConcursoCphService('cph1', body as never, 'u1')
+    const data = prismaMock.concursoCph.update.mock.calls[0]![0].data
+    expect(data).toMatchObject({ pendienteAutorizacion: false, subEstado: 'b-sorteo jur' })
+    expect(data.fechaAutorizacion).toBeInstanceOf(Date)
+    expect(authMock.autoAprobarConcurso).toHaveBeenCalledWith(expect.anything(), {
+      tipo: 'concurso_cph', referenciaId: 'cph1', concursoId: 'c1', usuarioId: 'u1',
+    })
+    expect(authMock.crearAutorizacion).not.toHaveBeenCalled()
+  })
+
+  it('concurso que no es nuevo_cargo: sin cambios (no consulta permiso ni auto-aprueba)', async () => {
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing(null))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    await patchConcursoCphService('cph1', body as never, 'u1')
+    expect(authMock.autoAprobarConcurso).not.toHaveBeenCalled()
+    expect(prismaMock.concursoCph.update.mock.calls[0]![0].data.subEstado).toBe('no iniciado')
   })
 })

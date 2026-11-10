@@ -8,6 +8,7 @@ import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.j
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
 import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCargo.js'
+import { recalcularCalcCph } from '../concursos-cph/recalcularCph.js'
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
@@ -216,6 +217,21 @@ export async function rechazarAutorizacionService(
         where: { id: aut.referenciaId },
         data:  { pendienteAutorizacion: false, aprobadoDirector: false },
       })
+      // Paso 2b: un nuevo_cargo rechazado vuelve a "A Caratulado" (la observación
+      // queda en la Autorizacion y se muestra en la pantalla del concurso).
+      const cphRech = await tx.concursoCph.findUnique({
+        where:  { id: aut.referenciaId },
+        select: { concursoId: true },
+      })
+      if (cphRech?.concursoId) {
+        const concRech = await tx.concurso.findUnique({
+          where:  { id: cphRech.concursoId },
+          select: { motivoConcurso: true, autorizadoAt: true },
+        })
+        if (esNuevoCargoSinAutorizar(concRech)) {
+          await recalcularCalcCph(tx, aut.referenciaId, 'sin_solicitar')
+        }
+      }
 
       // RF3: crear una tarea pendiente para el solicitante ("corregí y reenviá").
       // Dentro de la misma tx; el dedup de crearTareaPendiente evita duplicados.
@@ -305,6 +321,61 @@ export async function marcarConcursoAutorizado(tx: SubEstadoTx, concursoId: stri
   return true
 }
 
+// ─── Paso 2b: permiso de SGRASV y auto-aprobación ────────────────────────────
+// Misma regla que requirePermiso: admin siempre; el resto, por role_permisos.
+export async function usuarioPuedeResolverSgrasv(
+  tx: Prisma.TransactionClient,
+  usuarioId: string,
+): Promise<boolean> {
+  const u = await tx.usuario.findUnique({
+    where:  { id: usuarioId },
+    select: { role: { select: { id: true, slug: true } } },
+  })
+  if (!u?.role) return false
+  if (esAdmin(u.role.slug)) return true
+  const fila = await tx.rolePermiso.findFirst({
+    where: { roleId: u.role.id, permiso: { modulo: 'autorizaciones', accion: 'resolver_sgrasv' } },
+  })
+  return !!fila
+}
+
+async function completarFechaAutorizacionCph(tx: Prisma.TransactionClient, cphId: string) {
+  await tx.concursoCph.updateMany({
+    where: { id: cphId, fechaAutorizacion: null },
+    data:  { fechaAutorizacion: new Date() },
+  })
+}
+
+// Quien completa la Etapa 1 y puede resolver como SGRASV aprueba en el mismo acto:
+// deja una Autorizacion ya aprobada (traza), marca el concurso autorizado y
+// recalcula el sub-estado. marcarConcursoAutorizado sigue siendo la única que
+// escribe autorizado_at.
+export async function autoAprobarConcurso(
+  tx: Prisma.TransactionClient,
+  data: { tipo: 'concurso_cph'; referenciaId: string; concursoId: string | null; usuarioId: string },
+) {
+  const usuario = await tx.usuario.findUnique({
+    where:  { id: data.usuarioId },
+    select: { role: { select: { slug: true } } },
+  })
+  const autorizacion = await tx.autorizacion.create({
+    data: {
+      tipo:               data.tipo,
+      referenciaId:       data.referenciaId,
+      referenciaTipo:     data.tipo,
+      estado:             'aprobada',
+      resolverPorRolSlug: usuario?.role.slug ?? 'admin',
+      solicitadoPorId:    data.usuarioId,
+      resueltoPorId:      data.usuarioId,
+      observaciones:      'Autorizada automáticamente por el usuario que completó la Etapa 1 (permiso de SGRASV).',
+    },
+  })
+  if (data.concursoId) await marcarConcursoAutorizado(tx, data.concursoId)
+  await completarFechaAutorizacionCph(tx, data.referenciaId)
+  await recalcularCalcCph(tx, data.referenciaId, 'autorizado')
+  return autorizacion
+}
+
 // ─── Lógica interna: aprobar CPH ─────────────────────────────────────────────
 async function _aprobarCph(
   aut: { id: string; referenciaId: string; resolverPorRolSlug: string; solicitadoPorId: string | null; tipo: string },
@@ -390,7 +461,12 @@ async function _aprobarCph(
 
       // Paso 2a: concurso de cargo nuevo → queda AUTORIZADO y el cargo se recalcula
       // (pasa a 'concurso') en esta misma transacción. El paso del director NO llega acá.
-      if (cph.concursoId) await marcarConcursoAutorizado(tx, cph.concursoId)
+      // Paso 2b: además completa fechaAutorizacion (solo si estaba vacía) y salta a
+      // "B Sorteo de jurado" recalculando el sub-estado.
+      if (cph.concursoId && (await marcarConcursoAutorizado(tx, cph.concursoId))) {
+        await completarFechaAutorizacionCph(tx, aut.referenciaId)
+        await recalcularCalcCph(tx, aut.referenciaId, 'autorizado')
+      }
 
       if (aut.solicitadoPorId) {
         const solicitante = await tx.usuario.findUnique({

@@ -5,6 +5,7 @@
 import { AppError } from '../../shared/errors/AppError.js'
 import { MOTIVO_CONCURSO_NUEVO_CARGO } from '../cargos/concursoActivo.regla.js'
 import type { PatchConcursoCphBody } from './concursos-cph.schema.js'
+import type { AutorizacionNuevoCargoCalc } from './concursosCph.calc.js'
 
 export interface ConcursoBaseAutorizable {
   motivoConcurso?: string | null
@@ -47,6 +48,19 @@ export const CAMPOS_ETAPA_2_EN_ADELANTE = [
   'dispoDesierta',
   'fechaDispoDesierta',
 ] as const satisfies readonly (keyof PatchConcursoCphBody)[]
+
+/**
+ * Estado de autorización que se le pasa a calcConcursoCph. `undefined` si el
+ * concurso no es nuevo_cargo (comportamiento idéntico al de siempre).
+ */
+export function autorizacionParaCalc(
+  concurso: ConcursoBaseAutorizable | null | undefined,
+  opts: { pendiente: boolean; autoAprobar: boolean },
+): AutorizacionNuevoCargoCalc | undefined {
+  if (!concurso || concurso.motivoConcurso !== MOTIVO_CONCURSO_NUEVO_CARGO) return undefined
+  if (concurso.autorizadoAt != null || opts.autoAprobar) return 'autorizado'
+  return opts.pendiente ? 'pendiente' : 'sin_solicitar'
+}
 
 export const MENSAJE_BLOQUEO_ETAPA_2 =
   'El concurso necesita la autorización de SGRASV para avanzar a la Etapa 2'

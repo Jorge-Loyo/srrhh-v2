@@ -17,15 +17,19 @@ import {
   SUB_ESTADOS_POR_ETAPA,
   type ConcursoCphCalcInput,
 } from './concursosCph.calc.js'
+import { toCalcInput } from './recalcularCph.js'
 import {
+  autoAprobarConcurso,
   crearAutorizacion,
   resolverSlugPorPermiso,
+  usuarioPuedeResolverSgrasv,
 } from '../autorizaciones/autorizaciones.service.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { cerrarTareasDeConcurso } from '../tareas/tareas.service.js'
 import { especialidadSialReal } from '../padron/resolverPuestoCargo.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 import {
+  autorizacionParaCalc,
   debeSolicitarAperturaNuevoCargo,
   esNuevoCargoSinAutorizar,
   validarBloqueoEtapa2,
@@ -74,43 +78,6 @@ function flattenEtiquetas<
     .filter((e) => e.activo)
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
   return { ...row, etiquetas: planas } as unknown as T
-}
-
-// Extrae los campos que usa calcConcursoCph() de una fila completa —
-// reutilizado por patch/suspender (ambos parten de la fila existente y
-// pisan solo lo que cambió) para no repetir la lista de campos dos veces.
-function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
-  return {
-    suspendido: row.suspendido,
-    eeBaja: row.eeBaja,
-    fechaBaja: row.fechaBaja,
-    eeConcurso: row.eeConcurso,
-    fechaEeConcurso: row.fechaEeConcurso,
-    fechaAutorizacion: row.fechaAutorizacion,
-    sorteoJurado: row.sorteoJurado,
-    disposicion: row.disposicion,
-    fechaInscDesde: row.fechaInscDesde,
-    fechaInscHasta: row.fechaInscHasta,
-    inscripcionCerrada: row.inscripcionCerrada,
-    ordenMeritoConfirmado: row.ordenMeritoConfirmado,
-    fechaExamen: row.fechaExamen,
-    fechaOrdenMerito: row.fechaOrdenMerito,
-    fechaIfacs: row.fechaIfacs,
-    fechaInsal: row.fechaInsal,
-    eeDesignacion: row.eeDesignacion,
-    cargaDocumentacion: row.cargaDocumentacion,
-    fechaAptoMedico: row.fechaAptoMedico,
-    fechaIte: row.fechaIte,
-    proyectoResolucion: row.proyectoResolucion,
-    resoALaFirma: row.resoALaFirma,
-    resolucionDesignacion: row.resolucionDesignacion,
-    fechaResolucion: row.fechaResolucion,
-    cargoSial: row.cargoSial,
-    dispoDesierta: row.dispoDesierta,
-    fechaDispoDesierta: row.fechaDispoDesierta,
-    validado: row.validado,
-    validadoIdSialRol: row.validadoIdSialRol,
-  }
 }
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
@@ -594,6 +561,12 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
       !!ifAutorizacionResuelto
   const requiereAutorizacion =
     requiereAutorizacionDoble || tieneCambioProtegido || solicitaAutorizacionApertura
+  // Paso 2b: quien completa la Etapa 1 y puede resolver como SGRASV (o es admin)
+  // auto-aprueba en el mismo acto: queda traza en Autorizacion y salta a la Etapa 2.
+  const autoAprobar =
+    solicitaAutorizacionApertura &&
+    esNuevoCargoSinAutorizar(concursoBase) &&
+    (await usuarioPuedeResolverSgrasv(prisma, usuarioId))
 
   const patch: Prisma.ConcursoCphUpdateInput = {}
   for (const [key, value] of Object.entries(body) as [keyof PatchConcursoCphBody, unknown][]) {
@@ -642,6 +615,13 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
         ? { connect: { id: body.codigoRegistroId } }
         : { disconnect: true }
     }
+  } else if (autoAprobar) {
+    patch.pendienteAutorizacion = false
+    limpiarRestosSolicitado()
+    // La aprobación completa la fecha de autorización solo si estaba vacía.
+    if (!existing.fechaAutorizacion && body.fechaAutorizacion === undefined) {
+      patch.fechaAutorizacion = new Date()
+    }
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     patch.pendienteAutorizacion = true
     limpiarRestosSolicitado()
@@ -686,9 +666,15 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   }
 
   const merged = toCalcInput({ ...existing, ...(patch as Partial<ConcursoCph>) } as ConcursoCph)
-  const calc = calcConcursoCph(merged)
+  const calc = calcConcursoCph({
+    ...merged,
+    autorizacionNuevoCargo: autorizacionParaCalc(concursoBase, {
+      pendiente: existing.pendienteAutorizacion || requiereAutorizacion,
+      autoAprobar,
+    }),
+  })
 
-  const updated = await prisma.concursoCph.update({
+  let updated = await prisma.concursoCph.update({
     where: { id },
     data: {
       ...patch,
@@ -720,6 +706,29 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
     // autorización, así que la tarea "corregí y reenviá" ya no aplica. Corre
     // AUNQUE el dedup haya evitado crear la autorización (idempotente).
     await cerrarTareasDeConcurso(prisma, id)
+  } else if (autoAprobar) {
+    await prisma.$transaction(async (tx) => {
+      await cerrarTareasDeConcurso(tx as typeof prisma, id)
+      await autoAprobarConcurso(tx, {
+        tipo: 'concurso_cph',
+        referenciaId: id,
+        concursoId: existing.concursoId,
+        usuarioId,
+      })
+    })
+    const cargoCodigo =
+      (existing.concurso as unknown as { cargo?: { codigo?: string } })?.cargo?.codigo ??
+      id.slice(0, 8)
+    await notificarSgrasvYHijos({
+      tipo: 'autorizacion_pendiente',
+      titulo: `Concurso autorizado automáticamente — ${cargoCodigo}`,
+      mensaje: `El concurso ${cargoCodigo} fue autorizado automáticamente al completar la Etapa 1 un usuario con permiso de SGRASV.`,
+      origenTipo: 'concurso_cph',
+      origenId: id,
+      origenKey: `autorizacion_automatica:${id}`,
+    })
+    // Refrescar la respuesta: autorizadoAt (concurso) y sub-estado recalculados.
+    updated = (await prisma.concursoCph.findUnique({ where: { id }, include })) ?? updated
   } else if (tieneCambioProtegido || solicitaAutorizacionApertura) {
     // Cambio de especialidad/puesto/eeConcurso modificado, o solicitud de
     // autorización de apertura (eeConcurso + IF cargados): solo sgrasv. Se

@@ -5,14 +5,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // aprobación no lo sobrescribe; rechazar concurso_cph exige observación.
 // =============================================================================
 const autorizacion = { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() }
-const concursoCph = { findUnique: vi.fn(), update: vi.fn(), count: vi.fn(async () => 1) }
+const concursoCph = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(async () => 1) }
+const rolePermiso = { findFirst: vi.fn() }
 const concurso = { findUnique: vi.fn(), updateMany: vi.fn() }
 const cargo = { findUnique: vi.fn(), update: vi.fn() }
 const ocupacion = { count: vi.fn() }
 const usuario = { findUnique: vi.fn() }
 const role = { findMany: vi.fn() }
 const solicitudAlta = { update: vi.fn() }
-const tx = { autorizacion, concursoCph, concurso, cargo, ocupacion, usuario, role, solicitudAlta,
+const tx = { autorizacion, concursoCph, concurso, cargo, ocupacion, usuario, role, solicitudAlta, rolePermiso,
   concursoCeetps: { count: vi.fn(async () => 0) } }
 vi.mock('../shared/prisma.js', () => ({
   prisma: {
@@ -27,7 +28,7 @@ vi.mock('../modules/tareas/tareas.service.js', () => ({
   crearTareaPendiente: vi.fn(async () => ({ id: 'tarea' })),
   mensajeTareaRechazo: vi.fn(() => 'motivo'),
 }))
-const { aprobarAutorizacionService, rechazarAutorizacionService, marcarConcursoAutorizado } =
+const { aprobarAutorizacionService, rechazarAutorizacionService, marcarConcursoAutorizado, usuarioPuedeResolverSgrasv, autoAprobarConcurso } =
   await import('../modules/autorizaciones/autorizaciones.service.js')
 
 const autSgrasv = {
@@ -41,7 +42,8 @@ beforeEach(() => {
   autorizacion.findUnique.mockResolvedValue(autSgrasv)
   autorizacion.update.mockResolvedValue({ id: 'x' })
   autorizacion.create.mockResolvedValue({ id: 'a3' })
-  concursoCph.findUnique.mockResolvedValue({ id: 'cph1', concursoId: 'c1' })
+  concursoCph.findUnique.mockResolvedValue({ id: 'cph1', concursoId: 'c1', eeConcurso: 'EE-1' })
+  concursoCph.updateMany.mockResolvedValue({ count: 1 })
   concurso.updateMany.mockResolvedValue({ count: 1 })
   cargo.findUnique.mockResolvedValue({ estado: 'vigente' })
   ocupacion.count.mockResolvedValue(0)
@@ -120,5 +122,82 @@ describe('rechazar — observación obligatoria para concurso_cph', () => {
     solicitudAlta.update.mockResolvedValue({})
     await rechazarAutorizacionService('a2', 'u1', 'director')
     expect(solicitudAlta.update).toHaveBeenCalled()
+  })
+})
+
+describe('Paso 2b — aprobación SGRASV de nuevo_cargo', () => {
+  it('completa fechaAutorizacion (solo si vacía) y recalcula el sub-estado a b-sorteo jur', async () => {
+    concurso.findUnique.mockResolvedValue({ cargoId: 'cg1', motivoConcurso: 'nuevo_cargo', autorizadoAt: null })
+    await aprobarAutorizacionService('a2', 'u1', 'sgrasv_5ac494e')
+    expect(concursoCph.updateMany).toHaveBeenCalledWith({
+      where: { id: 'cph1', fechaAutorizacion: null },
+      data: { fechaAutorizacion: expect.any(Date) },
+    })
+    expect(concursoCph.update).toHaveBeenLastCalledWith({
+      where: { id: 'cph1' },
+      data: expect.objectContaining({ subEstado: 'b-sorteo jur' }),
+    })
+  })
+
+  it('concurso no nuevo_cargo: no completa fecha ni recalcula', async () => {
+    concurso.findUnique.mockResolvedValue({ cargoId: 'cg1', motivoConcurso: null, autorizadoAt: null })
+    await aprobarAutorizacionService('a2', 'u1', 'sgrasv_5ac494e')
+    expect(concursoCph.updateMany).not.toHaveBeenCalled()
+    expect(concursoCph.update).toHaveBeenCalledTimes(1) // solo la limpieza de flags
+  })
+
+  it('rechazo de nuevo_cargo sin autorizar vuelve a a-caratulado', async () => {
+    concurso.findUnique.mockResolvedValue({ cargoId: 'cg1', motivoConcurso: 'nuevo_cargo', autorizadoAt: null })
+    concursoCph.update.mockResolvedValue({})
+    usuario.findUnique.mockResolvedValue(null)
+    await rechazarAutorizacionService('a2', 'u1', 'sgrasv_5ac494e', 'Falta el IF')
+    expect(concursoCph.update).toHaveBeenLastCalledWith({
+      where: { id: 'cph1' },
+      data: expect.objectContaining({ subEstado: 'a-caratulado' }),
+    })
+  })
+
+  it('rechazo de concurso no nuevo_cargo no recalcula', async () => {
+    concurso.findUnique.mockResolvedValue({ motivoConcurso: null, autorizadoAt: null })
+    concursoCph.update.mockResolvedValue({})
+    usuario.findUnique.mockResolvedValue(null)
+    await rechazarAutorizacionService('a2', 'u1', 'sgrasv_5ac494e', 'x')
+    expect(concursoCph.update).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Paso 2b — usuarioPuedeResolverSgrasv / autoAprobarConcurso', () => {
+  it('admin puede; rol con permiso puede; rol sin permiso no; sin usuario no', async () => {
+    usuario.findUnique.mockResolvedValueOnce({ role: { id: 'r0', slug: 'admin' } })
+    expect(await usuarioPuedeResolverSgrasv(tx as never, 'u')).toBe(true)
+    usuario.findUnique.mockResolvedValueOnce({ role: { id: 'r1', slug: 'x' } })
+    rolePermiso.findFirst.mockResolvedValueOnce({ roleId: 'r1' })
+    expect(await usuarioPuedeResolverSgrasv(tx as never, 'u')).toBe(true)
+    expect(rolePermiso.findFirst).toHaveBeenCalledWith({
+      where: { roleId: 'r1', permiso: { modulo: 'autorizaciones', accion: 'resolver_sgrasv' } },
+    })
+    usuario.findUnique.mockResolvedValueOnce({ role: { id: 'r2', slug: 'y' } })
+    rolePermiso.findFirst.mockResolvedValueOnce(null)
+    expect(await usuarioPuedeResolverSgrasv(tx as never, 'u')).toBe(false)
+    usuario.findUnique.mockResolvedValueOnce(null)
+    expect(await usuarioPuedeResolverSgrasv(tx as never, 'u')).toBe(false)
+  })
+
+  it('autoAprobarConcurso deja Autorizacion aprobada con traza, autorizado_at y b-sorteo jur', async () => {
+    usuario.findUnique.mockResolvedValue({ role: { slug: 'concursales' } })
+    concurso.findUnique.mockResolvedValue({ cargoId: 'cg1', motivoConcurso: 'nuevo_cargo', autorizadoAt: null })
+    await autoAprobarConcurso(tx as never, { tipo: 'concurso_cph', referenciaId: 'cph1', concursoId: 'c1', usuarioId: 'u9' })
+    expect(autorizacion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: 'concurso_cph', referenciaId: 'cph1', estado: 'aprobada',
+        solicitadoPorId: 'u9', resueltoPorId: 'u9', resolverPorRolSlug: 'concursales',
+      }),
+    })
+    expect(concurso.updateMany).toHaveBeenCalledWith({ where: { id: 'c1', autorizadoAt: null }, data: { autorizadoAt: expect.any(Date) } })
+    expect(concursoCph.updateMany).toHaveBeenCalledWith({ where: { id: 'cph1', fechaAutorizacion: null }, data: { fechaAutorizacion: expect.any(Date) } })
+    expect(concursoCph.update).toHaveBeenLastCalledWith({
+      where: { id: 'cph1' },
+      data: expect.objectContaining({ subEstado: 'b-sorteo jur' }),
+    })
   })
 })
