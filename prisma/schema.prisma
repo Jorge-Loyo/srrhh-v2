@@ -805,6 +805,10 @@ model Concurso {
   // campo `motivo` libre de arriba) — usado cuando el concurso nace de una
   // solicitud de alta, ver notificación concurso_iniciado a sgrasv.
   motivoConcurso  MotivoConcurso? @map("motivo_concurso")
+  // Paso 1 "Concurso autorizado": SGRASV aprobó el pedido de autorización. Un
+  // concurso con motivoConcurso = nuevo_cargo no cuenta como activo para el cargo
+  // hasta tener este valor (ver cargos/concursoActivo.regla.ts). NULL = sin autorizar.
+  autorizadoAt    DateTime?       @map("autorizado_at") @db.Timestamptz
   registradoPorId String?         @map("registrado_por") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
 

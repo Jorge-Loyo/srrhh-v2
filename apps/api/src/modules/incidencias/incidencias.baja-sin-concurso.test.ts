@@ -44,6 +44,7 @@ const hecho = (over: Partial<HechoRow> = {}): HechoRow => ({
   ocupacion_desde_ult: new Date('2025-01-01'),
   tipo_origen: null,
   concurso_activo: false,
+  pendiente_autorizacion: false,
   tuvo_concurso_cerrado: false,
   alta_pendiente: false,
   en_baja_sial: false,
@@ -187,6 +188,13 @@ describe('filtros y conciliación', () => {
     expect(c.grupos.baja_sin_concurso).toBe(2)
     expect(c.grupos.en_concurso).toBe(1)
     expect(c.sumaGrupos).toBe(10 + 80 + 3)
+  })
+
+  it('un cargo pendiente de autorización cae en su grupo y la suma sigue cerrando', () => {
+    const snap2 = snapDe([...hechos, hecho({ cargo_id: 'd', codigo: 'D-1', pendiente_autorizacion: true })])
+    const c = calcularConciliacion(snap2, hoy)
+    expect(c.grupos.pendiente_autorizacion).toBe(1)
+    expect(c.sumaGrupos).toBe(10 + 80 + 4)
   })
 })
 

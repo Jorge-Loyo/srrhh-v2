@@ -30,6 +30,7 @@ import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from '../incidencias/incidencias
 import { leerHechosPaso12, construirIncidencias } from '../incidencias/incidencias.paso12.js'
 import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
+import { sqlCargoTieneConcursoActivo } from '../cargos/concursoActivo.regla.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
 import {
@@ -3337,7 +3338,9 @@ export async function aprobarSnapshotService(
     // y que el script scripts/sql/recalcular-sub-estado-cargos.sql:
     //   no vigente -> NULL; vigente + ocupante vivo -> 'ocupado';
     //   vigente + concurso activo -> 'concurso'; vigente resto -> 'vacante'.
-    // "Concurso activo" = espejo del CTE conc de incidencias.baja-sin-concurso.ts.
+    // "Concurso activo" = concursoActivo.regla.ts (única fuente: estados por tipo +
+    // un concurso de cargo nuevo cuenta solo si tiene autorizado_at). El SQL se
+    // arma con sqlCargoTieneConcursoActivo; ver concursoActivo.regla.test.ts.
     // Solo escribe donde el valor cambia (IS DISTINCT FROM).
     await tx.$executeRaw`
       UPDATE cargos c
@@ -3348,12 +3351,7 @@ export async function aprobarSnapshotService(
             WHEN c.estado <> 'vigente' THEN NULL
             WHEN EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL)
               THEN 'ocupado'
-            WHEN EXISTS (
-                   SELECT 1 FROM concursos_cph cph
-                   WHERE cph.cargo_id = c.id AND cph.estado::text IN ('no_iniciado','activo','suspendido'))
-                 OR EXISTS (
-                   SELECT 1 FROM concursos_ceetps ce
-                   WHERE ce.cargo_id = c.id AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso'))
+            WHEN ${Prisma.raw(sqlCargoTieneConcursoActivo('c.id'))}
               THEN 'concurso'
             ELSE 'vacante'
           END::"SubEstadoCargo" AS esperado

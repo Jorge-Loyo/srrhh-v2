@@ -49,6 +49,7 @@ const facts = (over: Partial<CargoFacts> = {}): CargoFacts => ({
   estado: 'vigente',
   tieneOcupanteVigente: false,
   concursoActivo: false,
+  pendienteAutorizacion: false,
   altaPendiente: false,
   enBajaSial: false,
   ausenteUltimoPadron: false,
@@ -134,24 +135,41 @@ describe('clasificarCargo', () => {
   })
 })
 
+describe('pendiente_autorizacion', () => {
+  it('vigente sin ocupante con concurso de cargo nuevo sin autorizar -> pendiente_autorizacion', () => {
+    expect(clasificarCargo(facts({ pendienteAutorizacion: true }))).toBe('pendiente_autorizacion')
+  })
+  it('un concurso que sí cuenta gana (en_concurso), el ocupante gana sobre ambos', () => {
+    expect(clasificarCargo(facts({ pendienteAutorizacion: true, concursoActivo: true }))).toBe('en_concurso')
+    expect(clasificarCargo(facts({ pendienteAutorizacion: true, tieneOcupanteVigente: true }))).toBe('ocupado')
+  })
+  it('gana sobre alta_pendiente y baja_sin_concurso (antes caía en sin_clasificar)', () => {
+    expect(clasificarCargo(facts({ pendienteAutorizacion: true, altaPendiente: true }))).toBe('pendiente_autorizacion')
+    expect(clasificarCargo(facts({ pendienteAutorizacion: true, enBajaSial: true }))).toBe('pendiente_autorizacion')
+  })
+  it('no_vigente sigue siendo no_vigente', () => {
+    expect(clasificarCargo(facts({ estado: 'no_vigente', pendienteAutorizacion: true }))).toBe('no_vigente')
+  })
+})
 describe('exclusión mutua y exhaustividad', () => {
   const estados = ['vigente', 'validacion_vacante', 'no_vigente', 'otro']
   const todas: CargoFacts[] = []
   for (const estado of estados) {
-    for (let mask = 0; mask < 32; mask++) {
+    for (let mask = 0; mask < 64; mask++) {
       todas.push({
         estado,
         tieneOcupanteVigente: !!(mask & 1),
         concursoActivo: !!(mask & 2),
         altaPendiente: !!(mask & 4),
+        pendienteAutorizacion: !!(mask & 32),
         enBajaSial: !!(mask & 8),
         ausenteUltimoPadron: !!(mask & 16),
       })
     }
   }
 
-  it('las 128 combinaciones devuelven exactamente un grupo válido', () => {
-    expect(todas).toHaveLength(128)
+  it('las 256 combinaciones devuelven exactamente un grupo válido', () => {
+    expect(todas).toHaveLength(256)
     for (const f of todas) {
       const g = clasificarCargo(f)
       expect(GRUPOS_CARGO).toContain(g)
@@ -160,8 +178,8 @@ describe('exclusión mutua y exhaustividad', () => {
 
   it('contarGrupos suma siempre n', () => {
     const total = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a + b, 0)
-    expect(total(contarGrupos(todas))).toBe(128)
-    expect(total(contarGrupos([...todas, ...todas, todas[3]]))).toBe(257)
+    expect(total(contarGrupos(todas))).toBe(256)
+    expect(total(contarGrupos([...todas, ...todas, todas[3]]))).toBe(513)
     expect(total(contarGrupos([]))).toBe(0)
   })
 

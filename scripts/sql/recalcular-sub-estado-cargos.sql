@@ -13,8 +13,12 @@
 --   2. vigente + ocupante vigente (ocupaciones.hasta IS NULL)        -> 'ocupado'
 --   3. vigente, sin ocupante, con concurso ACTIVO vinculado          -> 'concurso'
 --   4. vigente, sin ocupante, sin concurso activo                    -> 'vacante'
--- "Concurso activo" = espejo exacto del CTE `conc` de
--- incidencias.baja-sin-concurso.ts:
+-- "Concurso activo" = regla unica apps/api/src/modules/cargos/concursoActivo.regla.ts
+-- (atada a este archivo por concursoActivo.regla.test.ts). Ademas del estado:
+--   el concurso base (concursos co) cuenta si co.motivo_concurso IS DISTINCT FROM
+--   'nuevo_cargo' OR co.autorizado_at IS NOT NULL (un concurso de cargo nuevo no
+--   cuenta hasta estar autorizado; motivo NULL y los demas motivos cuentan como siempre).
+-- Estados:
 --   - CPH activo   : concursos_cph.estado    IN ('no_iniciado','activo','suspendido')  (NOT 'finalizado')
 --   - CEETPS activo: concursos_ceetps.estado IN ('sin_autorizar','autorizado','en_proceso') (NOT 'finalizado','desierto')
 -- Enums terminales confirmados en prisma/schema.prisma (EstadoConcursoCph /
@@ -44,11 +48,15 @@ SELECT c.id,
           WHEN EXISTS (SELECT 1 FROM ocupaciones o
                         WHERE o.cargo_id = c.id AND o.hasta IS NULL) THEN 'ocupado'
           WHEN EXISTS (SELECT 1 FROM concursos_cph cph
+                        JOIN concursos co ON co.id = cph.concurso_id
                         WHERE cph.cargo_id = c.id
-                          AND cph.estado::text IN ('no_iniciado','activo','suspendido'))
+                          AND cph.estado::text IN ('no_iniciado','activo','suspendido')
+                          AND (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL))
             OR EXISTS (SELECT 1 FROM concursos_ceetps ce
+                        JOIN concursos co ON co.id = ce.concurso_id
                         WHERE ce.cargo_id = c.id
-                          AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso')) THEN 'concurso'
+                          AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso')
+                          AND (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL)) THEN 'concurso'
           ELSE 'vacante'
         END)::"SubEstadoCargo" AS esperado
 FROM cargos c
@@ -121,10 +129,14 @@ UNION ALL
 SELECT 'vigente con concurso activo y sub_estado <> concurso', count(*) FROM cargos c
  WHERE deleted_at IS NULL AND estado = 'vigente' AND sub_estado IS DISTINCT FROM 'concurso'::"SubEstadoCargo"
    AND NOT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL)
-   AND (EXISTS (SELECT 1 FROM concursos_cph cph WHERE cph.cargo_id = c.id
-                 AND cph.estado::text IN ('no_iniciado','activo','suspendido'))
-     OR EXISTS (SELECT 1 FROM concursos_ceetps ce WHERE ce.cargo_id = c.id
-                 AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso')));
+   AND (EXISTS (SELECT 1 FROM concursos_cph cph JOIN concursos co ON co.id = cph.concurso_id
+                 WHERE cph.cargo_id = c.id
+                 AND cph.estado::text IN ('no_iniciado','activo','suspendido')
+                 AND (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL))
+     OR EXISTS (SELECT 1 FROM concursos_ceetps ce JOIN concursos co ON co.id = ce.concurso_id
+                 WHERE ce.cargo_id = c.id
+                 AND ce.estado::text IN ('sin_autorizar','autorizado','en_proceso')
+                 AND (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL)));
 
 \echo '-- Conteo final por sub_estado (cargos vivos) --'
 SELECT coalesce(sub_estado::text, 'null') AS sub_estado, count(*) AS cargos

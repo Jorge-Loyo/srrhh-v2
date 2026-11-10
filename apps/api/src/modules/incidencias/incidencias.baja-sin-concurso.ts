@@ -4,6 +4,11 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { ANEXO_II_83 } from '../padron/derivarRegimen.js'
+import {
+  sqlEstadoCphActivo,
+  sqlEstadoCeetpsActivo,
+  sqlConcursoAutorizadoParaContar,
+} from '../cargos/concursoActivo.regla.js'
 import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from './incidencias.gestionable.js'
 import {
   clasificarCargo,
@@ -82,6 +87,7 @@ export interface HechoRow {
   ocupacion_desde_ult: Date | null
   tipo_origen: string | null
   concurso_activo: boolean
+  pendiente_autorizacion: boolean
   tuvo_concurso_cerrado: boolean
   alta_pendiente: boolean
   en_baja_sial: boolean
@@ -235,14 +241,19 @@ bs_primera AS (
 ),
 conc AS (
   SELECT x.cargo_id,
-         bool_or(x.activo)     AS concurso_activo,
-         bool_or(NOT x.activo) AS tuvo_concurso_cerrado
+         bool_or(x.activo AND x.cuenta)     AS concurso_activo,
+         bool_or(x.activo AND NOT x.cuenta) AS pendiente_autorizacion,
+         bool_or(NOT x.activo)              AS tuvo_concurso_cerrado
   FROM (
-    SELECT cph.cargo_id, cph.estado::text IN ('no_iniciado','activo','suspendido') AS activo
-      FROM concursos_cph cph WHERE cph.cargo_id IN (SELECT id FROM cand)
+    SELECT cph.cargo_id, ${Prisma.raw(sqlEstadoCphActivo('cph'))} AS activo,
+           ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))} AS cuenta
+      FROM concursos_cph cph JOIN concursos co ON co.id = cph.concurso_id
+      WHERE cph.cargo_id IN (SELECT id FROM cand)
     UNION ALL
-    SELECT ce.cargo_id, ce.estado::text IN ('sin_autorizar','autorizado','en_proceso') AS activo
-      FROM concursos_ceetps ce WHERE ce.cargo_id IN (SELECT id FROM cand)
+    SELECT ce.cargo_id, ${Prisma.raw(sqlEstadoCeetpsActivo('ce'))} AS activo,
+           ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))} AS cuenta
+      FROM concursos_ceetps ce JOIN concursos co ON co.id = ce.concurso_id
+      WHERE ce.cargo_id IN (SELECT id FROM cand)
   ) x
   GROUP BY x.cargo_id
 ),
@@ -262,6 +273,7 @@ SELECT
   occ_max.ultima_desde AS ocupacion_desde_ult,
   cand.tipo_origen,
   (conc.concurso_activo IS TRUE) AS concurso_activo,
+  (conc.pendiente_autorizacion IS TRUE) AS pendiente_autorizacion,
   (conc.tuvo_concurso_cerrado IS TRUE) AS tuvo_concurso_cerrado,
   (alta_pend.cargo_id IS NOT NULL) AS alta_pendiente,
   (bs.id_sial IS NOT NULL) AS en_baja_sial,
@@ -409,6 +421,7 @@ export function factsDeHecho(h: HechoRow): CargoFacts {
     estado: h.estado,
     tieneOcupanteVigente: h.tiene_ocupante_vigente,
     concursoActivo: h.concurso_activo,
+    pendienteAutorizacion: h.pendiente_autorizacion,
     altaPendiente: h.alta_pendiente,
     enBajaSial: h.en_baja_sial,
     ausenteUltimoPadron: h.ausente_ultimo_padron,

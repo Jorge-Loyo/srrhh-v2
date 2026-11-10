@@ -8,6 +8,7 @@ export type GrupoCargo =
   | 'no_vigente'
   | 'ocupado'
   | 'en_concurso'
+  | 'pendiente_autorizacion'
   | 'alta_pendiente'
   | 'baja_sin_concurso'
   | 'sin_clasificar'
@@ -16,6 +17,7 @@ export const GRUPOS_CARGO: GrupoCargo[] = [
   'no_vigente',
   'ocupado',
   'en_concurso',
+  'pendiente_autorizacion',
   'alta_pendiente',
   'baja_sin_concurso',
   'sin_clasificar',
@@ -25,7 +27,11 @@ export interface CargoFacts {
   // string para tolerar valores inesperados -> sin_clasificar.
   estado: 'vigente' | 'validacion_vacante' | 'no_vigente' | string
   tieneOcupanteVigente: boolean
+  // Concurso activo que CUENTA (regla cargos/concursoActivo.regla.ts).
   concursoActivo: boolean
+  // Tiene concurso activo por estado pero de cargo nuevo sin autorizar. Solo
+  // se evalúa si no hay otro concurso que cuente (va después de en_concurso).
+  pendienteAutorizacion: boolean
   altaPendiente: boolean
   enBajaSial: boolean
   ausenteUltimoPadron: boolean
@@ -38,6 +44,7 @@ export function clasificarCargo(f: CargoFacts): GrupoCargo {
   if (f.estado !== 'vigente' && f.estado !== 'validacion_vacante') return 'sin_clasificar'
   if (f.estado === 'vigente' && f.tieneOcupanteVigente) return 'ocupado'
   if (f.concursoActivo) return 'en_concurso'
+  if (f.pendienteAutorizacion) return 'pendiente_autorizacion'
   if (f.altaPendiente) return 'alta_pendiente'
   if (
     !f.tieneOcupanteVigente &&

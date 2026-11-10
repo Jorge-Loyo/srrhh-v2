@@ -37,6 +37,7 @@ export function PanelConciliacion({
             Dotación gestionable: <strong>{fmt(conciliacion.dotacion)}</strong> = Ocupados {fmt(g.ocupado)} + En
             concurso {fmt(g.en_concurso)} + Baja sin concurso {fmt(g.baja_sin_concurso)} + Sin clasificar{' '}
             {fmt(g.sin_clasificar)}
+            {g.pendiente_autorizacion > 0 && <> + Pendiente de autorización {fmt(g.pendiente_autorizacion)}</>}
             {g.alta_pendiente > 0 && <> + Alta pendiente {fmt(g.alta_pendiente)}</>}
           </p>
           <p>

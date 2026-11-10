@@ -199,6 +199,7 @@ export interface ConciliacionIncidencias {
     no_vigente: number
     ocupado: number
     en_concurso: number
+    pendiente_autorizacion: number
     alta_pendiente: number
     baja_sin_concurso: number
     sin_clasificar: number

@@ -97,14 +97,19 @@ bs_primera AS (
 ),
 conc AS (
   SELECT x.cargo_id,
-         bool_or(x.activo)     AS concurso_activo,
-         bool_or(NOT x.activo) AS tuvo_concurso_cerrado
+         bool_or(x.activo AND x.cuenta)     AS concurso_activo,
+         bool_or(x.activo AND NOT x.cuenta) AS pendiente_autorizacion,
+         bool_or(NOT x.activo)              AS tuvo_concurso_cerrado
   FROM (
-    SELECT cph.cargo_id, cph.estado::text IN ('no_iniciado','activo','suspendido') AS activo
-      FROM concursos_cph cph WHERE cph.cargo_id IN (SELECT id FROM cand)
+    SELECT cph.cargo_id, cph.estado::text IN ('no_iniciado','activo','suspendido') AS activo,
+           (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL) AS cuenta
+      FROM concursos_cph cph JOIN concursos co ON co.id = cph.concurso_id
+      WHERE cph.cargo_id IN (SELECT id FROM cand)
     UNION ALL
-    SELECT ce.cargo_id, ce.estado::text IN ('sin_autorizar','autorizado','en_proceso') AS activo
-      FROM concursos_ceetps ce WHERE ce.cargo_id IN (SELECT id FROM cand)
+    SELECT ce.cargo_id, ce.estado::text IN ('sin_autorizar','autorizado','en_proceso') AS activo,
+           (co.motivo_concurso IS DISTINCT FROM 'nuevo_cargo' OR co.autorizado_at IS NOT NULL) AS cuenta
+      FROM concursos_ceetps ce JOIN concursos co ON co.id = ce.concurso_id
+      WHERE ce.cargo_id IN (SELECT id FROM cand)
   ) x
   GROUP BY x.cargo_id
 ),
@@ -124,6 +129,7 @@ SELECT
   occ_max.ultima_desde AS ocupacion_desde_ult,
   cand.tipo_origen,
   (conc.concurso_activo IS TRUE) AS concurso_activo,
+  (conc.pendiente_autorizacion IS TRUE) AS pendiente_autorizacion,
   (conc.tuvo_concurso_cerrado IS TRUE) AS tuvo_concurso_cerrado,
   (alta_pend.cargo_id IS NOT NULL) AS alta_pendiente,
   (bs.id_sial IS NOT NULL) AS en_baja_sial,
@@ -150,6 +156,7 @@ SELECT h.*,
     WHEN h.estado NOT IN ('vigente','validacion_vacante') THEN 'sin_clasificar'
     WHEN h.estado = 'vigente' AND h.tiene_ocupante_vigente THEN 'ocupado'
     WHEN h.concurso_activo THEN 'en_concurso'
+    WHEN h.pendiente_autorizacion THEN 'pendiente_autorizacion'
     WHEN h.alta_pendiente THEN 'alta_pendiente'
     WHEN NOT h.tiene_ocupante_vigente
          AND (h.en_baja_sial OR h.ausente_ultimo_padron OR h.estado = 'validacion_vacante') THEN 'baja_sin_concurso'
