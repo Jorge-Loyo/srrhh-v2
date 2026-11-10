@@ -701,6 +701,12 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
 }
 
 // ─── Aprobar autorización (flujo dos pasos: director → sgrasv) ──────────────
+// ⚠️ SIN LLAMADORES (verificado 2026-11): el camino vivo es aprobarAutorizacionService
+// (autorizaciones.service.ts → _aprobarCph). Esta versión quedó huérfana y compara
+// rolSlug === 'sgrasv' a mano, que NO matchea el rol real (slug con hash).
+// NO borrar sin decidir antes: acá vive el "salto de etapas por reutilización de OM"
+// (al aprobar, arrastra las etapas 2 y 3 del concurso de origen de la OM reservada),
+// regla de negocio del commit 3c77d3e que el camino vivo NO tiene.
 export async function aprobarAutorizacionCphService(
   id: string,
   rolSlug: string,
