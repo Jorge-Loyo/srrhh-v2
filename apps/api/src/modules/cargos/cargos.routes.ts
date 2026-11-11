@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { cargosQuerySchema, createCargoSchema, altasQuerySchema, nuevosCargosQuerySchema, cargosExportQuerySchema } from './cargos.schema.js'
-import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService, listNuevosCargosService, exportCargosService } from './cargos.service.js'
+import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService, exportCargosService } from './cargos.service.js'
+import { listNuevosCargosService } from './nuevos-cargos.service.js'
 
 export async function cargosRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -21,8 +22,8 @@ export async function cargosRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // GET /nuevos — Paso A flujo concursos: vista "Nuevos cargos" (cargos de alta
-  // vigentes por concursar o en concurso, ordenados por expediente). Gateado
+  // GET /nuevos — Paso 4 flujo concursos: vista "Nuevos cargos" (concursos de
+  // cargo nuevo sin iniciar, agrupados por expediente del alta). Gateado
   // con el mismo permiso que la pestaña UI. Declarado ANTES de GET /:id para
   // que no lo capture la ruta param.
   app.get(

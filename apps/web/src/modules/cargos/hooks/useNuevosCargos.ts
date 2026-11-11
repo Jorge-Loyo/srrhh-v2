@@ -1,27 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Cargo, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
+import type { NuevosCargosResponse, TipoConcursoNuevo } from '../lib/nuevosCargos'
 
-// Paso A flujo concursos: filtros de la vista "Nuevos cargos" (GET
-// /api/v1/cargos/nuevos). El criterio de visibilidad fijo (cargos de alta
-// vigentes vacante/concurso) lo impone el backend; acá solo se exponen los
-// filtros de pantalla (búsqueda, hospital, sub-estado).
+// Paso 4 flujo concursos: filtros de la pestaña "Nuevos cargos" (GET
+// /api/v1/cargos/nuevos). El criterio de "sin iniciar" lo impone el backend.
 export interface NuevosCargosFilters {
-  page: number
-  limit: number
   search?: string
   hospitalId?: string
-  subEstado?: 'vacante' | 'concurso'
+  tipo?: TipoConcursoNuevo
 }
 
-// Lee la vista de cargos de alta por concursar / en concurso, ordenados por
-// expediente. El payload tiene la MISMA forma que `Cargo` (reusa el mapeo de
-// listCargosService en el backend).
+// Concursos de cargo nuevo sin iniciar (CPH + CEETPS), agrupados por expediente
+// del alta, más los cargos nuevos que no tienen concurso (informativo).
 export function useNuevosCargos(filters: NuevosCargosFilters) {
   return useQuery({
     queryKey: ['cargos-nuevos', filters],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedResponse<Cargo>>('/api/v1/cargos/nuevos', {
+      const res = await apiClient.get<NuevosCargosResponse>('/api/v1/cargos/nuevos', {
         params: filters,
       })
       return res.data

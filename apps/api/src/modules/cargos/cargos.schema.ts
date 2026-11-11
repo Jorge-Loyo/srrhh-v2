@@ -137,18 +137,12 @@ export const altasQuerySchema = z.object({
 
 export type AltasQuery = z.infer<typeof altasQuerySchema>
 
-// Paso A flujo concursos: filtros para GET /api/v1/cargos/nuevos — vista de los
-// cargos creados por ALTA (idSial LIKE 'MANUAL-%') que están por concursar o en
-// concurso. El criterio de visibilidad fijo (estado='vigente' AND subEstado IN
-// ('vacante','concurso')) NO es parametrizable desde el query — lo impone el
-// servicio. `subEstado` acá solo ACOTA dentro de ese universo (vacante|concurso).
+// Paso 4 flujo concursos: filtros para GET /api/v1/cargos/nuevos — concursos de
+// cargo nuevo SIN INICIAR (CPH + CEETPS). El criterio de visibilidad lo impone
+// el servicio (ver nuevos-cargos.service.ts); acá solo hay filtros de pantalla.
 export const nuevosCargosQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
   search: z.string().trim().min(1).optional(),
   hospitalId: z.string().uuid().optional(),
-  // Acota dentro del universo fijo; solo admite los dos sub-estados visibles.
-  subEstado: z.enum(['vacante', 'concurso']).optional(),
+  tipo: z.enum(['cph', 'ceetps']).optional(),
 })
-
 export type NuevosCargosQuery = z.infer<typeof nuevosCargosQuerySchema>

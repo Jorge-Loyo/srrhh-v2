@@ -1,21 +1,17 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { SubEstadoCargo } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { capitalizar } from '@/shared/lib/utils'
 import { useNuevosCargos, type NuevosCargosFilters } from '../hooks/useNuevosCargos'
+import {
+  ETIQUETA_TIPO,
+  rutaCaratular,
+  textoSinConcurso,
+  type TipoConcursoNuevo,
+} from '../lib/nuevosCargos'
 
-const LIMIT = 50
-
-// Etiqueta del sub-estado del cargo (solo se muestran los dos visibles de la
-// vista: vacante | concurso).
-const SUB_ESTADO_LABEL: Record<string, string> = {
-  [SubEstadoCargo.VACANTE]: 'Vacante',
-  [SubEstadoCargo.CONCURSO]: 'Concurso',
-}
-
-// Formatea una fecha ISO (o Date serializada) a dd/mm/aaaa; '—' si no hay.
+// Formatea una fecha ISO a dd/mm/aaaa; '—' si no hay.
 function fmtFecha(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -23,56 +19,48 @@ function fmtFecha(iso: string | null): string {
   return d.toLocaleDateString('es-AR')
 }
 
-// PASO A (flujo concursos): "Nuevos cargos" — vista de SOLO LECTURA de los
-// cargos creados por alta (idSial MANUAL-%) que están VIGENTE/VACANTE o
-// VIGENTE/CONCURSO, ordenados por expediente de creación (el "bloque": los
-// cargos de una misma alta comparten expediente). La fuente es GET
-// /api/v1/cargos/nuevos (lee de la tabla `cargos`, no del endpoint de
-// concursos). Acciones por fila: "Ver" (navega al detalle /cargos/:id) y
-// "Caratular" DESHABILITADO (placeholder; la acción real es el Paso C).
+// PASO 4 (flujo concursos): "Nuevos cargos" — concursos de cargo nuevo que
+// ningún usuario inició (se crean solos al aprobar el alta en /autorizaciones).
+// Agrupados por expediente del alta. "Caratular" abre el concurso en su Etapa 1
+// (Apertura / Autorización); no crea nada. Quien ve la pestaña (permiso
+// cargos/tab:nuevos-cargos, configurable por rol) ve el botón. Al guardar la
+// Etapa 1 con expediente + IF el concurso sale de esta lista y pasa a la
+// bandeja Gestión de Concursos (/cargos/concurso).
 export function NuevosCargosPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-
   const search = searchParams.get('search') ?? ''
   const hospitalId = searchParams.get('hospitalId') ?? ''
-  const subEstado = (searchParams.get('subEstado') ?? '') as '' | 'vacante' | 'concurso'
-  const page = Number(searchParams.get('page') ?? '1')
+  const tipo = (searchParams.get('tipo') ?? '') as '' | TipoConcursoNuevo
+  // Expedientes colapsados (por defecto todos expandidos).
+  const [colapsados, setColapsados] = useState<Set<string>>(new Set())
 
   function setParam(key: string, value: string) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       if (value) next.set(key, value)
       else next.delete(key)
-      next.delete('page')
       return next
     })
   }
 
-  function setPage(p: (prev: number) => number) {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        const newPage = p(Number(prev.get('page') ?? '1'))
-        if (newPage === 1) next.delete('page')
-        else next.set('page', String(newPage))
-        return next
-      },
-      { replace: true },
-    )
+  function toggleGrupo(clave: string) {
+    setColapsados((prev) => {
+      const next = new Set(prev)
+      if (next.has(clave)) next.delete(clave)
+      else next.add(clave)
+      return next
+    })
   }
 
   const searchDebounced = useDebounce(search, 300)
-
   const filters: NuevosCargosFilters = {
-    page,
-    limit: LIMIT,
     ...(searchDebounced && { search: searchDebounced }),
     ...(hospitalId && { hospitalId }),
-    ...(subEstado && { subEstado }),
+    ...(tipo && { tipo }),
   }
-
   const { data, isLoading, isFetching, isError } = useNuevosCargos(filters)
   const { data: hospitales } = useHospitales()
+  const hayFiltros = Boolean(searchDebounced || hospitalId || tipo)
 
   return (
     <div className="flex flex-col gap-6 h-full">
@@ -80,20 +68,22 @@ export function NuevosCargosPage() {
         <div>
           <h1 className="font-primary text-xl font-bold text-gray-900">Nuevos cargos</h1>
           <p className="text-sm text-gray-500">
-            Cargos creados por alta que están por concursar o en concurso, agrupados por expediente de
-            creación. Cuando se designa a alguien (pasan a ocupados) salen de esta vista.
+            Concursos de cargos nuevos que todavía nadie inició, agrupados por expediente del alta. Con
+            Caratular se abre el concurso para completar la Etapa 1 (Apertura / Autorización) y enviarlo a
+            autorizar.
           </p>
         </div>
-
         <div className="flex flex-wrap gap-3">
           <input
             type="text"
-            placeholder="Buscar por código, puesto, especialidad o expediente..."
+            aria-label="Buscar nuevos cargos"
+            placeholder="Buscar por expediente, código, puesto o especialidad..."
             value={search}
             onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[260px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
           <select
+            aria-label="Filtrar por repartición"
             value={hospitalId}
             onChange={(e) => setParam('hospitalId', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
@@ -106,13 +96,14 @@ export function NuevosCargosPage() {
             ))}
           </select>
           <select
-            value={subEstado}
-            onChange={(e) => setParam('subEstado', e.target.value)}
+            aria-label="Filtrar por tipo de concurso"
+            value={tipo}
+            onChange={(e) => setParam('tipo', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           >
-            <option value="">Vacantes y en concurso</option>
-            <option value="vacante">Solo vacantes</option>
-            <option value="concurso">Solo en concurso</option>
+            <option value="">CPH y CEETPS</option>
+            <option value="cph">Solo CPH</option>
+            <option value="ceetps">Solo CEETPS</option>
           </select>
         </div>
       </div>
@@ -120,84 +111,84 @@ export function NuevosCargosPage() {
       <div className="bg-white rounded-lg shadow-sm flex-1 overflow-y-auto min-h-0">
         {isLoading && <p className="p-6 text-sm text-gray-400">Cargando nuevos cargos...</p>}
         {isError && <p className="p-6 text-sm text-danger">No se pudo cargar la vista de nuevos cargos.</p>}
-
         {!isLoading && !isError && data && (
           <>
             {data.data.length === 0 && (
-              <p className="p-6 text-sm text-gray-400 text-center">
-                No hay cargos nuevos por concursar para los filtros aplicados.
-              </p>
+              <div className="p-6 text-center">
+                <p className="text-sm text-gray-500">
+                  {hayFiltros
+                    ? 'No hay concursos de cargos nuevos pendientes de caratular para los filtros aplicados.'
+                    : 'No hay concursos de cargos nuevos pendientes de caratular.'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Los concursos se crean al aprobar el alta de cargo en Autorizaciones.
+                </p>
+              </div>
             )}
-
             {data.data.length > 0 && (
               <table className={`w-full text-sm border-separate border-spacing-0 ${isFetching ? 'opacity-60' : ''}`}>
                 <thead className="bg-navy text-white text-left sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 font-semibold rounded-tl-lg">Código Cargo</th>
+                    <th className="px-4 py-3 font-semibold rounded-tl-lg">Tipo</th>
+                    <th className="px-4 py-3 font-semibold">Cargo</th>
                     <th className="px-4 py-3 font-semibold">Repartición</th>
                     <th className="px-4 py-3 font-semibold">Carrera</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
-                    <th className="px-4 py-3 font-semibold">Estado</th>
-                    <th className="px-4 py-3 font-semibold">Fecha</th>
+                    <th className="px-4 py-3 font-semibold">Fecha del alta</th>
                     <th className="px-4 py-3 font-semibold rounded-tr-lg" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {data.data.map((c, i) => {
-                    // Separador visual por expediente: encabeza cada "bloque"
-                    // (los cargos de una misma alta comparten expediente). Como
-                    // el listado ya viene ordenado por expediente desde el
-                    // backend, basta comparar con la fila anterior de la página.
-                    const prev = data.data[i - 1]
-                    const nuevoBloque = i === 0 || prev?.expediente !== c.expediente
-                    const subLabel = c.subEstado ? SUB_ESTADO_LABEL[c.subEstado] ?? '—' : '—'
+                  {data.data.map((g) => {
+                    const clave = g.expediente ?? ''
+                    const abierto = !colapsados.has(clave)
                     return (
-                      <Fragment key={c.id}>
-                        {nuevoBloque && (
-                          <tr className="bg-gray-50">
-                            <td colSpan={8} className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                              Expediente: {c.expediente ?? 'Sin expediente'}
-                            </td>
-                          </tr>
-                        )}
-                        <tr className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-800">{c.codigo ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-600">{c.escalafon?.nombre ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-600">{capitalizar(c.literalPuesto) || '—'}</td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {capitalizar(c.especialidadPuesto?.nombre ?? c.especialidadLegacy) || '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={subLabel === 'Concurso' ? 'badge-info' : 'badge-warning'}>
-                              {subLabel}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{fmtFecha(c.fechaDesde ?? c.createdAt)}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-2">
-                              <Link
-                                to={`/cargos/${c.id}`}
-                                state={{ from: searchParams.toString() }}
-                                className="btn-outline"
-                              >
-                                Ver
-                              </Link>
-                              {/* Placeholder: la acción "Caratular" es el Paso C
-                                  del flujo (crear/caratular concurso). Va
-                                  deshabilitada hasta implementarla. */}
-                              <button
-                                type="button"
-                                disabled
-                                title="Disponible en el próximo paso"
-                                className="btn-outline opacity-40 cursor-not-allowed"
-                              >
-                                Caratular
-                              </button>
-                            </div>
+                      <Fragment key={clave || 'sin-expediente'}>
+                        <tr className="bg-gray-50">
+                          <td colSpan={8} className="px-4 py-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleGrupo(clave)}
+                              aria-expanded={abierto}
+                              className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide"
+                            >
+                              <span aria-hidden="true">{abierto ? '▾' : '▸'}</span>
+                              Expediente: {g.expediente ?? 'Sin expediente'}
+                              <span className="font-normal normal-case text-gray-500">
+                                — {g.cantidad} {g.cantidad === 1 ? 'concurso' : 'concursos'} · alta {fmtFecha(g.fechaAlta)}
+                              </span>
+                            </button>
                           </td>
                         </tr>
+                        {abierto &&
+                          g.items.map((it) => (
+                            <tr key={it.concursoId} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <span className={it.tipo === 'cph' ? 'badge-info' : 'badge-warning'}>
+                                  {ETIQUETA_TIPO[it.tipo]}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 font-medium text-gray-800">
+                                {it.cargo.codigo ?? it.cargo.idSial ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 text-gray-600">{it.hospital?.sigla ?? '—'}</td>
+                              <td className="px-4 py-3 text-gray-600">{it.carrera ?? '—'}</td>
+                              <td className="px-4 py-3 text-gray-600">{capitalizar(it.puesto) || '—'}</td>
+                              <td className="px-4 py-3 text-gray-600">{capitalizar(it.especialidad) || '—'}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{fmtFecha(it.fechaAlta)}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Link to={`/cargos/${it.cargo.id}`} className="btn-outline">
+                                    Ver cargo
+                                  </Link>
+                                  <Link to={rutaCaratular(it)} className="btn-primary">
+                                    Caratular
+                                  </Link>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
                       </Fragment>
                     )
                   })}
@@ -205,23 +196,47 @@ export function NuevosCargosPage() {
               </table>
             )}
 
-            {data.meta.pages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm text-gray-500">
-                <span>
-                  Página {data.meta.page} de {data.meta.pages} — {data.meta.total} en total
-                </span>
-                <div className="flex gap-2">
-                  <button className="btn-outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                    Anterior
-                  </button>
-                  <button
-                    className="btn-outline"
-                    disabled={page >= data.meta.pages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Siguiente
-                  </button>
+            {data.sinConcurso.length > 0 && (
+              <div className="border-t border-gray-100 p-4 space-y-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-800">
+                    Cargos nuevos sin concurso ({data.sinConcurso.length})
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Estos cargos se dieron de alta pero no tienen concurso, así que no se pueden caratular desde
+                    acá.
+                  </p>
                 </div>
+                <table className="w-full text-sm border-separate border-spacing-0">
+                  <thead className="bg-gray-100 text-left text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold">Cargo</th>
+                      <th className="px-4 py-2 font-semibold">Expediente</th>
+                      <th className="px-4 py-2 font-semibold">Repartición</th>
+                      <th className="px-4 py-2 font-semibold">Puesto</th>
+                      <th className="px-4 py-2 font-semibold">Aviso</th>
+                      <th className="px-4 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.sinConcurso.map((c) => (
+                      <tr key={c.cargoId}>
+                        <td className="px-4 py-2 font-medium text-gray-800">{c.codigo ?? c.idSial ?? '—'}</td>
+                        <td className="px-4 py-2 text-gray-600">{c.expediente ?? '—'}</td>
+                        <td className="px-4 py-2 text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                        <td className="px-4 py-2 text-gray-600">{capitalizar(c.puesto) || '—'}</td>
+                        <td className="px-4 py-2">
+                          <span className="badge-warning">{textoSinConcurso(c.motivo)}</span>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <Link to={`/cargos/${c.cargoId}`} className="btn-outline">
+                            Ver cargo
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </>
