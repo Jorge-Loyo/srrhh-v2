@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { queryBool } from '../../shared/queryBool.js'
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
 
@@ -44,7 +45,7 @@ export const solicitudesAltaQuerySchema = z.object({
   limit:           z.coerce.number().int().min(1).max(100).default(20),
   hospitalId:      z.string().uuid().optional(),
   estado:          z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
-  esTransferencia: z.coerce.boolean().optional(),
+  esTransferencia: queryBool.optional(),
 })
 
 export type CreateSolicitudAltaBody       = z.infer<typeof createSolicitudAltaSchema>

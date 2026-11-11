@@ -403,6 +403,7 @@ export function AltaCargosPage() {
   // S13-D: historial ahora lista SolicitudAlta (con estado pendiente/aprobada/
   // rechazada) — el Cargo real recién existe cuando el director aprueba.
   const { data: solicitudesData, refetch: refetchSolicitudes } = useSolicitudesAlta({
+    limit: 100,
     ...(filtroEstado && { estado: filtroEstado }),
     ...(tab === 'transferencia' && { esTransferencia: true }),
     ...(tab === 'historial' && { esTransferencia: false }),

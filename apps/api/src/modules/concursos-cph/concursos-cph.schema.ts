@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { queryBool } from '../../shared/queryBool.js'
 import { EstadoConcursoCph } from '@srrhh/types'
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
@@ -35,8 +36,8 @@ export const concursosCphQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
-  pendienteAutorizacion: z.coerce.boolean().optional(),
-  conFaltantes: z.coerce.boolean().optional(),
+  pendienteAutorizacion: queryBool.optional(),
+  conFaltantes: queryBool.optional(),
   search: z.string().trim().min(1).optional(),
   // Filtro dedicado por especialidad (busca en especialidad_solicitada del
   // concurso y en la especialidad del cargo).
