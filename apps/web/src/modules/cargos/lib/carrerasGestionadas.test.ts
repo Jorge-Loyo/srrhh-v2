@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { esCarreraGestionada, etiquetaCarrera, opcionesCarreraAlta } from './carrerasGestionadas'
+import { esCarreraGestionada, etiquetaCarrera, opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from './carrerasGestionadas'
 
 const cat = [
   { id: 'a', codigo: '83', nombre: 'Nueva Carrera Administrativa' },
@@ -77,5 +77,30 @@ describe('puestos por carrera', () => {
       expect(r.esEnfermeria).toBe(true)
       expect(r.opciones.map((o) => o.nombre)).toEqual(['Enfermeros ATP', 'Enfermeros ATC'])
     }
+  })
+})
+
+describe('pideIncluirAmbosAlta', () => {
+  it('solo la 87 en POF/POU; resto de carreras y estructura no', () => {
+    expect(pideIncluirAmbosAlta('87', 'pof')).toBe(true)
+    expect(pideIncluirAmbosAlta('87', 'pou')).toBe(true)
+    expect(pideIncluirAmbosAlta('87', 'estructura')).toBe(false)
+    for (const c of ['37', '85', '83', '23', '22', undefined]) expect(pideIncluirAmbosAlta(c, 'pof')).toBe(false)
+  })
+})
+
+describe('filtrarPuestosAlta con puestos ambos (catálogo real de la 87)', () => {
+  const p87 = [
+    { id: '1', nombre: 'enfermeria' },
+    { id: '2', nombre: 'enfermeria atp' },
+    { id: '3', nombre: 'enfermero profesional' },
+    { id: '4', nombre: 'licenciado en enfermeria' },
+  ]
+  it('87 => exactamente Enfermero Profesional y Licenciado en Enfermería (ids conservados)', () => {
+    expect(filtrarPuestosAlta(p87, '87', 'pof').map((p) => p.id)).toEqual(['3', '4'])
+    expect(filtrarPuestosAlta(p87, '87', 'pou').map((p) => p.id)).toEqual(['3', '4'])
+  })
+  it('otras carreras: lista intacta', () => {
+    expect(filtrarPuestosAlta(p87, '85', 'pof')).toEqual(p87)
   })
 })

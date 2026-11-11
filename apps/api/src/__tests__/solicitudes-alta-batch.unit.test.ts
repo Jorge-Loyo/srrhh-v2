@@ -131,6 +131,19 @@ describe('createSolicitudesAltaBatchService', () => {
     expect(solicitudAlta.create).not.toHaveBeenCalled()
   })
 
+  it('puesto de modalidad ambos (Enfermero Profesional, 87) se acepta; ATP pasa, otra especialidad se rechaza', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'enfermero profesional', modalidad: 'ambos', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp1', nombre: 'Enfermeros ATP', puestoCargId: PUE }])
+    await createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp1' })] }, 'u1')
+    expect(solicitudAlta.create).toHaveBeenCalledTimes(1)
+    vi.clearAllMocks()
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'licenciado en enfermeria', modalidad: 'ambos', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp2', nombre: 'enfermeria', puestoCargId: PUE }])
+    await expect(createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp2' })] }, 'u1'))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
   it('enfermería: rechaza una especialidad distinta de ATP/ATC (400, sin abrir la tx)', async () => {
     cargarCatalogoValido()
     puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Enfermero/a', escalafonId: ESC }])

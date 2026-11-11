@@ -56,6 +56,16 @@ export function puestosPermitidosPorCarrera(codigoEscalafon: string | null | und
 }
 
 /**
+ * ¿El alta debe pedir también los puestos de modalidad 'ambos' (incluirAmbos)?
+ * Solo en POF/POU y solo si la carrera tiene regla en puestosPermitidosPorCarrera
+ * (hoy la 87). Para 37, 85, 83 y 23 NO se pide: sus listas no cambian hasta que
+ * Jorge defina cada carrera (agregar la regla activa el flag automáticamente).
+ */
+export function pideIncluirAmbosAlta(codigoEscalafon: string | null | undefined, tipo: TipoAltaCarrera): boolean {
+  return tipo !== 'estructura' && puestosPermitidosPorCarrera(codigoEscalafon) !== null
+}
+
+/**
  * Filtra los puestos reales del catálogo (conservando sus ids) según la carrera.
  * Estructura no se toca. Sin regla para la carrera: lista intacta.
  */

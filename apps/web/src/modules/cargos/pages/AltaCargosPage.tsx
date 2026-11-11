@@ -6,7 +6,7 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
-import { opcionesCarreraAlta, filtrarPuestosAlta } from '../lib/carrerasGestionadas'
+import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '../lib/carrerasGestionadas'
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
@@ -206,9 +206,13 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
   const modalidadEfectiva = opciones.length === 1 ? opciones[0]! : (modalidadIdx !== null ? opciones[modalidadIdx] ?? null : null)
 
-  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
   // Carrera 87: solo Enfermero Profesional / Licenciado en Enfermería (ver lib/carrerasGestionadas).
   const escCodigo = escalafonesFiltrados.find((e) => e.id === escalafonId)?.codigo
+  // Solo las carreras con regla de puestos piden también los puestos 'ambos'
+  // (la 87 los necesita); el resto del alta queda con su lista de hoy.
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(
+    escalafonId || undefined, modalidadParaTipo(tipo), undefined, pideIncluirAmbosAlta(escCodigo, tipo),
+  )
   const puestos   = filtrarPuestosAlta(puestosCatalogo, escCodigo, tipo)
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
   const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
