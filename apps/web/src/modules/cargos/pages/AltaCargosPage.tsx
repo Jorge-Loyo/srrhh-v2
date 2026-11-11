@@ -6,7 +6,6 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
-import { especialidadesPermitidasAlta, esPuestoEnfermeria } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
@@ -208,12 +207,10 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
   const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
-  // Regla enfermería: solo "Enfermeros ATP/ATC" (ver lib/especialidadesAlta).
-  const especialidades = especialidadesPermitidasAlta(puesto, especialidadesCatalogo)
-  const esEnfermeria   = esPuestoEnfermeria(puesto)
+  const especialidades = especialidadesCatalogo
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
-    && ((especialidades.length === 0 && !esEnfermeria) || !!especialidad) && !!desde
+    && (especialidades.length === 0 || !!especialidad) && !!desde
   const expLabel       = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura' ? 'Ej: DEC-541/MSGC/26' : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
 
@@ -335,7 +332,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
                 placeholder="Seleccionar puesto..."
               />
             </div>
-            {puesto && (especialidades.length > 0 || esEnfermeria) && (
+            {puesto && especialidades.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad <span className="text-danger">*</span></label>
                 <SearchableSelect
@@ -344,9 +341,6 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
                   options={especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) }))}
                   placeholder="Seleccionar especialidad..."
                 />
-                {esEnfermeria && especialidades.length === 0 && (
-                  <p className="mt-1 text-xs text-danger">No hay especialidades "Enfermeros ATP" / "Enfermeros ATC" cargadas en el catálogo para este puesto.</p>
-                )}
               </div>
             )}
           </div>
