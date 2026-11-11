@@ -10,7 +10,7 @@ import { tipoConcursoDeCargo, type TipoConcurso } from '../modules/incidencias/i
 // clasifica en algún tipo. Si ninguno clasifica => null (sin tipo, sin concurso;
 // comportamiento actual, ej. Administrativa 83 fuera de Anexo II).
 // FALLBACK por código de escalafón (datos de Neon): si el escalafón NO tiene ningún
-// CR cargado en `codigos_registro` (ej. 'Carrera de Enfermería'/'Técnicos' del seed),
+// CR cargado (o ninguno clasifica) en `codigos_registro` (ej. 'Carrera de Enfermería'/'Técnicos' del seed),
 // se usa el CR que corresponde a su código (85 => 85, 87 => 87, 22/37 => 37, ...), tabla
 // en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), y se clasifica igual con
 // `tipoConcursoDeCargo` (única fuente de la regla CPH/CEETPS).
@@ -35,18 +35,13 @@ export function codigoCrDeEscalafon(codigoEscalafon: string | null | undefined):
 /**
  * Núcleo puro: elige el CR de la carrera a partir de sus códigos de registro.
  * `crFallback` (opcional) = CR cuyo código corresponde al código del escalafón;
- * solo se usa si el escalafón no tiene ningún CR propio.
+ * solo se usa si ningún CR propio del escalafón clasifica (o no tiene ninguno).
  */
 export function elegirCrPorCarrera(
   codigosDeLaCarrera: CrDeCarrera[],
   literalPuesto: string | null | undefined,
   crFallback?: CrDeCarrera | null,
 ): CrDerivado | null {
-  if (codigosDeLaCarrera.length === 0) {
-    if (!crFallback) return null
-    const tipo = tipoConcursoDeCargo({ codigoRegistro: crFallback.codigo, literalPuesto })
-    return tipo ? { ...crFallback, tipo } : null
-  }
   const orden = (c: string) => {
     const i = (CR_PREFERIDOS as readonly string[]).indexOf(c)
     return i === -1 ? CR_PREFERIDOS.length : i
@@ -56,7 +51,10 @@ export function elegirCrPorCarrera(
     const tipo = tipoConcursoDeCargo({ codigoRegistro: cr.codigo, literalPuesto })
     if (tipo) return { ...cr, tipo }
   }
-  return null
+  // Ningún CR propio clasifica (o no tiene): se prueba el CR del código de escalafón.
+  if (!crFallback) return null
+  const tipo = tipoConcursoDeCargo({ codigoRegistro: crFallback.codigo, literalPuesto })
+  return tipo ? { ...crFallback, tipo } : null
 }
 
 /** Subconjunto de Prisma necesario (acepta `prisma` o un `tx`). */
@@ -89,7 +87,8 @@ export async function resolverCrPorCarrera(
     where: { escalafonId },
     select: { id: true, codigo: true, escalafonId: true },
   })
-  if (crs.length > 0) return elegirCrPorCarrera(crs, literalPuesto)
+  const propio = elegirCrPorCarrera(crs, literalPuesto)
+  if (propio) return propio
   const esc = await db.escalafon.findUnique({ where: { id: escalafonId }, select: { codigo: true } })
   const codigoCr = codigoCrDeEscalafon(esc?.codigo)
   if (!codigoCr) return null

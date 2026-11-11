@@ -32,9 +32,11 @@ describe('fallback por código de escalafón (Neon)', () => {
     expect(codigoCrDeEscalafon('24')).toBeNull()
     expect(codigoCrDeEscalafon(undefined)).toBeNull()
   })
-  it('sin CR propios se usa el fallback; con CR propios el fallback se ignora', () => {
+  it('sin CR propios o sin ninguno clasificable se usa el fallback; si un CR propio clasifica tiene prioridad', () => {
     expect(elegirCrPorCarrera([], 'X', cr('87'))).toMatchObject({ codigo: '87', tipo: 'ceetps' })
-    expect(elegirCrPorCarrera([cr('19')], 'X', cr('87'))).toBeNull()
+    expect(elegirCrPorCarrera([cr('19')], 'X', cr('87'))).toMatchObject({ codigo: '87', tipo: 'ceetps' })
+    expect(elegirCrPorCarrera([cr('85')], 'X', cr('87'))).toMatchObject({ codigo: '85' })
+    expect(elegirCrPorCarrera([cr('19')], 'Administrativo', cr('83'))).toBeNull()
   })
   it('83 con fallback: solo Anexo II (sin Anexo II => null)', () => {
     expect(elegirCrPorCarrera([], 'Administrativo', cr('83'))).toBeNull()
@@ -58,8 +60,9 @@ describe('fallback por código de escalafón (Neon)', () => {
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Administrativo')).toBeNull()
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Radioperador')).toMatchObject({ tipo: 'ceetps', codigo: '83' })
   })
-  it('resolver: carrera no gestionada sin CR => null; con CR propios no consulta el fallback', async () => {
+  it('resolver: carrera no gestionada sin CR => null; con CR propios clasificables gana el propio; con propios no clasificables cae al código de escalafón', async () => {
     expect(await resolverCrPorCarrera(fakeDb('24', []), 'e', 'X')).toBeNull()
     expect(await resolverCrPorCarrera(fakeDb('87', [{ ...cr('85'), escalafonId: 'e' }]), 'e', 'X')).toMatchObject({ codigo: '85' })
+    expect(await resolverCrPorCarrera(fakeDb('87', [{ ...cr('19'), escalafonId: 'e' }]), 'e', 'X')).toMatchObject({ codigo: '87', tipo: 'ceetps' })
   })
 })

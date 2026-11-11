@@ -170,10 +170,10 @@ export async function createSolicitudesAltaBatchService(
     }),
   ])
 
-  // Fallback por código de escalafón: carreras sin ningún CR cargado (ej. ENF/TEC del seed)
+  // Fallback por código de escalafón: carreras gestionadas sin CR cargado o sin ninguno clasificable (ej. ENF/TEC del seed)
   // usan el CR de su código (85/87/...). Una consulta extra solo si hace falta.
   const escalafonesSinCr = (escalafones as { id: string; codigo?: string }[]).filter(
-    (e) => !!codigoCrDeEscalafon(e.codigo) && !(crsDeCarreras ?? []).some((c) => c.escalafonId === e.id),
+    (e) => !!codigoCrDeEscalafon(e.codigo),
   )
   const crFallbackPorEscalafon = new Map<string, { id: string; codigo: string }>()
   if (escalafonesSinCr.length) {
