@@ -6,7 +6,7 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
-import { opcionesCarreraAlta } from '../lib/carrerasGestionadas'
+import { opcionesCarreraAlta, filtrarPuestosAlta } from '../lib/carrerasGestionadas'
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
@@ -206,7 +206,10 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
   const modalidadEfectiva = opciones.length === 1 ? opciones[0]! : (modalidadIdx !== null ? opciones[modalidadIdx] ?? null : null)
 
-  const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
+  // Carrera 87: solo Enfermero Profesional / Licenciado en Enfermería (ver lib/carrerasGestionadas).
+  const escCodigo = escalafonesFiltrados.find((e) => e.id === escalafonId)?.codigo
+  const puestos   = filtrarPuestosAlta(puestosCatalogo, escCodigo, tipo)
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
   const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
   // Regla enfermería: solo "Enfermeros ATP/ATC"; si aún no están en el catálogo,

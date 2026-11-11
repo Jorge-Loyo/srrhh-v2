@@ -38,3 +38,44 @@ describe('opcionesCarreraAlta', () => {
     expect(opcionesCarreraAlta(cat, 'estructura')).toHaveLength(cat.length)
   })
 })
+
+import { filtrarPuestosAlta, puestosPermitidosPorCarrera } from './carrerasGestionadas'
+import { especialidadesPermitidasAlta } from './especialidadesAlta'
+
+describe('puestos por carrera', () => {
+  const puestos = [
+    { id: '1', nombre: '(sin especificar)' },
+    { id: '2', nombre: 'Enfermeria' },
+    { id: '3', nombre: 'Enfermeria atp' },
+    { id: '4', nombre: 'Enfermero Profesional' },
+    { id: '5', nombre: 'Licenciado En Enfermería' },
+    { id: '6', nombre: 'Auxiliar de enfermería' },
+  ]
+  it('87 en POF/POU => exactamente los 2 puestos, con sus ids reales', () => {
+    for (const t of ['pof', 'pou'] as const) {
+      const r = filtrarPuestosAlta(puestos, '87', t)
+      expect(r.map((p) => p.id)).toEqual(['4', '5'])
+    }
+  })
+  it('tolera mayúsculas y acentos', () => {
+    const r = filtrarPuestosAlta([{ id: 'x', nombre: 'LICENCIADO EN ENFERMERIA' }, { id: 'y', nombre: 'enfermero profesional' }], '87', 'pof')
+    expect(r).toHaveLength(2)
+  })
+  it('otras carreras y Estructura sin cambios', () => {
+    for (const c of ['37', '85', '83', '23', '24', undefined]) expect(filtrarPuestosAlta(puestos, c, 'pof')).toBe(puestos)
+    expect(filtrarPuestosAlta(puestos, '87', 'estructura')).toBe(puestos)
+    expect(puestosPermitidosPorCarrera('37')).toBeNull()
+  })
+  it('ambos puestos de 87 ofrecen solo ATP/ATC', () => {
+    const esp = [
+      { id: 'a', nombre: 'enfermeria' },
+      { id: 'b', nombre: 'Enfermeros ATP' },
+      { id: 'c', nombre: 'Enfermeros ATC' },
+    ] as never[]
+    for (const p of filtrarPuestosAlta(puestos, '87', 'pof')) {
+      const r = especialidadesPermitidasAlta(p.nombre, esp)
+      expect(r.esEnfermeria).toBe(true)
+      expect(r.opciones.map((o) => o.nombre)).toEqual(['Enfermeros ATP', 'Enfermeros ATC'])
+    }
+  })
+})
