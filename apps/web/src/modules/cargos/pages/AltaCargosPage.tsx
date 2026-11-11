@@ -5,6 +5,8 @@ import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { especialidadesPermitidasAlta, esPuestoEnfermeria } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
@@ -118,51 +120,6 @@ interface ItemPendiente {
   etiqueta: string
 }
 
-// ── Combobox con búsqueda — S20-11: opera sobre {id, nombre}, emite el id ────
-function PuestoCombobox({ opciones, value, onChange, placeholder = 'Buscar...' }: {
-  opciones: PuestoCatalogoEspecialidad[]
-  value: string
-  onChange: (opcion: PuestoCatalogoEspecialidad) => void
-  placeholder?: string
-}) {
-  const [query,   setQuery]   = useState('')
-  const [abierto, setAbierto] = useState(false)
-  // Filtra por el texto original o el capitalizado (para que buscar "Medi" o
-  // "medi" funcione igual). La caja de la BD es minúscula; se muestra capitalizado.
-  const filtrados = query.trim()
-    ? opciones.filter((p) =>
-        p.nombre.toLowerCase().includes(query.toLowerCase()) ||
-        capitalizar(p.nombre).toLowerCase().includes(query.toLowerCase()),
-      )
-    : opciones
-  return (
-    <div className="relative">
-      <input
-        type="text"
-        value={abierto ? query : capitalizar(value)}
-        placeholder={capitalizar(value) || placeholder}
-        className="h-10 input w-full"
-        onFocus={() => { setAbierto(true); setQuery('') }}
-        onBlur={() => setTimeout(() => setAbierto(false), 150)}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {abierto && (
-        <ul className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-          {filtrados.length === 0
-            ? <li className="px-3 py-2 text-sm text-gray-400">Sin resultados</li>
-            : filtrados.map((p) => (
-                <li key={p.id} onMouseDown={() => { onChange(p); setQuery(''); setAbierto(false) }}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-secondary/10 ${p.nombre === value ? 'bg-secondary/10 font-medium text-secondary' : 'text-gray-700'}`}>
-                  {capitalizar(p.nombre)}
-                </li>
-              ))
-          }
-        </ul>
-      )}
-    </div>
-  )
-}
-
 // ── Selector de etiqueta ─────────────────────────────────────────────────────
 // Permite ELEGIR una etiqueta ya creada (chips del catálogo) o escribir una
 // nueva. El valor emitido es el nombre (string) — el backend crea la etiqueta
@@ -250,10 +207,13 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
 
   const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
-  const { data: especialidades = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+  const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+  // Regla enfermería: solo "Enfermeros ATP/ATC" (ver lib/especialidadesAlta).
+  const especialidades = especialidadesPermitidasAlta(puesto, especialidadesCatalogo)
+  const esEnfermeria   = esPuestoEnfermeria(puesto)
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
-    && (especialidades.length === 0 || !!especialidad) && !!desde
+    && ((especialidades.length === 0 && !esEnfermeria) || !!especialidad) && !!desde
   const expLabel       = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura' ? 'Ej: DEC-541/MSGC/26' : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
 
@@ -335,10 +295,12 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Carrera <span className="text-danger">*</span></label>
-            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
-              <option value="">Seleccionar...</option>
-              {escalafonesFiltrados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-            </select>
+            <SearchableSelect
+              value={escalafonId}
+              onChange={(v) => { setEscalafonId(v); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
+              options={escalafonesFiltrados.map((e) => ({ value: e.id, label: e.nombre }))}
+              placeholder="Seleccionar carrera..."
+            />
           </div>
         </div>
 
@@ -366,12 +328,25 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto <span className="text-danger">*</span></label>
-              <PuestoCombobox opciones={puestos} value={puesto} onChange={(op) => { setPuestoSel(op); setEspecialidadSel(null) }} />
+              <SearchableSelect
+                value={puestoSel?.id ?? ''}
+                onChange={(id) => { setPuestoSel(puestos.find((p) => p.id === id) ?? null); setEspecialidadSel(null) }}
+                options={puestos.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+                placeholder="Seleccionar puesto..."
+              />
             </div>
-            {puesto && especialidades.length > 0 && (
+            {puesto && (especialidades.length > 0 || esEnfermeria) && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad <span className="text-danger">*</span></label>
-                <PuestoCombobox opciones={especialidades} value={especialidad} onChange={setEspecialidadSel} placeholder="Buscar especialidad..." />
+                <SearchableSelect
+                  value={especialidadSel?.id ?? ''}
+                  onChange={(id) => setEspecialidadSel(especialidades.find((e) => e.id === id) ?? null)}
+                  options={especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) }))}
+                  placeholder="Seleccionar especialidad..."
+                />
+                {esEnfermeria && especialidades.length === 0 && (
+                  <p className="mt-1 text-xs text-danger">No hay especialidades "Enfermeros ATP" / "Enfermeros ATC" cargadas en el catálogo para este puesto.</p>
+                )}
               </div>
             )}
           </div>

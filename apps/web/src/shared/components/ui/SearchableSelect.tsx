@@ -1,10 +1,17 @@
 import { useLayoutEffect, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+// Opción con valor distinto del texto mostrado (ej. id de catálogo + nombre).
+// Evita ambigüedad cuando dos opciones comparten label (puestos homónimos).
+export interface SearchableOption {
+  value: string
+  label: string
+}
+
 interface SearchableSelectProps {
   value: string
   onChange: (value: string) => void
-  options: string[]
+  options: Array<string | SearchableOption>
   placeholder: string
   className?: string
   disabled?: boolean
@@ -28,8 +35,14 @@ function normalize(s: string): string {
 // confirma el valor; clickear afuera descarta lo tipeado sin confirmar y
 // vuelve al valor real (no deja "a medio escribir" como estado del filtro).
 export function SearchableSelect({ value, onChange, options, placeholder, className, disabled, displayToValue, valueToDisplay }: SearchableSelectProps) {
-  const toDisplay = (v: string) => (valueToDisplay ? valueToDisplay(v) : v)
-  const toValue   = (label: string) => (displayToValue ? displayToValue(label) : label)
+  // Normaliza: string -> {value: displayToValue(label), label}; objeto tal cual.
+  const items: SearchableOption[] = options.map((o) =>
+    typeof o === 'string' ? { value: displayToValue ? displayToValue(o) : o, label: o } : o,
+  )
+  const toDisplay = (v: string) =>
+    valueToDisplay
+      ? valueToDisplay(v)
+      : (options.find((o): o is SearchableOption => typeof o !== 'string' && o.value === v)?.label ?? v)
 
   const [query, setQuery] = useState(() => toDisplay(value))
   const [open, setOpen] = useState(false)
@@ -86,12 +99,11 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
   }, [open])
 
   const q = normalize(query.trim())
-  const filtered = q ? options.filter((o) => normalize(o).includes(q)) : options
+  const filtered = q ? items.filter((o) => normalize(o.label).includes(q)) : items
 
-  function selectOption(opt: string) {
-    const val = toValue(opt)
-    onChange(val)
-    setQuery(opt)
+  function selectOption(opt: SearchableOption) {
+    onChange(opt.value)
+    setQuery(opt.label)
     setOpen(false)
   }
 
@@ -154,14 +166,14 @@ export function SearchableSelect({ value, onChange, options, placeholder, classN
             {filtered.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">Sin resultados</p>}
             {filtered.map((opt, i) => (
               <button
-                key={`${opt}-${i}`}
+                key={`${opt.value}-${i}`}
                 type="button"
                 onClick={() => selectOption(opt)}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                  toValue(opt) === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
+                  opt.value === value ? 'bg-yellow-50 font-medium text-gray-900' : 'text-gray-700'
                 }`}
               >
-                {opt}
+                {opt.label}
               </button>
             ))}
           </div>,
