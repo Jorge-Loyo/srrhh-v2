@@ -6,6 +6,7 @@ import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, 
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { opcionesCarreraAlta } from '../lib/carrerasGestionadas'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
@@ -295,7 +296,7 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
             <SearchableSelect
               value={escalafonId}
               onChange={(v) => { setEscalafonId(v); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
-              options={escalafonesFiltrados.map((e) => ({ value: e.id, label: e.nombre }))}
+              options={opcionesCarreraAlta(escalafonesFiltrados, tipo)}
               placeholder="Seleccionar carrera..."
             />
           </div>

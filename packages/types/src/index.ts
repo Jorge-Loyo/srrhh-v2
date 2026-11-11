@@ -2190,3 +2190,24 @@ export interface CargosIndicadores {
   // Cargos hoy no vigentes cuya fecha de pasaje no se puede determinar: no entran en ningún período.
   noVigenteSinFecha: number | null
 }
+
+// -----------------------------------------------------------------------------
+// CARRERAS GESTIONADAS (escalafones que pueden producir concurso)
+// -----------------------------------------------------------------------------
+// Clave = `escalafones.codigo` en BD (el número que el selector muestra como
+// "87 — Nueva Carrera Enfermería"); valor = código de registro (`codigos_registro.codigo`)
+// con el que se da de alta el cargo. El TIPO (CPH/CEETPS) NO se define acá: lo
+// decide `tipoConcursoDeCargo` (api) a partir del CR. El 83 solo concursa si el
+// puesto es del Anexo II (también lo resuelve `tipoConcursoDeCargo`).
+// El 22 es un duplicado histórico del 37 (CPH) y se guarda como 37.
+export const CR_POR_CODIGO_ESCALAFON_GESTIONADO: Readonly<Record<string, string>> = {
+  '37': '37',
+  '22': '37',
+  '23': '23',
+  '83': '83',
+  '85': '85',
+  '87': '87',
+}
+
+/** Códigos de escalafón de las carreras que gestionamos (selector Carrera de /cargos/alta). */
+export const CODIGOS_ESCALAFON_GESTIONADOS: readonly string[] = Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO)

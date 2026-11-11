@@ -173,6 +173,32 @@ describe('createSolicitudesAltaBatchService', () => {
       await createSolicitudesAltaBatchService({ items }, 'u1')
       expect(crGuardados()).toEqual(['cr37', 'cr87', null])
     })
+    it('lote mixto con escalafones SIN CR propios (códigos Neon 87, 85, 37, 24): fallback por código de escalafón', async () => {
+      hospital.findMany.mockResolvedValue([{ id: HOSP }])
+      escalafon.findMany.mockResolvedValue([
+        { id: 'e87', codigo: '87' }, { id: 'e85', codigo: '85' }, { id: 'e37', codigo: '37' }, { id: 'e24', codigo: '24' },
+      ])
+      puestoCargo.findMany.mockResolvedValue([
+        { id: 'p1', nombre: 'Enfermero', escalafonId: 'e87' },
+        { id: 'p2', nombre: 'Técnico', escalafonId: 'e85' },
+        { id: 'p3', nombre: 'Medico', escalafonId: 'e37' },
+        { id: 'p4', nombre: 'Residente', escalafonId: 'e24' },
+      ])
+      codigoRegistro.findMany.mockImplementation(async (args: { where: { escalafonId?: unknown; codigo?: unknown } }) =>
+        args.where.codigo ? [{ id: 'cr87', codigo: '87' }, { id: 'cr85', codigo: '85' }, { id: 'cr37', codigo: '37' }] : [])
+      especialidadPuesto.findMany.mockResolvedValue([])
+      let n = 0
+      solicitudAlta.create.mockImplementation(async () => ({ id: `s${++n}` }))
+      solicitudAlta.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }))
+      const items = [
+        baseItem({ escalafonId: 'e87', puestoCargoId: 'p1' }),
+        baseItem({ escalafonId: 'e85', puestoCargoId: 'p2' }),
+        baseItem({ escalafonId: 'e37', puestoCargoId: 'p3' }),
+        baseItem({ escalafonId: 'e24', puestoCargoId: 'p4' }),
+      ]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['cr87', 'cr85', 'cr37', null])
+    })
     it('CR explícito del item tiene prioridad sobre el de la carrera', async () => {
       cargarMixto()
       const items = [baseItem({ escalafonId: 'eCPH', puestoCargoId: 'pM', codigoRegistroId: 'crExplicito' })]

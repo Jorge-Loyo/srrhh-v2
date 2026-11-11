@@ -1,6 +1,6 @@
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import { resolverCrPorCarrera, elegirCrPorCarrera } from '../../shared/crPorCarrera.js'
+import { resolverCrPorCarrera, elegirCrPorCarrera, codigoCrDeEscalafon } from '../../shared/crPorCarrera.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 import type {
   CreateSolicitudAltaBody,
@@ -155,7 +155,7 @@ export async function createSolicitudesAltaBatchService(
 
   const [hospitales, escalafones, puestos, codigosRegistro, especialidades, crsDeCarreras] = await Promise.all([
     prisma.hospital.findMany({ where: { id: { in: hospitalIds } }, select: { id: true } }),
-    prisma.escalafon.findMany({ where: { id: { in: escalafonIds } }, select: { id: true } }),
+    prisma.escalafon.findMany({ where: { id: { in: escalafonIds } }, select: { id: true, codigo: true } }),
     prisma.puestoCargo.findMany({ where: { id: { in: puestoCargoIds } }, select: { id: true, nombre: true, escalafonId: true } }),
     codigoRegistroIds.length
       ? prisma.codigoRegistro.findMany({ where: { id: { in: codigoRegistroIds } }, select: { id: true } })
@@ -169,6 +169,21 @@ export async function createSolicitudesAltaBatchService(
       select: { id: true, codigo: true, escalafonId: true },
     }),
   ])
+
+  // Fallback por código de escalafón: carreras sin ningún CR cargado (ej. ENF/TEC del seed)
+  // usan el CR de su código (85/87/...). Una consulta extra solo si hace falta.
+  const escalafonesSinCr = (escalafones as { id: string; codigo?: string }[]).filter(
+    (e) => !!codigoCrDeEscalafon(e.codigo) && !(crsDeCarreras ?? []).some((c) => c.escalafonId === e.id),
+  )
+  const crFallbackPorEscalafon = new Map<string, { id: string; codigo: string }>()
+  if (escalafonesSinCr.length) {
+    const codigos = [...new Set(escalafonesSinCr.map((e) => codigoCrDeEscalafon(e.codigo)!))]
+    const crs = await prisma.codigoRegistro.findMany({ where: { codigo: { in: codigos } }, select: { id: true, codigo: true } })
+    for (const e of escalafonesSinCr) {
+      const cr = crs.find((c) => c.codigo === codigoCrDeEscalafon(e.codigo))
+      if (cr) crFallbackPorEscalafon.set(e.id, cr)
+    }
+  }
 
   const hospitalSet   = new Set(hospitales.map((h) => h.id))
   const escalafonSet  = new Set(escalafones.map((e) => e.id))
@@ -197,7 +212,11 @@ export async function createSolicitudesAltaBatchService(
     // CR explícito tiene prioridad; si no, se deduce por item de su carrera (un lote puede mezclar carreras).
     const codigoRegistroId =
       item.codigoRegistroId ??
-      elegirCrPorCarrera((crsDeCarreras ?? []).filter((c) => c.escalafonId === item.escalafonId), puesto.nombre)?.id ??
+      elegirCrPorCarrera(
+        (crsDeCarreras ?? []).filter((c) => c.escalafonId === item.escalafonId),
+        puesto.nombre,
+        crFallbackPorEscalafon.get(item.escalafonId),
+      )?.id ??
       null
     return { item, literalPuesto: puesto.nombre, especialidadNombre: especialidad?.nombre ?? null, codigoRegistroId }
   })

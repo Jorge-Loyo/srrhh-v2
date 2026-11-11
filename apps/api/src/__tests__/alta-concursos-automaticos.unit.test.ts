@@ -20,6 +20,9 @@ const ctx = vi.hoisted(() => ({
   solicitud: null as unknown,
   /** CR que tiene la carrera (escalafón) de la solicitud, para la deducción por carrera. */
   crsCarrera: [] as { id: string; codigo: string; escalafonId: string }[],
+  /** Código del escalafón (Neon) de la solicitud y CR por código, para el fallback sin CR propios. */
+  escCodigo: null as string | null,
+  crsPorCodigo: [] as { id: string; codigo: string }[],
   /** Último codigoRegistroId guardado en la solicitud / usado al crear cargos. */
   solicitudCrId: undefined as string | undefined,
   cargoCrIds: [] as (string | null)[],
@@ -43,7 +46,11 @@ function crearTx() {
         db.solicitud = { estado: data.estado, cargosCreadosIds: data.cargosCreadosIds }
       }),
     },
-    codigoRegistro: { findMany: vi.fn(async () => ctx.crsCarrera) },
+    codigoRegistro: {
+      findMany: vi.fn(async () => ctx.crsCarrera),
+      findUnique: vi.fn(async ({ where }: { where: { codigo: string } }) => ctx.crsPorCodigo.find((c) => c.codigo === where.codigo) ?? null),
+    },
+    escalafon: { findUnique: vi.fn(async () => (ctx.escCodigo ? { codigo: ctx.escCodigo } : null)) },
     usuario: { findUnique: vi.fn(async () => ({ role: { slug: 'rol_solicitante' } })) },
     cargo: {
       create: vi.fn(async ({ data }: { data: { subEstado: string; codigoRegistroId: string | null } }) => {
@@ -129,7 +136,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(db, { cargos: [], concursos: [], cph: [], ceetps: [], seq: 0, fallarEnConcurso: 0 })
   db.solicitud = { estado: 'pendiente', cargosCreadosIds: [] }
-  ctx.crsCarrera = []; ctx.solicitudCrId = undefined; ctx.cargoCrIds = []
+  ctx.crsCarrera = []; ctx.escCodigo = null; ctx.crsPorCodigo = []; ctx.solicitudCrId = undefined; ctx.cargoCrIds = []
   prismaMock.autorizacion.findUnique.mockResolvedValue(autAlta)
   // $transaction con rollback simulado: si el callback falla, se restaura el estado.
   prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => {
@@ -280,6 +287,37 @@ describe('aprobar alta_cargo — CR deducido de la carrera cuando la solicitud n
     expect(db.cargos).toHaveLength(1)
     expect(ctx.cargoCrIds).toEqual([null])
     expect(ctx.solicitudCrId).toBeUndefined()
+  })
+  it('escalafón 87 SIN CR en codigos_registro: cae al código del escalafón => CEETPS, CR 87', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1, literal: 'Enfermero' })
+    ctx.escCodigo = '87'
+    ctx.crsPorCodigo = [{ id: 'cr87', codigo: '87' }]
+    const r = await aprobar()
+    expect(r.concursosCreados).toBe(1)
+    expect(db.ceetps).toHaveLength(1)
+    expect(ctx.cargoCrIds).toEqual(['cr87'])
+  })
+  it('escalafón 85 sin CR propios => CEETPS, CR 85; escalafón 37 => CPH, CR 37', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1, literal: 'Técnico' })
+    ctx.escCodigo = '85'
+    ctx.crsPorCodigo = [{ id: 'cr85', codigo: '85' }]
+    await aprobar()
+    expect(db.ceetps).toHaveLength(1)
+    expect(ctx.cargoCrIds).toEqual(['cr85'])
+  })
+  it('escalafón 37 sin CR propios => CPH, CR 37', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1 })
+    ctx.escCodigo = '37'
+    ctx.crsPorCodigo = [{ id: 'cr37', codigo: '37' }]
+    await aprobar()
+    expect(db.cph).toHaveLength(1)
+    expect(ctx.cargoCrIds).toEqual(['cr37'])
+  })
+  it('escalafón no gestionado (24) sin CR propios: sin concurso', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1 })
+    ctx.escCodigo = '24'
+    const r = await aprobar()
+    expect(r).toMatchObject({ concursosCreados: 0, concursosSinTipo: 1 })
   })
   it('carrera sin códigos de registro: sin concurso, sin romper', async () => {
     ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1 })

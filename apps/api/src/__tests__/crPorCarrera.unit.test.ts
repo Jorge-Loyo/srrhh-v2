@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 // Núcleo puro: CR deducido de la carrera según los códigos de registro del seed
 // (prisma/seed.ts) y la regla única tipoConcursoDeCargo.
-const { elegirCrPorCarrera } = await import('../shared/crPorCarrera.js')
+const { elegirCrPorCarrera, codigoCrDeEscalafon, resolverCrPorCarrera } = await import('../shared/crPorCarrera.js')
 const cr = (codigo: string) => ({ id: `id-${codigo}`, codigo })
 describe('elegirCrPorCarrera', () => {
   it('Nueva Carrera Profesional Hospitalaria (22 y 37) => 37, cph', () => {
@@ -21,5 +21,45 @@ describe('elegirCrPorCarrera', () => {
     expect(elegirCrPorCarrera([cr('24')], 'X')).toBeNull()
     expect(elegirCrPorCarrera([cr('70')], 'X')).toBeNull()
     expect(elegirCrPorCarrera([], 'X')).toBeNull()
+  })
+})
+
+describe('fallback por código de escalafón (Neon)', () => {
+  it('codigoCrDeEscalafon: 37/22 => 37, 23, 83, 85, 87; no gestionados => null', () => {
+    expect(codigoCrDeEscalafon('37')).toBe('37')
+    expect(codigoCrDeEscalafon('22')).toBe('37')
+    expect(['23', '83', '85', '87'].map(codigoCrDeEscalafon)).toEqual(['23', '83', '85', '87'])
+    expect(codigoCrDeEscalafon('24')).toBeNull()
+    expect(codigoCrDeEscalafon(undefined)).toBeNull()
+  })
+  it('sin CR propios se usa el fallback; con CR propios el fallback se ignora', () => {
+    expect(elegirCrPorCarrera([], 'X', cr('87'))).toMatchObject({ codigo: '87', tipo: 'ceetps' })
+    expect(elegirCrPorCarrera([cr('19')], 'X', cr('87'))).toBeNull()
+  })
+  it('83 con fallback: solo Anexo II (sin Anexo II => null)', () => {
+    expect(elegirCrPorCarrera([], 'Administrativo', cr('83'))).toBeNull()
+  })
+  function fakeDb(escCodigo: string | null, propios: { id: string; codigo: string; escalafonId: string }[]) {
+    const porCodigo = [cr('37'), cr('23'), cr('83'), cr('85'), cr('87')]
+    return {
+      codigoRegistro: {
+        findMany: async () => propios,
+        findUnique: async ({ where }: { where: { codigo: string } }) => porCodigo.find((c) => c.codigo === where.codigo) ?? null,
+      },
+      escalafon: { findUnique: async () => (escCodigo ? { codigo: escCodigo } : null) },
+    }
+  }
+  it.each([
+    ['87', 'ceetps', '87'], ['85', 'ceetps', '85'], ['37', 'cph', '37'], ['22', 'cph', '37'], ['23', 'cph', '23'],
+  ])('resolver: escalafón %s sin CR propios => %s / CR %s', async (esc, tipo, codigo) => {
+    expect(await resolverCrPorCarrera(fakeDb(esc, []), 'e', 'Puesto')).toMatchObject({ tipo, codigo })
+  })
+  it('resolver: 83 sin CR propios, Anexo II => CEETPS; otro puesto => null', async () => {
+    expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Administrativo')).toBeNull()
+    expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Radioperador')).toMatchObject({ tipo: 'ceetps', codigo: '83' })
+  })
+  it('resolver: carrera no gestionada sin CR => null; con CR propios no consulta el fallback', async () => {
+    expect(await resolverCrPorCarrera(fakeDb('24', []), 'e', 'X')).toBeNull()
+    expect(await resolverCrPorCarrera(fakeDb('87', [{ ...cr('85'), escalafonId: 'e' }]), 'e', 'X')).toMatchObject({ codigo: '85' })
   })
 })
