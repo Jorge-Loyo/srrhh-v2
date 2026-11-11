@@ -131,6 +131,21 @@ describe('createSolicitudesAltaBatchService', () => {
     expect(solicitudAlta.create).not.toHaveBeenCalled()
   })
 
+  it('enfermería: rechaza una especialidad distinta de ATP/ATC (400, sin abrir la tx)', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Enfermero/a', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp1', nombre: 'enfermeria', puestoCargId: PUE }])
+    await expect(createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp1' })] }, 'u1'))
+      .rejects.toMatchObject({ statusCode: 400 })
+    expect($transaction).not.toHaveBeenCalled()
+  })
+  it('enfermería: acepta Enfermeros ATP y también el alta sin especialidad', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Licenciado en enfermería', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'atp', nombre: 'Enfermeros ATP', puestoCargId: PUE }])
+    const items = [baseItem({ especialidadPuestoId: 'atp' }), baseItem()]
+    await expect(createSolicitudesAltaBatchService({ items }, 'u1')).resolves.toHaveLength(2)
+  })
   it('un hospital inexistente lanza notFound sin abrir la tx', async () => {
     cargarCatalogoValido()
     hospital.findMany.mockResolvedValue([]) // ningún hospital válido

@@ -2,6 +2,7 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { resolverCrPorCarrera, elegirCrPorCarrera, codigoCrDeEscalafon } from '../../shared/crPorCarrera.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
+import { violaReglaEnfermeria, MENSAJE_REGLA_ENFERMERIA } from '../../shared/especialidadesEnfermeria.js'
 import type {
   CreateSolicitudAltaBody,
   CreateSolicitudesAltaBatchBody,
@@ -61,6 +62,9 @@ export async function createSolicitudAltaService(
     especialidadPuesto = await prisma.especialidadPuesto.findUnique({ where: { id: body.especialidadPuestoId } })
     if (!especialidadPuesto || especialidadPuesto.puestoCargId !== body.puestoCargoId) {
       throw AppError.notFound('Especialidad no encontrada en el catálogo para ese puesto')
+    }
+    if (violaReglaEnfermeria(puestoCargo.nombre, especialidadPuesto.nombre)) {
+      throw AppError.badRequest(MENSAJE_REGLA_ENFERMERIA)
     }
   }
 
@@ -207,6 +211,9 @@ export async function createSolicitudesAltaBatchService(
       especialidad = especialidadMap.get(item.especialidadPuestoId)
       if (!especialidad || especialidad.puestoCargId !== item.puestoCargoId) {
         throw AppError.notFound(`Especialidad no encontrada en el catálogo para ese puesto (item ${idx + 1})`)
+      }
+      if (violaReglaEnfermeria(puesto.nombre, especialidad.nombre)) {
+        throw AppError.badRequest(`${MENSAJE_REGLA_ENFERMERIA} (item ${idx + 1})`)
       }
     }
     // CR explícito tiene prioridad; si no, se deduce por item de su carrera (un lote puede mezclar carreras).

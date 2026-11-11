@@ -7,6 +7,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { opcionesCarreraAlta } from '../lib/carrerasGestionadas'
+import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
@@ -208,10 +209,13 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
   const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
-  const especialidades = especialidadesCatalogo
+  // Regla enfermería: solo "Enfermeros ATP/ATC"; si aún no están en el catálogo,
+  // avisa y no bloquea el alta (ver lib/especialidadesAlta).
+  const { opciones: especialidades, faltanAtpAtc, obligatoria: especialidadObligatoria } =
+    especialidadesPermitidasAlta(puesto, especialidadesCatalogo)
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
-    && (especialidades.length === 0 || !!especialidad) && !!desde
+    && (!especialidadObligatoria || !!especialidad) && !!desde
   const expLabel       = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura' ? 'Ej: DEC-541/MSGC/26' : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
 
@@ -343,6 +347,11 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
                   placeholder="Seleccionar especialidad..."
                 />
               </div>
+            )}
+            {puesto && faltanAtpAtc && (
+              <p role="status" className="text-xs font-semibold text-warning">
+                Faltan cargar las especialidades Enfermeros ATP/ATC en el catálogo. Podés dar el alta sin especialidad.
+              </p>
             )}
           </div>
         )}
