@@ -14,6 +14,7 @@ import { recalcularCalcCeetps } from '../concursos-ceetps/recalcularCeetps.js'
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import { crearConcursosAltaAutomaticaTx } from '../concursos/concursos.service.js'
 import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
+import { esAdmin } from '../../shared/esAdmin.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -23,9 +24,6 @@ const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 // total del flujo: puede resolver CUALQUIER autorización pendiente, sin importar
 // a qué rol esté dirigida (resolverPorRolSlug). El resto de los roles solo
 // resuelve lo suyo. Mantiene el mismo criterio de bypass que requirePermiso.
-function esAdmin(rolSlug: string): boolean {
-  return rolSlug === 'admin'
-}
 
 // ─── Helper: resolver dinámicamente el slug del rol que resuelve ─────────────
 // En vez de hardcodear el slug (que en producción lleva hash, p.ej.
@@ -135,8 +133,9 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
   const { page, limit, tipo } = query
   const offset = (page - 1) * limit
 
+  // Admin ve las pendientes de todos los resolutores (director, sgrasv, ...).
   const where = {
-    resolverPorRolSlug: rolSlug,
+    ...(!esAdmin(rolSlug) && { resolverPorRolSlug: rolSlug }),
     estado:             'pendiente' as const,
     ...(tipo && { tipo }),
   }
@@ -160,7 +159,7 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
 // ─── GET /mis-pendientes — count para badge ──────────────────────────────────
 export async function countPendientesService(rolSlug: string) {
   return prisma.autorizacion.count({
-    where: { resolverPorRolSlug: rolSlug, estado: 'pendiente' },
+    where: { ...(!esAdmin(rolSlug) && { resolverPorRolSlug: rolSlug }), estado: 'pendiente' },
   })
 }
 
