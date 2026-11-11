@@ -1,5 +1,6 @@
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
+import { resolverCrPorCarrera, elegirCrPorCarrera } from '../../shared/crPorCarrera.js'
 import { crearAutorizacion } from '../autorizaciones/autorizaciones.service.js'
 import type {
   CreateSolicitudAltaBody,
@@ -63,12 +64,17 @@ export async function createSolicitudAltaService(
     }
   }
 
+  // CR explícito tiene prioridad; si viene vacío se deduce de la carrera elegida
+  // (null si la carrera no mapea a CPH/CEETPS => sin concurso, como hasta ahora).
+  const codigoRegistroId =
+    body.codigoRegistroId ?? (await resolverCrPorCarrera(prisma, body.escalafonId, puestoCargo.nombre))?.id ?? null
+
   return prisma.$transaction(async (tx) => {
     const solicitud = await tx.solicitudAlta.create({
       data: {
         hospitalId:       body.hospitalId,
         escalafonId:      body.escalafonId,
-        codigoRegistroId: body.codigoRegistroId ?? null,
+        codigoRegistroId,
         puestoCargoId:      body.puestoCargoId,
         especialidadPuestoId: body.especialidadPuestoId ?? null,
         // Snapshot de auditoría — nombre canónico del catálogo al momento de la solicitud.
@@ -147,7 +153,7 @@ export async function createSolicitudesAltaBatchService(
   const codigoRegistroIds = [...new Set(items.map((i) => i.codigoRegistroId).filter((v): v is string => !!v))]
   const especialidadIds   = [...new Set(items.map((i) => i.especialidadPuestoId).filter((v): v is string => !!v))]
 
-  const [hospitales, escalafones, puestos, codigosRegistro, especialidades] = await Promise.all([
+  const [hospitales, escalafones, puestos, codigosRegistro, especialidades, crsDeCarreras] = await Promise.all([
     prisma.hospital.findMany({ where: { id: { in: hospitalIds } }, select: { id: true } }),
     prisma.escalafon.findMany({ where: { id: { in: escalafonIds } }, select: { id: true } }),
     prisma.puestoCargo.findMany({ where: { id: { in: puestoCargoIds } }, select: { id: true, nombre: true, escalafonId: true } }),
@@ -157,6 +163,11 @@ export async function createSolicitudesAltaBatchService(
     especialidadIds.length
       ? prisma.especialidadPuesto.findMany({ where: { id: { in: especialidadIds } }, select: { id: true, nombre: true, puestoCargId: true } })
       : Promise.resolve([] as { id: string; nombre: string; puestoCargId: string }[]),
+    // CR de cada carrera (una sola consulta) para deducir el tipo de los items sin CR explícito.
+    prisma.codigoRegistro.findMany({
+      where: { escalafonId: { in: escalafonIds } },
+      select: { id: true, codigo: true, escalafonId: true },
+    }),
   ])
 
   const hospitalSet   = new Set(hospitales.map((h) => h.id))
@@ -183,19 +194,24 @@ export async function createSolicitudesAltaBatchService(
         throw AppError.notFound(`Especialidad no encontrada en el catálogo para ese puesto (item ${idx + 1})`)
       }
     }
-    return { item, literalPuesto: puesto.nombre, especialidadNombre: especialidad?.nombre ?? null }
+    // CR explícito tiene prioridad; si no, se deduce por item de su carrera (un lote puede mezclar carreras).
+    const codigoRegistroId =
+      item.codigoRegistroId ??
+      elegirCrPorCarrera((crsDeCarreras ?? []).filter((c) => c.escalafonId === item.escalafonId), puesto.nombre)?.id ??
+      null
+    return { item, literalPuesto: puesto.nombre, especialidadNombre: especialidad?.nombre ?? null, codigoRegistroId }
   })
 
   // ── UNA transacción: crea las N solicitudes + N autorizaciones ─────────────
   return prisma.$transaction(async (tx) => {
     const creadas: unknown[] = []
 
-    for (const { item, literalPuesto, especialidadNombre } of preparados) {
+    for (const { item, literalPuesto, especialidadNombre, codigoRegistroId } of preparados) {
       const solicitud = await tx.solicitudAlta.create({
         data: {
           hospitalId:       item.hospitalId,
           escalafonId:      item.escalafonId,
-          codigoRegistroId: item.codigoRegistroId ?? null,
+          codigoRegistroId,
           puestoCargoId:      item.puestoCargoId,
           especialidadPuestoId: item.especialidadPuestoId ?? null,
           literalPuesto,

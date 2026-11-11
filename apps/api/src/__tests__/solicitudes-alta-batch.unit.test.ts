@@ -139,4 +139,45 @@ describe('createSolicitudesAltaBatchService', () => {
       .rejects.toMatchObject({ statusCode: 404 })
     expect($transaction).not.toHaveBeenCalled()
   })
+
+  describe('CR deducido de la carrera (tipo CPH/CEETPS)', () => {
+    const crsPorCarrera = [
+      { id: 'cr22', codigo: '22', escalafonId: 'eCPH' },
+      { id: 'cr37', codigo: '37', escalafonId: 'eCPH' },
+      { id: 'cr87', codigo: '87', escalafonId: 'eENF' },
+      { id: 'cr83', codigo: '83', escalafonId: 'eADM' },
+    ]
+    function cargarMixto() {
+      hospital.findMany.mockResolvedValue([{ id: HOSP }])
+      escalafon.findMany.mockResolvedValue([{ id: 'eCPH' }, { id: 'eENF' }, { id: 'eADM' }])
+      puestoCargo.findMany.mockResolvedValue([
+        { id: 'pM', nombre: 'Medico', escalafonId: 'eCPH' },
+        { id: 'pE', nombre: 'Enfermero', escalafonId: 'eENF' },
+        { id: 'pA', nombre: 'Administrativo', escalafonId: 'eADM' },
+      ])
+      codigoRegistro.findMany.mockImplementation(async (args: { where: { id?: unknown; escalafonId?: unknown } }) =>
+        args.where.escalafonId ? crsPorCarrera : [{ id: 'crExplicito' }])
+      especialidadPuesto.findMany.mockResolvedValue([])
+      let n = 0
+      solicitudAlta.create.mockImplementation(async () => ({ id: `s${++n}` }))
+      solicitudAlta.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }))
+    }
+    const crGuardados = () => solicitudAlta.create.mock.calls.map((c) => (c[0] as { data: { codigoRegistroId: string | null } }).data.codigoRegistroId)
+    it('lote mixto: cada item deduce el CR de SU carrera; sin mapeo queda null', async () => {
+      cargarMixto()
+      const items = [
+        baseItem({ escalafonId: 'eCPH', puestoCargoId: 'pM' }),
+        baseItem({ escalafonId: 'eENF', puestoCargoId: 'pE' }),
+        baseItem({ escalafonId: 'eADM', puestoCargoId: 'pA' }),
+      ]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['cr37', 'cr87', null])
+    })
+    it('CR explícito del item tiene prioridad sobre el de la carrera', async () => {
+      cargarMixto()
+      const items = [baseItem({ escalafonId: 'eCPH', puestoCargoId: 'pM', codigoRegistroId: 'crExplicito' })]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['crExplicito'])
+    })
+  })
 })

@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
 import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { resolverCrPorCarrera, type CrPorCarreraDb } from '../../shared/crPorCarrera.js'
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
 import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCargo.js'
@@ -599,7 +600,14 @@ async function _aprobarAltaCargo(
     })
 
     // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
-    const crIdCargo = await normalizarCrCphId(tx as unknown as CrCphDb, solicitud.codigoRegistroId)
+    // Si la solicitud no trae CR (altas previas a la deducción por carrera), se
+    // deduce de la carrera elegida; un CR explícito tiene prioridad.
+    const crDerivado = solicitud.codigoRegistroId
+      ? null
+      : await resolverCrPorCarrera(tx as unknown as CrPorCarreraDb, solicitud.escalafonId, solicitud.literalPuesto)
+    const crIdEfectivo = solicitud.codigoRegistroId ?? crDerivado?.id ?? null
+    const crCodigoEfectivo = solicitud.codigoRegistro?.codigo ?? crDerivado?.codigo ?? null
+    const crIdCargo = await normalizarCrCphId(tx as unknown as CrCphDb, crIdEfectivo)
     const cargosCreadosIds: string[] = []
     for (let i = 0; i < solicitud.cantidad; i++) {
       const codigo = await siguienteCodigoCargo(prefijo, tx as typeof prisma)
@@ -630,7 +638,7 @@ async function _aprobarAltaCargo(
 
     await tx.solicitudAlta.update({
       where: { id: aut.referenciaId },
-      data:  { estado: 'aprobada', cargosCreadosIds },
+      data:  { estado: 'aprobada', cargosCreadosIds, ...(crDerivado ? { codigoRegistroId: crDerivado.id } : {}) },
     })
 
     // Notificar al solicitante
@@ -659,7 +667,7 @@ async function _aprobarAltaCargo(
     // Fuente de verdad: tipoConcursoDeCargo. Tipo null => sin concurso (el
     // usuario define el tipo después; se informa en la respuesta y en el log).
     const tipoConcurso = tipoConcursoDeCargo({
-      codigoRegistro: solicitud.codigoRegistro?.codigo ?? null,
+      codigoRegistro: crCodigoEfectivo,
       literalPuesto: solicitud.literalPuesto,
     })
     const auto = await crearConcursosAltaAutomaticaTx(

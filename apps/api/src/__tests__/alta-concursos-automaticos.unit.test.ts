@@ -18,6 +18,11 @@ const db = vi.hoisted(() => ({
 }))
 const ctx = vi.hoisted(() => ({
   solicitud: null as unknown,
+  /** CR que tiene la carrera (escalafón) de la solicitud, para la deducción por carrera. */
+  crsCarrera: [] as { id: string; codigo: string; escalafonId: string }[],
+  /** Último codigoRegistroId guardado en la solicitud / usado al crear cargos. */
+  solicitudCrId: undefined as string | undefined,
+  cargoCrIds: [] as (string | null)[],
   notificarSgrasv: vi.fn(async () => undefined),
 }))
 
@@ -33,13 +38,16 @@ function crearTx() {
     },
     solicitudAlta: {
       findUnique: vi.fn(async () => ctx.solicitud),
-      update: vi.fn(async ({ data }: { data: { estado: string; cargosCreadosIds: string[] } }) => {
+      update: vi.fn(async ({ data }: { data: { estado: string; cargosCreadosIds: string[]; codigoRegistroId?: string } }) => {
+        ctx.solicitudCrId = data.codigoRegistroId
         db.solicitud = { estado: data.estado, cargosCreadosIds: data.cargosCreadosIds }
       }),
     },
+    codigoRegistro: { findMany: vi.fn(async () => ctx.crsCarrera) },
     usuario: { findUnique: vi.fn(async () => ({ role: { slug: 'rol_solicitante' } })) },
     cargo: {
-      create: vi.fn(async ({ data }: { data: { subEstado: string } }) => {
+      create: vi.fn(async ({ data }: { data: { subEstado: string; codigoRegistroId: string | null } }) => {
+        ctx.cargoCrIds.push(data.codigoRegistroId)
         const c = { id: `cargo${++db.seq}`, subEstado: data.subEstado }
         db.cargos.push(c)
         return c
@@ -105,9 +113,9 @@ vi.mock('../shared/crCph.js', () => ({
 
 const { aprobarAutorizacionService } = await import('../modules/autorizaciones/autorizaciones.service.js')
 
-function solicitud(opts: { cr: string | null; cantidad: number; literal?: string; expediente?: string | null }) {
+function solicitud(opts: { cr: string | null; cantidad: number; literal?: string; expediente?: string | null; sinCrId?: boolean }) {
   return {
-    id: 'sol1', hospitalId: 'h1', escalafonId: 'esc1', codigoRegistroId: 'cr1', puestoCargoId: null,
+    id: 'sol1', hospitalId: 'h1', escalafonId: 'esc1', codigoRegistroId: opts.sinCrId ? null : 'cr1', puestoCargoId: null,
     especialidadPuestoId: null, literalPuesto: opts.literal ?? 'MEDICO', especialidad: null, agrupador: null,
     unificadorPuesto: null, regimen: null, expediente: opts.expediente === undefined ? 'EX-1' : opts.expediente,
     desde: null, cantidad: opts.cantidad,
@@ -121,6 +129,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(db, { cargos: [], concursos: [], cph: [], ceetps: [], seq: 0, fallarEnConcurso: 0 })
   db.solicitud = { estado: 'pendiente', cargosCreadosIds: [] }
+  ctx.crsCarrera = []; ctx.solicitudCrId = undefined; ctx.cargoCrIds = []
   prismaMock.autorizacion.findUnique.mockResolvedValue(autAlta)
   // $transaction con rollback simulado: si el callback falla, se restaura el estado.
   prismaMock.$transaction.mockImplementation(async (fn: (t: unknown) => Promise<unknown>) => {
@@ -239,5 +248,52 @@ describe('aprobar alta_cargo — concursos automáticos (Paso 3)', () => {
       expect.objectContaining({ tipo: 'concurso_iniciado', mensaje: expect.stringContaining('3 concurso(s) CPH') }),
       expect.anything(),
     )
+  })
+})
+
+describe('aprobar alta_cargo — CR deducido de la carrera cuando la solicitud no lo trae', () => {
+  const aprobar = () => aprobarAutorizacionService('aut1', 'u1', 'r') as Promise<{ concursosCreados: number; concursosSinTipo: number }>
+  it('carrera CPH (CR 22 y 37): deduce el 37, crea concurso CPH y guarda el CR en solicitud y cargo', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 2 })
+    ctx.crsCarrera = [{ id: 'cr22', codigo: '22', escalafonId: 'esc1' }, { id: 'cr37', codigo: '37', escalafonId: 'esc1' }]
+    const r = await aprobar()
+    expect(r).toMatchObject({ concursosCreados: 2, concursosSinTipo: 0 })
+    expect(db.cph).toHaveLength(2)
+    expect(db.cph.every((f) => f.estado === 'no_iniciado' && f.concurso.motivoConcurso === 'nuevo_cargo' && f.concurso.autorizadoAt === null)).toBe(true)
+    expect(ctx.cargoCrIds).toEqual(['cr37', 'cr37'])
+    expect(ctx.solicitudCrId).toBe('cr37')
+  })
+  it('carrera CEETPS (enfermería, CR 87): crea concurso CEETPS', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1, literal: 'Enfermero' })
+    ctx.crsCarrera = [{ id: 'cr87', codigo: '87', escalafonId: 'esc1' }]
+    const r = await aprobar()
+    expect(r.concursosCreados).toBe(1)
+    expect(db.ceetps).toHaveLength(1)
+    expect(db.cph).toHaveLength(0)
+    expect(ctx.cargoCrIds).toEqual(['cr87'])
+  })
+  it('carrera sin mapeo (CR 19 / 83 fuera de Anexo II): sin concurso, sin romper, cargo sin CR', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1, literal: 'Administrativo' })
+    ctx.crsCarrera = [{ id: 'cr83', codigo: '83', escalafonId: 'esc1' }, { id: 'cr19', codigo: '19', escalafonId: 'esc1' }]
+    const r = await aprobar()
+    expect(r).toMatchObject({ concursosCreados: 0, concursosSinTipo: 1 })
+    expect(db.cargos).toHaveLength(1)
+    expect(ctx.cargoCrIds).toEqual([null])
+    expect(ctx.solicitudCrId).toBeUndefined()
+  })
+  it('carrera sin códigos de registro: sin concurso, sin romper', async () => {
+    ctx.solicitud = solicitud({ cr: null, sinCrId: true, cantidad: 1 })
+    const r = await aprobar()
+    expect(r).toMatchObject({ concursosCreados: 0, concursosSinTipo: 1 })
+  })
+  it('CR explícito tiene prioridad: no se consulta ni se pisa con el de la carrera', async () => {
+    ctx.solicitud = solicitud({ cr: '85', cantidad: 1 })
+    ctx.crsCarrera = [{ id: 'cr37', codigo: '37', escalafonId: 'esc1' }]
+    const r = await aprobar()
+    expect(r.concursosCreados).toBe(1)
+    expect(db.ceetps).toHaveLength(1)
+    expect(db.cph).toHaveLength(0)
+    expect(ctx.cargoCrIds).toEqual(['cr1'])
+    expect(ctx.solicitudCrId).toBeUndefined()
   })
 })
