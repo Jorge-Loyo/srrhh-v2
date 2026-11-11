@@ -1,3 +1,4 @@
+import { TX_OPTS_LARGA } from '../../shared/txOpts.js'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { resolverCrPorCarrera, elegirCrPorCarrera, codigoCrDeEscalafon } from '../../shared/crPorCarrera.js'
@@ -18,13 +19,9 @@ import type {
 // por el pool alguna se pasaba del límite (P2028: "5169 ms passed, timeout 5000").
 //
 // Para el batch, UNA transacción crea los N items secuencialmente, así que el
-// trabajo crece con N. 30 s con maxWait de 10 s cubre con holgura un lote de
-// ~11 items (y bastante más) sin acercarse al límite; es el mismo criterio que
-// padron.service.ts (TRANSACTION_OPTS) y bajas.service.ts (timeout: 20000), que
-// ya subieron el default por la misma latencia de Neon. No se usa el timeout de
-// 10 min de padron porque ese cubre cargas masivas de padrón; un lote de altas
-// manuales es mucho más chico.
-const SOLICITUDES_ALTA_TX_OPTS = { timeout: 30_000, maxWait: 10_000 } as const
+// trabajo crece con N: usa las opciones compartidas TX_OPTS_LARGA (shared/txOpts.ts),
+// las mismas que la aprobación de altas (timeout 90 s, maxWait 15 s).
+const SOLICITUDES_ALTA_TX_OPTS = TX_OPTS_LARGA
 
 const include = {
   hospital:       { select: { id: true, sigla: true, nombre: true } },

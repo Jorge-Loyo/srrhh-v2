@@ -8,7 +8,7 @@ import { calcConcursoCph, type ConcursoCphCalcInput } from '../concursos-cph/con
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { prefijoRemplazante, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
 import { normalizarCrCphDeCargo, type CargoCrCphDb } from '../../shared/crCph.js'
-import { recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
+import { recalcularSubEstadoCargo, recalcularSubEstadoCargos, type SubEstadoTx } from '../cargos/subEstado.repo.js'
 
 // Label legible de cada motivo para la notificación concurso_iniciado a sgrasv.
 const MOTIVO_CONCURSO_LABEL: Record<MotivoConcurso, string> = {
@@ -62,9 +62,14 @@ export async function createConcursoTx(
   bajaId?: string,
   // `notificar:false` evita el aviso individual a SGRASV por concurso (la creación
   // automática del alta manda un único resumen por solicitud).
-  opciones?: { notificar?: boolean },
+  // `recalcularSubEstado:false` deja el recálculo del sub_estado del cargo al
+  // llamador (lo hace por lote, una vez, la creación automática del alta).
+  // `crYaNormalizado:true` omite la normalización CR 22→37 del cargo (el alta
+  // lo crea con el CR ya normalizado).
+  opciones?: { notificar?: boolean; recalcularSubEstado?: boolean; crYaNormalizado?: boolean },
 ) {
   const notificar = opciones?.notificar !== false
+  const recalcular = opciones?.recalcularSubEstado !== false
   // Retención de cargo: el titular retiene su cargo y se concursa un
   // reemplazante. El código del cargo del concurso conserva su número y se le
   // inserta -R- (CPH-POF-017530 → CPH-POF-R-000NNN), mismo criterio de
@@ -86,7 +91,7 @@ export async function createConcursoTx(
   }
 
   // Un concurso CPH nunca queda sobre un cargo con CR 22 (duplicado del 37).
-  if (body.tipoConcurso === TipoConcurso.CPH) {
+  if (body.tipoConcurso === TipoConcurso.CPH && !opciones?.crYaNormalizado) {
     await normalizarCrCphDeCargo(tx as unknown as CargoCrCphDb, body.cargoId)
   }
   const concurso = await tx.concurso.create({
@@ -148,7 +153,7 @@ export async function createConcursoTx(
     // El cargo vigente sin ocupante al que se le abre un concurso pasa a
     // sub_estado 'concurso'. Se recalcula con el helper (no se hardcodea) tras
     // crear el concurso, en la MISMA transacción.
-    await recalcularSubEstadoCargo(tx, body.cargoId)
+    if (recalcular) await recalcularSubEstadoCargo(tx, body.cargoId)
 
     return { concurso, concursoCph }
   }
@@ -184,7 +189,7 @@ export async function createConcursoTx(
       }, tx)
     }
 
-    await recalcularSubEstadoCargo(tx, body.cargoId)
+    if (recalcular) await recalcularSubEstadoCargo(tx, body.cargoId)
 
     return { concurso, concursoCeetps }
   }
@@ -251,17 +256,21 @@ export async function crearConcursosAltaAutomaticaTx(
     return resultado
   }
   const fechaVacante = new Date().toISOString().slice(0, 10)
+  // Idempotencia: UNA consulta por tabla con todos los cargos del lote (antes,
+  // dos por cargo). Misma noción de "abierto" que createConcursoService.
+  const [abiertosCph, abiertosCeetps] = await Promise.all([
+    tx.concursoCph.findMany({
+      where: { cargoId: { in: params.cargoIds }, estado: { not: 'finalizado' }, suspendido: false },
+      select: { cargoId: true },
+    }),
+    tx.concursoCeetps.findMany({
+      where: { cargoId: { in: params.cargoIds }, estado: { notIn: ['finalizado', 'desierto'] } },
+      select: { cargoId: true },
+    }),
+  ])
+  const conAbierto = new Set([...abiertosCph, ...abiertosCeetps].map((f) => f.cargoId))
   for (const cargoId of params.cargoIds) {
-    // Misma noción de "abierto" que createConcursoService (CPH y CEETPS).
-    const abiertoCph = await tx.concursoCph.findFirst({
-      where: { cargoId, estado: { not: 'finalizado' }, suspendido: false },
-      select: { id: true },
-    })
-    const abiertoCeetps = await tx.concursoCeetps.findFirst({
-      where: { cargoId, estado: { notIn: ['finalizado', 'desierto'] } },
-      select: { id: true },
-    })
-    if (abiertoCph || abiertoCeetps) {
+    if (conAbierto.has(cargoId)) {
       resultado.yaExistentes++
       continue
     }
@@ -279,9 +288,11 @@ export async function crearConcursosAltaAutomaticaTx(
       },
       usuarioId,
       undefined,
-      { notificar: false },
+      { notificar: false, recalcularSubEstado: false, crYaNormalizado: true },
     )
     resultado.creados.push({ cargoId, concursoId: concurso.id, tipoConcurso })
   }
+  // sub_estado de los cargos que recibieron concurso: UNA pasada por lote.
+  await recalcularSubEstadoCargos(tx, resultado.creados.map((c) => c.cargoId))
   return resultado
 }

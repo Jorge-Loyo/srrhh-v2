@@ -33,8 +33,18 @@ const ctx = vi.hoisted(() => ({
 const cuenta = (f: Fila) =>
   f.concurso.motivoConcurso === null || f.concurso.motivoConcurso !== 'nuevo_cargo' || f.concurso.autorizadoAt !== null
 
+/** Contador de consultas: cada método del tx simulado suma 1 (para acotar el nº de round-trips). */
+const q = vi.hoisted(() => ({ n: 0 }))
+function contar<T extends Record<string, Record<string, (...a: never[]) => unknown>>>(tx: T): T {
+  for (const modelo of Object.values(tx)) {
+    for (const [k, fn] of Object.entries(modelo)) {
+      modelo[k] = ((...a: never[]) => { q.n++; return fn(...a) }) as never
+    }
+  }
+  return tx
+}
 function crearTx() {
-  return {
+  return contar({
     autorizacion: {
       update: vi.fn(async () => ({})),
       findUnique: vi.fn(async () => ({ id: 'aut1', estado: 'aprobada' })),
@@ -53,11 +63,18 @@ function crearTx() {
     escalafon: { findUnique: vi.fn(async () => (ctx.escCodigo ? { codigo: ctx.escCodigo } : null)) },
     usuario: { findUnique: vi.fn(async () => ({ role: { slug: 'rol_solicitante' } })) },
     cargo: {
-      create: vi.fn(async ({ data }: { data: { subEstado: string; codigoRegistroId: string | null } }) => {
-        ctx.cargoCrIds.push(data.codigoRegistroId)
-        const c = { id: `cargo${++db.seq}`, subEstado: data.subEstado }
-        db.cargos.push(c)
-        return c
+      createMany: vi.fn(async ({ data }: { data: { id: string; subEstado: string; codigoRegistroId: string | null }[] }) => {
+        for (const d of data) {
+          ctx.cargoCrIds.push(d.codigoRegistroId)
+          db.cargos.push({ id: d.id, subEstado: d.subEstado })
+        }
+        return { count: data.length }
+      }),
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        db.cargos.filter((c) => where.id.in.includes(c.id)).map((c) => ({ id: c.id, estado: 'vigente' }))),
+      updateMany: vi.fn(async ({ where, data }: { where: { id: { in: string[] } }; data: { subEstado: string } }) => {
+        for (const c of db.cargos) if (where.id.in.includes(c.id)) c.subEstado = data.subEstado
+        return { count: where.id.in.length }
       }),
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
         id: where.id, estado: 'vigente', codigo: `COD-${where.id}`, literalPuesto: 'MEDICO', hospital: { sigla: 'HGAT' },
@@ -66,7 +83,7 @@ function crearTx() {
         db.cargos.find((c) => c.id === where.id)!.subEstado = data.subEstado
       }),
     },
-    ocupacion: { count: vi.fn(async () => 0) },
+    ocupacion: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
     concurso: {
       create: vi.fn(async ({ data }: { data: (typeof db.concursos)[number] }) => {
         if (db.fallarEnConcurso && db.concursos.length + 1 === db.fallarEnConcurso) throw new Error('falla al crear concurso')
@@ -76,8 +93,8 @@ function crearTx() {
       }),
     },
     concursoCph: {
-      findFirst: vi.fn(async ({ where }: { where: { cargoId: string } }) =>
-        db.cph.find((f) => f.cargoId === where.cargoId && f.estado !== 'finalizado') ?? null),
+      findMany: vi.fn(async ({ where }: { where: { cargoId: { in: string[] }; concurso?: unknown } }) =>
+        db.cph.filter((f) => where.cargoId.in.includes(f.cargoId) && (!where.concurso || cuenta(f)) && f.estado !== 'finalizado')),
       count: vi.fn(async ({ where }: { where: { cargoId: string } }) =>
         db.cph.filter((f) => f.cargoId === where.cargoId && !['finalizado'].includes(f.estado) && cuenta(f)).length),
       create: vi.fn(async ({ data }: { data: { cargoId: string; concursoId: string; estado: string } }) => {
@@ -87,8 +104,8 @@ function crearTx() {
       }),
     },
     concursoCeetps: {
-      findFirst: vi.fn(async ({ where }: { where: { cargoId: string } }) =>
-        db.ceetps.find((f) => f.cargoId === where.cargoId && !['finalizado', 'desierto'].includes(f.estado)) ?? null),
+      findMany: vi.fn(async ({ where }: { where: { cargoId: { in: string[] }; concurso?: unknown } }) =>
+        db.ceetps.filter((f) => where.cargoId.in.includes(f.cargoId) && (!where.concurso || cuenta(f)) && !['finalizado', 'desierto'].includes(f.estado))),
       count: vi.fn(async ({ where }: { where: { cargoId: string } }) =>
         db.ceetps.filter((f) => f.cargoId === where.cargoId && !['finalizado', 'desierto'].includes(f.estado) && cuenta(f)).length),
       create: vi.fn(async ({ data }: { data: { cargoId: string; concursoId: string; estado?: string } }) => {
@@ -97,11 +114,12 @@ function crearTx() {
         return { id: `ceetps-${data.concursoId}`, ...data }
       }),
     },
-  }
+  })
 }
 
 const prismaMock = vi.hoisted(() => ({
   autorizacion: { findUnique: vi.fn() },
+  usuario: { findUnique: vi.fn(async () => ({ role: { slug: 'rol_solicitante' } })) },
   $transaction: vi.fn(),
 }))
 vi.mock('../shared/prisma.js', () => ({ prisma: prismaMock }))
@@ -110,14 +128,17 @@ vi.mock('../modules/notificaciones/notificarSgrasv.js', () => ({ notificarSgrasv
 vi.mock('../modules/tareas/tareas.service.js', () => ({ crearTareaPendiente: vi.fn(), mensajeTareaRechazo: vi.fn() }))
 vi.mock('../shared/codigoCargo.js', () => ({
   prefijoDeCargo: vi.fn(() => 'PFX'),
-  siguienteCodigoCargo: vi.fn(async () => `PFX-${Math.random()}`),
+  maxSecuencialCargo: vi.fn(async () => 0),
   prefijoRemplazante: vi.fn(),
 }))
+// Ids de cargo deterministas (cargo1, cargo2, ...): el alta los genera en memoria para el createMany.
+vi.mock('node:crypto', async (orig) => ({ ...(await orig<typeof import('node:crypto')>()), randomUUID: () => `cargo${++db.seq}` }))
 vi.mock('../shared/crCph.js', () => ({
   normalizarCrCphId: vi.fn(async (_tx: unknown, id: string) => id),
   normalizarCrCphDeCargo: vi.fn(async () => undefined),
 }))
 
+const { TX_OPTS_LARGA } = await import('../shared/txOpts.js')
 const { aprobarAutorizacionService } = await import('../modules/autorizaciones/autorizaciones.service.js')
 
 function solicitud(opts: { cr: string | null; cantidad: number; literal?: string; expediente?: string | null; sinCrId?: boolean }) {
@@ -134,6 +155,7 @@ const autAlta = { id: 'aut1', tipo: 'alta_cargo', estado: 'pendiente', referenci
 
 beforeEach(() => {
   vi.clearAllMocks()
+  q.n = 0
   Object.assign(db, { cargos: [], concursos: [], cph: [], ceetps: [], seq: 0, fallarEnConcurso: 0 })
   db.solicitud = { estado: 'pendiente', cargosCreadosIds: [] }
   ctx.crsCarrera = []; ctx.escCodigo = null; ctx.crsPorCodigo = []; ctx.solicitudCrId = undefined; ctx.cargoCrIds = []
@@ -253,8 +275,46 @@ describe('aprobar alta_cargo — concursos automáticos (Paso 3)', () => {
     expect(ctx.notificarSgrasv).toHaveBeenCalledTimes(1)
     expect(ctx.notificarSgrasv).toHaveBeenCalledWith(
       expect.objectContaining({ tipo: 'concurso_iniciado', mensaje: expect.stringContaining('3 concurso(s) CPH') }),
-      expect.anything(),
     )
+  })
+  it('los avisos corren DESPUÉS del commit: un fallo al notificar no revierte el alta', async () => {
+    ctx.solicitud = solicitud({ cr: '37', cantidad: 2 })
+    ctx.notificarSgrasv.mockRejectedValueOnce(new Error('falla notificar'))
+    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as { concursosCreados: number }
+    expect(r.concursosCreados).toBe(2)
+    expect(db.cargos).toHaveLength(2)
+    expect((db.solicitud as { estado: string }).estado).toBe('aprobada')
+  })
+})
+describe('aprobar alta_cargo — transacción larga (timeout "Transaction not found")', () => {
+  it('pasa timeout y maxWait explícitos y generosos a $transaction', async () => {
+    ctx.solicitud = solicitud({ cr: '37', cantidad: 1 })
+    await aprobarAutorizacionService('aut1', 'u1', 'r')
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), TX_OPTS_LARGA)
+    expect(TX_OPTS_LARGA.timeout).toBeGreaterThanOrEqual(60_000)
+    expect(TX_OPTS_LARGA.maxWait).toBeGreaterThanOrEqual(10_000)
+  })
+  const consultas = async (cantidad: number, cr: string) => {
+    q.n = 0
+    ctx.solicitud = solicitud({ cr, cantidad })
+    await aprobarAutorizacionService('aut1', 'u1', 'r')
+    return q.n
+  }
+  it('con 20 cargos solo crece por cargo lo imprescindible: las 2 escrituras del concurso (antes ~10 por cargo)', async () => {
+    const n1 = await consultas(1, '37')
+    db.cargos = []; db.concursos = []; db.cph = []; db.seq = 0; ctx.cargoCrIds = []
+    const n20 = await consultas(20, '37')
+    expect(db.cph).toHaveLength(20)
+    // Por cargo: concurso + concursoCph (2); el resto es constante por lote.
+    expect((n20 - n1) / 19).toBe(2)
+    expect(n20).toBeLessThanOrEqual(2 * 20 + 15)
+  })
+  it('CEETPS con 20 cargos: una sola transacción y todos los cargos quedan vacantes', async () => {
+    ctx.solicitud = solicitud({ cr: '85', cantidad: 20 })
+    await aprobarAutorizacionService('aut1', 'u1', 'r')
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
+    expect(db.ceetps).toHaveLength(20)
+    expect(db.cargos.every((c) => c.subEstado === 'vacante')).toBe(true)
   })
 })
 

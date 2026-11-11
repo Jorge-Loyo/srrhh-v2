@@ -4,7 +4,8 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
-import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { randomUUID } from 'node:crypto'
+import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
 import { resolverCrPorCarrera, type CrPorCarreraDb } from '../../shared/crPorCarrera.js'
 import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
 import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
@@ -15,6 +16,7 @@ import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import { crearConcursosAltaAutomaticaTx } from '../concursos/concursos.service.js'
 import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import { esAdmin } from '../../shared/esAdmin.js'
+import { TX_OPTS_LARGA } from '../../shared/txOpts.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -320,7 +322,7 @@ export async function rechazarAutorizacionService(
     }
 
     return autActualizada
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // ─── Paso 2a: marcar el concurso de cargo nuevo como autorizado ──────────────
@@ -524,7 +526,7 @@ async function _aprobarCph(
     }
 
     return tx.autorizacion.findUnique({ where: { id: aut.id } })
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // ─── Lógica interna: aprobar concurso CEETPS (cargo nuevo) ───────────────────
@@ -569,7 +571,7 @@ async function _aprobarCeetps(
     }
 
     return tx.autorizacion.findUnique({ where: { id: aut.id } })
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // ─── Lógica interna: aprobar alta_cargo ──────────────────────────────────────
@@ -578,7 +580,7 @@ async function _aprobarAltaCargo(
   resueltoPorId: string,
   observaciones?: string,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     await tx.autorizacion.update({
       where: { id: aut.id },
       data:  { estado: 'aprobada', resueltoPorId, observaciones: observaciones ?? null },
@@ -607,57 +609,43 @@ async function _aprobarAltaCargo(
     const crIdEfectivo = solicitud.codigoRegistroId ?? crDerivado?.id ?? null
     const crCodigoEfectivo = solicitud.codigoRegistro?.codigo ?? crDerivado?.codigo ?? null
     const crIdCargo = await normalizarCrCphId(tx as unknown as CrCphDb, crIdEfectivo)
-    const cargosCreadosIds: string[] = []
-    for (let i = 0; i < solicitud.cantidad; i++) {
-      const codigo = await siguienteCodigoCargo(prefijo, tx as typeof prisma)
-      const cargo = await tx.cargo.create({
-        data: {
-          idSial:           `MANUAL-${codigo}`,
-          codigo,
-          hospitalId:       solicitud.hospitalId,
-          escalafonId:      solicitud.escalafonId,
-          codigoRegistroId: crIdCargo ?? null,
-          puestoCargoId:      solicitud.puestoCargoId,
-          especialidadPuestoId: solicitud.especialidadPuestoId,
-          literalPuesto:    solicitud.literalPuesto,
-          especialidadLegacy: solicitud.especialidad ?? null,
-          agrupador:        solicitud.agrupador ?? null,
-          unificadorPuesto: solicitud.unificadorPuesto ?? null,
-          regimen:          solicitud.regimen ?? null,
-          expediente:       solicitud.expediente ?? null,
-          fechaDesde:       solicitud.desde ?? null,
-          createdById:      resueltoPorId,
-          estado:           'vigente',
-          // Alta aprobada: cargo vigente sin ocupante ni concurso -> 'vacante'.
-          subEstado:        'vacante',
-        },
-      })
-      cargosCreadosIds.push(cargo.id)
-    }
-
+    // Códigos del lote: UN MAX por prefijo y el resto en memoria (antes: un MAX
+    // + un INSERT por cargo). Mismos códigos que la secuencia anterior (max+1..max+N).
+    const base = await maxSecuencialCargo(prefijo, tx as typeof prisma)
+    const lote = Array.from({ length: solicitud.cantidad }, (_, i) => {
+      const codigo = `${prefijo}-${String(base + i + 1).padStart(6, '0')}`
+      return { id: randomUUID(), codigo }
+    })
+    const cargosCreadosIds = lote.map((c) => c.id)
+    // Un solo INSERT para todo el lote; los ids se generan acá para conocerlos
+    // sin leerlos de vuelta.
+    await tx.cargo.createMany({
+      data: lote.map(({ id, codigo }) => ({
+        id,
+        idSial:           `MANUAL-${codigo}`,
+        codigo,
+        hospitalId:       solicitud.hospitalId,
+        escalafonId:      solicitud.escalafonId,
+        codigoRegistroId: crIdCargo ?? null,
+        puestoCargoId:      solicitud.puestoCargoId,
+        especialidadPuestoId: solicitud.especialidadPuestoId,
+        literalPuesto:    solicitud.literalPuesto,
+        especialidadLegacy: solicitud.especialidad ?? null,
+        agrupador:        solicitud.agrupador ?? null,
+        unificadorPuesto: solicitud.unificadorPuesto ?? null,
+        regimen:          solicitud.regimen ?? null,
+        expediente:       solicitud.expediente ?? null,
+        fechaDesde:       solicitud.desde ?? null,
+        createdById:      resueltoPorId,
+        estado:           'vigente' as const,
+        // Alta aprobada: cargo vigente sin ocupante ni concurso -> 'vacante'.
+        subEstado:        'vacante' as const,
+      })),
+    })
     await tx.solicitudAlta.update({
       where: { id: aut.referenciaId },
       data:  { estado: 'aprobada', cargosCreadosIds, ...(crDerivado ? { codigoRegistroId: crDerivado.id } : {}) },
     })
-
-    // Notificar al solicitante
-    if (aut.solicitadoPorId) {
-      const solicitante = await tx.usuario.findUnique({
-        where:  { id: aut.solicitadoPorId },
-        select: { role: { select: { slug: true } } },
-      })
-      if (solicitante?.role.slug) {
-        await crearNotificacion({
-          tipo:      'autorizacion_resuelta',
-          rolSlug:   solicitante.role.slug,
-          titulo:    'Alta de cargo aprobada',
-          mensaje:   `Tu solicitud de alta fue aprobada. Se crearon ${cargosCreadosIds.length} cargo(s).`,
-          origenTipo: 'autorizacion',
-          origenId:   aut.id,
-          origenKey:  `autorizacion_resuelta:${aut.id}`,
-        })
-      }
-    }
 
     // Paso 3: se crea AUTOMÁTICAMENTE un concurso "no iniciado" por cada cargo
     // nuevo (motivo nuevo_cargo, sin autorizar), en esta misma transacción: si
@@ -686,28 +674,50 @@ async function _aprobarAltaCargo(
         'alta_cargo aprobada: cargos sin tipo de concurso (CR fuera de CPH/CEETPS); no se crea concurso automático',
       )
     }
-    if (auto.creados.length > 0) {
-      const hospitalSigla = solicitud.hospital.sigla
-      await notificarSgrasvYHijos(
-        {
-          tipo: 'concurso_iniciado',
-          titulo: `Concursos nuevos pendientes de caratular — ${hospitalSigla}`,
-          mensaje: `El alta de cargo aprobada generó ${auto.creados.length} concurso(s) ${auto.creados[0]!.tipoConcurso.toUpperCase()} sin iniciar (${solicitud.literalPuesto ?? 'cargo nuevo'}, ${hospitalSigla}). Falta caratular y autorizar.`,
-          origenTipo: 'autorizacion',
-          origenId: aut.id,
-          origenKey: `concursos_alta_automaticos:${aut.id}`,
-        },
-        tx,
-      )
-    }
-
     return {
       autorizacion: await tx.autorizacion.findUnique({ where: { id: aut.id } }),
       concursosCreados: auto.creados.length,
       concursosYaExistentes: auto.yaExistentes,
       concursosSinTipo: auto.sinTipo,
+      _post: { auto, cargosCreados: cargosCreadosIds.length, hospitalSigla: solicitud.hospital.sigla, literalPuesto: solicitud.literalPuesto },
     }
-  })
+  }, TX_OPTS_LARGA)
+  // Avisos DESPUÉS del commit: no necesitan atomicidad con el alta y, hechos
+  // dentro de la transacción, la alargaban (varias consultas remotas). Un fallo
+  // acá se loguea pero NO revierte el alta ya aprobada.
+  const { _post, ...respuesta } = resultado
+  try {
+    if (aut.solicitadoPorId) {
+      const solicitante = await prisma.usuario.findUnique({
+        where:  { id: aut.solicitadoPorId },
+        select: { role: { select: { slug: true } } },
+      })
+      if (solicitante?.role.slug) {
+        await crearNotificacion({
+          tipo:      'autorizacion_resuelta',
+          rolSlug:   solicitante.role.slug,
+          titulo:    'Alta de cargo aprobada',
+          mensaje:   `Tu solicitud de alta fue aprobada. Se crearon ${_post.cargosCreados} cargo(s).`,
+          origenTipo: 'autorizacion',
+          origenId:   aut.id,
+          origenKey:  `autorizacion_resuelta:${aut.id}`,
+        })
+      }
+    }
+    if (_post.auto.creados.length > 0) {
+      await notificarSgrasvYHijos({
+        tipo: 'concurso_iniciado',
+        titulo: `Concursos nuevos pendientes de caratular — ${_post.hospitalSigla}`,
+        mensaje: `El alta de cargo aprobada generó ${_post.auto.creados.length} concurso(s) ${_post.auto.creados[0]!.tipoConcurso.toUpperCase()} sin iniciar (${_post.literalPuesto ?? 'cargo nuevo'}, ${_post.hospitalSigla}). Falta caratular y autorizar.`,
+        origenTipo: 'autorizacion',
+        origenId: aut.id,
+        origenKey: `concursos_alta_automaticos:${aut.id}`,
+      })
+    }
+  } catch (err) {
+    logger.error({ err, autorizacionId: aut.id }, 'alta_cargo aprobada: falló el envío de avisos (el alta NO se revierte)')
+  }
+  return respuesta
 }
 
 // ─── Lógica interna: aprobar baja_cargo ──────────────────────────────────────
@@ -747,5 +757,5 @@ async function _aprobarBajaCargo(
     }
 
     return tx.autorizacion.findUnique({ where: { id: aut.id } })
-  })
+  }, TX_OPTS_LARGA)
 }

@@ -76,3 +76,58 @@ export async function recalcularSubEstadoCargo(tx: SubEstadoTx, cargoId: string)
   const subEstado = await recalcularSubEstado(tx, cargoId, cargo.estado)
   await tx.cargo.update({ where: { id: cargoId }, data: { subEstado } })
 }
+
+/**
+ * Versión por LOTE de `recalcularSubEstadoCargo`: recalcula y persiste el
+ * sub_estado de varios cargos con un número FIJO de consultas (no una tanda por
+ * cargo): 1 lectura de cargos, 3 de hechos (ocupaciones vivas y concursos
+ * CPH/CEETPS activos) y 1 `updateMany` por valor distinto de sub_estado.
+ * Misma regla que el helper individual (calcularSubEstado + hechos idénticos).
+ */
+export async function recalcularSubEstadoCargos(tx: SubEstadoTx, cargoIds: string[]): Promise<void> {
+  if (cargoIds.length === 0) return
+  const cargos = await tx.cargo.findMany({
+    where: { id: { in: cargoIds } },
+    select: { id: true, estado: true },
+  })
+  const vigentes = cargos.filter((c) => c.estado === 'vigente').map((c) => c.id)
+  const conOcupante = new Set<string>()
+  const conConcurso = new Set<string>()
+  if (vigentes.length > 0) {
+    const [ocupaciones, cph, ceetps] = await Promise.all([
+      tx.ocupacion.findMany({ where: { cargoId: { in: vigentes }, hasta: null }, select: { cargoId: true } }),
+      tx.concursoCph.findMany({
+        where: {
+          cargoId: { in: vigentes },
+          estado: { notIn: [...ESTADOS_CPH_TERMINALES] },
+          concurso: WHERE_CONCURSO_AUTORIZADO_PARA_CONTAR,
+        },
+        select: { cargoId: true },
+      }),
+      tx.concursoCeetps.findMany({
+        where: {
+          cargoId: { in: vigentes },
+          estado: { notIn: [...ESTADOS_CEETPS_TERMINALES] },
+          concurso: WHERE_CONCURSO_AUTORIZADO_PARA_CONTAR,
+        },
+        select: { cargoId: true },
+      }),
+    ])
+    for (const o of ocupaciones) conOcupante.add(o.cargoId)
+    for (const c of [...cph, ...ceetps]) conConcurso.add(c.cargoId)
+  }
+  const porValor = new Map<SubEstadoCargo | null, string[]>()
+  for (const c of cargos) {
+    const v = calcularSubEstado({
+      estado: c.estado,
+      tieneOcupanteVigente: conOcupante.has(c.id),
+      tieneConcursoActivo: conConcurso.has(c.id),
+    })
+    const ids = porValor.get(v)
+    if (ids) ids.push(c.id)
+    else porValor.set(v, [c.id])
+  }
+  for (const [subEstado, ids] of porValor) {
+    await tx.cargo.updateMany({ where: { id: { in: ids } }, data: { subEstado } })
+  }
+}
