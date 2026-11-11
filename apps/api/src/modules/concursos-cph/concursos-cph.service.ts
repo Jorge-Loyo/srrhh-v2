@@ -42,6 +42,7 @@ import {
   type CrCphDb,
 } from '../../shared/crCph.js'
 import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
+import { listarCorreccionesTipo } from '../concursos/corregirTipo.service.js'
 
 const include = {
   concurso: {
@@ -406,7 +407,8 @@ export async function getConcursoCphByIdService(id: string) {
             : null,
         }
       : null
-  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada }
+  const correccionesTipo = await listarCorreccionesTipo(id)
+  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo }
 }
 
 // Campos de tipo fecha del PATCH — explícito en vez de heurística por nombre

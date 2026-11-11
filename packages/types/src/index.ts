@@ -373,6 +373,16 @@ export interface CrearEtiquetaRequest {
 // S4-4: estado/subEstado/subEstado3 son calculados por el backend
 // (calcConcursoCph, apps/api/.../concursos-cph/concursosCph.calc.ts) en cada
 // create/PATCH — no forman parte de PatchConcursoCphRequest más abajo.
+/** Paso 5a: entrada del historial de correcciones de tipo de un concurso. */
+export interface CorreccionTipoConcurso {
+  id: string
+  fecha: string
+  tipoOrigen: 'cph' | 'ceetps'
+  tipoDestino: 'cph' | 'ceetps'
+  motivo: string
+  usuario: string | null
+}
+
 export interface ConcursoCph {
   id: string
   concursoId: string
@@ -394,6 +404,8 @@ export interface ConcursoCph {
   eeConcurso: string | null
   fechaEeConcurso: string | null
   ifAutorizacion: string | null
+  // Paso 5a: correcciones de tipo (CPH <-> CEETPS) del concurso, más reciente primero
+  correccionesTipo?: CorreccionTipoConcurso[]
   // Paso 2a (solo GET /concursos-cph/:id): autorización pendiente y último rechazo
   autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null
   ultimaAutorizacionRechazada?: {
@@ -528,6 +540,8 @@ export interface ConcursoCeetps {
   hospital?: Hospital
   escalafon?: Escalafon
   personaDesignada?: Persona
+  // Paso 5a: correcciones de tipo (CPH <-> CEETPS) del concurso, más reciente primero
+  correccionesTipo?: CorreccionTipoConcurso[]
   // Paso 2b (solo GET /concursos-ceetps/:id, nuevo_cargo sin autorizar): autorización
   // pendiente y último rechazo. Misma forma que en ConcursoCph.
   autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null

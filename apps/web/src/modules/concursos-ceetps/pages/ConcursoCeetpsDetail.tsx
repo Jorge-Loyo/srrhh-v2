@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -16,6 +16,8 @@ import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
 import { apiClient } from '@/shared/lib/api-client'
+import { CorregirTipoControl } from '@/modules/concursos-cph/components/CorregirTipoControl'
+import { puedeCorregirTipo } from '@/modules/concursos-cph/lib/corregirTipo'
 import {
   avisoAutorizacionNuevoCargo,
   esNuevoCargoSinAutorizar,
@@ -101,6 +103,11 @@ export function ConcursoCeetpsDetail() {
   const patchMutation = usePatchConcursoCeetps(id ?? '')
   const designarMutation = useDesignarConcursoCeetps(id ?? '')
   const queryClient = useQueryClient()
+  // Paso 5a: aviso de éxito que deja la corrección de tipo al navegar a este concurso.
+  const location = useLocation()
+  const [avisoTipo, setAvisoTipo] = useState<string | null>(
+    (location.state as { avisoTipo?: string } | null)?.avisoTipo ?? null,
+  )
 
   // Paso 2b: resolver la autorización pendiente (SGRASV) desde el propio concurso.
   const [obsResolver, setObsResolver] = useState('')
@@ -344,6 +351,8 @@ export function ConcursoCeetpsDetail() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <span className="badge-default" title="Tipo de concurso">Tipo: CEETPS</span>
+            {id && puedeCorregirTipo(user, concurso) && <CorregirTipoControl tipoActual="ceetps" detalleId={id} />}
             <span className={ESTADO_BADGE[concurso.estado]}>{ESTADO_LABEL[concurso.estado]}</span>
             {concurso.subEstado && (
               <span className={SUB_ESTADO_BADGE[concurso.subEstado] ?? 'badge-default'}>
@@ -377,6 +386,28 @@ export function ConcursoCeetpsDetail() {
         )}
       </div>
 
+      {avisoTipo && (
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" role="status">
+          <span>✓ {avisoTipo}</span>
+          <button type="button" className="text-xs underline" onClick={() => setAvisoTipo(null)}>
+            Cerrar
+          </button>
+        </div>
+      )}
+      {(concurso.correccionesTipo?.length ?? 0) > 0 && (
+        <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-xs text-gray-700">
+          <p className="font-semibold mb-1">Historial de cambios de tipo</p>
+          <ul className="space-y-0.5">
+            {concurso.correccionesTipo!.map((c) => (
+              <li key={c.id}>
+                {new Date(c.fecha).toLocaleDateString('es-AR')}: de {c.tipoOrigen === 'cph' ? 'CPH' : 'CEETPS'} a{' '}
+                {c.tipoDestino === 'cph' ? 'CPH' : 'CEETPS'}
+                {c.usuario ? ` por ${c.usuario}` : ''}. Motivo: {c.motivo}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {rechazoAviso && (
         <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm">
           <span className="text-red-500 text-base mt-0.5">⛔</span>

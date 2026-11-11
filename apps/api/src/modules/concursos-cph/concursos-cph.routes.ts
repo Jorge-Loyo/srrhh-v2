@@ -3,6 +3,8 @@ import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
+import { corregirTipoSchema } from '../concursos/corregirTipo.schema.js'
+import { corregirTipoConcursoService } from '../concursos/corregirTipo.service.js'
 import {
   concursosCphQuerySchema,
   patchConcursoCphSchema,
@@ -122,6 +124,14 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     },
   )
 
+  // POST /:id/corregir-tipo — Paso 5a: CPH -> CEETPS, solo quien autoriza (se valida en el service)
+  app.post<{ Params: { id: string } }>('/:id/corregir-tipo', async (request, reply) => {
+    const usuarioId = (request as any).user?.id as string | undefined
+    if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
+    const body = corregirTipoSchema.parse(request.body)
+    const data = await corregirTipoConcursoService('cph', request.params.id, body, usuarioId)
+    return reply.send({ data })
+  })
   // POST /:id/suspender — S4-5
   app.post<{ Params: { id: string } }>(
     '/:id/suspender',

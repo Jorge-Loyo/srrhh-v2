@@ -6,7 +6,7 @@
 // que relanza el concurso desde la Etapa 1.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import {
@@ -26,6 +26,8 @@ import {
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
+import { CorregirTipoControl } from '../components/CorregirTipoControl'
+import { puedeCorregirTipo } from '../lib/corregirTipo'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import {
@@ -117,6 +119,11 @@ export function ConcursoCphWizard() {
 
   const { user } = useAuth()
   const queryClient = useQueryClient()
+  // Paso 5a: aviso de éxito que deja la corrección de tipo al navegar a este concurso.
+  const location = useLocation()
+  const [avisoTipo, setAvisoTipo] = useState<string | null>(
+    (location.state as { avisoTipo?: string } | null)?.avisoTipo ?? null,
+  )
 
   // S13-C: la Autorizacion pendiente real (tabla genérica) para este concurso,
   // si existe y le corresponde resolverla al usuario logueado. Reemplaza al
@@ -3433,6 +3440,10 @@ export function ConcursoCphWizard() {
                 <p className="text-sm text-gray-500 mt-0.5">{etapa.descripcion}</p>
               </div>
               <div className="flex items-center gap-2">
+                <span className="badge-default text-xs" title="Tipo de concurso">Tipo: CPH</span>
+                {etapaActiva === 'baja' && id && puedeCorregirTipo(user, cphData) && (
+                  <CorregirTipoControl tipoActual="cph" detalleId={id} />
+                )}
                 <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
                   {ESTADO_ETAPA_CONFIG[etapa.estado].label}
                 </span>
@@ -3487,6 +3498,14 @@ export function ConcursoCphWizard() {
                 </div>
               )}
 
+              {avisoTipo && (
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" role="status">
+                  <span>✓ {avisoTipo}</span>
+                  <button type="button" className="text-xs underline" onClick={() => setAvisoTipo(null)}>
+                    Cerrar
+                  </button>
+                </div>
+              )}
               {/* Paso 2a: estado de autorización de un concurso de cargo nuevo */}
               {avisoNuevoCargo && (
                 <div

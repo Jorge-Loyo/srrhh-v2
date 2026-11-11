@@ -17,7 +17,8 @@ const rolePermiso = { findFirst: vi.fn() }
 const cargo = { findUnique: vi.fn(), update: vi.fn() }
 const ocupacion = { count: vi.fn(), findFirst: vi.fn() }
 const persona = { findUnique: vi.fn() }
-const tx = { concursoCeetps, concursoCph, autorizacion, concurso, usuario, role, rolePermiso, cargo, ocupacion, persona }
+const auditLog = { findMany: vi.fn(async () => []) }
+const tx = { concursoCeetps, concursoCph, autorizacion, concurso, usuario, role, rolePermiso, cargo, ocupacion, persona, auditLog }
 vi.mock('../shared/prisma.js', () => ({
   prisma: {
     ...tx,

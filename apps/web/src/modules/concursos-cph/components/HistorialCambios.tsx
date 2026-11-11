@@ -23,6 +23,11 @@ export function HistorialCambios({ cphData, juradoData }: HistorialCambiosProps)
         const bool = (b: boolean | null | undefined) => b === true
 
         const eventos: { fecha: string; texto: string }[] = [
+          // Paso 5a: correcciones de tipo (CPH <-> CEETPS) con su motivo.
+          ...(cphData.correccionesTipo ?? []).map((c) => ({
+            fecha: c.fecha,
+            texto: `Tipo corregido de ${c.tipoOrigen === 'cph' ? 'CPH' : 'CEETPS'} a ${c.tipoDestino === 'cph' ? 'CPH' : 'CEETPS'}${c.usuario ? ` por ${c.usuario}` : ''}. Motivo: ${c.motivo}`,
+          })),
           {
             fecha: cphData.fechaBaja,
             texto: 'Baja registrada' + (cphData.eeBaja ? `: ${cphData.eeBaja}` : ''),

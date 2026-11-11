@@ -14,6 +14,7 @@ import {
 } from './autorizacionNuevoCargo.js'
 import { autoAprobarConcurso, resolverSlugPorPermiso, usuarioPuedeResolverSgrasv } from '../autorizaciones/autorizaciones.service.js'
 import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
+import { listarCorreccionesTipo } from '../concursos/corregirTipo.service.js'
 
 const include = {
   // cargo.codigoRegistro: clasificador fino de la carrera —
@@ -110,8 +111,9 @@ export async function getConcursoCeetpsByIdService(id: string) {
   if (!concursoCeetps) throw AppError.notFound('Concurso CEETPS no encontrado')
   // Paso 2b: autorización pendiente y último rechazo, solo para nuevo_cargo sin
   // autorizar. Las Autorizacion concurso_ceetps guardan referenciaId = ConcursoCeetps.id.
+  const correccionesTipo = await listarCorreccionesTipo(id)
   if (!esNuevoCargoSinAutorizar(concursoCeetps.concurso)) {
-    return { ...concursoCeetps, autorizacionPendiente: null, ultimaAutorizacionRechazada: null }
+    return { ...concursoCeetps, autorizacionPendiente: null, ultimaAutorizacionRechazada: null, correccionesTipo }
   }
   const [autorizacionPendiente, rechazada] = await Promise.all([
     prisma.autorizacion.findFirst({
@@ -142,7 +144,7 @@ export async function getConcursoCeetpsByIdService(id: string) {
             : null,
         }
       : null
-  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada }
+  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo }
 }
 
 // ─── S5-1: actualizar campos por fase — estado y subEstado se recalculan ─────
