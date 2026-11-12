@@ -56,6 +56,24 @@ describe('fallback por código de escalafón (Neon)', () => {
   ])('resolver: escalafón %s sin CR propios => %s / CR %s', async (esc, tipo, codigo) => {
     expect(await resolverCrPorCarrera(fakeDb(esc, []), 'e', 'Puesto')).toMatchObject({ tipo, codigo })
   })
+  it('alta nueva CPH (Neon: escalafón 22 con CR 22 y 37): siempre CR 37, nunca 22 (resolver + normalizarCrCphId)', async () => {
+    const { normalizarCrCphId } = await import('../shared/crCph.js')
+    const propios = [{ id: 'id-22', codigo: '22', escalafonId: 'e' }, { id: 'id-37', codigo: '37', escalafonId: 'e' }]
+    for (const puesto of ['Médico', 'Bioquímico', 'Puesto']) {
+      const r = await resolverCrPorCarrera(fakeDb('22', propios), 'e', puesto)
+      expect(r).toMatchObject({ id: 'id-37', codigo: '37', tipo: 'cph' })
+      // Lo que guarda _aprobarAltaCargo en el cargo: normalizarCrCphId sobre el CR (deducido o explícito 22).
+      const dbCph = {
+        codigoRegistro: {
+          findUnique: async ({ where }: { where: { id: string } }) => propios.find((c) => c.id === where.id) ?? null,
+          findFirst: async ({ where }: { where: { codigo: string; escalafonId: string } }) =>
+            propios.find((c) => c.codigo === where.codigo && c.escalafonId === where.escalafonId) ?? null,
+        },
+      }
+      expect(await normalizarCrCphId(dbCph, r!.id)).toBe('id-37')
+      expect(await normalizarCrCphId(dbCph, 'id-22')).toBe('id-37')
+    }
+  })
   it('resolver: 83 sin CR propios, Anexo II => CEETPS; otro puesto => null', async () => {
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Administrativo')).toBeNull()
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Radioperador')).toMatchObject({ tipo: 'ceetps', codigo: '83' })

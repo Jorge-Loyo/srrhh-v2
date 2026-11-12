@@ -1,4 +1,4 @@
-import { CODIGOS_ESCALAFON_GESTIONADOS } from '@srrhh/types'
+import { CODIGOS_ESCALAFON_GESTIONADOS, CR_POR_CODIGO_ESCALAFON_GESTIONADO } from '@srrhh/types'
 
 // Carreras (escalafones) que gestionamos: las que pueden producir concurso.
 // La lista vive en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), compartida
@@ -13,9 +13,18 @@ export interface CarreraCatalogo {
 
 export type TipoAltaCarrera = 'pof' | 'pou' | 'estructura'
 
-/** Etiqueta 'CÓDIGO — Nombre' (mismo formato del selector de Reportes). */
+/**
+ * Código a mostrar: el código de registro principal si el escalafón lo tiene
+ * definido (la CPH es un único escalafón '22' cuyo CR principal es 37); si no,
+ * el propio `escalafones.codigo`. Solo cambia la etiqueta, no el valor enviado.
+ */
+export function codigoMostradoCarrera(codigo: string): string {
+  const c = codigo.trim()
+  return CR_POR_CODIGO_ESCALAFON_GESTIONADO[c] ?? c
+}
+/** Etiqueta 'CÓDIGO — Nombre' con el código de registro principal. */
 export function etiquetaCarrera(c: Pick<CarreraCatalogo, 'codigo' | 'nombre'>): string {
-  return `${c.codigo} — ${c.nombre}`
+  return `${codigoMostradoCarrera(c.codigo)} — ${c.nombre}`
 }
 
 export function esCarreraGestionada(codigo: string | null | undefined): boolean {
@@ -33,7 +42,11 @@ export function opcionesCarreraAlta(
   tipo: TipoAltaCarrera,
 ): { value: string; label: string }[] {
   const lista = tipo === 'estructura' ? escalafones : escalafones.filter((e) => esCarreraGestionada(e.codigo))
-  return lista.map((e) => ({ value: e.id, label: etiquetaCarrera(e) }))
+  return [...lista]
+    .sort((a, b) =>
+      codigoMostradoCarrera(a.codigo).localeCompare(codigoMostradoCarrera(b.codigo), 'es', { numeric: true }),
+    )
+    .map((e) => ({ value: e.id, label: etiquetaCarrera(e) }))
 }
 
 function normalizarNombre(s: string): string {

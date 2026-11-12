@@ -16,6 +16,15 @@ describe('etiquetaCarrera', () => {
     expect(etiquetaCarrera(cat[2]!)).toBe('87 — Nueva Carrera Enfermería')
     expect(etiquetaCarrera(cat[1]!)).toBe('85 — CEETPS')
   })
+  it('escalafón 22 (CPH) muestra su CR principal 37; el 37 y otros sin cambio', () => {
+    expect(etiquetaCarrera({ codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' })).toBe('37 — Nueva Carrera Prof. Hosp')
+    expect(etiquetaCarrera({ codigo: '37', nombre: 'X' })).toBe('37 — X')
+    expect(etiquetaCarrera({ codigo: '70', nombre: 'Cuerpo Especialistas Profesionales' })).toBe('70 — Cuerpo Especialistas Profesionales')
+  })
+  it('el value enviado sigue siendo el id del escalafón', () => {
+    const o = opcionesCarreraAlta([{ id: 'cph', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' }], 'pof')
+    expect(o).toEqual([{ value: 'cph', label: '37 — Nueva Carrera Prof. Hosp' }])
+  })
 })
 
 describe('esCarreraGestionada', () => {
@@ -30,8 +39,8 @@ describe('opcionesCarreraAlta', () => {
   it('POF y POU: solo carreras gestionadas con etiqueta código — nombre', () => {
     for (const tipo of ['pof', 'pou'] as const) {
       const o = opcionesCarreraAlta(cat, tipo)
-      expect(o.map((x) => x.value)).toEqual(['a', 'b', 'c', 'd', 'e'])
-      expect(o[0]).toEqual({ value: 'a', label: '83 — Nueva Carrera Administrativa' })
+      expect(o.map((x) => x.value)).toEqual(['e', 'd', 'a', 'b', 'c'])
+      expect(o[2]).toEqual({ value: 'a', label: '83 — Nueva Carrera Administrativa' })
     }
   })
   it('Estructura: NO filtra (todas las carreras)', () => {
