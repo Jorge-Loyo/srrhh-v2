@@ -357,6 +357,7 @@ export async function crearCargo(
       unificadorPuesto: puestoSolicitado,
       agrupador: puestoSolicitado,
       puestoCargo: puestoResuelto,
+      codigoRegistro: COD_CR_CPH,
     })
     const especialidadPuestoId = await resolverEspecialidadPuestoId(
       tx,

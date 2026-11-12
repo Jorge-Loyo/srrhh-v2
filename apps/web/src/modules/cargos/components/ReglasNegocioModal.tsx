@@ -140,7 +140,7 @@ const CICLO_TABS = [
     ],
     validaciones: [
       'No puede tener estado = no_vigente si existe una ocupación con hasta IS NULL.',
-      'El código del cargo (ej: RG-CG-000047) no cambia aunque cambien las personas.',
+      'El código del cargo (ej: GER-000047) no cambia aunque cambien las personas.',
       'Un cargo vigente puede estar VACANTE u OCUPADO — son condiciones derivadas, no estados.',
     ],
     campos: [
@@ -458,7 +458,7 @@ function ComoCrearCargos() {
       id: 'pof', titulo: 'Ejecución POF', subtitulo: 'Planta Orgánica Funcional', color: 'blue' as Color,
       ruta: '/cargos/alta', boton: '+ Ejecución POF',
       escalafones: ['CPH (Médicos)', 'Carrera de Enfermería', 'CEETPS (Técnicos)', 'Escalafón General'],
-      codigos: ['CPH-POF-XXXXXX', 'ENF-XXXXXX', 'TEC-POF-XXXXXX', 'EG-XXXXXX'],
+      codigos: ['CPH-P-XXXXXX', 'ENF-XXXXXX', 'TEC-XXXXXX', 'EG-XXXXXX'],
       flujo: [
         'Ir a /cargos/alta y clickear “+ Ejecución POF”',
         'Ingresar el número de expediente y confirmar',
@@ -476,7 +476,7 @@ function ComoCrearCargos() {
       id: 'pou', titulo: 'Ejecución POU', subtitulo: 'Planta Orgánica de Urgencia', color: 'orange' as Color,
       ruta: '/cargos/alta', boton: '+ Ejecución POU',
       escalafones: ['CPH (Médicos)', 'CEETPS — solo Radiología, Hemoterapia, Anat. Patol., Instrumentación'],
-      codigos: ['CPH-POU-XXXXXX', 'TEC-POU-XXXXXX'],
+      codigos: ['CPH-G-XXXXXX'],
       flujo: [
         'Ir a /cargos/alta y clickear “+ Ejecución POU”',
         'Ingresar expediente y confirmar',
@@ -492,7 +492,7 @@ function ComoCrearCargos() {
       id: 'estructura', titulo: 'Estructura', subtitulo: 'Cargos de conducción y autoridades', color: 'purple' as Color,
       ruta: '/cargos/alta', boton: '+ Estructura',
       escalafones: ['CPH (Jefe de Sección/Unidad/División/Departamento, Director)', 'Escalafón General (Jefe, Director, Gerencial)', 'Régimen Gerencial', 'Autoridades Superiores'],
-      codigos: ['CPH-J-POF-XXXXXX', 'CPH-D-XXXXXX', 'EG-J-XXXXXX', 'RG-CG-XXXXXX', 'AS-DG-XXXXXX'],
+      codigos: ['CPH-J-POF-XXXXXX', 'CPH-D-XXXXXX', 'EG-J-XXXXXX', 'GER-XXXXXX', 'AS-XXXXXX'],
       flujo: [
         'Ir a /cargos/alta y clickear “+ Estructura”',
         'Ingresar número de decreto y confirmar (campo dice “Decreto”)',

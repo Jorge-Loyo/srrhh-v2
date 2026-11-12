@@ -135,12 +135,14 @@ describe('prefijoCeetpsPorSubCarrera', () => {
   it('ENFERMERIA → ENF', () => {
     expect(prefijoCeetpsPorSubCarrera('ENFERMERIA', 'enfermero')).toBe('ENF')
   })
-  it('TECNICOS planta → TEC-POF; guardia → TEC-POU', () => {
-    expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico radiologo')).toBe('TEC-POF')
-    expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico de GUARDIA')).toBe('TEC-POU')
+  it('TECNICOS → TEC (planta y guardia); auxiliar de enfermería → ENF', () => {
+    expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico radiologo')).toBe('TEC')
+    expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico de GUARDIA')).toBe('TEC')
+    expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'Auxiliar de Enfermería')).toBe('ENF')
   })
-  it('ANEXO2 jefatura → EG-J; resto → EG', () => {
+  it('ANEXO2 jefatura → EG-J; Anexo II → SGAII; resto → EG', () => {
     expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'JEFE de camilleros')).toBe('EG-J')
-    expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'camillero')).toBe('EG')
+    expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'camillero')).toBe('SGAII')
+    expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'administrativo')).toBe('EG')
   })
 })

@@ -730,7 +730,7 @@ export function ConcursoCphWizard() {
   const esCargoConduccionJurado = (() => {
     const codigo = cphData?.concurso?.cargo?.codigo ?? ''
     const lit = normEsp(cphData?.puestoSolicitado ?? cphData?.concurso?.cargo?.literalPuesto)
-    const codCond = /^(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG)/.test(codigo)
+    const codCond = /^((R-|TTR-)?(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG|ENF-J|TEC-J|GER))/.test(codigo)
     const litCond = /(jefe|director|sub director|gerente)/.test(lit)
     return codCond || litCond
   })()

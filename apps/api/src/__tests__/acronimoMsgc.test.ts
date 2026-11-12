@@ -5,7 +5,7 @@ import {
   prefijoCodigoMsgc,
   recodificarCodigo,
   type EntradaAcronimo,
-} from './acronimoMsgc.js'
+} from '../shared/acronimoMsgc.js'
 
 const base = (o: Partial<EntradaAcronimo>): EntradaAcronimo => ({
   cr: '37',

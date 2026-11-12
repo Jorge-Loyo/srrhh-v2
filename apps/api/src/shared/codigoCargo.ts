@@ -1,35 +1,17 @@
 import { Prisma, PrismaClient } from '@prisma/client'
+import { acronimoMsgc } from './acronimoMsgc.js'
 
-// ─── Prefijos según REGLAS_NEGOCIO.MD sección 3 ──────────────────────────────
+// ─── Prefijos = acrónimos del Excel MSGC (hoja Criterios) ────────────────────
 //
-// El prefijo se deriva de: nombre del escalafón + unificador_puesto + agrupador.
-// Los valores vienen del Dotaneitor (columnas ESCALAFON, UNIFICADOR DE PUESTOS,
-// AGRUPADOR del Excel procesado).
+// El prefijo del código de un cargo NUEVO es el acrónimo MSGC (shared/acronimoMsgc.ts):
+//   CPH-P, CPH-G, CPH-J-POF, CPH-J-POU, CPH-D, CPH-SD, ENF, ENF-J, TEC, TEC-J, EG, EG-J,
+//   SGAII, AS, GER, DOC, SG, PEP, PGAB, RB, RPB, RES-J, RM.
+// Reemplazantes: `R-` ADELANTE (R-CPH-G-000123); retención temporal `TTR-` adelante.
+// Escalafones sin acrónimo (PT, CT, RES genérico, fallback CARGO) conservan el prefijo histórico.
 //
-// Tabla de mapeo:
-//   Médicos / CPH de Guardia                        → CPH-POU
-//   Médicos / CPH de Planta                         → CPH-POF
-//   Médicos / Jefaturas / agrupador contiene "Jefe" → CPH-J-POU o CPH-J-POF
-//   Médicos / Director                              → CPH-D
-//   Médicos / Sub Director                          → CPH-SD
-//   Nueva Carrera de Enfermería                     → ENF
-//   CEETPS / POU                                    → TEC-POU
-//   CEETPS / POF                                    → TEC-POF
-//   Escalafón General / Jefe EG                     → EG-J
-//   Escalafón General / Director EG                 → EG-D
-//   Escalafón General / Gerencial                   → EG-G
-//   Escalafón General (resto)                       → EG
-//   Autoridades Superiores / Ministro               → AS-MIN
-//   Autoridades Superiores / Subsecretaría          → AS-SS
-//   Autoridades Superiores / Dir. General           → AS-DG
-//   Autoridades Superiores / Dir. General Adjunta   → AS-DGA
-//   Régimen Gerencial                               → RG-CG
-//   Suplentes de Guardia                            → SG
-//   Residentes                                      → RES
-//   Docentes                                        → DOC
-//   Plantas Transitorias Módulo Operativo            → MO
-//   Fallback (escalafón desconocido)                → CARGO
-
+// ADVERTENCIA DE DESPLIEGUE: este generador NO debe llegar a producción antes que los datos
+// recodificados (CPH-POF/POU -> CPH-P/CPH-G, etc.); se despliega junto con la base nueva.
+//
 // Saca acentos además de mayusculizar — detectado en vivo tras el
 // `prisma migrate reset` de Sprint 20: el escalafón hand-seedeado "TEC"
 // (nombre real "Carrera de Técnicos de la Salud") no matcheaba
@@ -64,113 +46,101 @@ export function prefijoDeCargo(params: {
   agrupador: string | null
   puestoCargo?: PuestoCargoResuelto | null
   // Jefe de Departamento/División/Sección/Unidad de CPH: el catálogo no
-  // distingue Planta/Guardia para estos 4 puestos (modalidad='ambos' — el
-  // padrón nunca cargó esa info para jefaturas, a diferencia de ejecución
-  // donde el propio nombre dice "...de guardia"). Heurística confirmada
-  // contra los 2512 cargos existentes (100% de cobertura, sin casos
-  // ambiguos): con especialidad asignada → Planta, sin especialidad →
-  // Guardia. Solo se usa como último fallback, cuando ningún otro signo
-  // (nombre/unificador/modalidad) ya resolvió POU/POF.
+  // distingue Planta/Guardia para estos 4 puestos (modalidad='ambos'). Heurística
+  // confirmada contra los 2512 cargos existentes: con especialidad asignada →
+  // Planta, sin especialidad → Guardia. Solo se usa como último fallback.
   tieneEspecialidad?: boolean
+  // Código de registro (carrera) del cargo, si el llamador lo conoce ('37', '87',
+  // '85', '83', '24', ...). Tiene prioridad sobre el inferido del nombre del escalafón.
+  codigoRegistro?: string | null
+  // El cargo es una línea del árbol (organigrama). Por defecto se asume que una
+  // conducción (puesto de conducción / jefe / director) sí lo es; derivarCargosConduccion
+  // lo pasa explícito. Un jefe sin línea de árbol es cargo de ejecución (CPH-P / CPH-G).
+  tieneLineaArbol?: boolean
 }): string {
   const esc  = normStr(params.escalafon)
   const unif = normStr(params.unificadorPuesto)
   const agr  = normStr(params.agrupador)
   const pc   = params.puestoCargo
+
   // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
   // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
-  // como modalidad 'pof' (bug histórico del import: muchos puestos "...de
-  // guardia" quedaron pof → su código salía CPH-POF-* en vez de CPH-POU-*).
-  // Una guardia es POU por definición, así que el literal del puesto prevalece.
+  // como modalidad 'pof' (bug histórico del import).
   const nombrePc = normStr(pc?.nombre)
   const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
   const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
+
   // Nombre canónico del catálogo cuando está disponible — más confiable que
   // el agrupador de texto libre del Excel para distinguir Director/Jefe.
   const nombrePuesto = pc ? normStr(pc.nombre) : agr
   const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (unif.includes('JEFATURA') || agr.includes('JEFE') || agr.includes('DIRECTOR'))
 
-  // ── CPH (Médicos) ──────────────────────────────────────────────────────────
-  // "Nueva Carrera Prof. Hosp" (escalafón estable código 22, ver migración
-  // 20260902000001_escalafon_normalizacion) es el nombre canónico real de
-  // CPH desde Sprint 20 — se agrega ese patrón explícito (detectado
-  // verificando en vivo tras el `prisma migrate reset` de Sprint 20: caía al
-  // fallback 'CARGO' en vez de 'CPH-*').
-  if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc === 'CPH'
-    || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')
-    || esc.includes('PROF. HOSP') || esc.includes('PROFESIONAL HOSP')) {
-    if (esConduccion && nombrePuesto.includes('DIRECTOR') && nombrePuesto.includes('SUB')) return 'CPH-SD'
-    if (esConduccion && nombrePuesto.includes('DIRECTOR'))                                  return 'CPH-D'
-    if (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE')) {
-      // Jefe de guardia vs jefe de planta — se determina por la modalidad.
-      if (esPou) return 'CPH-J-POU'
-      // Fallback: catálogo sin resolver (modalidad='ambos', sin "guardia" en
-      // el nombre) — usar la heurística de especialidad (ver comentario del
-      // parámetro tieneEspecialidad).
-      if (!esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
-        return params.tieneEspecialidad ? 'CPH-J-POF' : 'CPH-J-POU'
+  const cr = params.codigoRegistro?.trim() ? params.codigoRegistro.trim().toUpperCase() : crDesdeEscalafon(esc)
+
+  if (cr !== null) {
+    const literalPuesto = pc ? pc.nombre : (params.agrupador ?? '')
+    let acron: string | null = null
+    if (cr === '37' || cr === '22') {
+      // CPH: la jerarquía sale del nombre del puesto; Planta/Guardia de la modalidad.
+      const esDirector = esConduccion && nombrePuesto.includes('DIRECTOR')
+      const esSub = esDirector && nombrePuesto.includes('SUB')
+      const esJefe = !esDirector && (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE'))
+      let planta: string = esPou ? 'Guardia' : 'Planta'
+      // Fallback: jefatura con catálogo sin resolver (modalidad='ambos', sin "guardia" en el
+      // nombre) — heurística de especialidad. Sin ningún dato, Planta (CPH-J-POF).
+      if (esJefe && !esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
+        planta = params.tieneEspecialidad ? 'Planta' : 'Guardia'
       }
-      return 'CPH-J-POF'
+      acron = acronimoMsgc({
+        cr,
+        literalPuesto,
+        plantaGuardia: planta,
+        nivelConduccion: esSub ? 'SDHOS' : esDirector ? 'DHOS' : esJefe ? 'SECC' : '',
+        tieneLineaArbol: params.tieneLineaArbol ?? (esDirector || esJefe),
+      })
+    } else {
+      const conduccionExtendida =
+        esConduccion || agr.includes('JEFE') || unif.includes('JEFE') || unif.includes('JEFATURA')
+        || agr.includes('GERENCIAL') || unif.includes('GERENCIAL')
+      acron = acronimoMsgc({
+        cr,
+        literalPuesto,
+        plantaGuardia: null,
+        nivelConduccion: '',
+        tieneLineaArbol: params.tieneLineaArbol ?? conduccionExtendida,
+      })
     }
-    return esPou ? 'CPH-POU' : 'CPH-POF'
+    if (acron !== null) return acron
   }
+  return prefijoLegacy(esc)
+}
 
-  // ── Enfermería ─────────────────────────────────────────────────────────────
-  if (esc.includes('ENFERMER') || esc.includes('ENF')
-    || esc.includes('CARRERA ENFERMERÍA') || esc.includes('CARRERA ENFERMERIA')) return 'ENF'
+// Código de registro (carrera) inferido del nombre del escalafón, para los llamadores que
+// no tienen el CR a mano. null = escalafón sin acrónimo MSGC (se usa prefijoLegacy).
+function crDesdeEscalafon(esc: string): string | null {
+  if (esc.includes('MEDICO') || esc === 'CPH' || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')
+    || esc.includes('PROF. HOSP') || esc.includes('PROFESIONAL HOSP')) return '37'
+  if (esc.includes('ENFERMER') || esc.includes('ENF')) return '87'
+  if (esc.includes('CEETPS') || esc.includes('TEC')) return '85'
+  if (esc.includes('GENERAL') || esc === 'EG' || esc.includes('ADMINISTRATIVA')) return '83'
+  if (esc.includes('AUTORIDAD') || esc === 'AS') return '25'
+  if (esc.includes('GERENCIAL') || esc === 'RG') return '60'
+  if (esc.includes('SUPLENTE') || esc === 'SG') return '23'
+  if (esc.includes('RESIDEN') || esc === 'RES') return '24'
+  if (esc.includes('DOCENTE') || esc === 'DOC') return '07'
+  if (esc.includes('GABINETE')) return '17'
+  if (esc.includes('MODULAR EXTRAORDINARIO') || esc === 'RME' || esc === '17B') return '17B'
+  if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return '16T'
+  if (esc.includes('SALUD') && esc.includes('GUARDIA')) return '23'
+  return null
+}
 
-  // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
-  if (esc.includes('CEETPS') || esc.includes('TEC')) {
-    // Jefatura de un área/depto técnico → prefijo distinguible (como CPH-J-*),
-    // para que el filtro "Solo jefes" la reconozca por el código aunque esté
-    // vacante (el JCAT que la distinguiría vive en la ocupación, que no existe
-    // en un cargo vacante). Agregado en S24 al derivar jefaturas técnicas.
-    if (esConduccion) return esPou ? 'TEC-J-POU' : 'TEC-J-POF'
-    return esPou ? 'TEC-POU' : 'TEC-POF'
-  }
-
-  // ── Escalafón General ──────────────────────────────────────────────────────
-  // "Nueva Carrera Administrativa" (escalafón estable código 83) es el
-  // nombre canónico real de EG desde Sprint 20 — confirmado contra
-  // dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD §13.1 ("83 | Escalafón General" /
-  // "83 | Servicios"), detectado en vivo tras el `prisma migrate reset`.
-  if (esc.includes('GENERAL') || esc === 'EG' || esc.includes('ADMINISTRATIVA')) {
-    if (agr.includes('GERENCIAL') || unif.includes('GERENCIAL')) return 'EG-G'
-    if (agr.includes('DIRECTOR') || unif.includes('DIRECTOR'))   return 'EG-D'
-    if (agr.includes('JEFE') || unif.includes('JEFE'))           return 'EG-J'
-    return 'EG'
-  }
-
-  // ── Autoridades Superiores ─────────────────────────────────────────────────
-  if (esc.includes('AUTORIDAD') || esc === 'AS') {
-    if (agr.includes('MINISTRO') || unif.includes('MINISTRO'))           return 'AS-MIN'
-    if (agr.includes('SUBSECRETAR') || unif.includes('SUBSECRETAR'))     return 'AS-SS'
-    if (agr.includes('ADJUNTA') || unif.includes('ADJUNTA'))             return 'AS-DGA'
-    if (agr.includes('DIRECTOR GENERAL') || unif.includes('DIR. GENERAL')) return 'AS-DG'
-    return 'AS-DG'
-  }
-
-  // ── Régimen Gerencial ──────────────────────────────────────────────────────
-  if (esc.includes('GERENCIAL') || esc === 'RG') return 'RG-CG'
-
-  // ── Suplentes / Residentes / Docentes ──────────────────────────────────────
-  if (esc.includes('SUPLENTE') || esc === 'SG')  return 'SG'
-  // "RESIDEN" cubre tanto "Residente" como "Residencias" (escalafón estable
-  // código 24) — detectado en vivo tras el reset de Sprint 20.
+// Escalafones SIN acrónimo en el Excel MSGC (plantas transitorias, cuerpo, residentes sin
+// literal Básica/Post-básica, etc.): se conserva el prefijo histórico. Ver fase2/consumidores-prefijos.md.
+function prefijoLegacy(esc: string): string {
   if (esc.includes('RESIDEN') || esc === 'RES') return 'RES'
-  if (esc.includes('DOCENTE') || esc === 'DOC')   return 'DOC'
-
-  // ── Escalafones especiales GCABA ───────────────────────────────────────────
   if (esc.includes('TRANSITORIA') && esc.includes('PLANTA')) return 'PT'
   if (esc.includes('TRANSITORIO') || esc.includes('CUERPO')) return 'CT'
-  if (esc.includes('GABINETE'))                              return 'PG'
-  // Régimen Modular Extraordinario PG (código de registro 17B). Antes caía al
-  // fallback 'CARGO' porque "MODULAR" no matchea "MODULO"; su nomenclatura
-  // propia es RME. Va antes de la rama MODULO para no confundirse con ella.
-  if (esc.includes('MODULAR EXTRAORDINARIO') || esc === 'RME' || esc === '17B') return 'RME'
-  if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return 'MO'
-  if (esc.includes('SALUD') && esc.includes('GUARDIA'))      return 'SG'
-
   return 'CARGO'
 }
 
@@ -217,19 +187,20 @@ export async function maxSecuencialCargo(prefijo: string, tx: TxClient): Promise
 
 // ─── S18-3: detección ejecución vs conducción + prefijo de remplazante ──────
 
+// Acrónimos MSGC de conducción + prefijos históricos (se conservan para detectar cargos aún no recodificados).
 export const PREFIJOS_CONDUCCION = new Set([
-  'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
-  'TEC-J-POF', 'TEC-J-POU',
-  'EG-J', 'EG-D', 'EG-G', 'RG-CG',
-  'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
+  // MSGC
+  'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD', 'ENF-J', 'TEC-J', 'EG-J', 'GER', 'AS', 'RES-J',
+  // históricos
+  'TEC-J-POF', 'TEC-J-POU', 'EG-D', 'EG-G', 'RG-CG', 'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
 ])
 
 // Prueba el prefijo del código de más largo a más corto (ej. "CPH-J-POF-000015"
-// prueba "CPH-J-POF", "CPH-J", "CPH") porque el secuencial final varía en
-// cantidad de segmentos según el prefijo base.
+// prueba "CPH-J-POF", "CPH-J", "CPH"). Ignora el `R-` / `TTR-` adelante de los remplazantes
+// y el `-R` / `-TTR` sufijo histórico.
 export function esConduccionPorPrefijo(codigo: string | null | undefined): boolean {
   if (!codigo) return false
-  const partes = codigo.split('-')
+  const partes = codigo.replace(/^(R|TTR)-/, '').split('-')
   for (let i = partes.length - 1; i >= 1; i--) {
     const candidato = partes.slice(0, i).join('-')
     if (PREFIJOS_CONDUCCION.has(candidato)) return true
@@ -245,8 +216,8 @@ export function esConduccionPorLiteral(literalPuesto: string | null | undefined)
          lit.includes('SUB DIRECTOR') || lit.includes('GERENTE')
 }
 
-// CPH-POF     → CPH-POF-R
-// CPH-J-POF   → CPH-J-POF-TTR
+// CPH-P   → R-CPH-P     (reemplazante)
+// CPH-J-POF → TTR-CPH-J-POF (retención temporal)
 export function prefijoRemplazante(prefijoCargo: string, tipo: 'R' | 'TTR'): string {
-  return `${prefijoCargo}-${tipo}`
+  return `${tipo}-${prefijoCargo}`
 }

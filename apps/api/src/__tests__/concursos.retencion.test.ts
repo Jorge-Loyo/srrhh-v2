@@ -5,8 +5,8 @@ import { prefijoRemplazante, siguienteCodigoCargo } from '../shared/codigoCargo.
 // Codificación -R- al crear un concurso de retención de cargo
 // (SPRINT_tipo_concurso.md D2). Cuando createConcursoTx recibe
 // motivoConcurso === 'retencion_de_cargo', recodifica in-place el código del
-// cargo del concurso: conserva el prefijo base, le inserta -R- y toma un
-// secuencial nuevo del prefijo remplazante (CPH-POF-017530 → CPH-POF-R-000NNN).
+// cargo del concurso: conserva el prefijo base, le antepone R- y toma un
+// secuencial nuevo del prefijo remplazante (CPH-P-017530 → R-CPH-P-000NNN).
 //
 // Acá se testea la lógica pura de la recodificación (derivación de prefijo +
 // guardas de omisión), replicada sin Prisma — mismo criterio que
@@ -15,9 +15,9 @@ import { prefijoRemplazante, siguienteCodigoCargo } from '../shared/codigoCargo.
 // =============================================================================
 
 // Guarda: solo recodificar si hay código y no está YA recodificado como
-// remplazante (-R- / -TTR-). Idéntica al createConcursoTx.
+// remplazante (R- / TTR- adelante, o -R- / -TTR- histórico). Idéntica al createConcursoTx.
 function debeRecodificar(codigo: string | null | undefined): boolean {
-  return !!codigo && !/-(R|TTR)-\d{6}$/.test(codigo)
+  return !!codigo && !/^(R|TTR)-/.test(codigo) && !/-(R|TTR)-\d{6}$/.test(codigo)
 }
 
 // Derivación del prefijo remplazante a partir del código actual del cargo.
@@ -30,11 +30,13 @@ function prefijoRemplazanteDeCodigo(codigo: string): string {
 describe('codificación -R- de retención de cargo', () => {
   describe('guarda debeRecodificar', () => {
     it('recodifica un código CPH normal', () => {
-      expect(debeRecodificar('CPH-POF-017530')).toBe(true)
-      expect(debeRecodificar('CPH-POU-000042')).toBe(true)
+      expect(debeRecodificar('CPH-P-017530')).toBe(true)
+      expect(debeRecodificar('CPH-G-000042')).toBe(true)
     })
 
-    it('NO recodifica un código ya remplazante (-R- / -TTR-)', () => {
+    it('NO recodifica un código ya remplazante (R- / TTR- adelante, o -R- / -TTR-)', () => {
+      expect(debeRecodificar('R-CPH-P-000001')).toBe(false)
+      expect(debeRecodificar('TTR-CPH-J-POF-000001')).toBe(false)
       expect(debeRecodificar('CPH-POF-R-000001')).toBe(false)
       expect(debeRecodificar('CPH-J-POF-TTR-000001')).toBe(false)
     })
@@ -47,33 +49,33 @@ describe('codificación -R- de retención de cargo', () => {
   })
 
   describe('derivación del prefijo', () => {
-    it('CPH-POF-017530 → prefijo CPH-POF-R', () => {
-      expect(prefijoRemplazanteDeCodigo('CPH-POF-017530')).toBe('CPH-POF-R')
+    it('CPH-P-017530 → prefijo R-CPH-P', () => {
+      expect(prefijoRemplazanteDeCodigo('CPH-P-017530')).toBe('R-CPH-P')
     })
 
     it('conserva un prefijo de conducción (CPH-J-POF)', () => {
-      expect(prefijoRemplazanteDeCodigo('CPH-J-POF-000015')).toBe('CPH-J-POF-R')
+      expect(prefijoRemplazanteDeCodigo('CPH-J-POF-000015')).toBe('R-CPH-J-POF')
     })
   })
 
   describe('código final (secuencial del prefijo remplazante)', () => {
-    it('genera CPH-POF-R-000NNN con el siguiente secuencial', async () => {
-      // tx mock: MAX actual del prefijo CPH-POF-R es 4 → siguiente 000005.
+    it('genera R-CPH-P-000NNN con el siguiente secuencial', async () => {
+      // tx mock: MAX actual del prefijo R-CPH-P es 4 → siguiente 000005.
       const tx = {
         $queryRaw: async () => [{ max_seq: 4 }],
       } as never
-      const prefijo = prefijoRemplazanteDeCodigo('CPH-POF-017530')
+      const prefijo = prefijoRemplazanteDeCodigo('CPH-P-017530')
       const codigo = await siguienteCodigoCargo(prefijo, tx)
-      expect(codigo).toBe('CPH-POF-R-000005')
-      expect(codigo).toMatch(/-R-\d{6}$/)
+      expect(codigo).toBe('R-CPH-P-000005')
+      expect(codigo).toMatch(/^R-.*-\d{6}$/)
     })
 
     it('arranca en 000001 cuando no hay ninguno previo', async () => {
       const tx = {
         $queryRaw: async () => [{ max_seq: null }],
       } as never
-      const codigo = await siguienteCodigoCargo(prefijoRemplazanteDeCodigo('CPH-POF-017548'), tx)
-      expect(codigo).toBe('CPH-POF-R-000001')
+      const codigo = await siguienteCodigoCargo(prefijoRemplazanteDeCodigo('CPH-P-017548'), tx)
+      expect(codigo).toBe('R-CPH-P-000001')
     })
   })
 })

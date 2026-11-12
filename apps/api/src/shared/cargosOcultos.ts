@@ -32,7 +32,7 @@ type DbClient = Pick<PrismaClient, '$queryRaw'>
 
 // Prefijos de conducción, en forma de alternación regex para el filtro raw.
 // Debe mantenerse coherente con PREFIJOS_CONDUCCION de codigoCargo.ts.
-const PREFIJO_CONDUCCION_REGEX = '^(AS-MIN|AS-SS|AS-DGA|AS-DG|CPH-D|CPH-SD|CPH-J-POF|CPH-J-POU|RG-CG|EG-D|EG-G|EG-J|TEC-J-POF|TEC-J-POU)'
+const PREFIJO_CONDUCCION_REGEX = '^(R-|TTR-)?(AS-MIN|AS-SS|AS-DGA|AS-DG|AS-|CPH-D|CPH-SD|CPH-J-POF|CPH-J-POU|RG-CG|GER|EG-D|EG-G|EG-J|ENF-J|TEC-J)'
 
 export async function cargoIdsOcultosPorRolRedundante(db: DbClient): Promise<string[]> {
   const rows = await db.$queryRaw<{ cargo_id: string }[]>(Prisma.sql`

@@ -9,6 +9,8 @@
 // normalizados; estos helpers no re-transforman (eso lo hizo Etapa 1), solo
 // validan/convierten tipos y acumulan warnings no-fatales.
 
+import { acronimoMsgc } from '../../src/shared/acronimoMsgc.js'
+
 // Acumulador de advertencias por fila. El caller (script) lo crea por fila y lo
 // vuelca al reporte final / a `observaciones`.
 export type Warnings = string[]
@@ -182,12 +184,14 @@ export function prefijoCeetpsPorSubCarrera(
 ): string {
   const sc = (subCarrera ?? '').trim().toUpperCase()
   const puesto = (puestoSolicitado ?? '').toUpperCase()
-  if (sc === 'ENFERMERIA' || sc === 'ENFERMERÍA') return 'ENF'
-  if (sc === 'TECNICOS' || sc === 'TÉCNICOS') {
-    return puesto.includes('GUARDIA') ? 'TEC-POU' : 'TEC-POF'
-  }
-  // ANEXO2 (Escalafón General / Administrativa)
   const esJefatura =
     puesto.includes('JEFE') || puesto.includes('JEFATURA') || puesto.includes('DIRECTOR')
-  return esJefatura ? 'EG-J' : 'EG'
+  // Acrónimos MSGC (shared/acronimoMsgc.ts). CEETPS: 87 enfermería, 85 técnicos, 83 administrativa.
+  const cr = sc === 'ENFERMERIA' || sc === 'ENFERMERÍA' ? '87'
+    : sc === 'TECNICOS' || sc === 'TÉCNICOS' ? '85' : '83'
+  return acronimoMsgc({
+    cr,
+    literalPuesto: puestoSolicitado ?? '',
+    tieneLineaArbol: cr === '87' ? false : esJefatura,
+  }) ?? 'CARGO'
 }

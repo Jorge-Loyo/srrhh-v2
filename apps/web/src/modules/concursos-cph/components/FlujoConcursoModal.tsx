@@ -542,10 +542,10 @@ const TIPOS_RETENCION = [
   {
     tipo: 'Ejecución → Conducción',
     color: 'blue' as Color,
-    codigo: 'CPH-POF-R-000001',
+    codigo: 'R-CPH-P-000001',
     desc: 'Persona en cargo de ejecución (POF/POU) gana concurso de conducción (Jefatura/Director). Retiene el cargo de ejecución.',
     reglas: [
-      'Se genera automáticamente un cargo remplazante con sufijo -R-',
+      'Se genera automáticamente un cargo remplazante con prefijo R-',
       'El cargo R puede tener concurso normal para cubrirlo',
       'El cargo R NO genera baja formal cuando su ocupante cesa',
       'Si el titular cesa definitivamente, el ocupante del R pasa al cargo titular sin concurso',
@@ -555,10 +555,10 @@ const TIPOS_RETENCION = [
   {
     tipo: 'Conducción → Conducción',
     color: 'purple' as Color,
-    codigo: 'CPH-J-POF-TTR-000001',
+    codigo: 'TTR-CPH-J-POF-000001',
     desc: 'Persona en cargo de conducción gana concurso para otro cargo de conducción. Se genera un cargo TTR (Titular Transitorio por Reemplazo).',
     reglas: [
-      'Se genera automáticamente un cargo remplazante con sufijo -TTR-',
+      'Se genera automáticamente un cargo remplazante con prefijo TTR-',
       'El cargo TTR tiene período fijo igual al cargo de conducción original',
       'Al vencer el período sin renovación, se inicia la cascada automáticamente',
       'SGRASV recibe notificación 90 y 30 días antes del vencimiento',
@@ -704,11 +704,11 @@ function FlujoRetenciones() {
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Estructura de la cadena</h3>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-xs space-y-1 text-gray-700">
               <p className="text-[10px] text-gray-400 mb-2">Ejemplo: médico con cargo base POF que asciende a Jefatura y luego a Dirección</p>
-              <p><span className="text-green-700 font-bold">CPH-POF-000056</span> <span className="text-gray-400">← cargo base (ejecución)</span></p>
+              <p><span className="text-green-700 font-bold">CPH-P-000056</span> <span className="text-gray-400">← cargo base (ejecución)</span></p>
               <p className="pl-4 text-gray-400">↑ retenido por</p>
-              <p className="pl-4"><span className="text-blue-700 font-bold">CPH-J-POF-TTR-000001</span> <span className="text-gray-400">← jefatura (conducción, período 4 años)</span></p>
+              <p className="pl-4"><span className="text-blue-700 font-bold">TTR-CPH-J-POF-000001</span> <span className="text-gray-400">← jefatura (conducción, período 4 años)</span></p>
               <p className="pl-8 text-gray-400">↑ retenido por</p>
-              <p className="pl-8"><span className="text-purple-700 font-bold">CPH-D-TTR-000001</span> <span className="text-gray-400">← dirección (conducción, período 4 años)</span></p>
+              <p className="pl-8"><span className="text-purple-700 font-bold">TTR-CPH-D-000001</span> <span className="text-gray-400">← dirección (conducción, período 4 años)</span></p>
               <p className="pl-12 text-gray-400">↑ persona actualmente aquí</p>
             </div>
             <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
@@ -744,11 +744,11 @@ function FlujoRetenciones() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {[
-                    { retenido: 'CPH-POF-000056', sufijo: '-R-', ejemplo: 'CPH-POF-R-000001', sig: 'Remplazante de ejecución' },
-                    { retenido: 'CPH-POU-000012', sufijo: '-R-', ejemplo: 'CPH-POU-R-000001', sig: 'Remplazante de guardia' },
-                    { retenido: 'CPH-J-POF-000003', sufijo: '-TTR-', ejemplo: 'CPH-J-POF-TTR-000001', sig: 'Titular Transitorio por Reemplazo (jefatura)' },
-                    { retenido: 'CPH-D-000001', sufijo: '-TTR-', ejemplo: 'CPH-D-TTR-000001', sig: 'Titular Transitorio por Reemplazo (dirección)' },
-                    { retenido: 'EG-J-000008', sufijo: '-TTR-', ejemplo: 'EG-J-TTR-000001', sig: 'TTR escalafón general jefatura' },
+                    { retenido: 'CPH-P-000056', sufijo: 'R- (adelante)', ejemplo: 'R-CPH-P-000001', sig: 'Remplazante de ejecución' },
+                    { retenido: 'CPH-G-000012', sufijo: 'R- (adelante)', ejemplo: 'R-CPH-G-000001', sig: 'Remplazante de guardia' },
+                    { retenido: 'CPH-J-POF-000003', sufijo: 'TTR- (adelante)', ejemplo: 'TTR-CPH-J-POF-000001', sig: 'Titular Transitorio por Reemplazo (jefatura)' },
+                    { retenido: 'CPH-D-000001', sufijo: 'TTR- (adelante)', ejemplo: 'TTR-CPH-D-000001', sig: 'Titular Transitorio por Reemplazo (dirección)' },
+                    { retenido: 'EG-J-000008', sufijo: 'TTR- (adelante)', ejemplo: 'TTR-EG-J-000001', sig: 'TTR escalafón general jefatura' },
                   ].map((row) => (
                     <tr key={row.ejemplo} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-[10px] text-gray-600">{row.retenido}</td>

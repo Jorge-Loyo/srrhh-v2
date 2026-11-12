@@ -77,8 +77,9 @@ function esAutoAprobable(datos: Record<string, string>): boolean {
     escalafon: datos.escalafon ?? null,
     unificadorPuesto: datos.unificador_de_puestos ?? null,
     agrupador: datos.agrupador ?? null,
+    codigoRegistro: datos.codigo_de_registro ?? null,
   })
-  return prefijo === 'RES' || prefijo === 'DOC' || prefijo.startsWith('AS-')
+  return ['RES', 'RB', 'RPB', 'RES-J', 'DOC', 'AS'].includes(prefijo) || prefijo.startsWith('AS-')
 }
 
 // Buffer ya resuelto por el route handler — ver comentario en padron.routes.ts
@@ -1703,6 +1704,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
               escalafon: datos.escalafon ?? null,
               unificadorPuesto: datos.unificador_de_puestos ?? null,
               agrupador: datos.agrupador ?? null,
+              codigoRegistro: datos.codigo_de_registro ?? null,
             }),
           )
         } catch {
@@ -2323,6 +2325,7 @@ export async function aprobarSnapshotService(
           agrupador: datos.agrupador ?? null,
           puestoCargo: puestoResuelto,
           tieneEspecialidad: Boolean(especialidadResuelta),
+          codigoRegistro: datos.codigo_de_registro ?? null,
         })
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
@@ -2499,6 +2502,7 @@ export async function aprobarSnapshotService(
           agrupador: datos.agrupador ?? null,
           puestoCargo: puesto,
           tieneEspecialidad: Boolean(especialidadPuestoId),
+          codigoRegistro: datos.codigo_de_registro ?? null,
         })
         const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
         const codigo = await proximoCodigoDesdoblado(prefijo)
@@ -4217,6 +4221,7 @@ export async function aprobarDiffNuevoService(
         agrupador: datos.agrupador ?? null,
         puestoCargo: puestoResuelto,
         tieneEspecialidad: Boolean(especialidadResuelta),
+        codigoRegistro: datos.codigo_de_registro ?? null,
       })
       const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`

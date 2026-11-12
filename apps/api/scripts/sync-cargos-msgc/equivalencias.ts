@@ -114,22 +114,5 @@ export function equivalenciaEspecialidad(raw: string | null | undefined): string
 }
 
 // ── Anexo II de la 83 (lista del Excel, hoja Criterios) ──────────────────────
-/**
- * Jorge: vale la lista del Excel. Capellán y Chofer de funcionario SALEN del Anexo II.
- * Literales normalizados (el Excel trae 'Chofer de Ambulancias' en plural en 5 filas).
- */
-export const ANEXO_II_EXCEL: ReadonlySet<string> = new Set<string>([
-  'ayudante de laboratorio, hemoterapia, farmacia y drogueria',
-  'camillero',
-  'chofer de ambulancia',
-  'chofer de ambulancias',
-  'morguero',
-  'cuidador enfermero de animales',
-  'oxigenista',
-  'radio operador',
-  'radio operador de emergencias',
-])
-
-export function esAnexoIIExcel(literal: string | null | undefined): boolean {
-  return ANEXO_II_EXCEL.has(normalizarTexto(literal))
-}
+// Fuente única en src/shared/acronimoMsgc.ts (la usa también el generador de códigos).
+export { ANEXO_II_EXCEL, esAnexoIIExcel } from '../../src/shared/acronimoMsgc.js'

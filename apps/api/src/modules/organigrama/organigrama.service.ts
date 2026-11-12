@@ -190,15 +190,15 @@ function rangoConduccion(
 // sin JCAT. Devuelve null si el código no es de conducción.
 function rangoPorPrefijoCodigo(codigoCargo: string | null | undefined): number | null {
   if (!esConduccionPorPrefijo(codigoCargo)) return null
-  const c = codigoCargo!
+  const c = codigoCargo!.replace(/^(R|TTR)-/, '')
   if (c.startsWith('AS-')) return 0
-  if (c.startsWith('RG-CG')) return 1
+  if (c.startsWith('RG-CG') || c.startsWith('GER-')) return 1
   if (c.startsWith('CPH-D') || c.startsWith('EG-D')) return 10 // dirección
   if (c.startsWith('CPH-SD')) return 13                        // subdirección
   if (c.startsWith('EG-G')) return 10                          // gerencial ≈ dirección
   // Jefaturas (depto/división/unidad/sección) — el código no distingue el
   // sub-nivel, así que se usa el de jefe de unidad (05) como representativo.
-  if (c.startsWith('CPH-J') || c.startsWith('TEC-J') || c.startsWith('EG-J')) return 15
+  if (c.startsWith('CPH-J') || c.startsWith('TEC-J') || c.startsWith('ENF-J') || c.startsWith('EG-J')) return 15
   return 20
 }
 
@@ -488,12 +488,13 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // Jefe de Unidad). Menor número = más jerárquico.
   const rangoPrefijo = (codigo: string | null): number => {
     if (!codigo) return 99
+    codigo = codigo.replace(/^(R|TTR)-/, '')
     if (codigo.startsWith('AS-')) return 0
     if (codigo.startsWith('CPH-D-')) return 1
     if (codigo.startsWith('CPH-SD-')) return 2
-    if (codigo.startsWith('RG-CG-')) return 3
+    if (codigo.startsWith('RG-CG-') || codigo.startsWith('GER-')) return 3
     if (codigo.startsWith('EG-D-')) return 3
-    if (codigo.startsWith('CPH-J-') || codigo.startsWith('TEC-J-') || codigo.startsWith('EG-J-') || codigo.startsWith('EG-G-')) return 4
+    if (codigo.startsWith('CPH-J-') || codigo.startsWith('TEC-J-') || codigo.startsWith('ENF-J-') || codigo.startsWith('EG-J-') || codigo.startsWith('EG-G-')) return 4
     return 50
   }
   const cargosVacantesMap = new Map<string, CargoVacanteNodo>()
@@ -1375,7 +1376,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
         AND c.codigo_repa IS NOT NULL
         AND c.id <> ALL(${ocultosArr}::uuid[])
         AND (
-          c.codigo ~ '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)'
+          c.codigo ~ '^(R-|TTR-)?(AS|CPH-D|CPH-SD|CPH-J|RG-CG|GER|EG-D|EG-G|EG-J|ENF-J|TEC-J)'
           OR cr.codigo IN ('25','60')
           OR (cr.codigo IN ('37','83','85','87') AND o.codigo_jefaturas ~ '^[PGZ][0-9]{2}$')
           OR lower(e.nombre) LIKE '%gerencial%'
@@ -1395,7 +1396,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
         AND c.estado IN ('vigente','validacion_vacante')
         AND c.codigo_repa IS NOT NULL
         AND c.id <> ALL(${ocultosArr}::uuid[])
-        AND (c.origen = 'organigrama' OR c.codigo ~ '^(AS|CPH-D|CPH-SD|CPH-J|RG-CG|EG-D|EG-G|EG-J|TEC-J)')
+        AND (c.origen = 'organigrama' OR c.codigo ~ '^(R-|TTR-)?(AS|CPH-D|CPH-SD|CPH-J|RG-CG|GER|EG-D|EG-G|EG-J|ENF-J|TEC-J)')
         AND NOT EXISTS (
           SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL
             AND lower(unaccent(o.situacion_revista)) = 'activo'
@@ -1403,7 +1404,7 @@ async function computarUniversoVacantes(): Promise<VacanteConduccion[]> {
       ORDER BY c.codigo_repa,
         CASE
           WHEN c.codigo LIKE 'AS-%' THEN 0
-          WHEN c.codigo LIKE 'RG-CG%' THEN 1
+          WHEN c.codigo LIKE 'RG-CG%' OR c.codigo LIKE 'GER-%' THEN 1
           WHEN c.codigo LIKE 'CPH-D%' OR c.codigo LIKE 'EG-D%' THEN 2
           WHEN c.codigo LIKE 'CPH-SD%' THEN 3
           ELSE 4

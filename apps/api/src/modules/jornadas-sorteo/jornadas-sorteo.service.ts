@@ -38,7 +38,7 @@ function derivarCategoria(params: {
     esc.includes('MÉDICO') ||
     esc === 'CPH' ||
     esc.includes('CARRERA PROFESIONAL HOSPITALARIA') ||
-    cod.startsWith('CPH')
+    cod.replace(/^(R|TTR)-/, '').startsWith('CPH')
   return { tipoCargo: esConduccion ? 'conduccion' : 'ejecucion', modalidad, esMedico }
 }
 

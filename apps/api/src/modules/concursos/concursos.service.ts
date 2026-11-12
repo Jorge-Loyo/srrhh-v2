@@ -72,7 +72,7 @@ export async function createConcursoTx(
   const recalcular = opciones?.recalcularSubEstado !== false
   // Retención de cargo: el titular retiene su cargo y se concursa un
   // reemplazante. El código del cargo del concurso conserva su número y se le
-  // inserta -R- (CPH-POF-017530 → CPH-POF-R-000NNN), mismo criterio de
+  // antepone R- (CPH-P-017530 → R-CPH-P-000NNN), mismo criterio de
   // prefijo/secuencial que registrarRetencionService (retenciones.service.ts).
   // El cargo retenido NO se toca. Se recodifica in-place el cargo del concurso.
   if (body.motivoConcurso === 'retencion_de_cargo') {
@@ -81,8 +81,8 @@ export async function createConcursoTx(
       select: { codigo: true },
     })
     // Omitir si no hay código (cargo legacy sin codificar) o si ya está
-    // recodificado como remplazante (-R- / -TTR-) — no aplicar dos veces.
-    if (cargo?.codigo && !/-(R|TTR)-\d{6}$/.test(cargo.codigo)) {
+    // recodificado como remplazante (R- / TTR- adelante, o -R- / -TTR- histórico) — no aplicar dos veces.
+    if (cargo?.codigo && !/^(R|TTR)-/.test(cargo.codigo) && !/-(R|TTR)-\d{6}$/.test(cargo.codigo)) {
       const prefijoBase = cargo.codigo.replace(/-\d{6}$/, '')
       const prefijo = prefijoRemplazante(prefijoBase, 'R')
       const nuevoCodigo = await siguienteCodigoCargo(prefijo, tx)

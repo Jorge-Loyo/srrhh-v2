@@ -16,36 +16,36 @@ describe('prefijoDeCargo', () => {
   // ── CPH ────────────────────────────────────────────────────────────────────
 
   describe('CPH (Médicos)', () => {
-    it('escalafon "Médicos" (valor real BD) de planta → CPH-POF', () => {
+    it('escalafon "Médicos" (valor real BD) de planta → CPH-P', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
         unificadorPuesto: 'Médico de Planta POF',
         agrupador: 'Medico de Planta',
-      })).toBe('CPH-POF')
+      })).toBe('CPH-P')
     })
 
-    it('escalafon "Nueva Carrera Profesional Hospitalaria" (valor real BD) de planta → CPH-POF', () => {
+    it('escalafon "Nueva Carrera Profesional Hospitalaria" (valor real BD) de planta → CPH-P', () => {
       expect(prefijoDeCargo({
         escalafon: 'Nueva Carrera Profesional Hospitalaria',
         unificadorPuesto: 'Médico de Planta POF',
         agrupador: 'Medico de Planta',
-      })).toBe('CPH-POF')
+      })).toBe('CPH-P')
     })
 
-    it('escalafon "Médicos" de guardia → CPH-POU', () => {
+    it('escalafon "Médicos" de guardia → CPH-G', () => {
       expect(prefijoDeCargo({
         escalafon: 'Médicos',
         unificadorPuesto: 'Médico de Guardia POU',
         agrupador: 'Medico de Guardia',
-      })).toBe('CPH-POU')
+      })).toBe('CPH-G')
     })
 
-    it('escalafon "Nueva Carrera Profesional Hospitalaria" de guardia → CPH-POU', () => {
+    it('escalafon "Nueva Carrera Profesional Hospitalaria" de guardia → CPH-G', () => {
       expect(prefijoDeCargo({
         escalafon: 'Nueva Carrera Profesional Hospitalaria',
         unificadorPuesto: 'Médico de Guardia POU',
         agrupador: 'Medico de Guardia',
-      })).toBe('CPH-POU')
+      })).toBe('CPH-G')
     })
 
     it('CPH jefe de planta → CPH-J-POF', () => {
@@ -80,12 +80,12 @@ describe('prefijoDeCargo', () => {
       })).toBe('CPH-SD')
     })
 
-    it('escalafon "CPH" exacto → CPH-POF', () => {
+    it('escalafon "CPH" exacto → CPH-P', () => {
       expect(prefijoDeCargo({
         escalafon: 'CPH',
         unificadorPuesto: null,
         agrupador: null,
-      })).toBe('CPH-POF')
+      })).toBe('CPH-P')
     })
   })
 
@@ -112,20 +112,20 @@ describe('prefijoDeCargo', () => {
   // ── CEETPS ─────────────────────────────────────────────────────────────────
 
   describe('CEETPS (Técnicos)', () => {
-    it('CEETPS de planta → TEC-POF', () => {
+    it('CEETPS de planta → TEC', () => {
       expect(prefijoDeCargo({
         escalafon: 'CEETPS',
         unificadorPuesto: 'Técnico POF',
         agrupador: 'Tecnico de Planta',
-      })).toBe('TEC-POF')
+      })).toBe('TEC')
     })
 
-    it('CEETPS de guardia → TEC-POU', () => {
+    it('CEETPS de guardia → TEC', () => {
       expect(prefijoDeCargo({
         escalafon: 'CEETPS',
         unificadorPuesto: 'Técnico POU Guardia',
         agrupador: 'Tecnico de Guardia',
-      })).toBe('TEC-POU')
+      })).toBe('TEC')
     })
   })
 
@@ -148,40 +148,40 @@ describe('prefijoDeCargo', () => {
       })).toBe('EG-J')
     })
 
-    it('EG Director → EG-D', () => {
+    it('EG Director → EG-J (MSGC no tiene EG-D)', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
         unificadorPuesto: 'Director EG',
         agrupador: 'Director EG',
-      })).toBe('EG-D')
+      })).toBe('EG-J')
     })
 
-    it('EG Gerencial → EG-G', () => {
+    it('EG Gerencial → EG-J (MSGC no tiene EG-G)', () => {
       expect(prefijoDeCargo({
         escalafon: 'Escalafón General',
         unificadorPuesto: 'Gerencial',
         agrupador: 'Gerencial',
-      })).toBe('EG-G')
+      })).toBe('EG-J')
     })
   })
 
   // ── Régimen Gerencial ──────────────────────────────────────────────────────
 
   describe('Régimen Gerencial', () => {
-    it('RG → RG-CG', () => {
+    it('RG → GER', () => {
       expect(prefijoDeCargo({
         escalafon: 'Régimen Gerencial',
         unificadorPuesto: null,
         agrupador: null,
-      })).toBe('RG-CG')
+      })).toBe('GER')
     })
 
-    it('escalafon "RG" exacto → RG-CG', () => {
+    it('escalafon "RG" exacto → GER', () => {
       expect(prefijoDeCargo({
         escalafon: 'RG',
         unificadorPuesto: null,
         agrupador: null,
-      })).toBe('RG-CG')
+      })).toBe('GER')
     })
   })
 
@@ -192,7 +192,7 @@ describe('prefijoDeCargo', () => {
       expect(prefijoDeCargo({ escalafon: 'Suplentes de Guardia', unificadorPuesto: null, agrupador: null })).toBe('SG')
     })
 
-    it('Residentes → RES', () => {
+    it('Residentes sin literal Básica/Post-básica → RES (histórico)', () => {
       expect(prefijoDeCargo({ escalafon: 'Residentes', unificadorPuesto: null, agrupador: null })).toBe('RES')
     })
 
@@ -225,9 +225,9 @@ describe('prefijoDeCargo', () => {
 describe('esConduccionPorPrefijo', () => {
   it('cada prefijo de conducción con secuencial → true', () => {
     const prefijos = [
-      'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD',
-      'EG-J', 'EG-D', 'EG-G', 'RG-CG',
-      'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
+      'CPH-J-POF', 'CPH-J-POU', 'CPH-D', 'CPH-SD', 'ENF-J', 'TEC-J', 'EG-J', 'GER', 'AS',
+      // históricos (cargos aún no recodificados)
+      'EG-D', 'EG-G', 'RG-CG', 'TEC-J-POF', 'AS-MIN', 'AS-SS', 'AS-DG', 'AS-DGA',
     ]
     for (const prefijo of prefijos) {
       expect(esConduccionPorPrefijo(`${prefijo}-000001`)).toBe(true)
@@ -235,13 +235,15 @@ describe('esConduccionPorPrefijo', () => {
   })
 
   it('prefijos de ejecución → false', () => {
-    for (const codigo of ['CPH-POF-000001', 'CPH-POU-000001', 'ENF-000001', 'TEC-POF-000001', 'TEC-POU-000001', 'EG-000001']) {
+    for (const codigo of ['CPH-P-000001', 'CPH-G-000001', 'ENF-000001', 'TEC-000001', 'EG-000001', 'SGAII-000001', 'CPH-POF-000001']) {
       expect(esConduccionPorPrefijo(codigo)).toBe(false)
     }
   })
 
   it('código de remplazante (R/TTR) hereda la condición del prefijo base', () => {
-    expect(esConduccionPorPrefijo('CPH-J-POF-TTR-000001')).toBe(true)
+    expect(esConduccionPorPrefijo('TTR-CPH-J-POF-000001')).toBe(true)
+    expect(esConduccionPorPrefijo('R-CPH-P-000001')).toBe(false)
+    expect(esConduccionPorPrefijo('CPH-J-POF-TTR-000001')).toBe(true) // histórico
     expect(esConduccionPorPrefijo('CPH-POF-R-000001')).toBe(false)
   })
 
@@ -275,11 +277,74 @@ describe('esConduccionPorLiteral', () => {
 })
 
 describe('prefijoRemplazante', () => {
-  it('ejecución → sufijo -R', () => {
-    expect(prefijoRemplazante('CPH-POF', 'R')).toBe('CPH-POF-R')
+  it('ejecución → R- adelante', () => {
+    expect(prefijoRemplazante('CPH-P', 'R')).toBe('R-CPH-P')
+  })
+  it('conducción → TTR- adelante', () => {
+    expect(prefijoRemplazante('CPH-J-POF', 'TTR')).toBe('TTR-CPH-J-POF')
+  })
+})
+
+// ─── Generador por llamador (MSGC): misma forma de parámetros que cada call site ──
+describe('prefijoDeCargo por llamador (acrónimos MSGC)', () => {
+  const pc = (nombre: string, tipoPuesto: 'ejecucion' | 'conduccion', modalidad: 'pof' | 'pou' | 'ambos') =>
+    ({ nombre, tipoPuesto, modalidad })
+
+  it('alta manual (cargos.service): CR explícito + puesto resuelto', () => {
+    expect(prefijoDeCargo({
+      escalafon: 'Nueva Carrera Profesional Hospitalaria', unificadorPuesto: null, agrupador: null,
+      puestoCargo: pc('Médico de Planta', 'ejecucion', 'pof'), tieneEspecialidad: true, codigoRegistro: '37',
+    })).toBe('CPH-P')
+    expect(prefijoDeCargo({
+      escalafon: 'Carrera de Técnicos', unificadorPuesto: null, agrupador: null,
+      puestoCargo: pc('Auxiliar de Enfermería', 'ejecucion', 'pof'), codigoRegistro: '85',
+    })).toBe('ENF')
+    expect(prefijoDeCargo({
+      escalafon: 'Residencias', unificadorPuesto: null, agrupador: null,
+      puestoCargo: pc('Residente Post Básica', 'ejecucion', 'pof'), codigoRegistro: '24',
+    })).toBe('RPB')
   })
 
-  it('conducción → sufijo -TTR', () => {
-    expect(prefijoRemplazante('CPH-J-POF', 'TTR')).toBe('CPH-J-POF-TTR')
+  it('_aprobarAltaCargo (autorizaciones): CR 22 equivale a 37; guardia → CPH-G', () => {
+    expect(prefijoDeCargo({
+      escalafon: 'Médicos', unificadorPuesto: null, agrupador: null,
+      puestoCargo: pc('Médico de Guardia', 'ejecucion', 'pou'), codigoRegistro: '22',
+    })).toBe('CPH-G')
+  })
+
+  it('padrón: CR de la fila del padrón manda sobre el nombre del escalafón', () => {
+    expect(prefijoDeCargo({
+      escalafon: 'Escalafón raro', unificadorPuesto: 'Radio operador', agrupador: null,
+      puestoCargo: pc('Radio operador', 'ejecucion', 'pof'), codigoRegistro: '83',
+    })).toBe('SGAII')
+    expect(prefijoDeCargo({
+      escalafon: null, unificadorPuesto: null, agrupador: null, codigoRegistro: '25',
+    })).toBe('AS')
+  })
+
+  it('derivarCargosConduccion: nodo del organigrama (línea de árbol)', () => {
+    expect(prefijoDeCargo({
+      escalafon: 'Nueva Carrera Profesional Hospitalaria', unificadorPuesto: 'jefatura', agrupador: 'director',
+      puestoCargo: pc('director', 'conduccion', 'pof'), tieneLineaArbol: true,
+    })).toBe('CPH-D')
+    expect(prefijoDeCargo({
+      escalafon: 'Nueva Carrera Profesional Hospitalaria', unificadorPuesto: 'jefatura', agrupador: 'sub-director',
+      puestoCargo: pc('sub-director', 'conduccion', 'pof'), tieneLineaArbol: true,
+    })).toBe('CPH-SD')
+    expect(prefijoDeCargo({
+      escalafon: 'Nueva Carrera Enfermería', unificadorPuesto: 'jefatura', agrupador: 'jefe de departamento',
+      puestoCargo: pc('jefe de departamento', 'conduccion', 'pof'), tieneLineaArbol: true,
+    })).toBe('ENF-J')
+  })
+
+  it('jefe CPH sin línea de árbol es ejecución (CPH-P)', () => {
+    expect(prefijoDeCargo({
+      escalafon: 'Médicos', unificadorPuesto: null, agrupador: 'Jefe de Seccion',
+      puestoCargo: pc('Jefe de Sección', 'conduccion', 'pof'), tieneLineaArbol: false,
+    })).toBe('CPH-P')
+  })
+
+  it('escalafón sin acrónimo conserva prefijo histórico', () => {
+    expect(prefijoDeCargo({ escalafon: 'Planta Transitoria', unificadorPuesto: null, agrupador: null })).toBe('PT')
   })
 })

@@ -223,7 +223,7 @@ export async function listConcursosCphService(
   let conduccionIds: string[] | undefined
   if (conduccion !== undefined) {
     const esCond = Prisma.sql`(
-      coalesce(ca.codigo,'') ~ '^(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG)'
+      coalesce(ca.codigo,'') ~ '^((R-|TTR-)?(CPH-J-|CPH-J$|CPH-D|CPH-SD|EG-J|EG-D|EG-G|RG-CG|ENF-J|TEC-J|GER))'
       OR unaccent(upper(coalesce(cc.puesto_solicitado, ca.literal_puesto, ''))) ~ '(JEFE|DIRECTOR|SUB DIRECTOR|GERENTE)'
     )`
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`

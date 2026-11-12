@@ -176,7 +176,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     expect(String(c.codigo)).toMatch(/^ENF-/)
   })
 
-  it('CEETPS técnico de guardia → prefijo TEC-POU; planta → TEC-POF', async () => {
+  it('CEETPS técnico (guardia o planta) → prefijo TEC', async () => {
     const caches = nuevoCaches()
     {
       const { tx, cargosCreados } = mockTx()
@@ -187,7 +187,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
         usuarioCarga: 'u',
         catalogo: caches.catalogo,
       })
-      expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-POU-/)
+      expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-\d{6}$/)
     }
     {
       const { tx, cargosCreados } = mockTx()
@@ -198,11 +198,11 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
         usuarioCarga: 'u',
         catalogo: caches.catalogo,
       })
-      expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-POF-/)
+      expect(String(cargosCreados[0]!.codigo)).toMatch(/^TEC-\d{6}$/)
     }
   })
 
-  it('CEETPS ANEXO2 → CR 83, escalafón administrativa, prefijo EG', async () => {
+  it('CEETPS ANEXO2 → CR 83, escalafón administrativa, prefijo SGAII (Anexo II)', async () => {
     const { tx, cargosCreados } = mockTx()
     const caches = nuevoCaches()
     await crearCargo(tx as never, caches, {
@@ -215,7 +215,7 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     const c = cargosCreados[0]!
     expect(c.codigoRegistroId).toBe('cr-83')
     expect(c.escalafonId).toBe('esc-adm')
-    expect(String(c.codigo)).toMatch(/^EG-/)
+    expect(String(c.codigo)).toMatch(/^SGAII-/)
   })
 })
 

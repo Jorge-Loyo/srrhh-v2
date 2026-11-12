@@ -104,6 +104,7 @@ export async function derivarCargosConduccionService(
             cg.codigo LIKE 'CPH-J-%' OR cg.codigo LIKE 'CPH-D-%' OR cg.codigo LIKE 'CPH-SD-%'
             OR cg.codigo LIKE 'TEC-J-%' OR cg.codigo LIKE 'EG-J-%' OR cg.codigo LIKE 'EG-D-%'
             OR cg.codigo LIKE 'EG-G-%' OR cg.codigo LIKE 'RG-CG-%' OR cg.codigo LIKE 'AS-%'
+            OR cg.codigo LIKE 'ENF-J-%' OR cg.codigo LIKE 'GER-%'
             OR EXISTS (SELECT 1 FROM ocupaciones o2 WHERE o2.cargo_id=cg.id AND o2.hasta IS NULL
                        AND lower(unaccent(o2.situacion_revista)) = 'activo'
                        AND o2.codigo_jefaturas IS NOT NULL AND o2.codigo_jefaturas <> '' AND o2.codigo_jefaturas <> '0')
@@ -221,6 +222,7 @@ export async function derivarCargosConduccionService(
       unificadorPuesto: 'jefatura',
       agrupador: tipoInfo.literal,
       puestoCargo: { nombre: tipoInfo.literal, tipoPuesto: 'conduccion', modalidad: 'pof' },
+      tieneLineaArbol: true, // el cargo nace de una línea del organigrama
     })
     // Derivación automática del código de registro desde el escalafón del nodo.
     // El organigrama no trae texto de CR → se pasa null y la cascada entra por

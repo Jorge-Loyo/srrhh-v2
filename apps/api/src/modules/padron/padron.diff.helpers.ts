@@ -266,15 +266,18 @@ export function resolverEspecialidadDesdobladaId(
 }
 
 // Prefijo correcto del cargo desdoblado FORZADO por la carrera (el cod_registro
-// manda, igual que el script): '24' → 'RES', '07' → 'DOC'. SIN guion (es lo que
+// manda, igual que el script): '24' → 'RB' / 'RPB' / 'RES-J' (acrónimo MSGC; 'RES' si el literal
+// no lo define), '07' → 'DOC'. SIN guion (es lo que
 // espera maxSecuencialCargo, que arma el LIKE `${prefijo}-%`). Recibe el prefijo
 // que calculó prefijoDeCargo y, si no coincide con el esperado por carrera, lo
 // fuerza. Puro y testeable sin Prisma.
 export function prefijoDesdobladoForzado(
   codRegistro: string | null | undefined,
   prefijoCalculado: string | null | undefined,
-): 'RES' | 'DOC' {
+): string {
   const esperado: 'RES' | 'DOC' = (codRegistro ?? '').trim() === '07' ? 'DOC' : 'RES' // 24 → RES
+  // MSGC: la carrera 24 se separa en RB / RPB / RES-J (por el literal del puesto); son válidos.
+  if (esperado === 'RES' && ['RB', 'RPB', 'RES-J'].includes(prefijoCalculado ?? '')) return prefijoCalculado as string
   if (prefijoCalculado !== esperado) {
     if (prefijoCalculado != null && prefijoCalculado !== '') {
       console.warn(

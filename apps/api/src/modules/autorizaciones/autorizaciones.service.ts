@@ -598,6 +598,7 @@ async function _aprobarAltaCargo(
       agrupador:        solicitud.agrupador ?? null,
       puestoCargo:      solicitud.puestoCargo,
       tieneEspecialidad: Boolean(solicitud.especialidadPuestoId),
+      codigoRegistro:   solicitud.codigoRegistro?.codigo ?? null,
     })
 
     // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
