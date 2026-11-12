@@ -30,6 +30,7 @@ import { CorregirTipoControl } from '../components/CorregirTipoControl'
 import { etapa1CompletaParaAutorizar, puedeCorregirTipo } from '../lib/corregirTipo'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
+import { documentoOrigenDeConcurso } from '../lib/documentoOrigen'
 import {
   useDesignarConcursoCph,
   useAsignarDesignadoCph,
@@ -295,6 +296,18 @@ export function ConcursoCphWizard() {
     // a traerlos ni duplicar la lógica de fallback.
     const cuilBajaResuelto = concurso?.cuilBaja ?? ''
     const especialidadBajaResuelto = concurso?.especialidad ?? ''
+    // Documento de origen (Baja | Creación) según el motivo del concurso. No toca
+    // eeBaja: solo cambia el rótulo/valor mostrado en la Etapa 1.
+    const concursoBase = cphData?.concurso as unknown as
+      | { expediente?: string | null; cargo?: { expediente?: string | null; fechaDesde?: string | null } }
+      | undefined
+    const docOrigen = documentoOrigenDeConcurso({
+      motivoConcurso: cphData?.concurso?.motivoConcurso ?? null,
+      eeBaja: eeBajaResuelto || v('eeBaja'),
+      expedienteConcurso: concursoBase?.expediente,
+      expedienteCargo: concursoBase?.cargo?.expediente,
+    })
+    const fechaAltaCargo = (concursoBase?.cargo?.fechaDesde ?? '').slice(0, 10)
     // Determinar estado de cada etapa según qué campos tiene completados.
     // Etapa 2 COMPLETA solo con TODOS sus requisitos: fecha de autorización +
     // jurado CONFIRMADO + disposición de llamado. Mientras falte alguno, la
@@ -328,7 +341,9 @@ export function ConcursoCphWizard() {
         id: 'baja',
         numero: 1,
         titulo: 'Apertura / Autorización',
-        descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
+        descripcion: docOrigen.esCreacion
+          ? 'Documento de creación del cargo y apertura del expediente de concurso.'
+          : 'Registro de la baja del agente y apertura del expediente de concurso.',
         estado: !cphData
           ? 'activa'
           : cphData.eeConcurso && !cphData.pendienteAutorizacion
@@ -338,18 +353,34 @@ export function ConcursoCphWizard() {
         campos: [
           {
             key: 'eeBaja',
-            label: 'Expediente de baja',
+            label: docOrigen.etiqueta,
             tipo: 'texto',
-            valor: eeBajaResuelto || v('eeBaja'),
+            valor: docOrigen.esCreacion ? docOrigen.valor : eeBajaResuelto || v('eeBaja'),
             readonly: true,
           },
-          {
-            key: 'fechaBaja',
-            label: 'Fecha de baja',
-            tipo: 'fecha',
-            valor: fechaBajaResuelto || v('fechaBaja'),
-            readonly: true,
-          },
+          // Cargo nuevo: no hay fecha de baja; se muestra la fecha de alta ("Desde").
+          // Si no está disponible, el campo se oculta.
+          ...(docOrigen.esCreacion
+            ? fechaAltaCargo
+              ? [
+                  {
+                    key: 'fechaBaja',
+                    label: 'Fecha de alta',
+                    tipo: 'fecha' as const,
+                    valor: fechaAltaCargo,
+                    readonly: true,
+                  },
+                ]
+              : []
+            : [
+                {
+                  key: 'fechaBaja',
+                  label: 'Fecha de baja',
+                  tipo: 'fecha' as const,
+                  valor: fechaBajaResuelto || v('fechaBaja'),
+                  readonly: true,
+                },
+              ]),
           {
             key: 'puesto',
             label: 'Puesto',
@@ -357,16 +388,21 @@ export function ConcursoCphWizard() {
             valor: cphData?.concurso?.cargo?.literalPuesto ?? '',
             readonly: true,
           },
-          {
-            key: 'cuilBaja',
-            label: 'CUIL',
-            tipo: 'texto',
-            valor: cuilBajaResuelto,
-            readonly: true,
-          },
+          // CUIL del agente: solo aplica a una baja.
+          ...(docOrigen.esCreacion
+            ? []
+            : [
+                {
+                  key: 'cuilBaja',
+                  label: 'CUIL',
+                  tipo: 'texto' as const,
+                  valor: cuilBajaResuelto,
+                  readonly: true,
+                },
+              ]),
           {
             key: 'especialidadBaja',
-            label: 'Especialidad de la baja',
+            label: docOrigen.esCreacion ? 'Especialidad' : 'Especialidad de la baja',
             tipo: 'texto',
             valor: especialidadBajaResuelto,
             readonly: true,
@@ -3680,10 +3716,12 @@ export function ConcursoCphWizard() {
                 </div>
               ) : etapa.id === 'baja' ? (
                 <>
-                  {/* ── Datos de la baja (readonly) ── */}
+                  {/* ── Datos de la baja / de origen (readonly) ── */}
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                      Datos de la baja
+                      {cphData?.concurso?.motivoConcurso === 'nuevo_cargo'
+                        ? 'Datos de origen'
+                        : 'Datos de la baja'}
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {etapa.campos
