@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { cruzar, SNAPSHOT_VACIO, type CargoSistema, type SnapshotSistema } from './cruce.js'
+import { claveRolExcel, claveRolSial, cruzar, SNAPSHOT_VACIO, type CargoSistema, type SnapshotSistema } from './cruce.js'
 import type { FilaNominal } from './leerNominal.js'
 
 // Fixtures 100% sintéticos: roles y códigos inventados.
-const ROL = (n: number) => `9000000000${n}`.slice(-11)
+// Clave del Excel: legajo-rol (9 digitos, un digito de rol). El sistema guarda legajo-rol-cuil-rol.
+const ROL = (n: number) => `90000000${n}-${n}`
+/** Forma del sistema: legajo-rol + CUIL inventado + rol. */
+const enSistema = (rol: string) => `${rol}-20000000000-${rol.split('-')[1]}`
 
 function fila(p: Partial<FilaNominal> & { codigo_excel: string }): FilaNominal {
   return {
@@ -42,7 +45,7 @@ function snapshot(cargos: CargoSistema[], ocupaciones: [string, string][]): Snap
   return {
     ...CATALOGOS,
     cargos,
-    ocupaciones: ocupaciones.map(([idSialRol, cargoId]) => ({ idSialRol, cargoId })),
+    ocupaciones: ocupaciones.map(([idSialRol, cargoId]) => ({ idSialRol: enSistema(idSialRol), cargoId })),
   }
 }
 
@@ -261,5 +264,77 @@ describe('cruzar: cierre, partición e idempotencia', () => {
     const r = cruzar(filas, sis())
     const todo = JSON.stringify(r.entradas)
     for (const n of [1, 2, 3, 9]) expect(todo).not.toContain(ROL(n))
+  })
+})
+
+describe('claveRolSial', () => {
+  it('toma los dos primeros segmentos (rol de 1 y de 2 digitos)', () => {
+    expect(claveRolSial('123456789-1-20000000000-1')).toBe('123456789-1')
+    expect(claveRolSial('123456789-12-20000000000-12')).toBe('123456789-12')
+  })
+  it('no toca los digitos (conserva ceros a la izquierda) y hace trim', () => {
+    expect(claveRolSial('  000123456-01-20000000000-01 ')).toBe('000123456-01')
+    expect(claveRolExcel(' 000123456-01 ')).toBe('000123456-01')
+  })
+  it('acepta un valor ya en forma legajo-rol', () => {
+    expect(claveRolSial('123456789-1')).toBe('123456789-1')
+  })
+  it('valores mal formados -> null', () => {
+    for (const v of ['', '   ', '123456789', '123456789-', '-1-2', 'abc-1-2', '123456789-x-2', null, undefined]) {
+      expect(claveRolSial(v), String(v)).toBeNull()
+    }
+  })
+})
+describe('cruzar: clave legajo-rol contra id_sial_rol del sistema', () => {
+  it('cruza a/b y el par de jefatura (d) con base resuelta por la clave', () => {
+    const filas = [
+      fila({ codigo_excel: 'CPH-P-00101', id_sial_rol: '900000001-1' }),
+      fila({ codigo_excel: 'CPH-P-00102', id_sial_rol: '900000002-12' }),
+      fila({ codigo_excel: 'ENF-00103', id_sial_rol: '900000003-1', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero' }),
+      fila({ codigo_excel: 'ENF-J-00103', id_sial_rol: '900000003-1', cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero' }),
+    ]
+    const sis: SnapshotSistema = {
+      ...CATALOGOS,
+      cargos: [
+        cargo({ id: 'k1', codigo: 'CPH-P-000101' }),
+        cargo({ id: 'k2', codigo: 'CPH-POF-000102' }),
+        cargo({ id: 'k3', codigo: 'ENF-000103', cr: '87', escalafon: 'ENF', puesto: 'Enfermero' }),
+      ],
+      ocupaciones: [
+        { idSialRol: '900000001-1-20111111111-1', cargoId: 'k1' },
+        { idSialRol: '900000002-12-20222222222-12', cargoId: 'k2' },
+        { idSialRol: '900000003-1-20333333333-1', cargoId: 'k3' },
+      ],
+    }
+    const r = cruzar(filas, sis)
+    expect(r.conteos.c).toBe(0)
+    expect(r.conteos.a).toBe(2)
+    expect(r.conteos.b).toBe(1)
+    expect(r.conteos.d).toBe(1)
+    expect(r.entradas.d[0].motivo).toContain('cargo base existe')
+    expect(r.conteos.g).toBe(0)
+  })
+  it('i: dos cargos vivos con la misma clave legajo-rol y distinto CUIL se reportan', () => {
+    const sis: SnapshotSistema = {
+      ...CATALOGOS,
+      cargos: [cargo({ id: 'p1', codigo: 'CPH-P-000201' }), cargo({ id: 'p2', codigo: 'CPH-P-000202' })],
+      ocupaciones: [
+        { idSialRol: '900000009-1-20111111111-1', cargoId: 'p1' },
+        { idSialRol: '900000009-1-20222222222-1', cargoId: 'p2' },
+      ],
+    }
+    const r = cruzar([], sis)
+    const m = r.entradas.i.filter((e) => e.motivo.includes('misma clave legajo-rol'))
+    expect(m).toHaveLength(2)
+    expect(JSON.stringify(r.entradas)).not.toMatch(/\d{11}/)
+  })
+  it('i: id_sial_rol mal formado del sistema va a diagnostico', () => {
+    const sis: SnapshotSistema = {
+      ...CATALOGOS,
+      cargos: [cargo({ id: 'q1', codigo: 'CPH-P-000301' })],
+      ocupaciones: [{ idSialRol: 'sin-formato', cargoId: 'q1' }],
+    }
+    const r = cruzar([], sis)
+    expect(r.entradas.i.some((e) => e.motivo.includes('mal formado'))).toBe(true)
   })
 })

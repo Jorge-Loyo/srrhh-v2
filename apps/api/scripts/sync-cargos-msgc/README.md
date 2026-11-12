@@ -18,6 +18,11 @@ El agente que escribió esto no tiene Docker ni acceso a Neon. **La corrida cont
 verificada.** Sí se probó, offline, con fixtures sintéticos (`--sistema-json`) y con el CSV real del Excel
 contra un sistema vacío. Si algo falla en los pasos 2 a 5, avisar con el mensaje exacto.
 
+La primera corrida real contra Neon falló por formato de clave: no cruzó ningún ocupado
+(`a=0 b=0 c=49238 g=49184`) porque el Excel trae `legajo-rol` y el sistema guarda
+`legajo-rol-cuil-rol`. Quedó corregido (ver «Clave de cruce»), verificado solo con fixtures sintéticos;
+falta una nueva corrida real.
+
 ## Archivos
 
 | Archivo | Para qué |
@@ -122,8 +127,17 @@ seguidos y el patrón `\d+-\d+`).
 | f | Cargos vigentes del sistema sin ocupante (candidatos a reemplazo), con y sin vínculos |
 | g | Cargos con ocupante vivo cuyo ID SIAL Rol no está en el Excel (pasarían a no vigente) |
 | h | Ya no vigentes / validacion_vacante / eliminados (informativo) |
-| i | Ambigüedades: rol repetido, rol en cargo no vigente, cargo con más de una ocupación viva, `-TTR-`, colisiones de recodificación |
+| i | Ambigüedades: rol repetido, rol en cargo no vigente, cargo con más de una ocupación viva, `-TTR-`, colisiones de recodificación, clave legajo-rol duplicada o `id_sial_rol` mal formado en el sistema |
 | j | Filas no resolubles contra catálogos (sigla fuera de `hospitales`, CR, puesto, especialidad) |
+
+**Clave de cruce.** El Excel (columna N, `id_sial_rol` del CSV) trae `legajo-rol` (`999999999-9` o
+`999999999-99`). `ocupaciones.id_sial_rol` del sistema trae `legajo-rol-cuil-rol`
+(`999999999-9-99999999999-9`). La clave del sistema es `claveRolSial()` (`cruce.ts`): los dos primeros
+segmentos separados por `-`, comparados contra el valor del Excel tal cual. Ambos lados se normalizan solo con
+`trim`; no se tocan dígitos (no se quitan ceros a la izquierda). Un valor del sistema mal formado (menos de dos
+segmentos o no numéricos) no cruza y se reporta en i. Si dos cargos vivos dan la misma clave (mismo
+legajo-rol con distinto CUIL) se reportan ambos en i y el cruce usa el de menor id de cargo. La clave y el CUIL
+nunca salen en ninguna salida.
 
 Las categorías a, b, c, d, e y las filas de i que son del Excel particionan las filas del Excel; j y el resto
 de i son diagnósticos adicionales. El cierre compara `vigentes_hoy + (c+d+e) − f − g` con las filas del Excel,

@@ -58,7 +58,10 @@ export interface CargoSistema {
 }
 
 export interface OcupacionViva {
-  /** Clave de cruce. NUNCA se escribe en las salidas. */
+  /**
+   * `id_sial_rol` crudo del sistema (`legajo-rol-cuil-rol`; contiene el CUIL). NUNCA se escribe en
+   * las salidas. Para cruzar se usa `claveRolSial(idSialRol)`.
+   */
   idSialRol: string
   cargoId: string
 }
@@ -138,6 +141,22 @@ export interface ResultadoCruce {
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
+/**
+ * Clave de cruce del sistema: los DOS primeros segmentos (separados por '-') de
+ * `ocupaciones.id_sial_rol`, que en el sistema tiene la forma `legajo-rol-cuil-rol`. Es lo que
+ * trae el Excel (columna N) como `legajo-rol`. Se hace trim y no se toca ningun digito (no se
+ * quitan ceros a la izquierda). Devuelve null si el valor esta mal formado (menos de dos segmentos
+ * o segmentos no numericos); esos casos se reportan en la categoria i.
+ */
+export function claveRolSial(idSialRol: string | null | undefined): string | null {
+  const partes = String(idSialRol ?? '').trim().split('-')
+  if (partes.length < 2) return null
+  const [legajo, rol] = partes
+  if (!/^\d+$/.test(legajo) || !/^\d+$/.test(rol)) return null
+  return `${legajo}-${rol}`
+}
+/** Clave del lado Excel: el valor `legajo-rol` tal cual, solo con trim. */
+export const claveRolExcel = (idSialRol: string | null | undefined): string => String(idSialRol ?? '').trim()
 const norm = (s: string | null | undefined) => normalizarTexto(s)
 const upper = (s: string | null | undefined) => String(s ?? '').trim().toUpperCase()
 
@@ -211,7 +230,28 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
   const entradas = Object.fromEntries(CATEGORIAS.map((c) => [c, [] as Entrada[]])) as Record<Categoria, Entrada[]>
 
   const cargoPorId = new Map(sistema.cargos.map((c) => [c.id, c]))
-  const ocupPorRol = new Map(sistema.ocupaciones.map((o) => [o.idSialRol, o.cargoId]))
+  // Clave legajo-rol -> cargo. Si dos ocupaciones vivas de cargos distintos dan la misma clave no
+  // se pisan en silencio: se conserva la del cargoId menor (orden estable) y se reportan en i.
+  const ocupPorRol = new Map<string, string>()
+  const rolesPorCargo = new Map<string, string[]>()
+  const cargosPorClave = new Map<string, Set<string>>()
+  const cargosMalFormados = new Set<string>()
+  for (const o of [...sistema.ocupaciones].sort((x, y) => cmp(x.cargoId, y.cargoId))) {
+    const clave = claveRolSial(o.idSialRol)
+    if (clave === null) {
+      cargosMalFormados.add(o.cargoId)
+      continue
+    }
+    if (!ocupPorRol.has(clave)) ocupPorRol.set(clave, o.cargoId)
+    const cs = cargosPorClave.get(clave)
+    if (cs) cs.add(o.cargoId)
+    else cargosPorClave.set(clave, new Set([o.cargoId]))
+    const l = rolesPorCargo.get(o.cargoId)
+    if (l) l.push(clave)
+    else rolesPorCargo.set(o.cargoId, [clave])
+  }
+  const cargosClaveDuplicada = new Set<string>()
+  for (const cs of cargosPorClave.values()) if (cs.size > 1) for (const id of cs) cargosClaveDuplicada.add(id)
   const ocupPorCargo = new Map<string, number>()
   for (const o of sistema.ocupaciones) ocupPorCargo.set(o.cargoId, (ocupPorCargo.get(o.cargoId) ?? 0) + 1)
 
@@ -224,10 +264,11 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
   // Roles del Excel y grupos por rol (para detectar jefaturas y repetidos).
   const grupos = new Map<string, FilaNominal[]>()
   for (const f of filas) {
-    if (!f.id_sial_rol) continue
-    const g = grupos.get(f.id_sial_rol)
+    const clave = claveRolExcel(f.id_sial_rol)
+    if (!clave) continue
+    const g = grupos.get(clave)
     if (g) g.push(f)
-    else grupos.set(f.id_sial_rol, [f])
+    else grupos.set(clave, [f])
   }
   const rolesExcel = new Set(grupos.keys())
 
@@ -262,7 +303,8 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     }
 
     // e: sin ocupante.
-    if (!f.id_sial_rol) {
+    const claveFila = claveRolExcel(f.id_sial_rol)
+    if (!claveFila) {
       part.e++
       const bloque = f.bloque || 'sin bloque'
       excelPorBloque[bloque] = (excelPorBloque[bloque] ?? 0) + 1
@@ -284,8 +326,8 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     if (filasJefatura.has(f)) {
       part.d++
       if (estadoExcel === 'validacion_vacante') aCrearComoValidacion++
-      const base = (grupos.get(f.id_sial_rol) ?? []).find((x) => x !== f)
-      const cargoBaseId = ocupPorRol.get(f.id_sial_rol)
+      const base = (grupos.get(claveFila) ?? []).find((x) => x !== f)
+      const cargoBaseId = ocupPorRol.get(claveFila)
       const cargoBase = cargoBaseId ? cargoPorId.get(cargoBaseId) : undefined
       const motivo = cargoBase
         ? `cargo base existe en el sistema (${cargoBase.codigo ?? 'sin codigo'}); base Excel ${base?.codigo_excel ?? '?'}`
@@ -295,7 +337,7 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     }
 
     // c / i / a / b: cruce por ID SIAL Rol.
-    const cargoId = ocupPorRol.get(f.id_sial_rol)
+    const cargoId = ocupPorRol.get(claveFila)
     if (!cargoId) {
       part.c++
       if (estadoExcel === 'validacion_vacante') aCrearComoValidacion++
@@ -340,14 +382,14 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
   let vigentesHoy = 0
   let validacionHoy = 0
   const h = { no_vigente: 0, validacion_vacante: 0, eliminado: 0 }
-  const rolesPorCargo = new Map<string, string[]>()
-  for (const o of sistema.ocupaciones) {
-    const l = rolesPorCargo.get(o.cargoId)
-    if (l) l.push(o.idSialRol)
-    else rolesPorCargo.set(o.cargoId, [o.idSialRol])
-  }
 
   for (const c of sistema.cargos) {
+    if (cargosMalFormados.has(c.id)) {
+      entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', 'ocupacion viva con id_sial_rol mal formado (no se puede derivar legajo-rol)'))
+    }
+    if (cargosClaveDuplicada.has(c.id)) {
+      entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', 'ocupacion viva con la misma clave legajo-rol que otro cargo (distinto CUIL)'))
+    }
     // -TTR-: sin regla de recodificación (no se inventa).
     if (c.tipoOrigen === 'TTR' || (c.codigo ?? '').includes('-TTR-')) {
       entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', 'cargo -TTR-: sin regla de recodificacion'))
