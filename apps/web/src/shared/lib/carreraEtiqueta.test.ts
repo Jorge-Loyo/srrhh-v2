@@ -3,6 +3,7 @@ import {
   codigoMostradoCarrera,
   etiquetaCarrera,
   etiquetaCarreraCR,
+  opcionesCarreraConCodigosSeparados,
   ordenarCarrerasCR,
 } from './carreraEtiqueta'
 
@@ -29,6 +30,23 @@ describe('carreraEtiqueta', () => {
       '22 — CPH (22)',
       `37 — ${CPH}`,
       '85 — Técnicos',
+    ])
+  })
+
+  it('filtros: la CPH se separa en 22 y 37 y el resto queda igual', () => {
+    const esc = [
+      { id: 'e85', codigo: '85', nombre: 'Técnicos' },
+      { id: 'ecph', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' },
+    ]
+    const crs = [
+      { id: 'c22', codigo: '22', escalafonId: 'ecph' },
+      { id: 'c37', codigo: '37', escalafonId: 'ecph' },
+      { id: 'c85', codigo: '85', escalafonId: 'e85' },
+    ]
+    expect(opcionesCarreraConCodigosSeparados(esc, crs)).toEqual([
+      { value: 'cr:c22', label: `22 — ${CPH}` },
+      { value: 'cr:c37', label: `37 — ${CPH}` },
+      { value: 'e85', label: '85 — Técnicos' },
     ])
   })
 })

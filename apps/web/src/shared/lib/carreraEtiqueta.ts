@@ -57,3 +57,34 @@ export function opcionesCarreraEscalafon(
     )
     .map((e) => ({ value: valor(e), label: etiquetaCarrera(e) }))
 }
+
+/**
+ * Carreras para FILTROS: la CPH (escalafón cuyo código se muestra como otro, ej. 22 → 37)
+ * se divide en una opción por código de registro ('22' y '37'), con value `cr:{id}`.
+ * El resto de los escalafones queda como una opción con value = id del escalafón.
+ */
+export function opcionesCarreraConCodigosSeparados(
+  escalafones: { id: string; codigo: string; nombre: string }[],
+  codigosRegistro: { id: string; codigo: string; escalafonId: string }[],
+): { value: string; label: string }[] {
+  const out: { sort: string; value: string; label: string }[] = []
+  for (const e of escalafones) {
+    const dividir = codigoMostradoCarrera(e.codigo) !== e.codigo.trim()
+    const crs = dividir
+      ? codigosRegistro.filter(
+          (cr) => cr.escalafonId === e.id && Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO).includes(cr.codigo.trim()) && CR_POR_CODIGO_ESCALAFON_GESTIONADO[cr.codigo.trim()] === codigoMostradoCarrera(e.codigo),
+        )
+      : []
+    if (crs.length > 1) {
+      const nombre = NOMBRE_MOSTRADO_POR_CODIGO[codigoMostradoCarrera(e.codigo)] ?? e.nombre
+      for (const cr of crs) {
+        out.push({ sort: cr.codigo.trim(), value: `cr:${cr.id}`, label: `${cr.codigo.trim()} — ${nombre}` })
+      }
+    } else {
+      out.push({ sort: codigoMostradoCarrera(e.codigo), value: e.id, label: etiquetaCarrera(e) })
+    }
+  }
+  return out
+    .sort((a, b) => a.sort.localeCompare(b.sort, 'es', { numeric: true }))
+    .map(({ value, label }) => ({ value, label }))
+}
