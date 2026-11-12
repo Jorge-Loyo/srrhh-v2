@@ -4,6 +4,7 @@ import { can } from '@/shared/lib/can'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import {
   useIncidenciasPendientes,
   useCrearCargo,
@@ -218,7 +219,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
             <ComboBuscable
               modo="unico"
               label="Carrera"
-              options={(escalafones ?? []).map((e) => ({ value: e.nombre, label: escalafonLabel(e.nombre) }))}
+              options={opcionesCarreraEscalafon(escalafones ?? [], (e) => e.nombre)}
               selected={carrera ? [carrera] : []}
               onChange={(v) => setCarrera(v[0] ?? '')}
               placeholder="Todas las carreras"

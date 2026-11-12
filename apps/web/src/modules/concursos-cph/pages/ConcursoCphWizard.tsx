@@ -60,6 +60,7 @@ import {
 import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { useConfirm } from '@/shared/components/ui/useConfirm'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -4018,7 +4019,7 @@ export function ConcursoCphWizard() {
                           <ComboBuscable
                             modo="unico"
                             label="Carrera"
-                            options={escalafonesOrdenados.map((e) => ({ value: e.id, label: escalafonLabel(e.nombre) }))}
+                            options={opcionesCarreraEscalafon(escalafonesOrdenados)}
                             selected={escalafonId ? [escalafonId] : []}
                             onChange={(v) => {
                               setEscalafonId(v[0] ?? '')

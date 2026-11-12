@@ -7,6 +7,7 @@ import {
   useEspecialidadesDePuestoId,
 } from '@/shared/hooks/useCatalogos'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
@@ -112,7 +113,7 @@ export function FiltrosCatalogo({
         <ComboBuscable
           modo="unico"
           label="Carrera"
-          options={escalafonesOrdenados.map((e) => ({ value: e.id, label: escalafonLabel(e.nombre) }))}
+          options={opcionesCarreraEscalafon(escalafones ?? [])}
           selected={escalafonId ? [escalafonId] : []}
           onChange={(v) => cambiarEscalafon(v[0] ?? '')}
           placeholder="Todas las carreras"

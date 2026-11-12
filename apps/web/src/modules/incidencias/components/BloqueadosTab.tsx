@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useBloqueados } from '../hooks/useIncidencias'
@@ -66,7 +67,7 @@ export function BloqueadosTab() {
           <ComboBuscable
             modo="unico"
             label="Carrera"
-            options={(escalafones ?? []).map((e) => { const l = escalafonLabel(e.nombre); return { value: l, label: l } })}
+            options={opcionesCarreraEscalafon(escalafones ?? [], (e) => escalafonLabel(e.nombre))}
             selected={carrera ? [carrera] : []}
             onChange={(v) => reiniciarPagina(setCarrera)(v[0] ?? '')}
             placeholder="Todas las carreras"

@@ -32,3 +32,19 @@ export function ordenarCarrerasCR<T extends { codigo: string; literal: string }>
     etiquetaCarreraCR(a).localeCompare(etiquetaCarreraCR(b), 'es', { numeric: true }),
   )
 }
+
+/**
+ * Opciones 'CÓDIGO — Nombre' para un selector de carrera a partir de escalafones,
+ * ordenadas por código (numérico). Misma etiqueta que /cargos/alta. `valor` elige
+ * qué se emite (por defecto el id).
+ */
+export function opcionesCarreraEscalafon(
+  escalafones: { id: string; codigo: string; nombre: string }[],
+  valor: (e: { id: string; codigo: string; nombre: string }) => string = (e) => e.id,
+): { value: string; label: string }[] {
+  return [...escalafones]
+    .sort((a, b) =>
+      codigoMostradoCarrera(a.codigo).localeCompare(codigoMostradoCarrera(b.codigo), 'es', { numeric: true }),
+    )
+    .map((e) => ({ value: valor(e), label: etiquetaCarrera(e) }))
+}

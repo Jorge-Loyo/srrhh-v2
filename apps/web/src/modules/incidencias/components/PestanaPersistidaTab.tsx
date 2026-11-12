@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import {
@@ -182,10 +183,7 @@ export function PestanaPersistidaTab({ slug }: { slug: PestanaPersistidaSlug }) 
           <ComboBuscable
             modo="unico"
             label="Carrera"
-            options={(escalafones ?? []).map((e) => {
-              const l = escalafonLabel(e.nombre)
-              return { value: l, label: l }
-            })}
+            options={opcionesCarreraEscalafon(escalafones ?? [], (e) => escalafonLabel(e.nombre))}
             selected={carrera ? [carrera] : []}
             onChange={(v) => {
               setCarrera(v[0] ?? '')

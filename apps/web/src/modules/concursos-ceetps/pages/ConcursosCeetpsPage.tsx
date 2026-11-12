@@ -11,6 +11,7 @@ import { AlertasSinMovimientoCeetps } from '../components/AlertasSinMovimientoCe
 import { ESTADO_LABEL, ESTADO_BADGE, SUB_ESTADO_LABEL, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 
 const LIMIT = 50
 
@@ -77,7 +78,7 @@ export function ConcursosCeetpsPage() {
             <ComboBuscable
               modo="unico"
               label="Carrera"
-              options={escalafonesOrdenados.map((e) => ({ value: e.id, label: escalafonLabel(e.nombre) }))}
+              options={opcionesCarreraEscalafon(escalafonesOrdenados)}
               selected={escalafonId ? [escalafonId] : []}
               onChange={(v) => resetPage(setEscalafonId)(v[0] ?? '')}
               placeholder="Todas las carreras"
