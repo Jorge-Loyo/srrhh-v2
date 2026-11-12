@@ -129,17 +129,12 @@ La lectura de datos históricos sigue tolerando el 22. **Cobertura de Dotación*
   `eeConcurso` por primera vez **con `ifAutorizacion` presente**, se solicita la
   autorización a **SGRASV** (`pendienteAutorizacion=true`, solo sgrasv). Sin IF,
   solo se genera una notificación informativa.
-- **Al autorizar SGRASV** (`aprobarAutorizacionCphService`, paso sgrasv aprobado):
-  - Si hay **candidato de OM reservado** para el concurso → se **arrastran** del
-    concurso de origen de esa OM: `fechaAutorizacion`, `sorteoJurado`,
-    `disposicion`, `fechaInscDesde`, `fechaInscHasta`, `inscripcionCerrada`,
-    `fechaExamen`, `fechaOrdenMerito`, `presentadosConfirmados`,
-    `ordenMeritoConfirmado`; se recalcula y el concurso **salta a la Etapa 4**
-    (IFACS/INSAL). No se copia IFACS/INSAL (son propios del nuevo concurso).
-  - Si **no hay candidato reservado** → flujo normal a la **Etapa 2**.
-
-> El salto de etapas ocurre **al autorizar**, no al reservar el candidato: si
-> SGRASV no autoriza, no se avanza.
+- **Al autorizar SGRASV** el concurso queda autorizado y pasa a la **Etapa 2**.
+  **Autorizar ya NO salta etapas ni arrastra fechas** de ningún concurso de
+  origen (`aprobarAutorizacionCphService` no tiene llamadores; su lógica de
+  arrastre se descartó a propósito: no se inventan datos de examen ni de
+  jurado). El salto por orden de mérito es una decisión explícita en la
+  **Etapa 2** (ver §6.1).
 
 ---
 
@@ -220,8 +215,10 @@ confirmar.
 
 ## 6. Reutilización de OM y reelección (Etapa 1)
 
-- **Compatibilidad de OM**: mismo **puesto + especialidad + escalafón** que el
-  concurso destino.
+- **Compatibilidad de OM**: mismo **puesto + especialidad** que el concurso
+  destino. **El código NO valida el escalafón** aunque este documento lo
+  mencionara antes: la regla vigente es especialidad (igualdad normalizada) y
+  puesto (solo si ambos lo tienen). Exigir escalafón es una pregunta abierta.
 - **Reservar** (`POST /:id/om/reservar`): toma un integrante disponible de una
   OM compatible vigente → `designado=true`, `concursoCphDesignadoId=destino`, y
   lo registra como `personaDesignada` del destino **si tiene `personaId`**. NO
@@ -239,6 +236,35 @@ confirmar.
 > **Reservar/designar de la OM ≠ terminación del concurso.** Solo marca al
 > candidato. La validación real ocurre cuando el CUIL aparece en el padrón
 > semanal triangulado con el concurso (ver §6ter y §6qua).
+> Para concursos `nuevo_cargo`, el panel de la Etapa 1 se reemplaza por el de la
+> Etapa 2 (§6.1); el resto de los motivos conserva el panel de la Etapa 1.
+
+### 6.1 Designar desde una orden de mérito existente (Etapa 2, Paso 5b)
+- **Dónde y quién**: Etapa 2, tras **guardar el Tipo de gestión**, para quien
+  tiene el permiso `concursos-cph/tab:autorizacion-jurado` (admin pasa por
+  bypass). Panel `PanelOmDisponibles` ("Órdenes de mérito disponibles").
+- **Alcance**: solo `motivoConcurso = 'nuevo_cargo'` ya autorizado, en Etapa 1–2,
+  sin salto previo ni resolución. Un nuevo_cargo sin autorizar responde 409.
+  **CEETPS queda fuera**: no tiene OM ni tipo de gestión.
+- **Elegibilidad**: OM vigente (no vencida, con prórroga si hay), misma
+  especialidad y puesto, distinta de la OM del propio concurso, integrantes
+  `!designado && !anulado` cuyo CUIL no esté designado en otro concurso. La regla
+  centralizado/descentralizado **no bloquea**: solo genera advertencias
+  (pendiente de definición, ver `reglaGestionOm`).
+- **Rutas**: `GET /:id/om-disponibles` y `POST /:id/om/designar`
+  (`{integranteId, motivo?}`), ambas con el permiso de arriba.
+- **Qué hace el POST** (una transacción con `FOR UPDATE` del concurso y reclamo
+  atómico del integrante): marca al integrante como designado en este concurso,
+  registra la persona (`personaDesignadaId`, o `designadoRefCuil/Nombre` si no
+  está en el padrón), setea `salto_om_at` y `salto_om_integrante_id`, recalcula
+  y deja el concurso en **H-TAD** (sub-estado 3 "F-PROX. A DESIG"), estado
+  `activo`. Se **saltan** jurado, inscripción, examen, orden de mérito propio,
+  IFACS e INSAL; no se copia ni inventa ningún dato de esas etapas. Audita
+  `designar_desde_om` (entidad `concurso_cph_om`).
+- **Revertir**: `/om/rechazar` ("No aceptó el cargo") y `/om/liberar` sobre ese
+  integrante limpian el salto y el concurso vuelve a la Etapa 2.
+- **"Seguir con el concurso"**: solo oculta la oferta en la sesión; no llama al
+  backend.
 
 ---
 
@@ -432,6 +458,8 @@ Bajo `/api/v1/concursos-cph`:
 | GET    | `/:id/om-compatibles`                                 | OM compatibles con disponibles                 |
 | GET    | `/:id/candidato-om`                                   | Candidato de OM reservado (o null)             |
 | POST   | `/:id/om/reservar` \| `/liberar` \| `/rechazar`       | Gestión del candidato de OM                    |
+| GET    | `/:id/om-disponibles`                                 | OM para designar y saltar (Etapa 2, 5b)        |
+| POST   | `/:id/om/designar`                                    | Designar desde OM: salta a Etapa 5 (5b)        |
 | ...    | (inscriptos, presentados, orden-merito, importar-csv) | Etapa 3                                        |
 
 En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:

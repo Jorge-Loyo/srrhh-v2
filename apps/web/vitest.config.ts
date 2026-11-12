@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { defineConfig } from 'vitest/config'
 
 // Suite unitaria de apps/web. Hoy solo cubre lógica PURA (sin React/DOM), como
@@ -6,6 +7,8 @@ import { defineConfig } from 'vitest/config'
 //
 // Correr con: pnpm --filter @srrhh/web test
 export default defineConfig({
+  // Alias '@' igual que vite.config.ts (lib/etapasVisibles importa '@/shared/lib/can').
+  resolve: { alias: { '@': path.resolve(__dirname, './src') } },
   esbuild: {
     tsconfigRaw: { compilerOptions: { target: 'ES2022', module: 'esnext', moduleResolution: 'bundler', jsx: 'react-jsx' } },
   },

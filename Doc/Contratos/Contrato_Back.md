@@ -163,7 +163,10 @@ GET    /api/v1/concursos-cph/:id/om-compatibles       ← OM compatibles (mismo 
 GET    /api/v1/concursos-cph/:id/candidato-om         ← candidato de OM reservado (o null) + disponiblesRestantes
 POST   /api/v1/concursos-cph/:id/om/reservar          ← reserva integrante (designado, NO finaliza)
 POST   /api/v1/concursos-cph/:id/om/liberar           ← libera la reserva
-POST   /api/v1/concursos-cph/:id/om/rechazar          ← no aceptó: anula + libera; devuelve disponiblesRestantes
+POST   /api/v1/concursos-cph/:id/om/rechazar          ← no aceptó: anula + libera; devuelve disponiblesRestantes (si hubo salto por OM, lo revierte)
+# Etapa 2 — Paso 5b: designar desde OM (permiso concursos-cph/tab:autorizacion-jurado; admin bypass)
+GET    /api/v1/concursos-cph/:id/om-disponibles       ← {habilitado, motivoNoHabilitado, tipoGestionDestino, ordenes[]}; 409 si nuevo_cargo sin autorizar
+POST   /api/v1/concursos-cph/:id/om/designar          ← body {integranteId, motivo?}; tx + FOR UPDATE; salta a Etapa 5 (H-TAD) y marca salto_om_at; devuelve el concurso con saltoOm
 POST   /api/v1/concursos-cph/importar-csv
 
 # Validación contra padrón (módulo padrón) — ver Doc/Contrato_Concursos_CPH.md §6qua

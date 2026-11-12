@@ -81,6 +81,8 @@ import {
 import { HistorialCambios } from '../components/HistorialCambios'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
+import { PanelOmDisponibles } from '../components/PanelOmDisponibles'
+import { aplicarSaltoOm, debeOcultarPanelEtapa1 } from '../lib/saltoOm'
 
 // Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
 // alta = posición 1. No puede haber dos personas en la misma posición — un
@@ -551,7 +553,8 @@ export function ConcursoCphWizard() {
       },
     ]
     // Paso 2a: nuevo_cargo sin autorizar → Etapas 2–5 bloqueadas hasta que SGRASV autorice.
-    return aplicarBloqueoPorAutorizacion(etapasBase, cphData?.concurso)
+    // Paso 5b: con salto por orden de mérito, Etapas 2–4 resueltas y Etapa 5 activa.
+    return aplicarBloqueoPorAutorizacion(aplicarSaltoOm(etapasBase, cphData), cphData?.concurso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cphData, juradoData?.confirmado])
 
@@ -4074,7 +4077,10 @@ export function ConcursoCphWizard() {
                         Expediente de Concurso cargado y sin autorización en curso.
                         Permite reservar un candidato antes de solicitar la
                         autorización de SGRASV (define si el concurso salta etapas). */}
-                    {id && eeConcursoInput.trim() && !pendienteAutorizacion && (
+                    {id &&
+                      eeConcursoInput.trim() &&
+                      !pendienteAutorizacion &&
+                      !debeOcultarPanelEtapa1(cphData?.concurso) && (
                       <div className="mt-5">
                         <PanelReutilizarOm concursoId={id} />
                       </div>
@@ -4136,6 +4142,16 @@ export function ConcursoCphWizard() {
                     )}
                   </div>
 
+                  {/* Paso 5b: designar desde una orden de mérito existente (salta
+                      a la Etapa 5). Solo con tipo de gestión guardado. */}
+                  {id && (
+                    <PanelOmDisponibles
+                      concursoId={id}
+                      cph={cphData}
+                      user={user}
+                      onDesignado={() => setEtapaActiva('designacion')}
+                    />
+                  )}
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
                   {cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
