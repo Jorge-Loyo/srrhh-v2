@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
-import { CATEGORIAS, type Categoria, type ConcursoColgado, type Entrada, type ResultadoCruce } from './cruce.js'
+import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
 
 export const COLUMNAS_DETALLE = [
   'codigo_excel', 'categoria', 'accion', 'cargo_codigo_sistema', 'codigo_propuesto',
@@ -17,6 +17,11 @@ export const COLUMNAS_COLGADOS = [
   'cargo_codigo_sistema', 'estado_cargo', 'sigla', 'acronimo_propuesto', 'puesto', 'especialidad',
   'tipo_concurso', 'estado_concurso', 'sub_estado_concurso', 'activo', 'expediente_concurso',
   'motivo_concurso', 'autorizado', 'expediente_en_excel', 'fila_excel', 'otros_vinculos', 'revision',
+] as const
+
+export const COLUMNAS_CONFLICTOS = [
+  'codigo_excel', 'cargo_codigo_sistema', 'sigla', 'puesto', 'bloque', 'fuente_sistema',
+  'expediente_excel', 'expediente_sistema',
 ] as const
 
 const RE_11_DIGITOS = /\d{11}/
@@ -68,6 +73,24 @@ export function csvDeColgados(filas: ConcursoColgado[]): string {
   return lineas.join('\n') + '\n'
 }
 
+/**
+ * conflictos_expediente.csv: casos con DOS numeros de expediente distintos (Excel vs sistema) para que Jorge elija.
+ * Solo expedientes normalizados; sin personas ni roles.
+ */
+export function csvDeConflictos(filas: ConflictoExpediente[]): string {
+  const lineas = [COLUMNAS_CONFLICTOS.join(',')]
+  filas.forEach((e, i) => {
+    const celdas = COLUMNAS_CONFLICTOS.map((c) => String(e[c] ?? ''))
+    celdas.forEach((v, j) => {
+      const ctx = `conflictos_expediente fila ${i + 1} columna ${COLUMNAS_CONFLICTOS[j]}`
+      if (COLUMNAS_CONFLICTOS[j] === 'expediente_excel' || COLUMNAS_CONFLICTOS[j] === 'expediente_sistema') validarCeldaExpediente(v, ctx)
+      else validarCelda(v, ctx)
+    })
+    lineas.push(celdas.map(celdaCsv).join(','))
+  })
+  return lineas.join('\n') + '\n'
+}
+
 export interface MetaCorrida {
   corte: string | null
   sha256: string | null
@@ -85,6 +108,9 @@ export interface ResumenJson extends MetaCorrida {
   colisiones: number
   j_por_motivo: Record<string, number>
   concursos_colgados: ResultadoCruce['concursos_colgados']['totales']
+  /** Acciones de la Fase 2 (puestos, jefaturas, etiquetas, ampliaciones, expedientes y concursos). */
+  fase2: ResultadoCruce['fase2']
+  conflictos_expediente: number
   /** Delta por categoría contra la corrida anterior (--previo). */
   delta_vs_previo?: Record<string, number>
 }
@@ -102,6 +128,8 @@ export function armarResumen(r: ResultadoCruce, meta: MetaCorrida, previo?: Resu
     colisiones: r.colisiones,
     j_por_motivo: r.j_por_motivo,
     concursos_colgados: r.concursos_colgados.totales,
+    fase2: r.fase2,
+    conflictos_expediente: r.conflictos_expediente.length,
   }
   if (previo) {
     const delta: Record<string, number> = {}
@@ -169,6 +197,26 @@ export function markdownDeResumen(s: ResumenJson): string {
   for (const [t, v] of Object.entries(col.por_tipo_activo)) l.push(`  - ${t}: activos ${v.activo}; no activos ${v.no_activo}`)
   l.push(`- A revisar (concurso activo cuyo expediente SI esta en el Excel, en otra fila): ${col.revisar}`)
   l.push('')
+  const f2 = s.fase2
+  const lista = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `  - ${k}: ${v}`)
+  l.push('## Acciones de la Fase 2 (plan, no se escribe nada)')
+  l.push('')
+  l.push('Puestos sucios de CR 87 / CR 85 (el codigo de registro no se toca):')
+  l.push(...(Object.keys(f2.puestos_resueltos).length ? lista(f2.puestos_resueltos) : ['  - ninguno']))
+  l.push(`- Marcas revisionDato: ${Object.values(f2.revision_dato).reduce((x, y) => x + y, 0)}`)
+  l.push(...lista(f2.revision_dato))
+  l.push(`- Etiqueta CEETPS "SI" (tipificador): ${f2.etiquetas_ceetps_si} cargos`)
+  l.push(`- Ampliaciones (cargo nuevo + concurso nuevo_cargo sin autorizar, Etapa 1): ${f2.ampliaciones}`)
+  l.push(`- Jefaturas con par (vinculadas por cargoBaseId): ${f2.jefaturas.con_par} (base existe ${f2.jefaturas.base_existe}; base a crear ${f2.jefaturas.base_a_crear}); vacantes -J sin par (sin cargo base, a revisar): ${f2.jefaturas.vacantes_sin_par}`)
+  l.push(`- Expedientes Excel vs sistema: coinciden ${f2.expedientes.coinciden}; el Excel completa lo que falta ${f2.expedientes.a_completar}; dos numeros distintos ${f2.expedientes.conflictos} (conflictos_expediente.csv: ${s.conflictos_expediente} filas)`)
+  l.push('')
+  const k = f2.concursos
+  l.push('Concursos (solo deben quedar los que estan en el Excel, cruce por expediente normalizado):')
+  l.push(`- En el sistema: ${k.sistema}; se conservan ${k.mantener} (+ ${k.mantener_a_reasignar} hoy en cargos que pasan a no vigente: reasignar); se ELIMINAN ${k.eliminar}`)
+  l.push(`- Eliminar por tipo: ${Object.entries(k.eliminar_por_tipo).map(([t, n]) => `${t} ${n}`).join('; ') || 'ninguno'}; activos ${k.eliminar_activos}; de cargo nuevo (pruebas) ${k.eliminar_nuevo_cargo}; en cargo que pasa a no vigente ${k.eliminar_en_cargo_no_vigente}; sin expediente ${k.eliminar_sin_expediente}`)
+  l.push(`- A crear: ${k.crear_desde_excel} desde el Excel (caratulado, sin autorizar, detalle en observaciones) + ${k.crear_nuevo_cargo} ampliaciones (nuevo_cargo sin autorizar)`)
+  l.push(`- Expediente en 2+ cargos del Excel: valido (baja/creacion) ${k.expediente_repetido_valido}; error (concurso) ${k.expediente_repetido_error}`)
+  l.push('')
   l.push('## Informativo (h) y colisiones')
   l.push('')
   l.push(`- no_vigente: ${s.h_desglose.no_vigente}; validacion_vacante: ${s.h_desglose.validacion_vacante}; eliminados: ${s.h_desglose.eliminado}`)
@@ -193,6 +241,7 @@ export function escribirReporte(dir: string, r: ResultadoCruce, resumen: Resumen
   const archivos: [string, string][] = []
   for (const cat of CATEGORIAS) archivos.push([`detalle_${cat}.csv`, csvDeEntradas(cat, r.entradas[cat])])
   archivos.push(['concursos_colgados.csv', csvDeColgados(r.concursos_colgados.filas)])
+  archivos.push(['conflictos_expediente.csv', csvDeConflictos(r.conflictos_expediente)])
   const json = JSON.stringify(resumen, null, 2) + '\n'
   const md = markdownDeResumen(resumen)
   // El sha256 (hex) puede contener 11 digitos seguidos por azar: se excluye del chequeo.

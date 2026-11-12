@@ -10,7 +10,7 @@ import {
   equivalenciaSigla,
   esAnexoIIExcel,
   esSiglaACrear,
-  puestoSinDestino,
+  reglaPuestoSucio,
 } from './equivalencias.js'
 
 describe('equivalencias', () => {
@@ -19,13 +19,34 @@ describe('equivalencias', () => {
     expect(py).toContain(`VERSION_EQUIVALENCIAS = "${VERSION_EQUIVALENCIAS}"`)
   })
 
-  it('siglas: ssapac -> SSAPAC; las 18 restantes se crean, sin mapear', () => {
+  it('siglas: ssapac (case-insensitive) -> SSAPAC; SSAME -> SSSAME; UAIEAIT -> EAIT', () => {
     expect(equivalenciaSigla('ssapac')).toBe('SSAPAC')
+    expect(equivalenciaSigla('SSAPAC')).toBe('SSAPAC')
+    expect(equivalenciaSigla('SSAME')).toBe('SSSAME')
     expect(equivalenciaSigla('SSSAME')).toBeNull()
-    expect(SIGLAS_A_CREAR).toHaveLength(18)
+    expect(equivalenciaSigla('UAIEAIT')).toBe('EAIT')
+  })
+
+  it('siglas: las 15 DGAH<sigla> van al hospital que corresponde y no se crean', () => {
+    const dgah = [
+      'DGAHBR', 'DGAHGACA', 'DGAHGACD', 'DGAHGADS', 'DGAHGAIP', 'DGAHGAJAF', 'DGAHGAP',
+      'DGAHGAPP', 'DGAHGARM', 'DGAHGAT', 'DGAHGATA', 'DGAHGAVS', 'DGAHGAZ', 'DGAHGNPE', 'DGAHGNRG',
+    ]
+    expect(dgah).toHaveLength(15)
+    expect(equivalenciaSigla('DGAHBR')).toBe('HBR')
+    expect(equivalenciaSigla('dgahgaca')).toBe('HGACA')
+    expect(equivalenciaSigla('DGAHGNRG')).toBe('HGNRG')
+    for (const s of dgah) {
+      expect(equivalenciaSigla(s)).toBe(s.slice(3))
+      expect(esSiglaACrear(s)).toBe(false)
+    }
+  })
+
+  it('siglas a crear: solo queda SSSAME (SSAME es errata; DGAH*/UAIEAIT son equivalencias)', () => {
+    expect(SIGLAS_A_CREAR).toEqual(['SSSAME'])
     expect(esSiglaACrear('SSSAME')).toBe(true)
     expect(esSiglaACrear('ssame')).toBe(true)
-    expect(esSiglaACrear('DGAHGNRG')).toBe(true)
+    expect(esSiglaACrear('UAIEAIT')).toBe(false)
     expect(esSiglaACrear('HBR')).toBe(false)
   })
 
@@ -36,17 +57,21 @@ describe('equivalencias', () => {
     expect(equivalenciaPuesto('85', 'Radiología')).toBe('tecnico en radiologia')
   })
 
-  it('puestos sucios sin destino definido por Jorge no se inventan', () => {
+  it('puestos sucios de CR 87 / CR 85 se resuelven en el cruce por regla (no por tabla)', () => {
     expect(equivalenciaPuesto('87', 'ENFERMERIA')).toBeNull()
-    expect(puestoSinDestino('87', 'Enfermeria')).toBe(true)
-    expect(puestoSinDestino('87', 'Tecnico de la Salud')).toBe(true)
-    expect(puestoSinDestino('85', '')).toBe(true)
-    expect(puestoSinDestino('87', 'Enfermero profesional')).toBe(false)
+    expect(reglaPuestoSucio('87', 'Enfermeria')).toBe('cr87_enfermeria')
+    expect(reglaPuestoSucio('87', 'Tecnico de la Salud')).toBe('cr87_tecnico_salud')
+    expect(reglaPuestoSucio('85', 'Técnico de la Salud')).toBe('cr85_tecnico')
+    expect(reglaPuestoSucio('85', 'Tecnico')).toBe('cr85_tecnico')
+    expect(reglaPuestoSucio('85', 'Enfermeria')).toBe('cr85_auxiliar')
+    expect(reglaPuestoSucio('85', '')).toBe('cr85_auxiliar')
+    expect(reglaPuestoSucio('87', 'Enfermero profesional')).toBeNull()
   })
 
   it('especialidad: enfermeria -> Enfermeros ATC', () => {
     expect(equivalenciaEspecialidad('ENFERMERIA')).toBe('Enfermeros ATC')
     expect(equivalenciaEspecialidad('Enfermería')).toBe('Enfermeros ATC')
+    expect(equivalenciaEspecialidad('enfermeria')).toBe('Enfermeros ATC')
   })
 
   it('Anexo II del Excel: incluye radio operador y chofer de ambulancia(s); sin capellán ni chofer de funcionario', () => {

@@ -1,9 +1,11 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   claveRolExcel, claveRolSial, cruzar, normalizarExpediente, SNAPSHOT_VACIO,
   type CargoSistema, type ConcursoSistema, type SnapshotSistema,
 } from './cruce.js'
-import type { FilaNominal } from './leerNominal.js'
+import { leerNominal, type FilaNominal } from './leerNominal.js'
 
 // Fixtures 100% sintéticos: roles y códigos inventados.
 // Clave del Excel: legajo-rol (9 digitos, un digito de rol). El sistema guarda legajo-rol-cuil-rol.
@@ -205,7 +207,7 @@ describe('cruzar: categorías a–j', () => {
 
   it('j: no resolubles contra catálogos (sigla, CR, puesto, especialidad)', () => {
     const r = cruzar([
-      fila({ codigo_excel: 'X-1', sigla: 'SSAME', cr: '99', literal_puesto: 'Inexistente', especialidad_cargo: 'rara' }),
+      fila({ codigo_excel: 'X-1', sigla: 'SSSAME', cr: '99', literal_puesto: 'Inexistente', especialidad_cargo: 'rara' }),
       fila({ codigo_excel: 'X-2', sigla: 'XORG', cr: '37' }),
       fila({ codigo_excel: 'X-3', cr: '85', literal_puesto: 'Tecnico' }),
     ], snapshot([], []))
@@ -215,7 +217,7 @@ describe('cruzar: categorías a–j', () => {
     expect(j['X-1']).toContain('CR sin codigos_registro')
     expect(j['X-1']).toContain('especialidad sin catalogo')
     expect(j['X-2']).toContain('esta en organigramas.sigla')
-    expect(j['X-3']).toContain('puesto sin destino definido')
+    expect(j['X-3']).toContain('puesto a revisar')
   })
 })
 
@@ -584,5 +586,253 @@ describe('cruzar: concursos_colgados', () => {
     )
     expect(r.cierre.e_reusadas).toBe(1)
     expect(r.concursos_colgados.filas).toHaveLength(0)
+  })
+})
+
+describe('cruzar: puestos sucios de CR 87 / CR 85 (decisiones 12-nov)', () => {
+  const EXP = 'EX-2024-01234567'
+  const enf = (id: string, codigo: string, p: Partial<CargoSistema> = {}) =>
+    cargo({ id, codigo, cr: '87', escalafon: 'ENF', puesto: 'Enfermero', ...p })
+
+  it("CR 87 'Enfermeria': toma el puesto del concurso del sistema por expediente y deja el CR", () => {
+    const r = cruzar(
+      [fila({ codigo_excel: 'ENF-00001', cr: '87', acronimo: 'ENF', literal_puesto: 'ENFERMERIA', bloque: 'Concurso', expediente: EXP })],
+      conConcursos([enf('n1', 'ENF-POF-000001')], [concurso('n1', { expedientes: ['EX-2024-1234567-GDEBA-X'] })]),
+    )
+    expect(r.entradas.e[0]).toMatchObject({ accion: 'reusar cargo del sistema', puesto: 'Enfermero', cr: '87', acronimo: 'ENF' })
+    expect(r.entradas.e[0].motivo).not.toContain('revisionDato')
+    expect(r.fase2.puestos_resueltos).toEqual({ cr87_enfermeria_puesto_del_concurso: 1 })
+    expect(r.entradas.j).toHaveLength(0)
+  })
+
+  it("CR 87 'Enfermeria' sin concurso en el sistema: Enfermero Profesional con marca revisionDato", () => {
+    const r = cruzar([fila({ codigo_excel: 'ENF-00002', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermeria', bloque: 'Concurso', expediente: EXP })], snapshot([], []))
+    expect(r.entradas.e[0].puesto).toBe('Enfermero Profesional')
+    expect(r.entradas.e[0].motivo).toContain('revisionDato')
+    expect(r.fase2.puestos_resueltos).toEqual({ cr87_enfermeria_enfermero_profesional: 1 })
+    expect(Object.values(r.fase2.revision_dato)).toEqual([1])
+  })
+
+  it("CR 87 'Tecnico de la Salud': Enfermero Profesional, acronimo ENF y el CR no cambia", () => {
+    const r = cruzar([fila({ codigo_excel: 'ENF-00003', cr: '87', acronimo: 'TEC', literal_puesto: 'Tecnico de la Salud', bloque: 'Concurso' })], snapshot([], []))
+    expect(r.entradas.e[0]).toMatchObject({ puesto: 'Enfermero Profesional', cr: '87', acronimo: 'ENF' })
+    expect(r.entradas.e[0].motivo).not.toContain('revisionDato')
+    expect(r.fase2.puestos_resueltos).toEqual({ cr87_tecnico_salud_enfermero_profesional: 1 })
+  })
+
+  it("CR 85 'Tecnico de la Salud' / 'Tecnico': puesto del concurso del sistema; si no existe, a revisar", () => {
+    const base = { cr: '85', escalafon: 'TEC', puesto: 'Tecnico en esterilizacion' }
+    const filas = [
+      fila({ codigo_excel: 'TEC-00001', cr: '85', acronimo: 'TEC', literal_puesto: 'Tecnico de la Salud', bloque: 'Concurso', expediente: EXP }),
+      fila({ codigo_excel: 'TEC-00002', cr: '85', acronimo: 'TEC', literal_puesto: 'Tecnico', bloque: 'Concurso', expediente: 'EX-2022-00000009' }),
+    ]
+    const r = cruzar(filas, conConcursos([cargo({ id: 't1', codigo: 'TEC-POF-000001', ...base })], [concurso('t1', { expedientes: [EXP] })]))
+    const e = Object.fromEntries(r.entradas.e.map((x) => [x.codigo_excel, x]))
+    expect(e['TEC-00001']).toMatchObject({ accion: 'reusar cargo del sistema', puesto: 'Tecnico en esterilizacion' })
+    expect(e['TEC-00002'].puesto).toBe('Tecnico')
+    expect(e['TEC-00002'].motivo).toContain('revisionDato')
+    expect(r.entradas.j.find((x) => x.codigo_excel === 'TEC-00002')?.motivo).toContain('puesto a revisar')
+    expect(r.fase2.puestos_resueltos).toEqual({ cr85_tecnico_puesto_del_concurso: 1, cr85_tecnico_sin_concurso: 1 })
+  })
+
+  it("CR 85 'Enfermeria' y sin puesto: Auxiliar de Enfermeria con acronimo ENF; todo auxiliar CR 85 es ENF", () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'TEC-00010', cr: '85', acronimo: 'TEC', literal_puesto: 'Enfermeria', bloque: 'Concurso' }),
+        fila({ codigo_excel: 'TEC-00011', cr: '85', acronimo: 'TEC', literal_puesto: '', bloque: 'Concurso' }),
+        fila({ codigo_excel: 'TEC-00012', cr: '85', acronimo: 'TEC', literal_puesto: 'Auxiliar de Enfermeria', bloque: 'Concurso' }),
+      ],
+      snapshot([], []),
+    )
+    for (const e of r.entradas.e) expect(e).toMatchObject({ puesto: expect.stringMatching(/^Auxiliar de Enfermer/), acronimo: 'ENF', cr: '85' })
+    expect(r.fase2.puestos_resueltos).toEqual({ cr85_auxiliar_enfermeria: 2, cr85_auxiliar_acronimo_enf: 1 })
+  })
+})
+
+describe('cruzar: etiqueta CEETPS, ampliaciones y jefaturas', () => {
+  it("tipificador 'SI' de CEETPS (CR 85/87) -> etiqueta; en CPH no", () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'ENF-00020', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero', bloque: 'Concurso', detalle: 'ACTIVO / 2 - Autorizado / SI' }),
+        fila({ codigo_excel: 'ENF-00021', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero', bloque: 'Concurso', detalle: '2 - Autorizado / AXB' }),
+        fila({ codigo_excel: 'CPH-P-00020', bloque: 'Concurso', detalle: 'ACTIVO / B-SORTEO JUR / SI' }),
+      ],
+      snapshot([], []),
+    )
+    expect(r.fase2.etiquetas_ceetps_si).toBe(1)
+    const e = Object.fromEntries(r.entradas.e.map((x) => [x.codigo_excel, x.motivo]))
+    expect(e['ENF-00020']).toContain('etiqueta CEETPS "SI"')
+    expect(e['ENF-00021']).not.toContain('etiqueta')
+    expect(e['CPH-P-00020']).not.toContain('etiqueta')
+  })
+
+  it('Ampliacion: cargo nuevo con concurso nuevo_cargo sin autorizar; nunca reusa un cargo del sistema', () => {
+    const r = cruzar(
+      [fila({ codigo_excel: 'CPH-P-00030', bloque: 'Concurso', expediente: 'EX-2026-00000001', detalle: 'ACTIVO / C-DISPO / Ampliacion 2026' })],
+      snapshot([cargo({ id: 'am1', codigo: 'CPH-POF-000030' })], []),
+    )
+    expect(r.entradas.e[0].accion).toBe('crear cupo')
+    expect(r.entradas.e[0].motivo).toContain('nuevo_cargo sin autorizar')
+    expect(r.fase2.ampliaciones).toBe(1)
+    expect(r.fase2.concursos.crear_nuevo_cargo).toBe(1)
+    expect(r.fase2.concursos.crear_desde_excel).toBe(0)
+    expect(r.cierre.a_crear).toBe(1)
+    expect(r.cierre.f_a_no_vigente).toBe(1)
+    expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
+  })
+
+  it('jefaturas: con par se vinculan al cargo base (cargoBaseId); vacante -J sin par queda sin base y a revisar', () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'ENF-00040', id_sial_rol: ROL(5), cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero' }),
+        fila({ codigo_excel: 'ENF-J-00040', id_sial_rol: ROL(5), cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero' }),
+        fila({ codigo_excel: 'ENF-00041', id_sial_rol: ROL(6), cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero' }),
+        fila({ codigo_excel: 'ENF-J-00041', id_sial_rol: ROL(6), cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero' }),
+        fila({ codigo_excel: 'ENF-J-00042', cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero', bloque: 'Nunca levantado' }),
+      ],
+      snapshot([cargo({ id: 'j1', codigo: 'ENF-000040', cr: '87', escalafon: 'ENF', puesto: 'Enfermero' })], [[ROL(5), 'j1']]),
+    )
+    expect(r.fase2.jefaturas).toEqual({ con_par: 2, base_existe: 1, base_a_crear: 1, vacantes_sin_par: 1 })
+    expect(r.entradas.d.every((x) => x.motivo.includes('cargoBaseId'))).toBe(true)
+    const sinPar = r.entradas.e.find((x) => x.codigo_excel === 'ENF-J-00042')!
+    expect(sinPar.motivo).toContain('sin cargo base')
+    expect(sinPar.motivo).toContain('revisionDato')
+    expect(r.fase2.revision_dato['jefatura vacante sin par: sin cargo base']).toBe(1)
+  })
+})
+
+describe('cruzar: concursos y expedientes', () => {
+  const EXP_A = 'EX-2024-01234567'
+  const EXP_B = 'EX-2023-00000222'
+
+  it('solo quedan los concursos del Excel: se conservan, se eliminan y se crean', () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'CPH-P-00100', bloque: 'Concurso', expediente: EXP_A }),
+        fila({ codigo_excel: 'CPH-P-00101', bloque: 'Concurso', expediente: 'EX-2025-00000999', puesto: 'x' }),
+        fila({ codigo_excel: 'CPH-P-00102', bloque: 'Concurso' }),
+      ],
+      conConcursos(
+        [cargo({ id: 'k1', codigo: 'CPH-POF-001501' }), cargo({ id: 'k2', codigo: 'CPH-POF-001502' }), cargo({ id: 'k3', codigo: 'CPH-POF-001503' })],
+        [
+          concurso('k1', { expedientes: [EXP_A] }),
+          concurso('k2', { expedientes: [EXP_B] }),
+          concurso('k3', { tipo: 'ceetps', motivoConcurso: 'nuevo_cargo', expedientes: [] }),
+        ],
+      ),
+    )
+    const k = r.fase2.concursos
+    expect(k.sistema).toBe(3)
+    expect(k.mantener + k.mantener_a_reasignar).toBe(1)
+    expect(k.eliminar).toBe(2)
+    expect(k.eliminar_por_tipo).toEqual({ CEETPS: 1, CPH: 1 })
+    expect(k.eliminar_nuevo_cargo).toBe(1)
+    expect(k.eliminar_sin_expediente).toBe(1)
+    expect(k.crear_desde_excel).toBe(2) // expediente 999 y la fila sin expediente
+    const motivos = Object.fromEntries(r.entradas.e.map((x) => [x.codigo_excel, x.motivo]))
+    expect(motivos['CPH-P-00100']).toContain('concurso del sistema se mantiene')
+    expect(motivos['CPH-P-00102']).toContain('concurso a crear: caratulado, sin autorizar')
+  })
+
+  it('un concurso del sistema que cuelga de un cargo que pasa a no vigente pero esta en el Excel se marca para reasignar', () => {
+    const r = cruzar(
+      [fila({ codigo_excel: 'CPH-P-00110', bloque: 'Concurso', expediente: EXP_A, literal_puesto: 'Otro' })],
+      conConcursos(
+        [cargo({ id: 'k4', codigo: 'CPH-POF-001504', puesto: 'Cardiologo' }), cargo({ id: 'k5', codigo: 'CPH-POF-001505', puesto: 'Otro' })],
+        [concurso('k4', { estado: 'finalizado', expedientes: [EXP_A] })],
+      ),
+    )
+    expect(r.fase2.concursos.mantener_a_reasignar).toBe(1)
+    expect(r.fase2.concursos.eliminar).toBe(0)
+  })
+
+  it('expediente repetido en 2 cargos: valido si es de baja/creacion, error si es de concurso', () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'CPH-P-00120', bloque: 'Concurso', expediente: EXP_A }),
+        fila({ codigo_excel: 'CPH-P-00121', bloque: 'Concurso', expediente: EXP_A }),
+        fila({ codigo_excel: 'CPH-P-00122', bloque: 'Nunca levantado', expediente: EXP_B }),
+        fila({ codigo_excel: 'CPH-P-00123', bloque: 'Nunca levantado', expediente: EXP_B }),
+      ],
+      snapshot([], []),
+    )
+    expect(r.fase2.concursos.expediente_repetido_error).toBe(1)
+    expect(r.fase2.concursos.expediente_repetido_valido).toBe(1)
+    const err = r.entradas.i.filter((x) => x.motivo.includes('expediente de concurso repetido'))
+    expect(err.map((x) => x.codigo_excel)).toEqual(['CPH-P-00120', 'CPH-P-00121'])
+  })
+
+  it('dos numeros de expediente distintos Excel vs sistema -> conflicto; si el sistema no tiene, el Excel completa', () => {
+    const filas = [
+      fila({ codigo_excel: 'CPH-P-00130', id_sial_rol: ROL(1), expediente: EXP_A }),
+      fila({ codigo_excel: 'CPH-P-00131', id_sial_rol: ROL(2), expediente: EXP_A }),
+      fila({ codigo_excel: 'CPH-P-00132', id_sial_rol: ROL(3), expediente: EXP_A }),
+      fila({ codigo_excel: 'CPH-P-00133', bloque: 'Concurso', expediente: EXP_A }),
+    ]
+    const r = cruzar(
+      filas,
+      conConcursos(
+        [
+          cargo({ id: 'x1', codigo: 'CPH-P-000130', expediente: 'EX-2020-5' }),
+          cargo({ id: 'x2', codigo: 'CPH-P-000131', expediente: EXP_A }),
+          cargo({ id: 'x3', codigo: 'CPH-P-000132' }),
+          cargo({ id: 'x4', codigo: 'CPH-P-000133' }),
+        ],
+        [concurso('x4', { expedientes: [EXP_B] })],
+        [[ROL(1), 'x1'], [ROL(2), 'x2'], [ROL(3), 'x3']],
+      ),
+    )
+    expect(r.fase2.expedientes).toEqual({ coinciden: 1, a_completar: 1, conflictos: 2 })
+    expect(r.conflictos_expediente).toEqual([
+      { codigo_excel: 'CPH-P-00130', cargo_codigo_sistema: 'CPH-P-000130', sigla: 'HTAL', puesto: 'Medico', bloque: 'Dotación', fuente_sistema: 'cargo', expediente_excel: EXP_A, expediente_sistema: 'EX-2020-00000005' },
+      { codigo_excel: 'CPH-P-00133', cargo_codigo_sistema: 'CPH-P-000133', sigla: 'HTAL', puesto: 'Medico', bloque: 'Concurso', fuente_sistema: 'concurso', expediente_excel: EXP_A, expediente_sistema: EXP_B },
+    ])
+  })
+})
+
+describe('cruzar: cierre vigente + validacion_vacante con las reglas de la Fase 2', () => {
+  it('con jefaturas, ampliaciones, puestos sucios y concursos cierra contra las filas del Excel', () => {
+    const filas = [
+      fila({ codigo_excel: 'ENF-00001', id_sial_rol: ROL(1), cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero' }),
+      fila({ codigo_excel: 'ENF-J-00001', id_sial_rol: ROL(1), cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero' }),
+      fila({ codigo_excel: 'ENF-J-00002', cr: '87', acronimo: 'ENF-J', literal_puesto: 'Enfermero', bloque: 'Nunca levantado' }),
+      fila({ codigo_excel: 'ENF-00003', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermeria', bloque: 'Concurso', expediente: 'EX-2024-00000010' }),
+      fila({ codigo_excel: 'TEC-00004', cr: '85', acronimo: 'TEC', literal_puesto: '', bloque: 'Concurso', detalle: '0- Caratular / SI' }),
+      fila({ codigo_excel: 'CPH-P-00005', bloque: 'Concurso', estado: 'En validación', detalle: 'Ampliacion 2026' }),
+      fila({ codigo_excel: 'CPH-P-00006', bloque: 'Sin designar', estado: 'En validación' }),
+    ]
+    const r = cruzar(
+      filas,
+      conConcursos(
+        [
+          cargo({ id: 'z1', codigo: 'ENF-000001', cr: '87', escalafon: 'ENF', puesto: 'Enfermero' }),
+          cargo({ id: 'z2', codigo: 'CPH-POF-000007' }),
+          cargo({ id: 'z3', codigo: 'CPH-POF-000008', estado: 'validacion_vacante', subEstado: null }),
+        ],
+        [],
+        [[ROL(1), 'z1']],
+      ),
+    )
+    expect(r.particion.suma).toBe(filas.length)
+    expect(r.cierre.proyectado_vigente_mas_validacion).toBe(filas.length)
+    expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
+    expect(Object.values(r.cierre.diferencia_por_categoria).reduce((x, y) => x + y, 0)).toBe(0)
+  })
+
+  const candidatas = [
+    path.resolve(__dirname, '../../../../.agents/tasks/sync-cargos-msgc/runtime/nominal_2026-11-12.csv'),
+    path.resolve(__dirname, '../../../../../../.agents/tasks/sync-cargos-msgc/runtime/nominal_2026-11-12.csv'),
+  ]
+  const real = candidatas.find((c) => fs.existsSync(c))
+  it.skipIf(!real)('con el CSV real del corte 2026-11-12 (sistema vacio) cierra 53.064', () => {
+    const filas = leerNominal(real!)
+    expect(filas).toHaveLength(53064)
+    const r = cruzar(filas, SNAPSHOT_VACIO)
+    expect(r.cierre.total_excel).toBe(53064)
+    expect(r.cierre.proyectado_vigente_mas_validacion).toBe(53064)
+    expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
+    expect(r.fase2.ampliaciones).toBe(151)
+    expect(r.fase2.etiquetas_ceetps_si).toBe(424)
+    expect(JSON.stringify(r.conflictos_expediente)).not.toMatch(/\d{11}/)
   })
 })

@@ -63,7 +63,9 @@ export function acronimoMsgc(e: EntradaAcronimo): AcronimoMsgc | null {
     case '87':
       return e.tieneLineaArbol ? 'ENF-J' : 'ENF'
     case '85':
-      if (puesto === 'auxiliar de enfermeria') return 'ENF'
+      // Jorge (12-nov): todo auxiliar de enfermería de la carrera 85 es ENF. "Enfermeria" y el puesto vacío
+      // del CR 85 se resuelven como Auxiliar de Enfermería (ver equivalencias.ts, `cr85_auxiliar`).
+      if (puesto === 'auxiliar de enfermeria' || puesto === 'enfermeria' || puesto === '') return 'ENF'
       return e.tieneLineaArbol ? 'TEC-J' : 'TEC'
     case '83':
       if (esAnexoIIExcel(puesto)) return 'SGAII'

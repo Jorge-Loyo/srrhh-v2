@@ -196,3 +196,11 @@ pnpm --filter @srrhh/api exec tsx scripts/sync-cargos-msgc/dry-run.ts \
 ```
 
 El fixture es un `SnapshotSistema` (ver `cruce.ts`); `{"cargos":[],"ocupaciones":[],"siglasHospital":[],"siglasOrganigrama":[],"codigosRegistro":[],"puestos":[],"especialidades":[]}` equivale a un sistema vacío.
+
+## Fase 2 - Fase A: decisiones del 12-nov en el motor (sigue SOLO LECTURA)
+
+- Equivalencias (`VERSION_EQUIVALENCIAS` 2026-11-msgc-2): SSAME -> SSSAME, UAIEAIT -> EAIT, las 15 `DGAH<sigla>` -> hospital (se saca `DGA`), ssapac -> SSAPAC. Solo queda SSSAME para crear.
+- Puestos sucios (el CR nunca se toca): CR 87 "Enfermeria" -> puesto del concurso del sistema por expediente, o Enfermero Profesional con `revisionDato`; CR 87 "Tecnico de la Salud" -> Enfermero Profesional/ENF; CR 85 "Tecnico"/"Tecnico de la Salud" -> puesto del concurso (si no existe, a revisar, categoria j); CR 85 "Enfermeria" o sin puesto -> Auxiliar de Enfermeria/ENF.
+- Etiqueta CEETPS "SI" (detalle termina en `/ SI`, CR 85/87), "Ampliacion" (cargo nuevo + concurso `nuevo_cargo` sin autorizar; nunca reusa un cargo del sistema), jefaturas con par (`cargoBaseId`) y vacantes -J sin par (sin cargo base, `revisionDato`).
+- Concursos: solo quedan los del Excel (cruce por expediente normalizado). `resumen.json/md` seccion `fase2` informa conservar / eliminar / crear y expedientes repetidos (valido si es de baja o creacion, error si es de concurso, entra en la categoria i).
+- Nuevo `conflictos_expediente.csv`: casos con dos numeros de expediente distintos (Excel vs sistema) para que Jorge elija.

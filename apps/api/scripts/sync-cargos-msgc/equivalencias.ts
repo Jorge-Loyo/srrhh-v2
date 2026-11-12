@@ -11,23 +11,31 @@
 import { normalizarTexto } from '@srrhh/normalizacion'
 
 /** Debe coincidir con VERSION_EQUIVALENCIAS de preprocesar_excel.py (lo verifica un test). */
-export const VERSION_EQUIVALENCIAS = '2026-11-msgc-1'
+export const VERSION_EQUIVALENCIAS = '2026-11-msgc-2'
 
 // ── Siglas ───────────────────────────────────────────────────────────────────
-/** Equivalencias de sigla (clave normalizada -> sigla del maestro `hospitales`). */
-const SIGLAS_EQUIVALENTES = new Map<string, string>([['ssapac', 'SSAPAC']])
-
 /**
- * Las otras 18 siglas del Excel que no están en el maestro (04_siglas_fuera_del_maestro.csv).
- * Jorge: "crealas y la vamos viendo, pero verifica si están en el organigrama".
- * Quedan SIN mapear: el dry-run las lista como "crear" (y si existen en organigramas.sigla).
- * Incluye SSAME y SSSAME (SSAME no se asume typo de SSSAME).
+ * Equivalencias de sigla (clave normalizada -> sigla del maestro `hospitales`). Decisiones de Jorge (12-nov):
+ *  - SSAME es errata de SSSAME; ssapac es SSAPAC (case-insensitive).
+ *  - Las 15 DGAH<sigla> NO se crean: sus cargos van al hospital que corresponde (DGAHBR -> HBR,
+ *    DGAHGACA -> HGACA, ...), es decir, se saca el prefijo "DGA".
+ *  - UAIEAIT -> EAIT.
  */
-export const SIGLAS_A_CREAR: readonly string[] = [
-  'SSSAME', 'SSAME', 'UAIEAIT',
+const SIGLAS_DGAH: readonly string[] = [
   'DGAHBR', 'DGAHGACA', 'DGAHGACD', 'DGAHGADS', 'DGAHGAIP', 'DGAHGAJAF', 'DGAHGAP',
   'DGAHGAPP', 'DGAHGARM', 'DGAHGAT', 'DGAHGATA', 'DGAHGAVS', 'DGAHGAZ', 'DGAHGNPE', 'DGAHGNRG',
 ]
+const SIGLAS_EQUIVALENTES = new Map<string, string>([
+  ['ssapac', 'SSAPAC'],
+  ['ssame', 'SSSAME'],
+  ['uaieait', 'EAIT'],
+  ...SIGLAS_DGAH.map((s): [string, string] => [normalizarTexto(s), s.slice(3)]),
+])
+/**
+ * Siglas del Excel que siguen fuera del maestro y se crean (Jorge: "crealas y las vamos viendo").
+ * Tras las decisiones del 12-nov solo queda SSSAME (SSAME es su errata, las DGAH y UAIEAIT son equivalencias).
+ */
+export const SIGLAS_A_CREAR: readonly string[] = ['SSSAME']
 const SIGLAS_A_CREAR_NORM = new Set(SIGLAS_A_CREAR.map((s) => normalizarTexto(s)))
 
 /** Sigla del maestro equivalente (p. ej. 'ssapac' -> 'SSAPAC'), o null si no hay equivalencia. */
@@ -35,9 +43,9 @@ export function equivalenciaSigla(raw: string | null | undefined): string | null
   return SIGLAS_EQUIVALENTES.get(normalizarTexto(raw)) ?? null
 }
 
-/** true si la sigla es una de las que hay que crear en el maestro. */
+/** true si la sigla (ya resuelta por equivalencia) es una de las que hay que crear en el maestro. */
 export function esSiglaACrear(raw: string | null | undefined): boolean {
-  return SIGLAS_A_CREAR_NORM.has(normalizarTexto(raw))
+  return SIGLAS_A_CREAR_NORM.has(normalizarTexto(equivalenciaSigla(raw) ?? raw))
 }
 
 // ── Puestos ──────────────────────────────────────────────────────────────────
@@ -61,19 +69,28 @@ const PUESTOS_EQUIVALENTES = new Map<string, string>([
 ])
 
 /**
- * Puestos sucios para los que Jorge NO indicó el puesto destino (clave `cr|literal`).
- * No se inventa: el dry-run los informa como "sin equivalencia" (categoría j).
- *  - CR 87 `enfermeria` / `tecnico de la salud`, CR 85 `tecnico`, `enfermeria`,
- *    `tecnico de la salud` y vacío: el reporte previo los marca "A CONFIRMAR cuál".
+ * Puestos sucios que NO tienen un destino fijo en la tabla: se resuelven en el cruce (ver `reglaPuestoSucio`).
+ * Decisiones de Jorge (12-nov); el código de registro NO se toca en ningún caso.
  */
-const PUESTOS_SIN_DESTINO = new Set<string>([
-  '87|enfermeria',
-  '87|tecnico de la salud',
-  '85|tecnico',
-  '85|enfermeria',
-  '85|tecnico de la salud',
-  '85|',
+export type ReglaPuestoSucio =
+  /** CR 87 "Enfermeria": puesto del concurso del sistema (por expediente) o Enfermero Profesional marcado a revisar. */
+  | 'cr87_enfermeria'
+  /** CR 87 "Tecnico de la Salud": Enfermero Profesional, acrónimo ENF, CR sin cambio. */
+  | 'cr87_tecnico_salud'
+  /** CR 85 "Tecnico de la Salud" / "Tecnico": puesto del concurso del sistema (si no existe, a revisar). */
+  | 'cr85_tecnico'
+  /** CR 85 "Enfermeria" o sin puesto: Auxiliar de Enfermería, acrónimo ENF. */
+  | 'cr85_auxiliar'
+const PUESTOS_SUCIOS = new Map<string, ReglaPuestoSucio>([
+  ['87|enfermeria', 'cr87_enfermeria'],
+  ['87|tecnico de la salud', 'cr87_tecnico_salud'],
+  ['85|tecnico', 'cr85_tecnico'],
+  ['85|tecnico de la salud', 'cr85_tecnico'],
+  ['85|enfermeria', 'cr85_auxiliar'],
+  ['85|', 'cr85_auxiliar'],
 ])
+export const PUESTO_ENFERMERO_PROFESIONAL = 'Enfermero Profesional'
+export const PUESTO_AUXILIAR_ENFERMERIA = 'Auxiliar de Enfermería'
 
 const clavePuesto = (cr: string, literal: string | null | undefined) =>
   `${String(cr).trim().toUpperCase()}|${normalizarTexto(literal)}`
@@ -83,9 +100,9 @@ export function equivalenciaPuesto(cr: string, literal: string | null | undefine
   return PUESTOS_EQUIVALENTES.get(clavePuesto(cr, literal)) ?? null
 }
 
-/** true si el literal es conocido como sucio pero Jorge no definió el destino. */
-export function puestoSinDestino(cr: string, literal: string | null | undefined): boolean {
-  return PUESTOS_SIN_DESTINO.has(clavePuesto(cr, literal))
+/** Regla de resolución del puesto sucio (null si el literal no es uno de los sucios conocidos). */
+export function reglaPuestoSucio(cr: string, literal: string | null | undefined): ReglaPuestoSucio | null {
+  return PUESTOS_SUCIOS.get(clavePuesto(cr, literal)) ?? null
 }
 
 // ── Especialidad ─────────────────────────────────────────────────────────────

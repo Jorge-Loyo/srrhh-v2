@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { cruzar, type Entrada } from './cruce.js'
-import { armarResumen, csvDeColgados, csvDeEntradas, escribirReporte, validarCelda, validarCeldaExpediente } from './reporteCsv.js'
+import { armarResumen, csvDeColgados, csvDeConflictos, csvDeEntradas, escribirReporte, validarCelda, validarCeldaExpediente } from './reporteCsv.js'
 
 const ROL = '90000000001'
 
@@ -68,6 +68,26 @@ describe('concursos_colgados.csv: expedientes sin datos personales', () => {
   })
 })
 
+describe('conflictos_expediente.csv', () => {
+  const conflicto = (p: Record<string, string> = {}) => ({
+    codigo_excel: 'CPH-P-00001', cargo_codigo_sistema: 'CPH-P-000001', sigla: 'HTAL', puesto: 'Medico', bloque: 'Concurso',
+    fuente_sistema: 'cargo', expediente_excel: 'EX-2024-01234567', expediente_sistema: 'EX-2020-00000005 | EX-2021-00000006', ...p,
+  })
+
+  it('encabezado fijo y expedientes normalizados (una celda puede listar varios)', () => {
+    const csv = csvDeConflictos([conflicto()])
+    expect(csv.split('\n')[0]).toBe('codigo_excel,cargo_codigo_sistema,sigla,puesto,bloque,fuente_sistema,expediente_excel,expediente_sistema')
+    expect(csv).toContain('EX-2020-00000005 | EX-2021-00000006')
+    expect(csvDeConflictos([])).toBe(csv.split('\n')[0] + '\n')
+  })
+
+  it('rechaza CUIL, roles o texto libre en las columnas de expediente', () => {
+    expect(() => csvDeConflictos([conflicto({ expediente_sistema: '20123456789' })])).toThrow(/11 digitos/)
+    expect(() => csvDeConflictos([conflicto({ expediente_excel: 'texto libre' })])).toThrow(/expedientes/)
+    expect(() => csvDeConflictos([conflicto({ puesto: '123-45' })])).toThrow(/patron de rol/)
+  })
+})
+
 describe('escribirReporte', () => {
   const filas = [
     {
@@ -86,8 +106,9 @@ describe('escribirReporte', () => {
       const previo = armarResumen(r, meta)
       const resumen = armarResumen(r, meta, previo)
       const nombres = escribirReporte(dir, r, resumen)
-      expect(nombres).toHaveLength(13)
+      expect(nombres).toHaveLength(14)
       expect(nombres).toContain('concursos_colgados.csv')
+      expect(nombres).toContain('conflictos_expediente.csv')
       for (const n of nombres) {
         const t = fs.readFileSync(path.join(dir, n), 'utf8')
         expect(t).not.toContain(ROL)
@@ -97,6 +118,10 @@ describe('escribirReporte', () => {
       expect(json.corte).toBe('2026-11-01')
       expect(json.version_equivalencias).toBe('v-test')
       expect(json.delta_vs_previo.c).toBe(0)
+      expect(json.fase2.concursos.eliminar).toBe(0)
+      expect(json.conflictos_expediente).toBe(0)
+      expect(fs.readFileSync(path.join(dir, 'conflictos_expediente.csv'), 'utf8').split('\n')[0]).toContain('expediente_excel')
+      expect(fs.readFileSync(path.join(dir, 'resumen.md'), 'utf8')).toContain('Acciones de la Fase 2')
       expect(fs.readFileSync(path.join(dir, 'detalle_c.csv'), 'utf8').split('\n')[0]).toBe(
         'codigo_excel,categoria,accion,cargo_codigo_sistema,codigo_propuesto,acronimo,cr,sigla,puesto,motivo',
       )

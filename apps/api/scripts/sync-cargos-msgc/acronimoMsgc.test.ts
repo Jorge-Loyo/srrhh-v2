@@ -65,6 +65,9 @@ describe('acronimoMsgc', () => {
 
   it('auxiliares de enfermería de la CR 85 son ENF', () => {
     expect(acronimoMsgc(base({ cr: '85', literalPuesto: 'Auxiliar de Enfermeria' }))).toBe('ENF')
+    expect(acronimoMsgc(base({ cr: '85', literalPuesto: 'Enfermeria' }))).toBe('ENF')
+    expect(acronimoMsgc(base({ cr: '85', literalPuesto: '' }))).toBe('ENF')
+    expect(acronimoMsgc(base({ cr: '85', literalPuesto: 'Tecnico' }))).toBe('TEC')
   })
 
   it('todos los CR 25 son AS, sin importar el puesto', () => {
