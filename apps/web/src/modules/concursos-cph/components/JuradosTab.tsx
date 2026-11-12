@@ -90,10 +90,10 @@ export function JuradosTab() {
             onChange={(e) => setBusqueda(e.target.value)}
             className="h-10 flex-1 min-w-[240px] rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
           />
-          <div className="min-w-[240px]">
+          <div>
             <ComboBuscable
               modo="unico"
-              label=""
+              label="" anchoAuto
               options={especialidades.map((e) => ({ value: e, label: e }))}
               selected={especialidad ? [especialidad] : []}
               onChange={(v) => setEspecialidad(v[0] ?? '')}

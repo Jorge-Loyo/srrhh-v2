@@ -110,10 +110,10 @@ export function FiltrosCatalogo({
         </select>
       )}
 
-      <div className="min-w-[240px]">
+      <div>
         <ComboBuscable
           modo="unico"
-          label=""
+          label="" anchoAuto
           options={opcionesCarreraEscalafon(escalafones ?? [])}
           selected={escalafonId ? [escalafonId] : []}
           onChange={(v) => cambiarEscalafon(v[0] ?? '')}
@@ -148,10 +148,10 @@ export function FiltrosCatalogo({
       )}
 
       {escalafonId && (
-        <div className="min-w-[240px]">
+        <div>
           <ComboBuscable
             modo="unico"
-            label=""
+            label="" anchoAuto
             options={puestosLista.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
             selected={puestoCargoId ? [puestoCargoId] : []}
             onChange={(v) => cambiarPuesto(v[0] ?? '')}
@@ -161,10 +161,10 @@ export function FiltrosCatalogo({
       )}
 
       {mostrarEspecialidad && puestoCargoId && especialidadesLista.length > 0 && (
-        <div className="min-w-[240px]">
+        <div>
           <ComboBuscable
             modo="unico"
-            label=""
+            label="" anchoAuto
             options={especialidadesLista.map((esp) => ({ value: esp.id, label: capitalizar(esp.nombre) }))}
             selected={especialidadPuestoId ? [especialidadPuestoId] : []}
             onChange={(v) => onChange({ especialidadPuestoId: v[0] ?? '' })}

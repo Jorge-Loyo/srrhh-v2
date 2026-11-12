@@ -20,6 +20,8 @@ export interface ComboBuscableProps {
   disabled?: boolean
   requerido?: boolean
   emptyText?: string
+  // El campo se ajusta al largo de lo seleccionado (filtros en fila), en vez de ocupar todo el ancho.
+  anchoAuto?: boolean
 }
 
 export function ComboBuscable({
@@ -32,6 +34,7 @@ export function ComboBuscable({
   disabled,
   requerido,
   emptyText = 'Sin coincidencias',
+  anchoAuto,
 }: ComboBuscableProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -72,7 +75,7 @@ export function ComboBuscable({
   const valorInput = unico && !open && selected.length > 0 ? labelDe(selected[0]!) : query
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div className={anchoAuto ? 'relative inline-block' : 'relative'} ref={boxRef}>
       {label !== '' && (
         <label className="block text-xs text-gray-500 mb-1">
           {label}
@@ -93,11 +96,12 @@ export function ComboBuscable({
           setQuery(e.target.value)
           setOpen(true)
         }}
-        className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary disabled:bg-gray-100"
+        style={anchoAuto ? { width: `${Math.max(valorInput.length, placeholder.length, 12) + 6}ch`, maxWidth: '100%' } : undefined}
+        className={`${anchoAuto ? '' : 'w-full '}h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary disabled:bg-gray-100`}
       />
 
       {open && !disabled && (
-        <div className="absolute z-20 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg text-sm">
+        <div className={`absolute z-20 mt-1 ${anchoAuto ? 'min-w-full w-max max-w-[32rem]' : 'w-full'} rounded border border-gray-200 bg-white shadow-lg text-sm`}>
           {!unico && (
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 text-xs">
               <button

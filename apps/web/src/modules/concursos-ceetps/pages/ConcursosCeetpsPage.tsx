@@ -74,10 +74,10 @@ export function ConcursosCeetpsPage() {
               </option>
             ))}
           </select>
-          <div className="min-w-[240px]">
+          <div>
             <ComboBuscable
               modo="unico"
-              label=""
+              label="" anchoAuto
               options={opcionesCarreraEscalafon(escalafonesOrdenados)}
               selected={escalafonId ? [escalafonId] : []}
               onChange={(v) => resetPage(setEscalafonId)(v[0] ?? '')}
