@@ -6,6 +6,7 @@ import {
   TABLAS_SQL_CRUDO_CONSERVAR,
   construirPlanBorrado,
   ejecutarLimpieza,
+  resumirBajas,
   type TxEscritura,
 } from './limpieza.js'
 
@@ -152,5 +153,71 @@ describe('ejecutarLimpieza', () => {
       ejecutarLimpieza(tx, { databaseUrl: 'postgresql://u:p@ep-x.us-east-2.aws.neon.tech/db', conservarConcursoIds: [] }),
     ).rejects.toThrow(/neon\.tech/)
     expect(sentencias).toHaveLength(0)
+  })
+})
+
+describe('alcance de bajas: solo las de usuario que no sostienen un concurso conservado', () => {
+  const bajas = TABLAS_BORRAR.find((t) => t.tabla === 'bajas')!
+  const etiquetas = TABLAS_BORRAR.find((t) => t.tabla === 'etiquetas_baja')!
+  /** Mini base: bajas (id, usuario) y concursos (id, baja_id); evalua el predicado de limpieza.ts. */
+  const base = {
+    bajas: [
+      { id: 'b-usr-libre', usuario: true },
+      { id: 'b-usr-sostiene', usuario: true },
+      { id: 'b-usr-concurso-borrado', usuario: true },
+      { id: 'b-sial', usuario: false },
+      { id: 'b-import-con-concurso', usuario: false },
+    ],
+    concursos: [
+      { id: 'c-conserva', baja: 'b-usr-sostiene' },
+      { id: 'c-borra', baja: 'b-usr-concurso-borrado' },
+      { id: 'c-borra-2', baja: 'b-import-con-concurso' },
+    ],
+  }
+  const conservados = ['c-conserva']
+  const borradas = () => {
+    const sostenidas = new Set(base.concursos.filter((c) => conservados.includes(c.id)).map((c) => c.baja))
+    return base.bajas.filter((b) => b.usuario && !sostenidas.has(b.id)).map((b) => b.id)
+  }
+  it('el SQL exige registrado_por IS NOT NULL y excluye las bajas de concursos conservados (parametro $1)', () => {
+    for (const t of [bajas, etiquetas]) {
+      expect(t.alcance).toBe('bajas_usuario')
+      expect(t.donde).toContain('registrado_por IS NOT NULL')
+      expect(t.donde).toContain('baja_id IS NOT NULL AND id = ANY($1::uuid[])')
+    }
+    expect(bajas.donde).not.toMatch(/registrado_por IS NULL/)
+  })
+  it('borra las de usuario (incluida la de un concurso que se borra) y conserva las del concurso del Excel y las sin usuario', () => {
+    expect(borradas().sort()).toEqual(['b-usr-concurso-borrado', 'b-usr-libre'])
+  })
+  it('orden sin FK rota: concursos fuera del Excel y etiquetas_baja antes que bajas; solicitudes_alta antes que bajas', () => {
+    const pos = (t: string) => TABLAS_BORRAR.findIndex((x) => x.tabla === t)
+    expect(pos('concursos')).toBeLessThan(pos('bajas'))
+    expect(pos('etiquetas_baja')).toBeLessThan(pos('bajas'))
+    expect(pos('solicitudes_alta')).toBeLessThan(pos('bajas'))
+  })
+  it('la FK va de concurso a baja (SET NULL): borrar un concurso no cascada sobre la baja; ninguna FK hacia bajas es CASCADE salvo etiquetas_baja', () => {
+    const haciaBajas = fks.filter((f) => f.destino === 'bajas')
+    expect(haciaBajas.map((f) => f.origen).sort()).toEqual(['concursos', 'etiquetas_baja', 'solicitudes_alta'])
+    expect(haciaBajas.filter((f) => f.cascade).map((f) => f.origen)).toEqual(['etiquetas_baja'])
+    // Desde la baja no sale ninguna FK cascade hacia concursos.
+    expect(fks.some((f) => f.origen === 'bajas' && f.destino === 'concursos')).toBe(false)
+    const c = modelos.find((m) => m.name === 'Concurso')!
+    expect(c.fields.find((f) => f.name === 'bajaId')?.dbName).toBe('baja_id')
+  })
+  it('plan: exacto de bajas = con usuario - sostenidas; etiquetas_baja cota de las de usuario; origen import se reporta aparte', () => {
+    const conteos = { bajas: 3379, etiquetas_baja: 70, bajas_con_usuario: 61, bajas_sin_usuario: 3318, etiquetas_baja_con_usuario: 60 }
+    const resumen = resumirBajas(conteos, 38)
+    expect(resumen).toEqual({ con_usuario: 61, a_borrar: 23, conservadas_por_concurso: 38, conservadas_por_origen: 3318 })
+    const plan = construirPlanBorrado(conteos, { bajas: resumen.a_borrar })
+    expect(plan.find((p) => p.tabla === 'bajas')).toMatchObject({ filas: 23, exacto: true, total: 3379, alcance: 'bajas_usuario' })
+    expect(plan.find((p) => p.tabla === 'etiquetas_baja')).toMatchObject({ filas: 60, exacto: false, total: 70 })
+  })
+  it('ejecutarLimpieza pasa los concursos a conservar a bajas y etiquetas_baja', async () => {
+    const { tx, sentencias } = txSimulada({})
+    await ejecutarLimpieza(tx, { databaseUrl: 'postgresql://u:p@localhost:5432/srrhh', conservarConcursoIds: ['a'] })
+    const sb = sentencias.filter((s) => /DELETE FROM (bajas|etiquetas_baja)\b/.test(s.sql))
+    expect(sb).toHaveLength(2)
+    for (const x of sb) expect(x.valores).toEqual([['a']])
   })
 })

@@ -666,7 +666,7 @@ describe('cruzar: etiqueta CEETPS, ampliaciones y jefaturas', () => {
     expect(e['CPH-P-00020']).not.toContain('etiqueta')
   })
 
-  it('Ampliacion: cargo nuevo con concurso nuevo_cargo sin autorizar; nunca reusa un cargo del sistema', () => {
+  it('Ampliacion sin concurso existente: cargo nuevo con concurso nuevo_cargo sin autorizar; no reusa un cargo del sistema por cupo', () => {
     const r = cruzar(
       [fila({ codigo_excel: 'CPH-P-00030', bloque: 'Concurso', expediente: 'EX-2026-00000001', detalle: 'ACTIVO / C-DISPO / Ampliacion 2026' })],
       snapshot([cargo({ id: 'am1', codigo: 'CPH-POF-000030' })], []),
@@ -681,6 +681,60 @@ describe('cruzar: etiqueta CEETPS, ampliaciones y jefaturas', () => {
     expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
   })
 
+  describe('Ampliacion con concurso ya existente en el sistema', () => {
+    const EXPA = 'EX-2026-00000555'
+    const filaAmp = () => fila({ codigo_excel: 'CPH-P-00031', bloque: 'Concurso', expediente: EXPA, detalle: 'ACTIVO / C-DISPO / Ampliacion 2026' })
+    it('mismo expediente: reusa cargo y concurso, lo conserva y no queda colgado ni se crea otro', () => {
+      const r = cruzar(
+        [filaAmp()],
+        conConcursos(
+          [cargo({ id: 'am2', codigo: 'CPH-POF-000031', vinculos: { ...VINC0, concursos: 1, concursosCph: 1 } })],
+          [concurso('am2', { concursoId: 'co-am2', expedientes: [EXPA], bajaId: 'ba-1', bajaDeUsuario: true })],
+        ),
+      )
+      expect(r.entradas.e[0].accion).toBe('reusar cargo del sistema')
+      expect(r.entradas.e[0].motivo).toContain('por expediente')
+      expect(r.fase2.ampliaciones).toBe(1)
+      expect(r.fase2.ampliaciones_con_concurso).toBe(1)
+      expect(r.fase2.concursos.crear_nuevo_cargo).toBe(0)
+      expect(r.fase2.concursos.mantener).toBe(1)
+      expect(r.fase2.concursos.eliminar).toBe(0)
+      expect(r.plan.concursosConservar).toEqual(['co-am2'])
+      expect(r.plan.concursosEliminar).toEqual([])
+      expect(r.plan.bajasConservadasPorConcurso).toEqual(['ba-1'])
+      expect(r.concursos_colgados.filas).toHaveLength(0)
+      expect(r.concursos_colgados.totales.revisar).toBe(0)
+      const it0 = r.plan.items[0]
+      expect(it0).toMatchObject({ cargoId: 'am2', crearConcurso: null, ampliacion: false })
+      expect(it0.revision).toBeNull()
+      expect(r.cierre.a_crear).toBe(0)
+      expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
+    })
+    it('sin concurso en el sistema: crea el cargo nuevo con concurso nuevo_cargo para caratular en Etapa 1', () => {
+      const r = cruzar(
+        [filaAmp()],
+        conConcursos([cargo({ id: 'am3', codigo: 'CPH-POF-000032' })], [concurso('am3', { concursoId: 'co-otro', expedientes: ['EX-2020-00000001'] })]),
+      )
+      expect(r.entradas.e[0].accion).toBe('crear cupo')
+      expect(r.fase2.ampliaciones_con_concurso).toBe(0)
+      expect(r.fase2.concursos.crear_nuevo_cargo).toBe(1)
+      expect(r.plan.items[0]).toMatchObject({ cargoId: null, crearConcurso: 'nuevo_cargo', ampliacion: true })
+      expect(r.plan.concursosConservar).toEqual([])
+      expect(r.plan.concursosEliminar).toEqual(['co-otro'])
+      expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
+    })
+    it('baja de origen import (sin usuario) no se cuenta como sostenida por concurso', () => {
+      const r = cruzar(
+        [filaAmp()],
+        conConcursos(
+          [cargo({ id: 'am4', codigo: 'CPH-POF-000033' })],
+          [concurso('am4', { concursoId: 'co-am4', expedientes: [EXPA], bajaId: 'ba-imp', bajaDeUsuario: false })],
+        ),
+      )
+      expect(r.plan.concursosConservar).toEqual(['co-am4'])
+      expect(r.plan.bajasConservadasPorConcurso).toEqual([])
+    })
+  })
   it('concursos del Excel sin expediente: se listan (CPH/CEETPS) y NO se crea concurso; los que tienen expediente se crean', () => {
     const r = cruzar(
       [

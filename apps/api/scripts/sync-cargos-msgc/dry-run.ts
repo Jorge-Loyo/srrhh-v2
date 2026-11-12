@@ -14,7 +14,7 @@ import { leerNominal } from './leerNominal.js'
 import { cruzar, type SnapshotSistema } from './cruce.js'
 import { VERSION_EQUIVALENCIAS } from './equivalencias.js'
 import { armarResumen, escribirReporte, type ResumenJson } from './reporteCsv.js'
-import { construirPlanBorrado, type FilaPlanBorrado } from './limpieza.js'
+import { construirPlanBorrado, resumirBajas, type FilaPlanBorrado } from './limpieza.js'
 
 interface Args {
   input: string
@@ -76,12 +76,14 @@ async function main() {
 
   const resultado = cruzar(filas, sistema)
   const k = resultado.fase2.concursos
+  const bajas = resumirBajas(conteos, resultado.plan.bajasConservadasPorConcurso.length)
   const plan: FilaPlanBorrado[] = construirPlanBorrado(conteos, {
+    bajas: bajas.a_borrar,
     concursos_cph: k.eliminar_por_tipo.CPH ?? 0,
     concursos_ceetps: k.eliminar_por_tipo.CEETPS ?? 0,
     concursos: k.eliminar,
   })
-  const resumen = armarResumen(resultado, { ...leerMeta(args.input), version_equivalencias: VERSION_EQUIVALENCIAS }, previo, plan)
+  const resumen = armarResumen(resultado, { ...leerMeta(args.input), version_equivalencias: VERSION_EQUIVALENCIAS }, previo, plan, bajas)
   const archivos = escribirReporte(args.out, resultado, resumen)
 
   console.log(`Filas del Excel: ${filas.length}; cargos del sistema: ${sistema.cargos.length}`)
@@ -93,6 +95,7 @@ async function main() {
   console.log(`Concursos colgados: ${resultado.concursos_colgados.totales.filas} filas en ${resultado.concursos_colgados.totales.cargos} cargos; a revisar ${resultado.concursos_colgados.totales.revisar}`)
   console.log(`Concursos del Excel sin expediente (no se crean; ver concursos_sin_expediente.csv): ${resultado.concursos_sin_expediente.length}`)
   console.log(`Archivos en ${args.out}: ${archivos.join(', ')}`)
+  console.log(`Bajas: a borrar ${bajas.a_borrar}; conservadas por concurso del Excel ${bajas.conservadas_por_concurso}; conservadas por origen import/padron ${bajas.conservadas_por_origen}`)
   console.log(`Plan de borrado: ${plan.reduce((a, p) => a + p.filas, 0)} filas en ${plan.length} tablas (solo conteo; ver resumen.md)`)
   console.log('SIMULACION: no se escribio nada en ninguna base.')
 }

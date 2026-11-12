@@ -116,11 +116,11 @@ describe('el directorio no tiene código de escritura', () => {
 
 describe('contarTablasBorrar', () => {
   it('abre READ ONLY, verifica y solo ejecuta SELECT count', async () => {
-    const { contarTablasBorrar, CONSULTAS_CONTEO_BORRADO } = await import('./sistemaReadonly.js')
+    const { contarTablasBorrar, CONSULTAS_CONTEO_BORRADO, CONSULTAS_CONTEO_BAJAS } = await import('./sistemaReadonly.js')
     const { prisma, sentencias } = prismaSimulado('on')
     await contarTablasBorrar(prisma)
     expect(sentencias[0].sql).toBe(SQL_READ_ONLY)
-    expect(sentencias.slice(2).map((s) => s.sql)).toEqual([...CONSULTAS_CONTEO_BORRADO])
+    expect(sentencias.slice(2).map((s) => s.sql)).toEqual([...CONSULTAS_CONTEO_BORRADO, ...Object.values(CONSULTAS_CONTEO_BAJAS)])
     expect(CONSULTAS_CONTEO_BORRADO.every((q) => /^SELECT count\(\*\)/.test(q))).toBe(true)
   })
   it('aborta si no es solo lectura', async () => {

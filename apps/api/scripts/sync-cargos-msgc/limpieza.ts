@@ -7,13 +7,18 @@
 // - alcance 'todo'        : DELETE de la tabla entera.
 // - alcance 'fuera_excel' : solo los concursos cuyo concurso base NO está en la lista
 //                           `conservarConcursoIds` (los que sí están en el Excel).
+// - alcance 'bajas_usuario': solo las bajas cargadas por un usuario (registrado_por IS NOT NULL) que NO sostienen
+//                           un concurso conservado (concursos.baja_id de los ids en `conservarConcursoIds`).
+//                           Las bajas sin usuario (SIAL / alta por baja importadas / backfill) se CONSERVAN siempre.
+//                           FKs hacia bajas: concursos.baja_id y solicitudes_alta.baja_origen_id (ON DELETE SET NULL) y
+//                           etiquetas_baja (CASCADE). La FK va de concurso a baja: borrar un concurso NO borra su baja.
 // - Todo es DELETE set-based dentro de UNA transacción y es idempotente (la segunda
 //   vez borra 0). No se usa TRUNCATE.
 // - ejecutarLimpieza exige una URL de base local (guardaBase) y NUNCA corre en el dry-run.
 // ─────────────────────────────────────────────────────────────────────────────
 import { asegurarBaseLocal } from './guardaBase.js'
 
-export type Alcance = 'todo' | 'fuera_excel'
+export type Alcance = 'todo' | 'fuera_excel' | 'bajas_usuario'
 /** PREGUNTA = dudosa, no se borra hasta que Jorge decida (hoy no hay ninguna). */
 export type Clasificacion = 'BORRAR' | 'CONSERVAR' | 'PREGUNTA'
 
@@ -26,6 +31,9 @@ export interface TablaBorrar {
 
 /** Concursos CPH/CEETPS/base que NO están en el Excel ($1 = ids de concursos base a conservar). */
 const FUERA_BASE = 'concurso_id <> ALL($1::uuid[])'
+/** Bajas de usuario que NO sostienen un concurso conservado ($1 = ids de concursos base a conservar). */
+const BAJAS_USUARIO_BORRAR =
+  'registrado_por IS NOT NULL AND id NOT IN (SELECT baja_id FROM concursos WHERE baja_id IS NOT NULL AND id = ANY($1::uuid[]))'
 const CPH_FUERA = '(SELECT id FROM concursos_cph WHERE concurso_id <> ALL($1::uuid[]))'
 
 /** Orden FK: cada tabla se borra antes que las tablas de las que depende. */
@@ -49,8 +57,8 @@ export const TABLAS_BORRAR: readonly TablaBorrar[] = [
   // Solicitudes de alta, bajas manuales y sus etiquetas.
   { tabla: 'etiquetas_solicitud_alta', alcance: 'todo', donde: '' },
   { tabla: 'solicitudes_alta', alcance: 'todo', donde: '' },
-  { tabla: 'etiquetas_baja', alcance: 'todo', donde: '' },
-  { tabla: 'bajas', alcance: 'todo', donde: '' },
+  { tabla: 'etiquetas_baja', alcance: 'bajas_usuario', donde: `baja_id IN (SELECT id FROM bajas WHERE ${BAJAS_USUARIO_BORRAR})` },
+  { tabla: 'bajas', alcance: 'bajas_usuario', donde: BAJAS_USUARIO_BORRAR },
   // Etiquetas de cargo, autorizaciones, tareas, notificaciones, incidencias y auditoría.
   { tabla: 'etiquetas_cargo', alcance: 'todo', donde: '' },
   { tabla: 'autorizaciones', alcance: 'todo', donde: '' },
@@ -127,10 +135,41 @@ export function construirPlanBorrado(
   return TABLAS_BORRAR.map((t) => {
     const total = conteos[t.tabla] ?? 0
     if (t.alcance === 'todo') return { tabla: t.tabla, alcance: t.alcance, filas: total, exacto: true, total }
+    if (t.alcance === 'bajas_usuario') {
+      // Bajas de usuario: el cruce aporta el exacto (con usuario - las que sostienen un concurso conservado);
+      // etiquetas_baja usa la cota de las etiquetas de bajas con usuario.
+      const exactaBaja = fueraExcel[t.tabla]
+      if (exactaBaja !== undefined) return { tabla: t.tabla, alcance: t.alcance, filas: Math.min(exactaBaja, total), exacto: true, total }
+      const cota = t.tabla === 'bajas' ? conteos.bajas_con_usuario : conteos.etiquetas_baja_con_usuario
+      return { tabla: t.tabla, alcance: t.alcance, filas: Math.min(cota ?? total, total), exacto: false, total }
+    }
     const exacta = fueraExcel[t.tabla]
     if (exacta !== undefined) return { tabla: t.tabla, alcance: t.alcance, filas: Math.min(exacta, total), exacto: true, total }
     return { tabla: t.tabla, alcance: t.alcance, filas: total, exacto: false, total }
   })
+}
+
+export interface ResumenBajas {
+  /** Bajas cargadas por un usuario (registrado_por no nulo). */
+  con_usuario: number
+  /** Se borran: bajas de usuario que no sostienen un concurso conservado. */
+  a_borrar: number
+  /** Bajas de usuario que se conservan porque las referencia un concurso que esta en el Excel. */
+  conservadas_por_concurso: number
+  /** Bajas sin usuario (SIAL / alta por baja / backfill importadas): se conservan siempre, aunque su concurso se borre. */
+  conservadas_por_origen: number
+}
+
+/** Plan de bajas (conteo): `sostienenConcurso` = bajas de usuario referenciadas por un concurso conservado. */
+export function resumirBajas(conteos: Readonly<Record<string, number>>, sostienenConcurso: number): ResumenBajas {
+  const conUsuario = conteos.bajas_con_usuario ?? 0
+  const conservadas = Math.min(sostienenConcurso, conUsuario)
+  return {
+    con_usuario: conUsuario,
+    a_borrar: conUsuario - conservadas,
+    conservadas_por_concurso: conservadas,
+    conservadas_por_origen: conteos.bajas_sin_usuario ?? 0,
+  }
 }
 
 /** Subconjunto de la transacción de Prisma usado acá (permite simularla en tests). */

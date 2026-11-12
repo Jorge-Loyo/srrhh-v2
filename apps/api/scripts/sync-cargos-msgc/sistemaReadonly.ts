@@ -56,12 +56,14 @@ const SQL_VINCULOS: Record<keyof VinculosCargo, string> = {
 const SQL_CONCURSOS_CPH = `
 SELECT co.id::text AS concurso_id, cph.cargo_id::text AS cargo_id, cph.estado::text AS estado, cph.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
+       co.baja_id::text AS baja_id, (SELECT b.registrado_por IS NOT NULL FROM bajas b WHERE b.id = co.baja_id) AS baja_de_usuario,
        co.expediente AS expediente, NULL::text AS expediente_2
 FROM concursos_cph cph
 JOIN concursos co ON co.id = cph.concurso_id`
 const SQL_CONCURSOS_CEETPS = `
 SELECT co.id::text AS concurso_id, ce.cargo_id::text AS cargo_id, ce.estado::text AS estado, ce.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
+       co.baja_id::text AS baja_id, (SELECT b.registrado_por IS NOT NULL FROM bajas b WHERE b.id = co.baja_id) AS baja_de_usuario,
        co.expediente AS expediente, ce.expediente_concurso AS expediente_2, ce.expediente_concurso_2 AS expediente_3
 FROM concursos_ceetps ce
 JOIN concursos co ON co.id = ce.concurso_id`
@@ -94,6 +96,8 @@ interface FilaConcurso {
   sub_estado: string | null
   motivo_concurso: string | null
   autorizado: boolean
+  baja_id?: string | null
+  baja_de_usuario?: boolean | null
   expediente: string | null
   expediente_2?: string | null
   expediente_3?: string | null
@@ -134,6 +138,8 @@ async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
     subEstado: f.sub_estado,
     motivoConcurso: f.motivo_concurso,
     autorizado: Boolean(f.autorizado),
+    bajaId: f.baja_id ?? null,
+    bajaDeUsuario: f.baja_id ? Boolean(f.baja_de_usuario) : null,
     expedientes: [f.expediente, f.expediente_2 ?? null, f.expediente_3 ?? null],
   })
   const concursos: ConcursoSistema[] = [...filasCph.map(aConcurso('cph')), ...filasCeetps.map(aConcurso('ceetps'))]
@@ -212,6 +218,13 @@ export async function cargarSnapshot(prisma: PrismaLectura): Promise<SnapshotSis
 
 /** Una consulta de conteo por tabla del plan de borrado (nombres fijos de TABLAS_BORRAR, sin valores del usuario). */
 export const CONSULTAS_CONTEO_BORRADO: readonly string[] = TABLAS_BORRAR.map((t) => `SELECT count(*)::int AS n FROM ${t.tabla}`)
+/** Origen de las bajas (conteo): cargadas por un usuario (candidatas a borrar) y sin usuario (importadas/padron: se conservan). */
+export const CONSULTAS_CONTEO_BAJAS: Readonly<Record<string, string>> = {
+  bajas_con_usuario: 'SELECT count(*)::int AS n FROM bajas WHERE registrado_por IS NOT NULL',
+  bajas_sin_usuario: 'SELECT count(*)::int AS n FROM bajas WHERE registrado_por IS NULL',
+  etiquetas_baja_con_usuario:
+    'SELECT count(*)::int AS n FROM etiquetas_baja WHERE baja_id IN (SELECT id FROM bajas WHERE registrado_por IS NOT NULL)',
+}
 
 /** Conteo de filas por tabla a borrar, en transaccion READ ONLY verificada. No escribe nada. */
 export async function contarTablasBorrar(prisma: PrismaLectura): Promise<Record<string, number>> {
@@ -226,6 +239,10 @@ export async function contarTablasBorrar(prisma: PrismaLectura): Promise<Record<
     for (const [i, t] of TABLAS_BORRAR.entries()) {
       const f = await tx.$queryRawUnsafe<{ n: number }[]>(CONSULTAS_CONTEO_BORRADO[i])
       conteos[t.tabla] = Number(f[0]?.n ?? 0)
+    }
+    for (const [clave, sql] of Object.entries(CONSULTAS_CONTEO_BAJAS)) {
+      const f = await tx.$queryRawUnsafe<{ n: number }[]>(sql)
+      conteos[clave] = Number(f[0]?.n ?? 0)
     }
     return conteos
   }, TX_OPTS_LARGA)

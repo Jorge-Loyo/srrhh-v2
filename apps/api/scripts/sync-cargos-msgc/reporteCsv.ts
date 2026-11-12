@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FilaPlanBorrado } from './limpieza.js'
+import type { FilaPlanBorrado, ResumenBajas } from './limpieza.js'
 import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConcursoSinExpediente, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
 
 export const COLUMNAS_DETALLE = [
@@ -148,6 +148,8 @@ export interface ResumenJson extends MetaCorrida {
   concursos_sin_expediente: { total: number; por_tipo: Record<string, number> }
   /** Plan de borrado por tabla (solo calculo/conteo read-only; no se borra nada). */
   plan_borrado?: FilaPlanBorrado[]
+  /** Alcance de bajas: a borrar (de usuario) vs conservadas (por concurso del Excel / por origen import-padron). */
+  bajas?: ResumenBajas
   /** Delta por categoría contra la corrida anterior (--previo). */
   delta_vs_previo?: Record<string, number>
 }
@@ -157,6 +159,7 @@ export function armarResumen(
   meta: MetaCorrida,
   previo?: ResumenJson | null,
   planBorrado?: FilaPlanBorrado[] | null,
+  bajas?: ResumenBajas | null,
 ): ResumenJson {
   const resumen: ResumenJson = {
     ...meta,
@@ -180,6 +183,7 @@ export function armarResumen(
     },
   }
   if (planBorrado) resumen.plan_borrado = planBorrado
+  if (bajas) resumen.bajas = bajas
   if (previo) {
     const delta: Record<string, number> = {}
     for (const c of CATEGORIAS) delta[c] = r.conteos[c] - (previo.conteos?.[c] ?? 0)
@@ -255,7 +259,7 @@ export function markdownDeResumen(s: ResumenJson): string {
   l.push(`- Marcas revisionDato: ${Object.values(f2.revision_dato).reduce((x, y) => x + y, 0)}`)
   l.push(...lista(f2.revision_dato))
   l.push(`- Etiqueta CEETPS "SI" (tipificador): ${f2.etiquetas_ceetps_si} cargos`)
-  l.push(`- Ampliaciones (cargo nuevo + concurso nuevo_cargo sin autorizar, Etapa 1): ${f2.ampliaciones}`)
+  l.push(`- Ampliaciones: ${f2.ampliaciones} (con concurso ya existente en el sistema, se reusa y se conserva tal cual: ${f2.ampliaciones_con_concurso}; cargo nuevo + concurso nuevo_cargo sin autorizar, Etapa 1: ${f2.ampliaciones - f2.ampliaciones_con_concurso})`)
   l.push(`- Jefaturas con par (vinculadas por cargoBaseId): ${f2.jefaturas.con_par} (base existe ${f2.jefaturas.base_existe}; base a crear ${f2.jefaturas.base_a_crear}); vacantes -J sin par (sin cargo base, a revisar): ${f2.jefaturas.vacantes_sin_par}`)
   l.push(`- Expedientes Excel vs sistema: coinciden ${f2.expedientes.coinciden}; el Excel completa lo que falta ${f2.expedientes.a_completar}; dos numeros distintos ${f2.expedientes.conflictos} (conflictos_expediente.csv: ${s.conflictos_expediente} filas)`)
   l.push('')
@@ -273,9 +277,16 @@ export function markdownDeResumen(s: ResumenJson): string {
     l.push('| Tabla | Alcance | Filas a borrar | Total en tabla |')
     l.push('|---|---|---|---|')
     for (const p of s.plan_borrado) {
-      l.push(`| ${p.tabla} | ${p.alcance === 'todo' ? 'todo' : 'fuera del Excel'} | ${p.filas}${p.exacto ? '' : ' (cota superior)'} | ${p.total} |`)
+      l.push(`| ${p.tabla} | ${p.alcance === 'todo' ? 'todo' : p.alcance === 'bajas_usuario' ? 'solo de usuario, sin concurso conservado' : 'fuera del Excel'} | ${p.filas}${p.exacto ? '' : ' (cota superior)'} | ${p.total} |`)
     }
     l.push(`- Total de filas a borrar: ${s.plan_borrado.reduce((a, p) => a + p.filas, 0)}`)
+    if (s.bajas) {
+      l.push('')
+      l.push('Bajas (solo se borran las cargadas por un usuario, registrado_por no nulo, que no sostienen un concurso conservado):')
+      l.push(`- Bajas a borrar: ${s.bajas.a_borrar} (de ${s.bajas.con_usuario} cargadas por un usuario)`)
+      l.push(`- Bajas conservadas por concurso del Excel (cargadas por usuario, las referencia un concurso que se conserva): ${s.bajas.conservadas_por_concurso}`)
+      l.push(`- Bajas conservadas por origen import/padron (sin usuario: SIAL, alta por baja, backfill), aunque su concurso se borre: ${s.bajas.conservadas_por_origen}`)
+    }
     l.push('')
   }
   l.push('## Informativo (h) y colisiones')
