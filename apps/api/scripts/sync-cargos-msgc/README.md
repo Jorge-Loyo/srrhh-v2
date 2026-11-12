@@ -4,7 +4,7 @@ Compara el Excel `Mapeo de Cargos - MSGC.xlsx` (hoja `NOMINAL DE CARGOS`) con lo
 reporta qué se crearía, qué cambiaría, qué pasaría a no vigente y qué no cruza. Se puede repetir cada
 semana con el corte nuevo y compara contra la corrida anterior (`--previo`).
 
-**En la Fase 1 NO existe modo escritura.** No hay flag ni código que escriba en Neon ni en ninguna base
+**El dry-run (Fase 1) NO escribe; el modo escritura de la Fase 2 está en `sincronizar.ts` (ver al final).** No hay flag ni código que escriba en Neon ni en ninguna base
 (un test lo verifica). La lectura del sistema corre en una transacción `READ ONLY`.
 
 > **ATENCIÓN: la API local apunta a la Neon de PRODUCCIÓN** (conexión directa `:5432`, ver
@@ -224,3 +224,15 @@ tsx scripts/sync-cargos-msgc/sincronizar.ts --input <nominal.csv> --ejecutar --c
 - Los cargos creados llevan `origen = 'msgc'`: en la corrida siguiente el cruce los reconoce por cupo (filas c / d / ampliación) y no duplica.
 - Concursos: solo se crean los del Excel con expediente (los que no tienen número no se pueden reconocer como "del Excel").
 - Requiere haber aplicado antes `prisma/migrations/20261116000000_sync_cargos_msgc_f2` en la copia local.
+## Fase 2: modo escritura y salvaguardas (resumen)
+Runbook completo, en orden (clonar Neon -> local, levantar, dry-run, respaldo, escribir, verificar, volver a Neon, paso a producción):
+`.agents/tasks/sync-cargos-msgc/reporte-fase2.md`. Stack con la copia local: `docker compose -f docker-compose.yml -f docker-compose.localdb.yml up -d`
+(Postgres 18 aparte `srrhh_postgres18`, base `srrhh_sync`, puerto 5434; no se combina con `docker-compose.override.yml`, que apunta a Neon).
+Salvaguardas del modo escritura (`sincronizar.ts`):
+- Sin banderas es simulación: no escribe. Escribir exige `--ejecutar` **y** `--confirmo-base-local`.
+- `asegurarBaseLocal(DATABASE_URL)` corre antes de abrir la conexión: aborta con `neon.tech` en cualquier posición, hosts no locales o URL no parseable; nunca imprime la contraseña.
+- Solo el módulo `limpieza.ts` contiene `DELETE`; el dry-run, el reporte y el cruce no pueden invocarlo (lo verifica un test).
+- La limpieza se ejecuta una sola vez (según `sync_corridas`); repetirla requiere `--forzar-limpieza`.
+- Carga + recodificación + `sub_estado` van en una transacción; después se verifica (cierre = filas del Excel, cero prefijos viejos, integridad, segunda corrida en seco = 0).
+- Respaldo `pg_dump` local antes de escribir (paso 4 del reporte). Requiere la migración `20261116000000_sync_cargos_msgc_f2` aplicada a mano en la copia local; nunca `migrate dev/deploy` contra Neon.
+- El generador de códigos nuevo no debe llegar a producción antes que los datos recodificados.

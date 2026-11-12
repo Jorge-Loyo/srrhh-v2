@@ -1,0 +1,47 @@
+# Override ALTERNATIVO y versionable: la API y Dotaneitor usan una copia LOCAL de la base (srrhh_sync),
+# no Neon. Sin secretos: las credenciales son las de desarrollo que ya están en docker-compose.yml.
+#
+# Uso (desde WSL, en la raíz del repo):
+#   docker compose -f docker-compose.yml -f docker-compose.localdb.yml up -d
+# Volver a Neon: ver Doc/Desarrollo/ARRANQUE_LOCAL.md y .agents/tasks/sync-cargos-msgc/reporte-fase2.md (paso 7).
+#
+# Por qué un Postgres 18 aparte: Neon (produccion) corre PG 18 y un dump de pg_dump 18 no se restaura de
+# forma segura en el srrhh_postgres (PG 16). Este servicio NO toca srrhh_postgres ni su volumen.
+# Este archivo se usa SIN docker-compose.override.yml (no se combinan: ese fija DATABASE_URL a Neon).
+#
+# Nota: sin el override local no hay hot-reload ni montajes de src: la API corre el código de la imagen.
+# Para correr el código de la rama, reconstruir: `... up -d --build api`.
+services:
+  postgres_sync:
+    image: postgres:18-alpine
+    container_name: srrhh_postgres18
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: srrhh_user
+      POSTGRES_PASSWORD: srrhh_pass
+      POSTGRES_DB: srrhh_sync
+    ports:
+      - '5434:5432'
+    volumes:
+      # En PG 18 el directorio de datos vive bajo /var/lib/postgresql (version en el subdirectorio).
+      - postgres18_sync_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U srrhh_user -d srrhh_sync']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    depends_on:
+      postgres_sync:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres_sync:5432/srrhh_sync
+  dotaneitor:
+    depends_on:
+      postgres_sync:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres_sync:5432/srrhh_sync
+volumes:
+  postgres18_sync_data:
