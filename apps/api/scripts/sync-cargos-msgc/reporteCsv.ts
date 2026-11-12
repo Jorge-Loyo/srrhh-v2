@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
+import type { FilaPlanBorrado } from './limpieza.js'
 import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
 
 export const COLUMNAS_DETALLE = [
@@ -111,11 +112,18 @@ export interface ResumenJson extends MetaCorrida {
   /** Acciones de la Fase 2 (puestos, jefaturas, etiquetas, ampliaciones, expedientes y concursos). */
   fase2: ResultadoCruce['fase2']
   conflictos_expediente: number
+  /** Plan de borrado por tabla (solo calculo/conteo read-only; no se borra nada). */
+  plan_borrado?: FilaPlanBorrado[]
   /** Delta por categoría contra la corrida anterior (--previo). */
   delta_vs_previo?: Record<string, number>
 }
 
-export function armarResumen(r: ResultadoCruce, meta: MetaCorrida, previo?: ResumenJson | null): ResumenJson {
+export function armarResumen(
+  r: ResultadoCruce,
+  meta: MetaCorrida,
+  previo?: ResumenJson | null,
+  planBorrado?: FilaPlanBorrado[] | null,
+): ResumenJson {
   const resumen: ResumenJson = {
     ...meta,
     total_excel: r.cierre.total_excel,
@@ -131,6 +139,7 @@ export function armarResumen(r: ResultadoCruce, meta: MetaCorrida, previo?: Resu
     fase2: r.fase2,
     conflictos_expediente: r.conflictos_expediente.length,
   }
+  if (planBorrado) resumen.plan_borrado = planBorrado
   if (previo) {
     const delta: Record<string, number> = {}
     for (const c of CATEGORIAS) delta[c] = r.conteos[c] - (previo.conteos?.[c] ?? 0)
@@ -217,6 +226,17 @@ export function markdownDeResumen(s: ResumenJson): string {
   l.push(`- A crear: ${k.crear_desde_excel} desde el Excel (caratulado, sin autorizar, detalle en observaciones) + ${k.crear_nuevo_cargo} ampliaciones (nuevo_cargo sin autorizar)`)
   l.push(`- Expediente en 2+ cargos del Excel: valido (baja/creacion) ${k.expediente_repetido_valido}; error (concurso) ${k.expediente_repetido_error}`)
   l.push('')
+  if (s.plan_borrado) {
+    l.push('## Plan de borrado (limpieza previa a la nueva carga; SOLO conteo, no se borra nada)')
+    l.push('')
+    l.push('| Tabla | Alcance | Filas a borrar | Total en tabla |')
+    l.push('|---|---|---|---|')
+    for (const p of s.plan_borrado) {
+      l.push(`| ${p.tabla} | ${p.alcance === 'todo' ? 'todo' : 'fuera del Excel'} | ${p.filas}${p.exacto ? '' : ' (cota superior)'} | ${p.total} |`)
+    }
+    l.push(`- Total de filas a borrar: ${s.plan_borrado.reduce((a, p) => a + p.filas, 0)}`)
+    l.push('')
+  }
   l.push('## Informativo (h) y colisiones')
   l.push('')
   l.push(`- no_vigente: ${s.h_desglose.no_vigente}; validacion_vacante: ${s.h_desglose.validacion_vacante}; eliminados: ${s.h_desglose.eliminado}`)

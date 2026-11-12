@@ -78,7 +78,8 @@ describe('el directorio no tiene código de escritura', () => {
   const dir = path.dirname(fileURLToPath(import.meta.url))
   const fuentes = fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    // limpieza.ts es el UNICO modulo de escritura (DELETE, local y con guardaBase); el dry-run no puede usarlo.
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'limpieza.ts')
 
   /** Quita comentarios de bloque y de línea (aproximación suficiente para este chequeo). */
   const sinComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
@@ -87,6 +88,11 @@ describe('el directorio no tiene código de escritura', () => {
     expect(fuentes).toEqual(expect.arrayContaining(['cruce.ts', 'sistemaReadonly.ts', 'reporteCsv.ts', 'dry-run.ts']))
   })
 
+  it('el dry-run y el reporte no invocan ejecutarLimpieza', () => {
+    for (const archivo of ['dry-run.ts', 'sistemaReadonly.ts', 'reporteCsv.ts', 'cruce.ts']) {
+      expect(fs.readFileSync(path.join(dir, archivo), 'utf8'), archivo).not.toContain('ejecutarLimpieza')
+    }
+  })
   const prohibidos = ['.create(', '.createMany(', '.update(', '.updateMany(', '.delete(', '.deleteMany(', '.upsert(', 'INSERT ', 'UPDATE ', 'DELETE ']
   for (const archivo of fuentes) {
     it(`${archivo} no contiene sentencias de escritura`, () => {
@@ -94,4 +100,19 @@ describe('el directorio no tiene código de escritura', () => {
       for (const p of prohibidos) expect(t, `${archivo} contiene ${p}`).not.toContain(p)
     })
   }
+})
+
+describe('contarTablasBorrar', () => {
+  it('abre READ ONLY, verifica y solo ejecuta SELECT count', async () => {
+    const { contarTablasBorrar, CONSULTAS_CONTEO_BORRADO } = await import('./sistemaReadonly.js')
+    const { prisma, sentencias } = prismaSimulado('on')
+    await contarTablasBorrar(prisma)
+    expect(sentencias[0].sql).toBe(SQL_READ_ONLY)
+    expect(sentencias.slice(2).map((s) => s.sql)).toEqual([...CONSULTAS_CONTEO_BORRADO])
+    expect(CONSULTAS_CONTEO_BORRADO.every((q) => /^SELECT count\(\*\)/.test(q))).toBe(true)
+  })
+  it('aborta si no es solo lectura', async () => {
+    const { contarTablasBorrar } = await import('./sistemaReadonly.js')
+    await expect(contarTablasBorrar(prismaSimulado('off').prisma)).rejects.toThrow(/solo lectura/)
+  })
 })

@@ -138,3 +138,28 @@ describe('escribirReporte', () => {
     expect(fs.existsSync(dir)).toBe(false)
   })
 })
+
+describe('plan de borrado en el resumen', () => {
+  const vacio = { cargos: [], ocupaciones: [], siglasHospital: [], siglasOrganigrama: [], codigosRegistro: [], puestos: [], especialidades: [] }
+  it('se incluye en resumen.json y resumen.md con conteos sinteticos', async () => {
+    const { construirPlanBorrado, TABLAS_BORRAR } = await import('./limpieza.js')
+    const r = cruzar([], vacio)
+    const plan = construirPlanBorrado(Object.fromEntries(TABLAS_BORRAR.map((t) => [t.tabla, 3])), { concursos_cph: 1 })
+    const resumen = armarResumen(r, { corte: null, sha256: null, version_equivalencias: 'v' }, null, plan)
+    const dir = path.join(os.tmpdir(), `sync-msgc-plan-${process.pid}`)
+    try {
+      escribirReporte(dir, r, resumen)
+      const json = JSON.parse(fs.readFileSync(path.join(dir, 'resumen.json'), 'utf8'))
+      expect(json.plan_borrado).toHaveLength(TABLAS_BORRAR.length)
+      const md = fs.readFileSync(path.join(dir, 'resumen.md'), 'utf8')
+      expect(md).toContain('## Plan de borrado')
+      expect(md).toContain('| audit_logs | todo | 3 | 3 |')
+      expect(md).toContain('| concursos_cph | fuera del Excel | 1 | 3 |')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+  it('sin plan no hay seccion', () => {
+    expect(armarResumen(cruzar([], vacio), { corte: null, sha256: null, version_equivalencias: 'v' }).plan_borrado).toBeUndefined()
+  })
+})

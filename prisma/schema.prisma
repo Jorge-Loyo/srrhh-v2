@@ -510,6 +510,8 @@ model Cargo {
   // del personal, o nodo sin dotación). No bloquea la generación.
   revisionDato   Boolean @default(false) @map("revision_dato")
   revisionMotivo String? @map("revision_motivo") @db.VarChar(200)
+  // Sync MSGC F2: código anterior al recodificar (el acrónimo reemplaza el prefijo).
+  codigoLegacy   String? @map("codigo_legacy")
 
   // Relaciones
   hospital           Hospital            @relation(fields: [hospitalId], references: [id])
@@ -542,6 +544,7 @@ model Cargo {
   @@index([estado])
   @@index([subEstado])
   @@index([cargoBaseId])
+  @@index([codigoLegacy], map: "cargos_codigo_legacy_idx")
   @@index([cargoRetenidoId])
   @@index([puestoCargoId])
   @@index([especialidadPuestoId])
@@ -2037,4 +2040,15 @@ model BajaSialRegistro {
   @@index([snapshotId])
   @@index([cuil])
   @@map("baja_sial_registros")
+}
+
+// Bitácora de corridas del sync de cargos con el Excel MSGC (Fase 2).
+model SyncCorrida {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  creadoEn    DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  modo        String   @db.VarChar(20)
+  excelSha256 String?  @map("excel_sha256") @db.VarChar(64)
+  resumen     Json?
+
+  @@map("sync_corridas")
 }

@@ -7,6 +7,7 @@
 // (sin valores del usuario). No se leen CUIL, persona_id ni nombres.
 // ─────────────────────────────────────────────────────────────────────────────
 import { TX_OPTS_LARGA } from '../../src/shared/txOpts.js'
+import { TABLAS_BORRAR } from './limpieza.js'
 import type { CargoSistema, ConcursoSistema, EstadoCargoSistema, OcupacionViva, SnapshotSistema, VinculosCargo } from './cruce.js'
 
 /** Subconjunto de la transacción de Prisma que se usa acá (permite simularla en tests). */
@@ -199,5 +200,26 @@ export async function cargarSnapshot(prisma: PrismaLectura): Promise<SnapshotSis
     }
     console.log('transaction_read_only=on')
     return leerSnapshot(tx)
+  }, TX_OPTS_LARGA)
+}
+
+/** Una consulta de conteo por tabla del plan de borrado (nombres fijos de TABLAS_BORRAR, sin valores del usuario). */
+export const CONSULTAS_CONTEO_BORRADO: readonly string[] = TABLAS_BORRAR.map((t) => `SELECT count(*)::int AS n FROM ${t.tabla}`)
+
+/** Conteo de filas por tabla a borrar, en transaccion READ ONLY verificada. No escribe nada. */
+export async function contarTablasBorrar(prisma: PrismaLectura): Promise<Record<string, number>> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(SQL_READ_ONLY)
+    const r = await tx.$queryRawUnsafe<{ v: string }[]>(SQL_VERIFICA_READ_ONLY)
+    const v = r?.[0]?.v
+    if (v !== 'on') {
+      throw new Error(`Abortado: la transaccion no quedo en solo lectura (transaction_read_only=${String(v)})`)
+    }
+    const conteos: Record<string, number> = {}
+    for (const [i, t] of TABLAS_BORRAR.entries()) {
+      const f = await tx.$queryRawUnsafe<{ n: number }[]>(CONSULTAS_CONTEO_BORRADO[i])
+      conteos[t.tabla] = Number(f[0]?.n ?? 0)
+    }
+    return conteos
   }, TX_OPTS_LARGA)
 }
