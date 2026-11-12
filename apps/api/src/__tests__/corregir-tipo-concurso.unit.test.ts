@@ -32,9 +32,10 @@ vi.mock('../shared/prisma.js', () => ({
   prisma: { $transaction, usuario, role, solicitudAlta },
 }))
 const usuarioPuedeResolverSgrasv = vi.fn()
+const autoAprobarConcurso = vi.fn()
 vi.mock('../modules/autorizaciones/autorizaciones.service.js', () => ({
   usuarioPuedeResolverSgrasv: (...a: unknown[]) => usuarioPuedeResolverSgrasv(...a),
-  resolverSlugPorPermiso: vi.fn(async () => 'sgrasv_x'),
+  autoAprobarConcurso: (...a: unknown[]) => autoAprobarConcurso(...a),
 }))
 const createConcursoTx = vi.fn()
 vi.mock('../modules/concursos/concursos.service.js', () => ({
@@ -85,12 +86,13 @@ const ceetps = (over: Record<string, unknown> = {}) => ({
   concurso: baseNuevoCargo({ cargo: { ...CARGO_CPH, escalafonId: 'esc-87', codigoRegistroId: 'cr87', codigoRegistro: { codigo: '87' }, literalPuesto: 'Enfermero' } }),
   ...over,
 })
-const BODY_A_CEETPS = { tipoDestino: 'ceetps' as const, motivo: 'Mal elegido' }
+const BODY_A_CEETPS = { tipoDestino: 'ceetps' as const, motivo: 'Mal elegido', codigoRegistro: '85' }
 const BODY_A_CPH = { tipoDestino: 'cph' as const, motivo: 'Mal elegido' }
 
 beforeEach(() => {
   vi.clearAllMocks()
   usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+  autoAprobarConcurso.mockResolvedValue({ id: 'aut-ok' })
   concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph()))
   concursoCeetps.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : ceetps()))
   tx.$queryRaw.mockResolvedValue([{ id: 'c1' }])
@@ -129,7 +131,7 @@ describe('permiso', () => {
 describe('validaciones', () => {
   it('motivo obligatorio (schema y servicio)', async () => {
     expect(corregirTipoSchema.safeParse({ tipoDestino: 'cph', motivo: '   ' }).success).toBe(false)
-    await expect(corregirTipoConcursoService('cph', 'cph1', { tipoDestino: 'ceetps', motivo: '  ' }, 'u')).rejects.toMatchObject({ statusCode: 400 })
+    await expect(corregirTipoConcursoService('cph', 'cph1', { tipoDestino: 'ceetps', motivo: '  ', codigoRegistro: '85' }, 'u')).rejects.toMatchObject({ statusCode: 400 })
   })
   it('tipo destino igual al actual => 400', async () => {
     await expect(corregirTipoConcursoService('cph', 'cph1', BODY_A_CPH, 'u')).rejects.toMatchObject({ statusCode: 400 })
@@ -178,7 +180,7 @@ describe('validaciones', () => {
 describe('CPH -> CEETPS', () => {
   it('crea el destino con createConcursoTx, copia la Etapa 1, borra el origen y audita', async () => {
     const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
-    expect(r).toMatchObject({ tipoOrigen: 'cph', tipoDestino: 'ceetps', concursoId: 'c2', detalleId: 'ce2', autorizacionReemitida: false })
+    expect(r).toMatchObject({ tipoOrigen: 'cph', tipoDestino: 'ceetps', concursoId: 'c2', detalleId: 'ce2', autorizado: true, autorizacionId: 'aut-ok', codigoRegistroElegido: '85' })
     const [, body, usuarioReg, , opts] = createConcursoTx.mock.calls[0]!
     expect(body).toMatchObject({ cargoId: 'cg1', tipoConcurso: 'ceetps', motivoConcurso: 'nuevo_cargo', expediente: 'EX-1', puestoSolicitado: 'Médico clínico' })
     expect(usuarioReg).toBe('u-alta') // conserva quién registró el concurso
@@ -190,7 +192,7 @@ describe('CPH -> CEETPS', () => {
     expect(concursoCph.delete).toHaveBeenCalledWith({ where: { id: 'cph1' } })
     expect(concurso.delete).toHaveBeenCalledWith({ where: { id: 'c1' } })
     expect(concurso.update).toHaveBeenCalledWith({ where: { id: 'c2' }, data: { createdAt: new Date('2026-05-01T10:00:00Z') } })
-    expect(recalcularCalcCeetps).toHaveBeenCalledWith(tx, 'ce2', 'sin_solicitar')
+    expect(autoAprobarConcurso).toHaveBeenCalledTimes(1)
     expect(recalcularSubEstadoCargo).toHaveBeenCalledWith(tx, 'cg1')
     const audit = auditLog.create.mock.calls[0]![0].data
     expect(audit).toMatchObject({ usuarioId: 'u-aut', accion: 'corregir_tipo', entidad: 'concurso_tipo', entidadId: 'ce2' })
@@ -199,10 +201,52 @@ describe('CPH -> CEETPS', () => {
       camposSinEquivalente: { especialidadSolicitada: 'Clínica' },
     })
   })
-  it('nunca autoriza: no toca autorizado_at', async () => {
+  it('autoriza en el acto con la lógica de 2b (observación explicativa, tipo destino, mismo usuario)', async () => {
+    const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
+    expect(r).toMatchObject({ autorizado: true, autorizacionId: 'aut-ok' })
+    expect(autoAprobarConcurso).toHaveBeenCalledWith(tx, {
+      tipo: 'concurso_ceetps', referenciaId: 'ce2', concursoId: 'c2', usuarioId: 'u-aut',
+      observaciones: 'Autorizado al corregir el tipo (de CPH a CEETPS). Motivo: Mal elegido',
+    })
+    expect(recalcularSubEstadoCargo).toHaveBeenCalledWith(tx, 'cg1')
+  })
+  it('sin expediente/IF corrige igual pero NO autoriza y lo indica', async () => {
+    concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph({ ifAutorizacion: null })))
+    const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
+    expect(r).toMatchObject({ autorizado: false, motivoNoAutorizado: 'Falta expediente/IF', autorizacionId: null })
+    expect(autoAprobarConcurso).not.toHaveBeenCalled()
+    expect(recalcularCalcCeetps).toHaveBeenCalledWith(tx, 'ce2', 'sin_solicitar')
+    expect(auditLog.create.mock.calls[0]![0].data.cambios).toMatchObject({ autorizado: false, autorizacionId: null })
+    concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph({ eeConcurso: null })))
+    expect((await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')).autorizado).toBe(false)
+  })
+  it('si falla la autorización se propaga el error (rollback) sin auditoría ni avisos', async () => {
+    autoAprobarConcurso.mockRejectedValue(new Error('fallo aut'))
+    await expect(corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')).rejects.toThrow('fallo aut')
+    expect(auditLog.create).not.toHaveBeenCalled()
+    expect(crearNotificacion).not.toHaveBeenCalled()
+  })
+  it('no toca escalafón ni código del cargo (solo el CR)', async () => {
     await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
-    expect(concurso.updateMany).not.toHaveBeenCalled()
-    for (const c of concurso.update.mock.calls) expect(c[0].data).not.toHaveProperty('autorizadoAt')
+    for (const c of cargo.update.mock.calls) expect(Object.keys(c[0].data)).toEqual(['codigoRegistroId'])
+  })
+  it('CR requerido para CEETPS: falta, inválido o que no clasifica => 400', async () => {
+    for (const codigoRegistro of [undefined, '', '37', '83', 'x']) {
+      await expect(corregirTipoConcursoService('cph', 'cph1', { tipoDestino: 'ceetps', motivo: 'm', codigoRegistro }, 'u'))
+        .rejects.toMatchObject({ statusCode: 400 })
+    }
+    expect($transaction).not.toHaveBeenCalled()
+  })
+  it('CR 87: se guarda en el cargo, se audita y el concurso usa el escalafón del CR', async () => {
+    codigoRegistro.findUnique.mockResolvedValue({ id: 'cr87', codigo: '87', escalafonId: 'esc-87' })
+    const r = await corregirTipoConcursoService('cph', 'cph1', { ...BODY_A_CEETPS, codigoRegistro: '87' }, 'u-aut')
+    expect(r).toMatchObject({ codigoRegistroElegido: '87', codigoRegistroActualizado: true })
+    expect(codigoRegistro.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { codigo: '87' } }))
+    expect(cargo.update).toHaveBeenCalledWith({ where: { id: 'cg1' }, data: { codigoRegistroId: 'cr87' } })
+    expect(createConcursoTx.mock.calls[0]![1]).toMatchObject({ escalafonId: 'esc-87' })
+    expect(auditLog.create.mock.calls[0]![0].data.cambios).toMatchObject({
+      codigoRegistroElegido: '87', autorizado: true, autorizacionId: 'aut-ok', codigoRegistroNuevo: '87',
+    })
   })
   it('actualiza el CR del cargo: 37 -> 85 por defecto y escalafón del CR', async () => {
     const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
@@ -210,28 +254,17 @@ describe('CPH -> CEETPS', () => {
     expect(cargo.update).toHaveBeenCalledWith({ where: { id: 'cg1' }, data: { codigoRegistroId: 'cr85' } })
     expect(createConcursoTx.mock.calls[0]![1]).toMatchObject({ escalafonId: 'esc-85' })
   })
-  it('usa el CR deducido de la carrera si ya clasifica como CEETPS (87) y respeta su escalafón', async () => {
-    resolverCrPorCarrera.mockResolvedValue({ id: 'cr87', codigo: '87', tipo: 'ceetps' })
-    await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
-    expect(cargo.update).toHaveBeenCalledWith({ where: { id: 'cg1' }, data: { codigoRegistroId: 'cr87' } })
-    expect(codigoRegistro.findUnique).not.toHaveBeenCalled()
-    expect(createConcursoTx.mock.calls[0]![1]).toMatchObject({ escalafonId: 'esc-cph' })
-  })
-  it('autorización pendiente con Etapa 1 completa: se rechaza la vieja ("Cambio de tipo") y se re-emite para CEETPS', async () => {
+  it('autorización pendiente: se cierra con "Cambio de tipo" y no se re-emite otra (queda aprobada)', async () => {
     autorizacion.findMany.mockResolvedValue([{ id: 'aut-old', solicitadoPorId: 'u-sol' }])
-    const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
-    expect(r.autorizacionReemitida).toBe(true)
+    await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
     expect(autorizacion.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['aut-old'] } },
       data: expect.objectContaining({ estado: 'rechazada', observaciones: expect.stringContaining('Cambio de tipo') }),
     })
-    expect(autorizacion.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ tipo: 'concurso_ceetps', referenciaId: 'ce2', solicitadoPorId: 'u-sol', resolverPorRolSlug: 'sgrasv_x' }),
-    })
-    expect(recalcularCalcCeetps).toHaveBeenCalledWith(tx, 'ce2', 'pendiente')
-    expect(notificarSgrasvYHijos).toHaveBeenCalledTimes(1)
+    expect(autorizacion.create).not.toHaveBeenCalled()
+    expect(notificarSgrasvYHijos).not.toHaveBeenCalled()
   })
-  it('sin autorización pendiente no se crea ninguna (aunque quien corrige pueda autorizar)', async () => {
+  it('sin autorización pendiente no se crea una pendiente', async () => {
     await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
     expect(autorizacion.create).not.toHaveBeenCalled()
     expect(notificarSgrasvYHijos).not.toHaveBeenCalled()
@@ -247,22 +280,21 @@ describe('CPH -> CEETPS', () => {
 })
 
 describe('CEETPS -> CPH', () => {
-  it('copia los datos, pasa el CR a 37 y re-emite la autorización', async () => {
+  it('copia los datos, pasa el CR a 37 y autoriza (sin selector de CR)', async () => {
     autorizacion.findMany.mockResolvedValue([{ id: 'aut-old', solicitadoPorId: null }])
     codigoRegistro.findUnique.mockResolvedValue({ id: 'cr37', codigo: '37', escalafonId: 'esc-cph' })
     concursoCph.count.mockResolvedValue(1)
     concursoCeetps.count.mockResolvedValue(0)
     const r = await corregirTipoConcursoService('ceetps', 'ce1', BODY_A_CPH, 'u-aut')
-    expect(r).toMatchObject({ tipoOrigen: 'ceetps', tipoDestino: 'cph', detalleId: 'cph2', autorizacionReemitida: true })
+    expect(r).toMatchObject({ tipoOrigen: 'ceetps', tipoDestino: 'cph', detalleId: 'cph2', autorizado: true, codigoRegistroElegido: null })
     expect(concursoCph.update).toHaveBeenCalledWith({
       where: { id: 'cph2' },
       data: expect.objectContaining({ eeConcurso: 'EE-55', ifAutorizacion: 'IF-5', puestoCargoSolicitadoId: 'pc2' }),
     })
     expect(concursoCeetps.delete).toHaveBeenCalledWith({ where: { id: 'ce1' } })
     expect(cargo.update).toHaveBeenCalledWith({ where: { id: 'cg1' }, data: { codigoRegistroId: 'cr37' } })
-    expect(autorizacion.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tipo: 'concurso_cph', referenciaId: 'cph2', solicitadoPorId: 'u-aut' }) })
+    expect(autoAprobarConcurso).toHaveBeenCalledWith(tx, expect.objectContaining({ tipo: 'concurso_cph', referenciaId: 'cph2', concursoId: 'c2', usuarioId: 'u-aut' }))
     expect(auditLog.create.mock.calls[0]![0].data.cambios.camposSinEquivalente).toMatchObject({ cargaHoraria: 35 })
-    expect(recalcularCalcCph).toHaveBeenCalledWith(tx, 'cph2', 'pendiente')
   })
 })
 
@@ -273,11 +305,11 @@ describe('atomicidad y avisos', () => {
     expect(auditLog.create).not.toHaveBeenCalled()
     expect(crearNotificacion).not.toHaveBeenCalled()
   })
-  it('avisa post-commit a solicitantes y supervisión con el motivo', async () => {
+  it('avisa post-commit a solicitantes y supervisión con el motivo y que quedó autorizado', async () => {
     await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
     const slugs = crearNotificacion.mock.calls.map((c) => (c[0] as { rolSlug: string }).rolSlug).sort()
     expect(slugs).toEqual(['concursales_cph', 'supervision_x'])
-    expect((crearNotificacion.mock.calls[0]![0] as { mensaje: string }).mensaje).toContain('Mal elegido')
+    expect((crearNotificacion.mock.calls[0]![0] as { mensaje: string }).mensaje).toContain('quedó autorizado')
     expect(crearNotificacion.mock.invocationCallOrder[0]!).toBeGreaterThan($transaction.mock.invocationCallOrder[0]!)
   })
   it('si fallan los avisos la corrección NO se revierte', async () => {

@@ -385,7 +385,7 @@ async function completarFechaAutorizacionCeetps(tx: Prisma.TransactionClient, ce
 // escribe autorizado_at.
 export async function autoAprobarConcurso(
   tx: Prisma.TransactionClient,
-  data: { tipo: 'concurso_cph' | 'concurso_ceetps'; referenciaId: string; concursoId: string | null; usuarioId: string },
+  data: { tipo: 'concurso_cph' | 'concurso_ceetps'; referenciaId: string; concursoId: string | null; usuarioId: string; observaciones?: string },
 ) {
   const usuario = await tx.usuario.findUnique({
     where:  { id: data.usuarioId },
@@ -400,7 +400,7 @@ export async function autoAprobarConcurso(
       resolverPorRolSlug: usuario?.role.slug ?? 'admin',
       solicitadoPorId:    data.usuarioId,
       resueltoPorId:      data.usuarioId,
-      observaciones:      'Autorizada automáticamente por el usuario que completó la Etapa 1 (permiso de SGRASV).',
+      observaciones:      data.observaciones ?? 'Autorizada automáticamente por el usuario que completó la Etapa 1 (permiso de SGRASV).',
     },
   })
   if (data.concursoId) await marcarConcursoAutorizado(tx, data.concursoId)

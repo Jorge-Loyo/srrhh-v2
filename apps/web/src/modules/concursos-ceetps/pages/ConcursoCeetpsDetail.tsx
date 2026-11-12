@@ -17,7 +17,7 @@ import { ExportDropdown } from '@/shared/components/ExportDropdown'
 import { getCasoCeetps, exportCeetpsPdf, exportCeetpsWord } from '@/shared/lib/exportConcursoDocs'
 import { apiClient } from '@/shared/lib/api-client'
 import { CorregirTipoControl } from '@/modules/concursos-cph/components/CorregirTipoControl'
-import { puedeCorregirTipo } from '@/modules/concursos-cph/lib/corregirTipo'
+import { etapa1CompletaParaAutorizar, puedeCorregirTipo } from '@/modules/concursos-cph/lib/corregirTipo'
 import {
   avisoAutorizacionNuevoCargo,
   esNuevoCargoSinAutorizar,
@@ -352,7 +352,13 @@ export function ConcursoCeetpsDetail() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="badge-default" title="Tipo de concurso">Tipo: CEETPS</span>
-            {id && puedeCorregirTipo(user, concurso) && <CorregirTipoControl tipoActual="ceetps" detalleId={id} />}
+            {id && puedeCorregirTipo(user, concurso) && (
+              <CorregirTipoControl
+                tipoActual="ceetps"
+                detalleId={id}
+                etapa1Completa={etapa1CompletaParaAutorizar(concurso)}
+              />
+            )}
             <span className={ESTADO_BADGE[concurso.estado]}>{ESTADO_LABEL[concurso.estado]}</span>
             {concurso.subEstado && (
               <span className={SUB_ESTADO_BADGE[concurso.subEstado] ?? 'badge-default'}>

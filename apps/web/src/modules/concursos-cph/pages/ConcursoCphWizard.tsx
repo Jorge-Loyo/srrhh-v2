@@ -27,7 +27,7 @@ import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { CorregirTipoControl } from '../components/CorregirTipoControl'
-import { puedeCorregirTipo } from '../lib/corregirTipo'
+import { etapa1CompletaParaAutorizar, puedeCorregirTipo } from '../lib/corregirTipo'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 import {
@@ -3442,7 +3442,12 @@ export function ConcursoCphWizard() {
               <div className="flex items-center gap-2">
                 <span className="badge-default text-xs" title="Tipo de concurso">Tipo: CPH</span>
                 {etapaActiva === 'baja' && id && puedeCorregirTipo(user, cphData) && (
-                  <CorregirTipoControl tipoActual="cph" detalleId={id} />
+                  <CorregirTipoControl
+                    tipoActual="cph"
+                    detalleId={id}
+                    puestos={[cphData?.puestoSolicitado, cphData?.concurso?.cargo?.literalPuesto]}
+                    etapa1Completa={etapa1CompletaParaAutorizar(cphData)}
+                  />
                 )}
                 <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
                   {ESTADO_ETAPA_CONFIG[etapa.estado].label}

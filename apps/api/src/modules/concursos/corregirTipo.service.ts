@@ -16,14 +16,13 @@ import { resolverCrPorCarrera, type CrPorCarreraDb } from '../../shared/crPorCar
 import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 import { createConcursoTx } from './concursos.service.js'
 import {
-  resolverSlugPorPermiso,
+  autoAprobarConcurso,
   usuarioPuedeResolverSgrasv,
 } from '../autorizaciones/autorizaciones.service.js'
 import { recalcularCalcCph } from '../concursos-cph/recalcularCph.js'
 import { recalcularCalcCeetps } from '../concursos-ceetps/recalcularCeetps.js'
 import { recalcularSubEstadoCargo } from '../cargos/subEstado.repo.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
-import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import type { CorregirTipoBody } from './corregirTipo.schema.js'
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
@@ -36,6 +35,10 @@ export const AUDIT_ACCION_CORRECCION_TIPO = 'corregir_tipo'
 
 /** CR por defecto del tipo destino cuando el cargo/carrera no aporta uno que clasifique. */
 export const CR_DEFECTO_POR_TIPO: Record<TipoConcursoCorregible, string> = { cph: '37', ceetps: '85' }
+
+/** Códigos de registro elegibles al pasar a CEETPS: 85 Técnicos, 87 Nueva Carrera Enfermería. */
+export const CR_ELEGIBLES_CEETPS = ['85', '87'] as const
+export const MOTIVO_NO_AUTORIZADO = 'Falta expediente/IF'
 
 export const MSG_YA_AUTORIZADO =
   'El concurso ya fue autorizado: el tipo ya no se puede corregir'
@@ -173,8 +176,15 @@ export interface CorregirTipoResultado {
   concursoId: string
   /** Id de la fila ConcursoCph/ConcursoCeetps nueva (el de la ruta del front). */
   detalleId: string
-  autorizacionReemitida: boolean
   codigoRegistroActualizado: boolean
+  /** true si la corrección autorizó el concurso en el mismo acto. */
+  autorizado: boolean
+  /** Presente solo si autorizado=false. */
+  motivoNoAutorizado?: string
+  /** Id de la Autorizacion aprobada (si autorizado). */
+  autorizacionId: string | null
+  /** CR elegido al pasar a CEETPS (null al pasar a CPH). */
+  codigoRegistroElegido: string | null
 }
 
 export async function corregirTipoConcursoService(
@@ -189,6 +199,11 @@ export async function corregirTipoConcursoService(
     throw AppError.badRequest(`El concurso ya es de tipo ${LABEL_TIPO[tipoOrigen]}`)
   }
   const tipoDestino = body.tipoDestino
+  // Pasar a CEETPS exige elegir el CR (85|87); para CPH se ignora.
+  const codigoElegido = tipoDestino === 'ceetps' ? (body.codigoRegistro ?? '').trim() : null
+  if (tipoDestino === 'ceetps' && !(CR_ELEGIBLES_CEETPS as readonly string[]).includes(codigoElegido!)) {
+    throw AppError.badRequest('Para pasar a CEETPS elegí el código de registro: 85 (Técnicos) o 87 (Nueva Carrera Enfermería)')
+  }
   // Derecho de autorizar: permiso autorizaciones/resolver_sgrasv (o admin).
   if (!(await usuarioPuedeResolverSgrasv(prisma as unknown as Prisma.TransactionClient, usuarioId))) {
     throw AppError.forbidden('Solo quien autoriza concursos puede corregir el tipo')
@@ -273,11 +288,25 @@ export async function corregirTipoConcursoService(
       where: { referenciaId: detalleId, tipo: tipoAutOrigen, estado: 'pendiente' },
       select: { id: true, solicitadoPorId: true },
     })
-    const haySolicitudPendiente = pendientes.length > 0
-    const reemitir = haySolicitudPendiente && etapa1Completa(tipoOrigen, origen)
+    // Ajuste 5a: se autoriza en el acto si la Etapa 1 está completa (expediente + IF).
+    const autorizar = etapa1Completa(tipoOrigen, origen)
 
     // 5) CR del cargo coherente con el destino.
-    const cr = await resolverCrDestino(tx, cargo, tipoDestino)
+    let cr: CrDestino
+    if (codigoElegido) {
+      // El CR elegido debe clasificar como CEETPS (tipoConcursoDeCargo).
+      if (tipoConcursoDeCargo({ codigoRegistro: codigoElegido, literalPuesto: cargo.literalPuesto }) !== 'ceetps') {
+        throw AppError.badRequest(`El código de registro ${codigoElegido} no corresponde a un concurso CEETPS`)
+      }
+      const elegido = await tx.codigoRegistro.findUnique({
+        where: { codigo: codigoElegido },
+        select: { id: true, codigo: true, escalafonId: true },
+      })
+      if (!elegido) throw AppError.conflict(`No existe el código de registro ${codigoElegido} en el catálogo`)
+      cr = { codigoRegistroId: elegido.id, cambia: elegido.id !== cargo.codigoRegistroId, escalafonId: elegido.escalafonId, codigo: elegido.codigo }
+    } else {
+      cr = await resolverCrDestino(tx, cargo, tipoDestino)
+    }
     if (cr.cambia && cr.codigoRegistroId) {
       await tx.cargo.update({ where: { id: cargo.id }, data: { codigoRegistroId: cr.codigoRegistroId } })
     }
@@ -345,24 +374,19 @@ export async function corregirTipoConcursoService(
       where: { referenciaId: detalleId, tipo: tipoAutOrigen, estado: 'rechazada', id: { notIn: pendientes.map((p) => p.id) } },
       data: { referenciaId: nuevoDetalleId, tipo: tipoAutDestino, referenciaTipo: tipoAutDestino },
     })
-    let autReemitidaId: string | null = null
-    if (reemitir) {
-      const slug = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
-      const aut = await tx.autorizacion.create({
-        data: {
-          tipo: tipoAutDestino,
-          referenciaId: nuevoDetalleId,
-          referenciaTipo: tipoAutDestino,
-          solicitadoPorId: pendientes[0]!.solicitadoPorId ?? usuarioId,
-          resolverPorRolSlug: slug,
-        },
+    // Autorización en el acto (misma lógica que la auto-aprobación de 2b) o recálculo sin autorizar.
+    let autorizacionId: string | null = null
+    if (autorizar) {
+      const aut = await autoAprobarConcurso(tx, {
+        tipo: tipoAutDestino,
+        referenciaId: nuevoDetalleId,
+        concursoId: nuevo.concurso.id,
+        usuarioId,
+        observaciones: `Autorizado al corregir el tipo (de ${LABEL_TIPO[tipoOrigen]} a ${LABEL_TIPO[tipoDestino]}). Motivo: ${motivo}`,
       })
-      autReemitidaId = aut.id
-    }
-    // Estado/sub-estado del concurso nuevo (nunca autorizado: autorizado_at sigue NULL).
-    const calcAut = reemitir ? 'pendiente' : 'sin_solicitar'
-    if (tipoDestino === 'cph') await recalcularCalcCph(tx, nuevoDetalleId, calcAut)
-    else await recalcularCalcCeetps(tx, nuevoDetalleId, calcAut)
+      autorizacionId = aut.id
+    } else if (tipoDestino === 'cph') await recalcularCalcCph(tx, nuevoDetalleId, 'sin_solicitar')
+    else await recalcularCalcCeetps(tx, nuevoDetalleId, 'sin_solicitar')
 
     // 9) Regla única: un solo concurso abierto para el cargo; sub_estado del cargo.
     const [nCph, nCeetps] = await Promise.all([
@@ -393,7 +417,10 @@ export async function corregirTipoConcursoService(
           concursoIdNuevo: nuevo.concurso.id,
           cargoId: cargo.id,
           codigoRegistroNuevo: cr.cambia ? cr.codigo : null,
-          autorizacionReemitida: reemitir,
+          autorizado: autorizar,
+          motivoNoAutorizado: autorizar ? null : MOTIVO_NO_AUTORIZADO,
+          autorizacionId,
+          codigoRegistroElegido: codigoElegido,
           autorizacionesAnuladas: pendientes.map((p) => p.id),
           camposSinEquivalente: mapeo.sinEquivalente,
         } as Prisma.InputJsonValue,
@@ -406,15 +433,17 @@ export async function corregirTipoConcursoService(
         tipoDestino,
         concursoId: nuevo.concurso.id,
         detalleId: nuevoDetalleId,
-        autorizacionReemitida: reemitir,
         codigoRegistroActualizado: cr.cambia,
+        autorizado: autorizar,
+        ...(autorizar ? {} : { motivoNoAutorizado: MOTIVO_NO_AUTORIZADO }),
+        autorizacionId,
+        codigoRegistroElegido: codigoElegido,
       } satisfies CorregirTipoResultado,
       aviso: {
         cargoCodigo: cargo.codigo ?? cargo.id.slice(0, 8),
         cargoId: cargo.id,
         registradoPorId: base.registradoPorId as string | null,
         solicitantesIds: pendientes.map((p) => p.solicitadoPorId).filter((x): x is string => !!x),
-        autReemitidaId,
       },
     }
   }, TX_OPTS_LARGA)
@@ -427,12 +456,12 @@ export async function corregirTipoConcursoService(
 async function avisarCorreccion(
   r: CorregirTipoResultado,
   motivo: string,
-  aviso: { cargoCodigo: string; cargoId: string; registradoPorId: string | null; solicitantesIds: string[]; autReemitidaId: string | null },
+  aviso: { cargoCodigo: string; cargoId: string; registradoPorId: string | null; solicitantesIds: string[] },
   usuarioId: string,
 ) {
   try {
     const titulo = `Cambio de tipo de concurso — ${aviso.cargoCodigo}`
-    const mensaje = `El concurso del cargo ${aviso.cargoCodigo} pasó de ${LABEL_TIPO[r.tipoOrigen]} a ${LABEL_TIPO[r.tipoDestino]}. Motivo: ${motivo}`
+    const mensaje = `El concurso del cargo ${aviso.cargoCodigo} pasó de ${LABEL_TIPO[r.tipoOrigen]} a ${LABEL_TIPO[r.tipoDestino]}.${r.autorizado ? ' El concurso quedó autorizado.' : ''} Motivo: ${motivo}`
     const origenTipo = r.tipoDestino === 'cph' ? 'concurso_cph' : 'concurso_ceetps'
 
     // Quien cargó el alta, quien registró el concurso y quien pidió la autorización.
@@ -461,16 +490,6 @@ async function avisarCorreccion(
         origenTipo,
         origenId: r.detalleId,
         origenKey: `correccion_tipo:${r.detalleId}:${rolSlug}`,
-      })
-    }
-    if (aviso.autReemitidaId) {
-      await notificarSgrasvYHijos({
-        tipo: 'autorizacion_pendiente',
-        titulo: `Autorización de concurso ${LABEL_TIPO[r.tipoDestino]} pendiente — ${aviso.cargoCodigo}`,
-        mensaje: `Tras el cambio de tipo, hay una autorización de apertura del concurso ${LABEL_TIPO[r.tipoDestino]} ${aviso.cargoCodigo} esperando la resolución de SGRASV.`,
-        origenTipo: 'autorizacion',
-        origenId: aviso.autReemitidaId,
-        origenKey: `autorizacion_pendiente:${aviso.autReemitidaId}`,
       })
     }
   } catch (err) {
