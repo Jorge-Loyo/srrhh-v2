@@ -24,6 +24,9 @@ const envSchema = z.object({
   // backlog de validacion_vacante por bajas SIAL no cargadas.
   PADRON_EXIGIR_BAJA_SIAL: z.coerce.boolean().default(true),
   PADRON_BAJA_SIAL_VENTANA_DIAS: z.coerce.number().int().min(0).default(7),
+  // Nomenclatura de los códigos de cargo NUEVOS (shared/nomenclaturaCodigo.ts). `legacy` = generador anterior
+  // (base actual de producción); `msgc` = acrónimos del Excel, SOLO con la base recodificada.
+  NOMENCLATURA_CODIGO_CARGO: z.enum(['msgc', 'legacy']).default('legacy'),
 })
 
 // Bajo Vitest (process.env.VITEST) se completan valores placeholder para las

@@ -84,7 +84,7 @@ class Catalogo:
         self.jcat_a_familia: dict[str, str] = {}
         # (escalafon_id, nombre_sin_nivel) → puesto_cargo_id, SOLO conducción — S22-12
         self.puesto_conduccion_por_escalafon: dict[tuple[str, str], str] = {}
-        # Escalafón de conducción CPH (familias P/G): código canónico '22' — S22-12
+        # Escalafón de conducción CPH (familias P/G): código canónico '22' (base actual) o '37' (base nueva) — S22-12
         self._escalafon_id_22: str | None = None
         # Contadores de auto-altas de la corrida (para el reporte/diff).
         self.puestos_auto_alta = 0
@@ -113,8 +113,11 @@ class Catalogo:
                 "SELECT id, escalafon_id, nombre FROM puestos_cargo "
                 "WHERE activo = true AND tipo_puesto = 'conduccion'"
             ), conn)
+            # Escalafón CPH: código '22' en la base actual, '37' en la base nueva
+            # (sync-cargos-msgc Fase 2). Se prefiere el '37' si existe.
             esc22 = pd.read_sql(text(
-                "SELECT id FROM escalafones WHERE codigo = '22'"
+                "SELECT id FROM escalafones WHERE codigo IN ('22', '37') "
+                "ORDER BY (codigo = '37') DESC LIMIT 1"
             ), conn)
 
         self.cod_reg_a_escalafon = {

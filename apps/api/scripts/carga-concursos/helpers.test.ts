@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   str,
   num,
@@ -131,7 +131,26 @@ describe('esDesignadoVacante', () => {
   })
 })
 
-describe('prefijoCeetpsPorSubCarrera', () => {
+describe('prefijoCeetpsPorSubCarrera (nomenclatura legacy, default)', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  it('sin la variable (default) y con NOMENCLATURA_CODIGO_CARGO=legacy usa el generador anterior', () => {
+    for (const modo of [undefined, 'legacy']) {
+      vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', modo as string)
+      expect(prefijoCeetpsPorSubCarrera('ENFERMERIA', 'enfermero')).toBe('ENF')
+      expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico radiologo')).toBe('TEC-POF')
+      expect(prefijoCeetpsPorSubCarrera('TECNICOS', 'tecnico de GUARDIA')).toBe('TEC-POU')
+      expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'JEFE de camilleros')).toBe('EG-J')
+      expect(prefijoCeetpsPorSubCarrera('ANEXO2', 'camillero')).toBe('EG')
+    }
+  })
+  it('un valor invalido de la variable falla fuerte', () => {
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'otra')
+    expect(() => prefijoCeetpsPorSubCarrera('ENFERMERIA', 'enfermero')).toThrow(/NOMENCLATURA_CODIGO_CARGO/)
+  })
+})
+describe('prefijoCeetpsPorSubCarrera (NOMENCLATURA_CODIGO_CARGO=msgc)', () => {
+  beforeEach(() => vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc'))
+  afterEach(() => vi.unstubAllEnvs())
   it('ENFERMERIA → ENF', () => {
     expect(prefijoCeetpsPorSubCarrera('ENFERMERIA', 'enfermero')).toBe('ENF')
   })

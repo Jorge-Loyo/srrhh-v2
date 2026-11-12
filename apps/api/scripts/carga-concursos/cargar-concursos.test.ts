@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   resolverDesignadoActivo,
   crearCargo,
@@ -176,6 +176,9 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     expect(String(c.codigo)).toMatch(/^ENF-/)
   })
 
+  describe('NOMENCLATURA_CODIGO_CARGO=msgc', () => {
+  beforeEach(() => vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc'))
+  afterEach(() => vi.unstubAllEnvs())
   it('CEETPS técnico (guardia o planta) → prefijo TEC', async () => {
     const caches = nuevoCaches()
     {
@@ -216,6 +219,30 @@ describe('crearCargo — regla de oro escalafonId = CR.escalafon_id', () => {
     expect(c.codigoRegistroId).toBe('cr-83')
     expect(c.escalafonId).toBe('esc-adm')
     expect(String(c.codigo)).toMatch(/^SGAII-/)
+  })
+  })
+  describe('nomenclatura legacy (default)', () => {
+    it('CEETPS técnico → TEC-POU / TEC-POF y ANEXO2 → EG (generador anterior)', async () => {
+      const caches = nuevoCaches()
+      const a = mockTx()
+      await crearCargo(a.tx as never, caches, {
+        tipo: 'ceetps', fila: { sub_carrera: 'TECNICOS', puesto_solicitado: 'tecnico de GUARDIA' },
+        hospitalId: 'hosp-1', usuarioCarga: 'u', catalogo: caches.catalogo,
+      })
+      expect(String(a.cargosCreados[0]!.codigo)).toMatch(/^TEC-POU-\d{6}$/)
+      const b = mockTx()
+      await crearCargo(b.tx as never, caches, {
+        tipo: 'ceetps', fila: { sub_carrera: 'TECNICOS', puesto_solicitado: 'tecnico radiologo' },
+        hospitalId: 'hosp-1', usuarioCarga: 'u', catalogo: caches.catalogo,
+      })
+      expect(String(b.cargosCreados[0]!.codigo)).toMatch(/^TEC-POF-\d{6}$/)
+      const c = mockTx()
+      await crearCargo(c.tx as never, caches, {
+        tipo: 'ceetps', fila: { sub_carrera: 'ANEXO2', puesto_solicitado: 'camillero' },
+        hospitalId: 'hosp-1', usuarioCarga: 'u', catalogo: caches.catalogo,
+      })
+      expect(String(c.cargosCreados[0]!.codigo)).toMatch(/^EG-\d{6}$/)
+    })
   })
 })
 

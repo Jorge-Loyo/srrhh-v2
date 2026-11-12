@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { EstadoConcursoCph } from '@srrhh/types'
+import { EstadoConcursoCph, esEscalafonCph } from '@srrhh/types'
 import type { ConcursoCph, ConcursoCphFilters, PaginatedResponse } from '@srrhh/types'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import {
@@ -312,17 +312,17 @@ export function ConcursosListaTab({
   // Se acota al escalafón CPH (igual que el wizard y FiltrosCatalogo): sin
   // escalafonId el hook no trae nada (query enabled: !!escalafonId).
   const { data: escalafones = [] } = useEscalafones(true)
-  // Match flexible del escalafón CPH: el nombre real en la BD es "Nueva Carrera
-  // Prof. Hosp" (NO "Nueva Carrera Profesional Hospitalaria", que es el literal
-  // del código de registro). Se normaliza (minúsculas + sin acentos) y se busca
-  // por "prof"+"hosp" o "cph" para no depender del texto exacto y evitar el
-  // "Catálogo no disponible" por un nombre que no matchea.
+  // Match flexible del escalafón CPH. El nombre en la BD depende del estado de la base: "Nueva Carrera
+  // Prof. Hosp" (código 22, base actual) o "Nueva Carrera Profesional Hospitalaria" (código 37, base nueva).
+  // Primero por código/nombre conocido (esEscalafonCph); si no, se normaliza (minúsculas + sin acentos) y se
+  // busca por "prof"+"hosp" o "cph" para no depender del texto exacto y evitar el "Catálogo no disponible".
   const normEsc = (s: string) =>
     (s ?? '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
   const escalafonCphId = escalafones.find((e) => {
+    if (esEscalafonCph(e)) return true
     const n = normEsc(e.nombre)
     return (n.includes('prof') && n.includes('hosp')) || n.includes('cph')
   })?.id

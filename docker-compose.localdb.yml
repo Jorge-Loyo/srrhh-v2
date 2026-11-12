@@ -37,6 +37,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres_sync:5432/srrhh_sync
+      # Generador de codigos de cargo nuevos: la copia YA recodificada requiere msgc. Antes de correr la
+      # sincronizacion (copia sin recodificar) dejar el default legacy:
+      #   NOMENCLATURA_CODIGO_CARGO=msgc docker compose -f docker-compose.yml -f docker-compose.localdb.yml up -d api
+      NOMENCLATURA_CODIGO_CARGO: ${NOMENCLATURA_CODIGO_CARGO:-legacy}
   dotaneitor:
     depends_on:
       postgres_sync:

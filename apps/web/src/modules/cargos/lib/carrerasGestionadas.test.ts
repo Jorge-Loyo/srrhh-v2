@@ -27,6 +27,21 @@ describe('etiquetaCarrera', () => {
   })
 })
 
+describe('escalafón CPH en los dos estados de la base (actual 22 / nombre viejo, nueva 37 / nombre nuevo)', () => {
+  const BASE_ACTUAL = [{ id: 'cph', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' }, ...cat.filter((c) => c.codigo !== '37')]
+  const BASE_NUEVA = [{ id: 'cph', codigo: '37', nombre: 'Nueva Carrera Profesional Hospitalaria' }, ...cat.filter((c) => c.codigo !== '37')]
+  it('la etiqueta es la misma en ambas bases y el override tolera los dos nombres', () => {
+    expect(etiquetaCarrera(BASE_ACTUAL[0]!)).toBe('37 — Nueva Carrera Profesional Hospitalaria')
+    expect(etiquetaCarrera(BASE_NUEVA[0]!)).toBe('37 — Nueva Carrera Profesional Hospitalaria')
+  })
+  it('el selector de alta muestra UNA sola opcion CPH (37), sin 22, en ambas bases, con el id del escalafon como value', () => {
+    for (const base of [BASE_ACTUAL, BASE_NUEVA]) {
+      const o = opcionesCarreraAlta(base, 'pof')
+      expect(o.filter((x) => x.label.startsWith('37 '))).toEqual([{ value: 'cph', label: '37 — Nueva Carrera Profesional Hospitalaria' }])
+      expect(o.some((x) => x.label.startsWith('22'))).toBe(false)
+    }
+  })
+})
 describe('esCarreraGestionada', () => {
   it('37, 22, 23, 83, 85, 87 sí; el resto no', () => {
     for (const c of ['37', '22', '23', '83', '85', '87']) expect(esCarreraGestionada(c)).toBe(true)

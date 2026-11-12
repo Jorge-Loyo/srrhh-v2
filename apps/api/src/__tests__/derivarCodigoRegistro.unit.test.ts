@@ -49,6 +49,16 @@ describe('decidirCodigoRegistro — cascada de derivación del CR', () => {
     expect(r.revision).toBeUndefined()
   })
 
+  it('(c2) base nueva: escalafón 37 multi-CR (22 y 37) + padrón vacío → desempate a 37', () => {
+    const r = decidirCodigoRegistro({
+      escalafonCodigo: '37',
+      crsDelEscalafon: [cr('22'), cr('37')],
+      codigoRegistroDelPadron: '',
+      crDelPadron: null,
+    })
+    expect(r.codigoRegistroId).toBe('cr-37')
+    expect(r.revision).toBeUndefined()
+  })
   it('(d) escalafón 83 multi-CR + padrón vacío → desempate a 83', () => {
     const r = decidirCodigoRegistro({
       escalafonCodigo: '83',
@@ -96,6 +106,8 @@ describe('decidirCodigoRegistro — cascada de derivación del CR', () => {
 
   it('la tabla de desempate codifica el criterio confirmado (22→37, 83→83)', () => {
     expect(DESEMPATE_CR_POR_ESCALAFON['22']).toBe('37')
+    // Base nueva: el escalafón CPH pasa a código 37 y el desempate sigue dando el CR 37.
+    expect(DESEMPATE_CR_POR_ESCALAFON['37']).toBe('37')
     expect(DESEMPATE_CR_POR_ESCALAFON['83']).toBe('83')
     // El 19 NO es el desempate de Administrativa.
     expect(DESEMPATE_CR_POR_ESCALAFON['83']).not.toBe('19')

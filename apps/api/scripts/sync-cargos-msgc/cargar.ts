@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto'
 import { normalizarTexto } from '@srrhh/normalizacion'
-import { especialidadCanonica, normalizarExpediente, puestoCanonico, siglaCanonica, type EstadoCargoSistema, type ItemCargo, type PlanCarga } from './cruce.js'
+import { esCrCph, especialidadCanonica, normalizarExpediente, puestoCanonico, siglaCanonica, type EstadoCargoSistema, type ItemCargo, type PlanCarga } from './cruce.js'
 import { esSiglaACrear } from './equivalencias.js'
 
 export const ETIQUETA_CEETPS_SI = 'Tipificador SI'
@@ -177,7 +177,6 @@ export function partirCodigo(codigo: string): { prefijo: string; numero: number 
 }
 
 const formatoCodigo = (prefijo: string, n: number) => `${prefijo}-${String(n).padStart(6, '0')}`
-const esCph = (cr: string) => up(cr) === '37' || up(cr) === '22'
 
 export interface OpcionesCarga {
   /** Fecha (YYYY-MM-DD) para estado_desde; inyectable para tests. */
@@ -297,7 +296,7 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
     nuevosConcursos.push({
       concursoId: nuevoId(),
       detalleId: nuevoId(),
-      tipo: esCph(it.fila.cr) ? 'cph' : 'ceetps',
+      tipo: esCrCph(it.fila.cr) ? 'cph' : 'ceetps',
       cargoId,
       hospitalId: r.hospitalId,
       escalafonId: r.escalafonId,

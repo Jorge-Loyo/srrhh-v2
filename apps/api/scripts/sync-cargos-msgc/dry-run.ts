@@ -91,6 +91,7 @@ async function main() {
   console.log(`(secundario) solo vigente: proyectado ${ci.proyectado_solo_vigente}; Excel vigente ${ci.excel_vigente}`)
   console.log(`Cupos: reusados ${resultado.cupos.reusados}; a crear ${resultado.cupos.faltan}; a no vigente ${resultado.cupos.sobran}`)
   console.log(`Concursos colgados: ${resultado.concursos_colgados.totales.filas} filas en ${resultado.concursos_colgados.totales.cargos} cargos; a revisar ${resultado.concursos_colgados.totales.revisar}`)
+  console.log(`Concursos del Excel sin expediente (no se crean; ver concursos_sin_expediente.csv): ${resultado.concursos_sin_expediente.length}`)
   console.log(`Archivos en ${args.out}: ${archivos.join(', ')}`)
   console.log(`Plan de borrado: ${plan.reduce((a, p) => a + p.filas, 0)} filas en ${plan.length} tablas (solo conteo; ver resumen.md)`)
   console.log('SIMULACION: no se escribio nada en ninguna base.')

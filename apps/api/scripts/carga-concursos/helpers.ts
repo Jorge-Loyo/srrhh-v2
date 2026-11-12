@@ -10,6 +10,7 @@
 // validan/convierten tipos y acumulan warnings no-fatales.
 
 import { acronimoMsgc } from '../../src/shared/acronimoMsgc.js'
+import { nomenclaturaCodigoCargo } from '../../src/shared/nomenclaturaCodigo.js'
 
 // Acumulador de advertencias por fila. El caller (script) lo crea por fila y lo
 // vuelca al reporte final / a `observaciones`.
@@ -175,9 +176,10 @@ export function esDesignadoVacante(nombre: unknown): boolean {
 }
 
 // ─── Prefijo determinístico CEETPS por sub_carrera (DISEÑO §d) ───────────────
-// ENFERMERIA → ENF
-// TECNICOS   → TEC-POU si el puesto contiene GUARDIA, si no TEC-POF
-// ANEXO2     → EG-J si el puesto es jefatura/conducción, si no EG
+// Según NOMENCLATURA_CODIGO_CARGO (shared/nomenclaturaCodigo.ts):
+//   legacy (default): ENFERMERIA -> ENF; TECNICOS -> TEC-POU si el puesto contiene GUARDIA, si no TEC-POF;
+//                     ANEXO2 -> EG-J si es jefatura/conducción, si no EG.
+//   msgc: acrónimos MSGC (shared/acronimoMsgc.ts).
 export function prefijoCeetpsPorSubCarrera(
   subCarrera: string | null,
   puestoSolicitado: string | null,
@@ -186,6 +188,14 @@ export function prefijoCeetpsPorSubCarrera(
   const puesto = (puestoSolicitado ?? '').toUpperCase()
   const esJefatura =
     puesto.includes('JEFE') || puesto.includes('JEFATURA') || puesto.includes('DIRECTOR')
+  if (nomenclaturaCodigoCargo() === 'legacy') {
+    if (sc === 'ENFERMERIA' || sc === 'ENFERMERÍA') return 'ENF'
+    if (sc === 'TECNICOS' || sc === 'TÉCNICOS') {
+      return puesto.includes('GUARDIA') ? 'TEC-POU' : 'TEC-POF'
+    }
+    // ANEXO2 (Escalafón General / Administrativa)
+    return esJefatura ? 'EG-J' : 'EG'
+  }
   // Acrónimos MSGC (shared/acronimoMsgc.ts). CEETPS: 87 enfermería, 85 técnicos, 83 administrativa.
   const cr = sc === 'ENFERMERIA' || sc === 'ENFERMERÍA' ? '87'
     : sc === 'TECNICOS' || sc === 'TÉCNICOS' ? '85' : '83'

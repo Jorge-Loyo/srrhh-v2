@@ -60,6 +60,19 @@ describe('clasificacion de tablas', () => {
   })
 })
 
+describe('decisiones de Jorge sobre tablas dudosas (12-nov)', () => {
+  it('kpis_dotacion_snapshot y tareas_pendientes se borran; padron_diff y baja_sial_* se conservan; no queda ninguna dudosa', () => {
+    expect(CLASIFICACION.kpis_dotacion_snapshot).toBe('BORRAR')
+    expect(CLASIFICACION.tareas_pendientes).toBe('BORRAR')
+    expect(TABLAS_BORRAR.find((t) => t.tabla === 'kpis_dotacion_snapshot')).toMatchObject({ alcance: 'todo', donde: '' })
+    expect(TABLAS_BORRAR.some((t) => t.tabla === 'tareas_pendientes')).toBe(true)
+    for (const t of ['padron_diff', 'baja_sial_snapshots', 'baja_sial_diffs', 'baja_sial_registros']) {
+      expect(CLASIFICACION[t], t).toBe('CONSERVAR')
+      expect(TABLAS_BORRAR.some((x) => x.tabla === t), t).toBe(false)
+    }
+    expect(Object.entries(CLASIFICACION).filter(([, c]) => c === 'PREGUNTA')).toEqual([])
+  })
+})
 describe('integridad referencial de la limpieza', () => {
   it('ninguna tabla CONSERVAR/PREGUNTA depende de una BORRAR por cascade ni por FK requerida', () => {
     const violaciones = fks.filter(

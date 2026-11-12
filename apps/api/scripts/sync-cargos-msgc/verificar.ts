@@ -3,6 +3,7 @@
 // Función pura sobre números ya leídos de la base (sin datos personales).
 // ─────────────────────────────────────────────────────────────────────────────
 import { ACRONIMOS_MSGC } from './acronimoMsgc.js'
+import { CODIGO_ESCALAFON_CPH_NUEVO, NOMBRE_ESCALAFON_CPH_NUEVO } from './escalafon.js'
 
 export interface DatosVerificacion {
   /** Cargos vivos (deleted_at nulo) vigentes / en validación. */
@@ -14,6 +15,12 @@ export interface DatosVerificacion {
   integridad: Record<string, number>
   /** Cargos cuyo sub_estado no coincide con la regla (debe ser 0). */
   subEstadoInconsistentes: number
+  /** Escalafones con codigo 22 o 37 (debe quedar UNO: codigo 37 con el nombre nuevo). */
+  escalafonesCph: { codigo: string; nombre: string }[]
+  /** kpis_dotacion_snapshot: filas, meses con datos y meses con padron aprobado (los que se pueden regenerar). */
+  kpisFilas: number
+  kpisMeses: number
+  kpisMesesEsperados: number
 }
 
 export interface Chequeo {
@@ -75,6 +82,28 @@ export function evaluarVerificacion(d: DatosVerificacion, totalExcel: number, ca
     detalle: `${d.subEstadoInconsistentes} cargos inconsistentes`,
     severidad: 'error',
   })
+  const esc = d.escalafonesCph
+  const escOk = esc.length === 1 && esc[0].codigo === CODIGO_ESCALAFON_CPH_NUEVO && esc[0].nombre === NOMBRE_ESCALAFON_CPH_NUEVO
+  chequeos.push({
+    nombre: `escalafon CPH: codigo ${CODIGO_ESCALAFON_CPH_NUEVO} y nombre "${NOMBRE_ESCALAFON_CPH_NUEVO}"`,
+    ok: escOk,
+    detalle: esc.length === 0 ? 'no hay escalafon 22 ni 37' : esc.map((e) => `${e.codigo} "${e.nombre}"`).join('; '),
+    severidad: 'error',
+  })
+  chequeos.push({
+    nombre: 'kpis_dotacion_snapshot regenerado',
+    ok: d.kpisMesesEsperados === 0 || d.kpisFilas > 0,
+    detalle: `${d.kpisFilas} filas en ${d.kpisMeses} meses (meses con padron aprobado: ${d.kpisMesesEsperados})`,
+    severidad: 'error',
+  })
+  if (d.kpisMesesEsperados > 0 && d.kpisFilas > 0 && d.kpisMeses !== d.kpisMesesEsperados) {
+    chequeos.push({
+      nombre: 'kpis_dotacion_snapshot cubre todos los meses con padron aprobado',
+      ok: false,
+      detalle: `${d.kpisMeses} meses con datos; meses con padron aprobado ${d.kpisMesesEsperados}`,
+      severidad: 'aviso',
+    })
+  }
   if (cambiosSegundaCorrida !== null) {
     chequeos.push({
       nombre: 'segunda corrida sin cambios',

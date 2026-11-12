@@ -23,6 +23,7 @@ import {
   exportJuradoPdf,
   exportOrdenMeritoPdf,
 } from '@/shared/lib/exportConcursoDocs'
+import { esEscalafonCph } from '@srrhh/types'
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
@@ -193,9 +194,9 @@ export function ConcursoCphWizard() {
     })
     return ordenados[0].id
   }
-  const escalafonCph = escalafones.find(
-    (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
-  )
+  // Escalafón CPH: funciona con la base actual (código 22, "Nueva Carrera Prof. Hosp") y con la nueva
+  // (código 37, "Nueva Carrera Profesional Hospitalaria"); ver esEscalafonCph en @srrhh/types.
+  const escalafonCph = escalafones.find((e) => esEscalafonCph(e))
 
   // Construir objeto concurso desde la API
   const concurso = useMemo(() => {

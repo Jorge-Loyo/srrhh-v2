@@ -34,6 +34,11 @@ services:
         sync: false # URL del frontend en Vercel — se carga manualmente
       - key: LOG_LEVEL
         value: info
+      - key: NOMENCLATURA_CODIGO_CARGO
+        # legacy = generador de codigos anterior (CPH-POF/POU...): correcto mientras la base NO este recodificada.
+        # Cambiar a msgc (acronimos CPH-P/CPH-G...) SOLO junto con el cambio a la base recodificada.
+        # Ver Doc/Desarrollo/DEPLOY_PRODUCCION.md seccion 8.
+        value: legacy
 
   # ── Microservicio Python (Dotaneitor) — procesa el Excel del padrón ─────────
   - type: web

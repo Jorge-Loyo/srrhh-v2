@@ -7,8 +7,9 @@
 //   - llama asegurarBaseLocal(DATABASE_URL) ANTES de abrir cualquier conexión; se niega si la URL
 //     apunta a neon.tech o a un host no local;
 //   - registra una fila en sync_corridas.
-// Orden del modo escritura: limpieza (solo la primera vez o con --forzar-limpieza) -> carga ->
-// recodificación -> recalcular sub_estado -> verificaciones.
+// Orden del modo escritura: limpieza (solo la primera vez o con --forzar-limpieza) -> escalafón CPH a código 37 ->
+// carga -> recodificación -> recalcular sub_estado -> regenerar kpis_dotacion_snapshot -> verificaciones.
+// Los códigos nuevos SIEMPRE usan los acrónimos MSGC (acronimoMsgc.ts): este script NO lee NOMENCLATURA_CODIGO_CARGO.
 //
 // ADVERTENCIA: el generador de códigos nuevo (acrónimo MSGC) NO debe llegar a producción antes que los
 // datos recodificados: mezclaría prefijos viejos y nuevos. Este CLI solo corre contra la base local.
@@ -21,6 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { contarCambios, ejecutarCarga, type ResumenCarga } from './cargar.js'
 import { cruzar, sistemaAcronimo, type PlanCarga, type SnapshotSistema } from './cruce.js'
+import { ejecutarEscalafonCph, type ResultadoEscalafon } from './escalafon.js'
 import { asegurarBaseLocal } from './guardaBase.js'
 import { leerNominal, type FilaNominal } from './leerNominal.js'
 import { ejecutarRecodificacion, type PlanRecodificacion } from './recodificar.js'
@@ -55,8 +57,11 @@ export interface ResultadoSync {
   modo: 'simulacion' | 'escritura'
   cambiosPlanificados: number
   limpiezaEjecutada: boolean
+  escalafon?: ResultadoEscalafon
   carga?: ResumenCarga
   recodificacion?: { cambios: number; colisiones: number; sin_regla: Record<string, number> }
+  /** Filas insertadas al regenerar kpis_dotacion_snapshot. */
+  kpisFilas?: number
   verificacion?: ResultadoVerificacion
 }
 
@@ -129,6 +134,14 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
       deps.log('Limpieza omitida: ya hubo una corrida de escritura (usar --forzar-limpieza para repetirla).')
     }
 
+    // Escalafón CPH -> codigo 37 y nombre nuevo: ANTES de la carga y la recodificación (idempotente, siempre corre).
+    const escalafon = await base.transaccion((repo) => ejecutarEscalafonCph(repo))
+    deps.log(
+      escalafon.accion === 'actualizar'
+        ? `Escalafon CPH: codigo ${escalafon.codigoAntes} -> ${escalafon.codigoDespues} y nombre actualizado`
+        : 'Escalafon CPH: ya estaba en codigo 37 con el nombre nuevo',
+    )
+
     const snapshot2 = await base.leerSnapshot()
     const r2 = cruzar(filas, snapshot2)
     const cambiosPlanificados = contarCambios(r2.plan)
@@ -142,6 +155,11 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
     deps.log(`Carga: ${carga.cargos_creados} cargos creados, ${carga.cargos_actualizados} actualizados, ${carga.cargos_no_vigente} a no vigente, ${carga.concursos_creados} concursos`)
     deps.log(`Recodificacion: ${recod.cambios.length} codigos cambiados, ${recod.colisiones} colisiones`)
 
+    // KPIs de dotacion: se borraron en la limpieza (o quedaron de una corrida anterior) y se regeneran con el
+    // mecanismo del sistema, ya con los cargos y codigos de registro nuevos.
+    const kpisFilas = await base.transaccion((repo) => repo.regenerarKpisDotacion())
+    deps.log(`kpis_dotacion_snapshot regenerado: ${kpisFilas} filas`)
+
     // Verificación: datos de la base + segunda corrida en seco con el mismo Excel (debe dar 0 cambios).
     const r3 = cruzar(filas, await base.leerSnapshot())
     const datos = await base.transaccion((repo) => repo.datosVerificacion())
@@ -152,8 +170,10 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
       modo: 'escritura',
       cambiosPlanificados,
       limpiezaEjecutada: limpiar,
+      escalafon,
       carga,
       recodificacion: { cambios: recod.cambios.length, colisiones: recod.colisiones, sin_regla: recod.sin_regla },
+      kpisFilas,
       verificacion,
     }
     if (!verificacion.ok) {

@@ -2286,6 +2286,10 @@ export interface CargosIndicadores {
 // decide `tipoConcursoDeCargo` (api) a partir del CR. El 83 solo concursa si el
 // puesto es del Anexo II (también lo resuelve `tipoConcursoDeCargo`).
 // El 22 es un duplicado histórico del 37 (CPH) y se guarda como 37.
+// DOS ESTADOS DE BASE (ambos soportados): la base actual de producción tiene el escalafón CPH con
+// `escalafones.codigo = '22'` y nombre "Nueva Carrera Prof. Hosp"; la base nueva (sync-cargos-msgc, Fase 2)
+// lo tiene con código '37' y nombre "Nueva Carrera Profesional Hospitalaria". Por eso están las dos claves
+// ('22' y '37'); el '22' se puede retirar cuando la base nueva esté en producción.
 export const CR_POR_CODIGO_ESCALAFON_GESTIONADO: Readonly<Record<string, string>> = {
   '37': '37',
   '22': '37',
@@ -2297,6 +2301,37 @@ export const CR_POR_CODIGO_ESCALAFON_GESTIONADO: Readonly<Record<string, string>
 
 /** Códigos de escalafón de las carreras que gestionamos (selector Carrera de /cargos/alta). */
 export const CODIGOS_ESCALAFON_GESTIONADOS: readonly string[] = Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO)
+
+/** Nombre del escalafón CPH en la base ACTUAL de producción (código '22'). */
+export const NOMBRE_ESCALAFON_CPH_ACTUAL = 'Nueva Carrera Prof. Hosp'
+/** Nombre del escalafón CPH en la base NUEVA (código '37'; es el literal del Excel MSGC). */
+export const NOMBRE_ESCALAFON_CPH_NUEVO = 'Nueva Carrera Profesional Hospitalaria'
+/** Los dos nombres que puede tener el escalafón CPH según el estado de la base. */
+export const NOMBRES_ESCALAFON_CPH: readonly string[] = [NOMBRE_ESCALAFON_CPH_ACTUAL, NOMBRE_ESCALAFON_CPH_NUEVO]
+
+function claveNombreEscalafon(nombre: string | null | undefined): string {
+  return (nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, ' ')
+}
+
+/** ¿El nombre es alguno de los dos nombres del escalafón CPH? (sin distinguir mayúsculas ni tildes). */
+export function esNombreEscalafonCph(nombre: string | null | undefined): boolean {
+  const k = claveNombreEscalafon(nombre)
+  return k !== '' && NOMBRES_ESCALAFON_CPH.some((n) => claveNombreEscalafon(n) === k)
+}
+
+/**
+ * ¿Es el escalafón de la Carrera Profesional Hospitalaria? Funciona con la base actual (código '22' /
+ * nombre viejo) y con la nueva (código '37' / nombre nuevo): alcanza con que coincida el código o el nombre.
+ */
+export function esEscalafonCph(e: { codigo?: string | null; nombre?: string | null }): boolean {
+  const c = (e.codigo ?? '').trim()
+  return c === '22' || c === '37' || esNombreEscalafonCph(e.nombre)
+}
+
+/** Nombres equivalentes de un escalafón: para el CPH, los dos nombres; para cualquier otro, solo el recibido. */
+export function nombresEscalafonEquivalentes(nombre: string): string[] {
+  return esNombreEscalafonCph(nombre) ? [...NOMBRES_ESCALAFON_CPH] : [nombre]
+}
 
 // Documento de origen del concurso (función pura compartida API/Web)
 

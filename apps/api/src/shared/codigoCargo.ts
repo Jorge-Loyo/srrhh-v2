@@ -1,16 +1,19 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 import { acronimoMsgc } from './acronimoMsgc.js'
+import { nomenclaturaCodigoCargo } from './nomenclaturaCodigo.js'
 
 // ─── Prefijos = acrónimos del Excel MSGC (hoja Criterios) ────────────────────
 //
-// El prefijo del código de un cargo NUEVO es el acrónimo MSGC (shared/acronimoMsgc.ts):
+// Con NOMENCLATURA_CODIGO_CARGO=msgc el prefijo del código de un cargo NUEVO es el acrónimo MSGC (shared/acronimoMsgc.ts):
 //   CPH-P, CPH-G, CPH-J-POF, CPH-J-POU, CPH-D, CPH-SD, ENF, ENF-J, TEC, TEC-J, EG, EG-J,
 //   SGAII, AS, GER, DOC, SG, PEP, PGAB, RB, RPB, RES-J, RM.
 // Reemplazantes: `R-` ADELANTE (R-CPH-G-000123); retención temporal `TTR-` adelante.
 // Escalafones sin acrónimo (PT, CT, RES genérico, fallback CARGO) conservan el prefijo histórico.
 //
-// ADVERTENCIA DE DESPLIEGUE: este generador NO debe llegar a producción antes que los datos
-// recodificados (CPH-POF/POU -> CPH-P/CPH-G, etc.); se despliega junto con la base nueva.
+// INTERRUPTOR (NOMENCLATURA_CODIGO_CARGO, shared/nomenclaturaCodigo.ts): este generador (`msgc`) NO debe
+// activarse en producción antes que la base recodificada (CPH-POF/POU -> CPH-P/CPH-G, etc.). El default es
+// `legacy` (generador anterior, ver prefijoDeCargoLegacy): con `jorge` desplegado y la base actual, nada cambia.
+// La base nueva requiere NOMENCLATURA_CODIGO_CARGO=msgc. Ver Doc/Desarrollo/DEPLOY_PRODUCCION.md §8.
 //
 // Saca acentos además de mayusculizar — detectado en vivo tras el
 // `prisma migrate reset` de Sprint 20: el escalafón hand-seedeado "TEC"
@@ -40,7 +43,7 @@ export interface PuestoCargoResuelto {
   modalidad: 'pof' | 'pou' | 'ambos'
 }
 
-export function prefijoDeCargo(params: {
+export interface ParamsPrefijoCargo {
   escalafon: string | null
   unificadorPuesto: string | null
   agrupador: string | null
@@ -57,7 +60,19 @@ export function prefijoDeCargo(params: {
   // conducción (puesto de conducción / jefe / director) sí lo es; derivarCargosConduccion
   // lo pasa explícito. Un jefe sin línea de árbol es cargo de ejecución (CPH-P / CPH-G).
   tieneLineaArbol?: boolean
-}): string {
+}
+
+/**
+ * Prefijo del código de un cargo NUEVO. Elige el generador según NOMENCLATURA_CODIGO_CARGO
+ * (shared/nomenclaturaCodigo.ts): `legacy` (default; CPH-POF/POU, TEC-POF/POU, RG-CG, AS-MIN, ...) o
+ * `msgc` (acrónimos del Excel MSGC). Todos los llamadores pasan por acá.
+ */
+export function prefijoDeCargo(params: ParamsPrefijoCargo): string {
+  return nomenclaturaCodigoCargo() === 'msgc' ? prefijoDeCargoMsgc(params) : prefijoDeCargoLegacy(params)
+}
+
+/** Generador con acrónimos MSGC (FEAT-004). Solo con NOMENCLATURA_CODIGO_CARGO=msgc (base ya recodificada). */
+export function prefijoDeCargoMsgc(params: ParamsPrefijoCargo): string {
   const esc  = normStr(params.escalafon)
   const unif = normStr(params.unificadorPuesto)
   const agr  = normStr(params.agrupador)
@@ -144,6 +159,113 @@ function prefijoLegacy(esc: string): string {
   return 'CARGO'
 }
 
+// ─── Generador ANTERIOR (nomenclatura legacy) ────────────────────────────────
+//
+// Es el generador previo a FEAT-004, sin cambios de lógica (ignora `codigoRegistro` y `tieneLineaArbol`).
+// Es el default (NOMENCLATURA_CODIGO_CARGO=legacy): produce los prefijos que tiene hoy la base de
+// producción (CPH-POF/POU, TEC-POF/POU, RG-CG, AS-MIN/SS/DG/DGA, RES, PT, CT, PG, RME, MO).
+// Retirar cuando la base nueva (recodificada) esté en producción y se haya pasado a `msgc`.
+export function prefijoDeCargoLegacy(params: ParamsPrefijoCargo): string {
+  const esc  = normStr(params.escalafon)
+  const unif = normStr(params.unificadorPuesto)
+  const agr  = normStr(params.agrupador)
+  const pc   = params.puestoCargo
+  // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
+  // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
+  // como modalidad 'pof' (bug histórico del import: muchos puestos "...de
+  // guardia" quedaron pof → su código salía CPH-POF-* en vez de CPH-POU-*).
+  // Una guardia es POU por definición, así que el literal del puesto prevalece.
+  const nombrePc = normStr(pc?.nombre)
+  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
+  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
+  // Nombre canónico del catálogo cuando está disponible — más confiable que
+  // el agrupador de texto libre del Excel para distinguir Director/Jefe.
+  const nombrePuesto = pc ? normStr(pc.nombre) : agr
+  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (unif.includes('JEFATURA') || agr.includes('JEFE') || agr.includes('DIRECTOR'))
+
+  // ── CPH (Médicos) ──────────────────────────────────────────────────────────
+  // "Nueva Carrera Prof. Hosp" (escalafón estable código 22, ver migración
+  // 20260902000001_escalafon_normalizacion) es el nombre canónico real de
+  // CPH desde Sprint 20 — se agrega ese patrón explícito (detectado
+  // verificando en vivo tras el `prisma migrate reset` de Sprint 20: caía al
+  // fallback 'CARGO' en vez de 'CPH-*').
+  if (esc.includes('MÉDICO') || esc.includes('MEDICO') || esc === 'CPH'
+    || esc.includes('CARRERA PROFESIONAL HOSPITALARIA')
+    || esc.includes('PROF. HOSP') || esc.includes('PROFESIONAL HOSP')) {
+    if (esConduccion && nombrePuesto.includes('DIRECTOR') && nombrePuesto.includes('SUB')) return 'CPH-SD'
+    if (esConduccion && nombrePuesto.includes('DIRECTOR'))                                  return 'CPH-D'
+    if (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE')) {
+      // Jefe de guardia vs jefe de planta — se determina por la modalidad.
+      if (esPou) return 'CPH-J-POU'
+      // Fallback: catálogo sin resolver (modalidad='ambos', sin "guardia" en
+      // el nombre) — usar la heurística de especialidad (ver comentario del
+      // parámetro tieneEspecialidad).
+      if (!esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
+        return params.tieneEspecialidad ? 'CPH-J-POF' : 'CPH-J-POU'
+      }
+      return 'CPH-J-POF'
+    }
+    return esPou ? 'CPH-POU' : 'CPH-POF'
+  }
+
+  // ── Enfermería ─────────────────────────────────────────────────────────────
+  if (esc.includes('ENFERMER') || esc.includes('ENF')
+    || esc.includes('CARRERA ENFERMERÍA') || esc.includes('CARRERA ENFERMERIA')) return 'ENF'
+
+  // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
+  if (esc.includes('CEETPS') || esc.includes('TEC')) {
+    // Jefatura de un área/depto técnico → prefijo distinguible (como CPH-J-*),
+    // para que el filtro "Solo jefes" la reconozca por el código aunque esté
+    // vacante (el JCAT que la distinguiría vive en la ocupación, que no existe
+    // en un cargo vacante). Agregado en S24 al derivar jefaturas técnicas.
+    if (esConduccion) return esPou ? 'TEC-J-POU' : 'TEC-J-POF'
+    return esPou ? 'TEC-POU' : 'TEC-POF'
+  }
+
+  // ── Escalafón General ──────────────────────────────────────────────────────
+  // "Nueva Carrera Administrativa" (escalafón estable código 83) es el
+  // nombre canónico real de EG desde Sprint 20 — confirmado contra
+  // dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD §13.1 ("83 | Escalafón General" /
+  // "83 | Servicios"), detectado en vivo tras el `prisma migrate reset`.
+  if (esc.includes('GENERAL') || esc === 'EG' || esc.includes('ADMINISTRATIVA')) {
+    if (agr.includes('GERENCIAL') || unif.includes('GERENCIAL')) return 'EG-G'
+    if (agr.includes('DIRECTOR') || unif.includes('DIRECTOR'))   return 'EG-D'
+    if (agr.includes('JEFE') || unif.includes('JEFE'))           return 'EG-J'
+    return 'EG'
+  }
+
+  // ── Autoridades Superiores ─────────────────────────────────────────────────
+  if (esc.includes('AUTORIDAD') || esc === 'AS') {
+    if (agr.includes('MINISTRO') || unif.includes('MINISTRO'))           return 'AS-MIN'
+    if (agr.includes('SUBSECRETAR') || unif.includes('SUBSECRETAR'))     return 'AS-SS'
+    if (agr.includes('ADJUNTA') || unif.includes('ADJUNTA'))             return 'AS-DGA'
+    if (agr.includes('DIRECTOR GENERAL') || unif.includes('DIR. GENERAL')) return 'AS-DG'
+    return 'AS-DG'
+  }
+
+  // ── Régimen Gerencial ──────────────────────────────────────────────────────
+  if (esc.includes('GERENCIAL') || esc === 'RG') return 'RG-CG'
+
+  // ── Suplentes / Residentes / Docentes ──────────────────────────────────────
+  if (esc.includes('SUPLENTE') || esc === 'SG')  return 'SG'
+  // "RESIDEN" cubre tanto "Residente" como "Residencias" (escalafón estable
+  // código 24) — detectado en vivo tras el reset de Sprint 20.
+  if (esc.includes('RESIDEN') || esc === 'RES') return 'RES'
+  if (esc.includes('DOCENTE') || esc === 'DOC')   return 'DOC'
+
+  // ── Escalafones especiales GCABA ───────────────────────────────────────────
+  if (esc.includes('TRANSITORIA') && esc.includes('PLANTA')) return 'PT'
+  if (esc.includes('TRANSITORIO') || esc.includes('CUERPO')) return 'CT'
+  if (esc.includes('GABINETE'))                              return 'PG'
+  // Régimen Modular Extraordinario PG (código de registro 17B). Antes caía al
+  // fallback 'CARGO' porque "MODULAR" no matchea "MODULO"; su nomenclatura
+  // propia es RME. Va antes de la rama MODULO para no confundirse con ella.
+  if (esc.includes('MODULAR EXTRAORDINARIO') || esc === 'RME' || esc === '17B') return 'RME'
+  if (esc.includes('MODULO') || esc === 'MO' || esc === '16T') return 'MO'
+  if (esc.includes('SALUD') && esc.includes('GUARDIA'))      return 'SG'
+
+  return 'CARGO'
+}
 // ─── Secuencial atómico por prefijo ──────────────────────────────────────────
 //
 // Busca el máximo número ya usado para ese prefijo en la tabla cargos y
@@ -218,6 +340,7 @@ export function esConduccionPorLiteral(literalPuesto: string | null | undefined)
 
 // CPH-P   → R-CPH-P     (reemplazante)
 // CPH-J-POF → TTR-CPH-J-POF (retención temporal)
+//   (msgc: `R-CPH-P`, `TTR-CPH-J-POF`, prefijo ADELANTE; legacy: `CPH-POF-R`, `CPH-J-POF-TTR`, sufijo)
 export function prefijoRemplazante(prefijoCargo: string, tipo: 'R' | 'TTR'): string {
-  return `${tipo}-${prefijoCargo}`
+  return nomenclaturaCodigoCargo() === 'msgc' ? `${tipo}-${prefijoCargo}` : `${prefijoCargo}-${tipo}`
 }

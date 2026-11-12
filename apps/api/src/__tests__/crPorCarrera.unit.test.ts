@@ -74,6 +74,22 @@ describe('fallback por código de escalafón (Neon)', () => {
       expect(await normalizarCrCphId(dbCph, 'id-22')).toBe('id-37')
     }
   })
+  it('alta nueva CPH en la base NUEVA (escalafón código 37 con CR 22 y 37): también CR 37, igual que con el escalafón 22', async () => {
+    const { normalizarCrCphId } = await import('../shared/crCph.js')
+    const propios = [{ id: 'id-22', codigo: '22', escalafonId: 'e' }, { id: 'id-37', codigo: '37', escalafonId: 'e' }]
+    const r = await resolverCrPorCarrera(fakeDb('37', propios), 'e', 'Médico')
+    expect(r).toMatchObject({ id: 'id-37', codigo: '37', tipo: 'cph' })
+    // Sin CR propios cae al fallback por código de escalafón: el 37 también da CR 37.
+    expect(await resolverCrPorCarrera(fakeDb('37', []), 'e', 'Médico')).toMatchObject({ codigo: '37', tipo: 'cph' })
+    const dbCph = {
+      codigoRegistro: {
+        findUnique: async ({ where }: { where: { id: string } }) => propios.find((c) => c.id === where.id) ?? null,
+        findFirst: async ({ where }: { where: { codigo: string; escalafonId: string } }) =>
+          propios.find((c) => c.codigo === where.codigo && c.escalafonId === where.escalafonId) ?? null,
+      },
+    }
+    expect(await normalizarCrCphId(dbCph, 'id-22')).toBe('id-37')
+  })
   it('resolver: 83 sin CR propios, Anexo II => CEETPS; otro puesto => null', async () => {
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Administrativo')).toBeNull()
     expect(await resolverCrPorCarrera(fakeDb('83', []), 'e', 'Radioperador')).toMatchObject({ tipo: 'ceetps', codigo: '83' })

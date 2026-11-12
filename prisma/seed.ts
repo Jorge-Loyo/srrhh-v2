@@ -166,9 +166,15 @@ async function main() {
   }
   console.log(`✅ Hospitales: ${hCount}`)
 
+  // Escalafón CPH con DOS estados de base: en la base actual es el '22' ("Nueva Carrera Prof. Hosp"); en la
+  // base nueva (sync-cargos-msgc Fase 2) es el '37' ("Nueva Carrera Profesional Hospitalaria"). Si el '37' ya
+  // existe NO se siembra el '22' (lo recrearía) y todo lo que apuntaba al '22' apunta al '37'.
+  const cphNuevo = await prisma.escalafon.findUnique({ where: { codigo: '37' } })
+  const codigoEscalafonCph = (c: string) => (c === '22' && cphNuevo ? '37' : c)
   // Escalafones
   let eCount = 0
   for (const e of ESCALAFONES) {
+    if (e.codigo === '22' && cphNuevo) continue
     await prisma.escalafon.upsert({
       where: { codigo: e.codigo },
       update: {},
@@ -181,7 +187,7 @@ async function main() {
   // A21-12: códigos de registro SIAL → escalafón canónico
   let crCount = 0
   for (const cr of CODIGOS_REGISTRO) {
-    const escalafon = await prisma.escalafon.findUnique({ where: { codigo: cr.escalafonCodigo } })
+    const escalafon = await prisma.escalafon.findUnique({ where: { codigo: codigoEscalafonCph(cr.escalafonCodigo) } })
     if (!escalafon) {
       console.warn(`⚠️  codigos_registro: escalafón "${cr.escalafonCodigo}" no existe — se omite el código ${cr.codigo}`)
       continue
@@ -256,7 +262,7 @@ async function main() {
   const escalafonesNoResueltos = new Set<string>()
   for (const p of puestosJson) {
     // A21-15: remapear códigos "basura" al canónico antes de resolver
-    const codigoEscalafon = REMAP_ESCALAFON_CODIGO[p.escalafonCodigo] ?? p.escalafonCodigo
+    const codigoEscalafon = codigoEscalafonCph(REMAP_ESCALAFON_CODIGO[p.escalafonCodigo] ?? p.escalafonCodigo)
     const escalafon = await prisma.escalafon.findUnique({ where: { codigo: codigoEscalafon } })
     if (!escalafon) {
       escalafonesNoResueltos.add(p.escalafonCodigo)

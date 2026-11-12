@@ -234,6 +234,25 @@ export interface ConflictoExpediente {
   expediente_sistema: string
 }
 
+/**
+ * Concurso del Excel (bloque Concurso) SIN numero de expediente: hoy NO se crea concurso (sin numero no se puede
+ * reconocer en la corrida siguiente). Jorge los completa en el Excel y en la proxima corrida se crean. Sin datos
+ * personales: solo atributos del cargo y el detalle (col. V) del Excel.
+ */
+export interface ConcursoSinExpediente {
+  codigo_excel: string
+  sigla: string
+  acronimo: string
+  cr: string
+  literal_puesto: string
+  especialidad_cargo: string
+  /** Columna V del Excel («detalle»). */
+  detalle: string
+  /** CPH (CR 37 / 22) o CEETPS (el resto), igual que decide la carga. */
+  tipo: 'CPH' | 'CEETPS'
+}
+/** CPH = codigo de registro 37 o 22; cualquier otro es CEETPS (misma regla que la carga de concursos). */
+export const esCrCph = (cr: string | null | undefined) => ['37', '22'].includes(String(cr ?? '').trim().toUpperCase())
 /** Acciones de la Fase 2 derivadas de las decisiones del 12-nov (todo SOLO LECTURA: es un plan). */
 export interface Fase2Resumen {
   /** Filas por regla de resolución de puestos sucios (CR 87 / CR 85). */
@@ -266,8 +285,10 @@ export interface Fase2Resumen {
     eliminar_nuevo_cargo: number
     eliminar_en_cargo_no_vigente: number
     eliminar_sin_expediente: number
-    /** Filas Concurso del Excel sin concurso en el sistema: se crea (caratulado, sin autorizar). */
+    /** Filas Concurso del Excel CON expediente y sin concurso en el sistema: se crea (caratulado, sin autorizar). */
     crear_desde_excel: number
+    /** Filas Concurso del Excel SIN expediente (no ampliacion): NO se crea concurso; se listan en concursos_sin_expediente.csv. */
+    sin_expediente_excel: number
     /** Ampliaciones: concurso nuevo_cargo sin autorizar. */
     crear_nuevo_cargo: number
     /** Expediente en 2+ cargos: valido si es de baja/creacion, error si es de concurso. */
@@ -297,6 +318,8 @@ export interface ResultadoCruce {
   concursos_colgados: { filas: ConcursoColgado[]; totales: TotalesColgados }
   fase2: Fase2Resumen
   conflictos_expediente: ConflictoExpediente[]
+  /** Concursos del Excel sin expediente (no se crean hasta que Jorge los complete). Ordenados por codigo_excel. */
+  concursos_sin_expediente: ConcursoSinExpediente[]
   /** Plan de escritura (FEAT-003). Datos con ids del sistema; el dry-run NO lo escribe. */
   plan: PlanCarga
 }
@@ -408,7 +431,7 @@ function nuevoFase2(): Fase2Resumen {
     concursos: {
       sistema: 0, mantener: 0, mantener_a_reasignar: 0, eliminar: 0, eliminar_por_tipo: {}, eliminar_activos: 0,
       eliminar_nuevo_cargo: 0, eliminar_en_cargo_no_vigente: 0, eliminar_sin_expediente: 0,
-      crear_desde_excel: 0, crear_nuevo_cargo: 0, expediente_repetido_valido: 0, expediente_repetido_error: 0,
+      crear_desde_excel: 0, sin_expediente_excel: 0, crear_nuevo_cargo: 0, expediente_repetido_valido: 0, expediente_repetido_error: 0,
     },
   }
 }
@@ -1029,6 +1052,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   for (const r of filasE) if (esConcurso(r) && !r.ampliacion && r.exp) expConcursoExcel.add(r.exp)
   const expConcursoSistema = new Set<string>()
   for (const co of sistema.concursos ?? []) for (const e of expedientesDe(co)) expConcursoSistema.add(e)
+  const concursosSinExpediente: ConcursoSinExpediente[] = []
   for (const r of filasE) {
     const bloque = r.f.bloque || 'sin bloque'
     const a = asignacion.get(r)
@@ -1043,7 +1067,16 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
       fase2.concursos.crear_nuevo_cargo++
       extra.push('ampliacion: cargo nuevo con concurso nuevo_cargo sin autorizar (Etapa 1, Nuevos cargos)')
     } else if (esConcurso(r)) {
-      if (r.exp && expConcursoSistema.has(r.exp)) extra.push('concurso del sistema se mantiene (expediente en ambos)')
+      if (!r.exp) {
+        // Sin numero de expediente no se crea concurso (no se podria reconocer la semana siguiente): se lista.
+        fase2.concursos.sin_expediente_excel++
+        concursosSinExpediente.push({
+          codigo_excel: r.f.codigo_excel, sigla: r.f.sigla, acronimo: r.f.acronimo, cr: r.f.cr,
+          literal_puesto: r.f.literal_puesto, especialidad_cargo: r.f.especialidad_cargo, detalle: r.f.detalle,
+          tipo: esCrCph(r.f.cr) ? 'CPH' : 'CEETPS',
+        })
+        extra.push('concurso del Excel sin expediente: no se crea concurso (ver concursos_sin_expediente.csv)')
+      } else if (expConcursoSistema.has(r.exp)) extra.push('concurso del sistema se mantiene (expediente en ambos)')
       else {
         fase2.concursos.crear_desde_excel++
         extra.push('concurso a crear: caratulado, sin autorizar, detalle en observaciones')
@@ -1266,6 +1299,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     conflictos_expediente: conflictos.sort(
       (x, y) => cmp(x.codigo_excel, y.codigo_excel) || cmp(x.cargo_codigo_sistema, y.cargo_codigo_sistema),
     ),
+    concursos_sin_expediente: concursosSinExpediente.sort((x, y) => cmp(x.codigo_excel, y.codigo_excel)),
     plan: {
       items: [...itemsPlan].sort((x, y) => cmp(x.fila.codigo_excel, y.fila.codigo_excel) || cmp(x.cargoId ?? '', y.cargoId ?? '')),
       noVigenteIds: [...noVigenteIds].sort(cmp),

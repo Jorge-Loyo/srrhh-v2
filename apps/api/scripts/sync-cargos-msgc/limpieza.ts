@@ -14,6 +14,7 @@
 import { asegurarBaseLocal } from './guardaBase.js'
 
 export type Alcance = 'todo' | 'fuera_excel'
+/** PREGUNTA = dudosa, no se borra hasta que Jorge decida (hoy no hay ninguna). */
 export type Clasificacion = 'BORRAR' | 'CONSERVAR' | 'PREGUNTA'
 
 export interface TablaBorrar {
@@ -57,6 +58,9 @@ export const TABLAS_BORRAR: readonly TablaBorrar[] = [
   { tabla: 'notificaciones', alcance: 'todo', donde: '' },
   { tabla: 'padron_incidencias', alcance: 'todo', donde: '' },
   { tabla: 'audit_logs', alcance: 'todo', donde: '' },
+  // Serie historica de KPIs de dotacion (derivada de cargos/concursos): Jorge (12-nov) "se borran y generan nuevos".
+  // Se REGENERA al final de la carga con el mecanismo del sistema (kpisDotacion.ts). Sin FK hacia ni desde otras tablas.
+  { tabla: 'kpis_dotacion_snapshot', alcance: 'todo', donde: '' },
 ]
 
 /**
@@ -72,6 +76,8 @@ export const CLASIFICACION: Readonly<Record<string, Clasificacion>> = {
   etiquetas_solicitud_alta: 'BORRAR', solicitudes_alta: 'BORRAR', etiquetas_baja: 'BORRAR', bajas: 'BORRAR',
   etiquetas_cargo: 'BORRAR', autorizaciones: 'BORRAR', tareas_pendientes: 'BORRAR',
   notificaciones: 'BORRAR', padron_incidencias: 'BORRAR', audit_logs: 'BORRAR',
+  // BORRAR y REGENERAR al final de la carga (decisión de Jorge, 12-nov)
+  kpis_dotacion_snapshot: 'BORRAR',
   // CONSERVAR: usuarios, roles, permisos y configuración
   usuarios: 'CONSERVAR', roles: 'CONSERVAR', permisos: 'CONSERVAR', role_permisos: 'CONSERVAR',
   role_jerarquias: 'CONSERVAR', refresh_tokens: 'CONSERVAR',
@@ -92,8 +98,8 @@ export const CLASIFICACION: Readonly<Record<string, Clasificacion>> = {
   personas: 'CONSERVAR', ocupaciones: 'CONSERVAR', roles_persona: 'CONSERVAR', cargos: 'CONSERVAR',
   // Bitácora del propio sync
   sync_corridas: 'CONSERVAR',
-  // PREGUNTA: derivada de cargos/concursos; quedaría desactualizada, pero no es "generada por usuarios"
-  kpis_dotacion_snapshot: 'PREGUNTA',
+  // Sin tablas dudosas (PREGUNTA): Jorge cerró tareas_pendientes (BORRAR), padron_diff y baja_sial_* (CONSERVAR)
+  // y kpis_dotacion_snapshot (BORRAR + regenerar) el 12-nov.
 }
 
 /** Tablas creadas por SQL crudo (no están en schema.prisma): se conservan. */

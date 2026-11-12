@@ -38,7 +38,8 @@ export interface DecisionCr {
  *
  * Criterio (confirmado por el usuario):
  *  - '22' (CPH / Carrera de Profesionales de la Salud) → '37': la carrera
- *    profesional vigente, NO la histórica '22'.
+ *    profesional vigente, NO la histórica '22'. El escalafón CPH es el '22' en la base
+ *    actual y el '37' en la base nueva (sync-cargos-msgc): las dos claves llevan al CR '37'.
  *  - '83' (Carrera Administrativa / Escalafón General) → '83': la nueva
  *    carrera, NO el '19' (Escalafón General histórico).
  *
@@ -46,6 +47,7 @@ export interface DecisionCr {
  */
 export const DESEMPATE_CR_POR_ESCALAFON: Record<string, string> = {
   '22': '37',
+  '37': '37',
   '83': '83',
 }
 

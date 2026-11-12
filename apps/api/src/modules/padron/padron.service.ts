@@ -5,6 +5,8 @@ import FormData from 'form-data'
 import axios from 'axios'
 import { Prisma } from '@prisma/client'
 import { normalizarTexto } from '@srrhh/normalizacion'
+import { nombresEscalafonEquivalentes } from '@srrhh/types'
+import { completarAliasEscalafonCph } from '../../shared/escalafonCph.js'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
@@ -116,11 +118,13 @@ async function buscarEscalafonPorNombre(tx: PrismaTx, nombre: string): Promise<E
   if (!nombre) return null
   // Mismo criterio que normalizarTexto (minúscula + sin tilde + espacios
   // colapsados + trim) pero en SQL, para no traer todo el catálogo acá.
+  // El escalafón CPH tiene dos nombres según el estado de la base (actual "Nueva Carrera Prof. Hosp" /
+  // nueva "Nueva Carrera Profesional Hospitalaria"): el padrón puede traer cualquiera de los dos.
+  const claves = nombresEscalafonEquivalentes(nombre).map((n) => normalizarTexto(n))
   const rows = await tx.$queryRaw<EscalafonRow[]>`
     SELECT id, nombre FROM escalafones
     WHERE activo = true
-      AND lower(unaccent(regexp_replace(trim(nombre), '\s+', ' ', 'g')))
-        = lower(unaccent(regexp_replace(trim(${nombre}), '\s+', ' ', 'g')))
+      AND lower(unaccent(regexp_replace(trim(nombre), '\s+', ' ', 'g'))) = ANY(${claves}::text[])
     LIMIT 1
   `
   return rows[0] ?? null
@@ -1990,6 +1994,7 @@ export async function aprobarSnapshotService(
     const escalafonCache = new Map<string, EscalafonRow>(
       escalafonesExistentes.map((e) => [normalizarTexto(e.nombre), e]),
     )
+    completarAliasEscalafonCph(escalafonCache, normalizarTexto)
     const escalafonPorCodRegCache = new Map(
       codigosRegistroExistentesLookup.map((cr) => [
         cr.codigo,
@@ -3472,7 +3477,7 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
         select: { codigo: true, escalafonId: true },
       }),
       prisma.escalafon.findMany({
-        where: { nombre: { in: escNames }, activo: true },
+        where: { nombre: { in: escNames.flatMap(nombresEscalafonEquivalentes) }, activo: true },
         select: { id: true, nombre: true },
       }),
     ])
@@ -3482,6 +3487,7 @@ export async function diagnosticarDiffsNuevosService(snapshotId: string) {
   const hospitalMap = new Map(hospitalesLookup.map((h) => [h.sigla, h.id]))
   const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+  completarAliasEscalafonCph(escNombreMap)
   // S20-9: catálogo puesto/especialidad — usado para resolver puestoCargoId
   // por escalafón+literal_puesto, solo lectura (diagnóstico, no auto-crea).
   const catalogoPuestosDiag = await cargarCatalogoPuestos(prisma)
@@ -3784,12 +3790,13 @@ export async function getValidacionesPreviewService(snapshotId: string) {
       select: { codigo: true, escalafonId: true },
     }),
     prisma.escalafon.findMany({
-      where: { nombre: { in: escNames }, activo: true },
+      where: { nombre: { in: escNames.flatMap(nombresEscalafonEquivalentes) }, activo: true },
       select: { id: true, nombre: true },
     }),
   ])
   const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+  completarAliasEscalafonCph(escNombreMap)
 
   // Concursos abiertos con persona del orden de mérito (reservada o designada).
   // Índice de concursos por CUIL (normalizado a dígitos). WHERE histórico del
@@ -3946,12 +3953,13 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
       select: { codigo: true, escalafonId: true },
     }),
     prisma.escalafon.findMany({
-      where: { nombre: { in: escNames }, activo: true },
+      where: { nombre: { in: escNames.flatMap(nombresEscalafonEquivalentes) }, activo: true },
       select: { id: true, nombre: true },
     }),
   ])
   const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+  completarAliasEscalafonCph(escNombreMap)
 
   // Resuelve el concurso a vincular para un diff, o undefined si no engancha.
   const resolverVinculo = (p: (typeof parsedPendientes)[number]): string | undefined => {

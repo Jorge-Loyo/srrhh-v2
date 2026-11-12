@@ -3,7 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { cruzar, type Entrada } from './cruce.js'
-import { armarResumen, csvDeColgados, csvDeConflictos, csvDeEntradas, escribirReporte, validarCelda, validarCeldaExpediente } from './reporteCsv.js'
+import type { FilaNominal } from './leerNominal.js'
+import {
+  armarResumen, COLUMNAS_SIN_EXPEDIENTE, csvDeColgados, csvDeConflictos, csvDeEntradas, csvDeSinExpediente, escribirReporte,
+  markdownDeResumen, validarCelda, validarCeldaDetalle, validarCeldaExpediente,
+} from './reporteCsv.js'
 
 const ROL = '90000000001'
 
@@ -106,9 +110,10 @@ describe('escribirReporte', () => {
       const previo = armarResumen(r, meta)
       const resumen = armarResumen(r, meta, previo)
       const nombres = escribirReporte(dir, r, resumen)
-      expect(nombres).toHaveLength(14)
+      expect(nombres).toHaveLength(15)
       expect(nombres).toContain('concursos_colgados.csv')
       expect(nombres).toContain('conflictos_expediente.csv')
+      expect(nombres).toContain('concursos_sin_expediente.csv')
       for (const n of nombres) {
         const t = fs.readFileSync(path.join(dir, n), 'utf8')
         expect(t).not.toContain(ROL)
@@ -120,6 +125,8 @@ describe('escribirReporte', () => {
       expect(json.delta_vs_previo.c).toBe(0)
       expect(json.fase2.concursos.eliminar).toBe(0)
       expect(json.conflictos_expediente).toBe(0)
+      expect(json.concursos_sin_expediente).toEqual({ total: 0, por_tipo: { CPH: 0, CEETPS: 0 } })
+      expect(fs.readFileSync(path.join(dir, 'concursos_sin_expediente.csv'), 'utf8')).toBe('codigo_excel,sigla,acronimo,cr,literal_puesto,especialidad_cargo,detalle,tipo\n')
       expect(fs.readFileSync(path.join(dir, 'conflictos_expediente.csv'), 'utf8').split('\n')[0]).toContain('expediente_excel')
       expect(fs.readFileSync(path.join(dir, 'resumen.md'), 'utf8')).toContain('Acciones de la Fase 2')
       expect(fs.readFileSync(path.join(dir, 'detalle_c.csv'), 'utf8').split('\n')[0]).toBe(
@@ -161,5 +168,44 @@ describe('plan de borrado en el resumen', () => {
   })
   it('sin plan no hay seccion', () => {
     expect(armarResumen(cruzar([], vacio), { corte: null, sha256: null, version_equivalencias: 'v' }).plan_borrado).toBeUndefined()
+  })
+})
+
+describe('concursos_sin_expediente.csv', () => {
+  const vacio = { cargos: [], ocupaciones: [], siglasHospital: [], siglasOrganigrama: [], codigosRegistro: [], puestos: [], especialidades: [] }
+  const base: FilaNominal = {
+    codigo_excel: 'CPH-P-00001', cr: '37', sigla: 'HTAL', tipo: 'Ejecución', planta_guardia: 'Planta', estado: 'Vigente',
+    situacion: 'Vacante', literal_puesto: 'Medico', expediente: '', id_sial_rol: '', situacion_revista: '', acronimo: 'CPH-P',
+    bloque: 'Concurso', especialidad_cargo: '', nivel_conduccion: '', cod_rep: '', detalle: '', linea_pou: '',
+  }
+  const sinExp = (extra: Partial<FilaNominal>): FilaNominal => ({ ...base, ...extra })
+  it('una fila por concurso sin expediente, con el detalle y el tipo, y la seccion del resumen.md', () => {
+    const r = cruzar(
+      [
+        sinExp({ codigo_excel: 'CPH-P-00900', literal_puesto: 'Medico', especialidad_cargo: 'Pediatria', detalle: 'ACTIVO / B-SORTEO JUR, trae "comillas", y coma' }),
+        sinExp({ codigo_excel: 'ENF-00900', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero', detalle: '0- Caratular / SI' }),
+      ],
+      vacio,
+    )
+    const csv = csvDeSinExpediente(r.concursos_sin_expediente)
+    const lineas = csv.trimEnd().split('\n')
+    expect(lineas[0]).toBe(COLUMNAS_SIN_EXPEDIENTE.join(','))
+    expect(lineas).toHaveLength(3)
+    expect(lineas[1]).toContain('CPH-P-00900')
+    expect(lineas[1]).toContain('"ACTIVO / B-SORTEO JUR, trae ""comillas"", y coma"')
+    expect(lineas[1].endsWith(',CPH')).toBe(true)
+    expect(lineas[2].endsWith(',CEETPS')).toBe(true)
+    const md = markdownDeResumen(armarResumen(r, { corte: null, sha256: null, version_equivalencias: 'v' }))
+    expect(md).toContain('Concursos del Excel SIN expediente: 2 (CPH 1; CEETPS 1)')
+    expect(md).toContain('concursos_sin_expediente.csv')
+  })
+  it('el detalle acepta fechas y expedientes, pero rechaza 11 digitos o un legajo-rol', () => {
+    expect(() => validarCeldaDetalle('Resolucion 12-11-2026 / EX-2026-00001234-GDEBA', 'x')).not.toThrow()
+    expect(() => validarCeldaDetalle('CUIL 20123456789', 'x')).toThrow(/11 digitos/)
+    expect(() => validarCeldaDetalle('rol 123456789-12', 'x')).toThrow(/legajo-rol/)
+  })
+  it('las demas columnas siguen validando datos personales', () => {
+    const r = cruzar([sinExp({ codigo_excel: 'CPH-P-00901', literal_puesto: ROL })], vacio)
+    expect(() => csvDeSinExpediente(r.concursos_sin_expediente)).toThrow(/patron de rol|11 digitos/)
   })
 })

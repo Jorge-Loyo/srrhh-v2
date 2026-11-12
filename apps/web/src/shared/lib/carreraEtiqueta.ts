@@ -1,18 +1,27 @@
-import { CR_POR_CODIGO_ESCALAFON_GESTIONADO } from '@srrhh/types'
+import { CR_POR_CODIGO_ESCALAFON_GESTIONADO, NOMBRE_ESCALAFON_CPH_NUEVO } from '@srrhh/types'
 
 /**
  * Código a mostrar: el código de registro principal si el escalafón lo tiene
- * definido (la CPH es un único escalafón '22' cuyo CR principal es 37); si no,
- * el propio `escalafones.codigo`. Solo cambia la etiqueta, no el valor enviado.
+ * definido (en la base ACTUAL la CPH es un único escalafón '22' cuyo CR principal es 37; en la base NUEVA
+ * ya es el escalafón '37'); si no, el propio `escalafones.codigo`. Solo cambia la etiqueta, no el valor enviado.
+ * Con el escalafón '37' el mapa devuelve '37' (identidad): funciona igual en los dos estados de la base.
  */
 export function codigoMostradoCarrera(codigo: string): string {
   const c = codigo.trim()
   return CR_POR_CODIGO_ESCALAFON_GESTIONADO[c] ?? c
 }
 
-/** Nombres mostrados que prevalecen sobre `escalafones.nombre` (solo etiqueta, igual que en el Excel). */
+/**
+ * Nombres mostrados que prevalecen sobre `escalafones.nombre` (solo etiqueta, igual que en el Excel).
+ * Está indexado por el código MOSTRADO, así que tolera los dos nombres del escalafón CPH:
+ *  - base actual: código '22', nombre "Nueva Carrera Prof. Hosp"  -> se muestra "37 — Nueva Carrera Profesional Hospitalaria";
+ *  - base nueva:  código '37', nombre "Nueva Carrera Profesional Hospitalaria" -> idem (el override es redundante).
+ * CUÁNDO RETIRARLO: cuando producción ya esté en la base nueva (comprobar `select codigo, nombre from escalafones
+ * where codigo = '37'` -> nombre nuevo, y que no exista el '22'). Entonces se puede borrar este mapa y usar
+ * `c.nombre` directo; hasta entonces es necesario porque el catálogo viejo todavía trae "Prof. Hosp".
+ */
 const NOMBRE_MOSTRADO_POR_CODIGO: Readonly<Record<string, string>> = {
-  '37': 'Nueva Carrera Profesional Hospitalaria',
+  '37': NOMBRE_ESCALAFON_CPH_NUEVO,
 }
 
 /** Etiqueta 'CÓDIGO — Nombre' con el código de registro principal. */

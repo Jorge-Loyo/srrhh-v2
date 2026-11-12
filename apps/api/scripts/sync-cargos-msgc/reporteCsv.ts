@@ -7,7 +7,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FilaPlanBorrado } from './limpieza.js'
-import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
+import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConcursoSinExpediente, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
 
 export const COLUMNAS_DETALLE = [
   'codigo_excel', 'categoria', 'accion', 'cargo_codigo_sistema', 'codigo_propuesto',
@@ -23,6 +23,10 @@ export const COLUMNAS_COLGADOS = [
 export const COLUMNAS_CONFLICTOS = [
   'codigo_excel', 'cargo_codigo_sistema', 'sigla', 'puesto', 'bloque', 'fuente_sistema',
   'expediente_excel', 'expediente_sistema',
+] as const
+
+export const COLUMNAS_SIN_EXPEDIENTE = [
+  'codigo_excel', 'sigla', 'acronimo', 'cr', 'literal_puesto', 'especialidad_cargo', 'detalle', 'tipo',
 ] as const
 
 const RE_11_DIGITOS = /\d{11}/
@@ -43,6 +47,16 @@ export function validarCeldaExpediente(valor: string, contexto: string): void {
   if (partes.every((p) => RE_EXPEDIENTE.test(p))) return
   validarCelda(valor, contexto)
   throw new Error(`Celda rechazada (no es una lista de expedientes EX-AAAA-N) en ${contexto}`)
+}
+
+/**
+ * Celda de texto libre del Excel (columna «detalle»): puede traer fechas, numeros y expedientes, asi que el patron
+ * de rol `\d+-\d+` no aplica. Se rechaza lo que parece un CUIL / ID SIAL Rol: 11 digitos seguidos o un legajo largo
+ * seguido de rol (`\d{7,}-\d{1,2}`).
+ */
+export function validarCeldaDetalle(valor: string, contexto: string): void {
+  if (RE_11_DIGITOS.test(valor)) throw new Error(`Celda rechazada (11 digitos consecutivos) en ${contexto}`)
+  if (/(^|\D)\d{7,}-\d{1,2}(\D|$)/.test(valor)) throw new Error(`Celda rechazada (parece legajo-rol) en ${contexto}`)
 }
 
 function celdaCsv(v: string): string {
@@ -92,6 +106,24 @@ export function csvDeConflictos(filas: ConflictoExpediente[]): string {
   return lineas.join('\n') + '\n'
 }
 
+/**
+ * concursos_sin_expediente.csv: una fila por concurso del Excel (bloque Concurso) sin numero de expediente, para que
+ * Jorge busque la informacion. Hoy NO se crea concurso para ellos. Sin datos personales.
+ */
+export function csvDeSinExpediente(filas: ConcursoSinExpediente[]): string {
+  const lineas = [COLUMNAS_SIN_EXPEDIENTE.join(',')]
+  filas.forEach((e, i) => {
+    const celdas = COLUMNAS_SIN_EXPEDIENTE.map((c) => String(e[c] ?? ''))
+    celdas.forEach((v, j) => {
+      const ctx = `concursos_sin_expediente fila ${i + 1} columna ${COLUMNAS_SIN_EXPEDIENTE[j]}`
+      if (COLUMNAS_SIN_EXPEDIENTE[j] === 'detalle') validarCeldaDetalle(v, ctx)
+      else validarCelda(v, ctx)
+    })
+    lineas.push(celdas.map(celdaCsv).join(','))
+  })
+  return lineas.join('\n') + '\n'
+}
+
 export interface MetaCorrida {
   corte: string | null
   sha256: string | null
@@ -112,6 +144,8 @@ export interface ResumenJson extends MetaCorrida {
   /** Acciones de la Fase 2 (puestos, jefaturas, etiquetas, ampliaciones, expedientes y concursos). */
   fase2: ResultadoCruce['fase2']
   conflictos_expediente: number
+  /** Concursos del Excel sin expediente (no se crean; ver concursos_sin_expediente.csv). */
+  concursos_sin_expediente: { total: number; por_tipo: Record<string, number> }
   /** Plan de borrado por tabla (solo calculo/conteo read-only; no se borra nada). */
   plan_borrado?: FilaPlanBorrado[]
   /** Delta por categoría contra la corrida anterior (--previo). */
@@ -138,6 +172,12 @@ export function armarResumen(
     concursos_colgados: r.concursos_colgados.totales,
     fase2: r.fase2,
     conflictos_expediente: r.conflictos_expediente.length,
+    concursos_sin_expediente: {
+      total: r.concursos_sin_expediente.length,
+      por_tipo: Object.fromEntries(
+        ['CPH', 'CEETPS'].map((t) => [t, r.concursos_sin_expediente.filter((x) => x.tipo === t).length]),
+      ),
+    },
   }
   if (planBorrado) resumen.plan_borrado = planBorrado
   if (previo) {
@@ -223,7 +263,8 @@ export function markdownDeResumen(s: ResumenJson): string {
   l.push('Concursos (solo deben quedar los que estan en el Excel, cruce por expediente normalizado):')
   l.push(`- En el sistema: ${k.sistema}; se conservan ${k.mantener} (+ ${k.mantener_a_reasignar} hoy en cargos que pasan a no vigente: reasignar); se ELIMINAN ${k.eliminar}`)
   l.push(`- Eliminar por tipo: ${Object.entries(k.eliminar_por_tipo).map(([t, n]) => `${t} ${n}`).join('; ') || 'ninguno'}; activos ${k.eliminar_activos}; de cargo nuevo (pruebas) ${k.eliminar_nuevo_cargo}; en cargo que pasa a no vigente ${k.eliminar_en_cargo_no_vigente}; sin expediente ${k.eliminar_sin_expediente}`)
-  l.push(`- A crear: ${k.crear_desde_excel} desde el Excel (caratulado, sin autorizar, detalle en observaciones) + ${k.crear_nuevo_cargo} ampliaciones (nuevo_cargo sin autorizar)`)
+  l.push(`- A crear: ${k.crear_desde_excel} desde el Excel con expediente (caratulado, sin autorizar, detalle en observaciones) + ${k.crear_nuevo_cargo} ampliaciones (nuevo_cargo sin autorizar)`)
+  l.push(`- Concursos del Excel SIN expediente: ${s.concursos_sin_expediente.total} (CPH ${s.concursos_sin_expediente.por_tipo.CPH ?? 0}; CEETPS ${s.concursos_sin_expediente.por_tipo.CEETPS ?? 0}). NO se crea concurso para ellos hasta que Jorge complete el expediente (sin numero no se pueden reconocer en la corrida siguiente); el cargo si se crea/reusa. Listado en concursos_sin_expediente.csv`)
   l.push(`- Expediente en 2+ cargos del Excel: valido (baja/creacion) ${k.expediente_repetido_valido}; error (concurso) ${k.expediente_repetido_error}`)
   l.push('')
   if (s.plan_borrado) {
@@ -262,6 +303,7 @@ export function escribirReporte(dir: string, r: ResultadoCruce, resumen: Resumen
   for (const cat of CATEGORIAS) archivos.push([`detalle_${cat}.csv`, csvDeEntradas(cat, r.entradas[cat])])
   archivos.push(['concursos_colgados.csv', csvDeColgados(r.concursos_colgados.filas)])
   archivos.push(['conflictos_expediente.csv', csvDeConflictos(r.conflictos_expediente)])
+  archivos.push(['concursos_sin_expediente.csv', csvDeSinExpediente(r.concursos_sin_expediente)])
   const json = JSON.stringify(resumen, null, 2) + '\n'
   const md = markdownDeResumen(resumen)
   // El sha256 (hex) puede contener 11 digitos seguidos por azar: se excluye del chequeo.

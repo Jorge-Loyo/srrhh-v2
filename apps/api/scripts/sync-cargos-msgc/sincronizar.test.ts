@@ -27,6 +27,8 @@ const CATALOGOS: CatalogosCrudos = {
 
 function armar() {
   const escrituras: string[] = []
+  // Escalafon CPH tal como esta en la base actual (codigo 22, nombre viejo).
+  const estado = { escalafones: [{ id: 'e1', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' }] }
   const repo = {
     catalogos: async () => CATALOGOS,
     maximosCodigo: async () => new Map<string, number>(),
@@ -48,10 +50,20 @@ function armar() {
       escrituras.push('subEstado')
       return 0
     },
+    escalafonesCph: async () => estado.escalafones,
+    actualizarEscalafon: async (_id: string, codigo: string, nombre: string) => {
+      escrituras.push('escalafon')
+      estado.escalafones = [{ id: 'e1', codigo, nombre }]
+    },
+    regenerarKpisDotacion: async () => {
+      escrituras.push('kpis')
+      return 42
+    },
     hayCorridaEscritura: async () => false,
     registrarCorrida: async () => void escrituras.push('registrarCorrida'),
     datosVerificacion: async () => ({
       vigentes: 0, validacionVacante: 0, prefijosCodigo: {}, integridad: {}, subEstadoInconsistentes: 0,
+      escalafonesCph: estado.escalafones, kpisFilas: 42, kpisMeses: 1, kpisMesesEsperados: 1,
     }),
   } as unknown as RepoEscritura
   const base: BaseAbierta = {
@@ -67,7 +79,7 @@ function armar() {
     sha256: () => 'abc',
     log: () => undefined,
   }
-  return { deps, abrirBase, escrituras }
+  return { deps, abrirBase, escrituras, estado }
 }
 const ARGS = { input: 'nominal.csv', ejecutar: false, confirmoBaseLocal: false, forzarLimpieza: false }
 
@@ -123,8 +135,44 @@ describe('sincronizar: salvaguardas del modo escritura', () => {
     // El mock no cierra el total del Excel: la verificacion falla y la corrida NO se registra como exitosa.
     expect(r.verificacion?.ok).toBe(false)
     expect(escrituras).not.toContain('registrarCorrida')
-    expect(escrituras[escrituras.length - 1]).toBe('subEstado')
+    expect(escrituras[escrituras.length - 1]).toBe('kpis')
     expect(r.carga?.cargos_creados).toBe(1)
+  })
+
+  it('orden interno: limpieza -> escalafon 37 -> carga -> recodificacion -> sub_estado -> kpis; escalafon y kpis quedan en el resultado', async () => {
+    const { deps, escrituras, estado } = armar()
+    const r = await sincronizar({ ...ARGS, ejecutar: true, confirmoBaseLocal: true }, { DATABASE_URL: URL_LOCAL }, deps)
+    const orden = ['limpiar', 'escalafon', 'crearCargos', 'subEstado', 'kpis'].map((k) => escrituras.indexOf(k))
+    expect(orden.every((i) => i >= 0)).toBe(true)
+    expect([...orden].sort((a, b) => a - b)).toEqual(orden)
+    expect(estado.escalafones).toEqual([{ id: 'e1', codigo: '37', nombre: 'Nueva Carrera Profesional Hospitalaria' }])
+    expect(r.escalafon).toEqual({ accion: 'actualizar', codigoAntes: '22', codigoDespues: '37' })
+    expect(r.kpisFilas).toBe(42)
+    expect(r.verificacion?.chequeos.find((c) => c.nombre.startsWith('escalafon CPH'))?.ok).toBe(true)
+    expect(r.verificacion?.chequeos.find((c) => c.nombre.startsWith('kpis_dotacion_snapshot regenerado'))?.ok).toBe(true)
+  })
+
+  it('con el escalafon ya en 37 no lo vuelve a escribir (idempotente) y la simulacion no lo toca', async () => {
+    const a = armar()
+    a.estado.escalafones = [{ id: 'e1', codigo: '37', nombre: 'Nueva Carrera Profesional Hospitalaria' }]
+    const r = await sincronizar({ ...ARGS, ejecutar: true, confirmoBaseLocal: true }, { DATABASE_URL: URL_LOCAL }, a.deps)
+    expect(a.escrituras).not.toContain('escalafon')
+    expect(r.escalafon?.accion).toBe('ya_aplicado')
+    const b = armar()
+    await sincronizar(ARGS, { DATABASE_URL: URL_LOCAL }, b.deps)
+    expect(b.escrituras).toEqual([])
+    expect(b.estado.escalafones[0].codigo).toBe('22')
+  })
+
+  it('el script de sincronizacion usa siempre los acronimos MSGC: no importa el generador de codigos ni lee NOMENCLATURA_CODIGO_CARGO', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const dir = path.dirname(fileURLToPath(import.meta.url))
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.ts') && !x.endsWith('.test.ts'))) {
+      const t = fs.readFileSync(path.join(dir, f), 'utf8').replace(/\/\/.*$/gm, '')
+      expect(t, f).not.toMatch(/shared\/codigoCargo|nomenclaturaCodigo|NOMENCLATURA_CODIGO_CARGO/)
+    }
   })
 })
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { prefijoRemplazante, siguienteCodigoCargo } from '../shared/codigoCargo.js'
 
 // =============================================================================
@@ -27,7 +27,9 @@ function prefijoRemplazanteDeCodigo(codigo: string): string {
   return prefijoRemplazante(prefijoBase, 'R')
 }
 
-describe('codificación -R- de retención de cargo', () => {
+describe('codificación -R- de retención de cargo (NOMENCLATURA_CODIGO_CARGO=msgc)', () => {
+  beforeEach(() => vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc'))
+  afterEach(() => vi.unstubAllEnvs())
   describe('guarda debeRecodificar', () => {
     it('recodifica un código CPH normal', () => {
       expect(debeRecodificar('CPH-P-017530')).toBe(true)
@@ -77,5 +79,19 @@ describe('codificación -R- de retención de cargo', () => {
       const codigo = await siguienteCodigoCargo(prefijoRemplazanteDeCodigo('CPH-P-017548'), tx)
       expect(codigo).toBe('R-CPH-P-000001')
     })
+  })
+})
+
+describe('codificación -R- de retención de cargo (nomenclatura legacy, default)', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  it('CPH-POF-017530 → prefijo CPH-POF-R y CPH-J-POF-000015 → CPH-J-POF-R', () => {
+    expect(prefijoRemplazanteDeCodigo('CPH-POF-017530')).toBe('CPH-POF-R')
+    expect(prefijoRemplazanteDeCodigo('CPH-J-POF-000015')).toBe('CPH-J-POF-R')
+  })
+  it('genera CPH-POF-R-000NNN con el siguiente secuencial', async () => {
+    const tx = { $queryRaw: async () => [{ max_seq: 4 }] } as never
+    expect(await siguienteCodigoCargo(prefijoRemplazanteDeCodigo('CPH-POF-017530'), tx)).toBe('CPH-POF-R-000005')
+    const vacio = { $queryRaw: async () => [{ max_seq: null }] } as never
+    expect(await siguienteCodigoCargo(prefijoRemplazanteDeCodigo('CPH-POF-017548'), vacio)).toBe('CPH-POF-R-000001')
   })
 })

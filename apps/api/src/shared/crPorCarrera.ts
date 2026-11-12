@@ -14,7 +14,8 @@ import { tipoConcursoDeCargo, type TipoConcurso } from '../modules/incidencias/i
 // se usa el CR que corresponde a su código (85 => 85, 87 => 87, 22/37 => 37, ...), tabla
 // en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), y se clasifica igual con
 // `tipoConcursoDeCargo` (única fuente de la regla CPH/CEETPS).
-// El 37 va antes que el 22 (duplicado CPH, ver crCph.ts).
+// El 37 va antes que el 22 (duplicado CPH, ver crCph.ts). El fallback por código de escalafón sirve con el
+// escalafón CPH '22' (base actual) y con el '37' (base nueva): ambos dan CR 37.
 const CR_PREFERIDOS = ['37', '22', '23', '85', '87', '83'] as const
 
 export interface CrDeCarrera {

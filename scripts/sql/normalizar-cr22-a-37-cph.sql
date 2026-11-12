@@ -3,7 +3,8 @@
 -- de Nueva Carrera Profesional Hospitalaria son 37; en todo el universo no
 -- puede existir concursos de 22 - Nueva Carrera Profesional Hospitalaria").
 --
--- Contexto: el escalafon CPH ('Nueva Carrera Prof. Hosp') tiene DOS codigos
+-- Contexto: el escalafon CPH (codigo '22' / 'Nueva Carrera Prof. Hosp' en la base actual; codigo '37' en la base
+-- nueva de la sincronizacion MSGC: el script sirve con ambas) tiene DOS codigos
 -- de registro con el MISMO literal 'Nueva Carrera Profesional Hospitalaria':
 -- codigos_registro.codigo = '22' y '37'. Los cargos reales usan el 37; el 22
 -- es un duplicado heredado de la carga masiva que no debe quedar en cargos
@@ -25,10 +26,10 @@ CREATE TEMP VIEW v_cr_cph AS
 SELECT
   (SELECT cr.id FROM codigos_registro cr
      JOIN escalafones e ON e.id = cr.escalafon_id
-    WHERE cr.codigo = '22' AND e.codigo = '22') AS cr22_id,
+    WHERE cr.codigo = '22' AND e.codigo IN ('22','37')) AS cr22_id,
   (SELECT cr.id FROM codigos_registro cr
      JOIN escalafones e ON e.id = cr.escalafon_id
-    WHERE cr.codigo = '37' AND e.codigo = '22') AS cr37_id;
+    WHERE cr.codigo = '37' AND e.codigo IN ('22','37')) AS cr37_id;
 SELECT * FROM v_cr_cph;
 BEGIN;
 \echo '== DIAGNOSTICO (solo lectura) =='

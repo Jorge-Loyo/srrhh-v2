@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
+import { esNombreEscalafonCph } from '@srrhh/types'
 import type { CandidatoRetencion, CargoValidacionRetencion, RegistrarRetencionRequest } from '@srrhh/types'
 import { useValidacionRetenciones } from '../hooks/useCadenaRetencion'
 
@@ -72,7 +73,7 @@ export function ValidacionRetencionesPage() {
   const q = busqueda.toLowerCase().trim()
 
   const filtrados = todos.filter((c) => {
-    const cargoEnEscalafon = !escalafon || c.cargos.some((cg) => cg.escalafon.nombre === escalafon)
+    const cargoEnEscalafon = !escalafon || c.cargos.some((cg) => cg.escalafon.nombre === escalafon || (esNombreEscalafonCph(cg.escalafon.nombre) && esNombreEscalafonCph(escalafon)))
     if (!cargoEnEscalafon) return false
     if (!q) return true
     return (

@@ -201,3 +201,41 @@ export NEON_DIRECT=$(echo "$NEON_URL" | sed -E 's/-pooler//; s/:6432/:5432/; s/[
 
 (quita `-pooler` y el `:6432`→`:5432` para usar la conexión directa, necesaria para DDL
 y para `prisma migrate resolve`.)
+
+## 8. Interruptor de nomenclatura de códigos de cargo (`NOMENCLATURA_CODIGO_CARGO`)
+
+La sincronización de cargos con el Excel MSGC (`apps/api/scripts/sync-cargos-msgc`, Fase 2) cambia los prefijos de los
+códigos de cargo (`CPH-POF-000123` -> `CPH-P-000123`, `CPH-POU` -> `CPH-G`, `RG-CG` -> `GER`, reemplazantes `R-` adelante...).
+El generador nuevo (acrónimos MSGC) **no puede activarse antes de que producción tenga la base recodificada**: mezclaría
+prefijos viejos y nuevos y rompería el secuencial por prefijo. Por eso hay una variable de entorno de la API:
+
+| Valor | Qué hace |
+|---|---|
+| `legacy` (**default**; también si no está definida o vacía) | Generador anterior: `CPH-POF/POU`, `TEC-POF/POU`, `RG-CG`, `AS-MIN/SS/DG/DGA`, `EG-D/G`, reemplazantes `CPH-POF-R-000001` (sufijo). |
+| `msgc` | Acrónimos del Excel MSGC: `CPH-P`, `CPH-G`, `TEC`, `ENF`, `GER`, `AS`..., reemplazantes `R-CPH-P-000001` (prefijo). |
+
+Cualquier otro valor hace fallar el arranque de la API (`env.ts`) y la generación de códigos: no se generan códigos con la
+nomenclatura equivocada. Los llamadores (padrón, alta manual, autorizaciones, organigrama/conducción, retenciones, reemplazantes
+de concursos y la carga de concursos CEETPS) pasan todos por `prefijoDeCargo` / `prefijoRemplazante` / `prefijoCeetpsPorSubCarrera`.
+El **script de sincronización usa siempre los acrónimos MSGC** y no lee esta variable. La **lectura** de códigos (filtros de
+conducción, organigrama, jurados) reconoce ambos formatos en los dos modos.
+
+Consecuencias para el despliegue:
+- Desplegar la rama `jorge` con la base ACTUAL de Neon: dejar `NOMENCLATURA_CODIGO_CARGO=legacy` (o sin definir). No cambia nada.
+- **La base nueva (recodificada) requiere `NOMENCLATURA_CODIGO_CARGO=msgc`.** Se cambia en el mismo corte en que se apunta
+  `DATABASE_URL` de Render a la base nueva (Render -> Environment -> editar la variable -> redeploy). Si la API queda en
+  `legacy` con la base nueva, los cargos creados salen con prefijos viejos (`CPH-POF-...`) y el chequeo de "cero prefijos viejos" falla.
+- Volver atrás (base anterior): poner de nuevo `legacy`.
+
+### Escalafón CPH: dos estados de base soportados
+
+La base actual tiene el escalafón CPH con `escalafones.codigo = '22'` y nombre "Nueva Carrera Prof. Hosp". La base nueva lo
+tiene con código `37` y nombre "Nueva Carrera Profesional Hospitalaria" (los códigos de registro 22 y 37 siguen asociados y los
+cargos conservan su CR). El código de la API y del front funciona con ambos estados, así que se puede desplegar **antes o después**
+del cambio de base. Verificación rápida: `select codigo, nombre from escalafones where codigo in ('22','37');`.
+Cuando producción esté en la base nueva se pueden retirar: el override de etiqueta de `apps/web/src/shared/lib/carreraEtiqueta.ts`
+(`NOMBRE_MOSTRADO_POR_CODIGO`), la clave `'22'` de `CR_POR_CODIGO_ESCALAFON_GESTIONADO` (`packages/types`) y de `DESEMPATE_CR_POR_ESCALAFON`.
+
+### KPIs de dotación tras el corte
+La sincronización regenera `kpis_dotacion_snapshot` en la base local con el mismo motor que `scripts/backfill_kpis_dotacion.sql`. Si
+la base nueva se arma con un `pg_dump` de la local validada, la tabla ya viaja regenerada; si no, correr el backfill de la trampa 2 (§7).

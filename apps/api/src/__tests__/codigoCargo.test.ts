@@ -1,11 +1,16 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   prefijoDeCargo,
   esConduccionPorPrefijo,
   esConduccionPorLiteral,
   prefijoRemplazante,
 } from '../shared/codigoCargo.js'
+import { nomenclaturaCodigoCargo } from '../shared/nomenclaturaCodigo.js'
 
+// NOMENCLATURA_CODIGO_CARGO=msgc: acrónimos del Excel MSGC (FEAT-004). El default es `legacy`
+// (ver codigoCargo.legacy.test.ts), así que todo este archivo corre con la variable en 'msgc'.
+beforeEach(() => vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc'))
+afterEach(() => vi.unstubAllEnvs())
 // ─── prefijoDeCargo ───────────────────────────────────────────────────────────
 // Función pura: no toca BD, no tiene side effects. Se testea exhaustivamente
 // porque es la fuente de verdad del código de cargo — un error acá genera
@@ -346,5 +351,62 @@ describe('prefijoDeCargo por llamador (acrónimos MSGC)', () => {
 
   it('escalafón sin acrónimo conserva prefijo histórico', () => {
     expect(prefijoDeCargo({ escalafon: 'Planta Transitoria', unificadorPuesto: null, agrupador: null })).toBe('PT')
+  })
+})
+
+// ─── Interruptor NOMENCLATURA_CODIGO_CARGO ─────────────────────────────────────
+describe('interruptor NOMENCLATURA_CODIGO_CARGO (todos los llamadores pasan por prefijoDeCargo / prefijoRemplazante)', () => {
+  const medicoPlanta = { escalafon: 'Nueva Carrera Prof. Hosp', unificadorPuesto: 'Médico de Planta POF', agrupador: 'Medico de Planta' }
+  const medicoGuardia = { escalafon: 'Nueva Carrera Prof. Hosp', unificadorPuesto: 'POU Guardia', agrupador: 'Medico de Guardia' }
+  const regimenGerencial = { escalafon: 'Régimen Gerencial', unificadorPuesto: null, agrupador: null }
+
+  it('default (sin variable o vacía) = legacy', () => {
+    vi.unstubAllEnvs()
+    expect(nomenclaturaCodigoCargo(undefined)).toBe('legacy')
+    expect(nomenclaturaCodigoCargo('')).toBe('legacy')
+    delete process.env.NOMENCLATURA_CODIGO_CARGO
+    expect(prefijoDeCargo(medicoPlanta)).toBe('CPH-POF')
+    expect(prefijoRemplazante('CPH-POF', 'R')).toBe('CPH-POF-R')
+  })
+  it('legacy y msgc generan prefijos distintos para el mismo cargo (con el nombre viejo y con el nuevo del escalafón)', () => {
+    for (const escalafon of ['Nueva Carrera Prof. Hosp', 'Nueva Carrera Profesional Hospitalaria']) {
+      vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'legacy')
+      expect(prefijoDeCargo({ ...medicoPlanta, escalafon })).toBe('CPH-POF')
+      expect(prefijoDeCargo({ ...medicoGuardia, escalafon })).toBe('CPH-POU')
+      vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc')
+      expect(prefijoDeCargo({ ...medicoPlanta, escalafon })).toBe('CPH-P')
+      expect(prefijoDeCargo({ ...medicoGuardia, escalafon })).toBe('CPH-G')
+    }
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'legacy')
+    expect(prefijoDeCargo(regimenGerencial)).toBe('RG-CG')
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc')
+    expect(prefijoDeCargo(regimenGerencial)).toBe('GER')
+  })
+  it('el código de registro explícito solo cuenta en msgc; legacy lo ignora', () => {
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'legacy')
+    expect(prefijoDeCargo({ escalafon: 'CEETPS', unificadorPuesto: 'POF', agrupador: null, codigoRegistro: '87' })).toBe('TEC-POF')
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc')
+    expect(prefijoDeCargo({ escalafon: 'CEETPS', unificadorPuesto: 'POF', agrupador: null, codigoRegistro: '87' })).toBe('ENF')
+  })
+  it('los reemplazantes cambian de sufijo (legacy) a prefijo (msgc)', () => {
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'legacy')
+    expect(prefijoRemplazante('CPH-POF', 'R')).toBe('CPH-POF-R')
+    expect(prefijoRemplazante('CPH-J-POF', 'TTR')).toBe('CPH-J-POF-TTR')
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'msgc')
+    expect(prefijoRemplazante('CPH-P', 'R')).toBe('R-CPH-P')
+    expect(prefijoRemplazante('CPH-J-POF', 'TTR')).toBe('TTR-CPH-J-POF')
+  })
+  it('valor inválido: falla fuerte (no genera códigos con la nomenclatura equivocada)', () => {
+    vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', 'nueva')
+    expect(() => prefijoDeCargo(medicoPlanta)).toThrow(/NOMENCLATURA_CODIGO_CARGO/)
+    expect(() => prefijoRemplazante('CPH-P', 'R')).toThrow(/NOMENCLATURA_CODIGO_CARGO/)
+  })
+  it('la lectura de conducción tolera ambos formatos de código en los dos modos', () => {
+    for (const modo of ['legacy', 'msgc']) {
+      vi.stubEnv('NOMENCLATURA_CODIGO_CARGO', modo)
+      expect(esConduccionPorPrefijo('CPH-J-POF-000015')).toBe(true)
+      expect(esConduccionPorPrefijo('R-CPH-J-POF-000015')).toBe(true)
+      expect(esConduccionPorPrefijo('CPH-POF-000015')).toBe(false)
+    }
   })
 })

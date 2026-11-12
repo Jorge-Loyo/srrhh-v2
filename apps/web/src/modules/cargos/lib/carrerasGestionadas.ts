@@ -4,7 +4,9 @@ import { codigoMostradoCarrera, etiquetaCarrera } from '@/shared/lib/carreraEtiq
 // Carreras (escalafones) que gestionamos: las que pueden producir concurso.
 // La lista vive en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), compartida
 // con la deducción del tipo CPH/CEETPS del backend. Se filtra por
-// `escalafones.codigo` (dato real de la BD), no por nombre.
+// `escalafones.codigo` (dato real de la BD), no por nombre. La CPH es el escalafón '22' en la base actual y el
+// '37' en la base nueva (sync-cargos-msgc): la lista gestionada tiene los dos códigos, y como el selector muestra
+// el código de registro principal (codigoMostradoCarrera) se ve una sola opción "37" en cualquiera de los dos estados.
 
 export interface CarreraCatalogo {
   id: string

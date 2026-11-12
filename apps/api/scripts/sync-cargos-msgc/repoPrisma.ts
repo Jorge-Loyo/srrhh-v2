@@ -8,6 +8,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto'
 import type { ActualizacionCargo, CatalogosCrudos, NuevoCargo, NuevoConcurso, RepoCarga } from './cargar.js'
+import type { EscalafonFila, RepoEscalafon } from './escalafon.js'
+import { estadoActivoSqlDelSistema, regenerarKpisDotacion } from './kpisDotacion.js'
 import { ejecutarLimpieza } from './limpieza.js'
 import type { CambioCodigo, RepoRecodificacion } from './recodificar.js'
 import type { DatosVerificacion, RepoVerificacion } from './verificar.js'
@@ -19,9 +21,11 @@ export interface TxSql {
 }
 
 /** Todo lo que el modo escritura necesita de la base (carga + recodificación + verificación + bitácora). */
-export interface RepoEscritura extends RepoCarga, RepoRecodificacion, RepoVerificacion {
+export interface RepoEscritura extends RepoCarga, RepoRecodificacion, RepoVerificacion, RepoEscalafon {
   limpiar(conservarConcursoIds: string[]): Promise<Record<string, number>>
   recalcularSubEstado(): Promise<number>
+  /** Borra y regenera kpis_dotacion_snapshot con el mecanismo del sistema (kpisDotacion.ts). Devuelve filas insertadas. */
+  regenerarKpisDotacion(): Promise<number>
   hayCorridaEscritura(): Promise<boolean>
   registrarCorrida(modo: string, excelSha256: string | null, resumen: unknown): Promise<void>
 }
@@ -104,8 +108,22 @@ WHERE v.id = c.id AND c.sub_estado IS DISTINCT FROM v.esperado`
 const sinNulosFin = <T>(xs: (T | null | undefined)[]): (T | null)[] => xs.map((x) => x ?? null)
 
 /** Repositorio sobre una transacción de Prisma ya abierta contra una base LOCAL. */
-export function crearRepoEscritura(tx: TxSql, databaseUrl: string): RepoEscritura {
+export function crearRepoEscritura(
+  tx: TxSql,
+  databaseUrl: string,
+  /** Origen del CTE de estado activo acumulado (se inyecta en los tests; por defecto, el del sistema). */
+  obtenerEstadoActivoSql: () => Promise<string> = estadoActivoSqlDelSistema,
+): RepoEscritura {
   return {
+    async escalafonesCph(): Promise<EscalafonFila[]> {
+      return tx.$queryRawUnsafe<EscalafonFila[]>("SELECT id::text AS id, codigo, nombre FROM escalafones WHERE codigo IN ('22', '37')")
+    },
+    async actualizarEscalafon(id: string, codigo: string, nombre: string) {
+      await tx.$executeRawUnsafe('UPDATE escalafones SET codigo = $2, nombre = $3, updated_at = now() WHERE id = $1::uuid', id, codigo, nombre)
+    },
+    async regenerarKpisDotacion() {
+      return regenerarKpisDotacion(tx, obtenerEstadoActivoSql)
+    },
     async catalogos(): Promise<CatalogosCrudos> {
       const [hospitales, codigosRegistro, puestos, especialidades] = await Promise.all([
         tx.$queryRawUnsafe<{ id: string; sigla: string }[]>('SELECT id::text AS id, sigla FROM hospitales'),
@@ -220,16 +238,28 @@ export function crearRepoEscritura(tx: TxSql, databaseUrl: string): RepoEscritur
         integridad[nombre] = Number(f[0]?.n ?? 0)
       }
       const sub = await tx.$queryRawUnsafe<{ n: number }[]>(SQL_SUB_ESTADO_INCONSISTENTES)
+      const esc = await tx.$queryRawUnsafe<{ codigo: string; nombre: string }[]>("SELECT codigo, nombre FROM escalafones WHERE codigo IN ('22', '37')")
+      const kpis = await tx.$queryRawUnsafe<{ filas: number; meses: number; esperados: number }[]>(SQL_KPIS_VERIFICACION)
       return {
         vigentes: Number(estados.find((e) => e.estado === 'vigente')?.n ?? 0),
         validacionVacante: Number(estados.find((e) => e.estado === 'validacion_vacante')?.n ?? 0),
         prefijosCodigo: Object.fromEntries(prefijos.map((p) => [p.prefijo, Number(p.n)])),
         integridad,
         subEstadoInconsistentes: Number(sub[0]?.n ?? 0),
+        escalafonesCph: esc.map((e) => ({ codigo: e.codigo, nombre: e.nombre })),
+        kpisFilas: Number(kpis[0]?.filas ?? 0),
+        kpisMeses: Number(kpis[0]?.meses ?? 0),
+        kpisMesesEsperados: Number(kpis[0]?.esperados ?? 0),
       }
     },
   }
 }
+
+/** kpis_dotacion_snapshot: filas, meses con datos y meses con padrón aprobado (los que el mecanismo debe cubrir). */
+export const SQL_KPIS_VERIFICACION = `
+SELECT (SELECT count(*)::int FROM kpis_dotacion_snapshot) AS filas,
+       (SELECT count(DISTINCT date_trunc('month', fecha))::int FROM kpis_dotacion_snapshot) AS meses,
+       (SELECT count(DISTINCT date_trunc('month', fecha_asignada))::int FROM padron_snapshots WHERE estado = 'aprobado') AS esperados`
 
 /** Chequeos de integridad referencial: cada consulta cuenta las filas que violan la regla (debe dar 0). */
 export const CONSULTAS_INTEGRIDAD: Readonly<Record<string, string>> = {

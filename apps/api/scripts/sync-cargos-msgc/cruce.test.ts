@@ -681,6 +681,38 @@ describe('cruzar: etiqueta CEETPS, ampliaciones y jefaturas', () => {
     expect(r.cierre.diferencia_vigente_mas_validacion).toBe(0)
   })
 
+  it('concursos del Excel sin expediente: se listan (CPH/CEETPS) y NO se crea concurso; los que tienen expediente se crean', () => {
+    const r = cruzar(
+      [
+        fila({ codigo_excel: 'CPH-P-00080', bloque: 'Concurso', literal_puesto: 'Medico', especialidad_cargo: 'Cardiologia', detalle: '0- Caratular' }),
+        fila({ codigo_excel: 'ENF-00080', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermero', bloque: 'Concurso', detalle: 'ACTIVO / 2 - Autorizado / SI' }),
+        fila({ codigo_excel: 'CPH-P-00081', bloque: 'Concurso', expediente: 'EX-2026-00000081' }),
+        fila({ codigo_excel: 'CPH-P-00082', bloque: 'Nunca levantado' }),
+        fila({ codigo_excel: 'CPH-P-00083', bloque: 'Concurso', expediente: 'EX-2026-00000083', detalle: 'Ampliacion 2026' }),
+        fila({ codigo_excel: 'CPH-P-00084', bloque: 'Concurso', detalle: 'Ampliacion 2026' }),
+      ],
+      snapshot([], []),
+    )
+    expect(r.concursos_sin_expediente.map((x) => x.codigo_excel)).toEqual(['CPH-P-00080', 'ENF-00080'])
+    expect(r.concursos_sin_expediente[0]).toEqual({
+      codigo_excel: 'CPH-P-00080', sigla: 'HTAL', acronimo: 'CPH-P', cr: '37', literal_puesto: 'Medico',
+      especialidad_cargo: 'Cardiologia', detalle: '0- Caratular', tipo: 'CPH',
+    })
+    expect(r.concursos_sin_expediente[1]).toMatchObject({ cr: '87', tipo: 'CEETPS', detalle: 'ACTIVO / 2 - Autorizado / SI' })
+    expect(r.fase2.concursos.sin_expediente_excel).toBe(2)
+    // Con expediente (no ampliacion): se crea. Ampliacion: concurso nuevo_cargo aunque no tenga expediente (no entra al listado).
+    expect(r.fase2.concursos.crear_desde_excel).toBe(1)
+    expect(r.fase2.concursos.crear_nuevo_cargo).toBe(2)
+    // Comportamiento actual: los listados no generan concurso (los cargos si se crean).
+    const crearConcurso = Object.fromEntries(r.plan.items.map((i) => [i.fila.codigo_excel, i.crearConcurso]))
+    expect(crearConcurso['CPH-P-00080']).toBeNull()
+    expect(crearConcurso['ENF-00080']).toBeNull()
+    expect(crearConcurso['CPH-P-00081']).toBe('normal')
+    expect(crearConcurso['CPH-P-00082']).toBeNull()
+    expect(r.plan.items).toHaveLength(6)
+    // Sin datos personales en el listado.
+    expect(JSON.stringify(r.concursos_sin_expediente)).not.toMatch(/\d{11}/)
+  })
   it('jefaturas: con par se vinculan al cargo base (cargoBaseId); vacante -J sin par queda sin base y a revisar', () => {
     const r = cruzar(
       [
@@ -728,10 +760,12 @@ describe('cruzar: concursos y expedientes', () => {
     expect(k.eliminar_por_tipo).toEqual({ CEETPS: 1, CPH: 1 })
     expect(k.eliminar_nuevo_cargo).toBe(1)
     expect(k.eliminar_sin_expediente).toBe(1)
-    expect(k.crear_desde_excel).toBe(2) // expediente 999 y la fila sin expediente
+    expect(k.crear_desde_excel).toBe(1) // solo el expediente 999: la fila sin expediente NO crea concurso (se lista)
+    expect(k.sin_expediente_excel).toBe(1)
     const motivos = Object.fromEntries(r.entradas.e.map((x) => [x.codigo_excel, x.motivo]))
     expect(motivos['CPH-P-00100']).toContain('concurso del sistema se mantiene')
-    expect(motivos['CPH-P-00102']).toContain('concurso a crear: caratulado, sin autorizar')
+    expect(motivos['CPH-P-00101']).toContain('concurso a crear: caratulado, sin autorizar')
+    expect(motivos['CPH-P-00102']).toContain('sin expediente: no se crea concurso')
   })
 
   it('un concurso del sistema que cuelga de un cargo que pasa a no vigente pero esta en el Excel se marca para reasignar', () => {

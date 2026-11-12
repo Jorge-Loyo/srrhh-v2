@@ -123,6 +123,9 @@ export async function derivarCargosConduccionService(
   // ── 2. Catálogos ──
   const escalafones = await prisma.escalafon.findMany({ where: { activo: true } })
   const escalafonPorCodigo = new Map(escalafones.map((e) => [e.codigo, e]))
+  // El escalafón CPH es el '22' en la base actual y el '37' en la base nueva (sync-cargos-msgc): el mapa
+  // REGIMEN_A_ESCALAFON usa '22', así que si solo existe el '37' se lo registra también bajo '22'.
+  if (!escalafonPorCodigo.has('22') && escalafonPorCodigo.has('37')) escalafonPorCodigo.set('22', escalafonPorCodigo.get('37')!)
 
   // Catálogo COMPLETO de CRs para derivar el código de registro del nodo (el
   // organigrama no trae texto de CR → se deriva sólo del escalafón del nodo).

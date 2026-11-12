@@ -35,7 +35,7 @@ una corrida con sistema vacío; las dos consultas nuevas de concursos NO se prob
 | `acronimoMsgc.ts`, `equivalencias.ts` | Acrónimos del Excel y tabla de equivalencias versionada |
 | `cruce.ts` | Motor puro de cruce (categorías a–j, reuso por cupo/expediente, cierre y concursos colgados) |
 | `sistemaReadonly.ts` | Snapshot del sistema en transacción `READ ONLY` |
-| `reporteCsv.ts` | Escribe `resumen.json`, `resumen.md`, `detalle_<cat>.csv` y `concursos_colgados.csv` |
+| `reporteCsv.ts` | Escribe `resumen.json`, `resumen.md`, `detalle_<cat>.csv`, `concursos_colgados.csv`, `conflictos_expediente.csv` y `concursos_sin_expediente.csv` |
 | `dry-run.ts` | CLI |
 
 ## Runbook (desde WSL, en `/mnt/c/Desarrollo/SRH/SRRHH-Legacy`, con el stack arriba)
@@ -115,7 +115,7 @@ RT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.agents/tasks/sync-cargos-msgc/runtime
 
 ## Salidas
 
-`resumen.json`, `resumen.md`, `detalle_a.csv` … `detalle_j.csv` y `concursos_colgados.csv`. Los detalle tienen columnas fijas
+`resumen.json`, `resumen.md`, `detalle_a.csv` … `detalle_j.csv`, `concursos_colgados.csv`, `conflictos_expediente.csv` y `concursos_sin_expediente.csv`. Los detalle tienen columnas fijas
 (`codigo_excel, categoria, accion, cargo_codigo_sistema, codigo_propuesto, acronimo, cr, sigla, puesto, motivo`).
 Ninguna salida lleva `id_sial_rol`, CUIL, nombres ni ids de persona; cada celda se valida (rechaza 11 dígitos
 seguidos y el patrón `\d+-\d+`). Única excepción: la columna `expediente_concurso` de `concursos_colgados.csv` acepta
@@ -156,6 +156,19 @@ datos reales a mano: el resultado se puede auditar en `detalle_e.csv` / `detalle
 
 Estado final del cargo reusado = el del Excel mapeado al sistema; la transición se propone en `motivo`
 (`transicion de estado validacion_vacante -> vigente`). Los candidatos sin fila e pasan a **NO VIGENTE**.
+
+### concursos_sin_expediente.csv
+
+Una fila por **concurso del Excel sin número de expediente**: filas del bloque `Concurso` (no `Ampliación`) que no traen
+`EX-AAAA-...`. Columnas: `codigo_excel, sigla, acronimo, cr, literal_puesto, especialidad_cargo, detalle, tipo` (`detalle` es la
+columna V del Excel; `tipo` es `CPH` para CR 37/22 y `CEETPS` para el resto). Es para que Jorge busque la información y complete
+el expediente en el Excel. Sin datos personales (la celda `detalle` se valida: se rechaza si trae 11 dígitos seguidos o un legajo-rol).
+`resumen.md` / `resumen.json` traen el total y el desglose CPH / CEETPS (`concursos_sin_expediente`, `fase2.concursos.sin_expediente_excel`).
+
+**Comportamiento actual (se mantiene mientras Jorge no los complete):** para esas filas **no se crea concurso** (sin número no
+se podrían reconocer en la corrida siguiente y se duplicarían); el cargo SÍ se crea o reusa como cualquier fila `Concurso`. Cuando
+el Excel traiga el expediente, la corrida siguiente crea el concurso (queda en `fase2.concursos.crear_desde_excel`).
+Nota: antes de este ajuste el resumen contaba estas filas dentro de «a crear» aunque no se creaban; ahora se cuentan aparte.
 
 ### Métrica de cierre
 
@@ -207,8 +220,10 @@ El fixture es un `SnapshotSistema` (ver `cruce.ts`); `{"cargos":[],"ocupaciones"
 
 ## Modo escritura (Fase 2, FEAT-003): `sincronizar.ts`
 
-> **ADVERTENCIA:** el generador de códigos nuevo (acrónimo MSGC, `cargar.ts`) NO debe llegar a producción antes que los
-> datos recodificados: mezclaría prefijos viejos y nuevos. Todo el modo escritura corre SOLO contra la copia local.
+> **ADVERTENCIA:** el generador de códigos con acrónimos MSGC NO debe activarse en producción antes que los datos
+> recodificados: mezclaría prefijos viejos y nuevos. Hay un interruptor, `NOMENCLATURA_CODIGO_CARGO=legacy|msgc` (default
+> `legacy`; ver `Doc/Desarrollo/DEPLOY_PRODUCCION.md` §8): la API usa el generador que diga la variable, la base nueva requiere
+> `msgc`. **Este script usa SIEMPRE los acrónimos MSGC** (no lee la variable). Todo el modo escritura corre SOLO contra la copia local.
 
 ```
 # Simulación (por defecto, no escribe): plan de la carga con el sistema leído en READ ONLY o desde un fixture
@@ -218,11 +233,22 @@ tsx scripts/sync-cargos-msgc/sincronizar.ts --input <nominal.csv> --ejecutar --c
 ```
 
 - `asegurarBaseLocal(DATABASE_URL)` se llama ANTES de abrir la conexión; neon.tech o un host no local abortan.
-- Orden: limpieza (`limpieza.ts`, solo la primera vez; `--forzar-limpieza` la repite) -> carga (`cargar.ts`, aplica `ResultadoCruce.plan`)
+- Orden: limpieza (`limpieza.ts`, solo la primera vez; `--forzar-limpieza` la repite; borra también `kpis_dotacion_snapshot`)
+  -> **escalafón CPH a código 37** (`escalafon.ts`, siempre; idempotente) -> carga (`cargar.ts`, aplica `ResultadoCruce.plan`)
   -> recodificación (`recodificar.ts`, en dos fases liberar/asignar por el índice único; el código viejo queda en `codigo_legacy`)
-  -> recalcular `sub_estado` -> verificación (`verificar.ts`) -> fila en `sync_corridas`.
+  -> recalcular `sub_estado` -> **regenerar `kpis_dotacion_snapshot`** (`kpisDotacion.ts`) -> verificación (`verificar.ts`) -> fila en `sync_corridas`.
+- Escalafón CPH (`escalafon.ts`): `escalafones.codigo` `'22'` -> `'37'` y `escalafones.nombre` -> «Nueva Carrera Profesional Hospitalaria».
+  Corre ANTES de la carga y la recodificación (la carga lee los catálogos ya actualizados). Los códigos de registro 22 y 37 siguen
+  asociados (cuelgan de `escalafones.id`, que no cambia) y los cargos conservan su código de registro. Si ya está en 37 con el nombre
+  nuevo no escribe; si existen el 22 y el 37 a la vez, o ninguno, aborta antes de cargar.
+- KPIs (`kpisDotacion.ts`): `DELETE` + `INSERT ... SELECT` de la serie completa con el CTE `estadoActivoAcumuladoSql()` del sistema
+  (`kpis.service.ts`, la misma fuente que `scripts/backfill_kpis_dotacion.sql` y el populate al aprobar un padrón): un punto por mes con
+  padrón aprobado × código de registro del cargo × situación de revista + fila `(total)`. Como `padron_snapshots`, `padron_historico`,
+  `padron_diff` y `ocupaciones` se conservan, la serie histórica se regenera completa; lo que cambia es el código de registro/cargo.
+  Si no hubiera padrones aprobados la serie queda vacía. La verificación exige filas cuando hay meses con padrón aprobado.
 - Los cargos creados llevan `origen = 'msgc'`: en la corrida siguiente el cruce los reconoce por cupo (filas c / d / ampliación) y no duplica.
-- Concursos: solo se crean los del Excel con expediente (los que no tienen número no se pueden reconocer como "del Excel").
+- Concursos: solo se crean los del Excel con expediente (los que no tienen número no se pueden reconocer como "del Excel"); esos se
+  listan en `concursos_sin_expediente.csv` del dry-run (ver arriba) y no generan concurso hasta que Jorge los complete.
 - Requiere haber aplicado antes `prisma/migrations/20261116000000_sync_cargos_msgc_f2` en la copia local.
 ## Fase 2: modo escritura y salvaguardas (resumen)
 Runbook completo, en orden (clonar Neon -> local, levantar, dry-run, respaldo, escribir, verificar, volver a Neon, paso a producción):
@@ -231,8 +257,31 @@ Runbook completo, en orden (clonar Neon -> local, levantar, dry-run, respaldo, e
 Salvaguardas del modo escritura (`sincronizar.ts`):
 - Sin banderas es simulación: no escribe. Escribir exige `--ejecutar` **y** `--confirmo-base-local`.
 - `asegurarBaseLocal(DATABASE_URL)` corre antes de abrir la conexión: aborta con `neon.tech` en cualquier posición, hosts no locales o URL no parseable; nunca imprime la contraseña.
-- Solo el módulo `limpieza.ts` contiene `DELETE`; el dry-run, el reporte y el cruce no pueden invocarlo (lo verifica un test).
+- Solo `limpieza.ts`, `kpisDotacion.ts` (importado únicamente por `repoPrisma.ts`) y `repoPrisma.ts` contienen sentencias de escritura; el dry-run, el reporte y el cruce no pueden invocarlos (lo verifican tests).
 - La limpieza se ejecuta una sola vez (según `sync_corridas`); repetirla requiere `--forzar-limpieza`.
-- Carga + recodificación + `sub_estado` van en una transacción; después se verifica (cierre = filas del Excel, cero prefijos viejos, integridad, segunda corrida en seco = 0).
+- Carga + recodificación + `sub_estado` van en una transacción; el escalafón y los KPIs van en transacciones propias (idempotentes). Después se verifica (cierre = filas del Excel, cero prefijos viejos, integridad, `sub_estado`, escalafón CPH en 37 con el nombre nuevo, `kpis_dotacion_snapshot` regenerado, segunda corrida en seco = 0).
 - Respaldo `pg_dump` local antes de escribir (paso 4 del reporte). Requiere la migración `20261116000000_sync_cargos_msgc_f2` aplicada a mano en la copia local; nunca `migrate dev/deploy` contra Neon.
-- El generador de códigos nuevo no debe llegar a producción antes que los datos recodificados.
+- El generador de códigos con acrónimos MSGC no debe activarse en producción antes que los datos recodificados (`NOMENCLATURA_CODIGO_CARGO`, default `legacy`).
+
+## Re-copiar el script al contenedor y correr el dry-run sobre la base local (tras este ajuste)
+
+Desde WSL, en la raíz del repo, con la copia local levantada (`docker compose -f docker-compose.yml -f docker-compose.localdb.yml up -d`) y el
+worktree/rama `sync-msgc-f2-ajustes` (o `jorge` ya mergeada) como `WT`. Borrar el destino antes de `docker cp` (si no, anida la copia):
+
+```bash
+WT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.worktrees/sync-msgc-f2-ajustes
+RT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.agents/tasks/sync-cargos-msgc/runtime
+docker exec srrhh_api rm -rf /repo/apps/api/scripts/sync-cargos-msgc
+docker exec srrhh_api mkdir -p /repo/apps/api/scripts/sync-cargos-msgc /tmp/sync-msgc/in /tmp/sync-msgc/out
+docker cp "$WT/apps/api/scripts/sync-cargos-msgc/." srrhh_api:/repo/apps/api/scripts/sync-cargos-msgc/
+docker cp "$RT/nominal_<corte>.csv" srrhh_api:/tmp/sync-msgc/in/ && docker cp "$RT/meta.json" srrhh_api:/tmp/sync-msgc/in/
+docker exec -w /repo/apps/api srrhh_api pnpm exec tsx scripts/sync-cargos-msgc/dry-run.ts \
+  --input /tmp/sync-msgc/in/nominal_<corte>.csv --out /tmp/sync-msgc/out
+docker cp srrhh_api:/tmp/sync-msgc/out "$RT/resultado-<corte>-f2-ajustes"
+```
+
+El script no depende de código nuevo de `src/` ni de `@srrhh/types`: solo importa de `src/` lo que la imagen ya tiene
+(`modules/cargos/concursoActivo.regla`, `shared/txOpts` y, únicamente en el modo escritura, `modules/kpis/kpis.service` para el CTE de
+KPIs). Alcanza con re-copiar la carpeta del script; no hace falta reconstruir la imagen para el dry-run. (Para probar la API con la
+base ya recodificada sí hay que reconstruirla, `... up -d --build api`, con `NOMENCLATURA_CODIGO_CARGO=msgc`.)
+
