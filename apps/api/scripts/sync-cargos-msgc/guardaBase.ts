@@ -3,7 +3,7 @@
 // LOCAL. Se niega si la URL apunta a neon.tech o a un host que no sea local.
 // Nunca se loguea la contraseña ni la URL completa.
 // ─────────────────────────────────────────────────────────────────────────────
-const HOSTS_LOCALES = new Set(['localhost', '127.0.0.1', 'srrhh_postgres'])
+const HOSTS_LOCALES = new Set(['localhost', '127.0.0.1', 'srrhh_postgres', 'postgres_sync'])
 
 /** Lanza Error si la URL no es una base local segura. Devuelve el host aceptado. */
 export function asegurarBaseLocal(url: string | undefined | null): string {
@@ -19,7 +19,7 @@ export function asegurarBaseLocal(url: string | undefined | null): string {
   }
   if (host.endsWith('neon.tech')) throw new Error('guardaBase: la URL apunta a neon.tech; el modo escritura solo corre en base local.')
   if (!HOSTS_LOCALES.has(host)) {
-    throw new Error(`guardaBase: host "${host}" no es local (localhost, 127.0.0.1, srrhh_postgres); se niega a escribir.`)
+    throw new Error(`guardaBase: host "${host}" no es local (localhost, 127.0.0.1, srrhh_postgres, postgres_sync); se niega a escribir.`)
   }
   return host
 }

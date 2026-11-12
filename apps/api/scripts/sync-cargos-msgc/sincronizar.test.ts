@@ -111,7 +111,7 @@ describe('sincronizar: salvaguardas del modo escritura', () => {
     expect(abrirBase).not.toHaveBeenCalled()
   })
 
-  it('con --ejecutar --confirmo-base-local y base local: limpieza, carga, recodificación, sub_estado y bitácora', async () => {
+  it('con --ejecutar --confirmo-base-local y base local: limpieza, carga, recodificación y sub_estado; si la verificación falla no registra la corrida', async () => {
     const { deps, abrirBase, escrituras } = armar()
     const r = await sincronizar({ ...ARGS, ejecutar: true, confirmoBaseLocal: true }, { DATABASE_URL: URL_LOCAL }, deps)
     expect(abrirBase).toHaveBeenCalledWith(URL_LOCAL)
@@ -120,7 +120,10 @@ describe('sincronizar: salvaguardas del modo escritura', () => {
     expect(escrituras[0]).toBe('limpiar')
     expect(escrituras.indexOf('limpiar')).toBeLessThan(escrituras.indexOf('crearCargos'))
     expect(escrituras.indexOf('crearCargos')).toBeLessThan(escrituras.indexOf('subEstado'))
-    expect(escrituras[escrituras.length - 1]).toBe('registrarCorrida')
+    // El mock no cierra el total del Excel: la verificacion falla y la corrida NO se registra como exitosa.
+    expect(r.verificacion?.ok).toBe(false)
+    expect(escrituras).not.toContain('registrarCorrida')
+    expect(escrituras[escrituras.length - 1]).toBe('subEstado')
     expect(r.carga?.cargos_creados).toBe(1)
   })
 })

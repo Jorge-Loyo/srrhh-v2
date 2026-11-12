@@ -26,6 +26,7 @@ describe('asegurarBaseLocal', () => {
     expect(asegurarBaseLocal('postgresql://u:p@localhost:5432/db')).toBe('localhost')
     expect(asegurarBaseLocal('postgresql://u:p@127.0.0.1:5432/db')).toBe('127.0.0.1')
     expect(asegurarBaseLocal('postgresql://u:p@srrhh_postgres:5432/db')).toBe('srrhh_postgres')
+    expect(asegurarBaseLocal('postgresql://u:p@postgres_sync:5432/srrhh_sync')).toBe('postgres_sync')
   })
 
   it('no incluye la contraseña en el mensaje de error', () => {

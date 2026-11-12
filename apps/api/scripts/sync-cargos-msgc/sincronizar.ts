@@ -156,6 +156,11 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
       recodificacion: { cambios: recod.cambios.length, colisiones: recod.colisiones, sin_regla: recod.sin_regla },
       verificacion,
     }
+    if (!verificacion.ok) {
+      // Un cierre que no da no se registra como corrida exitosa: la proxima corrida vuelve a limpiar.
+      deps.log('FALLA: la verificacion no cerro; la corrida NO se registra como exitosa. Volver al respaldo previo.')
+      return resultado
+    }
     await base.transaccion((repo) => repo.registrarCorrida('escritura', sha, resultado))
     return resultado
   } finally {
@@ -195,8 +200,12 @@ export const depsReales: DepsSync = {
 
 // Solo corre como script (no al importarse desde los tests).
 if (path.basename(process.argv[1] ?? '').startsWith('sincronizar')) {
-  sincronizar(parseArgs(process.argv.slice(2)), { DATABASE_URL: process.env.DATABASE_URL }, depsReales).catch((e) => {
-    console.error(e instanceof Error ? e.message : e)
-    process.exit(1)
-  })
+  sincronizar(parseArgs(process.argv.slice(2)), { DATABASE_URL: process.env.DATABASE_URL }, depsReales)
+    .then((r) => {
+      if (r.modo === 'escritura' && r.verificacion && !r.verificacion.ok) process.exit(1)
+    })
+    .catch((e) => {
+      console.error(e instanceof Error ? e.message : e)
+      process.exit(1)
+    })
 }
