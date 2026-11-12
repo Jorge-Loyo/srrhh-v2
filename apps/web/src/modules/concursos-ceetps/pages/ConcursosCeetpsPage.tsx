@@ -10,6 +10,8 @@ import { useConcursosCeetps } from '../hooks/useConcursosCeetps'
 import { AlertasSinMovimientoCeetps } from '../components/AlertasSinMovimientoCeetps'
 import { ESTADO_LABEL, ESTADO_BADGE, SUB_ESTADO_LABEL, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
 import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 
 const LIMIT = 50
 
@@ -72,18 +74,16 @@ export function ConcursosCeetpsPage() {
               </option>
             ))}
           </select>
-          <select
-            value={escalafonId}
-            onChange={(e) => resetPage(setEscalafonId)(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todas las carreras</option>
-            {escalafonesOrdenados.map((e) => (
-              <option key={e.id} value={e.id}>
-                {escalafonLabel(e.nombre)}
-              </option>
-            ))}
-          </select>
+          <div className="min-w-[240px]">
+            <ComboBuscable
+              modo="unico"
+              label="Carrera"
+              options={opcionesCarreraEscalafon(escalafonesOrdenados)}
+              selected={escalafonId ? [escalafonId] : []}
+              onChange={(v) => resetPage(setEscalafonId)(v[0] ?? '')}
+              placeholder="Todas las carreras"
+            />
+          </div>
           <select
             value={estado}
             onChange={(e) => resetPage(setEstado)(e.target.value as '' | EstadoConcursoCeetps)}

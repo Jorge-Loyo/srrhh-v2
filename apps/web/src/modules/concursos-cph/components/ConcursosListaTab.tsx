@@ -12,6 +12,7 @@ import {
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '@/shared/hooks/useEtiquetas'
@@ -1087,31 +1088,20 @@ export function ConcursosListaTab({
                     El estado `puesto` guarda el NOMBRE crudo del catálogo (el
                     mismo string que viaja al backend); `puestoCargoId` guarda
                     el id para habilitar/poblar la especialidad dependiente. */}
-                <SearchableSelect
-                  value={puesto}
-                  onChange={(nombre) => {
+                <ComboBuscable
+                  modo="unico"
+                  label=""
+                  options={puestosCatalogo.map((p) => ({ value: p.nombre, label: capitalizar(p.nombre) }))}
+                  selected={puesto ? [puesto] : []}
+                  onChange={(v) => {
+                    const nombre = v[0] ?? ''
                     resetPage(setPuesto)(nombre)
-                    setPuestoCargoId(
-                      puestosCatalogo.find(
-                        (p) => p.nombre === nombre || capitalizar(p.nombre) === nombre,
-                      )?.id ?? '',
-                    )
+                    setPuestoCargoId(puestosCatalogo.find((p) => p.nombre === nombre)?.id ?? '')
                     // Al cambiar de puesto, limpiar la especialidad dependiente.
                     resetPage(setEspecialidad)('')
                   }}
-                  options={puestosCatalogo.map((p) => capitalizar(p.nombre))}
-                  valueToDisplay={(v) =>
-                    capitalizar(
-                      puestosCatalogo.find((p) => p.nombre === v || capitalizar(p.nombre) === v)
-                        ?.nombre,
-                    ) || v
-                  }
-                  displayToValue={(label) =>
-                    puestosCatalogo.find((p) => capitalizar(p.nombre) === label)?.nombre ?? label
-                  }
                   placeholder={escalafonCphId ? 'Buscar puesto…' : 'Catálogo no disponible'}
                   disabled={!escalafonCphId}
-                  className="w-full"
                 />
               </section>
 
@@ -1123,21 +1113,12 @@ export function ConcursosListaTab({
                     hasta elegir un puesto o si el puesto no tiene especialidades
                     en el catálogo. Escribe sobre el MISMO estado `especialidad`
                     (nombre string) que viaja al backend. */}
-                <SearchableSelect
-                  value={especialidad}
-                  onChange={(nombre) => resetPage(setEspecialidad)(nombre)}
-                  options={especialidadesPuesto.map((e) => capitalizar(e.nombre))}
-                  valueToDisplay={(v) =>
-                    capitalizar(
-                      especialidadesPuesto.find(
-                        (e) => e.nombre === v || capitalizar(e.nombre) === v,
-                      )?.nombre,
-                    ) || v
-                  }
-                  displayToValue={(label) =>
-                    especialidadesPuesto.find((e) => capitalizar(e.nombre) === label)?.nombre ??
-                    label
-                  }
+                <ComboBuscable
+                  modo="unico"
+                  label=""
+                  options={especialidadesPuesto.map((e) => ({ value: e.nombre, label: capitalizar(e.nombre) }))}
+                  selected={especialidad ? [especialidad] : []}
+                  onChange={(v) => resetPage(setEspecialidad)(v[0] ?? '')}
                   placeholder={
                     !puestoCargoId
                       ? 'Elegí un puesto primero'
@@ -1146,7 +1127,6 @@ export function ConcursosListaTab({
                         : 'Todas las especialidades'
                   }
                   disabled={!puestoCargoId || especialidadesPuesto.length === 0}
-                  className="w-full"
                 />
               </section>
 

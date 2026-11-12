@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { etiquetaCarreraCR, ordenarCarrerasCR } from '@/shared/lib/carreraEtiqueta'
 import { useCodigosRegistro, useHospitales } from '@/shared/hooks/useCatalogos'
 import { useCargosIndicadores } from '../hooks/useReportes'
 import { IndicadoresCargosTabla, PasaronNoVigenteBloque } from './IndicadoresCargosTabla'
@@ -29,10 +31,15 @@ export function IndicadoresCargosSection() {
     abierto,
   )
 
-  const etiquetaCarrera = (id: string) => {
-    const c = codigos.find((x) => x.id === id)
-    return c ? `${c.codigo} — ${c.literal}` : ''
-  }
+  // value = id del código de registro; label = "{codigo} — {literal}" (22 y 37 separados).
+  const carreraOpts = useMemo(
+    () =>
+      ordenarCarrerasCR(codigos).map((c) => ({
+        value: c.id,
+        label: etiquetaCarreraCR(c),
+      })),
+    [codigos],
+  )
   const etiquetaHospital = (id: string) => {
     const h = hospitales.find((x) => x.id === id)
     return h ? `${h.sigla} — ${h.nombre}` : ''
@@ -82,15 +89,14 @@ export function IndicadoresCargosSection() {
                 className="border border-gray-300 rounded-md px-2 py-1.5 text-sm font-primary"
               />
             </label>
-            <div className="flex flex-col text-xs text-gray-600 gap-1 w-72">
-              Carrera
-              <SearchableSelect
-                value={carrera}
-                onChange={setCarrera}
-                options={codigos.map((c) => `${c.codigo} — ${c.literal}`)}
+            <div className="w-72">
+              <ComboBuscable
+                modo="unico"
+                label="Carrera"
+                options={carreraOpts}
+                selected={carrera ? [carrera] : []}
+                onChange={(v) => setCarrera(v[0] ?? '')}
                 placeholder="Todas las carreras"
-                displayToValue={(label) => codigos.find((c) => `${c.codigo} — ${c.literal}` === label)?.id ?? ''}
-                valueToDisplay={etiquetaCarrera}
               />
             </div>
             <div className="flex flex-col text-xs text-gray-600 gap-1 w-72">

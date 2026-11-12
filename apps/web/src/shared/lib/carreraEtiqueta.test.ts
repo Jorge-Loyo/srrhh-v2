@@ -3,8 +3,7 @@ import {
   codigoMostradoCarrera,
   etiquetaCarrera,
   etiquetaCarreraCR,
-  expandirCarrerasParaConsulta,
-  unificarCarrerasCph,
+  ordenarCarrerasCR,
 } from './carreraEtiqueta'
 
 const CPH = 'Nueva Carrera Profesional Hospitalaria'
@@ -16,32 +15,20 @@ describe('carreraEtiqueta', () => {
     expect(codigoMostradoCarrera('87')).toBe('87')
     expect(codigoMostradoCarrera('85')).toBe('85')
   })
-  it('arma etiquetas sin 22', () => {
-    expect(etiquetaCarreraCR({ codigo: '22', literal: CPH })).toBe(`37 — ${CPH}`)
+  it('arma etiquetas de escalafón sin 22', () => {
     expect(etiquetaCarrera({ codigo: '22', nombre: CPH })).toBe(`37 — ${CPH}`)
   })
-  it('unifica 37 y 22 en una opción y ordena numéricamente', () => {
-    const r = unificarCarrerasCph([
+
+  it('Reportes: 22 y 37 quedan separados y ordenados', () => {
+    const r = ordenarCarrerasCR([
       { codigo: '85', literal: 'Técnicos' },
+      { codigo: '37', literal: CPH },
       { codigo: '22', literal: 'CPH (22)' },
-      { codigo: '37', literal: CPH },
-      { codigo: '9', literal: 'Otra' },
     ])
-    expect(r).toEqual([
-      { codigo: '9', literal: 'Otra' },
-      { codigo: '37', literal: CPH },
-      { codigo: '85', literal: 'Técnicos' },
+    expect(r.map((c) => etiquetaCarreraCR(c))).toEqual([
+      '22 — CPH (22)',
+      `37 — ${CPH}`,
+      '85 — Técnicos',
     ])
-    expect(r.some((c) => etiquetaCarreraCR(c).startsWith('22'))).toBe(false)
-  })
-  it('expande 37 a 37 y 22 sin duplicar', () => {
-    expect(expandirCarrerasParaConsulta(['37'])).toEqual(['37', '22'])
-    expect(expandirCarrerasParaConsulta(['37', '22'])).toEqual(['37', '22'])
-    expect(expandirCarrerasParaConsulta(['85'])).toEqual(['85'])
-    expect(expandirCarrerasParaConsulta([])).toEqual([])
-  })
-  it('paridad: sin 37 los parámetros son idénticos', () => {
-    const sel = ['85', '87']
-    expect(expandirCarrerasParaConsulta(sel)).toEqual(sel)
   })
 })

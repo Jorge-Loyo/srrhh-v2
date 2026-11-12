@@ -6,6 +6,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { JuradoVigente } from '@srrhh/types'
 import { useJuradosVigentes } from '../hooks/useConcursosCph'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 
 function fechaCorta(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -89,18 +90,16 @@ export function JuradosTab() {
             onChange={(e) => setBusqueda(e.target.value)}
             className="h-10 flex-1 min-w-[240px] rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
           />
-          <select
-            value={especialidad}
-            onChange={(e) => setEspecialidad(e.target.value)}
-            className="h-10 rounded border border-gray-300 px-3 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary"
-          >
-            <option value="">Todas las especialidades</option>
-            {especialidades.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </select>
+          <div className="min-w-[240px]">
+            <ComboBuscable
+              modo="unico"
+              label="Especialidad"
+              options={especialidades.map((e) => ({ value: e, label: e }))}
+              selected={especialidad ? [especialidad] : []}
+              onChange={(v) => setEspecialidad(v[0] ?? '')}
+              placeholder="Todas las especialidades"
+            />
+          </div>
           <select
             value={vigencia}
             onChange={(e) => setVigencia(e.target.value as 'vigentes' | 'vencidos' | '')}

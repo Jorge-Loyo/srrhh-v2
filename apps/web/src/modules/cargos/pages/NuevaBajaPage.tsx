@@ -14,6 +14,7 @@ import {
 import { useCadenaRetencion } from '@/modules/retenciones/hooks/useCadenaRetencion'
 import { CadenaRetencionTree } from '@/modules/retenciones/components/CadenaRetencionTree'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 
 type Paso = 1 | 2 | 3
@@ -78,25 +79,11 @@ function ModalBuscarCargo({
   // Carrera (rama default): catálogo de códigos de registro SIN el 22 duplicado
   // de CPH (mismo literal que el 37; los concursos CPH usan siempre el 37).
   const codigosRegCarrera = (codigosRegistro ?? []).filter((cr) => cr.codigo !== '22')
-  const carreraOptions = codigosRegCarrera.map((cr) => `${cr.codigo} — ${cr.literal}`)
-  const carreraIdToLabel = (id: string) => {
-    const cr = codigosRegCarrera.find((x) => x.id === id)
-    return cr ? `${cr.codigo} — ${cr.literal}` : ''
-  }
-  const labelToCarreraId = (label: string) => {
-    const cr = codigosRegCarrera.find((x) => `${x.codigo} — ${x.literal}` === label)
-    return cr?.id ?? ''
-  }
   // Carrera (Cobertura): solo los códigos válidos 37/23; el value es el CÓDIGO.
-  const coberturaCarreraOptions = CODIGOS_COBERTURA.map((cod) => {
-    const cr = codigosRegCobertura.find((c) => c.codigo === cod)
-    return cr?.literal ? `${cod} — ${cr.literal}` : cod
-  })
   const coberturaCodigoToLabel = (cod: string) => {
     const cr = codigosRegCobertura.find((c) => c.codigo === cod)
     return cr?.literal ? `${cod} — ${cr.literal}` : cod
   }
-  const coberturaLabelToCodigo = (label: string) => label.split(' — ')[0]
 
   const activoCobertura = !!(codigoRegCoberturaSel && (hospitalId || puestoCob || especialidadCob))
   const activoDefault = !!(hospitalId || codigoRegistroId || estadoFiltro || situacionRevista || busqueda.length >= 2 || personaBusq.length >= 2)
@@ -193,38 +180,37 @@ function ModalBuscarCargo({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
                   {/* Elegible entre los códigos válidos para estos concursos (37 y 23). */}
-                  <SearchableSelect
-                    value={codigoCobertura}
-                    onChange={(v) => setCodigoCobertura(v || '37')}
-                    options={coberturaCarreraOptions}
+                  <ComboBuscable
+                    modo="unico"
+                    requerido
+                    label="Carrera"
+                    options={CODIGOS_COBERTURA.map((cod) => ({ value: cod, label: coberturaCodigoToLabel(cod) }))}
+                    selected={[codigoCobertura]}
+                    onChange={(v) => setCodigoCobertura(v[0] || '37')}
                     placeholder="Carrera"
-                    className="text-sm"
-                    valueToDisplay={coberturaCodigoToLabel}
-                    displayToValue={coberturaLabelToCodigo}
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto (POU)</label>
-                  <SearchableSelect
-                    value={puestoCob}
-                    onChange={(v) => { setPuestoCob(v); setEspecialidadCob('') }}
-                    options={puestosPou}
+                  <ComboBuscable
+                    modo="unico"
+                    label="Puesto (POU)"
+                    options={puestosPou.map((x) => ({ value: x, label: x }))}
+                    selected={puestoCob ? [puestoCob] : []}
+                    onChange={(v) => { setPuestoCob(v[0] ?? ''); setEspecialidadCob('') }}
                     placeholder="Todos"
-                    className="text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Especialidad</label>
-                  <SearchableSelect
-                    value={especialidadCob}
-                    onChange={setEspecialidadCob}
-                    options={especialidadesCob}
+                  <ComboBuscable
+                    modo="unico"
+                    label="Especialidad"
+                    options={especialidadesCob.map((x) => ({ value: x, label: x }))}
+                    selected={especialidadCob ? [especialidadCob] : []}
+                    onChange={(v) => setEspecialidadCob(v[0] ?? '')}
                     placeholder={puestoCob ? 'Todas' : 'Elegí un puesto primero'}
-                    className="text-sm"
                     disabled={!puestoCob}
                   />
                 </div>
@@ -246,15 +232,13 @@ function ModalBuscarCargo({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
-                  <SearchableSelect
-                    value={codigoRegistroId}
-                    onChange={setCodigoRegistroId}
-                    options={carreraOptions}
+                  <ComboBuscable
+                    modo="unico"
+                    label="Carrera"
+                    options={codigosRegCarrera.map((cr) => ({ value: cr.id, label: `${cr.codigo} — ${cr.literal}` }))}
+                    selected={codigoRegistroId ? [codigoRegistroId] : []}
+                    onChange={(v) => setCodigoRegistroId(v[0] ?? '')}
                     placeholder="Todas"
-                    className="text-sm"
-                    valueToDisplay={carreraIdToLabel}
-                    displayToValue={labelToCarreraId}
                   />
                 </div>
               </div>
@@ -1013,12 +997,13 @@ export function NuevaBajaPage() {
                         puesto, el usuario puede elegir entre las especialidades
                         disponibles para ese puesto. */}
                     {especialidadEditable ? (
-                      <SearchableSelect
-                        value={especialidad}
-                        onChange={setEspecialidad}
-                        options={especialidadesDisponibles}
+                      <ComboBuscable
+                        modo="unico"
+                        label=""
+                        options={especialidadesDisponibles.map((x) => ({ value: x, label: x }))}
+                        selected={especialidad ? [especialidad] : []}
+                        onChange={(v) => setEspecialidad(v[0] ?? '')}
                         placeholder="Elegí una especialidad"
-                        className="text-sm"
                       />
                     ) : (
                       <ReadonlyInput value={especialidad} />

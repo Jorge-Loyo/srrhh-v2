@@ -8,7 +8,7 @@ import { ORDEN_SITUACION_REVISTA } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { SelectorCarreraPuestoEspecialidad } from '@/shared/components/selectores/SelectorCarreraPuestoEspecialidad'
-import { etiquetaCarreraCR, expandirCarrerasParaConsulta, unificarCarrerasCph } from '@/shared/lib/carreraEtiqueta'
+import { etiquetaCarreraCR, ordenarCarrerasCR } from '@/shared/lib/carreraEtiqueta'
 import { titleCase, type Opcion as ComboOption } from '@/shared/lib/selectorCpe'
 import {
   useDotacionEvolucion,
@@ -114,7 +114,7 @@ function nuevoId(): string {
 function toPerfil(ind: IndicadorUI): PerfilIndicadorEvolucion {
   const p: PerfilIndicadorEvolucion = { id: ind.id }
   if (ind.siglas.length) p.siglas = ind.siglas
-  if (ind.carreras.length) p.carreras = expandirCarrerasParaConsulta(ind.carreras)
+  if (ind.carreras.length) p.carreras = ind.carreras
   if (ind.puestos.length) p.puestos = ind.puestos
   if (ind.especialidades.length) p.especialidades = ind.especialidades
   if (ind.gruposEspecialidad.length) p.gruposEspecialidad = ind.gruposEspecialidad
@@ -151,7 +151,7 @@ export function EvolucionEspecialidadChart() {
   // tocar "Aplicar").
   const filtros = {
     siglas: aplicado.siglas,
-    carreras: expandirCarrerasParaConsulta(aplicado.carreras),
+    carreras: aplicado.carreras,
     puestos: aplicado.puestos,
     especialidades: aplicado.especialidades,
     gruposEspecialidad: aplicado.gruposEspecialidad.length ? aplicado.gruposEspecialidad : undefined,
@@ -166,7 +166,7 @@ export function EvolucionEspecialidadChart() {
   // consulta liviana; la pesada (serie) espera al "Aplicar".
   const filtrosEdicion = {
     siglas,
-    carreras: expandirCarrerasParaConsulta(carreras),
+    carreras: carreras,
     puestos,
     especialidades,
     gruposEspecialidad: gruposEspecialidad.length ? gruposEspecialidad : undefined,
@@ -213,11 +213,10 @@ export function EvolucionEspecialidadChart() {
     [opciones, nombrePorSigla]
   )
   // Combo "Carrera": value = CÓDIGO de registro, label = "{codigo} — {literal}"
-  // para distinguir carreras homónimas (37 y 22 se unifican en 37; ambas "Nueva Carrera
-  // Profesional Hospitalaria"). Ordenadas alfabéticamente por el label.
+  // para distinguir carreras homónimas (37 y 22 van separados). Ordenadas alfabéticamente por el label.
   const carreraOpts = useMemo<ComboOption[]>(
     () =>
-      unificarCarrerasCph(opciones?.carreras ?? listaVaciaCarreras).map((c) => ({
+      ordenarCarrerasCR(opciones?.carreras ?? listaVaciaCarreras).map((c) => ({
         value: c.codigo,
         label: etiquetaCarreraCR(c),
       })),
@@ -227,7 +226,7 @@ export function EvolucionEspecialidadChart() {
   // incluidos), consistente con el combo de Carrera.
   const literalPorCodigo = useMemo(() => {
     const m = new Map<string, string>()
-    for (const c of unificarCarrerasCph(opciones?.carreras ?? listaVaciaCarreras)) m.set(c.codigo, etiquetaCarreraCR(c))
+    for (const c of ordenarCarrerasCR(opciones?.carreras ?? listaVaciaCarreras)) m.set(c.codigo, etiquetaCarreraCR(c))
     return (codigo: string) => m.get(codigo) ?? codigo
   }, [opciones])
   const puestoOpts = useMemo<ComboOption[]>(

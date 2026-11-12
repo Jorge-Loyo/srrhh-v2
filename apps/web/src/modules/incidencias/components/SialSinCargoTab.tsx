@@ -3,6 +3,8 @@ import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import {
   useIncidenciasPendientes,
   useCrearCargo,
@@ -213,21 +215,16 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
 
         {/* Filtros: carrera (escalafón) + buscador único (persona / id_sial / CUIL) */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="block text-sm sm:w-64">
-            <span className="text-gray-700 font-medium">Carrera</span>
-            <select
-              value={carrera}
-              onChange={(e) => setCarrera(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="">Todas las carreras</option>
-              {(escalafones ?? []).map((e) => (
-                <option key={e.id} value={e.nombre}>
-                  {escalafonLabel(e.nombre)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="block text-sm sm:w-64">
+            <ComboBuscable
+              modo="unico"
+              label="Carrera"
+              options={opcionesCarreraEscalafon(escalafones ?? [], (e) => e.nombre)}
+              selected={carrera ? [carrera] : []}
+              onChange={(v) => setCarrera(v[0] ?? '')}
+              placeholder="Todas las carreras"
+            />
+          </div>
           <label className="block text-sm flex-1">
             <span className="text-gray-700 font-medium">Buscar persona, id_sial o CUIL</span>
             <input

@@ -30,45 +30,30 @@ export function etiquetaCarrera(c: { codigo: string; nombre: string }): string {
   return `${mostrado} — ${NOMBRE_MOSTRADO_POR_CODIGO[mostrado] ?? c.nombre}`
 }
 
-/** Etiqueta 'CÓDIGO — Literal' para carreras de código de registro (Reportes). */
+/** Etiqueta 'CÓDIGO — Literal' con el código de registro real (Reportes: 22 y 37 van separados). */
 export function etiquetaCarreraCR(c: { codigo: string; literal: string }): string {
-  return `${codigoMostradoCarrera(c.codigo)} — ${c.literal}`
+  return `${c.codigo.trim()} — ${c.literal}`
+}
+
+/** Carreras de código de registro ordenadas por etiqueta (numérico, es), sin unificar códigos. */
+export function ordenarCarrerasCR<T extends { codigo: string; literal: string }>(carreras: T[]): T[] {
+  return [...carreras].sort((a, b) =>
+    etiquetaCarreraCR(a).localeCompare(etiquetaCarreraCR(b), 'es', { numeric: true }),
+  )
 }
 
 /**
- * Unifica carreras cuyo código se muestra igual (22 → 37): una sola opción por
- * código mostrado, conservando el literal de la fila cuyo código original ya era
- * el mostrado. Ordenadas por etiqueta (numérico, es).
+ * Opciones 'CÓDIGO — Nombre' para un selector de carrera a partir de escalafones,
+ * ordenadas por código (numérico). Misma etiqueta que /cargos/alta. `valor` elige
+ * qué se emite (por defecto el id).
  */
-export function unificarCarrerasCph(
-  carreras: { codigo: string; literal: string }[],
-): { codigo: string; literal: string }[] {
-  const porMostrado = new Map<string, { codigo: string; literal: string; propio: boolean }>()
-  for (const c of carreras) {
-    const mostrado = codigoMostradoCarrera(c.codigo)
-    const propio = c.codigo.trim() === mostrado
-    const previo = porMostrado.get(mostrado)
-    if (!previo || (propio && !previo.propio)) {
-      porMostrado.set(mostrado, { codigo: mostrado, literal: c.literal, propio })
-    }
-  }
-  return [...porMostrado.values()]
-    .map(({ codigo, literal }) => ({ codigo, literal }))
+export function opcionesCarreraEscalafon(
+  escalafones: { id: string; codigo: string; nombre: string }[],
+  valor: (e: { id: string; codigo: string; nombre: string }) => string = (e) => e.id,
+): { value: string; label: string }[] {
+  return [...escalafones]
     .sort((a, b) =>
-      etiquetaCarreraCR(a).localeCompare(etiquetaCarreraCR(b), 'es', { numeric: true }),
+      codigoMostradoCarrera(a.codigo).localeCompare(codigoMostradoCarrera(b.codigo), 'es', { numeric: true }),
     )
-}
-
-/**
- * Códigos a enviar al backend: si se eligió 37 se agrega 22 (sin duplicar) para
- * que los cargos con CR 22 sigan contando. Cualquier otra selección queda igual.
- */
-export function expandirCarrerasParaConsulta(codigos: string[]): string[] {
-  const extra: string[] = []
-  for (const [original, principal] of Object.entries(CR_POR_CODIGO_ESCALAFON_GESTIONADO)) {
-    if (original !== principal && codigos.includes(principal) && !codigos.includes(original) && !extra.includes(original)) {
-      extra.push(original)
-    }
-  }
-  return extra.length ? [...codigos, ...extra] : codigos
+    .map((e) => ({ value: valor(e), label: etiquetaCarrera(e) }))
 }

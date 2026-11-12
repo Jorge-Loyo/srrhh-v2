@@ -6,7 +6,8 @@ import {
   usePuestosCargoNormalizados,
   useEspecialidadesDePuestoId,
 } from '@/shared/hooks/useCatalogos'
-import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
@@ -108,14 +109,16 @@ export function FiltrosCatalogo({
         </select>
       )}
 
-      <select value={escalafonId} onChange={(e) => cambiarEscalafon(e.target.value)} className={selectCls}>
-        <option value="">Todas las carreras</option>
-        {escalafonesOrdenados.map((e) => (
-          <option key={e.id} value={e.id}>
-            {escalafonLabel(e.nombre)}
-          </option>
-        ))}
-      </select>
+      <div className="min-w-[240px]">
+        <ComboBuscable
+          modo="unico"
+          label="Carrera"
+          options={opcionesCarreraEscalafon(escalafones ?? [])}
+          selected={escalafonId ? [escalafonId] : []}
+          onChange={(v) => cambiarEscalafon(v[0] ?? '')}
+          placeholder="Todas las carreras"
+        />
+      </div>
 
       {/* S25: código de registro dentro de la carrera. Solo se muestra si la
           carrera elegida tiene códigos de registro cargados (puede tener 1 o
@@ -144,31 +147,29 @@ export function FiltrosCatalogo({
       )}
 
       {escalafonId && (
-        <SearchableSelect
-          value={puestoCargoId}
-          onChange={cambiarPuesto}
-          options={puestosLista.map((p) => capitalizar(p.nombre))}
-          valueToDisplay={(id) => capitalizar(puestosLista.find((p) => p.id === id)?.nombre) || id}
-          displayToValue={(label) => puestosLista.find((p) => capitalizar(p.nombre) === label)?.id ?? label}
-          placeholder="Todos los puestos"
-          className="min-w-[240px]"
-        />
+        <div className="min-w-[240px]">
+          <ComboBuscable
+            modo="unico"
+            label="Puesto"
+            options={puestosLista.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+            selected={puestoCargoId ? [puestoCargoId] : []}
+            onChange={(v) => cambiarPuesto(v[0] ?? '')}
+            placeholder="Todos los puestos"
+          />
+        </div>
       )}
 
       {mostrarEspecialidad && puestoCargoId && especialidadesLista.length > 0 && (
-        <SearchableSelect
-          value={especialidadPuestoId}
-          onChange={(id) => onChange({ especialidadPuestoId: id })}
-          options={especialidadesLista.map((esp) => capitalizar(esp.nombre))}
-          valueToDisplay={(id) =>
-            capitalizar(especialidadesLista.find((esp) => esp.id === id)?.nombre) || id
-          }
-          displayToValue={(label) =>
-            especialidadesLista.find((esp) => capitalizar(esp.nombre) === label)?.id ?? label
-          }
-          placeholder="Todas las especialidades"
-          className="min-w-[240px]"
-        />
+        <div className="min-w-[240px]">
+          <ComboBuscable
+            modo="unico"
+            label="Especialidad"
+            options={especialidadesLista.map((esp) => ({ value: esp.id, label: capitalizar(esp.nombre) }))}
+            selected={especialidadPuestoId ? [especialidadPuestoId] : []}
+            onChange={(v) => onChange({ especialidadPuestoId: v[0] ?? '' })}
+            placeholder="Todas las especialidades"
+          />
+        </div>
       )}
     </div>
   )
