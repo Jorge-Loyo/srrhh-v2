@@ -1,5 +1,6 @@
 import { CODIGOS_ESCALAFON_GESTIONADOS } from '@srrhh/types'
 import { codigoMostradoCarrera, etiquetaCarrera } from '@/shared/lib/carreraEtiqueta'
+import { sinPuestoSinEspecificar } from '@/shared/lib/puestoSinEspecificar'
 
 // Carreras (escalafones) que gestionamos: las que pueden producir concurso.
 // La lista vive en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), compartida
@@ -79,10 +80,11 @@ export function filtrarPuestosAlta<T extends { nombre: string }>(
   codigoEscalafon: string | null | undefined,
   tipo: TipoAltaCarrera,
 ): T[] {
-  if (tipo === 'estructura') return puestos
+  const reales = sinPuestoSinEspecificar(puestos)
+  if (tipo === 'estructura') return reales
   const patrones = puestosPermitidosPorCarrera(codigoEscalafon)
-  if (!patrones) return puestos
-  return puestos.filter((p) => {
+  if (!patrones) return reales
+  return reales.filter((p) => {
     const n = normalizarNombre(p.nombre)
     return patrones.some((re) => re.test(n))
   })

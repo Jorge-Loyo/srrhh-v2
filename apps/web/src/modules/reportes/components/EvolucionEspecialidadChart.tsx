@@ -9,6 +9,7 @@ import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { SelectorCarreraPuestoEspecialidad } from '@/shared/components/selectores/SelectorCarreraPuestoEspecialidad'
 import { etiquetaCarreraCR, ordenarCarrerasCR } from '@/shared/lib/carreraEtiqueta'
+import { esPuestoSinEspecificar } from '@/shared/lib/puestoSinEspecificar'
 import { titleCase, type Opcion as ComboOption } from '@/shared/lib/selectorCpe'
 import {
   useDotacionEvolucion,
@@ -230,7 +231,7 @@ export function EvolucionEspecialidadChart() {
     return (codigo: string) => m.get(codigo) ?? codigo
   }, [opciones])
   const puestoOpts = useMemo<ComboOption[]>(
-    () => (opciones?.puestos ?? listaVacia).map((p) => ({ value: p, label: titleCase(p) })),
+    () => (opciones?.puestos ?? listaVacia).filter((p) => !esPuestoSinEspecificar(p)).map((p) => ({ value: p, label: titleCase(p) })),
     [opciones]
   )
   const especialidadOpts = useMemo<ComboOption[]>(

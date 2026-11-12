@@ -13,6 +13,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { sinPuestoSinEspecificar } from '@/shared/lib/puestoSinEspecificar'
 import { MultiSelectDropdown } from '@/shared/components/ui/MultiSelectDropdown'
 import { useConcursosCph } from '../hooks/useConcursosCph'
 import { useEtiquetas, useAsignarEtiqueta, useCrearEtiqueta } from '@/shared/hooks/useEtiquetas'
@@ -327,7 +328,8 @@ export function ConcursosListaTab({
     const n = normEsc(e.nombre)
     return (n.includes('prof') && n.includes('hosp')) || n.includes('cph')
   })?.id
-  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(escalafonCphId || undefined)
+  const { data: puestosCatalogoTodos = [] } = usePuestosCargoNormalizados(escalafonCphId || undefined)
+  const puestosCatalogo = sinPuestoSinEspecificar(puestosCatalogoTodos)
   // Especialidades del puesto EXACTO por id (preferido en filtros: evita el bug
   // de puestos homónimos). Alimenta el combo de Especialidad dependiente.
   const { data: especialidadesPuesto = [] } = useEspecialidadesDePuestoId(

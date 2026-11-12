@@ -11,6 +11,7 @@ import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
+import { sinPuestoSinEspecificar } from '@/shared/lib/puestoSinEspecificar'
 
 // Valores actuales de la cascada de filtros del catálogo. Todos strings (ids)
 // o '' cuando no hay selección — pensado para conectarse a searchParams.
@@ -69,7 +70,7 @@ export function FiltrosCatalogo({
     escalafonId || undefined,
     modalidad || undefined,
   )
-  const puestosLista = puestos ?? []
+  const puestosLista = sinPuestoSinEspecificar(puestos ?? [])
   // Especialidades del puesto EXACTO por id (no por nombre): evita el bug de
   // puestos homónimos donde el filtro por especialidad no coincidía.
   const { data: especialidades } = useEspecialidadesDePuestoId(puestoCargoId || undefined)

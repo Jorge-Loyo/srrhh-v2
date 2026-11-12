@@ -61,6 +61,7 @@ import {
 import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { esPuestoSinEspecificar } from '@/shared/lib/puestoSinEspecificar'
 import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
 import { useConfirm } from '@/shared/components/ui/useConfirm'
 import { useToast } from '@/shared/components/ui/useToast'
@@ -612,7 +613,7 @@ export function ConcursoCphWizard() {
     undefined,
     undefined,
   )
-  const puestosDisponibles = puestosDisponiblesCatalogo.map((p) => p.nombre)
+  const puestosDisponibles = puestosDisponiblesCatalogo.map((p) => p.nombre).filter((n) => !esPuestoSinEspecificar(n))
   const [modalCambios, setModalCambios] = useState<
     { campo: string; de: string; a: string }[] | null
   >(null)

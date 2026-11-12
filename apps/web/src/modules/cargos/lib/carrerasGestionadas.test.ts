@@ -86,8 +86,14 @@ describe('puestos por carrera', () => {
     expect(r).toHaveLength(2)
   })
   it('otras carreras y Estructura sin cambios', () => {
-    for (const c of ['37', '85', '83', '23', '24', undefined]) expect(filtrarPuestosAlta(puestos, c, 'pof')).toBe(puestos)
-    expect(filtrarPuestosAlta(puestos, '87', 'estructura')).toBe(puestos)
+    const reales = puestos.filter((p) => p.id !== '1')
+    for (const c of ['37', '85', '83', '23', '24', undefined]) expect(filtrarPuestosAlta(puestos, c, 'pof')).toEqual(reales)
+    expect(filtrarPuestosAlta(puestos, '87', 'estructura')).toEqual(reales)
+  })
+  it('nunca ofrece "(sin especificar)"', () => {
+    for (const t of ['pof', 'pou', 'estructura'] as const) {
+      expect(filtrarPuestosAlta(puestos, '37', t).some((p) => p.id === '1')).toBe(false)
+    }
     expect(puestosPermitidosPorCarrera('37')).toBeNull()
   })
   it('ambos puestos de 87 ofrecen solo ATP/ATC', () => {
