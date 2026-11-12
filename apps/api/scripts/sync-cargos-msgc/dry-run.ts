@@ -70,7 +70,11 @@ async function main() {
 
   console.log(`Filas del Excel: ${filas.length}; cargos del sistema: ${sistema.cargos.length}`)
   console.log(`Categorias: ${Object.entries(resultado.conteos).map(([k, v]) => `${k}=${v}`).join(' ')}`)
-  console.log(`Proyectado (solo vigente): ${resultado.cierre.proyectado_solo_vigente}; (vigente + validacion): ${resultado.cierre.proyectado_vigente_mas_validacion}; Excel: ${resultado.cierre.total_excel}`)
+  const ci = resultado.cierre
+  console.log(`CIERRE (vigente + validacion_vacante): proyectado ${ci.proyectado_vigente_mas_validacion}; Excel ${ci.total_excel}; diferencia ${ci.diferencia_vigente_mas_validacion}`)
+  console.log(`(secundario) solo vigente: proyectado ${ci.proyectado_solo_vigente}; Excel vigente ${ci.excel_vigente}`)
+  console.log(`Cupos: reusados ${resultado.cupos.reusados}; a crear ${resultado.cupos.faltan}; a no vigente ${resultado.cupos.sobran}`)
+  console.log(`Concursos colgados: ${resultado.concursos_colgados.totales.filas} filas en ${resultado.concursos_colgados.totales.cargos} cargos; a revisar ${resultado.concursos_colgados.totales.revisar}`)
   console.log(`Archivos en ${args.out}: ${archivos.join(', ')}`)
   console.log('SIMULACION: no se escribio nada en ninguna base.')
 }

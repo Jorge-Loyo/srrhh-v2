@@ -6,20 +6,37 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
-import { CATEGORIAS, type Categoria, type Entrada, type ResultadoCruce } from './cruce.js'
+import { CATEGORIAS, type Categoria, type ConcursoColgado, type Entrada, type ResultadoCruce } from './cruce.js'
 
 export const COLUMNAS_DETALLE = [
   'codigo_excel', 'categoria', 'accion', 'cargo_codigo_sistema', 'codigo_propuesto',
   'acronimo', 'cr', 'sigla', 'puesto', 'motivo',
 ] as const
 
+export const COLUMNAS_COLGADOS = [
+  'cargo_codigo_sistema', 'estado_cargo', 'sigla', 'acronimo_propuesto', 'puesto', 'especialidad',
+  'tipo_concurso', 'estado_concurso', 'sub_estado_concurso', 'activo', 'expediente_concurso',
+  'motivo_concurso', 'autorizado', 'expediente_en_excel', 'fila_excel', 'otros_vinculos', 'revision',
+] as const
+
 const RE_11_DIGITOS = /\d{11}/
 const RE_ROL = /\d+-\d+/
+/** Expediente normalizado EX-AAAA-N (hasta 10 digitos de numero: con 11 o mas digitos se rechaza como posible CUIL). */
+const RE_EXPEDIENTE = /^EX-\d{4}-\d{1,10}$/
 
 /** Lanza si la celda parece un dato personal o un rol. El mensaje NO incluye el valor. */
 export function validarCelda(valor: string, contexto: string): void {
   if (RE_11_DIGITOS.test(valor)) throw new Error(`Celda rechazada (11 digitos consecutivos) en ${contexto}`)
   if (RE_ROL.test(valor)) throw new Error(`Celda rechazada (patron de rol \\d+-\\d+) en ${contexto}`)
+}
+
+/** Celda de expedientes: una lista `EX-AAAA-NNNNNNNN | ...` (o vacia). Cualquier otra cosa se valida como celda normal. */
+export function validarCeldaExpediente(valor: string, contexto: string): void {
+  if (valor === '') return
+  const partes = valor.split(' | ')
+  if (partes.every((p) => RE_EXPEDIENTE.test(p))) return
+  validarCelda(valor, contexto)
+  throw new Error(`Celda rechazada (no es una lista de expedientes EX-AAAA-N) en ${contexto}`)
 }
 
 function celdaCsv(v: string): string {
@@ -31,6 +48,21 @@ export function csvDeEntradas(categoria: Categoria, entradas: Entrada[]): string
   entradas.forEach((e, i) => {
     const celdas = COLUMNAS_DETALLE.map((c) => String(e[c] ?? ''))
     celdas.forEach((v, j) => validarCelda(v, `detalle_${categoria} fila ${i + 1} columna ${COLUMNAS_DETALLE[j]}`))
+    lineas.push(celdas.map(celdaCsv).join(','))
+  })
+  return lineas.join('\n') + '\n'
+}
+
+export function csvDeColgados(filas: ConcursoColgado[]): string {
+  const lineas = [COLUMNAS_COLGADOS.join(',')]
+  filas.forEach((e, i) => {
+    const celdas = COLUMNAS_COLGADOS.map((c) => String(e[c] ?? ''))
+    celdas.forEach((v, j) => {
+      const ctx = `concursos_colgados fila ${i + 1} columna ${COLUMNAS_COLGADOS[j]}`
+      // fila_excel lleva codigos del Excel (AS-00001), sin expedientes: validacion comun.
+      if (COLUMNAS_COLGADOS[j] === 'expediente_concurso') validarCeldaExpediente(v, ctx)
+      else validarCelda(v, ctx)
+    })
     lineas.push(celdas.map(celdaCsv).join(','))
   })
   return lineas.join('\n') + '\n'
@@ -52,6 +84,7 @@ export interface ResumenJson extends MetaCorrida {
   h_desglose: ResultadoCruce['h_desglose']
   colisiones: number
   j_por_motivo: Record<string, number>
+  concursos_colgados: ResultadoCruce['concursos_colgados']['totales']
   /** Delta por categoría contra la corrida anterior (--previo). */
   delta_vs_previo?: Record<string, number>
 }
@@ -68,6 +101,7 @@ export function armarResumen(r: ResultadoCruce, meta: MetaCorrida, previo?: Resu
     h_desglose: r.h_desglose,
     colisiones: r.colisiones,
     j_por_motivo: r.j_por_motivo,
+    concursos_colgados: r.concursos_colgados.totales,
   }
   if (previo) {
     const delta: Record<string, number> = {}
@@ -75,6 +109,7 @@ export function armarResumen(r: ResultadoCruce, meta: MetaCorrida, previo?: Resu
     delta.total_excel = r.cierre.total_excel - (previo.total_excel ?? 0)
     delta.a_crear = r.cierre.a_crear - (previo.cierre?.a_crear ?? 0)
     delta.g_a_no_vigente = r.cierre.g_a_no_vigente - (previo.cierre?.g_a_no_vigente ?? 0)
+    delta.proyectado_vigente_mas_validacion = r.cierre.proyectado_vigente_mas_validacion - (previo.cierre?.proyectado_vigente_mas_validacion ?? 0)
     resumen.delta_vs_previo = delta
   }
   return resumen
@@ -97,24 +132,42 @@ export function markdownDeResumen(s: ResumenJson): string {
   l.push('')
   l.push(`Particion de filas del Excel: a ${s.particion.a} + b ${s.particion.b} + c ${s.particion.c} + d ${s.particion.d} + e ${s.particion.e} + i(filas) ${s.particion.i_filas} = ${s.particion.suma} (Excel: ${s.total_excel}).`)
   l.push('')
-  l.push('## Cierre')
+  l.push('## Cierre (metrica a vigilar: vigente + validacion_vacante == filas del Excel)')
   l.push('')
   const c = s.cierre
-  l.push(`- Vigentes hoy: ${c.vigentes_hoy}; validacion_vacante hoy: ${c.validacion_vacante_hoy}`)
-  l.push(`- A crear (c+d+e): ${c.a_crear} (de ellos ${c.a_crear_como_validacion} "En validacion" del Excel)`)
-  l.push(`- Vacantes del sistema reemplazadas (f): ${c.f_reemplazados}; a no vigente (g): ${c.g_a_no_vigente}`)
-  l.push(`- Proyectado solo vigente: ${c.proyectado_solo_vigente} (diferencia contra Excel: ${c.diferencia_solo_vigente})`)
-  l.push(`- Proyectado vigente + validacion_vacante: ${c.proyectado_vigente_mas_validacion} (diferencia contra Excel: ${c.diferencia_vigente_mas_validacion})`)
+  l.push(`- **Proyectado vigente + validacion_vacante: ${c.proyectado_vigente_mas_validacion}; Excel: ${c.total_excel}; diferencia: ${c.diferencia_vigente_mas_validacion}** (${c.diferencia_vigente_mas_validacion === 0 ? 'CIERRA' : 'NO CIERRA'})`)
+  if (c.diferencia_vigente_mas_validacion !== 0) {
+    const d = c.diferencia_por_categoria
+    l.push(`- Diferencia por categoria: a+b ${d.a_b}; c ${d.c}; d ${d.d}; e ${d.e}; i(filas del Excel sin cargo) ${d.i_filas}; cargos del sistema que quedan sin fila en el Excel ${d.sistema_sin_fila_excel}`)
+  }
+  l.push(`- Hoy: vigentes ${c.vigentes_hoy}; validacion_vacante ${c.validacion_vacante_hoy}`)
+  l.push(`- A crear: ${c.a_crear} (c ${s.particion.c} + d ${s.particion.d} + e sin cargo para reusar ${c.a_crear - s.particion.c - s.particion.d}); de ellos ${c.a_crear_como_validacion} "En validacion" del Excel`)
+  l.push(`- Filas e que reusan un cargo del sistema: ${c.e_reusadas} (por expediente: ${c.e_reusadas_por_expediente}); cargos reusados: ${c.f_reusados} vacantes vigentes + ${c.validacion_reusados} validacion_vacante`)
+  l.push(`- A NO VIGENTE: ${c.f_a_no_vigente} vacantes vigentes sobrantes + ${c.validacion_a_no_vigente} validacion_vacante sobrantes + ${c.g_a_no_vigente} con ocupante fuera del Excel (g)`)
   l.push('')
-  l.push('## Vacantes del sistema (f)')
+  l.push('Dato secundario (solo estado vigente; los cargos reusados quedan con el estado del Excel):')
   l.push('')
+  l.push(`- Proyectado solo vigente: ${c.proyectado_solo_vigente}; filas "Vigente" del Excel: ${c.excel_vigente}; diferencia: ${c.diferencia_solo_vigente} (filas "En validacion" del Excel: ${c.excel_en_validacion})`)
+  l.push('')
+  l.push('## Cargos candidatos al cupo (f): vacantes vigentes sin ocupante + validacion_vacante sin ocupante')
+  l.push('')
+  l.push(`- Total: ${s.f_desglose.vigentes + s.f_desglose.validacion_vacante} (vigentes ${s.f_desglose.vigentes}; validacion_vacante ${s.f_desglose.validacion_vacante})`)
   l.push(`- Sin vinculos: ${s.f_desglose.sin_vinculos}; con vinculos: ${s.f_desglose.con_vinculos}`)
   for (const [k, v] of Object.entries(s.f_desglose.por_vinculo)) l.push(`  - ${k}: ${v}`)
   l.push('')
-  l.push('## Cupos (e vs vacantes del sistema)')
+  l.push('## Cupos (e vs cargos candidatos)')
   l.push('')
-  l.push(`- Excel: ${s.cupos.excel}; sistema: ${s.cupos.sistema}; faltan: ${s.cupos.faltan}; sobran: ${s.cupos.sobran}; claves: ${s.cupos.claves}`)
+  l.push(`- Excel: ${s.cupos.excel}; sistema: ${s.cupos.sistema} vigentes + ${s.cupos.sistema_validacion} validacion_vacante; reusados: ${s.cupos.reusados}; faltan (a crear): ${s.cupos.faltan}; sobran (a no vigente): ${s.cupos.sobran}; claves: ${s.cupos.claves}`)
   for (const [k, v] of Object.entries(s.cupos.excel_por_bloque)) l.push(`  - bloque ${k}: ${v}`)
+  l.push('')
+  const col = s.concursos_colgados
+  l.push('## Concursos colgados de cargos que pasan a NO VIGENTE (detalle en concursos_colgados.csv)')
+  l.push('')
+  l.push(`- Filas: ${col.filas}; cargos distintos: ${col.cargos}`)
+  l.push(`- Por tipo: ${Object.entries(col.por_tipo).map(([t, n]) => `${t} ${n}`).join('; ') || 'ninguno'}`)
+  l.push(`- Activos (regla unica de concurso activo): ${col.activos}; no activos: ${col.no_activos}`)
+  for (const [t, v] of Object.entries(col.por_tipo_activo)) l.push(`  - ${t}: activos ${v.activo}; no activos ${v.no_activo}`)
+  l.push(`- A revisar (concurso activo cuyo expediente SI esta en el Excel, en otra fila): ${col.revisar}`)
   l.push('')
   l.push('## Informativo (h) y colisiones')
   l.push('')
@@ -139,6 +192,7 @@ export function markdownDeResumen(s: ResumenJson): string {
 export function escribirReporte(dir: string, r: ResultadoCruce, resumen: ResumenJson): string[] {
   const archivos: [string, string][] = []
   for (const cat of CATEGORIAS) archivos.push([`detalle_${cat}.csv`, csvDeEntradas(cat, r.entradas[cat])])
+  archivos.push(['concursos_colgados.csv', csvDeColgados(r.concursos_colgados.filas)])
   const json = JSON.stringify(resumen, null, 2) + '\n'
   const md = markdownDeResumen(resumen)
   // El sha256 (hex) puede contener 11 digitos seguidos por azar: se excluye del chequeo.

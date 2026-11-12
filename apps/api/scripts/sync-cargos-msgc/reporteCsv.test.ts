@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { cruzar, type Entrada } from './cruce.js'
-import { armarResumen, csvDeEntradas, escribirReporte, validarCelda } from './reporteCsv.js'
+import { armarResumen, csvDeColgados, csvDeEntradas, escribirReporte, validarCelda, validarCeldaExpediente } from './reporteCsv.js'
 
 const ROL = '90000000001'
 
@@ -37,6 +37,37 @@ describe('validarCelda / csvDeEntradas', () => {
   })
 })
 
+describe('concursos_colgados.csv: expedientes sin datos personales', () => {
+  const colgado = (p: Record<string, string> = {}) => ({
+    cargo_codigo_sistema: 'CPH-POF-000001', estado_cargo: 'vigente', sigla: 'HTAL', acronimo_propuesto: 'CPH-P', puesto: 'Medico',
+    especialidad: '', tipo_concurso: 'CPH', estado_concurso: 'activo', sub_estado_concurso: '', activo: 'si',
+    expediente_concurso: 'EX-2024-01234567', motivo_concurso: '', autorizado: 'no', expediente_en_excel: 'si',
+    fila_excel: 'CPH-P-00001', otros_vinculos: '', revision: '', ...p,
+  })
+
+  it('acepta expedientes normalizados (aunque tengan el patron \\d+-\\d+) y listas separadas por |', () => {
+    expect(() => validarCeldaExpediente('EX-2024-01234567', 'x')).not.toThrow()
+    expect(() => validarCeldaExpediente('EX-2024-01234567 | EX-2021-00000005', 'x')).not.toThrow()
+    expect(() => validarCeldaExpediente('', 'x')).not.toThrow()
+    expect(() => csvDeColgados([colgado()])).not.toThrow()
+  })
+
+  it('rechaza un CUIL o un rol en la columna de expediente y en cualquier otra', () => {
+    expect(() => validarCeldaExpediente('20123456789', 'x')).toThrow(/11 digitos/)
+    expect(() => validarCeldaExpediente('EX-2024-20123456789', 'x')).toThrow(/11 digitos/)
+    expect(() => validarCeldaExpediente('123-45', 'x')).toThrow(/patron de rol/)
+    expect(() => validarCeldaExpediente('texto libre', 'x')).toThrow(/expedientes/)
+    expect(() => csvDeColgados([colgado({ puesto: '20123456789' })])).toThrow(/11 digitos/)
+    expect(() => csvDeColgados([colgado({ expediente_concurso: 'EX-2024-1' , fila_excel: '123-4' })])).toThrow(/patron de rol/)
+  })
+
+  it('el encabezado es fijo', () => {
+    expect(csvDeColgados([]).split('\n')[0]).toBe(
+      'cargo_codigo_sistema,estado_cargo,sigla,acronimo_propuesto,puesto,especialidad,tipo_concurso,estado_concurso,sub_estado_concurso,activo,expediente_concurso,motivo_concurso,autorizado,expediente_en_excel,fila_excel,otros_vinculos,revision',
+    )
+  })
+})
+
 describe('escribirReporte', () => {
   const filas = [
     {
@@ -55,7 +86,8 @@ describe('escribirReporte', () => {
       const previo = armarResumen(r, meta)
       const resumen = armarResumen(r, meta, previo)
       const nombres = escribirReporte(dir, r, resumen)
-      expect(nombres).toHaveLength(12)
+      expect(nombres).toHaveLength(13)
+      expect(nombres).toContain('concursos_colgados.csv')
       for (const n of nombres) {
         const t = fs.readFileSync(path.join(dir, n), 'utf8')
         expect(t).not.toContain(ROL)

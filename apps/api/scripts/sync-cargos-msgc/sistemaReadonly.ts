@@ -7,7 +7,7 @@
 // (sin valores del usuario). No se leen CUIL, persona_id ni nombres.
 // ─────────────────────────────────────────────────────────────────────────────
 import { TX_OPTS_LARGA } from '../../src/shared/txOpts.js'
-import type { CargoSistema, EstadoCargoSistema, OcupacionViva, SnapshotSistema, VinculosCargo } from './cruce.js'
+import type { CargoSistema, ConcursoSistema, EstadoCargoSistema, OcupacionViva, SnapshotSistema, VinculosCargo } from './cruce.js'
 
 /** Subconjunto de la transacción de Prisma que se usa acá (permite simularla en tests). */
 export interface TxLectura {
@@ -50,6 +50,20 @@ const SQL_VINCULOS: Record<keyof VinculosCargo, string> = {
     'SELECT x.cargo_id::text AS cargo_id, count(*)::int AS n FROM (SELECT unnest(cargos_creados_ids) AS cargo_id FROM solicitudes_alta) x GROUP BY x.cargo_id',
 }
 
+/** Concursos por tipo (sin persona ni baja): estado, sub_estado, motivo, autorizacion y expedientes. */
+const SQL_CONCURSOS_CPH = `
+SELECT cph.cargo_id::text AS cargo_id, cph.estado::text AS estado, cph.sub_estado AS sub_estado,
+       co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
+       co.expediente AS expediente, NULL::text AS expediente_2
+FROM concursos_cph cph
+JOIN concursos co ON co.id = cph.concurso_id`
+const SQL_CONCURSOS_CEETPS = `
+SELECT ce.cargo_id::text AS cargo_id, ce.estado::text AS estado, ce.sub_estado AS sub_estado,
+       co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
+       co.expediente AS expediente, ce.expediente_concurso AS expediente_2, ce.expediente_concurso_2 AS expediente_3
+FROM concursos_ceetps ce
+JOIN concursos co ON co.id = ce.concurso_id`
+
 const SQL_HOSPITALES = 'SELECT sigla FROM hospitales'
 const SQL_ORGANIGRAMA = 'SELECT DISTINCT sigla FROM organigramas'
 const SQL_CODIGOS_REGISTRO =
@@ -61,6 +75,8 @@ const SQL_ESPECIALIDADES = 'SELECT DISTINCT nombre FROM especialidades_puesto'
 export const CONSULTAS_SNAPSHOT: readonly string[] = [
   SQL_CARGOS,
   SQL_OCUPACIONES,
+  SQL_CONCURSOS_CPH,
+  SQL_CONCURSOS_CEETPS,
   ...Object.values(SQL_VINCULOS),
   SQL_HOSPITALES,
   SQL_ORGANIGRAMA,
@@ -68,6 +84,17 @@ export const CONSULTAS_SNAPSHOT: readonly string[] = [
   SQL_PUESTOS,
   SQL_ESPECIALIDADES,
 ]
+
+interface FilaConcurso {
+  cargo_id: string
+  estado: string
+  sub_estado: string | null
+  motivo_concurso: string | null
+  autorizado: boolean
+  expediente: string | null
+  expediente_2?: string | null
+  expediente_3?: string | null
+}
 
 interface FilaCargo {
   id: string
@@ -91,6 +118,19 @@ interface FilaCargo {
 async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
   const cargosRaw = await tx.$queryRawUnsafe<FilaCargo[]>(SQL_CARGOS)
   const ocup = await tx.$queryRawUnsafe<{ id_sial_rol: string; cargo_id: string }[]>(SQL_OCUPACIONES)
+
+  const filasCph = await tx.$queryRawUnsafe<FilaConcurso[]>(SQL_CONCURSOS_CPH)
+  const filasCeetps = await tx.$queryRawUnsafe<FilaConcurso[]>(SQL_CONCURSOS_CEETPS)
+  const aConcurso = (tipo: ConcursoSistema['tipo']) => (f: FilaConcurso): ConcursoSistema => ({
+    cargoId: f.cargo_id,
+    tipo,
+    estado: f.estado,
+    subEstado: f.sub_estado,
+    motivoConcurso: f.motivo_concurso,
+    autorizado: Boolean(f.autorizado),
+    expedientes: [f.expediente, f.expediente_2 ?? null, f.expediente_3 ?? null],
+  })
+  const concursos: ConcursoSistema[] = [...filasCph.map(aConcurso('cph')), ...filasCeetps.map(aConcurso('ceetps'))]
 
   const vinculos = new Map<string, VinculosCargo>()
   const vacio = (): VinculosCargo => ({
@@ -136,6 +176,7 @@ async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
   return {
     cargos,
     ocupaciones,
+    concursos,
     siglasHospital: hospitales.map((h) => h.sigla),
     siglasOrganigrama: organigrama.map((o) => o.sigla),
     codigosRegistro: crs,

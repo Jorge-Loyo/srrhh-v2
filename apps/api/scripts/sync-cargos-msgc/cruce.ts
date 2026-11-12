@@ -11,6 +11,7 @@
 // El `id_sial_rol` se usa como clave de cruce y NUNCA sale en las entradas.
 // ─────────────────────────────────────────────────────────────────────────────
 import { normalizarTexto } from '@srrhh/normalizacion'
+import { concursoCuentaComoActivo } from '../../src/modules/cargos/concursoActivo.regla.js'
 import type { FilaNominal } from './leerNominal.js'
 import { acronimoMsgc, recodificarCodigo } from './acronimoMsgc.js'
 import {
@@ -57,6 +58,21 @@ export interface CargoSistema {
   vinculos: VinculosCargo
 }
 
+/**
+ * Concurso (CPH o CEETPS) de un cargo del sistema. Sin datos personales: ni persona ni baja.
+ * `autorizado` = `concursos.autorizado_at IS NOT NULL`. `expedientes` son los valores crudos
+ * (`concursos.expediente`, `expediente_concurso`, `expediente_concurso_2`); se normalizan al cruzar.
+ */
+export interface ConcursoSistema {
+  cargoId: string
+  tipo: 'cph' | 'ceetps'
+  estado: string
+  subEstado: string | null
+  motivoConcurso: string | null
+  autorizado: boolean
+  expedientes: (string | null)[]
+}
+
 export interface OcupacionViva {
   /**
    * `id_sial_rol` crudo del sistema (`legajo-rol-cuil-rol`; contiene el CUIL). NUNCA se escribe en
@@ -69,6 +85,8 @@ export interface OcupacionViva {
 export interface SnapshotSistema {
   cargos: CargoSistema[]
   ocupaciones: OcupacionViva[]
+  /** Concursos de los cargos (opcional: un fixture viejo sin concursos sigue valiendo). */
+  concursos?: ConcursoSistema[]
   siglasHospital: string[]
   siglasOrganigrama: string[]
   codigosRegistro: { codigo: string; escalafon: string }[]
@@ -79,6 +97,7 @@ export interface SnapshotSistema {
 export const SNAPSHOT_VACIO: SnapshotSistema = {
   cargos: [],
   ocupaciones: [],
+  concursos: [],
   siglasHospital: [],
   siglasOrganigrama: [],
   codigosRegistro: [],
@@ -103,27 +122,93 @@ export interface Entrada {
   motivo: string
 }
 
+/**
+ * Cierre aritmético. La métrica a vigilar es `vigente + validacion_vacante` == filas del Excel
+ * (`proyectado_vigente_mas_validacion` vs `total_excel`). "Solo vigente" es un dato secundario.
+ */
 export interface Cierre {
   vigentes_hoy: number
   validacion_vacante_hoy: number
+  /** Cargos nuevos: c + d + filas e sin cargo del sistema para reusar. */
   a_crear: number
+  /** De los cargos nuevos, los que el Excel marca "En validacion". */
   a_crear_como_validacion: number
-  f_reemplazados: number
+  /** Filas e del Excel que reusan un cargo del sistema (por expediente o por cupo). */
+  e_reusadas: number
+  e_reusadas_por_expediente: number
+  /** Cargos del sistema reusados, por estado de origen. */
+  f_reusados: number
+  validacion_reusados: number
+  /** Cargos del sistema que no tienen fila e donde reusarse: pasan a NO VIGENTE. */
+  f_a_no_vigente: number
+  validacion_a_no_vigente: number
   g_a_no_vigente: number
-  proyectado_solo_vigente: number
+  /** Métrica principal. */
   proyectado_vigente_mas_validacion: number
   total_excel: number
-  diferencia_solo_vigente: number
   diferencia_vigente_mas_validacion: number
+  /** Desglose de la diferencia por categoría (suma = diferencia_vigente_mas_validacion). */
+  diferencia_por_categoria: {
+    a_b: number
+    c: number
+    d: number
+    e: number
+    i_filas: number
+    sistema_sin_fila_excel: number
+  }
+  /** Secundario: solo estado vigente (reusados con el estado del Excel). */
+  excel_vigente: number
+  excel_en_validacion: number
+  proyectado_solo_vigente: number
+  diferencia_solo_vigente: number
 }
 
 export interface Cupos {
   excel: number
+  /** Cargos vigentes sin ocupante del sistema. */
   sistema: number
+  /** Cargos validacion_vacante sin ocupante del sistema (también entran al cupo). */
+  sistema_validacion: number
+  reusados: number
+  /** Filas e sin cargo para reusar (se crean). */
   faltan: number
+  /** Cargos del sistema sin fila e (pasan a NO VIGENTE). */
   sobran: number
   claves: number
   excel_por_bloque: Record<string, number>
+}
+
+/** Un concurso (o vínculo) que queda colgado de un cargo que el plan propone pasar a NO VIGENTE. */
+export interface ConcursoColgado {
+  cargo_codigo_sistema: string
+  estado_cargo: string
+  sigla: string
+  acronimo_propuesto: string
+  puesto: string
+  especialidad: string
+  /** CPH, CEETPS o 'sin concurso' (el cargo solo tiene otros vínculos). */
+  tipo_concurso: string
+  estado_concurso: string
+  sub_estado_concurso: string
+  /** 'si' / 'no' según concursoActivo.regla.ts; 'n/a' si no hay concurso. */
+  activo: string
+  expediente_concurso: string
+  motivo_concurso: string
+  autorizado: string
+  expediente_en_excel: string
+  fila_excel: string
+  otros_vinculos: string
+  revision: string
+}
+
+export interface TotalesColgados {
+  filas: number
+  cargos: number
+  por_tipo: Record<string, number>
+  activos: number
+  no_activos: number
+  por_tipo_activo: Record<string, { activo: number; no_activo: number }>
+  revisar: number
 }
 
 export interface ResultadoCruce {
@@ -134,10 +219,17 @@ export interface ResultadoCruce {
   particion: { a: number; b: number; c: number; d: number; e: number; i_filas: number; suma: number }
   cierre: Cierre
   cupos: Cupos
-  f_desglose: { sin_vinculos: number; con_vinculos: number; por_vinculo: Record<keyof VinculosCargo, number> }
+  f_desglose: {
+    sin_vinculos: number
+    con_vinculos: number
+    por_vinculo: Record<keyof VinculosCargo, number>
+    vigentes: number
+    validacion_vacante: number
+  }
   h_desglose: { no_vigente: number; validacion_vacante: number; eliminado: number }
   colisiones: number
   j_por_motivo: Record<string, number>
+  concursos_colgados: { filas: ConcursoColgado[]; totales: TotalesColgados }
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
@@ -163,6 +255,38 @@ const upper = (s: string | null | undefined) => String(s ?? '').trim().toUpperCa
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
+
+/**
+ * Clave normalizada de expediente `EX-AAAA-NNNNNNNN` (numero con ceros a la izquierda hasta 8 digitos).
+ * Tolera sufijos (`-GDEBA-...`), espacios y minusculas. Devuelve null si no hay un expediente reconocible.
+ */
+export function normalizarExpediente(raw: string | null | undefined): string | null {
+  const m = /EX[-\s]*(\d{4})[-\s]*(\d+)/i.exec(String(raw ?? ''))
+  if (!m) return null
+  return `EX-${m[1]}-${m[2].padStart(8, '0')}`
+}
+
+const ANULADO_AT = new Date(0)
+
+interface FilaE {
+  f: FilaNominal
+  estadoExcel: EstadoCargoSistema | null
+  key: string
+  exp: string | null
+}
+
+/** Cargo del sistema que puede reusarse para un cupo: vigente sin ocupante o validacion_vacante sin ocupante. */
+interface Candidato {
+  c: CargoSistema
+  key: string
+  /** Tiene algun concurso activo segun la regla unica (concursoActivo.regla.ts). */
+  activo: boolean
+  /** Expedientes normalizados de sus concursos activos. */
+  expActivos: Set<string>
+  vinc: number
+}
+
+type ViaReuso = 'expediente' | 'expediente_otro_cupo' | 'cupo'
 
 const esJefaturaAcronimo = (a: string) => a === 'ENF-J' || a === 'TEC-J' || a === 'EG-J'
 
@@ -291,6 +415,40 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
   let aCrearComoValidacion = 0
   const cuposExcel = new Map<string, number>()
   const cuposSistema = new Map<string, number>()
+  const filasE: FilaE[] = []
+  const candidatos: Candidato[] = []
+
+  // Concursos por cargo y su condicion de activo (regla unica).
+  const concursosPorCargo = new Map<string, ConcursoSistema[]>()
+  for (const co of sistema.concursos ?? []) {
+    const l = concursosPorCargo.get(co.cargoId)
+    if (l) l.push(co)
+    else concursosPorCargo.set(co.cargoId, [co])
+  }
+  const concursoActivo = (co: ConcursoSistema) =>
+    concursoCuentaComoActivo({
+      tipo: co.tipo,
+      estado: co.estado,
+      motivoConcurso: co.motivoConcurso,
+      autorizadoAt: co.autorizado ? ANULADO_AT : null,
+    })
+  const expedientesDe = (co: ConcursoSistema): string[] => {
+    const out = new Set<string>()
+    for (const x of co.expedientes) {
+      const n = normalizarExpediente(x)
+      if (n) out.add(n)
+    }
+    return [...out].sort(cmp)
+  }
+  const nuevoCandidato = (c: CargoSistema): Candidato => {
+    const cs = concursosPorCargo.get(c.id) ?? []
+    const activos = cs.filter(concursoActivo)
+    const expActivos = new Set<string>()
+    for (const co of activos) for (const e of expedientesDe(co)) expActivos.add(e)
+    const key = claveCupo(c.sigla, sistemaAcronimo(c), c.cr ?? '', c.puesto, c.especialidad ?? '', false)
+    cuposSistema.set(key, (cuposSistema.get(key) ?? 0) + 1)
+    return { c, key, activo: activos.length > 0, expActivos, vinc: sumaVinculos(c.vinculos) }
+  }
   const excelPorBloque: Record<string, number> = {}
 
   for (const f of filas) {
@@ -308,10 +466,9 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
       part.e++
       const bloque = f.bloque || 'sin bloque'
       excelPorBloque[bloque] = (excelPorBloque[bloque] ?? 0) + 1
-      if (estadoExcel === 'validacion_vacante') aCrearComoValidacion++
       const k = claveCupo(f.sigla, f.acronimo, f.cr, f.literal_puesto, f.especialidad_cargo, true)
       cuposExcel.set(k, (cuposExcel.get(k) ?? 0) + 1)
-      entradas.e.push(entradaDeFila(f, 'e', 'crear cupo', `bloque ${bloque}; estado ${f.estado}`))
+      filasE.push({ f, estadoExcel, key: k, exp: normalizarExpediente(f.expediente) })
       continue
     }
 
@@ -374,10 +531,7 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     }
   }
 
-  // Cargos del sistema: f, g, h, i (cargo).
-  const fPorVinculo = { concursos: 0, concursosCph: 0, concursosCeetps: 0, bajas: 0, padronHistorico: 0, padronIncidencias: 0, etiquetas: 0, solicitudesAlta: 0 }
-  let fSin = 0
-  let fCon = 0
+  // Cargos del sistema: candidatos al cupo (vigentes sin ocupante y validacion_vacante sin ocupante), g, h, i (cargo).
   let g = 0
   let vigentesHoy = 0
   let validacionHoy = 0
@@ -395,13 +549,19 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
       entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', 'cargo -TTR-: sin regla de recodificacion'))
     }
     if (c.eliminado || c.estado !== 'vigente') {
+      if (!c.eliminado && c.estado === 'validacion_vacante' && (ocupPorCargo.get(c.id) ?? 0) === 0) {
+        // validacion_vacante sin ocupante: entra al cruce por cupo junto con las vacantes vigentes.
+        validacionHoy++
+        candidatos.push(nuevoCandidato(c))
+        continue
+      }
       if (c.eliminado) h.eliminado++
       else if (c.estado === 'no_vigente') h.no_vigente++
       else if (c.estado === 'validacion_vacante') h.validacion_vacante++
       if (c.eliminado) {
         entradas.h.push(entradaDeCargo(c, 'h', 'informativo', `eliminado (deleted_at); estado ${c.estado}`))
       } else {
-        entradas.h.push(entradaDeCargo(c, 'h', 'informativo', c.estado === 'validacion_vacante' ? 'validacion_vacante (se cuenta aparte)' : 'ya no vigente'))
+        entradas.h.push(entradaDeCargo(c, 'h', 'informativo', c.estado === 'validacion_vacante' ? 'validacion_vacante con ocupacion viva (se cuenta aparte)' : 'ya no vigente'))
         if (c.estado === 'validacion_vacante') validacionHoy++
       }
       continue
@@ -412,15 +572,7 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
       entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', `cargo con ${nOcup} ocupaciones vivas`))
     }
     if (nOcup === 0) {
-      const v = sumaVinculos(c.vinculos)
-      if (v === 0) fSin++
-      else fCon++
-      for (const k of Object.keys(fPorVinculo) as (keyof VinculosCargo)[]) if (c.vinculos[k] > 0) fPorVinculo[k]++
-      const kSis = claveCupo(c.sigla, sistemaAcronimo(c), c.cr ?? '', c.puesto, c.especialidad ?? '', false)
-      cuposSistema.set(kSis, (cuposSistema.get(kSis) ?? 0) + 1)
-      entradas.f.push(
-        entradaDeCargo(c, 'f', 'candidato a reemplazo', v === 0 ? 'sin vinculos' : `con vinculos (${descVinculos(c.vinculos)})`),
-      )
+      candidatos.push(nuevoCandidato(c))
       continue
     }
     const roles = rolesPorCargo.get(c.id) ?? []
@@ -430,27 +582,165 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     }
   }
 
+  // ── Reuso por cupo ──
+  // Las filas e del Excel se emparejan con los candidatos (vigentes sin ocupante + validacion_vacante sin
+  // ocupante). Orden de preferencia (ver README, "Orden de preferencia al reusar"):
+  //   1) expediente: concurso ACTIVO del cargo cuyo expediente coincide con el de la fila (prioridad sobre el cupo);
+  //   2) misma clave de cupo (sigla|acronimo|puesto|especialidad), eligiendo dentro de la clave:
+  //      a) bloque "Concurso": primero cargos con concurso activo; resto de bloques: primero los SIN concurso activo,
+  //      b) cargo cuyo estado ya coincide con el estado del Excel (sin transicion),
+  //      c) mas vinculos (bajas, concursos, solicitudes: evita dejarlos colgados), d) codigo.
+  filasE.sort((x, y) => cmp(x.f.codigo_excel, y.f.codigo_excel) || cmp(x.key, y.key))
+  candidatos.sort((x, y) => cmp(x.c.codigo ?? '', y.c.codigo ?? '') || cmp(x.c.id, y.c.id))
+  const destinoDe = (r: FilaE): EstadoCargoSistema => r.estadoExcel ?? 'vigente'
+  const esConcurso = (r: FilaE) => norm(r.f.bloque) === 'concurso'
+  const asignacion = new Map<FilaE, { cand: Candidato; via: ViaReuso }>()
+  const candAsignado = new Set<Candidato>()
+  const asignar = (r: FilaE, cand: Candidato, via: ViaReuso) => {
+    asignacion.set(r, { cand, via })
+    candAsignado.add(cand)
+  }
+  const mejor = (r: FilaE, lista: Candidato[]): Candidato | undefined => {
+    let best: Candidato | undefined
+    let bestK: [number, number, number] = [0, 0, 0]
+    for (const cand of lista) {
+      if (candAsignado.has(cand)) continue
+      const k: [number, number, number] = [
+        esConcurso(r) ? (cand.activo ? 0 : 1) : cand.activo ? 1 : 0,
+        cand.c.estado === destinoDe(r) ? 0 : 1,
+        -cand.vinc,
+      ]
+      if (!best || k[0] < bestK[0] || (k[0] === bestK[0] && (k[1] < bestK[1] || (k[1] === bestK[1] && k[2] < bestK[2])))) {
+        best = cand
+        bestK = k
+      }
+    }
+    return best
+  }
+  // 1) Expediente.
+  const rowsPorExp = new Map<string, FilaE[]>()
+  for (const r of filasE) {
+    if (!r.exp) continue
+    const l = rowsPorExp.get(r.exp)
+    if (l) l.push(r)
+    else rowsPorExp.set(r.exp, [r])
+  }
+  const candsPorExp = new Map<string, Candidato[]>()
+  for (const cand of candidatos) {
+    for (const e of [...cand.expActivos].sort(cmp)) {
+      const l = candsPorExp.get(e)
+      if (l) l.push(cand)
+      else candsPorExp.set(e, [cand])
+    }
+  }
+  for (const exp of [...rowsPorExp.keys()].sort(cmp)) {
+    const cands = candsPorExp.get(exp)
+    if (!cands) continue
+    const rows = rowsPorExp.get(exp) ?? []
+    for (const r of rows) {
+      const m = mejor(r, cands.filter((x) => x.key === r.key))
+      if (m) asignar(r, m, 'expediente')
+    }
+    const rowsLibres = rows.filter((r) => !asignacion.has(r))
+    const candsLibres = cands.filter((x) => !candAsignado.has(x))
+    // Cupo distinto: solo si queda exactamente una fila y un cargo para ese expediente (1 a 1, sin ambiguedad).
+    if (rowsLibres.length === 1 && candsLibres.length === 1) asignar(rowsLibres[0], candsLibres[0], 'expediente_otro_cupo')
+  }
+  // 2) Cupo. Las filas del bloque Concurso eligen primero (necesitan los cargos con concurso activo).
+  const candsPorClave = new Map<string, Candidato[]>()
+  for (const cand of candidatos) {
+    const l = candsPorClave.get(cand.key)
+    if (l) l.push(cand)
+    else candsPorClave.set(cand.key, [cand])
+  }
+  const orden = filasE
+    .filter((r) => !asignacion.has(r))
+    .sort((x, y) => Number(esConcurso(y)) - Number(esConcurso(x)) || cmp(x.f.codigo_excel, y.f.codigo_excel))
+  for (const r of orden) {
+    const m = mejor(r, candsPorClave.get(r.key) ?? [])
+    if (m) asignar(r, m, 'cupo')
+  }
+
+  // Salidas e (filas del Excel sin ocupante) y f (candidatos del sistema).
+  const textoVia: Record<ViaReuso, string> = {
+    expediente: 'por expediente del concurso activo',
+    expediente_otro_cupo: 'por expediente del concurso activo (el cupo difiere: se actualizan los atributos)',
+    cupo: 'por cupo',
+  }
+  const transicion = (c: CargoSistema, destino: EstadoCargoSistema) =>
+    c.estado === destino ? `estado ${c.estado} (sin cambio)` : `transicion de estado ${c.estado} -> ${destino}`
+  const fPorVinculo = { concursos: 0, concursosCph: 0, concursosCeetps: 0, bajas: 0, padronHistorico: 0, padronIncidencias: 0, etiquetas: 0, solicitudesAlta: 0 }
+  let fSin = 0
+  let fCon = 0
+  let aCrearComoValidacionE = 0
+  const reusadoPor = new Map<Candidato, FilaE>()
+  for (const [r, a] of asignacion) reusadoPor.set(a.cand, r)
+  for (const r of filasE) {
+    const bloque = r.f.bloque || 'sin bloque'
+    const a = asignacion.get(r)
+    if (a) {
+      entradas.e.push(
+        entradaDeFila(r.f, 'e', 'reusar cargo del sistema', `bloque ${bloque}; estado Excel ${r.f.estado}; reusa ${textoVia[a.via]}; ${transicion(a.cand.c, destinoDe(r))}`, {
+          cargo_codigo_sistema: a.cand.c.codigo ?? '',
+        }),
+      )
+    } else {
+      if (r.estadoExcel === 'validacion_vacante') aCrearComoValidacionE++
+      entradas.e.push(entradaDeFila(r.f, 'e', 'crear cupo', `bloque ${bloque}; estado ${r.f.estado}`))
+    }
+  }
+  let fReusVig = 0
+  let fReusVal = 0
+  let fSobVig = 0
+  let fSobVal = 0
+  let deltaSoloVigente = 0
+  const sobrantes: Candidato[] = []
+  for (const cand of candidatos) {
+    const c = cand.c
+    const v = cand.vinc
+    if (v === 0) fSin++
+    else fCon++
+    for (const k of Object.keys(fPorVinculo) as (keyof VinculosCargo)[]) if (c.vinculos[k] > 0) fPorVinculo[k]++
+    const r = reusadoPor.get(cand)
+    const vincTxt = v === 0 ? 'sin vinculos' : `con vinculos (${descVinculos(c.vinculos)})`
+    const origen = c.estado === 'validacion_vacante' ? 'validacion_vacante' : 'vacante vigente'
+    if (r) {
+      const destino = destinoDe(r)
+      if (c.estado === 'vigente') fReusVig++
+      else fReusVal++
+      if (c.estado === 'vigente' && destino !== 'vigente') deltaSoloVigente--
+      if (c.estado !== 'vigente' && destino === 'vigente') deltaSoloVigente++
+      const e = entradaDeCargo(c, 'f', 'reusar para cupo del Excel', `${origen}; reusa fila ${r.f.codigo_excel} ${textoVia[asignacion.get(r)!.via]}; ${transicion(c, destino)}; ${vincTxt}`)
+      e.codigo_excel = r.f.codigo_excel
+      entradas.f.push(e)
+    } else {
+      if (c.estado === 'vigente') fSobVig++
+      else fSobVal++
+      sobrantes.push(cand)
+      entradas.f.push(entradaDeCargo(c, 'f', 'pasar a no_vigente', `${origen}; sobrante de cupo (sin fila sin ocupante equivalente en el Excel); ${vincTxt}`))
+    }
+  }
+
   // Colisiones de recodificación sobre cargos.codigo (@unique, incluye eliminados).
   const colisiones = detectarColisiones(sistema.cargos, propuestoPorCargo, filaDeCargo)
   for (const e of colisiones) entradas.i.push(e)
 
-  // Cupos.
-  let faltan = 0
-  let sobran = 0
+  // Cupos (por asignacion real: incluye los reusos por expediente de otro cupo).
+  const reusados = asignacion.size
   const claves = new Set([...cuposExcel.keys(), ...cuposSistema.keys()])
-  for (const k of claves) {
-    const dx = (cuposExcel.get(k) ?? 0) - (cuposSistema.get(k) ?? 0)
-    if (dx > 0) faltan += dx
-    else sobran -= dx
-  }
   const cupos: Cupos = {
     excel: part.e,
-    sistema: fSin + fCon,
-    faltan,
-    sobran,
+    sistema: fReusVig + fSobVig,
+    sistema_validacion: fReusVal + fSobVal,
+    reusados,
+    faltan: part.e - reusados,
+    sobran: candidatos.length - reusados,
     claves: claves.size,
     excel_por_bloque: Object.fromEntries(Object.entries(excelPorBloque).sort(([x], [y]) => cmp(x, y))),
   }
+
+  // Concursos (y otros vinculos) que quedan colgados de cargos que pasan a NO VIGENTE.
+  const colgados = concursosColgados(sobrantes, filas)
 
   // Orden estable.
   for (const cat of CATEGORIAS) {
@@ -462,22 +752,43 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     )
   }
 
-  const aCrear = part.c + part.d + part.e
+  const eNuevos = part.e - reusados
+  const aCrear = part.c + part.d + eNuevos
+  const aCrearComoValidacionTotal = aCrearComoValidacion + aCrearComoValidacionE
   const totalExcel = filas.length
-  const proyectadoSolo = vigentesHoy + (aCrear - aCrearComoValidacion) - (fSin + fCon) - g
-  const proyectadoMas = vigentesHoy + validacionHoy + aCrear - (fSin + fCon) - g
+  const excelVigente = filas.filter((f) => estadoDeExcel(f.estado) === 'vigente').length
+  const excelValidacion = filas.filter((f) => estadoDeExcel(f.estado) === 'validacion_vacante').length
+  // Métrica principal: vigente + validacion_vacante.
+  const proyectadoMas = vigentesHoy + validacionHoy + aCrear - fSobVig - fSobVal - g
+  // Secundario: solo vigente (los reusados quedan con el estado del Excel).
+  const proyectadoSolo = vigentesHoy - g - fSobVig + (aCrear - aCrearComoValidacionTotal) + deltaSoloVigente
   const cierre: Cierre = {
     vigentes_hoy: vigentesHoy,
     validacion_vacante_hoy: validacionHoy,
     a_crear: aCrear,
-    a_crear_como_validacion: aCrearComoValidacion,
-    f_reemplazados: fSin + fCon,
+    a_crear_como_validacion: aCrearComoValidacionTotal,
+    e_reusadas: reusados,
+    e_reusadas_por_expediente: [...asignacion.values()].filter((x) => x.via !== 'cupo').length,
+    f_reusados: fReusVig,
+    validacion_reusados: fReusVal,
+    f_a_no_vigente: fSobVig,
+    validacion_a_no_vigente: fSobVal,
     g_a_no_vigente: g,
-    proyectado_solo_vigente: proyectadoSolo,
     proyectado_vigente_mas_validacion: proyectadoMas,
     total_excel: totalExcel,
-    diferencia_solo_vigente: proyectadoSolo - totalExcel,
     diferencia_vigente_mas_validacion: proyectadoMas - totalExcel,
+    diferencia_por_categoria: {
+      a_b: cargosCubiertos.size - (part.a + part.b),
+      c: 0,
+      d: 0,
+      e: reusados + eNuevos - part.e,
+      i_filas: -part.i_filas,
+      sistema_sin_fila_excel: proyectadoMas - cargosCubiertos.size - part.c - part.d - part.e,
+    },
+    excel_vigente: excelVigente,
+    excel_en_validacion: excelValidacion,
+    proyectado_solo_vigente: proyectadoSolo,
+    diferencia_solo_vigente: proyectadoSolo - excelVigente,
   }
 
   const jPorMotivo: Record<string, number> = {}
@@ -495,10 +806,97 @@ export function cruzar(filas: FilaNominal[], sistema: SnapshotSistema): Resultad
     particion: { ...part, suma: part.a + part.b + part.c + part.d + part.e + part.i_filas },
     cierre,
     cupos,
-    f_desglose: { sin_vinculos: fSin, con_vinculos: fCon, por_vinculo: fPorVinculo },
+    f_desglose: {
+      sin_vinculos: fSin,
+      con_vinculos: fCon,
+      por_vinculo: fPorVinculo,
+      vigentes: fReusVig + fSobVig,
+      validacion_vacante: fReusVal + fSobVal,
+    },
     h_desglose: h,
     colisiones: colisiones.length,
     j_por_motivo: Object.fromEntries(Object.entries(jPorMotivo).sort(([x], [y]) => cmp(x, y))),
+    concursos_colgados: colgados,
+  }
+
+  // ── Helpers con acceso al snapshot ──
+  function concursosColgados(sobr: Candidato[], todas: FilaNominal[]): { filas: ConcursoColgado[]; totales: TotalesColgados } {
+    const expExcel = new Map<string, Set<string>>()
+    for (const f of todas) {
+      const e = normalizarExpediente(f.expediente)
+      if (!e) continue
+      const set = expExcel.get(e)
+      if (set) set.add(f.codigo_excel)
+      else expExcel.set(e, new Set([f.codigo_excel]))
+    }
+    const filasOut: ConcursoColgado[] = []
+    for (const cand of sobr) {
+      const c = cand.c
+      const cs = concursosPorCargo.get(c.id) ?? []
+      const v = c.vinculos
+      const otros = descVinculos({ ...v, concursos: 0, concursosCph: 0, concursosCeetps: 0 })
+      if (cs.length === 0 && !(sumaVinculos(v) > 0)) continue
+      const base = {
+        cargo_codigo_sistema: c.codigo ?? '',
+        estado_cargo: c.estado,
+        sigla: c.sigla,
+        acronimo_propuesto: sistemaAcronimo(c),
+        puesto: c.puesto,
+        especialidad: c.especialidad ?? '',
+        otros_vinculos: otros,
+      }
+      if (cs.length === 0) {
+        filasOut.push({
+          ...base, tipo_concurso: 'sin concurso', estado_concurso: '', sub_estado_concurso: '', activo: 'n/a',
+          expediente_concurso: '', motivo_concurso: '', autorizado: 'n/a', expediente_en_excel: 'no', fila_excel: '', revision: '',
+        })
+        continue
+      }
+      for (const co of cs) {
+        const activo = concursoActivo(co)
+        const exps = expedientesDe(co)
+        const enExcel = exps.filter((e) => expExcel.has(e))
+        const filasExcel = [...new Set(enExcel.flatMap((e) => [...(expExcel.get(e) ?? [])]))].sort(cmp)
+        const filaTxt = filasExcel.length > 5 ? `${filasExcel.slice(0, 5).join(' | ')} | +${filasExcel.length - 5}` : filasExcel.join(' | ')
+        filasOut.push({
+          ...base,
+          tipo_concurso: co.tipo === 'cph' ? 'CPH' : 'CEETPS',
+          estado_concurso: co.estado,
+          sub_estado_concurso: co.subEstado ?? '',
+          activo: activo ? 'si' : 'no',
+          expediente_concurso: exps.join(' | '),
+          motivo_concurso: co.motivoConcurso ?? '',
+          autorizado: co.autorizado ? 'si' : 'no',
+          expediente_en_excel: enExcel.length ? 'si' : 'no',
+          fila_excel: filaTxt,
+          revision: activo && enExcel.length ? 'revisar: el Excel tiene este expediente en otra fila' : '',
+        })
+      }
+    }
+    filasOut.sort((x, y) => cmp(x.cargo_codigo_sistema, y.cargo_codigo_sistema) || cmp(x.tipo_concurso, y.tipo_concurso) || cmp(x.expediente_concurso, y.expediente_concurso) || cmp(x.estado_concurso, y.estado_concurso))
+    const totales: TotalesColgados = {
+      filas: filasOut.length,
+      cargos: new Set(filasOut.map((x) => x.cargo_codigo_sistema)).size,
+      por_tipo: {},
+      activos: 0,
+      no_activos: 0,
+      por_tipo_activo: {},
+      revisar: 0,
+    }
+    for (const x of filasOut) {
+      totales.por_tipo[x.tipo_concurso] = (totales.por_tipo[x.tipo_concurso] ?? 0) + 1
+      if (x.revision) totales.revisar++
+      if (x.activo === 'n/a') continue
+      const t = (totales.por_tipo_activo[x.tipo_concurso] ??= { activo: 0, no_activo: 0 })
+      if (x.activo === 'si') {
+        totales.activos++
+        t.activo++
+      } else {
+        totales.no_activos++
+        t.no_activo++
+      }
+    }
+    return { filas: filasOut, totales }
   }
 
   // ── Helpers con acceso al catálogo ──
