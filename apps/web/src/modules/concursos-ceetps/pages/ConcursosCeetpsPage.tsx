@@ -77,7 +77,7 @@ export function ConcursosCeetpsPage() {
           <div className="min-w-[240px]">
             <ComboBuscable
               modo="unico"
-              label="Carrera"
+              label=""
               options={opcionesCarreraEscalafon(escalafonesOrdenados)}
               selected={escalafonId ? [escalafonId] : []}
               onChange={(v) => resetPage(setEscalafonId)(v[0] ?? '')}

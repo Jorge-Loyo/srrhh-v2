@@ -93,7 +93,7 @@ export function JuradosTab() {
           <div className="min-w-[240px]">
             <ComboBuscable
               modo="unico"
-              label="Especialidad"
+              label=""
               options={especialidades.map((e) => ({ value: e, label: e }))}
               selected={especialidad ? [especialidad] : []}
               onChange={(v) => setEspecialidad(v[0] ?? '')}

@@ -113,7 +113,7 @@ export function FiltrosCatalogo({
       <div className="min-w-[240px]">
         <ComboBuscable
           modo="unico"
-          label="Carrera"
+          label=""
           options={opcionesCarreraEscalafon(escalafones ?? [])}
           selected={escalafonId ? [escalafonId] : []}
           onChange={(v) => cambiarEscalafon(v[0] ?? '')}
@@ -151,7 +151,7 @@ export function FiltrosCatalogo({
         <div className="min-w-[240px]">
           <ComboBuscable
             modo="unico"
-            label="Puesto"
+            label=""
             options={puestosLista.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
             selected={puestoCargoId ? [puestoCargoId] : []}
             onChange={(v) => cambiarPuesto(v[0] ?? '')}
@@ -164,7 +164,7 @@ export function FiltrosCatalogo({
         <div className="min-w-[240px]">
           <ComboBuscable
             modo="unico"
-            label="Especialidad"
+            label=""
             options={especialidadesLista.map((esp) => ({ value: esp.id, label: capitalizar(esp.nombre) }))}
             selected={especialidadPuestoId ? [especialidadPuestoId] : []}
             onChange={(v) => onChange({ especialidadPuestoId: v[0] ?? '' })}
