@@ -65,7 +65,10 @@ RT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.agents/tasks/sync-cargos-msgc/runtime
    ```bash
    docker cp "$RT/nominal_<corte>.csv" srrhh_api:/tmp/sync-msgc/in/
    docker cp "$RT/meta.json" srrhh_api:/tmp/sync-msgc/in/
-   docker cp "$WT/apps/api/scripts/sync-cargos-msgc" srrhh_api:/repo/apps/api/scripts/sync-cargos-msgc
+   # Borrar el destino antes: si ya existe, `docker cp <dir>` anida la copia y correría el código viejo.
+   docker exec srrhh_api rm -rf /repo/apps/api/scripts/sync-cargos-msgc
+   docker exec srrhh_api mkdir -p /repo/apps/api/scripts/sync-cargos-msgc
+   docker cp "$WT/apps/api/scripts/sync-cargos-msgc/." srrhh_api:/repo/apps/api/scripts/sync-cargos-msgc/
    ```
 
 4. **Correr el dry-run dentro del contenedor:**
@@ -83,7 +86,7 @@ RT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.agents/tasks/sync-cargos-msgc/runtime
 
    ```bash
    docker cp srrhh_api:/tmp/sync-msgc/out <destino>
-   docker exec srrhh_api rm -rf /tmp/sync-msgc
+   docker exec srrhh_api rm -rf /tmp/sync-msgc /repo/apps/api/scripts/sync-cargos-msgc
    rm "$RT/nominal_<corte>.csv"   # contiene id_sial_rol (clave de cruce): no dejarlo
    ```
 
@@ -91,9 +94,14 @@ RT=/mnt/c/Desarrollo/SRH/SRRHH-Legacy/.agents/tasks/sync-cargos-msgc/runtime
 
 - **`docker exec` y no `tsx` desde WSL:** `node_modules` se instaló para otra plataforma y `tsx`/esbuild
   falla por binario de plataforma (ver `ARRANQUE_LOCAL.md`). Dentro del contenedor corre bien.
-- **`docker cp` y no el worktree:** el contenedor `srrhh_api` monta solo `apps/api/src`, `packages/*/src` y
-  `prisma/` del checkout principal. No monta `scripts/` ni el worktree, así que el código se copia. El script
-  importa `../../src/shared/txOpts.js`, que sí está montado.
+- **`docker cp` y no el worktree:** el contenedor `srrhh_api` monta solo `apps/api/src`, `packages/types/src`,
+  `packages/utils/src` y `prisma/` del checkout principal (ver `docker-compose.override.yml`). No monta
+  `scripts/` ni el worktree, así que el código se copia. El script importa `../../src/shared/txOpts.js`, que sí
+  está montado. `@srrhh/normalizacion` (usado por `acronimoMsgc`, `cruce` y `equivalencias`) NO está montado: se
+  resuelve desde la imagen, igual que ya lo hace `apps/api/src`. No se pudo verificar en un contenedor; si la
+  primera corrida falla con "Cannot find package '@srrhh/normalizacion'", reportar el error exacto.
+- **Código viejo:** `meta.json` del resultado informa `version_equivalencias`; comprobar que coincida con la
+  versión esperada tras actualizar equivalencias.
 - **El Excel no entra al contenedor:** el preprocesador corre en el host y no lee la columna de nombres
   (AC); de la columna M conserva solo valores `EX-AAAA-...`. Así CUIL y nombres nunca llegan al lector.
 
