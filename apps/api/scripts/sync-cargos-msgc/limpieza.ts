@@ -38,7 +38,9 @@ export const TABLAS_BORRAR: readonly TablaBorrar[] = [
   { tabla: 'ordenes_merito', alcance: 'todo', donde: '' },
   // Concursos fuera del Excel y su historia.
   { tabla: 'concursos_cph_desiertos', alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` },
-  { tabla: 'inscriptos_concurso', alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` },
+  // Decision de Jorge (12-nov): los inscriptos son datos generados; se borran TODOS, tambien los de concursos que estan en el Excel.
+  // Para volver a conservar los de concursos del Excel: cambiar a { alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` }.
+  { tabla: 'inscriptos_concurso', alcance: 'todo', donde: '' },
   { tabla: 'etiquetas_concurso_cph', alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` },
   { tabla: 'concursos_cph', alcance: 'fuera_excel', donde: FUERA_BASE },
   { tabla: 'concursos_ceetps', alcance: 'fuera_excel', donde: FUERA_BASE },

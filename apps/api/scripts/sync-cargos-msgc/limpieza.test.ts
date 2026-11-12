@@ -88,7 +88,7 @@ describe('construirPlanBorrado', () => {
     expect(plan.map((p) => p.tabla)).toEqual(TABLAS_BORRAR.map((t) => t.tabla))
     expect(plan.find((p) => p.tabla === 'audit_logs')).toMatchObject({ filas: 10, exacto: true })
     expect(plan.find((p) => p.tabla === 'concursos_cph')).toMatchObject({ filas: 4, exacto: true, total: 10 })
-    expect(plan.find((p) => p.tabla === 'inscriptos_concurso')).toMatchObject({ filas: 10, exacto: false })
+    expect(plan.find((p) => p.tabla === 'inscriptos_concurso')).toMatchObject({ filas: 10, exacto: true, alcance: 'todo' })
   })
 
   it('tablas sin conteo cuentan 0', () => {
