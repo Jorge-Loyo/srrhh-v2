@@ -2278,3 +2278,6 @@ export const CR_POR_CODIGO_ESCALAFON_GESTIONADO: Readonly<Record<string, string>
 
 /** Códigos de escalafón de las carreras que gestionamos (selector Carrera de /cargos/alta). */
 export const CODIGOS_ESCALAFON_GESTIONADOS: readonly string[] = Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO)
+
+// Documento de origen del concurso (función pura compartida API/Web)
+export * from './documentoOrigen.js'

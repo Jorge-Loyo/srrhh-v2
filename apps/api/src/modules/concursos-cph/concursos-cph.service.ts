@@ -1,5 +1,6 @@
 import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
 import { Prisma, type ConcursoCph } from '@prisma/client'
+import { documentoOrigenDeConcurso } from '@srrhh/types'
 import { parse as parseCsv } from 'csv-parse/sync'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
@@ -484,7 +485,21 @@ export async function getConcursoCphByIdService(id: string) {
       : null
   const correccionesTipo = await listarCorreccionesTipo(id)
   const saltoOm = await armarSaltoOm(concursoCph)
-  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo, saltoOm }
+  // Documento de origen (Etapa 1): campo ADITIVO. No toca eeBaja ni lo que usa calcConcursoCph.
+  const documentoOrigen = documentoOrigenDeConcurso({
+    motivoConcurso: concursoCph.concurso?.motivoConcurso ?? null,
+    eeBaja: concursoCph.eeBaja ?? concursoCph.concurso?.baja?.eeBaja ?? null,
+    expedienteConcurso: concursoCph.concurso?.expediente ?? null,
+    expedienteCargo: concursoCph.concurso?.cargo?.expediente ?? null,
+  })
+  return {
+    ...flattenEtiquetas(concursoCph),
+    autorizacionPendiente,
+    ultimaAutorizacionRechazada,
+    correccionesTipo,
+    saltoOm,
+    documentoOrigen,
+  }
 }
 
 // Campos de tipo fecha del PATCH — explícito en vez de heurística por nombre

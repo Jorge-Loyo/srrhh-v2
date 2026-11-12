@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { documentoOrigenDeConcurso } from '@srrhh/types'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { ConcursosCeetpsQuery, PatchConcursoCeetpsBody, DesignarCeetpsBody } from './concursos-ceetps.schema.js'
@@ -115,8 +116,21 @@ export async function getConcursoCeetpsByIdService(id: string) {
   // Paso 2b: autorización pendiente y último rechazo, solo para nuevo_cargo sin
   // autorizar. Las Autorizacion concurso_ceetps guardan referenciaId = ConcursoCeetps.id.
   const correccionesTipo = await listarCorreccionesTipo(id)
+  // Documento de origen (Etapa 1): campo ADITIVO, no toca lo que usa calcEstadoCeetps.
+  const documentoOrigen = documentoOrigenDeConcurso({
+    motivoConcurso: concursoCeetps.concurso?.motivoConcurso ?? null,
+    eeBaja: concursoCeetps.concurso?.baja?.eeBaja ?? null,
+    expedienteConcurso: concursoCeetps.concurso?.expediente ?? null,
+    expedienteCargo: concursoCeetps.concurso?.cargo?.expediente ?? null,
+  })
   if (!esNuevoCargoSinAutorizar(concursoCeetps.concurso)) {
-    return { ...concursoCeetps, autorizacionPendiente: null, ultimaAutorizacionRechazada: null, correccionesTipo }
+    return {
+      ...concursoCeetps,
+      autorizacionPendiente: null,
+      ultimaAutorizacionRechazada: null,
+      correccionesTipo,
+      documentoOrigen,
+    }
   }
   const [autorizacionPendiente, rechazada] = await Promise.all([
     prisma.autorizacion.findFirst({
@@ -147,7 +161,7 @@ export async function getConcursoCeetpsByIdService(id: string) {
             : null,
         }
       : null
-  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo }
+  return { ...concursoCeetps, autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo, documentoOrigen }
 }
 
 // ─── S5-1: actualizar campos por fase — estado y subEstado se recalculan ─────
