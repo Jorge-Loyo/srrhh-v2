@@ -379,6 +379,71 @@ export async function listConcursosCphService(
 }
 
 // ─── S4-2: detalle completo ──────────────────────────────────────────────────
+// Paso 5b: datos del salto por orden de mérito para el GET del concurso (null si no hubo).
+async function armarSaltoOm(c: { id: string; saltoOmAt: Date | null; saltoOmIntegranteId: string | null }) {
+  if (!c.saltoOmAt) return null
+  const [integrante, auditoria] = await Promise.all([
+    c.saltoOmIntegranteId
+      ? prisma.ordenMeritoIntegrante.findUnique({
+          where: { id: c.saltoOmIntegranteId },
+          select: {
+            id: true,
+            posicion: true,
+            apellidoNombre: true,
+            cuil: true,
+            ordenMerito: {
+              select: {
+                id: true,
+                concursoCph: {
+                  select: {
+                    id: true,
+                    tipoGestion: true,
+                    concurso: { select: { cargo: { select: { codigo: true } } } },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : null,
+    prisma.auditLog.findFirst({
+      where: { entidad: 'concurso_cph_om', entidadId: c.id, accion: 'designar_desde_om' },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        cambios: true,
+        usuario: { select: { nombre: true, apellido: true, username: true } },
+      },
+    }),
+  ])
+  const cambios = (auditoria?.cambios ?? {}) as Record<string, unknown>
+  const origen = integrante?.ordenMerito.concursoCph
+  const u = auditoria?.usuario
+  return {
+    at: c.saltoOmAt,
+    integrante: integrante
+      ? {
+          id: integrante.id,
+          posicion: integrante.posicion,
+          apellidoNombre: integrante.apellidoNombre,
+          cuil: integrante.cuil,
+        }
+      : {
+          id: c.saltoOmIntegranteId ?? '',
+          posicion: Number(cambios.posicion ?? 0),
+          apellidoNombre: String(cambios.apellidoNombre ?? ''),
+          cuil: String(cambios.cuil ?? ''),
+        },
+    ordenMeritoId: integrante?.ordenMerito.id ?? (cambios.ordenMeritoId as string | undefined) ?? null,
+    concursoOrigen: origen
+      ? { id: origen.id, codigo: origen.concurso?.cargo?.codigo ?? null }
+      : cambios.concursoOrigenId
+        ? { id: String(cambios.concursoOrigenId), codigo: (cambios.concursoOrigenCodigo as string | undefined) ?? null }
+        : null,
+    tipoGestionOrigen: origen?.tipoGestion ?? (cambios.tipoGestionOrigen as string | undefined) ?? null,
+    pasosResueltos: Array.isArray(cambios.pasosResueltos) ? (cambios.pasosResueltos as string[]) : [],
+    usuario: u ? [u.nombre, u.apellido].filter(Boolean).join(' ') || u.username : null,
+  }
+}
 export async function getConcursoCphByIdService(id: string) {
   const concursoCph = await prisma.concursoCph.findUnique({ where: { id }, include })
   if (!concursoCph) throw AppError.notFound('Concurso CPH no encontrado')
@@ -418,7 +483,8 @@ export async function getConcursoCphByIdService(id: string) {
         }
       : null
   const correccionesTipo = await listarCorreccionesTipo(id)
-  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo }
+  const saltoOm = await armarSaltoOm(concursoCph)
+  return { ...flattenEtiquetas(concursoCph), autorizacionPendiente, ultimaAutorizacionRechazada, correccionesTipo, saltoOm }
 }
 
 // Campos de tipo fecha del PATCH — explícito en vez de heurística por nombre
@@ -796,9 +862,11 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
 // ⚠️ SIN LLAMADORES (verificado 2026-11): el camino vivo es aprobarAutorizacionService
 // (autorizaciones.service.ts → _aprobarCph). Esta versión quedó huérfana y compara
 // rolSlug === 'sgrasv' a mano, que NO matchea el rol real (slug con hash).
-// NO borrar sin decidir antes: acá vive el "salto de etapas por reutilización de OM"
-// (al aprobar, arrastra las etapas 2 y 3 del concurso de origen de la OM reservada),
-// regla de negocio del commit 3c77d3e que el camino vivo NO tiene.
+// NO borrar sin decidir antes. El "salto de etapas por reutilización de OM" ya NO vive
+// acá: ahora está en omSalto.service.ts (designarDesdeOmService, Etapa 2, Paso 5b), que
+// designa a la persona de la OM y salta a H-TAD. El arrastre de fechas de las etapas 2-3
+// del concurso de origen (commit 3c77d3e) se descartó a propósito: no se inventan datos
+// de examen/jurado que este concurso no tuvo.
 export async function aprobarAutorizacionCphService(
   id: string,
   rolSlug: string,
@@ -1451,6 +1519,7 @@ export async function importarConcursosCsvService(buffer: Buffer) {
       fechaDispoDesierta: merged.fechaDispoDesierta,
       validado: merged.validado,
       validadoIdSialRol: merged.validadoIdSialRol,
+      saltoPorOm: merged.saltoOmAt != null,
     })
 
     await prisma.concursoCph.update({

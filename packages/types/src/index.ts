@@ -482,6 +482,59 @@ export interface ConcursoCph {
   personaDesignada?: Persona
   // Etiquetas asignadas (aplanadas desde la tabla join por el backend)
   etiquetas?: Etiqueta[]
+  // Paso 5b: salto a designación desde una orden de mérito existente.
+  // saltoOm viene solo en GET /:id (null si no hubo salto).
+  saltoOmAt?: string | null
+  saltoOm?: SaltoOmConcurso | null
+}
+// Paso 5b — datos del salto por orden de mérito (GET /concursos-cph/:id).
+export interface SaltoOmConcurso {
+  at: string
+  integrante: { id: string; posicion: number; apellidoNombre: string; cuil: string }
+  ordenMeritoId: string | null
+  concursoOrigen: { id: string; codigo: string | null } | null
+  tipoGestionOrigen: string | null
+  pasosResueltos: string[]
+  // Nombre de quien hizo el salto (audit_log); null si no se pudo determinar.
+  usuario: string | null
+}
+// Paso 5b — GET /concursos-cph/:id/om-disponibles
+export interface OmDisponibleIntegrante {
+  id: string
+  posicion: number
+  apellidoNombre: string
+  cuil: string
+}
+export interface OmDisponible {
+  id: string
+  concursoOrigen: {
+    id: string
+    codigo: string | null
+    tipoGestion: 'centralizado' | 'descentralizado' | null
+    hospital: { sigla: string | null; nombre: string | null }
+  }
+  especialidad: string
+  puesto: string | null
+  expediente: string | null
+  fechaPublicacion: string
+  vigenteHasta: string
+  // Avisos de la regla de gestión (centralizado/descentralizado). Nunca bloquean.
+  advertencias: string[]
+  integrantes: OmDisponibleIntegrante[]
+}
+export type MotivoNoHabilitadoOm =
+  | 'solo_nuevo_cargo'
+  | 'sin_tipo_gestion'
+  | 'concurso_finalizado'
+  | 'concurso_suspendido'
+  | 'etapa_avanzada'
+  | 'ya_resuelto'
+  | 'sin_especialidad'
+export interface OmDisponiblesResponse {
+  habilitado: boolean
+  motivoNoHabilitado: MotivoNoHabilitadoOm | null
+  tipoGestionDestino: 'centralizado' | 'descentralizado' | null
+  ordenes: OmDisponible[]
 }
 
 export interface ConcursoCeetps {

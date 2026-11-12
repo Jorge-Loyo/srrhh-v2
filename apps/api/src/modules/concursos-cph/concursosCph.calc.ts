@@ -58,6 +58,10 @@ export interface ConcursoCphCalcInput {
   // fija el piso del sub-estado (a-caratulado / a-autzn / b-sorteo jur). Los
   // campos de etapas posteriores siguen ganando. undefined = comportamiento de siempre.
   autorizacionNuevoCargo?: AutorizacionNuevoCargoCalc
+  // Paso 5b: el concurso saltó a designación usando una persona de una orden de
+  // mérito existente (salto_om_at != null). Sub-estado h-tad / sub_estado_3
+  // f-prox. a desig, igual que si tuviera ee_designacion. undefined = false.
+  saltoPorOm?: boolean
 }
 export type AutorizacionNuevoCargoCalc = 'sin_solicitar' | 'pendiente' | 'autorizado'
 
@@ -104,6 +108,7 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaAptoMedico) return 'j-apto med'
   if (row.cargaDocumentacion) return 'i-carga docu'
   if (row.eeDesignacion) return 'h-tad'
+  if (row.saltoPorOm) return 'h-tad'
   if (row.fechaInsal) return 'g-insal'
   if (row.fechaIfacs) return 'f-ifacs'
   if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'e-orden de merito'
@@ -137,6 +142,7 @@ function calcSubEstado3(row: ConcursoCphCalcInput): string {
   if (row.fechaDispoDesierta) return 'h-desierto'
   if (row.resolucionDesignacion) return 'g-resolucion'
   if (row.eeDesignacion) return 'f-prox. a desig'
+  if (row.saltoPorOm) return 'f-prox. a desig'
   if (row.fechaExamen && hoy >= row.fechaExamen) return 'e-adjudi'
   if (row.fechaInscHasta && hoy >= row.fechaInscHasta) return 'd-etapa eval'
   if (row.disposicion) return 'c-inscripcion'
@@ -205,6 +211,7 @@ export const SUB_ESTADO_3_SQL_PG = `
     WHEN fecha_dispo_desierta IS NOT NULL THEN 'h-desierto'
     WHEN COALESCE(resolucion_designacion, '') <> '' THEN 'g-resolucion'
     WHEN COALESCE(ee_designacion, '') <> '' THEN 'f-prox. a desig'
+    WHEN salto_om_at IS NOT NULL THEN 'f-prox. a desig'
     WHEN fecha_examen IS NOT NULL AND fecha_examen <= CURRENT_DATE THEN 'e-adjudi'
     WHEN fecha_insc_hasta IS NOT NULL AND fecha_insc_hasta <= CURRENT_DATE THEN 'd-etapa eval'
     WHEN COALESCE(disposicion, '') <> '' THEN 'c-inscripcion'

@@ -276,3 +276,10 @@ export const generarSorteoJuradoSchema = z
   )
 
 export type GenerarSorteoJuradoBody = z.infer<typeof generarSorteoJuradoSchema>
+
+// Paso 5b — POST /:id/om/designar: salto a designación con una persona de una OM.
+export const designarDesdeOmSchema = z.object({
+  integranteId: z.string().uuid(),
+  motivo: z.string().trim().max(300).optional(),
+})
+export type DesignarDesdeOmBody = z.infer<typeof designarDesdeOmSchema>

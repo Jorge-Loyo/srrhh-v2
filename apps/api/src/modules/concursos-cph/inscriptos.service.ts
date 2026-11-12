@@ -12,6 +12,8 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { InscriptoBody, InscriptoPatchBody } from './inscriptos.schema.js'
 import { calcConcursoCph } from './concursosCph.calc.js'
 import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
+import { TX_OPTS_LARGA } from '../../shared/txOpts.js'
+import { revertirSaltoOm } from './omSaltoRevertir.js'
 
 function toDate(v: string | null | undefined): Date | null {
   return v ? new Date(v) : null
@@ -268,6 +270,7 @@ function recalcCph(c: ConcursoCph) {
     fechaDispoDesierta: c.fechaDispoDesierta,
     validado: c.validado,
     validadoIdSialRol: c.validadoIdSialRol,
+    saltoPorOm: c.saltoOmAt != null,
   })
 }
 
@@ -659,7 +662,7 @@ export async function reservarIntegranteOmService(
 
 // Libera una reserva de integrante (revierte designado + concursoCphDesignadoId)
 // y limpia la persona designada del concurso destino.
-export async function liberarIntegranteOmService(integranteId: string) {
+export async function liberarIntegranteOmService(integranteId: string, usuarioId: string | null = null) {
   const integrante = await prisma.ordenMeritoIntegrante.findUnique({
     where: { id: integranteId },
   })
@@ -673,6 +676,8 @@ export async function liberarIntegranteOmService(integranteId: string) {
       where: { id: integranteId },
       data: { designado: false, concursoCphDesignadoId: null },
     })
+    // Paso 5b: si el destino saltó a designación con este integrante, se revierte el salto.
+    await revertirSaltoOm(tx, destinoId, integranteId, usuarioId)
     if (destinoId && integrante.personaId) {
       const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
       if (c?.personaDesignadaId === integrante.personaId) {
@@ -683,7 +688,7 @@ export async function liberarIntegranteOmService(integranteId: string) {
       }
     }
     return { ok: true }
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // Candidato de OM actualmente reservado para un concurso (el integrante con
@@ -706,7 +711,11 @@ export async function getCandidatoOmReservadoService(concursoDestinoId: string) 
 // del concurso destino. Devuelve cuántos integrantes disponibles quedan en la
 // misma orden de mérito (para decidir si se puede reelegir o hay que declarar
 // desierto).
-export async function rechazarIntegranteOmService(integranteId: string, motivo?: string) {
+export async function rechazarIntegranteOmService(
+  integranteId: string,
+  motivo?: string,
+  usuarioId: string | null = null,
+) {
   const integrante = await prisma.ordenMeritoIntegrante.findUnique({
     where: { id: integranteId },
   })
@@ -725,6 +734,8 @@ export async function rechazarIntegranteOmService(integranteId: string, motivo?:
         concursoCphDesignadoId: null,
       },
     })
+    // Paso 5b: si el destino saltó a designación con este integrante, se revierte el salto.
+    await revertirSaltoOm(tx, destinoId, integranteId, usuarioId)
     if (destinoId && integrante.personaId) {
       const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
       if (c?.personaDesignadaId === integrante.personaId) {
@@ -739,7 +750,7 @@ export async function rechazarIntegranteOmService(integranteId: string, motivo?:
       where: { ordenMeritoId: integrante.ordenMeritoId, designado: false, anulado: false },
     })
     return { ok: true, disponiblesRestantes: disponibles }
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // Órdenes de mérito COMPATIBLES con un concurso destino (mismo puesto +

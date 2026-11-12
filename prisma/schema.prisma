@@ -935,6 +935,11 @@ model ConcursoCph {
   qInscriptos                    Int?              @map("q_inscriptos")
   pendienteAutorizacion          Boolean           @default(false) @map("pendiente_autorizacion")
   aprobadoDirector               Boolean           @default(false) @map("aprobado_director")
+  // Paso 5b: salto por orden de mérito. Cuando un concurso nuevo_cargo designa
+  // directo a alguien de una OM existente, se registra cuándo y a quién (el
+  // integrante de la OM). Si está seteado, el sub-estado salta a h-tad.
+  saltoOmAt                      DateTime?         @map("salto_om_at") @db.Timestamptz
+  saltoOmIntegranteId            String?           @map("salto_om_integrante_id") @db.Uuid
   siglaSolicitada                String?           @map("sigla_solicitada") @db.VarChar(20)
   codigoRegistroSolicitadoId     String?           @map("codigo_registro_solicitado_id") @db.Uuid
   codigoRegistroSolicitado       CodigoRegistro?   @relation("CphCodigoRegistroSolicitado", fields: [codigoRegistroSolicitadoId], references: [id])
@@ -944,6 +949,7 @@ model ConcursoCph {
 
   // Relaciones
   concurso                     Concurso                @relation(fields: [concursoId], references: [id])
+  saltoOmIntegrante            OrdenMeritoIntegrante?  @relation("SaltoOmIntegrante", fields: [saltoOmIntegranteId], references: [id], onDelete: SetNull)
   cargo                        Cargo                   @relation(fields: [cargoId], references: [id])
   hospital                     Hospital                @relation(fields: [hospitalId], references: [id])
   puestoCargoSolicitado        PuestoCargo?            @relation(fields: [puestoCargoSolicitadoId], references: [id])
@@ -1679,6 +1685,8 @@ model OrdenMeritoIntegrante {
   ordenMerito          OrdenMerito  @relation(fields: [ordenMeritoId], references: [id], onDelete: Cascade)
   persona              Persona?     @relation(fields: [personaId], references: [id])
   concursoCphDesignado ConcursoCph? @relation("IntegranteDesignadoEn", fields: [concursoCphDesignadoId], references: [id])
+  // Paso 5b: concursos que saltaron a designación usando este integrante.
+  saltosOm             ConcursoCph[] @relation("SaltoOmIntegrante")
 
   @@unique([ordenMeritoId, posicion])
   @@unique([ordenMeritoId, cuil])

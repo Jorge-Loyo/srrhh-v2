@@ -673,6 +673,7 @@ async function recalcularConSorteo(
     fechaDispoDesierta: concurso.fechaDispoDesierta,
     validado: concurso.validado,
     validadoIdSialRol: concurso.validadoIdSialRol,
+    saltoPorOm: concurso.saltoOmAt != null,
   })
   await tx.concursoCph.update({
     where: { id: concurso.id },
@@ -812,6 +813,7 @@ export async function cancelarSorteoService(concursoCphId: string) {
           fechaDispoDesierta: c.fechaDispoDesierta,
           validado: c.validado,
           validadoIdSialRol: c.validadoIdSialRol,
+          saltoPorOm: c.saltoOmAt != null,
         })
         await tx.concursoCph.update({
           where: { id: concursoCphId },

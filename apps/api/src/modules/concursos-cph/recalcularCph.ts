@@ -43,6 +43,7 @@ export function toCalcInput(row: ConcursoCph): ConcursoCphCalcInput {
     fechaDispoDesierta: row.fechaDispoDesierta,
     validado: row.validado,
     validadoIdSialRol: row.validadoIdSialRol,
+    saltoPorOm: row.saltoOmAt != null,
   }
 }
 

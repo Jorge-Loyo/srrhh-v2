@@ -33,6 +33,7 @@ vi.mock('../modules/tareas/tareas.service.js', () => ({ cerrarTareasDeConcurso: 
 const ins = await import('../modules/concursos-cph/inscriptos.service.js')
 const sor = await import('../modules/concursos-cph/sorteoJurado.service.js')
 const svc = await import('../modules/concursos-cph/concursos-cph.service.js')
+const salto = await import('../modules/concursos-cph/omSalto.service.js')
 const { MENSAJE_BLOQUEO_ETAPA_2 } = await import('../modules/concursos-cph/autorizacionNuevoCargo.js')
 
 const ID = 'cph1'
@@ -55,6 +56,8 @@ const endpoints: [string, () => Promise<unknown>][] = [
   ['inscriptos: confirmar OM', () => ins.confirmarOrdenMeritoService(ID)],
   ['inscriptos: revertir OM', () => ins.revertirOrdenMeritoService(ID)],
   ['inscriptos: reservar integrante OM', () => ins.reservarIntegranteOmService(ID, 'int1', null)],
+  ['salto OM: listar OM disponibles', () => salto.listOmDisponiblesService(ID)],
+  ['salto OM: designar desde OM', () => salto.designarDesdeOmService(ID, 'int1', { usuarioId: null })],
   ['designar', () => svc.designarConcursoCphService(ID, {} as never)],
   ['asignar designado', () => svc.asignarDesignadoConcursoCphService(ID, {} as never)],
   ['desierto', () => svc.declararDesiertoService(ID, {} as never, 'u1')],
