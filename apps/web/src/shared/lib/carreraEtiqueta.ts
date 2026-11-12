@@ -27,9 +27,7 @@ export function etiquetaCarreraCR(c: { codigo: string; literal: string }): strin
 }
 
 /** Carreras de código de registro ordenadas por etiqueta (numérico, es), sin unificar códigos. */
-export function ordenarCarrerasCR(
-  carreras: { codigo: string; literal: string }[],
-): { codigo: string; literal: string }[] {
+export function ordenarCarrerasCR<T extends { codigo: string; literal: string }>(carreras: T[]): T[] {
   return [...carreras].sort((a, b) =>
     etiquetaCarreraCR(a).localeCompare(etiquetaCarreraCR(b), 'es', { numeric: true }),
   )
