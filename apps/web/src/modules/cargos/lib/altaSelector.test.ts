@@ -5,10 +5,10 @@ import { especialidadesPermitidasAlta } from './especialidadesAlta'
 import { siguienteSeleccion } from '@/shared/lib/selectorCpe'
 
 describe('selector de Alta', () => {
-  it('opcionesCarreraAlta no trae 22 y trae 37 — Nueva Carrera Prof. Hosp', () => {
+  it('opcionesCarreraAlta no trae 22 y trae 37 — Nueva Carrera Profesional Hospitalaria', () => {
     const o = opcionesCarreraAlta([{ id: 'cph', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' }], 'pof')
     expect(o.some((x) => x.label.startsWith('22'))).toBe(false)
-    expect(o[0]!.label).toBe('37 — Nueva Carrera Prof. Hosp')
+    expect(o[0]!.label).toBe('37 — Nueva Carrera Profesional Hospitalaria')
   })
   it('87 filtra puestos y activa incluirAmbos; 85/37/83/23 sin restriccion', () => {
     const ps = [{ nombre: 'Enfermero Profesional' }, { nombre: 'Licenciado en Enfermería' }, { nombre: 'Otro' }]

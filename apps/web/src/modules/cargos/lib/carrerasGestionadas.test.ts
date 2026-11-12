@@ -17,13 +17,13 @@ describe('etiquetaCarrera', () => {
     expect(etiquetaCarrera(cat[1]!)).toBe('85 — CEETPS')
   })
   it('escalafón 22 (CPH) muestra su CR principal 37; el 37 y otros sin cambio', () => {
-    expect(etiquetaCarrera({ codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' })).toBe('37 — Nueva Carrera Prof. Hosp')
-    expect(etiquetaCarrera({ codigo: '37', nombre: 'X' })).toBe('37 — X')
+    expect(etiquetaCarrera({ codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' })).toBe('37 — Nueva Carrera Profesional Hospitalaria')
+    expect(etiquetaCarrera({ codigo: '37', nombre: 'X' })).toBe('37 — Nueva Carrera Profesional Hospitalaria')
     expect(etiquetaCarrera({ codigo: '70', nombre: 'Cuerpo Especialistas Profesionales' })).toBe('70 — Cuerpo Especialistas Profesionales')
   })
   it('el value enviado sigue siendo el id del escalafón', () => {
     const o = opcionesCarreraAlta([{ id: 'cph', codigo: '22', nombre: 'Nueva Carrera Prof. Hosp' }], 'pof')
-    expect(o).toEqual([{ value: 'cph', label: '37 — Nueva Carrera Prof. Hosp' }])
+    expect(o).toEqual([{ value: 'cph', label: '37 — Nueva Carrera Profesional Hospitalaria' }])
   })
 })
 

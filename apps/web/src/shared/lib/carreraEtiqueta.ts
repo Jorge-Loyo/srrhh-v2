@@ -10,9 +10,15 @@ export function codigoMostradoCarrera(codigo: string): string {
   return CR_POR_CODIGO_ESCALAFON_GESTIONADO[c] ?? c
 }
 
+/** Nombres mostrados que prevalecen sobre `escalafones.nombre` (solo etiqueta, igual que en el Excel). */
+const NOMBRE_MOSTRADO_POR_CODIGO: Readonly<Record<string, string>> = {
+  '37': 'Nueva Carrera Profesional Hospitalaria',
+}
+
 /** Etiqueta 'CÓDIGO — Nombre' con el código de registro principal. */
 export function etiquetaCarrera(c: { codigo: string; nombre: string }): string {
-  return `${codigoMostradoCarrera(c.codigo)} — ${c.nombre}`
+  const mostrado = codigoMostradoCarrera(c.codigo)
+  return `${mostrado} — ${NOMBRE_MOSTRADO_POR_CODIGO[mostrado] ?? c.nombre}`
 }
 
 /** Etiqueta 'CÓDIGO — Literal' para carreras de código de registro (Reportes). */
@@ -49,6 +55,11 @@ export function unificarCarrerasCph(
  * que los cargos con CR 22 sigan contando. Cualquier otra selección queda igual.
  */
 export function expandirCarrerasParaConsulta(codigos: string[]): string[] {
-  if (codigos.includes('37') && !codigos.includes('22')) return [...codigos, '22']
-  return codigos
+  const extra: string[] = []
+  for (const [original, principal] of Object.entries(CR_POR_CODIGO_ESCALAFON_GESTIONADO)) {
+    if (original !== principal && codigos.includes(principal) && !codigos.includes(original) && !extra.includes(original)) {
+      extra.push(original)
+    }
+  }
+  return extra.length ? [...codigos, ...extra] : codigos
 }
