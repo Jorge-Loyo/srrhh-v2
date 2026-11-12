@@ -285,6 +285,85 @@ export async function createSolicitudesAltaBatchService(
   }, SOLICITUDES_ALTA_TX_OPTS)
 }
 
+// --- Cargos creados por solicitud -------------------------------------------
+// Ampliación retrocompatible de GET / y GET /:id: cada solicitud suma
+// `cargosCreados` (datos de los Cargo creados al aprobar, uno por unidad de
+// `cantidad`). Se resuelve con UNA sola consulta para todos los ids de la página
+// (sin N+1; cada round-trip a Neon cuesta). Los campos existentes no cambian.
+const cargoCreadoSelect = {
+  id:                 true,
+  codigo:             true,
+  idSial:             true,
+  fechaDesde:         true,
+  literalPuesto:      true,
+  especialidadLegacy: true,
+  hospital:           { select: { id: true, sigla: true } },
+  escalafon:          { select: { codigo: true, nombre: true } },
+  puestoCargo:        { select: { nombre: true } },
+  especialidadPuesto: { select: { nombre: true } },
+  codigoRegistro:     { select: { codigo: true } },
+  // Concurso más reciente del cargo (en cargos nuevos es el del alta).
+  concursos: {
+    select: {
+      tipoConcurso:   true,
+      concursoCph:    { select: { id: true } },
+      concursoCeetps: { select: { id: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+  },
+} as const
+
+export interface CargoCreadoResumen {
+  id: string
+  codigo: string | null
+  idSial: string | null
+  fechaDesde: Date | null
+  hospital: { id: string; sigla: string } | null
+  carreraCodigo: string | null
+  carrera: string | null
+  puesto: string | null
+  especialidad: string | null
+  codigoRegistro: string | null
+  concurso: { tipo: 'cph' | 'ceetps' | 'sin_concurso'; detalleId: string | null } | null
+}
+
+export async function adjuntarCargosCreados<T extends { cargosCreadosIds: string[] }>(
+  solicitudes: T[],
+): Promise<(T & { cargosCreados: CargoCreadoResumen[] })[]> {
+  const ids = [...new Set(solicitudes.flatMap((s) => s.cargosCreadosIds ?? []))]
+  const cargos = ids.length
+    ? await prisma.cargo.findMany({ where: { id: { in: ids } }, select: cargoCreadoSelect })
+    : []
+  const porId = new Map<string, CargoCreadoResumen>()
+  for (const c of cargos) {
+    const co = c.concursos[0]
+    porId.set(c.id, {
+      id:             c.id,
+      codigo:         c.codigo,
+      idSial:         c.idSial,
+      fechaDesde:     c.fechaDesde,
+      hospital:       c.hospital,
+      carreraCodigo:  c.escalafon?.codigo ?? null,
+      carrera:        c.escalafon?.nombre ?? null,
+      puesto:         c.puestoCargo?.nombre ?? c.literalPuesto ?? null,
+      especialidad:   c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? null,
+      codigoRegistro: c.codigoRegistro?.codigo ?? null,
+      concurso: co
+        ? { tipo: co.tipoConcurso, detalleId: co.concursoCph?.id ?? co.concursoCeetps?.id ?? null }
+        : null,
+    })
+  }
+  return solicitudes.map((s) => ({
+    ...s,
+    // Respeta el orden de cargosCreadosIds; un id inexistente se omite.
+    cargosCreados: (s.cargosCreadosIds ?? []).flatMap((id) => {
+      const c = porId.get(id)
+      return c ? [c] : []
+    }),
+  }))
+}
+
 // --- GET / --- listado paginado ---------------------------------------------
 export async function listSolicitudesAltaService(query: SolicitudesAltaQuery) {
   const { page, limit, hospitalId, estado, esTransferencia } = query
@@ -296,7 +375,7 @@ export async function listSolicitudesAltaService(query: SolicitudesAltaQuery) {
     ...(esTransferencia !== undefined && { esTransferencia }),
   }
 
-  const [total, data] = await Promise.all([
+  const [total, filas] = await Promise.all([
     prisma.solicitudAlta.count({ where }),
     prisma.solicitudAlta.findMany({
       where,
@@ -306,6 +385,7 @@ export async function listSolicitudesAltaService(query: SolicitudesAltaQuery) {
       take:    limit,
     }),
   ])
+  const data = await adjuntarCargosCreados(filas)
 
   return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
@@ -314,5 +394,6 @@ export async function listSolicitudesAltaService(query: SolicitudesAltaQuery) {
 export async function getSolicitudAltaService(id: string) {
   const solicitud = await prisma.solicitudAlta.findUnique({ where: { id }, include })
   if (!solicitud) throw AppError.notFound('Solicitud de alta no encontrada')
-  return solicitud
+  const [conCargos] = await adjuntarCargosCreados([solicitud])
+  return conCargos!
 }

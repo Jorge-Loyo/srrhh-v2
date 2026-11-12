@@ -830,6 +830,25 @@ export interface SolicitudAlta {
   // S21: etiquetas asignadas (N:M vía EtiquetaSolicitudAlta). El backend
   // devuelve la fila join con la etiqueta expandida.
   etiquetas?: { etiqueta: Etiqueta }[]
+  // Cargos reales creados al aprobar (uno por unidad de `cantidad`), en el orden
+  // de `cargosCreadosIds`. Lo agregan GET /solicitudes-alta y GET /:id.
+  cargosCreados?: SolicitudAltaCargoCreado[]
+}
+
+// Resumen de un Cargo creado por una solicitud de alta aprobada.
+export interface SolicitudAltaCargoCreado {
+  id: string
+  codigo: string | null
+  idSial: string | null
+  fechaDesde: string | null
+  hospital: { id: string; sigla: string } | null
+  carreraCodigo: string | null
+  carrera: string | null
+  puesto: string | null
+  especialidad: string | null
+  codigoRegistro: string | null
+  // Concurso del cargo (null si no tiene). detalleId = ConcursoCph.id / ConcursoCeetps.id.
+  concurso: { tipo: 'cph' | 'ceetps' | 'sin_concurso'; detalleId: string | null } | null
 }
 
 export interface RoleJerarquia {

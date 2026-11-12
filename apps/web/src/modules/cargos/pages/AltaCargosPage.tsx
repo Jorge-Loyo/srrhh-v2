@@ -10,6 +10,8 @@ import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '.
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
+import { EtiquetasChips } from '@/shared/components/EtiquetaChip'
+import { filasPorCargo, solicitudMatcheaEtiqueta, etiquetasDeSolicitudes } from '../lib/historicoCargos'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
@@ -427,7 +429,7 @@ export function AltaCargosPage() {
   })
   const solicitudes = solicitudesData?.data ?? []
   const solicitudesFiltradas = search.trim()
-    ? solicitudes.filter((s) => (s.expediente ?? '').toLowerCase().includes(search.trim().toLowerCase()))
+    ? solicitudes.filter((s) => (s.expediente ?? '').toLowerCase().includes(search.trim().toLowerCase()) || solicitudMatcheaEtiqueta(s, search))
     : solicitudes
 
   const crearLote = useCreateSolicitudesAltaBatch()
@@ -872,7 +874,7 @@ function HistorialSolicitudes({
 
       {/* Filtros */}
       <div className="p-6 border-b border-gray-100 flex flex-wrap gap-3">
-        <input type="text" placeholder="Buscar por expediente..."
+        <input type="text" placeholder="Buscar por expediente o etiqueta..."
           value={search} onChange={(e) => setSearch(e.target.value)}
           className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
         <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as SolicitudAltaEstado | '')}
@@ -963,7 +965,7 @@ function CargosHistoricos({
           solicitudes); el filtro por estado filtra las solicitudes subyacentes
           que luego se agrupan. */}
       <div className="p-6 border-b border-gray-100 flex flex-wrap gap-3">
-        <input type="text" placeholder="Buscar por expediente..."
+        <input type="text" placeholder="Buscar por expediente o etiqueta..."
           value={search} onChange={(e) => setSearch(e.target.value)}
           className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
         <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as SolicitudAltaEstado | '')}
@@ -984,6 +986,7 @@ function CargosHistoricos({
               <th className="px-4 py-3 font-semibold">Fecha de creación</th>
               <th className="px-4 py-3 font-semibold">Solicitante</th>
               <th className="px-4 py-3 font-semibold text-center">Cargos</th>
+              <th className="px-4 py-3 font-semibold">Etiquetas</th>
               <th className="px-4 py-3 font-semibold">Estado</th>
               <th className="px-4 py-3 rounded-tr-lg" />
             </tr>
@@ -1001,6 +1004,7 @@ function CargosHistoricos({
                     <td className="px-4 py-3 text-center">
                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{g.totalCargos}</span>
                     </td>
+                    <td className="px-4 py-3"><EtiquetasChips etiquetas={etiquetasDeSolicitudes(g.solicitudes)} /></td>
                     <td className="px-4 py-3"><span className={`${ESTADO_GRUPO_BADGE[g.estado]} text-xs`}>{ESTADO_GRUPO_LABEL[g.estado]}</span></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
@@ -1016,41 +1020,52 @@ function CargosHistoricos({
                   </tr>
                   {abierto && (
                     <tr className="bg-gray-50/60">
-                      <td colSpan={6} className="px-4 py-3">
+                      <td colSpan={7} className="px-4 py-3">
                         <div className="overflow-x-auto border border-gray-100 rounded-lg bg-white">
                           <table className="w-full text-xs">
                             <thead className="bg-gray-50 text-gray-600 text-left">
                               <tr>
-                                <th className="px-3 py-2 font-semibold">Hospital</th>
+                                <th className="px-3 py-2 font-semibold">Código de cargo</th>
+                                <th className="px-3 py-2 font-semibold">Tipo de alta</th>
+                                <th className="px-3 py-2 font-semibold">Repartición</th>
                                 <th className="px-3 py-2 font-semibold">Carrera</th>
                                 <th className="px-3 py-2 font-semibold">Puesto</th>
-                                <th className="px-3 py-2 font-semibold text-center">Cant.</th>
+                                <th className="px-3 py-2 font-semibold">Especialidad</th>
+                                <th className="px-3 py-2 font-semibold">Etiquetas</th>
+                                <th className="px-3 py-2 font-semibold">Desde</th>
                                 <th className="px-3 py-2 font-semibold">Estado</th>
-                                <th className="px-3 py-2 font-semibold">Cargos</th>
+                                <th className="px-3 py-2 font-semibold">Concurso</th>
+                                <th className="px-3 py-2" />
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                              {g.solicitudes.map((s) => (
-                                <tr key={s.id}>
-                                  <td className="px-3 py-2 text-gray-700">{s.hospital?.sigla ?? '—'}</td>
-                                  <td className="px-3 py-2 text-gray-700">{s.escalafon?.nombre ?? '—'}</td>
-                                  <td className="px-3 py-2 text-gray-800">{s.literalPuesto}</td>
-                                  <td className="px-3 py-2 text-center font-bold text-secondary">{s.cantidad}</td>
-                                  <td className="px-3 py-2"><span className={`${ESTADO_BADGE[s.estado]} text-xs`}>{ESTADO_LABEL[s.estado]}</span></td>
+                              {filasPorCargo(g.solicitudes).map((f) => (
+                                <tr key={f.key}>
+                                  <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">
+                                    {f.codigo ?? <span className="text-gray-400 font-normal">Aún no creado</span>}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{f.tipoAlta}</td>
+                                  <td className="px-3 py-2 text-gray-700">{f.hospital ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-700">{f.carrera ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-800">{f.puesto}</td>
+                                  <td className="px-3 py-2 text-gray-700">{f.especialidad ?? '—'}</td>
+                                  <td className="px-3 py-2"><EtiquetasChips etiquetas={f.etiquetas} /></td>
+                                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{f.desde ? f.desde.slice(0, 10) : '—'}</td>
+                                  <td className="px-3 py-2"><span className={`${ESTADO_BADGE[f.estado]} text-xs`}>{ESTADO_LABEL[f.estado]}</span></td>
+                                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">
+                                    {f.tipoConcurso === null ? '—' : f.tipoConcurso === 'sin_concurso' ? 'Sin concurso' : f.tipoConcurso === 'cph' ? 'CPH' : 'CEETPS'}
+                                  </td>
                                   <td className="px-3 py-2">
-                                    {/* Para solicitudes APROBADAS el cargo real ya existe → link al
-                                        detalle /cargos/:id. Para pendientes aún no existe el cargo. */}
-                                    {s.estado === 'aprobada' && s.cargosCreadosIds.length > 0 ? (
-                                      <div className="flex flex-wrap gap-2">
-                                        {s.cargosCreadosIds.map((cargoId, i) => (
-                                          <Link key={cargoId} to={`/cargos/${cargoId}`} className="text-secondary underline hover:text-secondary/80">
-                                            Ver cargo {s.cargosCreadosIds.length > 1 ? i + 1 : ''}
-                                          </Link>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <span className="text-gray-400">Aún no creado</span>
-                                    )}
+                                    {/* Cargo real ya creado (solicitud aprobada) → Ver cargo; si tiene
+                                        concurso, mismo destino que "Caratular" en Nuevos cargos. */}
+                                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                                      {f.cargoId && (
+                                        <Link to={`/cargos/${f.cargoId}`} className="text-secondary underline hover:text-secondary/80">Ver cargo</Link>
+                                      )}
+                                      {f.rutaConcurso && (
+                                        <Link to={f.rutaConcurso} className="text-secondary underline hover:text-secondary/80">Ver concurso</Link>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               ))}
