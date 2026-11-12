@@ -204,3 +204,23 @@ El fixture es un `SnapshotSistema` (ver `cruce.ts`); `{"cargos":[],"ocupaciones"
 - Etiqueta CEETPS "SI" (detalle termina en `/ SI`, CR 85/87), "Ampliacion" (cargo nuevo + concurso `nuevo_cargo` sin autorizar; nunca reusa un cargo del sistema), jefaturas con par (`cargoBaseId`) y vacantes -J sin par (sin cargo base, `revisionDato`).
 - Concursos: solo quedan los del Excel (cruce por expediente normalizado). `resumen.json/md` seccion `fase2` informa conservar / eliminar / crear y expedientes repetidos (valido si es de baja o creacion, error si es de concurso, entra en la categoria i).
 - Nuevo `conflictos_expediente.csv`: casos con dos numeros de expediente distintos (Excel vs sistema) para que Jorge elija.
+
+## Modo escritura (Fase 2, FEAT-003): `sincronizar.ts`
+
+> **ADVERTENCIA:** el generador de códigos nuevo (acrónimo MSGC, `cargar.ts`) NO debe llegar a producción antes que los
+> datos recodificados: mezclaría prefijos viejos y nuevos. Todo el modo escritura corre SOLO contra la copia local.
+
+```
+# Simulación (por defecto, no escribe): plan de la carga con el sistema leído en READ ONLY o desde un fixture
+tsx scripts/sync-cargos-msgc/sincronizar.ts --input <nominal.csv> [--sistema-json <fixture.json>]
+# Escritura (solo base LOCAL): exige las dos banderas y una DATABASE_URL local
+tsx scripts/sync-cargos-msgc/sincronizar.ts --input <nominal.csv> --ejecutar --confirmo-base-local [--forzar-limpieza]
+```
+
+- `asegurarBaseLocal(DATABASE_URL)` se llama ANTES de abrir la conexión; neon.tech o un host no local abortan.
+- Orden: limpieza (`limpieza.ts`, solo la primera vez; `--forzar-limpieza` la repite) -> carga (`cargar.ts`, aplica `ResultadoCruce.plan`)
+  -> recodificación (`recodificar.ts`, en dos fases liberar/asignar por el índice único; el código viejo queda en `codigo_legacy`)
+  -> recalcular `sub_estado` -> verificación (`verificar.ts`) -> fila en `sync_corridas`.
+- Los cargos creados llevan `origen = 'msgc'`: en la corrida siguiente el cruce los reconoce por cupo (filas c / d / ampliación) y no duplica.
+- Concursos: solo se crean los del Excel con expediente (los que no tienen número no se pueden reconocer como "del Excel").
+- Requiere haber aplicado antes `prisma/migrations/20261116000000_sync_cargos_msgc_f2` en la copia local.

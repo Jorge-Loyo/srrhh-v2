@@ -13,7 +13,7 @@
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { concursoCuentaComoActivo } from '../../src/modules/cargos/concursoActivo.regla.js'
 import type { FilaNominal } from './leerNominal.js'
-import { acronimoMsgc, recodificarCodigo } from './acronimoMsgc.js'
+import { ACRONIMOS_MSGC, acronimoMsgc, recodificarCodigo } from './acronimoMsgc.js'
 import {
   equivalenciaEspecialidad,
   equivalenciaPuesto,
@@ -57,6 +57,9 @@ export interface CargoSistema {
   especialidad: string | null
   cargoBaseId: string | null
   cargoRetenidoId: string | null
+  /** Marca de revision (opcional: un fixture viejo sin estos campos sigue valiendo). */
+  revisionDato?: boolean
+  revisionMotivo?: string | null
   vinculos: VinculosCargo
 }
 
@@ -66,6 +69,8 @@ export interface CargoSistema {
  * (`concursos.expediente`, `expediente_concurso`, `expediente_concurso_2`); se normalizan al cruzar.
  */
 export interface ConcursoSistema {
+  /** Id del concurso base (`concursos.id`). Opcional: sin el, el plan de escritura no lista ids de concursos. */
+  concursoId?: string
   cargoId: string
   tipo: 'cph' | 'ceetps'
   estado: string
@@ -292,6 +297,52 @@ export interface ResultadoCruce {
   concursos_colgados: { filas: ConcursoColgado[]; totales: TotalesColgados }
   fase2: Fase2Resumen
   conflictos_expediente: ConflictoExpediente[]
+  /** Plan de escritura (FEAT-003). Datos con ids del sistema; el dry-run NO lo escribe. */
+  plan: PlanCarga
+}
+
+/** Origen con el que la sincronizacion marca los cargos que crea (permite reconocerlos en la corrida siguiente). */
+export const ORIGEN_MSGC = 'msgc'
+/** Motivo de revision de las ampliaciones creadas (cargo nuevo a caratular, Etapa 1). */
+export const MARCA_AMPLIACION = 'Ampliacion MSGC: cargo nuevo a caratular'
+
+/** Un cargo del Excel y lo que hay que hacer con el: reusar/actualizar uno del sistema o crearlo. */
+export interface ItemCargo {
+  /** Cargo del sistema que se reusa o actualiza; null = se crea. */
+  cargoId: string | null
+  categoria: 'a' | 'b' | 'c' | 'd' | 'e'
+  /** Fila del Excel ya ajustada (puestos sucios resueltos). */
+  fila: FilaNominal
+  /** Estado destino del cargo. */
+  estado: EstadoCargoSistema
+  /** Atributos a actualizar en un cargo existente: cr, sigla, puesto, especialidad, estado, base. */
+  cambios: string[]
+  completarExpediente: boolean
+  /** revisionMotivo a dejar (null = no tocar). */
+  revision: string | null
+  /** Asignar la etiqueta del tipificador CEETPS "SI". */
+  etiquetar: boolean
+  ampliacion: boolean
+  /** Jefatura -J con par (rol repetido). */
+  esJefatura: boolean
+  /** Clave legajo-rol del grupo (solo c / d). Se usa para vincular jefatura -> base; NUNCA sale en reportes. */
+  claveRol: string
+  /** Jefatura: cargo base que ya existe en el sistema (null = es el cargo creado/reusado de la fila base). */
+  baseCargoId: string | null
+  /** Concurso a crear para este cargo. */
+  crearConcurso: 'normal' | 'nuevo_cargo' | null
+}
+
+export interface PlanCarga {
+  items: ItemCargo[]
+  /** Cargos del sistema que pasan a NO VIGENTE (ocupados fuera del Excel + vacantes sobrantes). */
+  noVigenteIds: string[]
+  /** Concursos base que se conservan (su expediente esta en el Excel). */
+  concursosConservar: string[]
+  /** Concursos base que se eliminan (no estan en el Excel). */
+  concursosEliminar: string[]
+  /** Concursos que se conservan pero cuelgan de un cargo que pasa a no vigente: se reasignan por expediente. */
+  concursosReasignar: { concursoId: string; expediente: string }[]
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
@@ -341,10 +392,10 @@ function expedientesDeConcurso(co: ConcursoSistema): string[] {
 }
 
 /** Tipificador "SI" de los concursos CEETPS (CR 85 / 87, bloque Concurso): el detalle termina en "/ SI". */
-const esCeetpsSi = (f: FilaNominal) =>
+export const esCeetpsSi = (f: FilaNominal) =>
   (f.cr === '85' || f.cr === '87') && normalizarTexto(f.bloque) === 'concurso' && /\/\s*SI\s*$/i.test(f.detalle)
 /** "Ampliacion": el detalle del Excel la nombra (cargo nuevo). */
-const esAmpliacion = (f: FilaNominal) => /ampliaci[oó]n/i.test(f.detalle)
+export const esAmpliacion = (f: FilaNominal) => /ampliaci[oó]n/i.test(f.detalle)
 
 function nuevoFase2(): Fase2Resumen {
   return {
@@ -398,15 +449,15 @@ function estadoDeExcel(estado: string): EstadoCargoSistema | null {
   return null
 }
 
-function siglaCanonica(raw: string): string {
+export function siglaCanonica(raw: string): string {
   return equivalenciaSigla(raw) ?? raw.trim()
 }
 
-function puestoCanonico(cr: string, literal: string): string {
+export function puestoCanonico(cr: string, literal: string): string {
   return equivalenciaPuesto(cr, literal) ?? norm(literal)
 }
 
-function especialidadCanonica(raw: string): string {
+export function especialidadCanonica(raw: string): string {
   const eq = equivalenciaEspecialidad(raw)
   return norm(eq ?? raw)
 }
@@ -462,6 +513,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   // Puestos sucios de CR 87 / CR 85 y auxiliares de enfermeria. El codigo de registro (CR) NUNCA se toca.
   // Las notas de cada fila (marcas revisionDato, etiqueta, ampliacion) se agregan al motivo de sus entradas.
   const notas = new Map<FilaNominal, string[]>()
+  const revisiones = new Map<FilaNominal, string[]>()
   const puestosPorExp = new Map<string, Set<string>>()
   for (const co of sistema.concursos ?? []) {
     const cg = cargoPorId.get(co.cargoId)
@@ -476,9 +528,11 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   const ajustarFila = (f0: FilaNominal): FilaNominal => {
     let f = f0
     const n: string[] = []
+    const rev: string[] = []
     const revisar = (motivo: string) => {
       sumar(fase2.revision_dato, motivo)
       n.push(`revisionDato: ${motivo}`)
+      rev.push(motivo)
     }
     const regla = reglaPuestoSucio(f0.cr, f0.literal_puesto)
     const exp = normalizarExpediente(f0.expediente)
@@ -522,6 +576,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     if (f === f0 && n.length === 0) return f0
     if (f === f0) f = { ...f0 }
     notas.set(f, n)
+    if (rev.length) revisiones.set(f, rev)
     return f
   }
   const filas = filasEntrada.map(ajustarFila)
@@ -650,6 +705,78 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   }
   const excelPorBloque: Record<string, number> = {}
 
+  // ── Plan de escritura (FEAT-003) ──
+  const itemsPlan: ItemCargo[] = []
+  const revisionDe = (f: FilaNominal, extra: string[] = []): string | null => {
+    const t = [...(revisiones.get(f) ?? []), ...extra]
+    return t.length ? t.join('; ').slice(0, 200) : null
+  }
+  // Cargos creados por una corrida anterior (origen 'msgc') todavia sin ocupante: las filas c / d / ampliacion
+  // los reconocen por cupo en vez de crear otro (idempotencia). En la primera corrida no hay ninguno.
+  const tieneNuevoCargo = (id: string) => (concursosPorCargo.get(id) ?? []).some((x) => x.motivoConcurso === 'nuevo_cargo')
+  const poolMsgc = new Map<string, CargoSistema[]>()
+  for (const c of [...sistema.cargos].sort((x, y) => cmp(x.codigo ?? '', y.codigo ?? '') || cmp(x.id, y.id))) {
+    if (c.origen !== ORIGEN_MSGC || c.eliminado || c.estado === 'no_vigente' || (ocupPorCargo.get(c.id) ?? 0) > 0) continue
+    const k = claveCupo(c.sigla, sistemaAcronimo(c), c.cr ?? '', c.puesto, c.especialidad ?? '', false)
+    const l = poolMsgc.get(k)
+    if (l) l.push(c)
+    else poolMsgc.set(k, [c])
+  }
+  const reclamados = new Set<string>()
+  const tomarMsgc = (f: FilaNominal, nuevoCargo: boolean): CargoSistema | undefined => {
+    const k = claveCupo(f.sigla, f.acronimo, f.cr, f.literal_puesto, f.especialidad_cargo, true)
+    const c = (poolMsgc.get(k) ?? []).find((x) => !reclamados.has(x.id) && tieneNuevoCargo(x.id) === nuevoCargo)
+    if (c) reclamados.add(c.id)
+    return c
+  }
+  /** Cargo existente cubierto por una fila (a / b, o un cargo 'msgc' reconocido para una fila c / d / ampliacion). */
+  const cubrirCargo = (
+    f: FilaNominal,
+    cargo: CargoSistema,
+    estadoExcel: EstadoCargoSistema | null,
+    cat: 'c' | 'd' | 'e' | null,
+    datos: { claveRol: string; esJefatura: boolean; baseCargoId: string | null; ampliacion: boolean },
+  ) => {
+    cargosCubiertos.add(cargo.id)
+    filaDeCargo.set(cargo.id, f)
+    const propuesto = cargo.codigo ? recodificarCodigo(cargo.codigo, f.acronimo) : null
+    if (propuesto) propuestoPorCargo.set(cargo.id, propuesto)
+    compararExpediente(f, cargo)
+    const difs = diferencias(f, cargo, propuesto, estadoExcel, escalafonDeCr)
+    const ocupado = (ocupPorCargo.get(cargo.id) ?? 0) > 0
+    // El estado de un cargo ocupado lo manda el sistema; el acronimo lo resuelve la recodificacion.
+    const cambios = difs.filter((d) => !d.startsWith('acronimo') && !(ocupado && d === 'estado'))
+    if (datos.esJefatura && datos.baseCargoId !== null && cargo.cargoBaseId !== datos.baseCargoId) cambios.push('base')
+    if (difs.length === 0) {
+      part.a++
+      entradas.a.push(conNotas(f, entradaDeFila(f, 'a', 'ninguna', 'sin diferencias', { cargo_codigo_sistema: cargo.codigo ?? '' })))
+    } else {
+      part.b++
+      entradas.b.push(
+        conNotas(f, entradaDeFila(f, 'b', 'actualizar atributos', `difiere: ${difs.join(', ')}`, {
+          cargo_codigo_sistema: cargo.codigo ?? '',
+          codigo_propuesto: propuesto && propuesto !== cargo.codigo ? propuesto : '',
+        })),
+      )
+    }
+    const revision = datos.ampliacion ? MARCA_AMPLIACION : revisionDe(f)
+    itemsPlan.push({
+      cargoId: cargo.id,
+      categoria: cat ?? (difs.length === 0 ? 'a' : 'b'),
+      fila: f,
+      estado: estadoExcel ?? cargo.estado,
+      cambios,
+      completarExpediente: Boolean(normalizarExpediente(f.expediente)) && expedientesDeCargo(cargo).exps.size === 0,
+      revision: revision !== null && revision !== (cargo.revisionMotivo ?? null) ? revision : null,
+      etiquetar: esCeetpsSi(f) && cargo.vinculos.etiquetas === 0,
+      ampliacion: datos.ampliacion,
+      esJefatura: datos.esJefatura,
+      claveRol: datos.claveRol,
+      baseCargoId: datos.baseCargoId,
+      crearConcurso: null,
+    })
+  }
+
   for (const f of filas) {
     const estadoExcel = estadoDeExcel(f.estado)
 
@@ -662,6 +789,13 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     // e: sin ocupante.
     const claveFila = claveRolExcel(f.id_sial_rol)
     if (!claveFila) {
+      if (esAmpliacion(f)) {
+        const m = tomarMsgc(f, true)
+        if (m) {
+          cubrirCargo(f, m, estadoExcel, 'e', { claveRol: '', esJefatura: false, baseCargoId: null, ampliacion: true })
+          continue
+        }
+      }
       part.e++
       const bloque = f.bloque || 'sin bloque'
       excelPorBloque[bloque] = (excelPorBloque[bloque] ?? 0) + 1
@@ -680,6 +814,12 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
 
     // d: jefatura = segunda fila del par.
     if (filasJefatura.has(f)) {
+      const baseExistenteId = ocupPorRol.get(claveFila) ?? null
+      const reconocido = tomarMsgc(f, false)
+      if (reconocido) {
+        cubrirCargo(f, reconocido, estadoExcel, 'd', { claveRol: claveFila, esJefatura: true, baseCargoId: baseExistenteId, ampliacion: false })
+        continue
+      }
       part.d++
       if (estadoExcel === 'validacion_vacante') aCrearComoValidacion++
       const base = (grupos.get(claveFila) ?? []).find((x) => x !== f)
@@ -692,15 +832,30 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
         ? `cargo base existe en el sistema (${cargoBase.codigo ?? 'sin codigo'}); base Excel ${base?.codigo_excel ?? '?'}; se vincula con cargoBaseId`
         : `cargo base NO existe en el sistema; base Excel ${base?.codigo_excel ?? '?'} (se crea como c); se vincula con cargoBaseId`
       entradas.d.push(conNotas(f, entradaDeFila(f, 'd', 'crear jefatura vinculada al cargo base', motivo)))
+      itemsPlan.push({
+        cargoId: null, categoria: 'd', fila: f, estado: estadoExcel ?? 'vigente', cambios: [], completarExpediente: false,
+        revision: revisionDe(f), etiquetar: esCeetpsSi(f), ampliacion: false, esJefatura: true, claveRol: claveFila,
+        baseCargoId: cargoBase?.id ?? null, crearConcurso: null,
+      })
       continue
     }
 
     // c / i / a / b: cruce por ID SIAL Rol.
     const cargoId = ocupPorRol.get(claveFila)
     if (!cargoId) {
+      const reconocido = tomarMsgc(f, false)
+      if (reconocido) {
+        cubrirCargo(f, reconocido, estadoExcel, 'c', { claveRol: claveFila, esJefatura: false, baseCargoId: null, ampliacion: false })
+        continue
+      }
       part.c++
       if (estadoExcel === 'validacion_vacante') aCrearComoValidacion++
       entradas.c.push(conNotas(f, entradaDeFila(f, 'c', 'crear cargo', 'ID SIAL Rol sin ocupacion viva en el sistema')))
+      itemsPlan.push({
+        cargoId: null, categoria: 'c', fila: f, estado: estadoExcel ?? 'vigente', cambios: [], completarExpediente: false,
+        revision: revisionDe(f), etiquetar: esCeetpsSi(f), ampliacion: false, esJefatura: false, claveRol: claveFila,
+        baseCargoId: null, crearConcurso: null,
+      })
       continue
     }
     const cargo = cargoPorId.get(cargoId)
@@ -714,24 +869,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
       continue
     }
 
-    cargosCubiertos.add(cargo.id)
-    filaDeCargo.set(cargo.id, f)
-    const propuesto = cargo.codigo ? recodificarCodigo(cargo.codigo, f.acronimo) : null
-    if (propuesto) propuestoPorCargo.set(cargo.id, propuesto)
-    compararExpediente(f, cargo)
-    const difs = diferencias(f, cargo, propuesto, estadoExcel, escalafonDeCr)
-    if (difs.length === 0) {
-      part.a++
-      entradas.a.push(conNotas(f, entradaDeFila(f, 'a', 'ninguna', 'sin diferencias', { cargo_codigo_sistema: cargo.codigo ?? '' })))
-    } else {
-      part.b++
-      entradas.b.push(
-        conNotas(f, entradaDeFila(f, 'b', 'actualizar atributos', `difiere: ${difs.join(', ')}`, {
-          cargo_codigo_sistema: cargo.codigo ?? '',
-          codigo_propuesto: propuesto && propuesto !== cargo.codigo ? propuesto : '',
-        })),
-      )
-    }
+    cubrirCargo(f, cargo, estadoExcel, null, { claveRol: claveFila, esJefatura: false, baseCargoId: null, ampliacion: false })
   }
 
   // Cargos del sistema: candidatos al cupo (vigentes sin ocupante y validacion_vacante sin ocupante), g, h, i (cargo).
@@ -751,6 +889,12 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     // -TTR-: sin regla de recodificación (no se inventa).
     if (c.tipoOrigen === 'TTR' || (c.codigo ?? '').includes('-TTR-')) {
       entradas.i.push(entradaDeCargo(c, 'i', 'sin accion', 'cargo -TTR-: sin regla de recodificacion'))
+    }
+    if (reclamados.has(c.id)) {
+      // Cargo 'msgc' de una corrida anterior reconocido por una fila c / d / ampliacion: ya esta cubierto.
+      if (c.estado === 'vigente') vigentesHoy++
+      else validacionHoy++
+      continue
     }
     if (c.eliminado || c.estado !== 'vigente') {
       if (!c.eliminado && c.estado === 'validacion_vacante' && (ocupPorCargo.get(c.id) ?? 0) === 0) {
@@ -905,6 +1049,28 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
         extra.push('concurso a crear: caratulado, sin autorizar, detalle en observaciones')
       }
     }
+    const crearConcurso: ItemCargo['crearConcurso'] = r.ampliacion
+      ? 'nuevo_cargo'
+      : esConcurso(r) && r.exp && !expConcursoSistema.has(r.exp)
+        ? 'normal'
+        : null
+    const base: Omit<ItemCargo, 'cargoId' | 'cambios' | 'completarExpediente' | 'revision' | 'etiquetar'> = {
+      categoria: 'e', fila: r.f, estado: destinoDe(r), ampliacion: r.ampliacion,
+      esJefatura: false, claveRol: '', baseCargoId: null, crearConcurso,
+    }
+    const revisionFila = r.ampliacion ? MARCA_AMPLIACION : revisionDe(r.f, esJefaturaAcronimo(r.f.acronimo) ? ['Jefatura vacante sin par: sin cargo base'] : [])
+    if (a) {
+      const cg = a.cand.c
+      const difs = diferencias(r.f, cg, null, r.estadoExcel, escalafonDeCr).filter((d) => !d.startsWith('acronimo'))
+      itemsPlan.push({
+        ...base, cargoId: cg.id, cambios: difs,
+        completarExpediente: Boolean(r.exp) && expedientesDeCargo(cg).exps.size === 0,
+        revision: revisionFila !== null && revisionFila !== (cg.revisionMotivo ?? null) ? revisionFila : null,
+        etiquetar: esCeetpsSi(r.f) && cg.vinculos.etiquetas === 0,
+      })
+    } else {
+      itemsPlan.push({ ...base, cargoId: null, cambios: [], completarExpediente: false, revision: revisionFila, etiquetar: esCeetpsSi(r.f) })
+    }
     if (a) {
       compararExpediente(r.f, a.cand.c)
       entradas.e.push(
@@ -951,15 +1117,22 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
 
   // Concursos del sistema: se conservan los del Excel; el resto se elimina (Jorge, 12-nov).
   const noVigenteIds = new Set<string>([...gIds, ...sobrantes.map((x) => x.c.id)])
+  const concursosConservar = new Set<string>()
+  const concursosEliminar = new Set<string>()
+  const concursosReasignar: { concursoId: string; expediente: string }[] = []
   for (const co of sistema.concursos ?? []) {
     const k = fase2.concursos
     k.sistema++
     const exps = expedientesDe(co)
     if (exps.some((e) => expConcursoExcel.has(e))) {
-      if (noVigenteIds.has(co.cargoId)) k.mantener_a_reasignar++
-      else k.mantener++
+      if (noVigenteIds.has(co.cargoId)) {
+        k.mantener_a_reasignar++
+        if (co.concursoId) concursosReasignar.push({ concursoId: co.concursoId, expediente: exps.find((e) => expConcursoExcel.has(e)) as string })
+      } else k.mantener++
+      if (co.concursoId) concursosConservar.add(co.concursoId)
       continue
     }
+    if (co.concursoId) concursosEliminar.add(co.concursoId)
     k.eliminar++
     sumar(k.eliminar_por_tipo, co.tipo === 'cph' ? 'CPH' : 'CEETPS')
     if (concursoActivo(co)) k.eliminar_activos++
@@ -1093,6 +1266,13 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     conflictos_expediente: conflictos.sort(
       (x, y) => cmp(x.codigo_excel, y.codigo_excel) || cmp(x.cargo_codigo_sistema, y.cargo_codigo_sistema),
     ),
+    plan: {
+      items: [...itemsPlan].sort((x, y) => cmp(x.fila.codigo_excel, y.fila.codigo_excel) || cmp(x.cargoId ?? '', y.cargoId ?? '')),
+      noVigenteIds: [...noVigenteIds].sort(cmp),
+      concursosConservar: [...concursosConservar].sort(cmp),
+      concursosEliminar: [...concursosEliminar].sort(cmp),
+      concursosReasignar: [...concursosReasignar].sort((x, y) => cmp(x.concursoId, y.concursoId)),
+    },
   }
 
   // ── Helpers con acceso al snapshot ──
@@ -1217,14 +1397,17 @@ function diferencias(
   return d
 }
 
-function claveCupo(sigla: string, acronimo: string, cr: string, puesto: string, especialidad: string, deExcel: boolean): string {
+export function claveCupo(sigla: string, acronimo: string, cr: string, puesto: string, especialidad: string, deExcel: boolean): string {
   const p = deExcel ? puestoCanonico(cr, puesto) : norm(puesto)
   const e = deExcel ? especialidadCanonica(especialidad) : norm(especialidad)
   return [norm(siglaCanonica(sigla)), acronimo, p, e].join('|')
 }
 
 /** Acrónimo estimado de un cargo del sistema (solo para comparar cupos; sin regla -> 'sin-regla'). */
-function sistemaAcronimo(c: CargoSistema): string {
+export function sistemaAcronimo(c: CargoSistema): string {
+  // Un codigo ya recodificado (ACRONIMO-NNNNNN) lleva el acronimo del Excel: es la verdad mas estable.
+  const m = /^(?:R-)?(.+)-\d{6}$/.exec(c.codigo ?? '')
+  if (m && (ACRONIMOS_MSGC as readonly string[]).includes(m[1])) return m[1]
   return (
     acronimoMsgc({
       cr: c.cr ?? '',

@@ -27,7 +27,8 @@ const SQL_CARGOS = `
 SELECT c.id::text AS id, c.codigo, c.estado::text AS estado, c.sub_estado::text AS sub_estado,
        (c.deleted_at IS NOT NULL) AS eliminado, c.origen, c.tipo_origen, c.expediente, c.codigo_repa,
        h.sigla AS sigla, cr.codigo AS cr, e.codigo AS escalafon, p.nombre AS puesto, ep.nombre AS especialidad,
-       c.cargo_base_id::text AS cargo_base_id, c.cargo_retenido_id::text AS cargo_retenido_id
+       c.cargo_base_id::text AS cargo_base_id, c.cargo_retenido_id::text AS cargo_retenido_id,
+       c.revision_dato, c.revision_motivo
 FROM cargos c
 JOIN hospitales h ON h.id = c.hospital_id
 JOIN escalafones e ON e.id = c.escalafon_id
@@ -53,13 +54,13 @@ const SQL_VINCULOS: Record<keyof VinculosCargo, string> = {
 
 /** Concursos por tipo (sin persona ni baja): estado, sub_estado, motivo, autorizacion y expedientes. */
 const SQL_CONCURSOS_CPH = `
-SELECT cph.cargo_id::text AS cargo_id, cph.estado::text AS estado, cph.sub_estado AS sub_estado,
+SELECT co.id::text AS concurso_id, cph.cargo_id::text AS cargo_id, cph.estado::text AS estado, cph.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
        co.expediente AS expediente, NULL::text AS expediente_2
 FROM concursos_cph cph
 JOIN concursos co ON co.id = cph.concurso_id`
 const SQL_CONCURSOS_CEETPS = `
-SELECT ce.cargo_id::text AS cargo_id, ce.estado::text AS estado, ce.sub_estado AS sub_estado,
+SELECT co.id::text AS concurso_id, ce.cargo_id::text AS cargo_id, ce.estado::text AS estado, ce.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
        co.expediente AS expediente, ce.expediente_concurso AS expediente_2, ce.expediente_concurso_2 AS expediente_3
 FROM concursos_ceetps ce
@@ -87,6 +88,7 @@ export const CONSULTAS_SNAPSHOT: readonly string[] = [
 ]
 
 interface FilaConcurso {
+  concurso_id: string
   cargo_id: string
   estado: string
   sub_estado: string | null
@@ -114,6 +116,8 @@ interface FilaCargo {
   especialidad: string | null
   cargo_base_id: string | null
   cargo_retenido_id: string | null
+  revision_dato: boolean | null
+  revision_motivo: string | null
 }
 
 async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
@@ -123,6 +127,7 @@ async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
   const filasCph = await tx.$queryRawUnsafe<FilaConcurso[]>(SQL_CONCURSOS_CPH)
   const filasCeetps = await tx.$queryRawUnsafe<FilaConcurso[]>(SQL_CONCURSOS_CEETPS)
   const aConcurso = (tipo: ConcursoSistema['tipo']) => (f: FilaConcurso): ConcursoSistema => ({
+    concursoId: f.concurso_id,
     cargoId: f.cargo_id,
     tipo,
     estado: f.estado,
@@ -170,6 +175,8 @@ async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
     especialidad: c.especialidad,
     cargoBaseId: c.cargo_base_id,
     cargoRetenidoId: c.cargo_retenido_id,
+    revisionDato: Boolean(c.revision_dato),
+    revisionMotivo: c.revision_motivo,
     vinculos: vinculos.get(c.id) ?? vacio(),
   }))
   const ocupaciones: OcupacionViva[] = ocup.map((o) => ({ idSialRol: o.id_sial_rol, cargoId: o.cargo_id }))

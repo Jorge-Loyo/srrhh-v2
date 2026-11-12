@@ -78,8 +78,8 @@ describe('el directorio no tiene código de escritura', () => {
   const dir = path.dirname(fileURLToPath(import.meta.url))
   const fuentes = fs
     .readdirSync(dir)
-    // limpieza.ts es el UNICO modulo de escritura (DELETE, local y con guardaBase); el dry-run no puede usarlo.
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'limpieza.ts')
+    // limpieza.ts y repoPrisma.ts son los UNICOS modulos con SQL de escritura (locales y con guardaBase); el dry-run no puede usarlos.
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'limpieza.ts' && f !== 'repoPrisma.ts')
 
   /** Quita comentarios de bloque y de línea (aproximación suficiente para este chequeo). */
   const sinComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
@@ -90,7 +90,10 @@ describe('el directorio no tiene código de escritura', () => {
 
   it('el dry-run y el reporte no invocan ejecutarLimpieza', () => {
     for (const archivo of ['dry-run.ts', 'sistemaReadonly.ts', 'reporteCsv.ts', 'cruce.ts']) {
-      expect(fs.readFileSync(path.join(dir, archivo), 'utf8'), archivo).not.toContain('ejecutarLimpieza')
+      const t = fs.readFileSync(path.join(dir, archivo), 'utf8')
+      expect(t, archivo).not.toContain('ejecutarLimpieza')
+      expect(t, archivo).not.toContain('repoPrisma')
+      expect(t, archivo).not.toContain('ejecutarCarga')
     }
   })
   const prohibidos = ['.create(', '.createMany(', '.update(', '.updateMany(', '.delete(', '.deleteMany(', '.upsert(', 'INSERT ', 'UPDATE ', 'DELETE ']
