@@ -1,4 +1,5 @@
-import { CODIGOS_ESCALAFON_GESTIONADOS, CR_POR_CODIGO_ESCALAFON_GESTIONADO } from '@srrhh/types'
+import { CODIGOS_ESCALAFON_GESTIONADOS } from '@srrhh/types'
+import { codigoMostradoCarrera, etiquetaCarrera } from '@/shared/lib/carreraEtiqueta'
 
 // Carreras (escalafones) que gestionamos: las que pueden producir concurso.
 // La lista vive en @srrhh/types (CR_POR_CODIGO_ESCALAFON_GESTIONADO), compartida
@@ -13,19 +14,8 @@ export interface CarreraCatalogo {
 
 export type TipoAltaCarrera = 'pof' | 'pou' | 'estructura'
 
-/**
- * Código a mostrar: el código de registro principal si el escalafón lo tiene
- * definido (la CPH es un único escalafón '22' cuyo CR principal es 37); si no,
- * el propio `escalafones.codigo`. Solo cambia la etiqueta, no el valor enviado.
- */
-export function codigoMostradoCarrera(codigo: string): string {
-  const c = codigo.trim()
-  return CR_POR_CODIGO_ESCALAFON_GESTIONADO[c] ?? c
-}
-/** Etiqueta 'CÓDIGO — Nombre' con el código de registro principal. */
-export function etiquetaCarrera(c: Pick<CarreraCatalogo, 'codigo' | 'nombre'>): string {
-  return `${codigoMostradoCarrera(c.codigo)} — ${c.nombre}`
-}
+// Movidas a shared/lib/carreraEtiqueta; se reexportan para no romper imports.
+export { codigoMostradoCarrera, etiquetaCarrera }
 
 export function esCarreraGestionada(codigo: string | null | undefined): boolean {
   return !!codigo && CODIGOS_ESCALAFON_GESTIONADOS.includes(codigo.trim())

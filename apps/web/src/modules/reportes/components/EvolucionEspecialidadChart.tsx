@@ -2,10 +2,14 @@
 // (Opción A del plan): la sección "Evolución de dotación" ahora vive en
 // Reportes. Único ajuste de imports: los tres hooks se resuelven desde
 // `../hooks/useReportes` (antes `../hooks/useKpis`); el resto queda igual.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { KpiDotacionEvolucion, PerfilIndicadorEvolucion } from '@srrhh/types'
 import { ORDEN_SITUACION_REVISTA } from '@srrhh/types'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
+import { SelectorCarreraPuestoEspecialidad } from '@/shared/components/selectores/SelectorCarreraPuestoEspecialidad'
+import { etiquetaCarreraCR, expandirCarrerasParaConsulta, unificarCarrerasCph } from '@/shared/lib/carreraEtiqueta'
+import { titleCase, type Opcion as ComboOption } from '@/shared/lib/selectorCpe'
 import {
   useDotacionEvolucion,
   useDotacionEvolucionOpciones,
@@ -72,162 +76,6 @@ function formatMesLargo(mes: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-// El backend devuelve puesto/especialidad en MAYÚSCULAS (clave canónica
-// normalizada). Para el desplegable se muestra en Capitalización De Palabras,
-// respetando siglas entre paréntesis como "(04)".
-function titleCase(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\b\p{L}/gu, (ch) => ch.toUpperCase())
-}
-
-// ─── MultiCombobox escribible ───────────────────────────────────────────────
-// Select múltiple con búsqueda: se escribe para filtrar, se tildan varias
-// opciones y se muestran como chips. value/label pueden diferir (value = clave
-// canónica). Los valores ya seleccionados se marcan y se pueden quitar.
-interface ComboOption {
-  value: string
-  label: string
-}
-
-function MultiCombobox({
-  label,
-  options,
-  selected,
-  onChange,
-  placeholder,
-  disabled,
-}: {
-  label: string
-  options: ComboOption[]
-  selected: string[]
-  onChange: (values: string[]) => void
-  placeholder: string
-  disabled?: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const boxRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDocClick(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
-        setOpen(false)
-        setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
-
-  const selectedSet = useMemo(() => new Set(selected), [selected])
-  const labelDe = useMemo(() => {
-    const m = new Map(options.map((o) => [o.value, o.label]))
-    return (v: string) => m.get(v) ?? v
-  }, [options])
-
-  const filtradas = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return options
-    return options.filter((o) => o.label.toLowerCase().includes(q))
-  }, [options, query])
-
-  function toggle(v: string) {
-    if (selectedSet.has(v)) onChange(selected.filter((s) => s !== v))
-    else onChange([...selected, v])
-  }
-
-  // "Todos" opera sobre las opciones actualmente filtradas por la búsqueda; sin
-  // búsqueda, sobre todas. Une con lo ya elegido para no perder selección previa.
-  function seleccionarTodos() {
-    const visibles = filtradas.map((o) => o.value)
-    onChange([...new Set([...selected, ...visibles])])
-  }
-  function deseleccionarTodos() {
-    const visibles = new Set(filtradas.map((o) => o.value))
-    onChange(selected.filter((s) => !visibles.has(s)))
-  }
-
-  return (
-    <div className="relative" ref={boxRef}>
-      <label className="block text-xs text-gray-500 mb-1">
-        {label}
-        {selected.length > 0 && <span className="text-secondary font-semibold"> ({selected.length})</span>}
-      </label>
-
-      <input
-        type="text"
-        disabled={disabled}
-        value={query}
-        placeholder={placeholder}
-        onFocus={() => !disabled && setOpen(true)}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setOpen(true)
-        }}
-        className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary disabled:bg-gray-100"
-      />
-
-      {open && !disabled && (
-        <div className="absolute z-20 mt-1 w-full rounded border border-gray-200 bg-white shadow-lg text-sm">
-          {/* Acciones masivas */}
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 text-xs">
-            <button type="button" onClick={seleccionarTodos} className="text-secondary hover:underline">
-              Seleccionar todos{query ? ' (filtrados)' : ''}
-            </button>
-            <button type="button" onClick={deseleccionarTodos} className="text-gray-500 hover:underline">
-              Ninguno
-            </button>
-          </div>
-          <ul className="max-h-56 overflow-y-auto">
-            {filtradas.map((o) => {
-              const on = selectedSet.has(o.value)
-              return (
-                <li key={o.value}>
-                  <button
-                    type="button"
-                    onClick={() => toggle(o.value)}
-                    className={`flex w-full items-center gap-2 text-left px-3 py-2 hover:bg-gray-50 ${on ? 'font-semibold text-secondary' : 'text-gray-700'}`}
-                  >
-                    <span className={`inline-block h-4 w-4 flex-shrink-0 rounded border ${on ? 'bg-secondary border-secondary text-white' : 'border-gray-300'}`}>
-                      {on && <span className="block text-center text-xs leading-4">✓</span>}
-                    </span>
-                    {o.label}
-                  </button>
-                </li>
-              )
-            })}
-            {filtradas.length === 0 && <li className="px-3 py-2 text-gray-400">Sin coincidencias</li>}
-          </ul>
-        </div>
-      )}
-
-      {/* Chips de lo seleccionado — debajo del input para no desalinear la grilla */}
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1">
-          {selected.map((v) => (
-            <span
-              key={v}
-              className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs rounded px-2 py-0.5"
-            >
-              {labelDe(v)}
-              <button
-                type="button"
-                onClick={() => toggle(v)}
-                className="text-blue-400 hover:text-blue-700"
-                aria-label={`Quitar ${labelDe(v)}`}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 const listaVacia: string[] = []
 const listaVaciaCarreras: { codigo: string; literal: string }[] = []
 
@@ -266,7 +114,7 @@ function nuevoId(): string {
 function toPerfil(ind: IndicadorUI): PerfilIndicadorEvolucion {
   const p: PerfilIndicadorEvolucion = { id: ind.id }
   if (ind.siglas.length) p.siglas = ind.siglas
-  if (ind.carreras.length) p.carreras = ind.carreras
+  if (ind.carreras.length) p.carreras = expandirCarrerasParaConsulta(ind.carreras)
   if (ind.puestos.length) p.puestos = ind.puestos
   if (ind.especialidades.length) p.especialidades = ind.especialidades
   if (ind.gruposEspecialidad.length) p.gruposEspecialidad = ind.gruposEspecialidad
@@ -303,7 +151,7 @@ export function EvolucionEspecialidadChart() {
   // tocar "Aplicar").
   const filtros = {
     siglas: aplicado.siglas,
-    carreras: aplicado.carreras,
+    carreras: expandirCarrerasParaConsulta(aplicado.carreras),
     puestos: aplicado.puestos,
     especialidades: aplicado.especialidades,
     gruposEspecialidad: aplicado.gruposEspecialidad.length ? aplicado.gruposEspecialidad : undefined,
@@ -318,7 +166,7 @@ export function EvolucionEspecialidadChart() {
   // consulta liviana; la pesada (serie) espera al "Aplicar".
   const filtrosEdicion = {
     siglas,
-    carreras,
+    carreras: expandirCarrerasParaConsulta(carreras),
     puestos,
     especialidades,
     gruposEspecialidad: gruposEspecialidad.length ? gruposEspecialidad : undefined,
@@ -365,20 +213,21 @@ export function EvolucionEspecialidadChart() {
     [opciones, nombrePorSigla]
   )
   // Combo "Carrera": value = CÓDIGO de registro, label = "{codigo} — {literal}"
-  // para distinguir carreras homónimas (ej. 37 vs 22, ambas "Nueva Carrera
+  // para distinguir carreras homónimas (37 y 22 se unifican en 37; ambas "Nueva Carrera
   // Profesional Hospitalaria"). Ordenadas alfabéticamente por el label.
   const carreraOpts = useMemo<ComboOption[]>(
     () =>
-      (opciones?.carreras ?? listaVaciaCarreras)
-        .map((c) => ({ value: c.codigo, label: `${c.codigo} — ${c.literal}` }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true })),
+      unificarCarrerasCph(opciones?.carreras ?? listaVaciaCarreras).map((c) => ({
+        value: c.codigo,
+        label: etiquetaCarreraCR(c),
+      })),
     [opciones]
   )
   // Mapa codigo→"{codigo} — {literal}" para resolver labels (chips de unión
   // incluidos), consistente con el combo de Carrera.
   const literalPorCodigo = useMemo(() => {
     const m = new Map<string, string>()
-    for (const c of opciones?.carreras ?? listaVaciaCarreras) m.set(c.codigo, `${c.codigo} — ${c.literal}`)
+    for (const c of unificarCarrerasCph(opciones?.carreras ?? listaVaciaCarreras)) m.set(c.codigo, etiquetaCarreraCR(c))
     return (codigo: string) => m.get(codigo) ?? codigo
   }, [opciones])
   const puestoOpts = useMemo<ComboOption[]>(
@@ -512,7 +361,7 @@ export function EvolucionEspecialidadChart() {
     <div className="space-y-4">
       {/* ── Filtros multivaluados (Hospitales → Carrera → Puesto → Especialidad) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
-        <MultiCombobox
+        <ComboBuscable
           label="Efectores"
           options={siglaOpts}
           selected={siglas}
@@ -520,34 +369,23 @@ export function EvolucionEspecialidadChart() {
           placeholder="Buscar sigla o nombre…"
           onChange={setSiglas}
         />
-        <MultiCombobox
-          label="Carrera"
-          options={carreraOpts}
-          selected={carreras}
+        <SelectorCarreraPuestoEspecialidad
+          modo="multiple"
+          valor={{ carrera: carreras, puesto: puestos, especialidad: especialidades }}
+          carreraOpciones={carreraOpts}
+          puestoOpciones={puestoOpts}
+          especialidadOpciones={especialidadOpts}
           disabled={loadingOpciones}
-          placeholder="Buscar carrera…"
-          onChange={setCarreras}
-        />
-        <MultiCombobox
-          label="Puesto"
-          options={puestoOpts}
-          selected={puestos}
-          disabled={loadingOpciones}
-          placeholder="Buscar puesto…"
-          onChange={setPuestos}
-        />
-        <MultiCombobox
-          label="Especialidad"
-          options={especialidadOpts}
-          selected={especialidades}
-          disabled={loadingOpciones}
-          placeholder="Buscar especialidad…"
-          onChange={setEspecialidades}
+          onChange={(next) => {
+            setCarreras(next.carrera)
+            setPuestos(next.puesto)
+            setEspecialidades(next.especialidad)
+          }}
         />
         {/* S25: "Grupos" solo aparece si la selección actual tiene
             especialidades agrupadas (grupoOpts no vacío). */}
         {hayGrupos && (
-          <MultiCombobox
+          <ComboBuscable
             label="Grupos"
             options={grupoOpts}
             selected={gruposEspecialidad}
@@ -558,7 +396,7 @@ export function EvolucionEspecialidadChart() {
         )}
         {/* Situación de revista (punto 2): acota QUÉ personas entran en la
             reconstrucción del estado acumulado. Catálogo cerrado local. */}
-        <MultiCombobox
+        <ComboBuscable
           label="Situación de revista"
           options={situacionOpts}
           selected={situaciones}
@@ -586,7 +424,7 @@ export function EvolucionEspecialidadChart() {
           <span className="text-xs text-gray-400">
             Combiná filtros (incluida la situación de revista) y tocá{' '}
             <span className="font-semibold">+ Unión</span> para sumar un indicador: cada uno es otra línea del
-            gráfico (ej. “activos del código 37” vs. “retención de cargo del código 22”).
+            gráfico (ej. “activos del código 37” vs. “activos del código 85”).
           </span>
         ) : (
           <>
