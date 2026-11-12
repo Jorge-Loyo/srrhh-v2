@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { prisma } from '../prisma.js'
+import { esAdmin } from '../esAdmin.js'
 import { AppError } from '../errors/AppError.js'
 
 export interface PermisoRef {
@@ -25,7 +26,7 @@ export function requirePermiso(permiso: PermisoRef | PermisoRef[]) {
   return async (request: FastifyRequest, _reply: FastifyReply) => {
     const user = request.user as { roleId?: string; rolSlug?: string } | undefined
     if (!user?.roleId || !user.rolSlug) throw AppError.forbidden()
-    if (user.rolSlug === 'admin') return
+    if (esAdmin(user.rolSlug)) return
 
     const tienePermiso = await prisma.rolePermiso.findFirst({
       where: {

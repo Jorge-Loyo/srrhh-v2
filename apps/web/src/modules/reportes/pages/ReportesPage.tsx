@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Presentation } from 'lucide-react'
 import { EvolucionDotacionChart } from '../components/EvolucionDotacionChart'
 import { EvolucionEspecialidadChart } from '../components/EvolucionEspecialidadChart'
+import { IndicadoresCargosSection } from '../components/IndicadoresCargosSection'
 import { useKpiDotacionHistorica } from '../hooks/useReportes'
 import { SlidesViewer } from '@/modules/presentacion/components/SlidesViewer'
 import { SLIDES_CATALOGO } from '@/modules/presentacion/components/slidesCatalogo'
@@ -50,6 +51,8 @@ export function ReportesPage() {
         <h1 className="font-primary text-xl font-bold text-gray-900">Reportes</h1>
       </div>
 
+      {/* ── Indicadores de cargos (colapsable, solo lectura) ─────────────────── */}
+      <IndicadoresCargosSection />
       {/* ── Evolución de dotación (colapsable) — mudado desde el Tablero de KPIs ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <button
@@ -95,7 +98,7 @@ export function ReportesPage() {
                 Evolución por carrera y especialidad
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                Personas activas (situación de revista) por mes — último padrón de cada mes
+                Personas únicas por mes (total + desglose por situación de revista) — último padrón de cada mes
               </p>
               <EvolucionEspecialidadChart />
             </div>

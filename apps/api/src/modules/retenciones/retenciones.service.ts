@@ -117,6 +117,9 @@ export async function registrarRetencionService(body: RegistrarRetencionBody) {
         codigoRepa: cargo.codigoRepa,
         estado: 'vigente',
         estadoDesde: new Date(),
+        // Cargo remplazante recién creado, vigente sin ocupante ni concurso
+        // todavía (lo concursa/designa el flujo siguiente) -> 'vacante'.
+        subEstado: 'vacante',
         tipoOrigen,
         cargoRetenidoId: cargo.id,
         cargoBaseId,
@@ -535,8 +538,12 @@ export async function titularCesaService(body: TitularCesaBody) {
 
     const cargoRActualizado = await tx.cargo.update({
       where: { id: cargoR.id },
-      data: { estado: 'no_vigente', estadoDesde: hoy },
+      data: { estado: 'no_vigente', estadoDesde: hoy, subEstado: null },
     })
+
+    // El cargo titular sigue vigente y ahora tiene al ex-ocupante R como
+    // ocupante vivo -> 'ocupado'.
+    await tx.cargo.update({ where: { id: cargo.id }, data: { subEstado: 'ocupado' } })
 
     const cargoActualizado = await tx.cargo.findUnique({ where: { id: cargo.id }, include })
 

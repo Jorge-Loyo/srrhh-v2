@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
+import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
+import { cargosIndicadoresQuerySchema } from './cargos-indicadores.schema.js'
+import { getCargosIndicadoresService } from './cargos-indicadores.service.js'
 import {
   kpisConcursosCphQuerySchema,
   kpisConcursosCeetpsQuerySchema,
@@ -27,6 +30,16 @@ import {
 export async function kpisRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
+  // GET /cargos-indicadores — indicadores de cargos (Reportes): mes actual vs anterior, solo lectura
+  app.get(
+    '/cargos-indicadores',
+    { preHandler: requirePermiso({ modulo: 'reportes', accion: 'ver' }) },
+    async (request, reply) => {
+      const query = cargosIndicadoresQuerySchema.parse(request.query)
+      const data = await getCargosIndicadoresService(query, request.log)
+      return reply.send({ data })
+    },
+  )
   // GET /dotacion — S6-1
   app.get('/dotacion', async (request, reply) => {
     const query = kpisDotacionQuerySchema.parse(request.query)

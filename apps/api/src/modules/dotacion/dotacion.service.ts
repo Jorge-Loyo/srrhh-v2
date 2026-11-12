@@ -8,6 +8,36 @@ const requireXlsx = createRequire(import.meta.url)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const XLSX = requireXlsx('xlsx') as any
 
+// Planta/Guardia "corregida": bug histórico del import (ver codigoCargo.ts,
+// prefijoDeCargo) — muchos puestos "...de guardia" quedaron cargados en el
+// catálogo con modalidad='pof' en vez de 'pou'. El literal del NOMBRE del
+// puesto manda siempre que contenga "guardia", igual que ya hace
+// prefijoDeCargo al generar el código del cargo — si no, esta pantalla
+// mostraría "Planta" para gente que en realidad hace guardia.
+//
+// Jefe de Departamento/División/Sección/Unidad (CPH): el catálogo no
+// distingue Planta/Guardia para estos 4 puestos (modalidad='ambos' siempre —
+// el padrón nunca cargó esa info para jefaturas). Mismo fallback que
+// prefijoDeCargo (ver tieneEspecialidad ahí): con especialidad asignada →
+// Planta, sin especialidad → Guardia (confirmado 100% de cobertura contra
+// los cargos reales). Director/Subdirector NO entran acá — para esos dos
+// 'ambos' es correcto por diseño (no tienen variante Planta/Guardia).
+const MODALIDAD_CORREGIDA_EXPR = Prisma.sql`
+  CASE
+    WHEN pcd.nombre ILIKE '%guardia%' OR pcd.modalidad = 'pou' THEN 'pou'
+    WHEN pcd.modalidad = 'pof' THEN 'pof'
+    WHEN pcd.nombre IN ('jefe de departamento (02)', 'jefe de division (04)', 'jefe de seccion (06)', 'jefe de unidad (05)')
+      THEN CASE WHEN c.especialidad_puesto_id IS NOT NULL THEN 'pof' ELSE 'pou' END
+    ELSE 'ambos'
+  END
+`
+
+// Jefe/No jefe: ocupación vigente con código de jefatura asignado (mismo
+// criterio que el filtro "Solo jefes" del resto de la pantalla).
+const CONDUCCION_EXPR = Prisma.sql`
+  CASE WHEN o.codigo_jefaturas IS NOT NULL AND TRIM(o.codigo_jefaturas) NOT IN ('', '0') THEN 'Jefe' ELSE 'No jefe' END
+`
+
 // Dedup del cargo espejo de jefatura: al jefe se le crea un cargo copia (mismo
 // puesto + repartición) SIN código de jefatura para colgarle más dotación
 // (límite del sistema). Es el MISMO cargo real → se descarta el espejo (sin
@@ -216,6 +246,10 @@ interface DimensionesDotacion {
   escalafonId?: string[]
   codigoRegistroId?: string[]
   modalidad?: 'pof' | 'pou' | 'ambos'
+  // Jefe/No jefe — mismo criterio que "Solo jefes" (o.codigo_jefaturas), pero
+  // como dimensión de dos valores en vez de un booleano, para el árbol de
+  // apertura del panel por hospital (ver getDotacionArbolService).
+  conduccion?: string[]
   puestoNombre?: string[]
   especialidadNombre?: string[]
   // Grupo de especialidad (especialidades_puesto.grupo). Mismo criterio que la
@@ -279,10 +313,37 @@ function condicionesDimensiones(f: DimensionesDotacion): Prisma.Sql[] {
   // buscar sobre todo el catálogo sin fijar escalafón/puesto. Multi-select ⇒
   // IN (OR interno). ──
   if (f.modalidad) {
+    // Misma corrección que MODALIDAD_CORREGIDA_EXPR (bug histórico del
+    // import: puestos "...de guardia" cargados con modalidad='pof' en el
+    // catálogo, y Jefe de Depto/División/Sección/Unidad sin Planta/Guardia
+    // curada — ver comentario ahí) — si no, el drill-down desde una fila del
+    // panel por hospital no traería exactamente lo que esa fila contó.
+    const nombresJefeSinCurar = Prisma.sql`'jefe de departamento (02)', 'jefe de division (04)', 'jefe de seccion (06)', 'jefe de unidad (05)'`
+    const condModalidad = f.modalidad === 'pou'
+      ? Prisma.sql`(
+          pcm.nombre ILIKE '%guardia%'
+          OR pcm.modalidad = 'pou'::"ModalidadPuesto"
+          OR (pcm.modalidad = 'ambos'::"ModalidadPuesto" AND pcm.nombre IN (${nombresJefeSinCurar}) AND c.especialidad_puesto_id IS NULL)
+        )`
+      : f.modalidad === 'pof'
+        ? Prisma.sql`(
+            (pcm.modalidad = 'pof'::"ModalidadPuesto" AND pcm.nombre NOT ILIKE '%guardia%')
+            OR (pcm.modalidad = 'ambos'::"ModalidadPuesto" AND pcm.nombre IN (${nombresJefeSinCurar}) AND c.especialidad_puesto_id IS NOT NULL)
+          )`
+        : Prisma.sql`(pcm.modalidad = 'ambos'::"ModalidadPuesto" AND pcm.nombre NOT ILIKE '%guardia%' AND pcm.nombre NOT IN (${nombresJefeSinCurar}))`
     conds.push(Prisma.sql`EXISTS (
       SELECT 1 FROM puestos_cargo pcm
-      WHERE pcm.id = c.puesto_cargo_id AND pcm.modalidad = ${f.modalidad}::"ModalidadPuesto"
+      WHERE pcm.id = c.puesto_cargo_id AND ${condModalidad}
     )`)
+  }
+  // Jefe/No jefe — igual condición que "Solo jefes" (o.codigo_jefaturas), pero
+  // expresada como dimensión de dos valores en vez de booleano, para el árbol
+  // de apertura del panel por hospital (ver getDotacionArbolService).
+  if (f.conduccion?.length) {
+    const esJefe = f.conduccion.includes('Jefe')
+    const esNoJefe = f.conduccion.includes('No jefe')
+    if (esJefe && !esNoJefe) conds.push(Prisma.sql`(o.codigo_jefaturas IS NOT NULL AND TRIM(o.codigo_jefaturas) NOT IN ('', '0'))`)
+    else if (esNoJefe && !esJefe) conds.push(Prisma.sql`(o.codigo_jefaturas IS NULL OR TRIM(o.codigo_jefaturas) IN ('', '0'))`)
   }
   if (f.puestoNombre?.length) {
     conds.push(Prisma.sql`EXISTS (
@@ -359,6 +420,7 @@ export function buildConditions(query: DotacionFiltersQuery, omitir?: keyof Dime
     escalafonId: query.escalafonId,
     codigoRegistroId: query.codigoRegistroId,
     modalidad: query.modalidad,
+    conduccion: query.conduccion,
     puestoNombre: query.puestoNombre,
     especialidadNombre: query.especialidadNombre,
     grupoEspecialidad: query.grupoEspecialidad,
@@ -708,6 +770,11 @@ const GROUP_BY_EXPR: Record<string, Prisma.Sql> = {
   sexo:                Prisma.sql`p.sexo`,
   situacionRevista:    Prisma.sql`o.situacion_revista`,
   reparticion:         Prisma.sql`c.descripcion_repa`,
+  // Planta/Guardia (corregida, ver MODALIDAD_CORREGIDA_EXPR) y Jefe/No jefe —
+  // dimensiones propias del panel por hospital (DotacionHospitalPanel.tsx),
+  // expuestas acá para reusar /desglose tal cual.
+  modalidad:           MODALIDAD_CORREGIDA_EXPR,
+  conduccion:          CONDUCCION_EXPR,
 }
 
 interface DesgloseRow {
@@ -737,3 +804,47 @@ export async function getDotacionDesgloseService(query: DotacionDesgloseQuery) {
     rows: rows.map((r) => ({ value: r.value ?? 'Sin dato', total: Number(r.total) })),
   }
 }
+
+interface FilaCarreraTabla {
+  modalidad: string | null
+  conduccion: string
+  especialidad: string | null
+  puesto: string | null
+  situacion: string | null
+  total: bigint
+}
+
+// Tabla completa de una Carrera (botón "Fichas" > hospital > carrera): UNA
+// sola query trae el cruce de Planta/Guardia × Jefe/No jefe × Especialidad ×
+// Puesto × Situación de Revista bajo los filtros ya acumulados (hospital +
+// escalafón elegido + lo que sea que venga del resto de la pantalla) — el
+// frontend arma la tabla dinámica (DotacionHospitalPanel.tsx: decide qué
+// niveles mostrar según cuáles de modalidad/conduccion/especialidad tengan
+// más de un valor distinto, y pivotea por situación) a partir de estas filas
+// planas, igual que hacía el HOME del sistema viejo con su propio endpoint.
+export async function getDotacionCarreraTablaService(query: DotacionFiltersQuery) {
+  const conditions = buildConditions(query)
+  const where = conditions.length ? Prisma.sql`AND ${Prisma.join(conditions, ' AND ')}` : Prisma.empty
+
+  const rows = await prisma.$queryRaw<FilaCarreraTabla[]>(Prisma.sql`
+    SELECT
+      ${MODALIDAD_CORREGIDA_EXPR} AS modalidad,
+      ${CONDUCCION_EXPR} AS conduccion,
+      epd.nombre AS especialidad,
+      pcd.nombre AS puesto,
+      o.situacion_revista AS situacion,
+      count(*)::bigint AS total
+    ${BASE_FROM} ${where}
+    GROUP BY ${MODALIDAD_CORREGIDA_EXPR}, ${CONDUCCION_EXPR}, epd.nombre, pcd.nombre, o.situacion_revista
+  `)
+
+  return rows.map((r) => ({
+    modalidad: r.modalidad ?? 'ambos',
+    conduccion: r.conduccion,
+    especialidad: r.especialidad ?? 'Sin dato',
+    puesto: r.puesto ?? 'Sin dato',
+    situacion: r.situacion ?? 'Sin dato',
+    total: Number(r.total),
+  }))
+}
+

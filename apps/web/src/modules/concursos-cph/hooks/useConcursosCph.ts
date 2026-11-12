@@ -5,12 +5,14 @@ import type {
   DesignacionEstado,
   DeclararDesiertoRequest,
   DesignarConcursoRequest,
+  AsignarDesignadoCphRequest,
   GenerarSorteoJuradoRequest,
   ImportarInscriptosResult,
   CandidatoOmReservado,
   InscriptoConcurso,
   InscriptoRequest,
   JuradoVigente,
+  OmDisponiblesResponse,
   OrdenMeritoVigente,
   PaginatedResponse,
   PatchConcursoCphRequest,
@@ -160,6 +162,27 @@ export function useDesignarConcursoCph(id: string) {
   })
 }
 
+// Asignar manualmente la persona designada SIN ocupar el cargo —
+// POST /:id/asignar-designado. Para concursos finalizados sin persona vinculada.
+export function useAsignarDesignadoCph(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: AsignarDesignadoCphRequest) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/asignar-designado`,
+        body,
+      )
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['concurso-cph-wizard', id], data)
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-designacion-estado', id] })
+    },
+  })
+}
+
 // Órdenes de mérito compatibles con un concurso (Etapa 4) — GET /:id/om-compatibles.
 export function useOmCompatibles(id: string | undefined) {
   return useQuery({
@@ -204,6 +227,40 @@ export function useReservarIntegranteOm(id: string) {
   })
 }
 
+// Paso 5b: órdenes de mérito disponibles para saltar a designación (Etapa 2)
+// — GET /:id/om-disponibles. Requiere concursos-cph/tab:autorizacion-jurado.
+export function useOmDisponibles(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['concurso-cph-om-disponibles', id],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: OmDisponiblesResponse }>(
+        `/api/v1/concursos-cph/${id}/om-disponibles`,
+      )
+      return res.data.data
+    },
+    enabled: !!id && enabled,
+  })
+}
+// Paso 5b: designar a un integrante de OM y saltar a Etapa 5 — POST /:id/om/designar.
+export function useDesignarDesdeOm(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ integranteId, motivo }: { integranteId: string; motivo?: string }) => {
+      const res = await apiClient.post<{ data: ConcursoCph }>(
+        `/api/v1/concursos-cph/${id}/om/designar`,
+        { integranteId, ...(motivo ? { motivo } : {}) },
+      )
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard', id] })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-candidato-om', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-compatibles', id] })
+      queryClient.invalidateQueries({ queryKey: ['concurso-cph-om-disponibles', id] })
+    },
+  })
+}
 // Liberar la reserva de un integrante de OM.
 export function useLiberarIntegranteOm(id: string) {
   const queryClient = useQueryClient()

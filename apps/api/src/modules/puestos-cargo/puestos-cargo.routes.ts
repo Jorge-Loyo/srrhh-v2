@@ -5,6 +5,16 @@ import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 
+// Query de GET /puestos-cargo. `incluirAmbos` es opt-in (default false =
+// comportamiento histórico). Se parsea a mano: z.coerce.boolean() trataría
+// 'false' como true.
+const listarPuestosQuerySchema = z.object({
+  escalafonId: z.string().optional(),
+  modalidad: z.enum(['pof', 'pou', 'ambos']).optional(),
+  tipoPuesto: z.enum(['ejecucion', 'conduccion']).optional(),
+  incluirAmbos: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+})
+
 const crearPuestoSchema = z.object({
   escalafonId: z.string().uuid(),
   nombre: z.string().trim().min(1).max(200),
@@ -34,11 +44,7 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
 
   // GET /puestos-cargo?escalafonId=&modalidad=pof|pou|ambos&tipoPuesto=ejecucion|conduccion
   app.get('/', async (request, reply) => {
-    const { escalafonId, modalidad, tipoPuesto } = request.query as {
-      escalafonId?: string
-      modalidad?: 'pof' | 'pou' | 'ambos'
-      tipoPuesto?: 'ejecucion' | 'conduccion'
-    }
+    const { escalafonId, modalidad, tipoPuesto, incluirAmbos } = listarPuestosQuerySchema.parse(request.query)
 
     // Para pof/pou: primero intentar puestos propios de esa modalidad.
     // Si no hay (ej: CEETPS que usa 'ambos'), incluir también 'ambos'.
@@ -46,6 +52,10 @@ export async function puestosCargoRoutes(app: FastifyInstance) {
     let modalidadFilter: object = {}
     if (modalidad === 'ambos') {
       modalidadFilter = { modalidad: 'ambos' }
+    } else if (modalidad && incluirAmbos) {
+      // Opt-in (alta de cargos): siempre modalidad + 'ambos', sin la heurística
+      // de "propios" (ej: escalafón 87 tiene 'pof' propios y puestos 'ambos').
+      modalidadFilter = { modalidad: { in: [modalidad, 'ambos'] } }
     } else if (modalidad) {
       // Verificar si hay puestos propios de esta modalidad para este escalafón
       const tienePropios = escalafonId

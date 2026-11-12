@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { JornadaSorteoDetalle } from '@srrhh/types'
-import { useEtiquetas } from '../hooks/useEtiquetas'
+import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import {
   useJornadasSorteo,
   useJornadaSorteo,

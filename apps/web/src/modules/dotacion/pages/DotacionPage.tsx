@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDownIcon, ChevronUpIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
+import { Squares2X2Icon } from '@heroicons/react/24/outline'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { useAreasProgramaticas, useAreaProgramatica, useUnidadesFijas } from '@/modules/areas-programaticas/hooks/useAreasProgramaticas'
@@ -9,8 +9,9 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar, capitalizarEtiqueta } from '@/shared/lib/utils'
 import { DotacionKpisPanel } from '../components/DotacionKpisPanel'
+import { DotacionHospitalPanel } from '../components/DotacionHospitalPanel'
 import {
-  useDotacion, useExportDotacion, useDotacionCortes, useDotacionDesglose,
+  useDotacion, useExportDotacion, useDotacionCortes, useDotacionDesglose, toDotacionParams,
   DOTACION_GROUP_BY_OPTIONS, DOTACION_SIN_DATO,
   type DotacionFilters, type DotacionListResponse, type DotacionRow, type GrupoDotacion,
   type DotacionGroupByKey,
@@ -133,12 +134,18 @@ export function DotacionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [kpisOpen, setKpisOpen] = useState(false)
-  const [fichasOpen, setFichasOpen] = useState(false)
-  const [groupByFichas, setGroupByFichas] = useState<DotacionGroupByKey>('sigla')
-  // "Elegir varias" del panel de fichas — igual que el resto de los multi-select
-  // de esta pantalla, se van marcando y se aplican todas juntas al filtro.
-  const [modoMultiFichas, setModoMultiFichas] = useState(false)
-  const [seleccionMultiFichas, setSeleccionMultiFichas] = useState<string[]>([])
+  // "Fichas" es una solapa propia, no un panel que reacciona al toque: se
+  // junta todo en un borrador local y el Listado no se refresca hasta tocar
+  // "Aplicar filtros".
+  const [vista, setVista] = useState<'listado' | 'fichas'>('listado')
+  // Hospital elegido en la ficha dedicada de arriba — dispara el panel de
+  // números (Planta General / CPH / Jefaturas), equivalente al HOME viejo.
+  const [hospitalPanel, setHospitalPanel] = useState<string | null>(null)
+  // El resto de dimensiones (Sexo, Repartición, Puesto, etc.) quedan
+  // colapsadas bajo "Más filtros" — uso ocasional, no la vía principal.
+  const [masFiltrosOpen, setMasFiltrosOpen] = useState(false)
+  const [groupByFichas, setGroupByFichas] = useState<Exclude<DotacionGroupByKey, 'sigla'>>('escalafon')
+  const [draftFichas, setDraftFichas] = useState<Record<string, string[]> | null>(null)
   const [buscarFicha, setBuscarFicha] = useState('')
   const exportar = useExportDotacion()
   const { data: cortes } = useDotacionCortes()
@@ -317,71 +324,125 @@ export function DotacionPage() {
   }
 
   // Panel "Fichas" — conteo por valor de la dimensión elegida, bajo los MISMOS
-  // `filters` que ya tiene aplicado el listado de abajo (uniones incluidas).
-  const { data: fichas, isFetching: isFetchingFichas } = useDotacionDesglose(groupByFichas, filters, { enabled: fichasOpen })
+  // `filters` que ya tiene aplicado el Listado (uniones incluidas). Son los
+  // filtros ya confirmados, no el borrador que se está armando en esta solapa.
+  const { data: fichas, isFetching: isFetchingFichas } = useDotacionDesglose(groupByFichas, filters, { enabled: vista === 'fichas' })
+  // Ficha dedicada de Hospital (siempre visible arriba de "Más filtros") —
+  // consulta propia, independiente de groupByFichas.
+  const { data: fichasHospital, isFetching: isFetchingFichasHospital } = useDotacionDesglose('sigla', filters, { enabled: vista === 'fichas' })
 
-  useEffect(() => { setModoMultiFichas(false); setSeleccionMultiFichas([]); setBuscarFicha('') }, [groupByFichas])
+  useEffect(() => { setBuscarFicha('') }, [groupByFichas])
 
-  // ¿Este valor ya está aplicado como filtro de esa dimensión? — se usa para
-  // marcar la ficha como "ya aplicada" apenas se toca, confirmación visual de
-  // que el click realmente sumó el filtro (antes no había ninguna).
-  function fichaYaAplicada(dim: DotacionGroupByKey, value: string): boolean {
+  // Todos los campos de DotacionFilters que puede tocar el panel de Fichas —
+  // se usa para sacar la foto inicial del borrador y para aplicarlo entero.
+  const CAMPOS_FICHAS = [...new Set(Object.values(FICHA_DIM_TO_FILTRO)), 'escalafonId'] as string[]
+
+  function snapshotFiltrosFichas(): Record<string, string[]> {
+    const snap: Record<string, string[]> = {}
+    CAMPOS_FICHAS.forEach((campo) => { snap[campo] = getCsv(searchParams, campo) })
+    return snap
+  }
+
+  // Entra a la solapa con un borrador inicializado desde lo ya aplicado — solo
+  // al entrar desde afuera, no en cada click (si no, se perdería lo que se
+  // viene marcando).
+  function abrirFichas() {
+    if (vista !== 'fichas') setDraftFichas(snapshotFiltrosFichas())
+    setVista('fichas')
+  }
+
+  // Descarta el borrador sin tocar los filtros reales.
+  function cancelarFichas() {
+    setDraftFichas(null)
+    setVista('listado')
+  }
+
+  // Vuelca el borrador a la URL en una sola actualización — recién ahí el
+  // Listado (y el resto de la pantalla) ve los nuevos filtros.
+  function aplicarFichas() {
+    if (draftFichas) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        for (const campo of CAMPOS_FICHAS) {
+          const valores = draftFichas[campo] ?? []
+          if (valores.length) next.set(campo, valores.join(',')); else next.delete(campo)
+        }
+        next.delete('page')
+        return next
+      })
+    }
+    setDraftFichas(null)
+    setVista('listado')
+  }
+
+  // ¿Este valor está marcado en el borrador (pendiente de aplicar)? — al
+  // entrar a la solapa el borrador arranca igual a lo ya aplicado, así que
+  // también sirve para mostrar lo que ya estaba filtrado.
+  function fichaMarcada(dim: DotacionGroupByKey, value: string): boolean {
+    if (!draftFichas) return false
     const valorFiltro = valorParaFiltro(value)
-    if (dim === 'escalafon') return escalafonId.includes(escalafonNombreToId(valorFiltro))
+    if (dim === 'escalafon') return (draftFichas.escalafonId ?? []).includes(escalafonNombreToId(valorFiltro))
     const campo = FICHA_DIM_TO_FILTRO[dim]
     if (!campo) return false
-    return getCsv(searchParams, campo as string).includes(valorFiltro)
-  }
-
-  function toggleSeleccionMultiFicha(value: string) {
-    setSeleccionMultiFichas((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
-  }
-
-  // Agrega (no reemplaza) el/los valor(es) elegidos al filtro de esa
-  // dimensión — mismo criterio "multi-select que se combina" que ya usa el
-  // resto de la pantalla.
-  function agregarValoresFicha(dim: DotacionGroupByKey, valoresFicha: string[]) {
-    const valores = valoresFicha.map(valorParaFiltro)
-    if (dim === 'escalafon') {
-      const idsNuevos = valores.map(escalafonNombreToId).filter(Boolean)
-      const siguiente = [...new Set([...escalafonId, ...idsNuevos])]
-      setCsvParam('escalafonId', siguiente)
-      return
-    }
-    const campo = FICHA_DIM_TO_FILTRO[dim]
-    if (!campo) return
-    const actuales = getCsv(searchParams, campo as string)
-    const siguiente = [...new Set([...actuales, ...valores])]
-    setCsvParam(campo as string, siguiente)
-  }
-
-  function quitarValorFicha(dim: DotacionGroupByKey, valorFicha: string) {
-    const value = valorParaFiltro(valorFicha)
-    if (dim === 'escalafon') {
-      const id = escalafonNombreToId(value)
-      setCsvParam('escalafonId', escalafonId.filter((x) => x !== id))
-      return
-    }
-    const campo = FICHA_DIM_TO_FILTRO[dim]
-    if (!campo) return
-    setCsvParam(campo as string, getCsv(searchParams, campo as string).filter((v) => v !== value))
+    return (draftFichas[campo as string] ?? []).includes(valorFiltro)
   }
 
   function tocarFicha(value: string) {
-    if (modoMultiFichas) { toggleSeleccionMultiFicha(value); return }
-    if (fichaYaAplicada(groupByFichas, value)) {
-      quitarValorFicha(groupByFichas, value)
-    } else {
-      agregarValoresFicha(groupByFichas, [value])
-    }
+    if (!draftFichas) return
+    const valorFiltro = valorParaFiltro(value)
+    const dim = groupByFichas
+    const campo = dim === 'escalafon' ? 'escalafonId' : (FICHA_DIM_TO_FILTRO[dim] as string | undefined)
+    if (!campo) return
+    const valorReal = dim === 'escalafon' ? escalafonNombreToId(valorFiltro) : valorFiltro
+    if (!valorReal) return
+    setDraftFichas((prev) => {
+      if (!prev) return prev
+      const actuales = prev[campo] ?? []
+      const siguiente = actuales.includes(valorReal) ? actuales.filter((v) => v !== valorReal) : [...actuales, valorReal]
+      return { ...prev, [campo]: siguiente }
+    })
   }
 
-  function aplicarSeleccionMultiFichas() {
-    if (seleccionMultiFichas.length === 0) return
-    agregarValoresFicha(groupByFichas, seleccionMultiFichas)
-    setModoMultiFichas(false)
-    setSeleccionMultiFichas([])
+  // La ficha de Hospital hace dos cosas con el mismo click: (a) la marca en
+  // el borrador, igual que cualquier otra dimensión (para que "Aplicar
+  // filtros" también la sume si se quiere), y (b) siempre fija cuál es el
+  // hospital que se está mirando en el panel de números de abajo.
+  function tocarHospitalFicha(value: string) {
+    setHospitalPanel(value)
+    if (!draftFichas) return
+    setDraftFichas((prev) => {
+      if (!prev) return prev
+      const actuales = prev.sigla ?? []
+      const siguiente = actuales.includes(value) ? actuales.filter((v) => v !== value) : [...actuales, value]
+      return { ...prev, sigla: siguiente }
+    })
   }
+
+  // Click en un número de cualquier nivel del árbol del panel por hospital:
+  // va directo al Listado con el camino completo acumulado hasta ese nivel
+  // (hospital + carrera + modalidad + ... lo que se haya abierto), ignorando
+  // cualquier borrador de Fichas pendiente (mismo criterio de drill-down que
+  // el HOME viejo).
+  function irADrillHospital(filtrosArbol: DotacionFilters) {
+    const crudo = toDotacionParams({ ...filtrosArbol, page: 1, limit: LIMIT })
+    const params: Record<string, string> = {}
+    for (const [k, v] of Object.entries(crudo)) {
+      if (k === 'page' || k === 'limit' || k === 'sortBy' || k === 'sortDir' || k === 'skipDistinct') continue
+      params[k] = String(v)
+    }
+    setSearchParams(params)
+    setDraftFichas(null)
+    setVista('listado')
+  }
+
+  // ¿El borrador difiere de lo ya aplicado? — habilita "Aplicar filtros".
+  const hayCambiosFichas = draftFichas
+    ? CAMPOS_FICHAS.some((campo) => {
+        const actuales = getCsv(searchParams, campo)
+        const nuevos = draftFichas[campo] ?? []
+        return actuales.length !== nuevos.length || actuales.some((v) => !nuevos.includes(v))
+      })
+    : false
 
   // Etiqueta "codigo — literal" (ej. "24 — Residencias"): el código desambigua
   // literales repetidos (22 y 37 comparten "Nueva Carrera Prof. Hosp").
@@ -505,6 +566,30 @@ export function DotacionPage() {
 
   return (
     <div className="flex flex-col gap-4 h-full">
+      {/* Solapas: Listado (la tabla) vs Fichas (armar filtros por conteo, sin
+          que la tabla reaccione hasta tocar "Aplicar filtros") — arriba de
+          todo, mismo patrón que el resto de las pantallas con solapas
+          (ver ConcursosCphPage). */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          onClick={cancelarFichas}
+          className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+            vista === 'listado' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Listado
+        </button>
+        <button
+          onClick={abrirFichas}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+            vista === 'fichas' ? 'border-secondary text-secondary' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Squares2X2Icon className="w-4 h-4" />
+          Fichas
+        </button>
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-primary text-xl font-bold text-gray-900">Dotación</h1>
@@ -528,41 +613,35 @@ export function DotacionPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setKpisOpen(true)}
-            className="inline-flex items-center gap-1.5 bg-secondary text-white text-sm font-semibold px-3 py-2 rounded hover:bg-secondary-dark transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-            </svg>
-            KPIs
-          </button>
-          <button
-            onClick={() => setFichasOpen((v) => !v)}
-            className={`inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded border transition-colors ${
-              fichasOpen ? 'bg-secondary/10 border-secondary text-secondary' : 'border-gray-300 text-gray-600 hover:border-gray-400'
-            }`}
-          >
-            <Squares2X2Icon className="w-4 h-4" />
-            Fichas
-            {fichasOpen ? <ChevronUpIcon className="w-3.5 h-3.5" /> : <ChevronDownIcon className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            className="inline-flex items-center gap-1.5 bg-navy text-white text-sm font-semibold px-3 py-2 rounded hover:bg-navy/80 transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L13 10.414V17a1 1 0 01-.553.894l-4 2A1 1 0 017 19v-8.586L3.293 6.707A1 1 0 013 6V3z" clipRule="evenodd" />
-            </svg>
-            Búsqueda avanzada
-            {hasActiveFilters && (
-              <span className="bg-white/30 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                {Array.from(searchParams.keys()).filter((k) => !['page','sortBy','sortDir'].includes(k)).length}
-              </span>
-            )}
-          </button>
+          {vista === 'listado' && (
+            <>
+              <button
+                onClick={() => setKpisOpen(true)}
+                className="inline-flex items-center gap-1.5 bg-secondary text-white text-sm font-semibold px-3 py-2 rounded hover:bg-secondary-dark transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+                </svg>
+                KPIs
+              </button>
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="inline-flex items-center gap-1.5 bg-navy text-white text-sm font-semibold px-3 py-2 rounded hover:bg-navy/80 transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L13 10.414V17a1 1 0 01-.553.894l-4 2A1 1 0 017 19v-8.586L3.293 6.707A1 1 0 013 6V3z" clipRule="evenodd" />
+                </svg>
+                Búsqueda avanzada
+                {hasActiveFilters && (
+                  <span className="bg-white/30 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    {Array.from(searchParams.keys()).filter((k) => !['page','sortBy','sortDir'].includes(k)).length}
+                  </span>
+                )}
+              </button>
 
-          <div className="w-px h-6 bg-gray-200" />
+              <div className="w-px h-6 bg-gray-200" />
+            </>
+          )}
 
           <button
             onClick={() => exportar.mutate(filters)}
@@ -577,99 +656,36 @@ export function DotacionPage() {
         </div>
       </div>
 
-      {/* Panel "Fichas" — conteo por dimensión bajo los filtros ya aplicados;
-          tocar una ficha la suma al filtro correspondiente (no reemplaza,
-          se combina como el resto de los multi-select de esta pantalla). */}
-      {fichasOpen && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {DOTACION_GROUP_BY_OPTIONS.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => setGroupByFichas(o.key)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  groupByFichas === o.key
-                    ? 'bg-secondary border-secondary text-white'
-                    : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              Fichas — {DOTACION_GROUP_BY_OPTIONS.find((o) => o.key === groupByFichas)?.label}
-            </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                type="text"
-                value={buscarFicha}
-                onChange={(e) => setBuscarFicha(e.target.value)}
-                placeholder="Buscar..."
-                className="h-8 px-2.5 w-36 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-              />
-              <button
-                onClick={() => setModoMultiFichas((v) => !v)}
-                className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
-                  modoMultiFichas
-                    ? 'bg-secondary/10 border-secondary text-secondary'
-                    : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
-                }`}
-              >
-                Elegir varias
-              </button>
-              {modoMultiFichas && (
-                <button
-                  onClick={aplicarSeleccionMultiFichas}
-                  disabled={seleccionMultiFichas.length === 0}
-                  className="btn-outline text-xs px-3 py-1.5 disabled:opacity-40"
-                >
-                  Aplicar ({seleccionMultiFichas.length})
-                </button>
-              )}
-            </div>
-          </div>
-
-          {(() => {
-            const q = buscarFicha.trim().toLowerCase()
-            const rows = (fichas?.rows ?? []).filter((row) => !q || row.value.toLowerCase().includes(q))
-            if (rows.length === 0) {
-              return (
-                <p className="text-sm text-gray-400">
-                  {q ? 'Ninguna ficha coincide con la búsqueda.' : 'Sin datos para los filtros actuales.'}
-                </p>
-              )
-            }
-            return (
-              <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 max-h-64 overflow-y-auto pr-1 ${isFetchingFichas ? 'opacity-60' : ''}`}>
-                {rows.map((row) => {
-                  // "Sin dato" es una etiqueta que le pone el backend a los
-                  // NULL de esta dimensión (ver getDotacionDesgloseService) —
-                  // no es un valor real de la base, así que no hay forma de
-                  // filtrar por él directo (buildConditions ya lo traduce a
-                  // IS NULL, ver DOTACION_SIN_DATO) — se ve igual que el resto.
-                  const marcada = seleccionMultiFichas.includes(row.value)
-                  const aplicada = fichaYaAplicada(groupByFichas, row.value)
+      {/* Solapa "Fichas" — elegís un hospital y aparece su panel de números
+          (equivalente al HOME viejo). El resto de dimensiones (Sexo, Puesto,
+          etc.) quedan colapsadas bajo "Más filtros", con el borrador+Aplicar
+          de siempre: tocar no reacciona en el Listado hasta confirmar. */}
+      {vista === 'fichas' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex-1 flex flex-col overflow-y-auto min-h-0 space-y-4">
+          <section>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Elegí un hospital</p>
+            {(fichasHospital?.rows ?? []).length === 0 ? (
+              <p className="text-sm text-gray-400">Sin datos para los filtros ya aplicados.</p>
+            ) : (
+              <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 ${isFetchingFichasHospital ? 'opacity-60' : ''}`}>
+                {(fichasHospital?.rows ?? []).map((row) => {
+                  const marcada = fichaMarcada('sigla', row.value)
+                  const esElegido = hospitalPanel === row.value
                   return (
                     <button
                       key={row.value}
-                      onClick={() => tocarFicha(row.value)}
-                      title={aplicada ? 'Ya aplicado como filtro — tocá de nuevo para quitarlo' : undefined}
+                      onClick={() => tocarHospitalFicha(row.value)}
+                      title={marcada ? 'Marcada para aplicar — tocá de nuevo para quitarla' : undefined}
                       className={`text-left rounded-lg px-4 py-3 border transition-colors ${
-                        marcada
+                        esElegido
                           ? 'bg-secondary/10 border-secondary ring-1 ring-secondary'
-                          : aplicada
-                            ? 'bg-green-50 border-green-300'
+                          : marcada
+                            ? 'bg-secondary/5 border-secondary/50'
                             : 'bg-gray-50 border-gray-200 hover:border-secondary hover:bg-secondary/5'
                       }`}
                     >
                       <p className="text-xs font-medium text-gray-500 truncate flex items-center gap-1.5">
-                        {modoMultiFichas && (
-                          <span className={`inline-block w-3 h-3 rounded-sm border ${marcada ? 'bg-secondary border-secondary' : 'border-gray-300'}`} />
-                        )}
-                        {!modoMultiFichas && aplicada && <span className="text-green-600">✓</span>}
+                        {marcada && <span className="text-secondary">✓</span>}
                         {row.value}
                       </p>
                       <p className="text-xl font-bold text-gray-900 tabular-nums">{row.total.toLocaleString('es-AR')}</p>
@@ -677,14 +693,122 @@ export function DotacionPage() {
                   )
                 })}
               </div>
-            )
-          })()}
+            )}
+          </section>
+
+          {hospitalPanel && (
+            <section className="border-t border-gray-100 pt-4">
+              <DotacionHospitalPanel
+                sigla={hospitalPanel}
+                filters={{ ...filters, sigla: [hospitalPanel] }}
+                escalafonNombreToId={escalafonNombreToId}
+                onDrill={irADrillHospital}
+              />
+            </section>
+          )}
+
+          <section className="border-t border-gray-100 pt-3">
+            <button
+              onClick={() => setMasFiltrosOpen((v) => !v)}
+              className="text-xs font-semibold text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              {masFiltrosOpen ? '▾' : '▸'} Más filtros (Sexo, Repartición, Puesto, etc.)
+            </button>
+
+            {masFiltrosOpen && (
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {DOTACION_GROUP_BY_OPTIONS.filter((o) => o.key !== 'sigla').map((o) => (
+                    <button
+                      key={o.key}
+                      onClick={() => setGroupByFichas(o.key)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        groupByFichas === o.key
+                          ? 'bg-secondary border-secondary text-white'
+                          : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    Fichas — {DOTACION_GROUP_BY_OPTIONS.find((o) => o.key === groupByFichas)?.label}
+                  </p>
+                  <input
+                    type="text"
+                    value={buscarFicha}
+                    onChange={(e) => setBuscarFicha(e.target.value)}
+                    placeholder="Buscar..."
+                    className="h-8 px-2.5 w-36 border border-gray-300 rounded text-xs focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+                  />
+                </div>
+
+                {(() => {
+                  const q = buscarFicha.trim().toLowerCase()
+                  const rows = (fichas?.rows ?? []).filter((row) => !q || row.value.toLowerCase().includes(q))
+                  if (rows.length === 0) {
+                    return (
+                      <p className="text-sm text-gray-400">
+                        {q ? 'Ninguna ficha coincide con la búsqueda.' : 'Sin datos para los filtros ya aplicados.'}
+                      </p>
+                    )
+                  }
+                  return (
+                    <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 max-h-64 overflow-y-auto pr-1 ${isFetchingFichas ? 'opacity-60' : ''}`}>
+                      {rows.map((row) => {
+                        // "Sin dato" es una etiqueta que le pone el backend a los
+                        // NULL de esta dimensión (ver getDotacionDesgloseService) —
+                        // no es un valor real de la base, así que no hay forma de
+                        // filtrar por él directo (buildConditions ya lo traduce a
+                        // IS NULL, ver DOTACION_SIN_DATO) — se ve igual que el resto.
+                        const marcada = fichaMarcada(groupByFichas, row.value)
+                        return (
+                          <button
+                            key={row.value}
+                            onClick={() => tocarFicha(row.value)}
+                            title={marcada ? 'Marcada para aplicar — tocá de nuevo para quitarla' : undefined}
+                            className={`text-left rounded-lg px-4 py-3 border transition-colors ${
+                              marcada
+                                ? 'bg-secondary/10 border-secondary ring-1 ring-secondary'
+                                : 'bg-gray-50 border-gray-200 hover:border-secondary hover:bg-secondary/5'
+                            }`}
+                          >
+                            <p className="text-xs font-medium text-gray-500 truncate flex items-center gap-1.5">
+                              {marcada && <span className="text-secondary">✓</span>}
+                              {row.value}
+                            </p>
+                            <p className="text-xl font-bold text-gray-900 tabular-nums">{row.total.toLocaleString('es-AR')}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </section>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+            <button onClick={cancelarFichas} className="btn-outline text-sm">
+              Cancelar
+            </button>
+            <button
+              onClick={aplicarFichas}
+              disabled={!hayCambiosFichas}
+              className="inline-flex items-center gap-1.5 bg-secondary text-white text-sm font-semibold px-4 py-2 rounded hover:bg-secondary-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Aplicar filtros
+            </button>
+          </div>
         </div>
       )}
 
       {/* Indicador de filtros activos — todas las dimensiones (incluidas las
           que se aplican desde el panel "Fichas"), no solo sigla/uniones. */}
-      {hasActiveFilters && (
+      {vista === 'listado' && hasActiveFilters && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-500 shrink-0">Filtros activos</span>
           {grupos.length > 0 && (
@@ -723,6 +847,7 @@ export function DotacionPage() {
         </div>
       )}
 
+      {vista === 'listado' && (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden min-h-0">
         {isLoading && <p className="p-6 text-sm text-gray-400">Cargando dotación...</p>}
         {isError && <p className="p-6 text-sm text-danger">No se pudo cargar el listado de dotación.</p>}
@@ -777,6 +902,7 @@ export function DotacionPage() {
           </>
         )}
       </div>
+      )}
 
       {/* Modal KPIs */}
       {kpisOpen && (

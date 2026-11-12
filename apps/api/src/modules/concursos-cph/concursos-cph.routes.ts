@@ -2,14 +2,20 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
+import { AppError } from '../../shared/errors/AppError.js'
+import { corregirTipoSchema } from '../concursos/corregirTipo.schema.js'
+import { corregirTipoConcursoService } from '../concursos/corregirTipo.service.js'
 import {
   concursosCphQuerySchema,
   patchConcursoCphSchema,
   suspenderConcursoCphSchema,
   designarCphSchema,
+  asignarDesignadoCphSchema,
   declararDesiertoSchema,
   generarSorteoJuradoSchema,
+  designarDesdeOmSchema,
 } from './concursos-cph.schema.js'
+import { listOmDisponiblesService, designarDesdeOmService } from './omSalto.service.js'
 import {
   listConcursosCphService,
   getConcursoCphByIdService,
@@ -18,6 +24,7 @@ import {
   getPersonaDesignadaService,
   getDesignacionEstadoService,
   designarConcursoCphService,
+  asignarDesignadoConcursoCphService,
   declararDesiertoService,
   importarConcursosCsvService,
 } from './concursos-cph.service.js'
@@ -61,6 +68,10 @@ import {
 // Escritura: permiso concursos-cph.editar (ver /configuracion/permisos — por defecto
 // admin/editor/concursales_cph, editable en caliente). Lectura: cualquier autenticado.
 const WRITE_PERMISO = { modulo: 'concursos-cph', accion: 'editar' }
+// Paso 5b: el salto por orden de mérito se decide en la Etapa 2: lo hacen los
+// roles que pueden ver esa etapa (pestaña de autorización/jurado). Admin pasa
+// por el bypass de requirePermiso.
+const PERMISO_ETAPA_2 = { modulo: 'concursos-cph', accion: 'tab:autorizacion-jurado' }
 
 export async function concursosCphRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } })
@@ -82,7 +93,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // GET / — S4-1: listado paginado con filtros
   app.get('/', async (request, reply) => {
     const query = concursosCphQuerySchema.parse(request.query)
-    const result = await listConcursosCphService(query)
+    const result = await listConcursosCphService(query, { soloEtapa1Superada: true })
     return reply.send(result)
   })
 
@@ -111,12 +122,22 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     '/:id',
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
+      const usuarioId = (request as any).user?.id as string | undefined
+      if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
       const body = patchConcursoCphSchema.parse(request.body)
-      const data = await patchConcursoCphService(request.params.id, body)
+      const data = await patchConcursoCphService(request.params.id, body, usuarioId)
       return reply.send({ data })
     },
   )
 
+  // POST /:id/corregir-tipo — Paso 5a: CPH -> CEETPS, solo quien autoriza (se valida en el service)
+  app.post<{ Params: { id: string } }>('/:id/corregir-tipo', async (request, reply) => {
+    const usuarioId = (request as any).user?.id as string | undefined
+    if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
+    const body = corregirTipoSchema.parse(request.body)
+    const data = await corregirTipoConcursoService('cph', request.params.id, body, usuarioId)
+    return reply.send({ data })
+  })
   // POST /:id/suspender — S4-5
   app.post<{ Params: { id: string } }>(
     '/:id/suspender',
@@ -150,6 +171,19 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const body = designarCphSchema.parse(request.body)
       const data = await designarConcursoCphService(request.params.id, body)
+      return reply.send({ data })
+    },
+  )
+
+  // POST /:id/asignar-designado — vincula persona_designada_id en un concurso
+  // (típicamente finalizado) SIN crear ocupación ni tocar el cargo. El cargo se
+  // ocupa recién cuando la persona aparezca en el padrón (otro flujo).
+  app.post<{ Params: { id: string } }>(
+    '/:id/asignar-designado',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const body = asignarDesignadoCphSchema.parse(request.body)
+      const data = await asignarDesignadoConcursoCphService(request.params.id, body)
       return reply.send({ data })
     },
   )
@@ -359,6 +393,32 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     return reply.send({ data })
   })
 
+  // GET /:id/om-disponibles — Paso 5b: órdenes de mérito (y personas libres) que
+  // sirven para saltar a designación desde la Etapa 2. habilitado=false si el
+  // concurso no puede usar el salto (motivoNoHabilitado).
+  app.get<{ Params: { id: string } }>(
+    '/:id/om-disponibles',
+    { preHandler: requirePermiso(PERMISO_ETAPA_2) },
+    async (request, reply) => {
+      const data = await listOmDisponiblesService(request.params.id)
+      return reply.send({ data })
+    },
+  )
+  // POST /:id/om/designar — Paso 5b: designa a una persona de una OM y salta el
+  // concurso a la Etapa 5 (H — TAD). Devuelve el concurso actualizado.
+  app.post<{ Params: { id: string } }>(
+    '/:id/om/designar',
+    { preHandler: requirePermiso(PERMISO_ETAPA_2) },
+    async (request, reply) => {
+      const body = designarDesdeOmSchema.parse(request.body)
+      const data = await designarDesdeOmService(request.params.id, body.integranteId, {
+        usuarioId: (request as any).user?.id ?? null,
+        motivo: body.motivo,
+        ruta: request.url,
+      })
+      return reply.send({ data })
+    },
+  )
   // GET /:id/candidato-om — candidato de OM reservado para este concurso (o null).
   app.get<{ Params: { id: string } }>('/:id/candidato-om', async (request, reply) => {
     const data = await getCandidatoOmReservadoService(request.params.id)
@@ -389,7 +449,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const integranteId = request.body?.integranteId
       if (!integranteId) throw new Error('integranteId requerido')
-      const data = await liberarIntegranteOmService(integranteId)
+      const data = await liberarIntegranteOmService(integranteId, (request as any).user?.id ?? null)
       return reply.send({ data })
     },
   )
@@ -402,7 +462,11 @@ export async function concursosCphRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const integranteId = request.body?.integranteId
       if (!integranteId) throw new Error('integranteId requerido')
-      const data = await rechazarIntegranteOmService(integranteId, request.body?.motivo)
+      const data = await rechazarIntegranteOmService(
+        integranteId,
+        request.body?.motivo,
+        (request as any).user?.id ?? null,
+      )
       return reply.send({ data })
     },
   )

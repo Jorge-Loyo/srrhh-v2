@@ -4,6 +4,7 @@ import { Agent as HttpsAgent } from 'node:https'
 import FormData from 'form-data'
 import axios from 'axios'
 import { Prisma } from '@prisma/client'
+import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { env } from '../../config/env.js'
@@ -18,16 +19,50 @@ import {
   resolverEspecialidadPuestoId,
   especialidadSialReal,
   normPuestoKey,
+  type CatalogoPuestosCache,
 } from './resolverPuestoCargo.js'
+import { decidirEspecialidad } from './padron.especialidad.helpers.js'
+import {
+  deduplicarOcupacionesHistorico,
+  filtrarGestionablesVivas,
+} from './padron.historico.helpers.js'
+import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from '../incidencias/incidencias.gestionable.js'
+import { leerHechosPaso12, construirIncidencias } from '../incidencias/incidencias.paso12.js'
+import { particionarValidacionPorIdSial } from '../bajas/bajas.validacion.helpers.js'
+import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
+import { sqlCargoTieneConcursoActivo } from '../cargos/concursoActivo.regla.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
 import { reconciliarCargoConduccionVacante } from './reconciliarConduccion.js'
+import {
+  derivarCodigoRegistroId,
+  MOTIVO_CR_NO_DERIVABLE,
+  type CrCatalogo,
+} from './derivarCodigoRegistro.js'
+import { derivarRegimenId } from './derivarRegimen.js'
+import { estadoActivoAcumuladoSql } from '../kpis/kpis.service.js'
+import {
+  calcConcursoCph,
+  type ConcursoCphCalcInput,
+} from '../concursos-cph/concursosCph.calc.js'
 import type { DiffQuery } from './padron.schema.js'
 import {
   parseFechaDDMMYYYY,
   toISO,
   stripCompletado,
+  esCampoFechaOcupacion,
   categoriaBaja,
   CENTINELA_ISO,
+  strVal,
+  esDesdoblado,
+  normEspDesdoblado,
+  particionarRegistros,
+  resolverEspecialidadDesdobladaId,
+  prefijoDesdobladoForzado,
+  formatearCodigoDesdoblado,
+  tipoDiffDesdoblado,
+  clasificacionEliminadoDesdoblado,
+  evaluarRatioTamano,
+  evaluarBajaSialRequerida,
 } from './padron.diff.helpers.js'
 
 // Re-exportados para compatibilidad y para que otros módulos usen la única
@@ -67,6 +102,28 @@ interface EscalafonRow {
   id: string
   nombre: string
 }
+
+// Busca un Escalafon activo por nombre, insensible a mayúsculas/tildes (regla
+// del proyecto, @srrhh/normalizacion — mismo criterio que ya usa
+// resolverPuestoCargo.ts para puesto/especialidad desde S21). Prisma no
+// soporta lower(unaccent()) nativo en el `where`, así que esto reemplaza el
+// `findFirst({ where: { nombre } })` exacto que, al no matchear el padrón
+// trayendo el nombre con otro casing, generaba catálogo duplicado (ver
+// scripts/fix_escalafones_duplicados_casing.sql — bug ya corregido en datos,
+// esto evita que vuelva a pasar).
+async function buscarEscalafonPorNombre(tx: PrismaTx, nombre: string): Promise<EscalafonRow | null> {
+  if (!nombre) return null
+  // Mismo criterio que normalizarTexto (minúscula + sin tilde + espacios
+  // colapsados + trim) pero en SQL, para no traer todo el catálogo acá.
+  const rows = await tx.$queryRaw<EscalafonRow[]>`
+    SELECT id, nombre FROM escalafones
+    WHERE activo = true
+      AND lower(unaccent(regexp_replace(trim(nombre), '\s+', ' ', 'g')))
+        = lower(unaccent(regexp_replace(trim(${nombre}), '\s+', ' ', 'g')))
+    LIMIT 1
+  `
+  return rows[0] ?? null
+}
 interface PersonaRow {
   id: string
   cuil: string
@@ -80,7 +137,6 @@ interface OcupacionFinalRow {
   personaId: string
   cargoId: string
   idSialRol: string
-  estadoPersona: string | null
   situacionRevista: string | null
   persona: { cuil: string }
   cargo: {
@@ -90,6 +146,11 @@ interface OcupacionFinalRow {
     unificadorPuesto: string | null
     hospital: { sigla: string }
     escalafon: { nombre: string }
+    // FASE 2 (histórico denso): el paso 7 incluye el código de registro para
+    // evaluar el filtro gestionable en memoria (esCargoGestionable) sobre la
+    // rama del '83'. Opcional porque otro consumidor de OcupacionFinalRow (la
+    // gestión individual de un id_sial, ~L4369) no lo necesita ni lo incluye.
+    codigoRegistro?: { codigo: string } | null
   }
 }
 
@@ -120,6 +181,58 @@ function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
   return out
+}
+
+// Repoblado del resumen KPI (kpis_dotacion_snapshot) de un mes dado. Extraído
+// del paso 8 del aprobar (Opción A §5.3) para reusarlo al gestionar un id_sial
+// nuevo en incidencias: borra TODAS las filas del mes de `fecha` (incluida
+// la fila '(total)') y reinserta desde estadoActivoAcumuladoSql(mes, mes),
+// misma fuente que la consulta individual (kpis.service), de modo que tarjetas,
+// consulta individual y backfill reconcilien por construcción. Recibe el `tx`
+// para correr dentro de la transacción del caller (si el populate falla, hace
+// rollback junto con el resto de la operación). NO cambia el comportamiento del
+// paso 8: el `tx.padronSnapshot.update({...estado:'aprobado'...})` se queda en
+// el caller (el aprobar), porque estadoActivoAcumuladoSql filtra snapshots
+// aprobado y el snapshot debe marcarse aprobado ANTES de llamar a esta función.
+export async function repopularKpiDotacionMes(tx: PrismaTx, fecha: Date) {
+  const mes = fecha.toISOString().slice(0, 7) // YYYY-MM
+
+  // Borra TODAS las filas del mes (incluida la fila '(total)') antes de
+  // reinsertar, para que "el último padrón del mes pise al anterior" y la PK
+  // (fecha, codigo_registro, situacion_revista) no choque.
+  await tx.$executeRaw(
+    Prisma.sql`
+        DELETE FROM kpis_dotacion_snapshot
+        WHERE date_trunc('month', fecha) = date_trunc('month', ${fecha}::date)
+      `,
+  )
+
+  // Filas por (codigo, estado) — series NO disjuntas, count(DISTINCT cuil) —
+  // + la fila reservada '(total)' por carrera (count(DISTINCT cuil) de la
+  // carrera en cualquier estado, NO la suma de los estados). El estado sale de
+  // estadoActivoAcumuladoSql(mes, mes), misma fuente que la consulta individual.
+  await tx.$executeRaw(
+    Prisma.sql`
+        INSERT INTO kpis_dotacion_snapshot (fecha, codigo_registro, situacion_revista, personas)
+        WITH estado AS (${estadoActivoAcumuladoSql(mes, mes)}),
+        norm AS (
+          SELECT
+            p.cuil,
+            coalesce(cr.codigo, '(sin codigo)') AS codigo,
+            coalesce(lower(unaccent(trim(estado.situacion_revista))), '(sin dato)') AS sit
+          FROM estado
+          JOIN cargos c ON c.id = estado.cargo_id
+          LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+          JOIN personas p ON p.id = estado.persona_id
+          WHERE p.cuil IS NOT NULL
+        )
+        SELECT ${fecha}::date, codigo, sit, count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo, sit
+        UNION ALL
+        SELECT ${fecha}::date, codigo, '(total)', count(DISTINCT cuil)::int
+          FROM norm GROUP BY codigo
+      `,
+  )
 }
 
 // Agentes HTTP con keep-alive controlado. Sin esto, axios reusa el socket TCP
@@ -182,6 +295,57 @@ async function getSnapshotOrThrow(id: string) {
   return snapshot
 }
 
+// ─── Guarda contra padrón parcial ────────────────────────────────────────────
+// Trae el total del ÚLTIMO snapshot aprobado (el más reciente por fechaAsignada),
+// excluyendo opcionalmente un snapshot (el propio al re-chequear en aprobar).
+// Devuelve null si no hay aprobado previo (la guarda no aplica — primer padrón).
+async function totalUltimoSnapshotAprobado(excluirId?: string): Promise<number | null> {
+  const ultimo = await prisma.padronSnapshot.findFirst({
+    where: { estado: 'aprobado', ...(excluirId ? { id: { not: excluirId } } : {}) },
+    orderBy: { fechaAsignada: 'desc' },
+    select: { totalRegistros: true },
+  })
+  return ultimo?.totalRegistros ?? null
+}
+
+// Arma el texto de advertencia de padrón chico: incluye conteos, porcentaje y la
+// explicación operativa. Fuente única del mensaje (lo usa runPipeline para
+// persistir la advertencia y aprobarSnapshotService para el error del bloqueo).
+function mensajeAdvertenciaRatio(totalNuevo: number, totalReferencia: number, ratio: number): string {
+  const pct = Math.round(ratio * 1000) / 10 // 1 decimal
+  return `Este padrón trae ${totalNuevo} registros vs ${totalReferencia} del último aprobado (${pct}%) — posible exportación parcial del SIAL. Confirmá el override para aprobar igual.`
+}
+
+// Evalúa el ratio de tamaño del padrón nuevo contra el último aprobado y arma la
+// advertencia si corresponde. `ratio`/`advertencia` son null cuando la guarda no
+// aplica (sin aprobado previo) o el ratio es normal. `excluirId` se usa al
+// re-chequear en la aprobación para no compararse contra sí mismo.
+async function evaluarRatioContraUltimoAprobado(
+  totalNuevo: number,
+  excluirId?: string,
+): Promise<{ ratio: number | null; advertencia: string | null; anomalo: boolean }> {
+  const totalRef = await totalUltimoSnapshotAprobado(excluirId)
+  const { ratio, anomalo } = evaluarRatioTamano(totalNuevo, totalRef, env.PADRON_RATIO_MINIMO)
+  const advertencia =
+    anomalo && ratio != null && totalRef != null
+      ? mensajeAdvertenciaRatio(totalNuevo, totalRef, ratio)
+      : null
+  return { ratio, advertencia, anomalo }
+}
+
+// ─── Guarda contra padrón sin baja SIAL de la semana ─────────────────────────
+// Trae las fecha_archivo de los snapshots de baja SIAL "válidos" = SUBIDOS
+// (estado IN ('pendiente','aprobado') — decisión de negocio: basta que la baja
+// SIAL esté subida, no hace falta que esté aprobada). `estado` es varchar en DB
+// (no enum), por eso se consulta con $queryRaw, igual que listValidacionService.
+async function fechasBajaSialValidas(): Promise<Date[]> {
+  const rows = await prisma.$queryRaw<{ fecha_archivo: Date }[]>`
+    SELECT fecha_archivo FROM baja_sial_snapshots
+    WHERE estado IN ('pendiente', 'aprobado')
+  `
+  return rows.map((r) => r.fecha_archivo)
+}
+
 // ─── S2-19: diff calculado por Node contra Postgres ─────────────────────────
 // Columnas del resultado de Dotaneitor que se comparan campo a campo.
 // Clave: nombre en el DataFrame Python (snake_case del COL_MAP). Valor: campo
@@ -204,14 +368,20 @@ const COLS_WATCH: Record<string, 'cargo' | 'ocupacion'> = {
   cod_situacion: 'ocupacion',
   cargo_desde: 'ocupacion',
   cargo_hasta: 'ocupacion',
+  // Bloqueo del rol (FEAT-001): fecha_bloqueo es la CONDICIÓN de bloqueo del
+  // puesto, no una situación de revista ni un estado. Es un valor que recalcula
+  // en CADA carga: fecha presente = bloqueado; fecha ausente = desbloqueado. Por
+  // eso entra al diff (se compara contra el valor guardado) y debe limpiarse a
+  // NULL cuando el padrón nuevo la trae vacía (desbloqueo). Va por la rama fecha
+  // (esCampoFechaOcupacion). bloq_motivo/bloqueo_comentario quedan FUERA de
+  // COLS_WATCH a propósito (cambio mínimo: solo la fecha gobierna el bloqueo;
+  // los comentarios se siguen seteando en altas pero no se diffean).
+  fecha_bloqueo: 'ocupacion',
 }
 
 type RegistroPython = Record<string, unknown>
 
-function strVal(v: unknown): string {
-  if (v === null || v === undefined) return ''
-  return String(v).trim()
-}
+// strVal se importa de padron.diff.helpers.js (única fuente del helper puro).
 
 // S22-9: comparación normalizada para el diff. El pipeline v2 normaliza todo a
 // minúscula/sin tilde, pero los datos ya cargados en la BD (de padrones viejos)
@@ -240,7 +410,7 @@ const CAMPOS_CARGO: Record<string, string> = {
 // Única fuente de verdad columna Python -> campo Prisma de Ocupacion.
 const CAMPOS_OCUPACION: Record<string, string> = {
   situacion_de_revista: 'situacionRevista',
-  estado: 'estadoPersona',
+  // FASE 5: 'estado' ya no mapea (ocupaciones.estado_persona eliminada).
   codigo_jefaturas: 'codigoJefaturas',
   jefe_escalafon: 'jefeEscalafon',
   comision: 'comision',
@@ -248,15 +418,15 @@ const CAMPOS_OCUPACION: Record<string, string> = {
   cod_situacion: 'codSituacion',
   cargo_desde: 'cargoDesdeFecha',
   cargo_hasta: 'cargoHastaFecha',
+  fecha_bloqueo: 'fechaBloqueo', // FEAT-001: condición de bloqueo (rama fecha)
 }
 
 async function calcularDiff(registros: RegistroPython[]) {
-  // Mapa id_sial -> registro Python
-  const nuevosMap = new Map<string, RegistroPython>()
-  for (const r of registros) {
-    const idSial = strVal(r['ID SIAL'] ?? r['id_sial'])
-    if (idSial) nuevosMap.set(idSial, r)
-  }
+  // Partición del padrón: carreras normales por id_sial (nuevosMap) y carreras
+  // desdobladas 24/07 por id_sial_rol (nuevosDesdobladosMap). Ver §3.1 del
+  // diseño: una fila 24/07 NUNCA entra a nuevosMap (no puede regenerar un
+  // cargo compartido por el camino id_sial).
+  const { nuevosMap, nuevosDesdobladosMap } = particionarRegistros(registros)
 
   // Estado actual en Postgres: Cargo + su ocupación más relevante. Se trae la
   // VIGENTE (hasta IS NULL) si existe; si no, la última CERRADA (hasta más
@@ -274,6 +444,13 @@ async function calcularDiff(registros: RegistroPython[]) {
     where: {
       estado: { in: ['vigente', 'validacion_vacante', 'no_vigente'] },
       idSial: { not: null },
+      // Excluir SOLO los cargos 24/07 del circuito por id_sial (se procesan por
+      // id_sial_rol más abajo). Se usa NOT { relación: { in } } en vez de
+      // { relación: { notIn } } a propósito: el filtro positivo sobre una
+      // relación-a-uno OPCIONAL (codigoRegistroId nullable) excluiría las filas
+      // con codigo_registro_id NULL (regresión silenciosa); NOT preserva esos
+      // NULL. Ver §3.4 del diseño (hallazgo 3).
+      NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
     },
     select: {
       idSial: true,
@@ -294,7 +471,6 @@ async function calcularDiff(registros: RegistroPython[]) {
           idSialRol: true,
           hasta: true,
           situacionRevista: true,
-          estadoPersona: true,
           cuil: true,
           codigoJefaturas: true,
           jefeEscalafon: true,
@@ -303,6 +479,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           codSituacion: true,
           cargoDesdeFecha: true, // fix bug fechas: el diff nunca las leía
           cargoHastaFecha: true,
+          fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
           persona: { select: { activo: true } }, // criterio de baja nueva (DECISIÓN 2)
         },
         take: 1,
@@ -384,6 +561,12 @@ async function calcularDiff(registros: RegistroPython[]) {
         // la FK nunca llega a la persistencia aunque viaje en rows). El pipeline la
         // emite solo en snake_case, igual que los otros ids resueltos.
         cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
+        // Bug A: especialidad_puesto_id resuelto por el Dotaneitor (pipeline 9.7c).
+        // Se agrega al allowlist para que aprobarSnapshotService/aprobarDiffNuevoService/
+        // transferencia lo consuman vía datos.especialidad_puesto_id en vez de
+        // re-resolver la FK desde texto (doble resolución divergente). El pipeline
+        // lo emite solo en snake_case, igual que cargo_jefatura_puesto_id.
+        especialidad_puesto_id: strVal(r['especialidad_puesto_id']),
         jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
         documentacion_jefatura: strVal(r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura']),
         comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
@@ -429,7 +612,7 @@ async function calcularDiff(registros: RegistroPython[]) {
         especialidad: actual.especialidadLegacy,
         agrupador: actual.agrupador,
         situacion_de_revista: ocup?.situacionRevista ?? null,
-        estado: ocup?.estadoPersona ?? null,
+        // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
         siglas: actual.hospital?.sigla ?? null,
         escalafon: actual.escalafon?.nombre ?? null,
       }),
@@ -472,6 +655,14 @@ async function calcularDiff(registros: RegistroPython[]) {
       })
     }
 
+    // Bug A: marca si en esta fila se emitió algún cambio que RE-RESUELVE la FK
+    // de especialidad en el aprobar (especialidad / literal_puesto / cod. registro,
+    // en cualquiera de sus variantes 'completado:'). Solo entonces se emite el
+    // marcador __especialidad_puesto_id__ (para no generar ruido en filas sin
+    // cambios de especialidad). Patrón análogo a __reabrir_ocupacion__.
+    let reresuelveFkEspecialidad = false
+    const CAMPOS_RERESUELVEN_FK = new Set(['especialidad', 'literal_puesto', 'codigo_de_registro'])
+
     for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
       // No comparar campos de ocupación si no hay ocupación vigente.
       if (tabla === 'ocupacion' && !ocupVigente) continue
@@ -482,7 +673,7 @@ async function calcularDiff(registros: RegistroPython[]) {
           : colPython.toUpperCase().replace(/_/g, ' ')
       const vNueStr = strVal(r[colUpper] ?? r[colPython])
 
-      const esFecha = colPython === 'cargo_desde' || colPython === 'cargo_hasta'
+      const esFecha = esCampoFechaOcupacion(colPython)
       if (esFecha) {
         // Fechas: comparar en ISO (partes UTC), almacenar strings (DECISIÓN 4).
         const mappedOcup = CAMPOS_OCUPACION[colPython]
@@ -528,8 +719,386 @@ async function calcularDiff(registros: RegistroPython[]) {
           valorAnterior: vAnterior || null,
           valorNuevo: vNueStr || null,
         })
+        // Bug A: este cambio dispara re-resolución de la FK en el aprobar.
+        if (CAMPOS_RERESUELVEN_FK.has(colPython)) reresuelveFkEspecialidad = true
       }
     }
+
+    // Bug A: marcador que transporta el especialidad_puesto_id ya resuelto por
+    // el Dotaneitor hasta el paso 6 del aprobar (los diffs 'modificado' son
+    // por-campo y no llevan el registro completo). Solo se emite si hubo un
+    // cambio que re-resuelve la FK y el pipeline trajo un id no vacío. El
+    // aprobar lo lee aparte (no entra a CAMPOS_CARGO/CAMPOS_OCUPACION) y, si no
+    // valida, cae al fallback por texto — comportamiento actual intacto.
+    const espPuestoIdDota = strVal(r['especialidad_puesto_id'])
+    if (reresuelveFkEspecialidad && espPuestoIdDota) {
+      diffs.push({
+        tipo: 'modificado',
+        idSialRol,
+        campo: '__especialidad_puesto_id__',
+        valorAnterior: null,
+        valorNuevo: espPuestoIdDota || null,
+      })
+    }
+  }
+
+  // ── DESDOBLADO 24/07: matcheo por id_sial_rol (§3.2–§3.4 del diseño) ──────
+  // Toda la rama 24/07 empuja al MISMO array `diffs`. El resto de las carreras
+  // ya se procesó arriba por id_sial.
+  const idSialRolesNuevos24y07 = [...nuevosDesdobladosMap.keys()]
+
+  // Guard de tabla (§6): si llegan filas 24/07, la tabla desdoblado_mapeo_cargos
+  // (fuente de verdad del split) DEBE existir. Si no, el padrón 24/07 no se
+  // puede procesar con el split aplicado — error claro (el pipeline marca el
+  // snapshot en error) en vez de un críptico "relation does not exist".
+  if (idSialRolesNuevos24y07.length > 0) {
+    const [{ existe }] = await prisma.$queryRaw<{ existe: boolean }[]>(
+      Prisma.sql`SELECT to_regclass('public.desdoblado_mapeo_cargos') IS NOT NULL AS existe`,
+    )
+    if (!existe)
+      throw new Error(
+        'Falta la tabla desdoblado_mapeo_cargos; correr la curación de desdoblado antes de procesar padrones 24/07',
+      )
+  }
+
+  // Estado actual 24/07 keyed por id_sial_rol — fuente PRIMARIA: la ocupación
+  // (la identidad viva del rol) y su cargo 1:1. La ocupación viva gana sobre el
+  // mapeo.
+  const ocupacionesDesdobladas = idSialRolesNuevos24y07.length
+    ? await prisma.ocupacion.findMany({
+        where: { idSialRol: { in: idSialRolesNuevos24y07 } },
+        select: {
+          idSialRol: true,
+          hasta: true,
+          situacionRevista: true,
+          cuil: true,
+          codigoJefaturas: true,
+          jefeEscalafon: true,
+          comision: true,
+          repaComision: true,
+          codSituacion: true,
+          cargoDesdeFecha: true,
+          cargoHastaFecha: true,
+          fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
+          persona: { select: { activo: true } },
+          cargo: {
+            select: {
+              id: true,
+              idSial: true,
+              codigo: true,
+              estado: true,
+              literalPuesto: true,
+              especialidadLegacy: true,
+              agrupador: true,
+              unificadorPuesto: true,
+              codigoRepa: true,
+              descripcionRepa: true,
+              agrupamiento: true,
+              codigoRegistro: { select: { codigo: true } },
+              hospital: { select: { sigla: true } },
+              escalafon: { select: { nombre: true } },
+            },
+          },
+        },
+      })
+    : []
+  type OcupDesdoblada = (typeof ocupacionesDesdobladas)[number]
+  const actualesDesdMap = new Map<string, OcupDesdoblada>(
+    ocupacionesDesdobladas.map((o) => [o.idSialRol, o]),
+  )
+
+  // Respaldo: para los id_sial_rol que NO tienen ocupación viva, buscar el
+  // mapeo persistente y traer el cargo 1:1 por su código con la ocupación más
+  // relevante (misma heurística que cargosActuales: vigente primero, luego la
+  // cerrada más reciente).
+  const faltantesDesd = idSialRolesNuevos24y07.filter((r) => !actualesDesdMap.has(r))
+  if (faltantesDesd.length > 0) {
+    const mapeados = await prisma.$queryRaw<{ id_sial_rol: string; codigo_cargo: string }[]>(
+      Prisma.sql`
+        SELECT id_sial_rol, codigo_cargo FROM desdoblado_mapeo_cargos
+        WHERE id_sial_rol IN (${Prisma.join(faltantesDesd)})
+      `,
+    )
+    for (const m of mapeados) {
+      const cargoMapeado = await prisma.cargo.findUnique({
+        where: { codigo: m.codigo_cargo },
+        select: {
+          id: true,
+          idSial: true,
+          codigo: true,
+          estado: true,
+          literalPuesto: true,
+          especialidadLegacy: true,
+          agrupador: true,
+          unificadorPuesto: true,
+          codigoRepa: true,
+          descripcionRepa: true,
+          agrupamiento: true,
+          codigoRegistro: { select: { codigo: true } },
+          hospital: { select: { sigla: true } },
+          escalafon: { select: { nombre: true } },
+          ocupaciones: {
+            where: { idSialRol: m.id_sial_rol },
+            orderBy: [{ hasta: { sort: 'asc', nulls: 'first' } }],
+            select: {
+              idSialRol: true,
+              hasta: true,
+              situacionRevista: true,
+              cuil: true,
+              codigoJefaturas: true,
+              jefeEscalafon: true,
+              comision: true,
+              repaComision: true,
+              codSituacion: true,
+              cargoDesdeFecha: true,
+              cargoHastaFecha: true,
+              fechaBloqueo: true, // FEAT-001: valor anterior del bloqueo para el diff
+              persona: { select: { activo: true } },
+            },
+            take: 1,
+          },
+        },
+      })
+      if (!cargoMapeado) continue
+      // Fix 3 — rechazo defensivo de titular: si el cargo mapeado ya tiene una
+      // ocupación VIVA de OTRO id_sial_rol, es un cargo compartido preexistente
+      // (dato sucio). Entre un dato vacío y uno que no corresponde, el usuario
+      // prefiere vacío: NO se reusa el cargo compartido → el rol se degrada a
+      // alta 1:1 (no se setea actualesDesdMap, así el loop lo trata como alta).
+      // Usa prisma (no tx), consistente con el resto del respaldo (fase de diff).
+      const ocupAjena = await prisma.ocupacion.findFirst({
+        where: {
+          cargoId: cargoMapeado.id,
+          hasta: null,
+          idSialRol: { not: m.id_sial_rol },
+        },
+        select: { idSialRol: true },
+      })
+      if (ocupAjena) {
+        console.warn(
+          `[padron][desdoblado] cargo ${cargoMapeado.codigo} ya ocupado por ${ocupAjena.idSialRol}; ` +
+            `${m.id_sial_rol} va a alta 1:1 (no se reusa el cargo compartido)`,
+        )
+        continue
+      }
+      const ocup = cargoMapeado.ocupaciones[0]
+      // Adaptar al mismo shape de OcupDesdoblada (ocupación + cargo embebido).
+      const { ocupaciones: _oc, ...cargoSinOcup } = cargoMapeado
+      actualesDesdMap.set(m.id_sial_rol, {
+        idSialRol: m.id_sial_rol,
+        hasta: ocup?.hasta ?? null,
+        situacionRevista: ocup?.situacionRevista ?? null,
+        cuil: ocup?.cuil ?? null,
+        codigoJefaturas: ocup?.codigoJefaturas ?? null,
+        jefeEscalafon: ocup?.jefeEscalafon ?? null,
+        comision: ocup?.comision ?? null,
+        repaComision: ocup?.repaComision ?? null,
+        codSituacion: ocup?.codSituacion ?? null,
+        cargoDesdeFecha: ocup?.cargoDesdeFecha ?? null,
+        cargoHastaFecha: ocup?.cargoHastaFecha ?? null,
+        fechaBloqueo: ocup?.fechaBloqueo ?? null, // FEAT-001: valor anterior del bloqueo
+        persona: ocup?.persona ?? null,
+        cargo: cargoSinOcup,
+      } as OcupDesdoblada)
+    }
+  }
+
+  // Altas / modificados 24/07 (§3.3). Loop sobre nuevosDesdobladosMap (clave
+  // id_sial_rol), paralelo a los de id_sial.
+  for (const [idSialRol, r] of nuevosDesdobladosMap) {
+    const actual = actualesDesdMap.get(idSialRol)
+    if (tipoDiffDesdoblado(actual != null) === 'alta') {
+      // ── ALTA 1:1 (rol 24/07 nunca visto) ──
+      // Marcador __alta_desdoblada__ en `campo` (análogo a __reabrir_ocupacion__);
+      // no migra el enum TipoDiff. La allowlist del valorNuevo es la MISMA del
+      // alta normal (incluye id_sial del titular como dato informativo para la
+      // UI; la creación del cargo 1:1 NO lo usa como clave — ver §4.1/§4.5).
+      diffs.push({
+        tipo: 'nuevo',
+        idSialRol,
+        campo: '__alta_desdoblada__',
+        valorAnterior: null,
+        valorNuevo: JSON.stringify({
+          id_sial: strVal(r['ID SIAL'] ?? r['id_sial']),
+          cuil_y_rol: strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol']),
+          ayn: strVal(r['AYN'] ?? r['ayn']),
+          numero_doc: strVal(r['NUMERO DOC'] ?? r['numero_doc']),
+          tipo_doc: strVal(r['TIPO DOC'] ?? r['tipo_doc']),
+          sexo: strVal(r['SEXO'] ?? r['sexo']),
+          fecha_nacimiento: strVal(r['FECHA NACIMIENTO'] ?? r['fecha_nacimiento']),
+          antiguedad: strVal(r['ANTIGÜEDAD'] ?? r['antiguedad']),
+          siglas: strVal(r['SIGLAS'] ?? r['siglas']),
+          escalafon: strVal(r['ESCALAFON'] ?? r['escalafon']),
+          literal_puesto: strVal(r['LITERAL PUESTO'] ?? r['literal_puesto']),
+          especialidad: strVal(r['ESPECIALIDAD'] ?? r['especialidad']),
+          tipo_hospital_sigla: strVal(r['TIPO DE HOSPITAL / SIGLA'] ?? r['tipo_hospital_sigla']),
+          situacion_de_revista: strVal(r['SITUACION DE REVISTA'] ?? r['situacion_de_revista']),
+          estado: strVal(r['ESTADO'] ?? r['estado']),
+          agrupador: strVal(r['AGRUPADOR'] ?? r['agrupador']),
+          unificador_de_puestos: strVal(r['UNIFICADOR DE PUESTOS'] ?? r['unificador_de_puestos']),
+          regimen: strVal(r['REGIMEN'] ?? r['regimen']),
+          codigo_repa: strVal(r['CODIGO REPA'] ?? r['codigo_repa']),
+          descripcion_repa: strVal(r['DESCRIPCION REPA'] ?? r['descripcion_repa']),
+          codigo_de_registro: strVal(r['CODIGO DE REGISTRO'] ?? r['codigo_de_registro']),
+          literal_cr: strVal(r['LITERAL CR'] ?? r['literal_cr']),
+          agrupamiento: strVal(r['AGRUPAMIENTO'] ?? r['agrupamiento']),
+          codigo_jefaturas: strVal(r['CODIGO JEFATURAS'] ?? r['codigo_jefaturas']),
+          cargo_jefatura_puesto_id: strVal(r['cargo_jefatura_puesto_id']),
+          jefe_escalafon: strVal(r['JEFE ESCALAFON'] ?? r['jefe_escalafon']),
+          documentacion_jefatura: strVal(
+            r['DOCUMENTACION JEFATURA'] ?? r['documentacion_jefatura'],
+          ),
+          comentarios_jefaturas: strVal(r['COMENTARIOS JEFATURAS'] ?? r['comentarios_jefaturas']),
+          documentacion_pou: strVal(r['DOCUEMNTACION POU'] ?? r['documentacion_pou']),
+          comision: strVal(r['COMISION'] ?? r['comision']),
+          repa_comision: strVal(r['REPA COMISION'] ?? r['repa_comision']),
+          cod_situacion: strVal(r['COD SITUACION'] ?? r['cod_situacion']),
+          fecha_bloqueo: strVal(r['FECHA BLOQUEO'] ?? r['fecha_bloqueo']),
+          bloqueo_comentario: strVal(r['BLOQUEO COMENTARIO'] ?? r['bloqueo_comentario']),
+          bloq_motivo: strVal(r['BLOQ MOTIVO'] ?? r['bloq_motivo']),
+          documentacion_del_rol: strVal(r['DOCUMENTACION DEL ROL'] ?? r['documentacion_del_rol']),
+          documentacion_baja: strVal(r['DOCUMENTACION BAJA'] ?? r['documentacion_baja']),
+          cargo_desde: strVal(r['CARGO_DESDE'] ?? r['cargo_desde']),
+          cargo_hasta: strVal(r['CARGO_HASTA'] ?? r['cargo_hasta']),
+          telefono: strVal(r['TELEFONO'] ?? r['telefono']),
+          mail_personal: strVal(r['MAIL_PERSONAL'] ?? r['mail_personal']),
+          mail_laboral: strVal(r['MAIL_LABORAL'] ?? r['mail_laboral']),
+          domicilio: strVal(r['DOMICILIO'] ?? r['domicilio']),
+          localidad: strVal(r['LOCALIDAD'] ?? r['localidad']),
+          provincia: strVal(r['PROVINCIA'] ?? r['provincia']),
+        }),
+      })
+      continue
+    }
+
+    // ── MODIFICADO contra el cargo 1:1 correcto (actual.cargo / actual) ──
+    if (!actual) continue // inalcanzable (tipoDiffDesdoblado ya lo cubrió); narrowing TS
+    // Solo se compara contra el cargo VIGENTE con ocupación vigente; una
+    // ocupación cerrada se reabre con __reabrir_ocupacion__ (igual criterio que
+    // el loop por id_sial). Se duplica la lógica mínima de comparación acá
+    // (decisión del implementador, documentada en el commit): reusar el loop de
+    // id_sial habría requerido refactor de alto riesgo sin ganancia clara, dado
+    // que la fuente del "actual" es distinta (cargo embebido en la ocupación).
+    const ocupVigente = actual.hasta == null ? actual : null
+    if (actual.hasta != null) {
+      diffs.push({
+        tipo: 'modificado',
+        idSialRol,
+        campo: '__reabrir_ocupacion__',
+        valorAnterior: actual.hasta.toISOString().slice(0, 10),
+        valorNuevo: null,
+      })
+    }
+    if (actual.cargo.estado === 'vigente') {
+      for (const [colPython, tabla] of Object.entries(COLS_WATCH)) {
+        if (tabla === 'ocupacion' && !ocupVigente) continue
+        const colUpper =
+          colPython === 'codigo_de_registro'
+            ? 'CODIGO DE REGISTRO'
+            : colPython.toUpperCase().replace(/_/g, ' ')
+        const vNueStr = strVal(r[colUpper] ?? r[colPython])
+        const esFecha = esCampoFechaOcupacion(colPython)
+        if (esFecha) {
+          const mappedOcup = CAMPOS_OCUPACION[colPython]
+          const isoAnterior = toISO(
+            ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+          )
+          if (isoAnterior !== toISO(vNueStr)) {
+            const esCompl = isoAnterior === '' && vNueStr !== ''
+            diffs.push({
+              tipo: 'modificado',
+              idSialRol,
+              campo: esCompl ? `completado:${colPython}` : colPython,
+              valorAnterior: isoAnterior || null,
+              valorNuevo: vNueStr || null,
+            })
+          }
+          continue
+        }
+        let vAnterior = ''
+        if (tabla === 'cargo') {
+          if (colPython === 'codigo_de_registro') {
+            vAnterior = strVal(actual.cargo.codigoRegistro?.codigo)
+          } else {
+            const mappedCargo = CAMPOS_CARGO[colPython]
+            vAnterior = strVal(
+              mappedCargo ? (actual.cargo as Record<string, unknown>)[mappedCargo] : null,
+            )
+          }
+        } else {
+          const mappedOcup = CAMPOS_OCUPACION[colPython]
+          vAnterior = strVal(
+            mappedOcup && ocupVigente ? (ocupVigente as Record<string, unknown>)[mappedOcup] : null,
+          )
+        }
+        if (normCmp(vNueStr) !== normCmp(vAnterior)) {
+          const esCompl = strVal(vAnterior) === '' && vNueStr !== ''
+          diffs.push({
+            tipo: 'modificado',
+            idSialRol,
+            campo: esCompl ? `completado:${colPython}` : colPython,
+            valorAnterior: vAnterior || null,
+            valorNuevo: vNueStr || null,
+          })
+        }
+      }
+    }
+  }
+
+  // Bajas 24/07 (§3.4): un rol 24/07 vivo ausente del padrón nuevo es baja. Se
+  // detecta por ausencia de su id_sial_rol en nuevosDesdobladosMap, NO por el
+  // circuito id_sial (los clones tienen id_sial NULL).
+  const vivos24y07 = await prisma.ocupacion.findMany({
+    where: {
+      hasta: null,
+      cargo: {
+        codigoRegistro: { codigo: { in: ['24', '07'] } },
+        estado: { in: ['vigente', 'validacion_vacante'] },
+      },
+    },
+    select: {
+      idSialRol: true,
+      situacionRevista: true,
+      cuil: true,
+      hasta: true,
+      persona: { select: { activo: true } },
+      cargo: {
+        select: {
+          estado: true,
+          idSial: true,
+          codigo: true,
+          literalPuesto: true,
+          especialidadLegacy: true,
+          agrupador: true,
+          hospital: { select: { sigla: true } },
+          escalafon: { select: { nombre: true } },
+        },
+      },
+    },
+  })
+  const presentesDesd = new Set(nuevosDesdobladosMap.keys())
+  for (const o of vivos24y07) {
+    if (presentesDesd.has(o.idSialRol)) continue // sigue viniendo → no es baja
+    diffs.push({
+      tipo: 'eliminado',
+      idSialRol: o.idSialRol,
+      campo: categoriaBaja(o.cargo.estado, o),
+      valorAnterior: JSON.stringify({
+        id_sial: o.cargo.idSial, // puede ser NULL (clon desdoblado)
+        codigo_cargo: o.cargo.codigo, // el RES-/DOC- del cargo 1:1
+        desdoblado: true, // marca para el listado de eliminados (§3.6)
+        estado_cargo: o.cargo.estado, // para clasificar sin id_sial
+        cuil_y_rol: o.cuil ?? null,
+        literal_puesto: o.cargo.literalPuesto,
+        especialidad: o.cargo.especialidadLegacy,
+        agrupador: o.cargo.agrupador,
+        situacion_de_revista: o.situacionRevista ?? null,
+        // FASE 5: 'estado' (ocupaciones.estado_persona) eliminada del snapshot.
+        siglas: o.cargo.hospital?.sigla ?? null,
+        escalafon: o.cargo.escalafon?.nombre ?? null,
+      }),
+      valorNuevo: null,
+    })
   }
 
   const totalNuevos = diffs.filter((d) => d.tipo === 'nuevo').length
@@ -610,11 +1179,13 @@ async function runPipeline(
     const result = await (async (): Promise<{ total: number; cols: string[] }> => {
       const deadline = Date.now() + JOB_POLL_TIMEOUT_MS
       while (Date.now() < deadline) {
-        let job: { status: string; result: { total: number; cols: string[] } | null; error: string | null }
+        let job: {
+          status: string
+          result: { total: number; cols: string[] } | null
+          error: string | null
+        }
         try {
-          ;({ data: job } = await conReintentoRed(() =>
-            python.get<typeof job>(`/job/${job_id}`),
-          ))
+          ;({ data: job } = await conReintentoRed(() => python.get<typeof job>(`/job/${job_id}`)))
         } catch (e) {
           if (axios.isAxiosError(e) && e.response?.status === 404)
             throw new Error('El job del Dotaneitor expiró o no existe')
@@ -632,12 +1203,25 @@ async function runPipeline(
     if (!result.total) throw new Error('El padrón procesado no tiene filas')
 
     // El total real recién se conoce al terminar (el 202 fue con total 0).
+    // Guarda contra padrón parcial: se compara el total nuevo contra el del
+    // ÚLTIMO snapshot aprobado (referencia estable, no el último subido que
+    // podría ser otro parcial en error). Si el ratio cae bajo el umbral, se
+    // persiste la advertencia en el snapshot para que sea visible ANTES de
+    // aprobar; el bloqueo blando real se re-chequea en aprobarSnapshotService.
+    const evalRatio = await evaluarRatioContraUltimoAprobado(result.total, snapshotId)
     await prisma.padronSnapshot
       .update({
         where: { id: snapshotId },
-        data: { totalRegistros: result.total },
+        data: {
+          totalRegistros: result.total,
+          ratioTamano: evalRatio.ratio,
+          advertenciaTamano: evalRatio.advertencia,
+        },
       })
       .catch(() => {})
+    if (evalRatio.advertencia) {
+      console.warn(`[padron] guarda ratio snapshotId=${snapshotId}: ${evalRatio.advertencia}`)
+    }
 
     // Descarga paginada del parquet (GET idempotente → CON conReintentoRed).
     // Timeout por-request de 60 s, no el default de 30 s: cada página de 5.000
@@ -684,10 +1268,16 @@ async function runPipeline(
         await tx.padronDiff.createMany({
           data: lote.map((d) => {
             if (d.tipo !== 'nuevo') return { ...d, snapshotId, aprobado: true }
+            // Un alta desdoblada (24/07) se auto-aprueba por CARRERA, no por el
+            // texto del escalafón: si el diff llegó a __alta_desdoblada__ es
+            // porque esDesdoblado(codReg) dio true (Residencias/Docentes, que no
+            // pasan por revisión de este departamento). Así no queda bloqueada
+            // por una inconsistencia entre el escalafón y el cod_registro (§3.3).
+            const esDesdobladoDiff = d.campo === '__alta_desdoblada__'
             // RES / DOC / AS-* se aprueban automáticamente — no requieren
             // revisión manual de este departamento.
             const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
-            const autoAprobado = esAutoAprobable(datos)
+            const autoAprobado = esDesdobladoDiff ? true : esAutoAprobable(datos)
             return { ...d, snapshotId, aprobado: autoAprobado ? true : null }
           }),
         })
@@ -780,6 +1370,8 @@ export async function listSnapshotsService() {
       estado: true,
       pasoActual: true,
       errorMsg: true,
+      ratioTamano: true,
+      advertenciaTamano: true,
       aprobadoAt: true,
       createdAt: true,
       procesadoPor: { select: { username: true } },
@@ -817,14 +1409,20 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     const cargoEstadoMapP = new Map(cargosP.map((c) => [c.idSial, c.estado]))
     idSialRolesFiltrados = todosElimPre
       .filter((d) => {
-        const idSial = (() => {
+        const parsed = (() => {
           try {
-            return JSON.parse(d.valorAnterior ?? '{}').id_sial as string
+            return JSON.parse(d.valorAnterior ?? '{}')
           } catch {
-            return null
+            return {}
           }
         })()
-        const estado = idSial ? cargoEstadoMapP.get(idSial) : null
+        // Desdoblado 24/07: id_sial es NULL en los clones; clasificar por
+        // estado_cargo guardado en valorAnterior, no por el lookup por id_sial.
+        const estado = parsed.desdoblado
+          ? parsed.estado_cargo
+          : parsed.id_sial
+            ? cargoEstadoMapP.get(parsed.id_sial as string)
+            : null
         const clasi = estado === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
         return clasi === query.clasificacionEliminado
       })
@@ -845,6 +1443,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       const and: Record<string, unknown>[] = [
         { campo: { not: { startsWith: 'completado:' } } },
         { campo: { not: '__reabrir_ocupacion__' } },
+        { campo: { not: '__especialidad_puesto_id__' } },
       ]
       if (query.campo) and.push({ campo: query.campo })
       campoWhere = { AND: and }
@@ -944,10 +1543,25 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
           return {}
         }
       })()
+      const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
+      // Baja de un cargo desdoblado 24/07 (§3.6): id_sial es NULL en los clones,
+      // así que NO se depende del lookup por id_sial. codigo_cargo/siglas/
+      // escalafon vienen en valorAnterior y la clasificación usa estado_cargo.
+      if (parsed.desdoblado === true) {
+        const clasificacionEliminado =
+          d.campo === 'baja_previa' ? clasificacionEliminadoDesdoblado(parsed.estado_cargo) : null
+        return {
+          ...d,
+          apellidoNombre,
+          clasificacionEliminado,
+          codigoCargo: parsed.codigo_cargo ?? null,
+          siglas: parsed.siglas ?? null,
+          escalafon: parsed.escalafon ?? null,
+        }
+      }
       const idSial = parsed.id_sial as string | null
       const estadoCargo = idSial ? cargoEstadoMap.get(idSial) : null
       const codigoCargo = idSial ? (cargoCodigoMap.get(idSial) ?? null) : null
-      const apellidoNombre = ocupNombreMap.get(d.idSialRol) ?? null
       // Clasificación solo informativa dentro de "ya estaban en baja"
       // (campo='baja_previa'). Las bajas nuevas (campo IS NULL) no se clasifican.
       const clasificacionEliminado =
@@ -983,6 +1597,7 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
         AND: [
           { campo: { not: { startsWith: 'completado:' } } },
           { campo: { not: '__reabrir_ocupacion__' } },
+          { campo: { not: '__especialidad_puesto_id__' } },
         ],
       },
     }),
@@ -1020,14 +1635,16 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
     })
     const estadoMap = new Map(cargosE.map((c) => [c.idSial, c.estado]))
     for (const d of todosElim) {
-      const idSial = (() => {
+      const parsed = (() => {
         try {
-          return JSON.parse(d.valorAnterior ?? '{}').id_sial
+          return JSON.parse(d.valorAnterior ?? '{}')
         } catch {
-          return null
+          return {}
         }
       })()
-      if (estadoMap.get(idSial) === 'validacion_vacante') eliminadosEnValidacion++
+      // Desdoblado 24/07: clasificar por estado_cargo (id_sial es NULL).
+      const estado = parsed.desdoblado ? parsed.estado_cargo : estadoMap.get(parsed.id_sial)
+      if (estado === 'validacion_vacante') eliminadosEnValidacion++
       else eliminadosSinPersona++
     }
   }
@@ -1116,6 +1733,8 @@ export async function getSnapshotDiffService(id: string, query: DiffQuery) {
       filename: snapshot.filename,
       totalRegistros: snapshot.totalRegistros,
       estado: snapshot.estado,
+      ratioTamano: snapshot.ratioTamano,
+      advertenciaTamano: snapshot.advertenciaTamano,
     },
     summary: {
       nuevos,
@@ -1167,19 +1786,83 @@ function cuilDe(datos: Record<string, string>): string | undefined {
   return datos.cuil_y_rol ? datos.cuil_y_rol.split('-')[0] : undefined
 }
 
-export async function aprobarSnapshotService(id: string, usuarioId: string) {
+// Bug A: decide y devuelve el especialidad_puesto_id a asignar. Usa el id ya
+// resuelto por el Dotaneitor cuando viene y valida (existe + cuelga del puesto
+// resuelto por el backend); si no, cae al resolvedor por texto actual
+// (resolverEspecialidadPuestoId), que a su vez aplica "vacío = conservar"
+// devolviendo null cuando no hay especialidad real. NUNCA lanza; peor caso
+// devuelve null. `idSialLog` es solo para el warn de diagnóstico.
+async function especialidadPuestoIdFinal(
+  tx: Parameters<typeof resolverEspecialidadPuestoId>[0],
+  cache: CatalogoPuestosCache,
+  puestoCargoId: string,
+  idDotaneitor: string | null,
+  especialidadLegacy: string | null,
+  nombrePuesto: string | null,
+  idSialLog?: string | null,
+): Promise<string | null> {
+  const idDota = (idDotaneitor ?? '').trim() || null
+  const accion = decidirEspecialidad({
+    idDotaneitor: idDota,
+    puestoDelId: idDota ? cache.especialidadPuestoCargId.get(idDota) : undefined,
+    puestoDelCargo: puestoCargoId,
+    textoEspecialidadReal: especialidadSialReal(especialidadLegacy),
+  })
+  if (accion === 'usar-id' && idDota) return idDota
+  if (idDota && accion !== 'usar-id') {
+    // Vino un id del Dotaneitor pero no se pudo usar — se cae al fallback por
+    // texto. Se loguea a nivel warn (mismo estilo que los warn de auto-alta).
+    const motivo = cache.especialidadPuestoCargId.has(idDota)
+      ? 'cuelga de otro puesto'
+      : 'id inexistente en catálogo'
+    console.warn(
+      `[padron] especialidad_puesto_id del Dotaneitor no utilizable (${motivo}) — ` +
+        `id_sial=${idSialLog ?? '?'} id=${idDota} puestoCargo=${puestoCargoId}; fallback por texto`,
+    )
+  }
+  // 'fallback-texto' y 'conservar' se resuelven igual: el resolvedor por texto
+  // devuelve null cuando no hay especialidad real (y el caller conserva la FK).
+  return resolverEspecialidadPuestoId(tx, cache, puestoCargoId, especialidadLegacy, nombrePuesto)
+}
+
+export async function aprobarSnapshotService(
+  id: string,
+  usuarioId: string,
+  overrideRatioTamano = false,
+  overrideBajaSial = false,
+) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')
     throw AppError.conflict(`El snapshot ya está ${snapshot.estado}`)
 
-  // Bloquear si hay diffs nuevos sin decisión (aprobado IS NULL)
-  const pendientes = await prisma.padronDiff.count({
-    where: { snapshotId: id, tipo: 'nuevo', aprobado: null },
-  })
-  if (pendientes > 0)
-    throw AppError.conflict(
-      `Hay ${pendientes} cargo(s) nuevo(s) sin decisión. Aprobá o rechazá cada uno antes de aprobar la carga.`,
-    )
+  // Guarda contra padrón parcial — BLOQUEO BLANDO. Se re-evalúa el ratio contra
+  // el último aprobado EN ESTE MOMENTO (fuente de verdad al aprobar, no la foto
+  // guardada al procesar, que pudo quedar desactualizada si cambió la
+  // referencia). Si el padrón es anómalo y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const evalRatio = await evaluarRatioContraUltimoAprobado(snapshot.totalRegistros, id)
+  if (evalRatio.anomalo && evalRatio.advertencia && !overrideRatioTamano) {
+    throw AppError.conflict(evalRatio.advertencia)
+  }
+
+  // Guarda contra padrón sin la baja SIAL de la semana — BLOQUEO BLANDO. Exige
+  // que exista al menos una baja SIAL SUBIDA (estado IN ('pendiente','aprobado')
+  // — basta con que esté subida, no hace falta que esté aprobada) cuya
+  // fecha_archivo caiga dentro de ±PADRON_BAJA_SIAL_VENTANA_DIAS de la fecha del
+  // padrón (snapshot.fechaAsignada). Si falta y el operador NO pasó el override
+  // explícito, se bloquea; el override queda auditado vía aprobadoPorId/
+  // aprobadoAt que se escriben más abajo al marcar el snapshot como aprobado.
+  const fechasBajaSial = await fechasBajaSialValidas()
+  const evalBajaSial = evaluarBajaSialRequerida(
+    snapshot.fechaAsignada,
+    fechasBajaSial,
+    env.PADRON_EXIGIR_BAJA_SIAL,
+    env.PADRON_BAJA_SIAL_VENTANA_DIAS,
+  )
+  if (evalBajaSial.falta && evalBajaSial.advertencia && !overrideBajaSial) {
+    throw AppError.conflict(evalBajaSial.advertencia)
+  }
 
   const diffs = await prisma.padronDiff.findMany({ where: { snapshotId: id } })
 
@@ -1207,12 +1890,26 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
 
     const nuevos: { idSialRol: string; datos: Record<string, string> }[] = []
     const rechazados: { idSialRol: string; datos: Record<string, string> }[] = []
+    // Alta 1:1 desdoblada (24/07): se materializa por el camino dedicado (§4.2),
+    // NO por id_sial. `rechazadosDesdoblados` es defensa en profundidad — un
+    // alta 1:1 rechazada no crea cargo ni ocupación; además es inalcanzable en
+    // operación (auto-aprobación por carrera + guard de endpoints §4.5).
+    const nuevosDesdoblados: { idSialRol: string; datos: Record<string, string> }[] = []
+    const rechazadosDesdoblados: { idSialRol: string; datos: Record<string, string> }[] = []
     const eliminados: string[] = []
     const modificados: { idSialRol: string; cambios: typeof diffs }[] = []
     for (const [idSialRol, cambios] of porSialRol) {
       if (cambios.length === 0) continue
       const tipo = cambios[0]!.tipo
-      if (tipo === 'nuevo' && cambios[0]!.aprobado === true)
+      // La condición "¿es desdoblada?" se evalúa PRIMERO para que un desdoblado
+      // NUNCA caiga en nuevos/rechazados (los conjuntos que se procesan por
+      // id_sial y recrearían el cargo compartido).
+      const esDesd = cambios[0]!.campo === '__alta_desdoblada__'
+      if (tipo === 'nuevo' && esDesd && cambios[0]!.aprobado === true)
+        nuevosDesdoblados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && esDesd && cambios[0]!.aprobado === false)
+        rechazadosDesdoblados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
+      else if (tipo === 'nuevo' && cambios[0]!.aprobado === true)
         nuevos.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
       else if (tipo === 'nuevo' && cambios[0]!.aprobado === false)
         rechazados.push({ idSialRol, datos: JSON.parse(cambios[0]!.valorNuevo ?? '{}') })
@@ -1223,21 +1920,33 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     const todosLosIdSialRol = [...porSialRol.keys()]
 
     // ── 1. Precarga en bloque de todo lo que ya existe ──────────────────────
+    // todosNuevos EXCLUYE nuevosDesdoblados y rechazadosDesdoblados (se procesan
+    // por id_sial_rol, no por id_sial). todosConPersona agrega nuevosDesdoblados
+    // SOLO para la precarga/creación de personas/hospitales/escalafones/
+    // codigoRegistro (el alta 1:1 necesita esos caches). rechazadosDesdoblados
+    // no entra a ninguno (no materializa nada).
     const todosNuevos = [...nuevos, ...rechazados]
-    const siglasNecesarias = [...new Set(todosNuevos.map((n) => n.datos.siglas ?? n.idSialRol))]
+    const todosConPersona = [...nuevos, ...rechazados, ...nuevosDesdoblados]
+    // Derivadas de todosConPersona (incluye nuevosDesdoblados) para que el alta
+    // 1:1 encuentre hospital/escalafón/codigoRegistro/persona en los caches.
+    const siglasNecesarias = [...new Set(todosConPersona.map((n) => n.datos.siglas ?? n.idSialRol))]
     const cuilsNecesarios = [
-      ...new Set(todosNuevos.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v))),
+      ...new Set(
+        todosConPersona.map((n) => cuilDe(n.datos)).filter((v): v is string => Boolean(v)),
+      ),
     ]
     const idSialsNecesarios = [
       ...new Set(todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v))),
     ]
     const codigosRegNecesarios = [
       ...new Set(
-        todosNuevos.map((n) => n.datos.codigo_de_registro).filter((v): v is string => Boolean(v)),
+        todosConPersona
+          .map((n) => n.datos.codigo_de_registro)
+          .filter((v): v is string => Boolean(v)),
       ),
     ]
     const escalafonesNecesarios = [
-      ...new Set(todosNuevos.map((n) => n.datos.escalafon ?? '').filter(Boolean)),
+      ...new Set(todosConPersona.map((n) => n.datos.escalafon ?? '').filter(Boolean)),
     ]
 
     const [
@@ -1256,10 +1965,13 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         where: { codigo: { in: codigosRegNecesarios } },
         include: { escalafon: true },
       }) as Promise<{ codigo: string; id: string; escalafonId: string; escalafon: EscalafonRow }[]>,
-      // Fallback: buscar por nombre para códigos no mapeados
-      tx.escalafon.findMany({
-        where: { nombre: { in: escalafonesNecesarios }, activo: true },
-      }) as Promise<EscalafonRow[]>,
+      // Fallback: buscar por nombre para códigos no mapeados — trae TODOS los
+      // activos (cardinalidad chica, ~20 filas) en vez de filtrar por el `IN`
+      // de nombres crudos del padrón: ese filtro es exacto (case/tilde-
+      // sensitive) y si el padrón trae otro casing no matchea nada, aunque la
+      // fila ya exista (ver buscarEscalafonPorNombre / escalafonCache abajo,
+      // que sí comparan normalizado).
+      tx.escalafon.findMany({ where: { activo: true } }) as Promise<EscalafonRow[]>,
       tx.persona.findMany({ where: { cuil: { in: cuilsNecesarios } } }) as Promise<PersonaRow[]>,
       tx.cargo.findMany({ where: { idSial: { in: idSialsNecesarios } } }) as Promise<CargoRow[]>,
       tx.ocupacion.findMany({
@@ -1269,8 +1981,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     ])
 
     const hospitalCache = new Map(hospitalesExistentes.map((h) => [h.sigla, h]))
+    // Clave normalizada (minúscula/sin tilde) — el padrón trae el nombre del
+    // escalafón con casing variable entre corridas; comparar normalizado evita
+    // crear un escalafón duplicado cuando el que ya existe difiere solo en eso
+    // (ver scripts/fix_escalafones_duplicados_casing.sql).
     const escalafonCache = new Map<string, EscalafonRow>(
-      escalafonesExistentes.map((e) => [e.nombre, e]),
+      escalafonesExistentes.map((e) => [normalizarTexto(e.nombre), e]),
     )
     const escalafonPorCodRegCache = new Map(
       codigosRegistroExistentesLookup.map((cr) => [
@@ -1288,7 +2004,9 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     //       cardinalidad chica, no escala con la cantidad de filas) ────────
     for (const sigla of siglasNecesarias) {
       if (hospitalCache.has(sigla)) continue
-      const datos = nuevos.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
+      // Buscar en todosConPersona (incluye desdoblados): una sigla puede venir
+      // solo de un alta 1:1 24/07 y no de las altas normales.
+      const datos = todosConPersona.find((n) => (n.datos.siglas ?? n.idSialRol) === sigla)!.datos
       // upsert: si ya existe (cargado por la migración de enriquecimiento) lo
       // devuelve sin tocar sus campos descriptivos. Si es genuinamente nuevo
       // (sigla desconocida) lo crea con los datos disponibles del padrón.
@@ -1304,17 +2022,20 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       hospitalCache.set(sigla, h)
     }
     for (const nombre of escalafonesNecesarios) {
-      if (escalafonCache.has(nombre)) continue
+      const clave = normalizarTexto(nombre)
+      if (escalafonCache.has(clave)) continue
       // Si ya está mapeado por código de registro no crear uno nuevo
-      const yaMapado = [...escalafonPorCodRegCache.values()].find((e) => e.nombre === nombre)
+      const yaMapado = [...escalafonPorCodRegCache.values()].find(
+        (e) => normalizarTexto(e.nombre) === clave,
+      )
       if (yaMapado) {
-        escalafonCache.set(nombre, yaMapado)
+        escalafonCache.set(clave, yaMapado)
         continue
       }
       const e = await tx.escalafon.create({
         data: { codigo: `${nombre.slice(0, 12)}-${randomUUID().slice(0, 7)}`, nombre },
       })
-      escalafonCache.set(nombre, e)
+      escalafonCache.set(clave, e)
     }
 
     // ── 2b. Resolver CodigoRegistro: lookup/create por código numérico ─────
@@ -1336,7 +2057,8 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       if (codigoRegistroCache.has(codigo)) continue
       const datosEjemplo = nuevos.find((n) => n.datos.codigo_de_registro === codigo)!.datos
       const escalafon =
-        escalafonPorCodRegCache.get(codigo) ?? escalafonCache.get(datosEjemplo.escalafon ?? '')
+        escalafonPorCodRegCache.get(codigo) ??
+        escalafonCache.get(normalizarTexto(datosEjemplo.escalafon ?? ''))
       if (!escalafon) {
         console.warn(
           `[padron] CODIGO DE REGISTRO "${codigo}" sin escalafón resuelto — fila omitida`,
@@ -1352,6 +2074,57 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       console.info(
         `[padron] Nuevo CODIGO DE REGISTRO "${codigo}" → escalafón "${escalafon.nombre}" creado en codigos_registro`,
       )
+    }
+
+    // ── 2c. Contexto para la derivación automática del código de registro ──
+    // Para decidir "cuántos CRs tiene el escalafón" hace falta el catálogo
+    // COMPLETO de CRs (no el filtrado al batch de codigoRegistroCache). La
+    // cardinalidad es chica (~16 filas), así que se carga una sola vez y se
+    // construyen los mapas que consume derivarCodigoRegistroId. Ver
+    // derivarCodigoRegistro.ts.
+    const crCatalogoCompleto = (await tx.codigoRegistro.findMany({
+      select: {
+        id: true,
+        codigo: true,
+        escalafonId: true,
+        escalafon: { select: { codigo: true } },
+      },
+    })) as { id: string; codigo: string; escalafonId: string; escalafon: { codigo: string } }[]
+    const crCtxEscalafonCodigoPorId = new Map<string, string>()
+    const crCtxCrsPorEscalafonId = new Map<string, CrCatalogo[]>()
+    const crCtxCrPorCodigo = new Map<string, CrCatalogo>()
+    // id de CR -> su código string. Lo necesita la derivación de régimen, que
+    // recibe el id del CR resuelto y debe traducirlo al código (85/83/22/...)
+    // que consume derivarRegimen.
+    const crCtxCodigoPorId = new Map<string, string>()
+    for (const row of crCatalogoCompleto) {
+      const cr: CrCatalogo = { id: row.id, codigo: row.codigo }
+      crCtxCrPorCodigo.set(row.codigo, cr)
+      crCtxCodigoPorId.set(row.id, row.codigo)
+      crCtxEscalafonCodigoPorId.set(row.escalafonId, row.escalafon.codigo)
+      const lista = crCtxCrsPorEscalafonId.get(row.escalafonId) ?? []
+      lista.push(cr)
+      crCtxCrsPorEscalafonId.set(row.escalafonId, lista)
+    }
+    const derivarCrCtx = {
+      escalafonCodigoPorId: crCtxEscalafonCodigoPorId,
+      crsPorEscalafonId: crCtxCrsPorEscalafonId,
+      crPorCodigo: crCtxCrPorCodigo,
+    }
+    // Traduce el id del CR resuelto al código string que consume derivarRegimen.
+    const crCodigoDe = (id: string | null): string | null =>
+      id ? (crCtxCodigoPorId.get(id) ?? null) : null
+
+    // ── 2d. Contexto para la derivación automática del RÉGIMEN ──
+    // El régimen se deriva SIEMPRE después de resolver el CR. Se carga el
+    // catálogo `regimenes` una sola vez por transacción (cardinalidad chica,
+    // ~12 filas) y se arma el mapa nombre→{ id, nombre } que consume
+    // derivarRegimenId. Ver derivarRegimen.ts.
+    const regimenesCatalogo = await tx.regimen.findMany({
+      select: { id: true, nombre: true },
+    })
+    const regimenCtx = {
+      regimenPorNombre: new Map(regimenesCatalogo.map((r) => [r.nombre, r])),
     }
 
     // ── 3. Crear en bloque personas / cargos / ocupaciones faltantes ───────
@@ -1392,9 +2165,17 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         codigoRepa: string | null
         descripcionRepa: string | null
         agrupamiento: string | null
+        codigoRegistroId: string | null
+        regimenId: string | null
+        revisionDato?: boolean
+        revisionMotivo?: string | null
       }
     >()
-    for (const { datos } of todosNuevos) {
+    // Set de idSialRol de altas 1:1 desdobladas: su persona SÍ se precarga/crea
+    // acá (están en todosConPersona), pero su CARGO NO se crea por este camino
+    // (id_sial = titular) — se materializa en el bloque 3c dedicado.
+    const idSialRolDesdoblados = new Set(nuevosDesdoblados.map((n) => n.idSialRol))
+    for (const { idSialRol, datos } of todosConPersona) {
       const cuil = cuilDe(datos)
       if (cuil && !personaCache.has(cuil) && !personasACrear.has(cuil)) {
         personasACrear.set(cuil, {
@@ -1414,7 +2195,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           provincia: datos.provincia || null,
         })
       }
-      if (datos.id_sial && !cargoCache.has(datos.id_sial) && !cargosACrear.has(datos.id_sial)) {
+      // Un alta 1:1 desdoblada (24/07) NUNCA crea cargo por este camino
+      // (datos.id_sial es el id_sial del TITULAR; reusarlo recrearía el cargo
+      // compartido). Su cargo se crea en el bloque 3c con id_sial NULL.
+      if (
+        !idSialRolDesdoblados.has(idSialRol) &&
+        datos.id_sial &&
+        !cargoCache.has(datos.id_sial) &&
+        !cargosACrear.has(datos.id_sial)
+      ) {
         const hospital = hospitalCache.get(datos.siglas ?? '')!
         // Resolución canónica: primero por CODIGO DE REGISTRO, luego por nombre.
         // Bug encontrado en vivo (Sprint 20, 2026-09-29): `datos.codigo_de_registro`
@@ -1426,7 +2215,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const escalafon =
           (datos.codigo_de_registro
             ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
-            : undefined) ?? escalafonCache.get(datos.escalafon ?? '')
+            : undefined) ?? escalafonCache.get(normalizarTexto(datos.escalafon ?? ''))
         if (!hospital || !escalafon) continue
 
         // S24-6: reconciliación con los cargos de conducción VACANTES generados
@@ -1435,6 +2224,20 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         // ese cargo en vez de crear uno nuevo. Helper compartido con los demás
         // flujos del padrón — ver reconciliarConduccion.ts.
         if (datos.id_sial) {
+          // Derivación automática del código de registro (cascada 1→4) para el
+          // cargo de conducción que se cubre. Si no es derivable, se marca para
+          // revisión en vez de dejarlo silenciosamente en NULL.
+          const decisionCrConduccion = derivarCodigoRegistroId(
+            escalafon.id,
+            datos.codigo_de_registro ?? null,
+            derivarCrCtx,
+          )
+          // Régimen derivado SIEMPRE después de resolver el CR.
+          const decisionRegC = derivarRegimenId(
+            crCodigoDe(decisionCrConduccion.codigoRegistroId),
+            datos.literal_puesto ?? null,
+            regimenCtx,
+          )
           const cargoVinculado = await reconciliarCargoConduccionVacante(tx, {
             codigoRepa: datos.codigo_repa,
             codigoJefaturas: datos.codigo_jefaturas,
@@ -1442,9 +2245,10 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             escalafonId: escalafon.id,
             literalPuesto: datos.literal_puesto,
             especialidadLegacy: datos.especialidad,
-            codigoRegistroId: datos.codigo_de_registro
-              ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-              : null,
+            codigoRegistroId: decisionCrConduccion.codigoRegistroId,
+            revisionCr: decisionCrConduccion.revision ?? null,
+            regimenId: decisionRegC.regimenId,
+            revisionRegimen: decisionRegC.revision ?? null,
           })
           if (cargoVinculado) {
             cargoCache.set(datos.id_sial, {
@@ -1466,6 +2270,15 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
             escalafonId: escalafon.id,
             codigoRepa: datos.codigo_repa || null,
             literalPuesto: datos.literal_puesto || null,
+            // Fix 3: un cargo desdoblado 24/07 (1:1, id_sial NULL) NUNCA puede
+            // ser recapturado por el reuso estructural de un alta normal —
+            // reconstruiría un cargo compartido. No-op para altas 24/07 (ya
+            // excluidas aguas arriba por el guard de desdoblados), pero
+            // load-bearing para un alta NORMAL cuya clave estructural colisiona
+            // con un cargo 24/07 existente: en ese caso se crea intencionalmente
+            // un cargo normal nuevo (NO es regresión). Se usa NOT { relación: in }
+            // para preservar las filas con codigo_registro_id NULL.
+            NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
           },
           select: { id: true, idSial: true, estado: true },
         })
@@ -1492,22 +2305,45 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           literalPuesto: datos.literal_puesto ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
         })
-        const especialidadResuelta = await resolverEspecialidadPuestoId(
+        // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor
+        // (datos.especialidad_puesto_id del allowlist) si valida; si no, fallback
+        // por texto (resolución actual).
+        const especialidadResuelta = await especialidadPuestoIdFinal(
           tx,
           catalogoPuestos,
           puestoResuelto.id,
+          datos.especialidad_puesto_id ?? null,
           datos.especialidad ?? null,
           puestoResuelto.nombre,
+          datos.id_sial,
         )
         const prefijo = prefijoDeCargo({
           escalafon: escalafon.nombre ?? null,
           unificadorPuesto: datos.unificador_de_puestos ?? null,
           agrupador: datos.agrupador ?? null,
           puestoCargo: puestoResuelto,
+          tieneEspecialidad: Boolean(especialidadResuelta),
         })
         // El código se genera después del createMany (necesita el secuencial
         // real de la DB) — se marca con null aquí y se actualiza en el paso
         // de asignación de códigos más abajo.
+        // Derivación automática del código de registro (cascada 1→4). Estas
+        // filas nacen sin revisión previa, así que marcar revisión es aditivo.
+        const decisionCrA = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
+        // Régimen derivado SIEMPRE después de resolver el CR. La marca de
+        // revisión combina las causas de CR y de régimen (aditiva).
+        const decisionRegA = derivarRegimenId(
+          crCodigoDe(decisionCrA.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosA: string[] = []
+        if (decisionCrA.revision) motivosA.push(decisionCrA.revision.motivo)
+        if (decisionRegA.revision) motivosA.push(decisionRegA.revision.motivo)
         cargosACrear.set(datos.id_sial, {
           id: randomUUID(),
           idSial: datos.id_sial,
@@ -1524,9 +2360,11 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
           agrupamiento: datos.agrupamiento || null,
-          codigoRegistroId: datos.codigo_de_registro
-            ? (codigoRegistroCache.get(datos.codigo_de_registro)?.id ?? null)
-            : null,
+          codigoRegistroId: decisionCrA.codigoRegistroId,
+          regimenId: decisionRegA.regimenId,
+          ...(motivosA.length > 0
+            ? { revisionDato: true, revisionMotivo: motivosA.join(' | ').slice(0, 200) }
+            : {}),
           _prefijo: prefijo,
         } as never)
       }
@@ -1589,6 +2427,164 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       `
     }
 
+    // ── 3c. Altas 1:1 desdobladas (24/07) — §4.2 del diseño. Corre DESPUÉS del
+    //        UPDATE de códigos normales (el MAX por prefijo ya los incluye) y
+    //        dentro de la MISMA transacción. Crea por fila: cargo (id_sial NULL,
+    //        código correlativo RES-/DOC-, especialidad ESTRICTA por rol),
+    //        ocupación y mapeo en desdoblado_mapeo_cargos.
+    if (nuevosDesdoblados.length > 0) {
+      // Índice norm_esp del catálogo: key `${puestoId}:${normEspDesdoblado(nombre)}`
+      // -> especialidadPuestoId. Se arma una vez a partir del cache (sin query
+      // extra), igual que norm_esp del script SQL.
+      const catalogoNormEsp = new Map<string, string>()
+      for (const [puestoId, lista] of catalogoPuestos.especialidadesPorPuesto) {
+        for (const e of lista) {
+          catalogoNormEsp.set(`${puestoId}:${normEspDesdoblado(e.nombre)}`, e.id)
+        }
+      }
+
+      // MAX por prefijo (RES/DOC, SIN guion) recomputado tras el batch normal +
+      // contador en memoria + blindaje WHILE EXISTS contra huecos/no-contiguos.
+      const maxDesdPorPrefijo = new Map<string, number>()
+      const proximoCodigoDesdoblado = async (prefijo: string): Promise<string> => {
+        if (!maxDesdPorPrefijo.has(prefijo)) {
+          maxDesdPorPrefijo.set(prefijo, await maxSecuencialCargo(prefijo, tx))
+        }
+        let n = (maxDesdPorPrefijo.get(prefijo) ?? 0) + 1
+        let codigo = formatearCodigoDesdoblado(prefijo, n)
+        while ((await tx.cargo.count({ where: { codigo } })) > 0) {
+          n++
+          codigo = formatearCodigoDesdoblado(prefijo, n)
+        }
+        maxDesdPorPrefijo.set(prefijo, n)
+        return codigo
+      }
+
+      for (const { idSialRol, datos } of nuevosDesdoblados) {
+        // Si ya existe una ocupación para este rol (no debería en un alta), se
+        // respeta y se saltea (idempotencia defensiva).
+        if (ocupacionExistenteMap.has(idSialRol)) continue
+
+        const cuil = cuilDe(datos)
+        const persona = cuil ? personaCache.get(cuil) : null
+        const hospital = hospitalCache.get(datos.siglas ?? '')
+        const escalafon =
+          (datos.codigo_de_registro
+            ? escalafonPorCodRegCache.get(datos.codigo_de_registro)
+            : undefined) ?? escalafonCache.get(normalizarTexto(datos.escalafon ?? ''))
+        if (!persona || !hospital || !escalafon) {
+          console.warn(
+            `[padron][desdoblado] alta 1:1 omitida (id_sial_rol ${idSialRol}): falta ${!persona ? 'persona' : !hospital ? 'hospital' : 'escalafón'}`,
+          )
+          continue
+        }
+
+        // Puesto (igual que el alta normal; nunca null — auto-crea pendienteCurar).
+        const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
+          escalafonId: escalafon.id,
+          literalPuesto: datos.literal_puesto ?? null,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+        })
+        // Especialidad ESTRICTA (REGLA DE ORO): match exacto o NULL. Nunca deriva
+        // ni auto-crea (resolver puro, sin tx).
+        const especialidadPuestoId = resolverEspecialidadDesdobladaId(
+          catalogoNormEsp,
+          puesto.id,
+          datos.especialidad ?? null,
+        )
+        // Prefijo forzado por carrera (RES/DOC, SIN guion).
+        const prefijoCalc = prefijoDeCargo({
+          escalafon: escalafon.nombre,
+          unificadorPuesto: datos.unificador_de_puestos ?? null,
+          agrupador: datos.agrupador ?? null,
+          puestoCargo: puesto,
+          tieneEspecialidad: Boolean(especialidadPuestoId),
+        })
+        const prefijo = prefijoDesdobladoForzado(datos.codigo_de_registro, prefijoCalc)
+        const codigo = await proximoCodigoDesdoblado(prefijo)
+
+        // Derivación automática del código de registro (cascada 1→4). El cargo
+        // desdoblado nace sin revisión previa: marcar revisión es aditivo.
+        const decisionCrDesd = derivarCodigoRegistroId(
+          escalafon.id,
+          datos.codigo_de_registro ?? null,
+          derivarCrCtx,
+        )
+        // Régimen derivado SIEMPRE después de resolver el CR. Marca de revisión
+        // aditiva (CR + régimen).
+        const decisionRegDesd = derivarRegimenId(
+          crCodigoDe(decisionCrDesd.codigoRegistroId),
+          datos.literal_puesto ?? null,
+          regimenCtx,
+        )
+        const motivosDesd: string[] = []
+        if (decisionCrDesd.revision) motivosDesd.push(decisionCrDesd.revision.motivo)
+        if (decisionRegDesd.revision) motivosDesd.push(decisionRegDesd.revision.motivo)
+        const cargoId = randomUUID()
+        await tx.cargo.create({
+          data: {
+            id: cargoId,
+            idSial: null, // clon desdoblado: sin identidad propia en el SIAL
+            codigo,
+            estado: 'vigente',
+            hospitalId: hospital.id,
+            escalafonId: escalafon.id,
+            puestoCargoId: puesto.id,
+            especialidadPuestoId,
+            literalPuesto: datos.literal_puesto ?? null,
+            especialidadLegacy: datos.especialidad ?? null,
+            agrupador: datos.agrupador ?? null,
+            unificadorPuesto: datos.unificador_de_puestos ?? null,
+            regimen: datos.regimen || null,
+            codigoRepa: datos.codigo_repa || null,
+            descripcionRepa: datos.descripcion_repa || null,
+            agrupamiento: datos.agrupamiento || null,
+            codigoRegistroId: decisionCrDesd.codigoRegistroId,
+            regimenId: decisionRegDesd.regimenId,
+            ...(motivosDesd.length > 0
+              ? { revisionDato: true, revisionMotivo: motivosDesd.join(' | ').slice(0, 200) }
+              : {}),
+          },
+        })
+
+        await tx.ocupacion.create({
+          data: {
+            id: randomUUID(),
+            personaId: persona.id,
+            cargoId,
+            idSialRol,
+            cuil: cuil ?? null,
+            situacionRevista: datos.situacion_de_revista ?? null,
+            codigoJefaturas: datos.codigo_jefaturas || null,
+            cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
+            jefeEscalafon: datos.jefe_escalafon || null,
+            documentacionJefatura: datos.documentacion_jefatura || null,
+            comentariosJefaturas: datos.comentarios_jefaturas || null,
+            documentacionPou: datos.documentacion_pou || null,
+            comision: datos.comision || null,
+            repaComision: datos.repa_comision || null,
+            codSituacion: datos.cod_situacion || null,
+            fechaBloqueo: parseFechaDDMMYYYY(datos.fecha_bloqueo),
+            bloqueoComentario: datos.bloqueo_comentario || null,
+            bloqMotivo: datos.bloq_motivo || null,
+            documentacionDelRol: datos.documentacion_del_rol || null,
+            documentacionBaja: datos.documentacion_baja || null,
+            cargoDesdeFecha: parseFechaDDMMYYYY(datos.cargo_desde),
+            cargoHastaFecha: parseFechaDDMMYYYY(datos.cargo_hasta),
+            snapshotId: id,
+          },
+        })
+        ocupacionExistenteMap.set(idSialRol, { idSialRol, cargoId })
+
+        // Registrar el mapeo (idempotente).
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO desdoblado_mapeo_cargos (id_sial_rol, codigo_cargo, codigo_registro)
+          VALUES (${idSialRol}, ${codigo}, ${datos.codigo_de_registro ?? null})
+          ON CONFLICT (id_sial_rol) DO NOTHING
+        `)
+      }
+    }
+
     const ocupacionesACrear: {
       id: string
       personaId: string
@@ -1596,7 +2592,6 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       idSialRol: string
       cuil: string | null
       situacionRevista: string | null
-      estadoPersona: string | null
       codigoJefaturas: string | null
       cargoJefaturaPuestoId: string | null
       jefeEscalafon: string | null
@@ -1628,7 +2623,6 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         idSialRol,
         cuil: cuilDe(datos),
         situacionRevista: datos.situacion_de_revista ?? null,
-        estadoPersona: datos.estado ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
         cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
         jefeEscalafon: datos.jefe_escalafon || null,
@@ -1657,18 +2651,42 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
     // ── 4. Resolver automáticamente cargos en validacion_vacante:
     //   - Si el cargo aparece en el nuevo padrón (está en nuevosIds por idSial) → rechazar baja (vuelve a vigente)
     //   - Si el cargo NO aparece → confirmar baja (pasa a no_vigente)
-    const idSialsNuevos = new Set(todosNuevos.map((n) => n.datos.id_sial).filter(Boolean))
+    const idSialsNuevos = new Set(
+      todosNuevos.map((n) => n.datos.id_sial).filter((v): v is string => Boolean(v)),
+    )
+    // Fix 2 — Bug B: este paso resuelve por id_sial, así que debe aplicar el
+    // MISMO criterio COMPLETO que cargosActuales en calcularDiff: idSial no-NULL
+    // Y NOT 24/07 (preservando codigo_registro_id NULL con NOT { relación: in }).
+    // Los cargos 24/07 (clones con id_sial NULL y preexistentes con id_sial
+    // no-NULL) se resuelven íntegramente por id_sial_rol: reapertura vía
+    // modificado + __reabrir_ocupacion__, cierre a validacion_vacante en el
+    // paso 5. Si no se excluyen acá, un cargo 24/07 en validacion_vacante caería
+    // siempre en aConfirmarBaja → no_vigente (el bug que Fix 2 elimina).
     const cargosEnValidacion = (await tx.cargo.findMany({
-      where: { estado: { in: ['validacion_vacante', 'no_vigente'] } },
-      select: { id: true, idSial: true },
-    })) as { id: string; idSial: string }[]
+      where: {
+        estado: { in: ['validacion_vacante', 'no_vigente'] },
+        idSial: { not: null },
+        NOT: { codigoRegistro: { codigo: { in: ['24', '07'] } } },
+      },
+      select: { id: true, idSial: true, codigoRegistro: { select: { codigo: true } } },
+    })) as { id: string; idSial: string | null; codigoRegistro: { codigo: string } | null }[]
 
-    const aRechazarBaja = cargosEnValidacion
-      .filter((c) => idSialsNuevos.has(c.idSial))
-      .map((c) => c.id)
-    const aConfirmarBaja = cargosEnValidacion
-      .filter((c) => !idSialsNuevos.has(c.idSial))
-      .map((c) => c.id)
+    // El where ya excluye los 24/07; es24y07Set queda como guard explícito y
+    // testeable (ver particionarValidacionPorIdSial).
+    const es24y07Set = new Set(
+      cargosEnValidacion
+        .filter((c) => c.codigoRegistro?.codigo === '24' || c.codigoRegistro?.codigo === '07')
+        .map((c) => c.id),
+    )
+    const { aRechazar: aRechazarBaja, aConfirmar: aConfirmarBaja } = particionarValidacionPorIdSial(
+      cargosEnValidacion.map((c) => ({
+        id: c.id,
+        idSial: c.idSial,
+        es24y07: es24y07Set.has(c.id),
+      })),
+      idSialsNuevos,
+      es24y07Set,
+    )
 
     for (const lote of chunk(aRechazarBaja, 2000)) {
       await tx.cargo.updateMany({
@@ -1765,7 +2783,7 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         const mappedOcupacion = CAMPOS_OCUPACION[campoReal]
         if (mappedCargo) updateCargo[mappedCargo] = cambio.valorNuevo ?? ''
         if (mappedOcupacion) {
-          const esFecha = campoReal === 'cargo_desde' || campoReal === 'cargo_hasta'
+          const esFecha = esCampoFechaOcupacion(campoReal)
           updateOcupacion[mappedOcupacion] = esFecha
             ? (parseFechaDDMMYYYY(cambio.valorNuevo ?? '') ?? null)
             : (cambio.valorNuevo ?? '')
@@ -1773,6 +2791,12 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       }
 
       const ocupExistente = ocupacionExistenteMap.get(idSialRol)
+      // Bug A: id de especialidad ya resuelto por el Dotaneitor para esta fila
+      // (marcador __especialidad_puesto_id__). null si la fila no lo trae
+      // (sin cambio de especialidad/puesto/carrera, o snapshot viejo) -> el
+      // helper cae al fallback por texto (comportamiento actual).
+      const idDotaEsp =
+        cambios.find((c) => c.campo === '__especialidad_puesto_id__')?.valorNuevo ?? null
       if (ocupExistente && Object.keys(updateCargo).length > 0) {
         // Si cambió el código de registro, resolver el id de la relación
         // (normaliza el prefijo 'completado:' igual que el resto, DECISIÓN 1)
@@ -1793,6 +2817,34 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           }
           if (cr) updateCargo['codigoRegistroId'] = cr.id
           delete updateCargo['codigo_de_registro']
+
+          // Régimen (FEAT-003): al cambiar el CR, el régimen se re-deriva
+          // SIEMPRE. crCambio.valorNuevo es ya el CÓDIGO string del CR nuevo.
+          // Se lee el literal del cargo de forma INCONDICIONAL (puede hacer
+          // falta aunque no haya reclasificación de carrera), y se prefiere el
+          // literal entrante del update si vino en este snapshot.
+          const crCodigoNuevo = crCambio.valorNuevo
+          const cargoLitU = (await tx.cargo.findUnique({
+            where: { id: ocupExistente.cargoId },
+            select: { literalPuesto: true },
+          })) as { literalPuesto: string | null } | null
+          const litEfectivo =
+            (updateCargo['literalPuesto'] as string | null) ?? cargoLitU?.literalPuesto ?? null
+          const decisionRegU = derivarRegimenId(crCodigoNuevo, litEfectivo, regimenCtx)
+          updateCargo['regimenId'] = decisionRegU.regimenId
+          if (decisionRegU.regimenId === null && decisionRegU.revision) {
+            // Marca de revisión ADITIVA: no pisa un motivo de CR ya seteado ni
+            // limpia una revisión preexistente; concatena con ' | ', truncado.
+            // revisionDato es boolean en el modelo; el Record es string|null,
+            // así que se escribe vía cast (Prisma acepta el boolean en runtime).
+            ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+            const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+            updateCargo['revisionMotivo'] = (
+              motivoPrevio
+                ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                : decisionRegU.revision.motivo
+            ).slice(0, 200)
+          }
 
           // RECLASIFICACIÓN DE CARRERA: el código de registro MANDA sobre la
           // carrera (escalafón). Si el nuevo cod. registro pertenece a un
@@ -1829,18 +2881,23 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
                 literalPuesto: litNuevo,
                 unificadorPuesto: unifNuevo,
               })
-              const espId = await resolverEspecialidadPuestoId(
+              // Bug A: preferir el id del Dotaneitor si cuelga del puesto DESTINO;
+              // si no valida, cae al fallback por texto (resolución actual).
+              const espId = await especialidadPuestoIdFinal(
                 tx,
                 catalogoPuestos,
                 puesto.id,
+                idDotaEsp,
                 espNuevo,
                 puesto.nombre,
+                idSialRol,
               )
               const prefijoNuevo = prefijoDeCargo({
                 escalafon: escDestino.nombre,
                 unificadorPuesto: unifNuevo,
                 agrupador: null,
                 puestoCargo: puesto,
+                tieneEspecialidad: Boolean(espId),
               })
               const codigoNuevo = await siguienteCodigoCargo(prefijoNuevo, tx)
               updateCargo['escalafonId'] = escDestino.id
@@ -1887,12 +2944,18 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
               const puestoInfo = [...catalogoPuestos.puestos.values()].find(
                 (p) => p.id === cargoActual.puestoCargoId,
               )
-              const espResuelta = await resolverEspecialidadPuestoId(
+              // Bug A: dentro de la guardia `if (espLegacyNueva)` (vacío = conservar
+              // intacto), preferir el id del Dotaneitor validado; si no, fallback
+              // por texto. Corrige el caso Sargenti (el id de cirugía plástica se
+              // usa en vez de re-resolver el texto a bioquímica) sin romper Vilariño.
+              const espResuelta = await especialidadPuestoIdFinal(
                 tx,
                 catalogoPuestos,
                 cargoActual.puestoCargoId,
+                idDotaEsp,
                 espLegacyNueva,
                 puestoInfo?.nombre ?? null,
+                idSialRol,
               )
               // Si resolvió a algo, actualizar la FK; si por lo que sea no
               // resolvió (null), NO pisar la especialidad vigente con null.
@@ -1923,13 +2986,38 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
           if (litNuevo) {
             const cargoActualP = (await tx.cargo.findUnique({
               where: { id: ocupExistente.cargoId },
-              select: { escalafonId: true, puestoCargoId: true, unificadorPuesto: true },
+              select: {
+                escalafonId: true,
+                puestoCargoId: true,
+                unificadorPuesto: true,
+                codigoRegistro: { select: { codigo: true } },
+              },
             })) as {
               escalafonId: string
               puestoCargoId: string | null
               unificadorPuesto: string | null
+              codigoRegistro: { codigo: string } | null
             } | null
             if (cargoActualP) {
+              // Régimen (FEAT-003): el régimen puede cambiar por el nuevo literal
+              // aunque el CR no cambie (ej. CR 85 que pasa de 'auxiliar de
+              // enfermeria' a otro literal). Se re-deriva y se setea FUERA de la
+              // guarda de reasignación de puesto. Marca de revisión aditiva.
+              const decisionRegU = derivarRegimenId(
+                cargoActualP.codigoRegistro?.codigo ?? null,
+                litNuevo,
+                regimenCtx,
+              )
+              updateCargo['regimenId'] = decisionRegU.regimenId
+              if (decisionRegU.regimenId === null && decisionRegU.revision) {
+                ;(updateCargo as Record<string, unknown>)['revisionDato'] = true
+                const motivoPrevio = (updateCargo['revisionMotivo'] as string | null) ?? null
+                updateCargo['revisionMotivo'] = (
+                  motivoPrevio
+                    ? `${motivoPrevio} | ${decisionRegU.revision.motivo}`
+                    : decisionRegU.revision.motivo
+                ).slice(0, 200)
+              }
               const unif =
                 ((updateCargo['unificadorPuesto'] as string | null) ??
                   cargoActualP.unificadorPuesto) ||
@@ -1948,12 +3036,16 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
                 const espSial = especialidadSialReal(
                   (updateCargo['especialidadLegacy'] as string | null) ?? null,
                 )
-                const espReResuelta = await resolverEspecialidadPuestoId(
+                // Bug A: preferir el id del Dotaneitor si cuelga del puesto NUEVO;
+                // si no valida, fallback por texto (resolución actual).
+                const espReResuelta = await especialidadPuestoIdFinal(
                   tx,
                   catalogoPuestos,
                   puestoReResuelto.id,
+                  idDotaEsp,
                   espSial,
                   puestoReResuelto.nombre,
+                  idSialRol,
                 )
                 // Si no resolvió (null), queda sin especialidad en el nuevo
                 // puesto — es correcto (no hay dónde reubicar la anterior).
@@ -2108,13 +3200,59 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       WHERE c.id = f.cargo_id
     `
 
-    // ── 7. Histórico: una sola lectura en bloque del estado final de todas
-    //       las ocupaciones tocadas, y un createMany en vez de un create por
-    //       fila ────────────────────────────────────────────────────────────
-    const ocupacionesFinales = (await tx.ocupacion.findMany({
+    // ── 7. Histórico DENSO del subuniverso gestionable (FASE 2, design §C) ──
+    //       Hoy el histórico de los roles NO gestionables sigue como antes
+    //       (solo los que tuvieron diff esa semana). Para el subuniverso
+    //       GESTIONABLE pasa a ser DENSO: cada aprobación guarda el estado de
+    //       TODA la dotación gestionable viva de esa semana, acumulándose
+    //       semana a semana (cimiento de "cayó del padrón"/"reapareció", §C.2).
+    //
+    //       Idempotencia (§C.5): borrar primero las filas de ESTE snapshot para
+    //       que una reaprobación regenere sin duplicar (padron_historico NO
+    //       tiene unique (snapshot_id, id_sial_rol)). Barato: borra solo este
+    //       snapshot. Hoy el guard estado!=='pendiente' impide reaprobar, pero
+    //       esto desacopla la correctitud de ese guard.
+    await tx.$executeRaw`DELETE FROM padron_historico WHERE snapshot_id = ${id}::uuid`
+
+    // (a) Roles con diff esta semana (comportamiento previo, intacto). Incluye
+    //     los NO gestionables, que siguen historiándose solo si tuvieron diff.
+    const ocupacionesConDiff = (await tx.ocupacion.findMany({
       where: { idSialRol: { in: todosLosIdSialRol } },
-      include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
+      include: {
+        persona: true,
+        cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } },
+      },
     })) as OcupacionFinalRow[]
+
+    // (b) Dotación gestionable VIVA (hasta: null). El `where` acota a los
+    //     códigos plenos + '83' por relación; la rama del '83' (literal ∈
+    //     ANEXO_II_83) no se puede expresar en el query builder (requiere
+    //     unaccent/regexp), así que se filtra en memoria con esCargoGestionable
+    //     (helper puro de Fase 1) sobre el resultado — design §C.4, Opción A(ii).
+    //     Misma include que (a) para no perder ningún campo de historicoEntries.
+    const ocupacionesGestionablesCrudas = (await tx.ocupacion.findMany({
+      where: {
+        hasta: null,
+        cargo: {
+          deletedAt: null,
+          codigoRegistro: {
+            codigo: { in: [...CODIGOS_REGISTRO_GESTIONABLES_PLENOS, '83'] },
+          },
+        },
+      },
+      include: {
+        persona: true,
+        cargo: { include: { hospital: true, escalafon: true, codigoRegistro: true } },
+      },
+    })) as OcupacionFinalRow[]
+    const ocupacionesGestionablesVivas = filtrarGestionablesVivas(ocupacionesGestionablesCrudas)
+
+    // (c) (a) ∪ (b) deduplicado por id_sial_rol (un rol gestionable que además
+    //     tuvo diff aparece en ambos conjuntos). Dedupe OBLIGATORIA en memoria.
+    const ocupacionesFinales = deduplicarOcupacionesHistorico(
+      ocupacionesConDiff,
+      ocupacionesGestionablesVivas,
+    )
     const historicoEntries = ocupacionesFinales.map((ocupacion) => ({
       id: randomUUID(),
       snapshotId: id,
@@ -2129,45 +3267,34 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
       especialidad: ocupacion.cargo.especialidadLegacy ?? null,
       agrupador: ocupacion.cargo.agrupador,
       unificadorPuesto: ocupacion.cargo.unificadorPuesto,
-      estadoPersona: ocupacion.estadoPersona,
+      // FASE 5: ocupaciones.estado_persona se eliminó (columna viva muerta). El
+      // histórico conserva su columna estado_persona como dato inmutable que v2
+      // ya no puebla → se escribe null en cada carga nueva.
+      estadoPersona: null,
       situacionRevista: ocupacion.situacionRevista,
     }))
     for (const lote of chunk(historicoEntries, 2000)) {
       await tx.padronHistorico.createMany({ data: lote })
     }
 
-    // ── 8. Resumen KPI: personas únicas por escalafón ──────────────────────
-    // Se calcula desde las ocupaciones activas (hasta IS NULL) en este momento.
-    // La fecha que se guarda es la del snapshot aprobado. ON CONFLICT reemplaza
-    // el punto anterior del mismo mes si ya existía (el último del mes gana).
-    const kpisRows = await tx.$queryRaw<{ escalafon: string; personas: number }[]>(
-      Prisma.sql`
-        SELECT e.nombre AS escalafon, count(DISTINCT p.cuil)::integer AS personas
-        FROM ocupaciones o
-        JOIN cargos c      ON c.id = o.cargo_id
-        JOIN escalafones e ON e.id = c.escalafon_id
-        JOIN personas p    ON p.id = o.persona_id
-        WHERE o.hasta IS NULL AND p.cuil IS NOT NULL
-        GROUP BY e.nombre
-      `,
-    )
-    if (kpisRows.length > 0) {
-      // Borrar el punto anterior del mismo mes (si existe) y reemplazar con este
-      await tx.$executeRaw(
-        Prisma.sql`
-          DELETE FROM kpis_dotacion_snapshot
-          WHERE date_trunc('month', fecha) = date_trunc('month', ${snapshot.fechaAsignada}::date)
-        `,
-      )
-      await tx.$executeRaw(
-        Prisma.sql`
-          INSERT INTO kpis_dotacion_snapshot (fecha, escalafon, personas)
-          SELECT ${snapshot.fechaAsignada}::date, r.escalafon, r.personas
-          FROM json_to_recordset(${JSON.stringify(kpisRows)}::json)
-            AS r(escalafon text, personas int)
-        `,
-      )
-    }
+    // ── 8. Resumen KPI: motor unificado (por código de registro × situación) ─
+    // Antes esto era un round-trip json_to_recordset sobre ocupaciones vivas
+    // agrupado por escalafón. Ahora es un INSERT ... SELECT puro desde
+    // padron_historico al corte de este snapshot, reusando el MISMO generador
+    // estadoActivoAcumuladoSql que la consulta individual (kpis.service), para
+    // que tarjetas, consulta individual y backfill reconcilien por construcción.
+    //
+    // Se marca el snapshot como aprobado ANTES del populate: estadoActivoAcumuladoSql
+    // filtra padron_snapshots.estado='aprobado' al calcular el corte del mes, así
+    // que este snapshot debe contar como aprobado para que su propia foto entre.
+    // Está dentro del mismo $transaction: si el populate falla, hace rollback de
+    // la aprobación completa.
+    await tx.padronSnapshot.update({
+      where: { id },
+      data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
+    })
+
+    await repopularKpiDotacionMes(tx, snapshot.fechaAsignada)
 
     // ── 9. Sincronizar universo_totalizador en organigramas desde hospitales ─
     // Cada aprobación de padrón puede traer hospitales nuevos o actualizados
@@ -2202,10 +3329,65 @@ export async function aprobarSnapshotService(id: string, usuarioId: string) {
         )
     `
 
-    await tx.padronSnapshot.update({
-      where: { id },
-      data: { estado: 'aprobado', aprobadoPorId: usuarioId, aprobadoAt: new Date() },
-    })
+    // ── 11. Recalcular cargos.sub_estado ───────────────────────────────────
+    // La aprobación toca estado y ocupaciones de muchos cargos por lotes
+    // (altas/createMany, reaperturas, aRechazar→vigente, aConfirmar→no_vigente,
+    // eliminados→validacion_vacante, fantasmas de jefatura→no_vigente). En vez
+    // de recalcular fila a fila en cada lote, se hace una única pasada final
+    // idempotente con la MISMA definición que calcularSubEstado (subEstado.ts)
+    // y que el script scripts/sql/recalcular-sub-estado-cargos.sql:
+    //   no vigente -> NULL; vigente + ocupante vivo -> 'ocupado';
+    //   vigente + concurso activo -> 'concurso'; vigente resto -> 'vacante'.
+    // "Concurso activo" = concursoActivo.regla.ts (única fuente: estados por tipo +
+    // un concurso de cargo nuevo cuenta solo si tiene autorizado_at). El SQL se
+    // arma con sqlCargoTieneConcursoActivo; ver concursoActivo.regla.test.ts.
+    // Solo escribe donde el valor cambia (IS DISTINCT FROM).
+    await tx.$executeRaw`
+      UPDATE cargos c
+      SET sub_estado = calc.esperado, updated_at = now()
+      FROM (
+        SELECT c.id,
+          CASE
+            WHEN c.estado <> 'vigente' THEN NULL
+            WHEN EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL)
+              THEN 'ocupado'
+            WHEN ${Prisma.raw(sqlCargoTieneConcursoActivo('c.id'))}
+              THEN 'concurso'
+            ELSE 'vacante'
+          END::"SubEstadoCargo" AS esperado
+        FROM cargos c
+        WHERE c.deleted_at IS NULL
+      ) calc
+      WHERE calc.id = c.id
+        AND c.sub_estado IS DISTINCT FROM calc.esperado
+    `
+
+    // Nota: el snapshot se marcó como 'aprobado' en el paso 8 (el populate de
+    // KPIs lo requiere para que su propia foto entre en estadoActivoAcumuladoSql).
+
+    // ── 12. Incidencias del snapshot (FASE 3, design §D/§E) ─────────────────
+    //       Calcula y PERSISTE las incidencias del ciclo de vida del cargo del
+    //       subuniverso gestionable (tipos 3/4/5/6a/6b/6c) comparando el estado
+    //       final (tras paso 11) contra la foto anterior del histórico denso
+    //       (§C.6) y las señales del diff / baja SIAL. Dentro de la MISMA
+    //       transacción (atomicidad: si falla, rollback total de la aprobación).
+    //
+    //       Idempotencia (§D.4): borrar primero las filas de ESTE snapshot para
+    //       que una reaprobación regenere sin duplicar. Combinado con el DELETE
+    //       del paso 7 denso, reaprobar regenera histórico e incidencias.
+    //
+    //       Reaparición (§E.6c): se LEE el conjunto aRechazarBaja del paso 4
+    //       (IDs de cargo validacion_vacante → vigente, ya calculado en este
+    //       mismo callback), NO se reconstruye estado de cargo desde el histórico.
+    //
+    //       Todo con `tx` (la transacción), nunca `prisma`.
+    await tx.$executeRaw`DELETE FROM padron_incidencias WHERE snapshot_id = ${id}::uuid`
+    const idsRechazarBaja = new Set(aRechazarBaja)
+    const { hechos, rows } = await leerHechosPaso12(tx, id, snapshot.fechaAsignada, idsRechazarBaja)
+    const incidencias = construirIncidencias(rows, hechos, id)
+    for (const lote of chunk(incidencias, 2000)) {
+      await tx.padronIncidencia.createMany({ data: lote })
+    }
   }, TRANSACTION_OPTS)
 
   return { ok: true, snapshotId: id }
@@ -2219,12 +3401,14 @@ export async function getCamposModificadosService(snapshotId: string) {
     where: {
       snapshotId,
       tipo: 'modificado',
-      // Excluir completados y el marcador __reabrir_ocupacion__ de las sub-tabs
-      // de Modificados (Prisma rechaza dos claves `campo` en el mismo objeto).
+      // Excluir completados y los marcadores __reabrir_ocupacion__ /
+      // __especialidad_puesto_id__ de las sub-tabs de Modificados (Prisma rechaza
+      // dos claves `campo` en el mismo objeto).
       AND: [
         { campo: { not: null } },
         { campo: { not: { startsWith: 'completado:' } } },
         { campo: { not: '__reabrir_ocupacion__' } },
+        { campo: { not: '__especialidad_puesto_id__' } },
       ],
     },
     _count: { campo: true },
@@ -2439,6 +3623,122 @@ const normalizarEsp = (s: string | null | undefined): string =>
 
 const soloDigitos = (s: string | null | undefined): string => (s ?? '').replace(/\D/g, '')
 
+// Fila de concurso usada para cruzar contra el padrón por CUIL del designado.
+// Incluye lo necesario para calcular `validable` (carrera + especialidad) y
+// para ocupar/vincular el cargo del concurso.
+const CONCURSO_INDEX_SELECT = {
+  id: true,
+  validado: true,
+  especialidadSolicitada: true,
+  designadoRefCuil: true,
+  designadoRefIdSialRol: true,
+  concurso: {
+    select: {
+      cargo: {
+        select: { id: true, codigo: true, idSial: true, escalafonId: true },
+      },
+    },
+  },
+  personaDesignada: { select: { cuil: true, apellidoNombre: true } },
+  inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
+} satisfies Prisma.ConcursoCphSelect
+
+export type ConcursoIndexRow = Prisma.ConcursoCphGetPayload<{ select: typeof CONCURSO_INDEX_SELECT }>
+
+// Construye el índice de concursos por CUIL (normalizado a dígitos) del
+// designado. Prioridad al insertar en el Map: persona designada > inscripto
+// reservado > referencia manual (designadoRefCuil) — cada fuente sólo se
+// escribe si no hay ya una entrada para ese CUIL (la de mayor prioridad gana).
+//
+// `where` lo decide el caller porque difiere entre usos:
+//  - Preview (getValidacionesPreviewService): mantiene su filtro histórico
+//    (estado != 'finalizado', suspendido=false, con persona del OM).
+//  - Enganche automático del Paso 2 (loop masivo): NO filtra por estado — un
+//    designado queda `finalizado` (regla n-designado ⇒ finalizado), así que
+//    ese filtro excluiría justo a los designados. Filtra validado=false e
+//    incluye designadoRefCuil en el OR para enganchar cargas manuales.
+async function resolverConcursoDesignadoPorCuil(
+  where: Prisma.ConcursoCphWhereInput,
+): Promise<Map<string, ConcursoIndexRow>> {
+  const concursos = await prisma.concursoCph.findMany({
+    where,
+    select: CONCURSO_INDEX_SELECT,
+  })
+
+  const concursoPorCuil = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursos) {
+    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
+    if (cuilDesig && !concursoPorCuil.has(cuilDesig)) concursoPorCuil.set(cuilDesig, cc)
+  }
+  for (const cc of concursos) {
+    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
+    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
+  }
+  for (const cc of concursos) {
+    const cuilRef = soloDigitos(cc.designadoRefCuil)
+    if (cuilRef && !concursoPorCuil.has(cuilRef)) concursoPorCuil.set(cuilRef, cc)
+  }
+  return concursoPorCuil
+}
+
+// Decide si un diff del padrón es "validable" contra un concurso designado:
+// coincide la carrera (escalafón) Y la especialidad. Pura y testeable — se usa
+// tanto en el preview como en el enganche automático del Paso 2.
+export function esValidableContraConcurso(args: {
+  escalafonDiffId: string | null
+  especialidadDiff: string | null | undefined
+  escalafonConcursoId: string | null | undefined
+  especialidadConcurso: string | null | undefined
+}): { carreraCoincide: boolean; especialidadCoincide: boolean; validable: boolean } {
+  const carreraCoincide =
+    !!args.escalafonDiffId && args.escalafonDiffId === (args.escalafonConcursoId ?? null)
+  const especialidadCoincide =
+    !!args.especialidadDiff &&
+    !!args.especialidadConcurso &&
+    normalizarEsp(args.especialidadDiff) === normalizarEsp(args.especialidadConcurso)
+  return { carreraCoincide, especialidadCoincide, validable: carreraCoincide && especialidadCoincide }
+}
+
+// Extrae los campos de calcConcursoCph() de una fila completa de ConcursoCph —
+// espejo de toCalcInput() de concursos-cph.service, replicado acá para no
+// acoplar el módulo padrón al service de concursos (el calc en sí es puro).
+function toCalcInputPadron(
+  row: Prisma.ConcursoCphGetPayload<Record<string, never>>,
+): ConcursoCphCalcInput {
+  return {
+    suspendido: row.suspendido,
+    eeBaja: row.eeBaja,
+    fechaBaja: row.fechaBaja,
+    eeConcurso: row.eeConcurso,
+    fechaEeConcurso: row.fechaEeConcurso,
+    fechaAutorizacion: row.fechaAutorizacion,
+    sorteoJurado: row.sorteoJurado,
+    disposicion: row.disposicion,
+    fechaInscDesde: row.fechaInscDesde,
+    fechaInscHasta: row.fechaInscHasta,
+    inscripcionCerrada: row.inscripcionCerrada,
+    ordenMeritoConfirmado: row.ordenMeritoConfirmado,
+    fechaExamen: row.fechaExamen,
+    fechaOrdenMerito: row.fechaOrdenMerito,
+    fechaIfacs: row.fechaIfacs,
+    fechaInsal: row.fechaInsal,
+    eeDesignacion: row.eeDesignacion,
+    cargaDocumentacion: row.cargaDocumentacion,
+    fechaAptoMedico: row.fechaAptoMedico,
+    fechaIte: row.fechaIte,
+    proyectoResolucion: row.proyectoResolucion,
+    resoALaFirma: row.resoALaFirma,
+    resolucionDesignacion: row.resolucionDesignacion,
+    fechaResolucion: row.fechaResolucion,
+    cargoSial: row.cargoSial,
+    dispoDesierta: row.dispoDesierta,
+    fechaDispoDesierta: row.fechaDispoDesierta,
+    validado: row.validado,
+    validadoIdSialRol: row.validadoIdSialRol,
+    saltoPorOm: row.saltoOmAt != null,
+  }
+}
+
 export async function getValidacionesPreviewService(snapshotId: string) {
   await getSnapshotOrThrow(snapshotId)
 
@@ -2488,39 +3788,13 @@ export async function getValidacionesPreviewService(snapshotId: string) {
   const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
 
   // Concursos abiertos con persona del orden de mérito (reservada o designada).
-  // Traemos el CUIL de ambas fuentes + escalafón + especialidad para cruzar.
-  const concursos = await prisma.concursoCph.findMany({
-    where: {
-      estado: { not: 'finalizado' },
-      suspendido: false,
-      OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
-    },
-    select: {
-      id: true,
-      validado: true,
-      especialidadSolicitada: true,
-      concurso: {
-        select: {
-          cargo: {
-            select: { id: true, codigo: true, idSial: true, escalafonId: true },
-          },
-        },
-      },
-      personaDesignada: { select: { cuil: true, apellidoNombre: true } },
-      inscriptoReservado: { select: { cuil: true, apellido: true, nombre: true } },
-    },
+  // Índice de concursos por CUIL (normalizado a dígitos). WHERE histórico del
+  // preview (distinto del que usa el enganche automático del Paso 2).
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    estado: { not: 'finalizado' },
+    suspendido: false,
+    OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
   })
-
-  // Índice de concursos por CUIL (normalizado a dígitos) de su persona.
-  type ConcursoRow = (typeof concursos)[number]
-  const concursoPorCuil = new Map<string, ConcursoRow>()
-  for (const cc of concursos) {
-    const cuilDesig = soloDigitos(cc.personaDesignada?.cuil)
-    const cuilInscr = soloDigitos(cc.inscriptoReservado?.cuil)
-    if (cuilDesig) concursoPorCuil.set(cuilDesig, cc)
-    // El reservado solo si no hay ya uno por designado (designado tiene prioridad).
-    if (cuilInscr && !concursoPorCuil.has(cuilInscr)) concursoPorCuil.set(cuilInscr, cc)
-  }
 
   const detalle = parsed
     .map((p) => {
@@ -2532,12 +3806,12 @@ export async function getValidacionesPreviewService(snapshotId: string) {
         (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
         (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
         null
-      const carreraCoincide =
-        !!escalafonDiff && escalafonDiff === (cc.concurso?.cargo?.escalafonId ?? null)
-      const especialidadCoincide =
-        !!p.especialidad &&
-        !!cc.especialidadSolicitada &&
-        normalizarEsp(p.especialidad) === normalizarEsp(cc.especialidadSolicitada)
+      const { carreraCoincide, especialidadCoincide } = esValidableContraConcurso({
+        escalafonDiffId: escalafonDiff,
+        especialidadDiff: p.especialidad,
+        escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+        especialidadConcurso: cc.especialidadSolicitada,
+      })
 
       const nombre =
         cc.personaDesignada?.apellidoNombre ??
@@ -2615,9 +3889,93 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
 
   const pendientes = await prisma.padronDiff.findMany({
     where: { snapshotId, tipo: 'nuevo', aprobado: null },
-    select: { id: true, idSialRol: true },
+    select: { id: true, idSialRol: true, campo: true, valorNuevo: true },
   })
   if (pendientes.length === 0) return { ok: true, total: 0, procesados: 0 }
+
+  // ── Paso 2: enganche automático padrón → concurso designado ───────────────
+  // Antes del loop (una sola vez, no por diff) armamos el índice de concursos
+  // designados por CUIL y los lookups de escalafón para decidir `validable`.
+  // Para cada diff se resuelve `vincularConcursoId` SOLO si el match es validable
+  // (CUIL + carrera + especialidad). Un match no validable (o sin concurso) deja
+  // `vincularConcursoId` undefined → camino normal (comportamiento actual intacto).
+  const parsedPendientes = pendientes.map((d) => {
+    const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
+    return {
+      diffId: d.id,
+      campo: d.campo,
+      idSialRol: d.idSialRol,
+      cuil: cuilDe(datos),
+      escalafon: datos.escalafon as string | undefined,
+      especialidad: datos.especialidad as string | undefined,
+      codigoDeRegistro: datos.codigo_de_registro as string | undefined,
+    }
+  })
+
+  const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
+    suspendido: false,
+    validado: false,
+    OR: [
+      { personaDesignadaId: { not: null } },
+      { inscriptoReservadoId: { not: null } },
+      { designadoRefCuil: { not: null } },
+    ],
+  })
+
+  // Índice por id_sial_rol tipeado manualmente (match directo, prioridad superior).
+  const concursoPorIdSialRol = new Map<string, ConcursoIndexRow>()
+  for (const cc of concursoPorCuil.values()) {
+    if (cc.designadoRefIdSialRol && !concursoPorIdSialRol.has(cc.designadoRefIdSialRol)) {
+      concursoPorIdSialRol.set(cc.designadoRefIdSialRol, cc)
+    }
+  }
+
+  const codRegs = [
+    ...new Set(parsedPendientes.map((p) => p.codigoDeRegistro).filter((v): v is string => !!v)),
+  ]
+  const escNames = [
+    ...new Set(parsedPendientes.map((p) => p.escalafon).filter((v): v is string => !!v)),
+  ]
+  const [codRegsLookup, escalafonesLookup] = await Promise.all([
+    prisma.codigoRegistro.findMany({
+      where: { codigo: { in: codRegs } },
+      select: { codigo: true, escalafonId: true },
+    }),
+    prisma.escalafon.findMany({
+      where: { nombre: { in: escNames }, activo: true },
+      select: { id: true, nombre: true },
+    }),
+  ])
+  const codRegEscMap = new Map(codRegsLookup.map((cr) => [cr.codigo, cr.escalafonId]))
+  const escNombreMap = new Map(escalafonesLookup.map((e) => [e.nombre, e.id]))
+
+  // Resuelve el concurso a vincular para un diff, o undefined si no engancha.
+  const resolverVinculo = (p: (typeof parsedPendientes)[number]): string | undefined => {
+    // Los desdoblados 24/07 se materializan por el camino dedicado del snapshot;
+    // no se enganchan acá (aprobarDiffNuevoService los rechaza igual).
+    if (p.campo === '__alta_desdoblada__') return undefined
+    // 1) Match directo por id_sial_rol tipeado manualmente (prioridad superior).
+    const porId = concursoPorIdSialRol.get(p.idSialRol)
+    // 2) Match por CUIL del designado.
+    const porCuil = p.cuil ? concursoPorCuil.get(soloDigitos(p.cuil)) : undefined
+    const cc = porId ?? porCuil
+    if (!cc) return undefined
+    const escalafonDiffId =
+      (p.codigoDeRegistro ? codRegEscMap.get(p.codigoDeRegistro) : undefined) ??
+      (p.escalafon ? escNombreMap.get(p.escalafon) : undefined) ??
+      null
+    const { validable } = esValidableContraConcurso({
+      escalafonDiffId,
+      especialidadDiff: p.especialidad,
+      escalafonConcursoId: cc.concurso?.cargo?.escalafonId ?? null,
+      especialidadConcurso: cc.especialidadSolicitada,
+    })
+    // Guarda: sólo enganchar si el match es confiable (CUIL + carrera +
+    // especialidad). Los no-validables quedan para la decisión manual existente.
+    return validable ? cc.id : undefined
+  }
+  const vinculoPorDiff = new Map<string, string | undefined>()
+  for (const p of parsedPendientes) vinculoPorDiff.set(p.diffId, resolverVinculo(p))
 
   const progreso: AprobacionProgreso = {
     estado: 'procesando',
@@ -2636,7 +3994,7 @@ export async function aprobarTodosDiffsPendientesService(snapshotId: string, usu
   void (async () => {
     for (const diff of pendientes) {
       try {
-        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId)
+        await aprobarDiffNuevoService(snapshotId, diff.id, usuarioId, vinculoPorDiff.get(diff.id))
         progreso.aprobados++
       } catch (err) {
         progreso.fallidos.push({
@@ -2675,6 +4033,16 @@ export async function aprobarDiffNuevoService(
   const diff = await prisma.padronDiff.findUnique({ where: { id: diffId } })
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo') throw AppError.badRequest('Solo se pueden aprobar diffs de tipo nuevo')
+  // Guard desdoblado (§4.5): un alta 24/07 se auto-aprueba por carrera y se
+  // materializa SOLO al aprobar el snapshot completo (aprobarSnapshotService),
+  // que crea el cargo 1:1 (id_sial NULL, correlativo, especialidad estricta).
+  // Resolver este diff de a uno por datos.id_sial (el del titular) recrearía el
+  // cargo compartido. Por eso se bloquea. marcarTransferenciaService y
+  // aprobar-todos lo heredan al delegar en esta función.
+  if (diff.campo === '__alta_desdoblada__')
+    throw AppError.badRequest(
+      'Un alta desdoblada (Residencias 24 / Docentes 07) no se aprueba, rechaza ni transfiere individualmente; se materializa al aprobar el snapshot completo',
+    )
   if (diff.aprobado === true) throw AppError.conflict('Este diff ya fue aprobado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
@@ -2692,15 +4060,13 @@ export async function aprobarDiffNuevoService(
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
       const cr = (await tx.codigoRegistro.findUnique({
-        where: { codigo: datos.codigo_de_registro },
+        where: { codigo: datos.codigo_de_registro.toUpperCase() },
         include: { escalafon: true },
       })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = (await tx.escalafon.findFirst({
-        where: { nombre: datos.escalafon, activo: true },
-      })) as EscalafonRow | null
+      escalafon = await buscarEscalafonPorNombre(tx, datos.escalafon)
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -2709,7 +4075,7 @@ export async function aprobarDiffNuevoService(
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
       escalafon = (await tx.escalafon.findFirst({
-        where: { codigo: datos.codigo_de_registro, activo: true },
+        where: { codigo: datos.codigo_de_registro.toUpperCase(), activo: true },
       })) as EscalafonRow | null
     }
     if (!escalafon)
@@ -2720,7 +4086,7 @@ export async function aprobarDiffNuevoService(
     // Resolver CodigoRegistro
     let codigoRegistroId: string | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro.toUpperCase() } })
       codigoRegistroId = cr?.id ?? null
     }
 
@@ -2777,12 +4143,20 @@ export async function aprobarDiffNuevoService(
       })) as { cargo: CargoRow } | null
       if (concurso?.cargo) {
         cargo = concurso.cargo
-        // Actualizar idSial del cargo del concurso al id_sial del padrón
+        // Paso 2 — ocupar el cargo del concurso: idSial real del padrón +
+        // estado vigente + sub_estado 'ocupado' (invariante del backfill:
+        // ocupado = vigente + ocupación viva). Incondicional: el designado que
+        // aparece en el padrón ocupa el cargo aunque ya estuviera vigente.
         await tx.cargo.update({
           where: { id: cargo.id },
-          data: { idSial: datos.id_sial },
+          data: {
+            idSial: datos.id_sial,
+            estado: 'vigente',
+            subEstado: 'ocupado',
+            estadoDesde: new Date(),
+          },
         })
-        cargo = { ...cargo, idSial: datos.id_sial }
+        cargo = { ...cargo, idSial: datos.id_sial, estado: 'vigente' }
       }
     }
 
@@ -2827,18 +4201,22 @@ export async function aprobarDiffNuevoService(
         literalPuesto: datos.literal_puesto ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
-      const especialidadResuelta = await resolverEspecialidadPuestoId(
+      // Bug A: alta — preferir el especialidad_puesto_id del Dotaneitor si valida.
+      const especialidadResuelta = await especialidadPuestoIdFinal(
         tx,
         catalogoPuestos,
         puestoResuelto.id,
+        datos.especialidad_puesto_id ?? null,
         datos.especialidad ?? null,
         puestoResuelto.nombre,
+        datos.id_sial,
       )
       const prefijo = prefijoDeCargo({
         escalafon: escalafon.nombre ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
         agrupador: datos.agrupador ?? null,
         puestoCargo: puestoResuelto,
+        tieneEspecialidad: Boolean(especialidadResuelta),
       })
       const siguiente = (await maxSecuencialCargo(prefijo, tx)) + 1
       const codigo = `${prefijo}-${String(siguiente).padStart(6, '0')}`
@@ -2865,6 +4243,40 @@ export async function aprobarDiffNuevoService(
       })) as CargoRow
     }
 
+    // Paso 2 — reconciliación de la ocupación MANUAL. Si el cargo del concurso
+    // ya tiene una ocupación viva sintética (idSialRol LIKE 'MANUAL-{cargo8}-%'),
+    // creada por la designación manual antes de que el padrón trajera a la
+    // persona, se ACTUALIZA su idSialRol al real del padrón en vez de crear otra
+    // (evita violar Ocupacion.idSialRol @unique y duplicar). Sólo en la rama de
+    // vínculo a concurso y sólo si no hay ya una ocupación con el idSialRol real
+    // (idempotencia ante reejecución de "aprobar todos").
+    if (vincularConcursoId && persona && cargo) {
+      const yaReconciliada = await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+      })
+      if (!yaReconciliada) {
+        const ocupManual = await tx.ocupacion.findFirst({
+          where: {
+            cargoId: cargo.id,
+            hasta: null,
+            idSialRol: { startsWith: `MANUAL-${cargo.id.slice(0, 8)}-` },
+          },
+        })
+        if (ocupManual) {
+          await tx.ocupacion.update({
+            where: { id: ocupManual.id },
+            data: {
+              idSialRol: diff.idSialRol,
+              personaId: persona.id,
+              cuil: cuilDe(datos),
+              situacionRevista: datos.situacion_de_revista ?? null,
+              snapshotId,
+            },
+          })
+        }
+      }
+    }
+
     // Crear ocupación si no existe
     if (persona && cargo) {
       const ocupExistente = await tx.ocupacion.findUnique({ where: { idSialRol: diff.idSialRol } })
@@ -2876,7 +4288,6 @@ export async function aprobarDiffNuevoService(
             idSialRol: diff.idSialRol,
             cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
-            estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
             cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
@@ -2940,6 +4351,29 @@ export async function aprobarDiffNuevoService(
       })
 
       if (debeValidar) {
+        // Paso 2 — recalcular el concurso tras encender `validado`. El primer
+        // update escribe validado pero NO recalcula el sub-estado; con el
+        // disparador por `validado` (Parte A), un concurso validado debe quedar
+        // en 'o-alta sial'. Releemos la fila completa y persistimos el recálculo.
+        const rowCompleta = await tx.concursoCph.findUnique({ where: { id: vincularConcursoId } })
+        if (rowCompleta) {
+          const calc = calcConcursoCph(toCalcInputPadron(rowCompleta))
+          await tx.concursoCph.update({
+            where: { id: vincularConcursoId },
+            data: {
+              estado: calc.estado,
+              subEstado: calc.subEstado,
+              subEstado3: calc.subEstado3,
+            },
+          })
+        } else {
+          // No debería ocurrir dentro de la tx; se deja el concurso validado con
+          // el sub-estado viejo y se registra para diagnóstico (no bloquea el batch).
+          console.warn(
+            `[padron] recálculo omitido: concurso ${vincularConcursoId} no encontrado tras validar`,
+          )
+        }
+
         const cargoCodigo = concursoActual?.concurso?.cargo?.codigo ?? nombrePersona
         await crearNotificacion({
           tipo: 'autorizacion_resuelta',
@@ -2953,9 +4387,71 @@ export async function aprobarDiffNuevoService(
       }
     }
 
+    // ── Opción A §5.3: al GESTIONAR un id_sial nuevo, el cargo recién creado
+    //    cuenta en el histórico/KPI del MES DE GESTIÓN (now()), NO en la
+    //    fechaAsignada del snapshot del padrón (que puede ser de un mes ya
+    //    cerrado). Se preserva la serie histórica previa intacta (no se tocan
+    //    meses cerrados) y el cargo suma recién en el mes real de gestión.
+    //
+    // (1) Histórico: una fila padron_historico del id_sial recién creado, armada
+    //     igual que el paso 7 del aprobar (persona/cargo/hospital/escalafón/
+    //     literalPuesto/especialidad/estadoPersona/situacionRevista), con
+    //     fechaAsignada = now().
+    if (persona && cargo) {
+      const ocupacionFinal = (await tx.ocupacion.findUnique({
+        where: { idSialRol: diff.idSialRol },
+        include: { persona: true, cargo: { include: { hospital: true, escalafon: true } } },
+      })) as OcupacionFinalRow | null
+      if (ocupacionFinal) {
+        const fechaGestion = new Date()
+        await tx.padronHistorico.create({
+          data: {
+            id: randomUUID(),
+            snapshotId,
+            fechaAsignada: fechaGestion,
+            personaId: ocupacionFinal.personaId,
+            cargoId: ocupacionFinal.cargoId,
+            idSialRol: ocupacionFinal.idSialRol,
+            cuil: ocupacionFinal.persona.cuil,
+            escalafon: ocupacionFinal.cargo.escalafon.nombre,
+            hospitalSigla: ocupacionFinal.cargo.hospital.sigla,
+            literalPuesto: ocupacionFinal.cargo.literalPuesto,
+            especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
+            agrupador: ocupacionFinal.cargo.agrupador,
+            unificadorPuesto: ocupacionFinal.cargo.unificadorPuesto,
+            // FASE 5: ocupaciones.estado_persona se eliminó (columna viva
+            // muerta). El histórico conserva su columna como dato inmutable que
+            // v2 ya no puebla → null.
+            estadoPersona: null,
+            situacionRevista: ocupacionFinal.situacionRevista,
+          },
+        })
+
+        // (2) Repoblar el resumen KPI del MES DE GESTIÓN (now()).
+        await repopularKpiDotacionMes(tx, fechaGestion)
+      }
+    }
+
+    // Recalcular sub_estado del cargo gestionado: acaba de quedar vigente y
+    // (si hay persona) con ocupación viva -> 'ocupado'; si no, según concurso/
+    // vacante. Misma definición que calcularSubEstado (subEstado.ts).
+    if (cargo) {
+      const cargoFinal = await tx.cargo.findUnique({
+        where: { id: cargo.id },
+        select: { estado: true },
+      })
+      if (cargoFinal) {
+        const subEstado = await recalcularSubEstado(tx, cargo.id, cargoFinal.estado)
+        await tx.cargo.update({ where: { id: cargo.id }, data: { subEstado } })
+      }
+    }
+
     // Marcar diff como aprobado
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: true } })
-  })
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: true, resolucion: vincularConcursoId ? 'concurso_vinculado' : 'cargo' },
+    })
+  }, TRANSACTION_OPTS) // timeout largo: aprobar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }
@@ -2985,15 +4481,13 @@ export async function marcarTransferenciaService(
   let escalafon: EscalafonRow | null = null
   if (datos.codigo_de_registro) {
     const cr = (await prisma.codigoRegistro.findUnique({
-      where: { codigo: datos.codigo_de_registro },
+      where: { codigo: datos.codigo_de_registro.toUpperCase() },
       include: { escalafon: true },
     })) as { escalafon: EscalafonRow } | null
     escalafon = cr?.escalafon ?? null
   }
   if (!escalafon && datos.escalafon) {
-    escalafon = (await prisma.escalafon.findFirst({
-      where: { nombre: datos.escalafon, activo: true },
-    })) as EscalafonRow | null
+    escalafon = await buscarEscalafonPorNombre(prisma, datos.escalafon)
   }
   if (!escalafon) throw AppError.badRequest(`Escalafón no encontrado (${datos.escalafon ?? ''})`)
 
@@ -3007,12 +4501,15 @@ export async function marcarTransferenciaService(
       unificadorPuesto: datos.unificador_de_puestos ?? null,
     },
   )
-  const especialidadResueltaTransferencia = await resolverEspecialidadPuestoId(
+  // Bug A: transferencia — preferir el especialidad_puesto_id del Dotaneitor si valida.
+  const especialidadResueltaTransferencia = await especialidadPuestoIdFinal(
     prisma,
     catalogoPuestosTransferencia,
     puestoResueltoTransferencia.id,
+    datos.especialidad_puesto_id ?? null,
     datos.especialidad ?? null,
     puestoResueltoTransferencia.nombre,
+    datos.id_sial,
   )
 
   // Crear SolicitudAlta como transferencia aprobada directamente
@@ -3034,6 +4531,10 @@ export async function marcarTransferenciaService(
     },
   })
 
+  // El histórico + KPI del mes de gestión ya los escribió aprobarDiffNuevoService
+  // (NO duplicar). Acá solo se afina la resolución del diff a 'transferencia'.
+  await prisma.padronDiff.update({ where: { id: diffId }, data: { resolucion: 'transferencia' } })
+
   return { ok: true, diffId }
 }
 
@@ -3044,6 +4545,13 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
   if (diff.tipo !== 'nuevo')
     throw AppError.badRequest('Solo se pueden rechazar diffs de tipo nuevo')
+  // Guard desdoblado (§4.5): ver aprobarDiffNuevoService. Rechazar de a uno un
+  // alta 24/07 resolvería por datos.id_sial (el del titular) y recrearía/
+  // modificaría el cargo compartido. Se bloquea.
+  if (diff.campo === '__alta_desdoblada__')
+    throw AppError.badRequest(
+      'Un alta desdoblada (Residencias 24 / Docentes 07) no se aprueba, rechaza ni transfiere individualmente; se materializa al aprobar el snapshot completo',
+    )
   if (diff.aprobado === false) throw AppError.conflict('Este diff ya fue rechazado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
@@ -3062,15 +4570,13 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     let escalafon: EscalafonRow | null = null
     if (datos.codigo_de_registro) {
       const cr = (await tx.codigoRegistro.findUnique({
-        where: { codigo: datos.codigo_de_registro },
+        where: { codigo: datos.codigo_de_registro.toUpperCase() },
         include: { escalafon: true },
       })) as { escalafon: EscalafonRow } | null
       escalafon = cr?.escalafon ?? null
     }
     if (!escalafon && datos.escalafon) {
-      escalafon = (await tx.escalafon.findFirst({
-        where: { nombre: datos.escalafon, activo: true },
-      })) as EscalafonRow | null
+      escalafon = await buscarEscalafonPorNombre(tx, datos.escalafon)
     }
     // Fallback de raíz: el código de registro puede existir como `codigo` de un
     // ESCALAFÓN aunque falte la fila en `codigos_registro` (ej. '16T' = Plantas
@@ -3079,7 +4585,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
     // escalafón que comparte ese código antes de rendirnos.
     if (!escalafon && datos.codigo_de_registro) {
       escalafon = (await tx.escalafon.findFirst({
-        where: { codigo: datos.codigo_de_registro, activo: true },
+        where: { codigo: datos.codigo_de_registro.toUpperCase(), activo: true },
       })) as EscalafonRow | null
     }
     if (!escalafon)
@@ -3089,7 +4595,7 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
 
     let codigoRegistroId: string | null = null
     if (datos.codigo_de_registro) {
-      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro } })
+      const cr = await tx.codigoRegistro.findUnique({ where: { codigo: datos.codigo_de_registro.toUpperCase() } })
       codigoRegistroId = cr?.id ?? null
     }
 
@@ -3131,12 +4637,15 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
         literalPuesto: datos.literal_puesto ?? null,
         unificadorPuesto: datos.unificador_de_puestos ?? null,
       })
-      const especialidadResuelta = await resolverEspecialidadPuestoId(
+      // Bug A: alta (rechazado sin código) — preferir el id del Dotaneitor si valida.
+      const especialidadResuelta = await especialidadPuestoIdFinal(
         tx,
         catalogoPuestos,
         puestoResuelto.id,
+        datos.especialidad_puesto_id ?? null,
         datos.especialidad ?? null,
         puestoResuelto.nombre,
+        datos.id_sial,
       )
       cargo = (await tx.cargo.create({
         data: {
@@ -3170,7 +4679,6 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
             idSialRol: diff.idSialRol,
             cuil: cuilDe(datos),
             situacionRevista: datos.situacion_de_revista ?? null,
-            estadoPersona: datos.estado ?? null,
             codigoJefaturas: datos.codigo_jefaturas || null,
             cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
             jefeEscalafon: datos.jefe_escalafon || null,
@@ -3185,8 +4693,26 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
       }
     }
 
-    await tx.padronDiff.update({ where: { id: diffId }, data: { aprobado: false } })
-  })
+    // Recalcular sub_estado del cargo recién creado/ocupado (vigente + ocupación
+    // viva -> 'ocupado'). Misma definición que calcularSubEstado (subEstado.ts).
+    if (cargo) {
+      const cargoFinal = await tx.cargo.findUnique({
+        where: { id: cargo.id },
+        select: { estado: true },
+      })
+      if (cargoFinal) {
+        const subEstado = await recalcularSubEstado(tx, cargo.id, cargoFinal.estado)
+        await tx.cargo.update({ where: { id: cargo.id }, data: { subEstado } })
+      }
+    }
+
+    // Sin código: NO escribe padron_historico ni repuebla KPI (consistente con
+    // "no cuenta hasta gestionar como cargo real"); solo marca el diff.
+    await tx.padronDiff.update({
+      where: { id: diffId },
+      data: { aprobado: false, resolucion: 'sin_codigo' },
+    })
+  }, TRANSACTION_OPTS) // timeout largo: rechazar un diff hace varias queries contra Neon y el default de 5s se queda corto (ver TRANSACTION_OPTS)
 
   return { ok: true, diffId }
 }
@@ -3307,16 +4833,13 @@ export async function buscarConcursosParaDiffService(
   let escalafonId: string | null = null
   if (datos.codigo_de_registro) {
     const cr = await prisma.codigoRegistro.findUnique({
-      where: { codigo: datos.codigo_de_registro },
+      where: { codigo: datos.codigo_de_registro.toUpperCase() },
       select: { escalafonId: true },
     })
     escalafonId = cr?.escalafonId ?? null
   }
   if (!escalafonId && datos.escalafon) {
-    const esc = await prisma.escalafon.findFirst({
-      where: { nombre: datos.escalafon, activo: true },
-      select: { id: true },
-    })
+    const esc = await buscarEscalafonPorNombre(prisma, datos.escalafon)
     escalafonId = esc?.id ?? null
   }
 

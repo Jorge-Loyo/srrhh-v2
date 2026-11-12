@@ -186,6 +186,7 @@ const CICLO_TABS = [
       'Si se aprueba: se habilita el flujo de alta por baja. El destino final (vigente vacante o no_vigente) lo determina el campo genera_concurso del acto administrativo.',
       'Si se rechaza: cargo.estado vuelve a vigente sin modificar la ocupación.',
       'Es el origen normal del flujo de alta por baja en el sistema operativo.',
+      'La 3ª confirmación (botón "Confirmar baja" = padrón + SIAL + usuario) deja el cargo en validacion_vacante; NO lo cierra ni habilita concurso. El destino final (vigente vacante o no_vigente) lo decide después el flujo de alta por baja según genera_concurso.',
       'No puede generarse un concurso sobre un cargo en validacion_vacante.',
     ],
     campos: [

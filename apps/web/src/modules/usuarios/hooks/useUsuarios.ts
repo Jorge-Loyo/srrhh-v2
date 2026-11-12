@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CreateUsuarioRequest, Usuario } from '@srrhh/types'
+import type { CreateUsuarioRequest, UpdateUsuarioRequest, Usuario } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
 // useHospitales se movió a shared/hooks/useCatalogos.ts (S3-6: personas y
@@ -22,6 +22,19 @@ export function useCreateUsuario() {
   return useMutation({
     mutationFn: async (body: CreateUsuarioRequest) => {
       const res = await apiClient.post<{ data: Usuario }>('/api/v1/usuarios', body)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usuarios'] })
+    },
+  })
+}
+
+export function useUpdateUsuario() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: UpdateUsuarioRequest }) => {
+      const res = await apiClient.patch<{ data: Usuario }>(`/api/v1/usuarios/${id}`, body)
       return res.data.data
     },
     onSuccess: () => {

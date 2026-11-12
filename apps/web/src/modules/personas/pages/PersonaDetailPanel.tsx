@@ -148,11 +148,11 @@ export function PersonaDetailPanel() {
           <Section title="Identificacion">
             <Dato label="Documento" value={p.numeroDoc ? `${p.tipoDoc ?? ''} ${p.numeroDoc}`.trim() : null} />
             <Dato label="Fecha de nacimiento" value={fechaNac} />
-            {edad !== null && <Dato label="Edad" value={`${edad} anos`} />}
+            {edad !== null && <Dato label="Edad" value={`${edad} años`} />}
             <Dato label="ID SIAL" value={idSialPersona} />
             <Dato label="Primer cargo en Salud" value={formatFecha(p.antiguedadDesde)} />
             {p.antiguedadDesde && calcEdad(p.antiguedadDesde) !== null && (
-              <Dato label="Anos de antiguedad" value={`${calcEdad(p.antiguedadDesde)} anos`} />
+              <Dato label="Años de antigüedad" value={`${calcEdad(p.antiguedadDesde)} años`} />
             )}
             <Dato label="Sexo" value={p.sexo} />
             <Dato label="Especialidad principal" value={especialidadPrincipal} />
@@ -515,6 +515,8 @@ export function PersonaDetailPanel() {
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.literalPuesto ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">{h.especialidad ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{h.situacionRevista ?? '—'}</td>
+                    {/* HISTÓRICO: padron_historico.estado_persona (dato inmutable),
+                        NO la columna viva eliminada en Fase 5. No tocar. */}
                     <td className="px-4 py-2.5 text-xs text-gray-500">{h.estadoPersona ?? '—'}</td>
                   </tr>
                 ))}

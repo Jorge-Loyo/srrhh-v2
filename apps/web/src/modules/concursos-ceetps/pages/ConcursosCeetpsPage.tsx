@@ -8,7 +8,8 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { useConcursosCeetps } from '../hooks/useConcursosCeetps'
 import { AlertasSinMovimientoCeetps } from '../components/AlertasSinMovimientoCeetps'
-import { ESTADO_LABEL, ESTADO_BADGE, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { ESTADO_LABEL, ESTADO_BADGE, SUB_ESTADO_LABEL, diasSinMovimiento, diasBadgeClass } from '../lib/labels'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
 
 const LIMIT = 50
 
@@ -135,14 +136,20 @@ export function ConcursosCeetpsPage() {
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.puestoSolicitado ?? '—'}</td>
                           <td className="px-4 py-3">
-                            <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
+                            <div className="flex flex-col gap-1">
+                              <span className={ESTADO_BADGE[c.estado]}>{ESTADO_LABEL[c.estado]}</span>
+                              {c.subEstado && (
+                                <span className="text-xs text-gray-500">
+                                  {SUB_ESTADO_LABEL[c.subEstado] ?? c.subEstado}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
-                            {c.concurso?.motivoConcurso === 'nuevo_cargo' && (
-                              <span className="badge-info text-xs">Nuevo cargo</span>
-                            )}
-                            {c.concurso?.motivoConcurso === 'alta_por_baja' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                            {motivoConcursoLabel(c.concurso?.motivoConcurso) && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                                {motivoConcursoLabel(c.concurso?.motivoConcurso)}
+                              </span>
                             )}
                           </td>
                           <td className="px-4 py-3">

@@ -43,6 +43,7 @@ import { AppError } from '../../shared/errors/AppError.js'
 import type { GenerarSorteoJuradoBody } from './concursos-cph.schema.js'
 import { calcConcursoCph } from './concursosCph.calc.js'
 import { esConduccionPorPrefijo, esConduccionPorLiteral } from '../../shared/codigoCargo.js'
+import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
 
 // ── RNG determinista (mulberry32) sembrado con un hash de la semilla ─────────
 // No usamos Math.random() para que el sorteo sea reproducible dado la semilla
@@ -407,6 +408,7 @@ export async function generarSorteoJuradoService(
   body: GenerarSorteoJuradoBody,
   usuarioId: string | null,
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const concurso = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: {
@@ -669,6 +671,9 @@ async function recalcularConSorteo(
     cargoSial: concurso.cargoSial,
     dispoDesierta: concurso.dispoDesierta,
     fechaDispoDesierta: concurso.fechaDispoDesierta,
+    validado: concurso.validado,
+    validadoIdSialRol: concurso.validadoIdSialRol,
+    saltoPorOm: concurso.saltoOmAt != null,
   })
   await tx.concursoCph.update({
     where: { id: concurso.id },
@@ -699,6 +704,7 @@ export async function getJuradoVigenteService(concursoCphId: string) {
 // Confirma el acta vigente (borrador → confirmado). Una vez confirmada queda
 // de solo lectura: no se puede re-sortear ni cancelar sin revertir antes.
 export async function confirmarSorteoService(concursoCphId: string, usuarioId: string | null) {
+  await assertEtapa2Habilitada(concursoCphId)
   const acta = await prisma.sorteoJurado.findFirst({
     where: { concursoCphId },
     orderBy: [{ fechaSorteo: 'desc' }, { createdAt: 'desc' }],
@@ -728,6 +734,7 @@ export async function confirmarSorteoService(concursoCphId: string, usuarioId: s
 // Revierte la confirmación del acta vigente (confirmado → borrador). Permite
 // volver a re-sortear o cancelar. No borra el acta ni los miembros.
 export async function revertirConfirmacionSorteoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const acta = await prisma.sorteoJurado.findFirst({
     where: { concursoCphId },
     orderBy: [{ fechaSorteo: 'desc' }, { createdAt: 'desc' }],
@@ -757,6 +764,7 @@ export async function revertirConfirmacionSorteoService(concursoCphId: string) {
 // Cancela (descarta) el sorteo vigente si aún NO está confirmado. Borra el acta
 // y sus miembros (cascade) y limpia la fecha de sorteo del concurso.
 export async function cancelarSorteoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const acta = await prisma.sorteoJurado.findFirst({
     where: { concursoCphId },
     orderBy: [{ fechaSorteo: 'desc' }, { createdAt: 'desc' }],
@@ -803,6 +811,9 @@ export async function cancelarSorteoService(concursoCphId: string) {
           cargoSial: c.cargoSial,
           dispoDesierta: c.dispoDesierta,
           fechaDispoDesierta: c.fechaDispoDesierta,
+          validado: c.validado,
+          validadoIdSialRol: c.validadoIdSialRol,
+          saltoPorOm: c.saltoOmAt != null,
         })
         await tx.concursoCph.update({
           where: { id: concursoCphId },
@@ -877,6 +888,7 @@ export async function asignarJuradoExistenteService(
   sorteoJuradoOrigenId: string,
   usuarioId: string | null,
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: {

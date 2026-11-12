@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
-import { dotacionQuerySchema, dotacionKpisQuerySchema, dotacionDesgloseQuerySchema } from './dotacion.schema.js'
+import { dotacionQuerySchema, dotacionKpisQuerySchema, dotacionDesgloseQuerySchema, dotacionCarreraTablaQuerySchema } from './dotacion.schema.js'
 import {
   listDotacionService, getDotacionKpisService, exportDotacionService, getDotacionCortesService,
-  getDotacionDesgloseService,
+  getDotacionDesgloseService, getDotacionCarreraTablaService,
 } from './dotacion.service.js'
 
 export async function dotacionRoutes(app: FastifyInstance) {
@@ -38,6 +38,15 @@ export async function dotacionRoutes(app: FastifyInstance) {
     const query = dotacionDesgloseQuerySchema.parse(request.query)
     const result = await getDotacionDesgloseService(query)
     return reply.send(result)
+  })
+
+  // GET /tabla-carrera — tabla dinámica completa de una Carrera (botón
+  // "Fichas" > hospital > carrera): cruce de Planta/Guardia × Jefe/No jefe ×
+  // Especialidad × Puesto × Situación de Revista en una sola consulta.
+  app.get('/tabla-carrera', async (request, reply) => {
+    const query = dotacionCarreraTablaQuerySchema.parse(request.query)
+    const data = await getDotacionCarreraTablaService(query)
+    return reply.send({ data })
   })
 
   // GET /export — Excel con TODO el resultado del filtro actual (sin paginar).

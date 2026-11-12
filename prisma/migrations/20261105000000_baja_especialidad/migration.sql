@@ -1,0 +1,11 @@
+-- Agrega a `bajas` la columna `especialidad` (VarChar(200), nullable): la
+-- especialidad que el usuario elige en el formulario de baja cuando el cargo
+-- la trae vacía (entre las disponibles según el Puesto). Se persiste en el
+-- registro de la baja y alimenta como semilla la carátula del concurso que se
+-- genere. Aditivo y nullable: bajas viejas sin especialidad siguen válidas.
+--
+-- Idempotente (ADD COLUMN IF NOT EXISTS) para poder re-correrlo sin error.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). El usuario (Jorge) corre este .sql a mano en Neon.
+ALTER TABLE bajas ADD COLUMN IF NOT EXISTS especialidad VARCHAR(200);

@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "descripcion": "JSON de ejemplo de la estructura de concursos que el Sistema Legacy (SRRHH) expondria al Sistema de Inscripcion a Concursos. Es un BORRADOR de contrato de datos para analisis inicial; los nombres de campos y el formato exacto se cierran de comun acuerdo entre ambos equipos.",
+    "version": "borrador-0.1",
+    "fecha": "2026-10-22",
+    "formato_fechas": "ISO 8601 (YYYY-MM-DD) para fechas; YYYY-MM-DDTHH:mm:ssZ (UTC) para timestamps",
+    "alcance_tipos": "Se enviaran TODOS los tipos de concurso (CPH y CEETPS). Los ejemplos de abajo son de tipo CPH porque es lo unico con datos de prueba por ahora; la estructura de CEETPS es equivalente (mismo esquema, `tipo_concurso`='ceetps').",
+    "sub_etapas_enviadas": [
+      "C — Disposicion de llamado",
+      "C — Inscripcion de examenes",
+      "D — Publicacion Examen",
+      "E — Orden de merito"
+    ],
+    "nota_avance": "Cada concurso se envia/actualiza a medida que avanza. El campo `sub_etapa_actual` indica en que sub-etapa esta; `avance` detalla el estado y la fecha de cada sub-etapa (null = todavia no alcanzada)."
+  },
+
+  "concursos": [
+    {
+      "id": "7c1f2a9e-1b3d-4e5a-9f0c-2a4b6c8d0e1f",
+      "expediente_concurso": "EX-2026-12345678-GCABA-DGSISAN",
+      "tipo_concurso": "cph",
+
+      "cargo": {
+        "codigo_cargo": "CPH-POF-000056",
+        "carrera": {
+          "codigo_registro": "37",
+          "nombre": "Nueva Carrera Profesional Hospitalaria"
+        },
+        "puesto": "Medico de Planta",
+        "especialidad": "Cardiologia",
+        "efector": {
+          "sigla": "HGARM",
+          "nombre": "Hospital General de Agudos Dr. J. M. Ramos Mejia"
+        }
+      },
+
+      "sub_etapa_actual": "C — Inscripcion de examenes",
+
+      "avance": {
+        "disposicion_llamado": {
+          "etapa": "C — Disposicion de llamado",
+          "completada": true,
+          "disposicion": "DISPO-2026-123-GCABA-SSGRHSP",
+          "fecha": "2026-09-15"
+        },
+        "inscripcion_examenes": {
+          "etapa": "C — Inscripcion de examenes",
+          "completada": false,
+          "fecha_inscripcion_desde": "2026-10-01",
+          "fecha_inscripcion_hasta": "2026-10-20",
+          "inscripcion_cerrada": false,
+          "fecha_cierre_inscripcion": null
+        },
+        "publicacion_examen": {
+          "etapa": "D — Publicacion Examen",
+          "completada": false,
+          "fecha_examen": null
+        },
+        "orden_merito": {
+          "etapa": "E — Orden de merito",
+          "completada": false,
+          "fecha_orden_merito": null
+        }
+      },
+
+      "fecha_actualizacion": "2026-10-10T13:45:00Z"
+    },
+
+    {
+      "id": "a3e5c7b9-2d4f-6a8c-0e1f-3b5d7f9a1c3e",
+      "expediente_concurso": "EX-2026-87654321-GCABA-DGSISAN",
+      "tipo_concurso": "cph",
+
+      "cargo": {
+        "codigo_cargo": "CPH-J-POF-000012",
+        "carrera": {
+          "codigo_registro": "37",
+          "nombre": "Nueva Carrera Profesional Hospitalaria"
+        },
+        "puesto": "Jefe de Unidad",
+        "especialidad": "Clinica Medica",
+        "efector": {
+          "sigla": "HBR",
+          "nombre": "Hospital Bernardino Rivadavia"
+        }
+      },
+
+      "sub_etapa_actual": "E — Orden de merito",
+
+      "avance": {
+        "disposicion_llamado": {
+          "etapa": "C — Disposicion de llamado",
+          "completada": true,
+          "disposicion": "DISPO-2026-098-GCABA-SSGRHSP",
+          "fecha": "2026-06-02"
+        },
+        "inscripcion_examenes": {
+          "etapa": "C — Inscripcion de examenes",
+          "completada": true,
+          "fecha_inscripcion_desde": "2026-06-10",
+          "fecha_inscripcion_hasta": "2026-06-30",
+          "inscripcion_cerrada": true,
+          "fecha_cierre_inscripcion": "2026-06-30"
+        },
+        "publicacion_examen": {
+          "etapa": "D — Publicacion Examen",
+          "completada": true,
+          "fecha_examen": "2026-07-25"
+        },
+        "orden_merito": {
+          "etapa": "E — Orden de merito",
+          "completada": true,
+          "fecha_orden_merito": "2026-08-20"
+        }
+      },
+
+      "fecha_actualizacion": "2026-08-20T16:10:00Z"
+    }
+  ],
+
+  "_diccionario_campos": {
+    "id": "Identificador unico del concurso (UUID) en el Sistema Legacy. Clave para cruzar/actualizar.",
+    "expediente_concurso": "Numero de expediente electronico del concurso (EE).",
+    "tipo_concurso": "Tipo de carrera del concurso. Valores: 'cph' (Nueva Carrera Profesional Hospitalaria), 'ceetps'. A confirmar si el sistema de inscripcion maneja ambos o solo CPH.",
+    "cargo.codigo_cargo": "Codigo de cargo (ID VISIBLE del cargo, ej. CPH-POF-000056). Es el identificador que reconocen los usuarios, a diferencia del UUID interno. Clave de referencia legible del cargo concursado.",
+    "cargo.carrera.codigo_registro": "Codigo de registro SIAL de la carrera (ej. 37 = CPH).",
+    "cargo.carrera.nombre": "Nombre de la carrera/escalafon.",
+    "cargo.puesto": "Puesto que se concursa (puede diferir del puesto de la baja en jefaturas).",
+    "cargo.especialidad": "Especialidad del cargo concursado (puede ser null en carreras sin especialidad).",
+    "cargo.efector.sigla": "Sigla del efector/hospital.",
+    "cargo.efector.nombre": "Nombre completo del efector.",
+    "sub_etapa_actual": "Sub-etapa en la que esta el concurso hoy. Es una de las 4 sub-etapas enviadas.",
+    "avance": "Detalle del estado y fechas de cada una de las 4 sub-etapas. `completada=false` + fechas en null = etapa no alcanzada todavia.",
+    "fecha_actualizacion": "Timestamp UTC de la ultima actualizacion del concurso en el Legacy."
+  }
+}

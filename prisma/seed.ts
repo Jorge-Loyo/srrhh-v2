@@ -127,6 +127,28 @@ const CODIGOS_REGISTRO: { codigo: string; escalafonCodigo: string; literal: stri
   // Código 19 "Escalafón General" → Nueva Carrera Administrativa (83), mismo
   // criterio que el remap de "Escalafón Ge-hash" del catálogo de puestos (A21-15).
   { codigo: '19',  escalafonCodigo: '83',  literal: 'Escalafón General' },
+  // FEAT-002: códigos de registro cuyo escalafón canónico ya está sembrado en
+  // ESCALAFONES pero faltaba el codigo_registro directo.
+  { codigo: '25',  escalafonCodigo: '25',  literal: 'Autoridades Superiores' },
+  { codigo: '60',  escalafonCodigo: '60',  literal: 'Carrera Gerencial' },
+  { codigo: '07',  escalafonCodigo: '7',   literal: 'Docentes' },
+]
+
+// FEAT-002: regímenes (clasificación de grupos de cargos, concepto reutilizable
+// en filtros/reportes/export). orden 1..12 = orden de presentación.
+const REGIMENES = [
+  { nombre: 'Nueva Carrera Profesional Hospitalaria', orden: 1 },
+  { nombre: 'Nueva Carrera de Enfermería', orden: 2 },
+  { nombre: 'Carrera Técnica', orden: 3 },
+  { nombre: 'Carrera Administrativa', orden: 4 },
+  { nombre: 'Carrera Administrativa anexo II', orden: 5 },
+  { nombre: 'Cuerpo de Especialistas Profesionales', orden: 6 },
+  { nombre: 'Carrera Gerencial', orden: 7 },
+  { nombre: 'Autoridades Superiores', orden: 8 },
+  { nombre: 'Planta Gerencial', orden: 9 },
+  { nombre: 'Planta Transitoria Módulo Operativo', orden: 10 },
+  { nombre: 'Docentes', orden: 11 },
+  { nombre: 'Residentes', orden: 12 },
 ]
 
 async function main() {
@@ -172,6 +194,18 @@ async function main() {
     crCount++
   }
   console.log(`✅ Códigos de registro: ${crCount}`)
+
+  // FEAT-002: regímenes (idempotente vía upsert por nombre)
+  let rCount = 0
+  for (const r of REGIMENES) {
+    await prisma.regimen.upsert({
+      where: { nombre: r.nombre },
+      update: {},
+      create: { nombre: r.nombre, orden: r.orden, activo: true },
+    })
+    rCount++
+  }
+  console.log(`✅ Regímenes: ${rCount}`)
 
   // Usuario admin — el rol "admin" lo siembra la migración de RBAC dinámico
   // (prisma/migrations/20260901120000_rbac_dinamico), acá solo se busca por slug.

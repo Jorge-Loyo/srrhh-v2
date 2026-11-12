@@ -1,0 +1,237 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// =============================================================================
+// Tests de createSolicitudesAltaBatchService: envío de "Cargos pendientes" como
+// un LOTE. UNA transacción crea las N solicitudes + N autorizaciones. Reemplaza
+// las N requests que se pasaban del timeout de 5 s contra Neon.
+//
+// - crea N solicitudes + N autorizaciones (no-transferencia) en UNA tx
+// - una transferencia se auto-aprueba (no crea autorización)
+// - un item con catálogo inválido lanza ANTES de abrir la tx → el lote no se
+//   crea a medias (no se llama $transaction)
+//
+// Se mockea el cliente Prisma y crearAutorizacion (su notificación usa prisma
+// real y no es el foco de estos tests). Patrón del repo: *.unit.test.ts con
+// vi.mock de ../shared/prisma.js.
+// =============================================================================
+
+const hospital       = { findMany: vi.fn() }
+const escalafon      = { findMany: vi.fn() }
+const puestoCargo    = { findMany: vi.fn() }
+const codigoRegistro = { findMany: vi.fn() }
+const especialidadPuesto = { findMany: vi.fn() }
+
+const solicitudAlta  = { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() }
+const etiqueta           = { findUnique: vi.fn(), create: vi.fn() }
+const etiquetaSolicitudAlta = { create: vi.fn() }
+
+const tx = { solicitudAlta, etiqueta, etiquetaSolicitudAlta }
+
+const $transaction = vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx))
+
+vi.mock('../shared/prisma.js', () => ({
+  prisma: {
+    hospital,
+    escalafon,
+    puestoCargo,
+    codigoRegistro,
+    especialidadPuesto,
+    $transaction,
+  },
+}))
+
+const crearAutorizacion = vi.fn()
+vi.mock('../modules/autorizaciones/autorizaciones.service.js', () => ({
+  crearAutorizacion: (...args: unknown[]) => crearAutorizacion(...args),
+}))
+
+const { createSolicitudesAltaBatchService } = await import('../modules/solicitudes-alta/solicitudes-alta.service.js')
+const { AppError } = await import('../shared/errors/AppError.js')
+
+// Catálogo base coherente para el happy path.
+const HOSP = 'h1'
+const ESC  = 'e1'
+const PUE  = 'p1'
+
+function baseItem(over: Record<string, unknown> = {}) {
+  return {
+    hospitalId:  HOSP,
+    escalafonId: ESC,
+    puestoCargoId: PUE,
+    cantidad: 1,
+    ...over,
+  }
+}
+
+function cargarCatalogoValido() {
+  hospital.findMany.mockResolvedValue([{ id: HOSP }])
+  escalafon.findMany.mockResolvedValue([{ id: ESC }])
+  puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Medico de planta', escalafonId: ESC }])
+  codigoRegistro.findMany.mockResolvedValue([])
+  especialidadPuesto.findMany.mockResolvedValue([])
+  // create devuelve una solicitud con id incremental; findUnique hace el readback
+  let n = 0
+  solicitudAlta.create.mockImplementation(async () => ({ id: `s${++n}` }))
+  solicitudAlta.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, estado: 'pendiente' }))
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('createSolicitudesAltaBatchService', () => {
+  it('crea N solicitudes + N autorizaciones en UNA sola transacción', async () => {
+    cargarCatalogoValido()
+    const items = Array.from({ length: 11 }, () => baseItem({ expediente: 'Prueba_1' }))
+
+    const res = await createSolicitudesAltaBatchService({ items }, 'u1')
+
+    expect($transaction).toHaveBeenCalledTimes(1)           // UNA transacción para todo el lote
+    expect(solicitudAlta.create).toHaveBeenCalledTimes(11)  // 11 solicitudes
+    expect(crearAutorizacion).toHaveBeenCalledTimes(11)     // 11 autorizaciones (director)
+    expect(solicitudAlta.update).not.toHaveBeenCalled()     // ninguna transferencia
+    expect(res).toHaveLength(11)
+    // Cada autorización apunta a su solicitud y la resuelve el director.
+    expect(crearAutorizacion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tipo: 'alta_cargo', resolverPorRolSlug: 'director', referenciaTipo: 'solicitud_alta' }),
+    )
+  })
+
+  it('usa el timeout holgado (no el default de 5 s) para el batch', async () => {
+    cargarCatalogoValido()
+    await createSolicitudesAltaBatchService({ items: [baseItem()] }, 'u1')
+    // El 2º argumento de $transaction son las opciones de la tx.
+    const opts = $transaction.mock.calls[0]![1] as { timeout: number; maxWait: number }
+    expect(opts.timeout).toBeGreaterThanOrEqual(30_000)
+    expect(opts.maxWait).toBeGreaterThanOrEqual(10_000)
+  })
+
+  it('una transferencia se auto-aprueba y NO crea autorización', async () => {
+    cargarCatalogoValido()
+    const items = [baseItem({ esTransferencia: true })]
+
+    await createSolicitudesAltaBatchService({ items }, 'u1')
+
+    expect(crearAutorizacion).not.toHaveBeenCalled()
+    expect(solicitudAlta.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { estado: 'aprobada' } }),
+    )
+  })
+
+  it('un item con puesto de otro escalafón lanza ANTES de abrir la tx (lote atómico)', async () => {
+    cargarCatalogoValido()
+    // El puesto pertenece a ESC, pero el item 2 declara otro escalafón.
+    escalafon.findMany.mockResolvedValue([{ id: ESC }, { id: 'e2' }])
+    const items = [baseItem(), baseItem({ escalafonId: 'e2' })]
+
+    await expect(createSolicitudesAltaBatchService({ items }, 'u1')).rejects.toBeInstanceOf(AppError)
+    // Nunca se abrió la transacción: nada se creó a medias.
+    expect($transaction).not.toHaveBeenCalled()
+    expect(solicitudAlta.create).not.toHaveBeenCalled()
+  })
+
+  it('puesto de modalidad ambos (Enfermero Profesional, 87) se acepta; ATP pasa, otra especialidad se rechaza', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'enfermero profesional', modalidad: 'ambos', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp1', nombre: 'Enfermeros ATP', puestoCargId: PUE }])
+    await createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp1' })] }, 'u1')
+    expect(solicitudAlta.create).toHaveBeenCalledTimes(1)
+    vi.clearAllMocks()
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'licenciado en enfermeria', modalidad: 'ambos', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp2', nombre: 'enfermeria', puestoCargId: PUE }])
+    await expect(createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp2' })] }, 'u1'))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+  it('enfermería: rechaza una especialidad distinta de ATP/ATC (400, sin abrir la tx)', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Enfermero/a', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'esp1', nombre: 'enfermeria', puestoCargId: PUE }])
+    await expect(createSolicitudesAltaBatchService({ items: [baseItem({ especialidadPuestoId: 'esp1' })] }, 'u1'))
+      .rejects.toMatchObject({ statusCode: 400 })
+    expect($transaction).not.toHaveBeenCalled()
+  })
+  it('enfermería: acepta Enfermeros ATP y también el alta sin especialidad', async () => {
+    cargarCatalogoValido()
+    puestoCargo.findMany.mockResolvedValue([{ id: PUE, nombre: 'Licenciado en enfermería', escalafonId: ESC }])
+    especialidadPuesto.findMany.mockResolvedValue([{ id: 'atp', nombre: 'Enfermeros ATP', puestoCargId: PUE }])
+    const items = [baseItem({ especialidadPuestoId: 'atp' }), baseItem()]
+    await expect(createSolicitudesAltaBatchService({ items }, 'u1')).resolves.toHaveLength(2)
+  })
+  it('un hospital inexistente lanza notFound sin abrir la tx', async () => {
+    cargarCatalogoValido()
+    hospital.findMany.mockResolvedValue([]) // ningún hospital válido
+
+    await expect(createSolicitudesAltaBatchService({ items: [baseItem()] }, 'u1'))
+      .rejects.toMatchObject({ statusCode: 404 })
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  describe('CR deducido de la carrera (tipo CPH/CEETPS)', () => {
+    const crsPorCarrera = [
+      { id: 'cr22', codigo: '22', escalafonId: 'eCPH' },
+      { id: 'cr37', codigo: '37', escalafonId: 'eCPH' },
+      { id: 'cr87', codigo: '87', escalafonId: 'eENF' },
+      { id: 'cr83', codigo: '83', escalafonId: 'eADM' },
+    ]
+    function cargarMixto() {
+      hospital.findMany.mockResolvedValue([{ id: HOSP }])
+      escalafon.findMany.mockResolvedValue([{ id: 'eCPH' }, { id: 'eENF' }, { id: 'eADM' }])
+      puestoCargo.findMany.mockResolvedValue([
+        { id: 'pM', nombre: 'Medico', escalafonId: 'eCPH' },
+        { id: 'pE', nombre: 'Enfermero', escalafonId: 'eENF' },
+        { id: 'pA', nombre: 'Administrativo', escalafonId: 'eADM' },
+      ])
+      codigoRegistro.findMany.mockImplementation(async (args: { where: { id?: unknown; escalafonId?: unknown } }) =>
+        args.where.escalafonId ? crsPorCarrera : [{ id: 'crExplicito' }])
+      especialidadPuesto.findMany.mockResolvedValue([])
+      let n = 0
+      solicitudAlta.create.mockImplementation(async () => ({ id: `s${++n}` }))
+      solicitudAlta.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }))
+    }
+    const crGuardados = () => solicitudAlta.create.mock.calls.map((c) => (c[0] as { data: { codigoRegistroId: string | null } }).data.codigoRegistroId)
+    it('lote mixto: cada item deduce el CR de SU carrera; sin mapeo queda null', async () => {
+      cargarMixto()
+      const items = [
+        baseItem({ escalafonId: 'eCPH', puestoCargoId: 'pM' }),
+        baseItem({ escalafonId: 'eENF', puestoCargoId: 'pE' }),
+        baseItem({ escalafonId: 'eADM', puestoCargoId: 'pA' }),
+      ]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['cr37', 'cr87', null])
+    })
+    it('lote mixto con escalafones SIN CR propios (códigos Neon 87, 85, 37, 24): fallback por código de escalafón', async () => {
+      hospital.findMany.mockResolvedValue([{ id: HOSP }])
+      escalafon.findMany.mockResolvedValue([
+        { id: 'e87', codigo: '87' }, { id: 'e85', codigo: '85' }, { id: 'e37', codigo: '37' }, { id: 'e24', codigo: '24' },
+      ])
+      puestoCargo.findMany.mockResolvedValue([
+        { id: 'p1', nombre: 'Enfermero', escalafonId: 'e87' },
+        { id: 'p2', nombre: 'Técnico', escalafonId: 'e85' },
+        { id: 'p3', nombre: 'Medico', escalafonId: 'e37' },
+        { id: 'p4', nombre: 'Residente', escalafonId: 'e24' },
+      ])
+      codigoRegistro.findMany.mockImplementation(async (args: { where: { escalafonId?: unknown; codigo?: unknown } }) =>
+        args.where.codigo ? [{ id: 'cr87', codigo: '87' }, { id: 'cr85', codigo: '85' }, { id: 'cr37', codigo: '37' }] : [])
+      especialidadPuesto.findMany.mockResolvedValue([])
+      let n = 0
+      solicitudAlta.create.mockImplementation(async () => ({ id: `s${++n}` }))
+      solicitudAlta.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }))
+      const items = [
+        baseItem({ escalafonId: 'e87', puestoCargoId: 'p1' }),
+        baseItem({ escalafonId: 'e85', puestoCargoId: 'p2' }),
+        baseItem({ escalafonId: 'e37', puestoCargoId: 'p3' }),
+        baseItem({ escalafonId: 'e24', puestoCargoId: 'p4' }),
+      ]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['cr87', 'cr85', 'cr37', null])
+    })
+    it('CR explícito del item tiene prioridad sobre el de la carrera', async () => {
+      cargarMixto()
+      const items = [baseItem({ escalafonId: 'eCPH', puestoCargoId: 'pM', codigoRegistroId: 'crExplicito' })]
+      await createSolicitudesAltaBatchService({ items }, 'u1')
+      expect(crGuardados()).toEqual(['crExplicito'])
+    })
+  })
+})

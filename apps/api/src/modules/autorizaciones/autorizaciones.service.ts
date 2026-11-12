@@ -1,8 +1,97 @@
+import { Prisma } from '@prisma/client'
+import pino from 'pino'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { crearNotificacion } from '../notificaciones/notificaciones.service.js'
-import { prefijoDeCargo, siguienteCodigoCargo } from '../../shared/codigoCargo.js'
+import { crearTareaPendiente, mensajeTareaRechazo } from '../tareas/tareas.service.js'
+import { randomUUID } from 'node:crypto'
+import { prefijoDeCargo, maxSecuencialCargo } from '../../shared/codigoCargo.js'
+import { resolverCrPorCarrera, type CrPorCarreraDb } from '../../shared/crPorCarrera.js'
+import { normalizarCrCphId, type CrCphDb } from '../../shared/crCph.js'
+import { recalcularSubEstado, recalcularSubEstadoCargo, type SubEstadoTx } from '../cargos/subEstado.repo.js'
+import { esNuevoCargoSinAutorizar } from '../concursos-cph/autorizacionNuevoCargo.js'
+import { recalcularCalcCph } from '../concursos-cph/recalcularCph.js'
+import { recalcularCalcCeetps } from '../concursos-ceetps/recalcularCeetps.js'
+import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
+import { crearConcursosAltaAutomaticaTx } from '../concursos/concursos.service.js'
+import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
+import { esAdmin } from '../../shared/esAdmin.js'
+import { TX_OPTS_LARGA } from '../../shared/txOpts.js'
 import type { AutorizacionesQuery } from './autorizaciones.schema.js'
+
+const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+
+// ─── Gobernanza admin ────────────────────────────────────────────────────────
+// El rol `admin` (slug fijo, protegido — ver roles.service.ts) tiene control
+// total del flujo: puede resolver CUALQUIER autorización pendiente, sin importar
+// a qué rol esté dirigida (resolverPorRolSlug). El resto de los roles solo
+// resuelve lo suyo. Mantiene el mismo criterio de bypass que requirePermiso.
+
+// ─── Helper: resolver dinámicamente el slug del rol que resuelve ─────────────
+// En vez de hardcodear el slug (que en producción lleva hash, p.ej.
+// 'sgrasv_5ac494e'), se resuelve el rol que tiene asignado un permiso concreto
+// vía role_permisos → permisos. Única fuente de verdad: la matriz de permisos.
+
+type ResultadoSlugOk = { ok: true; slug: string }
+type ResultadoSlugFallo = { ok: false; motivo: 'ninguno' | 'ambiguo'; slugs: string[] }
+type ResultadoSlug = ResultadoSlugOk | ResultadoSlugFallo
+
+// Función pura (testeable sin Prisma): aplica la regla de cardinalidad.
+// NO ordena; en el caso ambiguo preserva el orden de entrada (el orden
+// determinista lo garantiza el orderBy de la query en resolverSlugPorPermiso).
+export function elegirSlugResolutor(roles: { slug: string }[]): ResultadoSlug {
+  if (roles.length === 0) return { ok: false, motivo: 'ninguno', slugs: [] }
+  if (roles.length > 1) return { ok: false, motivo: 'ambiguo', slugs: roles.map((r) => r.slug) }
+  return { ok: true, slug: roles[0]!.slug }
+}
+
+// Acceso a datos: busca los roles activos que tienen el permiso (modulo, accion)
+// con el client transaccional tx, decide con elegirSlugResolutor, y traduce el
+// fallo a un AppError.conflict (409) + logger.warn con contexto (el error
+// handler NO loguea AppError, así que se loguea acá explícitamente).
+export async function resolverSlugPorPermiso(
+  tx: Prisma.TransactionClient,
+  modulo: string,
+  accion: string,
+): Promise<string> {
+  const roles = await tx.role.findMany({
+    where: {
+      activo: true,
+      permisos: { some: { permiso: { modulo, accion } } },
+    },
+    select: { slug: true },
+    orderBy: { slug: 'asc' },
+  })
+
+  const r = elegirSlugResolutor(roles)
+
+  if (!r.ok) {
+    // Con `strict: false` (tsconfig del repo) TS no estrecha uniones discriminadas
+    // por el booleano `ok`; se referencia la variante de fallo explícitamente.
+    const fallo = r as ResultadoSlugFallo
+    if (fallo.motivo === 'ninguno') {
+      logger.warn({ modulo, accion }, 'resolverSlugPorPermiso: ningún rol con el permiso')
+      throw AppError.conflict(
+        `No hay un rol configurado para resolver esta autorización ` +
+          `(permiso ${modulo}.${accion}). Revisá la matriz de permisos.`,
+      )
+    }
+
+    // Los slugs (nombres internos de roles, con hash) quedan SOLO en el log del
+    // servidor; el 409 al cliente NO los expone.
+    logger.warn(
+      { modulo, accion, slugs: fallo.slugs },
+      'resolverSlugPorPermiso: más de un rol con el permiso',
+    )
+    throw AppError.conflict(
+      `Hay más de un rol con permiso ${modulo}.${accion}; no se puede determinar el ` +
+        `resolutor de forma unívoca. Dejá el permiso en un solo rol. ` +
+        `(Revisá los logs del servidor para ver los roles en conflicto.)`,
+    )
+  }
+
+  return (r as ResultadoSlugOk).slug
+}
 
 // ─── Helper: crear una autorización ─────────────────────────────────────────
 // Se llama desde otros services (CPH, solicitudes-alta) dentro de su propia tx.
@@ -10,7 +99,7 @@ import type { AutorizacionesQuery } from './autorizaciones.schema.js'
 export async function crearAutorizacion(
   tx: typeof prisma,
   data: {
-    tipo: 'concurso_cph' | 'alta_cargo' | 'baja_cargo'
+    tipo: 'concurso_cph' | 'concurso_ceetps' | 'alta_cargo' | 'baja_cargo'
     referenciaId: string
     referenciaTipo: string
     solicitadoPorId: string | undefined
@@ -46,8 +135,9 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
   const { page, limit, tipo } = query
   const offset = (page - 1) * limit
 
+  // Admin ve las pendientes de todos los resolutores (director, sgrasv, ...).
   const where = {
-    resolverPorRolSlug: rolSlug,
+    ...(!esAdmin(rolSlug) && { resolverPorRolSlug: rolSlug }),
     estado:             'pendiente' as const,
     ...(tipo && { tipo }),
   }
@@ -60,7 +150,7 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
       skip:    offset,
       take:    limit,
       include: {
-        solicitadoPor: { select: { id: true, username: true, email: true } },
+        solicitadoPor: { select: { id: true, username: true, nombre: true, apellido: true } },
       },
     }),
   ])
@@ -71,7 +161,7 @@ export async function listAutorizacionesService(rolSlug: string, query: Autoriza
 // ─── GET /mis-pendientes — count para badge ──────────────────────────────────
 export async function countPendientesService(rolSlug: string) {
   return prisma.autorizacion.count({
-    where: { resolverPorRolSlug: rolSlug, estado: 'pendiente' },
+    where: { ...(!esAdmin(rolSlug) && { resolverPorRolSlug: rolSlug }), estado: 'pendiente' },
   })
 }
 
@@ -84,11 +174,15 @@ export async function aprobarAutorizacionService(
 ) {
   const aut = await prisma.autorizacion.findUnique({ where: { id } })
   if (!aut) throw AppError.notFound('Autorización no encontrada')
-  if (aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
+  // Admin: gobernanza total, puede resolver cualquier paso dirigido a otro rol.
+  if (!esAdmin(rolSlug) && aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
 
   if (aut.tipo === 'concurso_cph') {
     return _aprobarCph(aut, resueltoPorId, rolSlug, observaciones)
+  }
+  if (aut.tipo === 'concurso_ceetps') {
+    return _aprobarCeetps(aut, resueltoPorId, observaciones)
   }
   if (aut.tipo === 'alta_cargo') {
     return _aprobarAltaCargo(aut, resueltoPorId, observaciones)
@@ -109,8 +203,15 @@ export async function rechazarAutorizacionService(
 ) {
   const aut = await prisma.autorizacion.findUnique({ where: { id } })
   if (!aut) throw AppError.notFound('Autorización no encontrada')
-  if (aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
+  // Admin: gobernanza total, puede rechazar cualquier paso dirigido a otro rol.
+  if (!esAdmin(rolSlug) && aut.resolverPorRolSlug !== rolSlug) throw AppError.forbidden('Sin acceso a esta autorización')
   if (aut.estado !== 'pendiente') throw AppError.badRequest('La autorización ya fue resuelta')
+  // Paso 2a: rechazar una autorización de concurso exige un motivo, que se
+  // muestra en la pantalla del concurso. alta_cargo / baja_cargo no cambian.
+  if (aut.tipo === 'concurso_cph' || aut.tipo === 'concurso_ceetps') {
+    observaciones = observaciones?.trim()
+    if (!observaciones) throw AppError.badRequest('La observación es obligatoria para rechazar la autorización')
+  }
 
   return prisma.$transaction(async (tx) => {
     const autActualizada = await tx.autorizacion.update({
@@ -124,6 +225,57 @@ export async function rechazarAutorizacionService(
         where: { id: aut.referenciaId },
         data:  { pendienteAutorizacion: false, aprobadoDirector: false },
       })
+      // Paso 2b: un nuevo_cargo rechazado vuelve a "A Caratulado" (la observación
+      // queda en la Autorizacion y se muestra en la pantalla del concurso).
+      const cphRech = await tx.concursoCph.findUnique({
+        where:  { id: aut.referenciaId },
+        select: { concursoId: true },
+      })
+      if (cphRech?.concursoId) {
+        const concRech = await tx.concurso.findUnique({
+          where:  { id: cphRech.concursoId },
+          select: { motivoConcurso: true, autorizadoAt: true },
+        })
+        if (esNuevoCargoSinAutorizar(concRech)) {
+          await recalcularCalcCph(tx, aut.referenciaId, 'sin_solicitar')
+        }
+      }
+
+      // RF3: crear una tarea pendiente para el solicitante ("corregí y reenviá").
+      // Dentro de la misma tx; el dedup de crearTareaPendiente evita duplicados.
+      if (aut.solicitadoPorId) {
+        await crearTareaPendiente(tx as typeof prisma, {
+          tipo:                  'rechazo_autorizacion_concurso',
+          usuarioDestinatarioId: aut.solicitadoPorId,
+          referenciaTipo:        'concurso_cph',
+          referenciaId:          aut.referenciaId,
+          mensaje:               mensajeTareaRechazo(observaciones),
+          creadaPorId:           resueltoPorId,
+        })
+      } else {
+        logger.warn(
+          { autorizacionId: aut.id, referenciaId: aut.referenciaId },
+          'rechazo sin solicitante: no se crea tarea pendiente (concurso_cph sin solicitadoPorId)',
+        )
+      }
+    }
+
+    if (aut.tipo === 'concurso_ceetps') {
+      // Paso 2b: un nuevo_cargo CEETPS rechazado vuelve a EXP_CARATULADO. La
+      // observación queda en la Autorizacion y se muestra en la pantalla del
+      // concurso. No hay tarea pendiente (las tareas están atadas a concurso_cph).
+      const ceetpsRech = await tx.concursoCeetps.findUnique({
+        where:  { id: aut.referenciaId },
+        select: { concursoId: true },
+      })
+      if (!ceetpsRech) throw AppError.notFound('Concurso CEETPS no encontrado')
+      const concRech = await tx.concurso.findUnique({
+        where:  { id: ceetpsRech.concursoId },
+        select: { motivoConcurso: true, autorizadoAt: true },
+      })
+      if (esNuevoCargoSinAutorizar(concRech)) {
+        await recalcularCalcCeetps(tx, aut.referenciaId, 'sin_solicitar')
+      }
     }
 
     if (aut.tipo === 'alta_cargo') {
@@ -141,9 +293,11 @@ export async function rechazarAutorizacionService(
       // Revertir el cargo a vigente (corrección administrativa)
       const baja = await tx.baja.findUnique({ where: { id: aut.referenciaId }, select: { cargoId: true } })
       if (baja) {
+        // Vuelve a vigente: recalcular sub_estado según ocupante/concurso.
+        const subEstado = await recalcularSubEstado(tx, baja.cargoId, 'vigente')
         await tx.cargo.update({
           where: { id: baja.cargoId },
-          data:  { estado: 'vigente', estadoDesde: null },
+          data:  { estado: 'vigente', estadoDesde: null, subEstado },
         })
       }
     }
@@ -159,7 +313,7 @@ export async function rechazarAutorizacionService(
           tipo:      'autorizacion_resuelta',
           rolSlug:   solicitante.role.slug,
           titulo:    'Autorización rechazada',
-          mensaje:   `Tu solicitud de tipo "${aut.tipo}" fue rechazada.${observaciones ? ` Motivo: ${observaciones}` : ''}`,
+          mensaje:   `Tu solicitud de ${aut.tipo === 'concurso_ceetps' ? 'autorización de concurso CEETPS' : `tipo "${aut.tipo}"`} fue rechazada.${observaciones ? ` Motivo: ${observaciones}` : ''}`,
           origenTipo: 'autorizacion',
           origenId:   aut.id,
           origenKey:  `autorizacion_resuelta:${aut.id}`,
@@ -168,7 +322,96 @@ export async function rechazarAutorizacionService(
     }
 
     return autActualizada
+  }, TX_OPTS_LARGA)
+}
+
+// ─── Paso 2a: marcar el concurso de cargo nuevo como autorizado ──────────────
+// Setea concursos.autorizado_at = now() SOLO si el concurso es nuevo_cargo y aún
+// no tiene autorizado_at (nunca re-fecha ni resetea uno existente: una
+// autorización estructural posterior de sigla/carrera no lo toca), y recalcula
+// el sub_estado del cargo con la misma tx. No toca fechaAutorizacion (manual de
+// la Etapa 2). Devuelve true si autorizó.
+export async function marcarConcursoAutorizado(tx: SubEstadoTx, concursoId: string): Promise<boolean> {
+  const concurso = await tx.concurso.findUnique({
+    where:  { id: concursoId },
+    select: { cargoId: true, motivoConcurso: true, autorizadoAt: true },
   })
+  if (!esNuevoCargoSinAutorizar(concurso)) return false
+  // updateMany con autorizadoAt:null: atómico frente a una aprobación concurrente.
+  const { count } = await tx.concurso.updateMany({
+    where: { id: concursoId, autorizadoAt: null },
+    data:  { autorizadoAt: new Date() },
+  })
+  if (count === 0) return false
+  await recalcularSubEstadoCargo(tx, concurso!.cargoId)
+  return true
+}
+
+// ─── Paso 2b: permiso de SGRASV y auto-aprobación ────────────────────────────
+// Misma regla que requirePermiso: admin siempre; el resto, por role_permisos.
+export async function usuarioPuedeResolverSgrasv(
+  tx: Prisma.TransactionClient,
+  usuarioId: string,
+): Promise<boolean> {
+  const u = await tx.usuario.findUnique({
+    where:  { id: usuarioId },
+    select: { role: { select: { id: true, slug: true } } },
+  })
+  if (!u?.role) return false
+  if (esAdmin(u.role.slug)) return true
+  const fila = await tx.rolePermiso.findFirst({
+    where: { roleId: u.role.id, permiso: { modulo: 'autorizaciones', accion: 'resolver_sgrasv' } },
+  })
+  return !!fila
+}
+
+async function completarFechaAutorizacionCph(tx: Prisma.TransactionClient, cphId: string) {
+  await tx.concursoCph.updateMany({
+    where: { id: cphId, fechaAutorizacion: null },
+    data:  { fechaAutorizacion: new Date() },
+  })
+}
+
+async function completarFechaAutorizacionCeetps(tx: Prisma.TransactionClient, ceetpsId: string) {
+  await tx.concursoCeetps.updateMany({
+    where: { id: ceetpsId, fechaAutorizacion: null },
+    data:  { fechaAutorizacion: new Date() },
+  })
+}
+
+// Quien completa la Etapa 1 y puede resolver como SGRASV aprueba en el mismo acto:
+// deja una Autorizacion ya aprobada (traza), marca el concurso autorizado y
+// recalcula el sub-estado. marcarConcursoAutorizado sigue siendo la única que
+// escribe autorizado_at.
+export async function autoAprobarConcurso(
+  tx: Prisma.TransactionClient,
+  data: { tipo: 'concurso_cph' | 'concurso_ceetps'; referenciaId: string; concursoId: string | null; usuarioId: string; observaciones?: string },
+) {
+  const usuario = await tx.usuario.findUnique({
+    where:  { id: data.usuarioId },
+    select: { role: { select: { slug: true } } },
+  })
+  const autorizacion = await tx.autorizacion.create({
+    data: {
+      tipo:               data.tipo,
+      referenciaId:       data.referenciaId,
+      referenciaTipo:     data.tipo,
+      estado:             'aprobada',
+      resolverPorRolSlug: usuario?.role.slug ?? 'admin',
+      solicitadoPorId:    data.usuarioId,
+      resueltoPorId:      data.usuarioId,
+      observaciones:      data.observaciones ?? 'Autorizada automáticamente por el usuario que completó la Etapa 1 (permiso de SGRASV).',
+    },
+  })
+  if (data.concursoId) await marcarConcursoAutorizado(tx, data.concursoId)
+  if (data.tipo === 'concurso_ceetps') {
+    await completarFechaAutorizacionCeetps(tx, data.referenciaId)
+    await recalcularCalcCeetps(tx, data.referenciaId, 'autorizado')
+  } else {
+    await completarFechaAutorizacionCph(tx, data.referenciaId)
+    await recalcularCalcCph(tx, data.referenciaId, 'autorizado')
+  }
+  return autorizacion
 }
 
 // ─── Lógica interna: aprobar CPH ─────────────────────────────────────────────
@@ -187,12 +430,26 @@ async function _aprobarCph(
     const cph = await tx.concursoCph.findUnique({ where: { id: aut.referenciaId } })
     if (!cph) throw AppError.notFound('ConcursoCph no encontrado')
 
-    if (rolSlug === 'director') {
+    // Qué paso de la cadena es se determina por la autorización (resolverPorRolSlug),
+    // NO por el rol del usuario: el admin puede resolver ambos pasos y su rolSlug
+    // ('admin') no coincide con 'director' ni con el slug de sgrasv. La primera
+    // autorización CPH se crea siempre con resolverPorRolSlug === 'director'
+    // (concursos-cph.service.ts); la segunda, con el slug dinámico de sgrasv.
+    const esPasoDirector = aut.resolverPorRolSlug === 'director'
+
+    if (esPasoDirector) {
       // Primer paso del flujo estructural: director aprueba → crear autorizacion para sgrasv
       await tx.concursoCph.update({
         where: { id: aut.referenciaId },
         data:  { aprobadoDirector: true },
       })
+
+      // Resolver dinámicamente el rol que debe resolver la 2ª autorización:
+      // el rol con permiso autorizaciones.resolver_sgrasv (slug real, con hash).
+      // Se resuelve con el mismo tx (consistencia transaccional) y antes de
+      // crear la fila/notificación, para que el caso 0/>1 lance y haga rollback
+      // sin dejar la aprobación del director a medias.
+      const slugSgrasv = await resolverSlugPorPermiso(tx, 'autorizaciones', 'resolver_sgrasv')
 
       // Segunda autorización en cadena para sgrasv
       const autSgrasv = await tx.autorizacion.create({
@@ -200,14 +457,14 @@ async function _aprobarCph(
           tipo:               'concurso_cph',
           referenciaId:       aut.referenciaId,
           referenciaTipo:     'concurso_cph',
-          resolverPorRolSlug: 'sgrasv',
+          resolverPorRolSlug: slugSgrasv,
           solicitadoPorId:    aut.solicitadoPorId,
         },
       })
 
       await crearNotificacion({
         tipo:      'autorizacion_pendiente',
-        rolSlug:   'sgrasv',
+        rolSlug:   slugSgrasv,
         titulo:    'Nueva autorización pendiente',
         mensaje:   'Hay una autorización de concurso CPH esperando tu resolución (segunda etapa).',
         origenTipo: 'autorizacion',
@@ -240,6 +497,15 @@ async function _aprobarCph(
         data:  { pendienteAutorizacion: false, aprobadoDirector: false },
       })
 
+      // Paso 2a: concurso de cargo nuevo → queda AUTORIZADO y el cargo se recalcula
+      // (pasa a 'concurso') en esta misma transacción. El paso del director NO llega acá.
+      // Paso 2b: además completa fechaAutorizacion (solo si estaba vacía) y salta a
+      // "B Sorteo de jurado" recalculando el sub-estado.
+      if (cph.concursoId && (await marcarConcursoAutorizado(tx, cph.concursoId))) {
+        await completarFechaAutorizacionCph(tx, aut.referenciaId)
+        await recalcularCalcCph(tx, aut.referenciaId, 'autorizado')
+      }
+
       if (aut.solicitadoPorId) {
         const solicitante = await tx.usuario.findUnique({
           where:  { id: aut.solicitadoPorId },
@@ -260,7 +526,52 @@ async function _aprobarCph(
     }
 
     return tx.autorizacion.findUnique({ where: { id: aut.id } })
-  })
+  }, TX_OPTS_LARGA)
+}
+
+// ─── Lógica interna: aprobar concurso CEETPS (cargo nuevo) ───────────────────
+// Una sola autorización (SGRASV). Setea autorizado_at (atómico e idempotente vía
+// marcarConcursoAutorizado), completa fechaAutorizacion si estaba vacía y pasa
+// el concurso a 'autorizado'.
+async function _aprobarCeetps(
+  aut: { id: string; referenciaId: string; solicitadoPorId: string | null },
+  resueltoPorId: string,
+  observaciones?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.autorizacion.update({
+      where: { id: aut.id },
+      data:  { estado: 'aprobada', resueltoPorId, observaciones: observaciones ?? null },
+    })
+
+    const ceetps = await tx.concursoCeetps.findUnique({ where: { id: aut.referenciaId } })
+    if (!ceetps) throw AppError.notFound('Concurso CEETPS no encontrado')
+
+    if (await marcarConcursoAutorizado(tx, ceetps.concursoId)) {
+      await completarFechaAutorizacionCeetps(tx, aut.referenciaId)
+      await recalcularCalcCeetps(tx, aut.referenciaId, 'autorizado')
+    }
+
+    if (aut.solicitadoPorId) {
+      const solicitante = await tx.usuario.findUnique({
+        where:  { id: aut.solicitadoPorId },
+        select: { role: { select: { slug: true } } },
+      })
+      if (solicitante?.role.slug) {
+        await crearNotificacion({
+          tipo:      'autorizacion_resuelta',
+          rolSlug:   solicitante.role.slug,
+          titulo:    'Autorización aprobada',
+          mensaje:   'Tu solicitud de autorización de concurso CEETPS fue aprobada.',
+          origenTipo: 'autorizacion',
+          origenId:   aut.id,
+          origenKey:  `autorizacion_resuelta:${aut.id}`,
+        })
+      }
+    }
+
+    return tx.autorizacion.findUnique({ where: { id: aut.id } })
+  }, TX_OPTS_LARGA)
 }
 
 // ─── Lógica interna: aprobar alta_cargo ──────────────────────────────────────
@@ -269,7 +580,7 @@ async function _aprobarAltaCargo(
   resueltoPorId: string,
   observaciones?: string,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     await tx.autorizacion.update({
       where: { id: aut.id },
       data:  { estado: 'aprobada', resueltoPorId, observaciones: observaciones ?? null },
@@ -286,42 +597,98 @@ async function _aprobarAltaCargo(
       unificadorPuesto: solicitud.unificadorPuesto ?? null,
       agrupador:        solicitud.agrupador ?? null,
       puestoCargo:      solicitud.puestoCargo,
+      tieneEspecialidad: Boolean(solicitud.especialidadPuestoId),
     })
 
-    const cargosCreadosIds: string[] = []
-    for (let i = 0; i < solicitud.cantidad; i++) {
-      const codigo = await siguienteCodigoCargo(prefijo, tx as typeof prisma)
-      const cargo = await tx.cargo.create({
-        data: {
-          idSial:           `MANUAL-${codigo}`,
-          codigo,
-          hospitalId:       solicitud.hospitalId,
-          escalafonId:      solicitud.escalafonId,
-          codigoRegistroId: solicitud.codigoRegistroId ?? null,
-          puestoCargoId:      solicitud.puestoCargoId,
-          especialidadPuestoId: solicitud.especialidadPuestoId,
-          literalPuesto:    solicitud.literalPuesto,
-          especialidadLegacy: solicitud.especialidad ?? null,
-          agrupador:        solicitud.agrupador ?? null,
-          unificadorPuesto: solicitud.unificadorPuesto ?? null,
-          regimen:          solicitud.regimen ?? null,
-          expediente:       solicitud.expediente ?? null,
-          fechaDesde:       solicitud.desde ?? null,
-          createdById:      resueltoPorId,
-          estado:           'vigente',
-        },
-      })
-      cargosCreadosIds.push(cargo.id)
-    }
-
+    // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
+    // Si la solicitud no trae CR (altas previas a la deducción por carrera), se
+    // deduce de la carrera elegida; un CR explícito tiene prioridad.
+    const crDerivado = solicitud.codigoRegistroId
+      ? null
+      : await resolverCrPorCarrera(tx as unknown as CrPorCarreraDb, solicitud.escalafonId, solicitud.literalPuesto)
+    const crIdEfectivo = solicitud.codigoRegistroId ?? crDerivado?.id ?? null
+    const crCodigoEfectivo = solicitud.codigoRegistro?.codigo ?? crDerivado?.codigo ?? null
+    const crIdCargo = await normalizarCrCphId(tx as unknown as CrCphDb, crIdEfectivo)
+    // Códigos del lote: UN MAX por prefijo y el resto en memoria (antes: un MAX
+    // + un INSERT por cargo). Mismos códigos que la secuencia anterior (max+1..max+N).
+    const base = await maxSecuencialCargo(prefijo, tx as typeof prisma)
+    const lote = Array.from({ length: solicitud.cantidad }, (_, i) => {
+      const codigo = `${prefijo}-${String(base + i + 1).padStart(6, '0')}`
+      return { id: randomUUID(), codigo }
+    })
+    const cargosCreadosIds = lote.map((c) => c.id)
+    // Un solo INSERT para todo el lote; los ids se generan acá para conocerlos
+    // sin leerlos de vuelta.
+    await tx.cargo.createMany({
+      data: lote.map(({ id, codigo }) => ({
+        id,
+        idSial:           `MANUAL-${codigo}`,
+        codigo,
+        hospitalId:       solicitud.hospitalId,
+        escalafonId:      solicitud.escalafonId,
+        codigoRegistroId: crIdCargo ?? null,
+        puestoCargoId:      solicitud.puestoCargoId,
+        especialidadPuestoId: solicitud.especialidadPuestoId,
+        literalPuesto:    solicitud.literalPuesto,
+        especialidadLegacy: solicitud.especialidad ?? null,
+        agrupador:        solicitud.agrupador ?? null,
+        unificadorPuesto: solicitud.unificadorPuesto ?? null,
+        regimen:          solicitud.regimen ?? null,
+        expediente:       solicitud.expediente ?? null,
+        fechaDesde:       solicitud.desde ?? null,
+        createdById:      resueltoPorId,
+        estado:           'vigente' as const,
+        // Alta aprobada: cargo vigente sin ocupante ni concurso -> 'vacante'.
+        subEstado:        'vacante' as const,
+      })),
+    })
     await tx.solicitudAlta.update({
       where: { id: aut.referenciaId },
-      data:  { estado: 'aprobada', cargosCreadosIds },
+      data:  { estado: 'aprobada', cargosCreadosIds, ...(crDerivado ? { codigoRegistroId: crDerivado.id } : {}) },
     })
 
-    // Notificar al solicitante
+    // Paso 3: se crea AUTOMÁTICAMENTE un concurso "no iniciado" por cada cargo
+    // nuevo (motivo nuevo_cargo, sin autorizar), en esta misma transacción: si
+    // falla la creación de uno, se revierte toda la aprobación. Tipo por CÓDIGO
+    // DE REGISTRO (no escalafón): CPH {37,22,23}, CEETPS {85,87} + 83-AnexoII.
+    // Fuente de verdad: tipoConcursoDeCargo. Tipo null => sin concurso (el
+    // usuario define el tipo después; se informa en la respuesta y en el log).
+    const tipoConcurso = tipoConcursoDeCargo({
+      codigoRegistro: crCodigoEfectivo,
+      literalPuesto: solicitud.literalPuesto,
+    })
+    const auto = await crearConcursosAltaAutomaticaTx(
+      tx,
+      {
+        cargoIds: cargosCreadosIds,
+        hospitalId: solicitud.hospitalId,
+        escalafonId: solicitud.escalafonId,
+        expediente: solicitud.expediente ?? null,
+        tipoConcurso,
+      },
+      resueltoPorId,
+    )
+    if (auto.sinTipo > 0) {
+      logger.warn(
+        { autorizacionId: aut.id, solicitudId: solicitud.id, cargos: auto.sinTipo },
+        'alta_cargo aprobada: cargos sin tipo de concurso (CR fuera de CPH/CEETPS); no se crea concurso automático',
+      )
+    }
+    return {
+      autorizacion: await tx.autorizacion.findUnique({ where: { id: aut.id } }),
+      concursosCreados: auto.creados.length,
+      concursosYaExistentes: auto.yaExistentes,
+      concursosSinTipo: auto.sinTipo,
+      _post: { auto, cargosCreados: cargosCreadosIds.length, hospitalSigla: solicitud.hospital.sigla, literalPuesto: solicitud.literalPuesto },
+    }
+  }, TX_OPTS_LARGA)
+  // Avisos DESPUÉS del commit: no necesitan atomicidad con el alta y, hechos
+  // dentro de la transacción, la alargaban (varias consultas remotas). Un fallo
+  // acá se loguea pero NO revierte el alta ya aprobada.
+  const { _post, ...respuesta } = resultado
+  try {
     if (aut.solicitadoPorId) {
-      const solicitante = await tx.usuario.findUnique({
+      const solicitante = await prisma.usuario.findUnique({
         where:  { id: aut.solicitadoPorId },
         select: { role: { select: { slug: true } } },
       })
@@ -330,41 +697,27 @@ async function _aprobarAltaCargo(
           tipo:      'autorizacion_resuelta',
           rolSlug:   solicitante.role.slug,
           titulo:    'Alta de cargo aprobada',
-          mensaje:   `Tu solicitud de alta fue aprobada. Se crearon ${cargosCreadosIds.length} cargo(s).`,
+          mensaje:   `Tu solicitud de alta fue aprobada. Se crearon ${_post.cargosCreados} cargo(s).`,
           origenTipo: 'autorizacion',
           origenId:   aut.id,
           origenKey:  `autorizacion_resuelta:${aut.id}`,
         })
       }
     }
-
-    // S14-3: determinar si el cargo puede iniciar concurso
-    const CPH_CODIGOS    = new Set(['22', '37'])
-    const CEETPS_CODIGOS = new Set(['83', '85', '87'])
-    const cod = solicitud.escalafon.codigo
-    let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
-    if (CPH_CODIGOS.has(cod))    tipoConcursoSugerido = 'cph'
-    else if (CEETPS_CODIGOS.has(cod)) tipoConcursoSugerido = 'ceetps'
-
-    const primeroId = cargosCreadosIds[0]!
-    const puedeIniciarConcurso = tipoConcursoSugerido !== null
-
-    return {
-      autorizacion: await tx.autorizacion.findUnique({ where: { id: aut.id } }),
-      puedeIniciarConcurso,
-      ...(puedeIniciarConcurso && {
-        concursoInfo: {
-          cargoId:              primeroId,
-          hospitalId:           solicitud.hospitalId,
-          codigo:               null as string | null, // se resuelve en el frontend con el id
-          literalPuesto:        solicitud.literalPuesto,
-          hospitalSigla:        solicitud.hospital.sigla,
-          tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
-          escalafonId:          solicitud.escalafonId,
-        },
-      }),
+    if (_post.auto.creados.length > 0) {
+      await notificarSgrasvYHijos({
+        tipo: 'concurso_iniciado',
+        titulo: `Concursos nuevos pendientes de caratular — ${_post.hospitalSigla}`,
+        mensaje: `El alta de cargo aprobada generó ${_post.auto.creados.length} concurso(s) ${_post.auto.creados[0]!.tipoConcurso.toUpperCase()} sin iniciar (${_post.literalPuesto ?? 'cargo nuevo'}, ${_post.hospitalSigla}). Falta caratular y autorizar.`,
+        origenTipo: 'autorizacion',
+        origenId: aut.id,
+        origenKey: `concursos_alta_automaticos:${aut.id}`,
+      })
     }
-  })
+  } catch (err) {
+    logger.error({ err, autorizacionId: aut.id }, 'alta_cargo aprobada: falló el envío de avisos (el alta NO se revierte)')
+  }
+  return respuesta
 }
 
 // ─── Lógica interna: aprobar baja_cargo ──────────────────────────────────────
@@ -404,5 +757,5 @@ async function _aprobarBajaCargo(
     }
 
     return tx.autorizacion.findUnique({ where: { id: aut.id } })
-  })
+  }, TX_OPTS_LARGA)
 }

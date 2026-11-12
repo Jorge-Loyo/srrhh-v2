@@ -3,6 +3,7 @@ import {
   calcConcursoCph,
   etapaDeSubEstado,
   SUB_ESTADOS_POR_ETAPA,
+  SUB_ESTADO_3_SQL_PG,
 } from '../modules/concursos-cph/concursosCph.calc.js'
 import type { ConcursoCphCalcInput } from '../modules/concursos-cph/concursosCph.calc.js'
 
@@ -39,6 +40,8 @@ const BASE: ConcursoCphCalcInput = {
   cargoSial: null,
   dispoDesierta: null,
   fechaDispoDesierta: null,
+  validado: false,
+  validadoIdSialRol: null,
 }
 
 /** Concurso activo mínimo (tiene eeBaja + eeConcurso + fechas) */
@@ -236,20 +239,33 @@ describe('calcConcursoCph — subEstado', () => {
     expect(r.subEstado).toBe('n-designado')
   })
 
-  it('+ cargoSial → o-alta sial (máxima prioridad sobre designado)', () => {
+  it('+ validado → o-alta sial (el padrón confirmó; gana sobre n-designado)', () => {
+    const r = calcConcursoCph({
+      ...ACTIVO,
+      resolucionDesignacion: 'RESOL/1',
+      fechaResolucion: d('2026-09-01'),
+      validado: true,
+      validadoIdSialRol: '001234567-1',
+    })
+    expect(r.subEstado).toBe('o-alta sial')
+  })
+
+  it('cargoSial no-nulo pero validado=false → n-designado (cargoSial ya NO dispara o-alta sial)', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
       cargoSial: '001234567-1',
+      validado: false,
     })
-    expect(r.subEstado).toBe('o-alta sial')
+    expect(r.subEstado).toBe('n-designado')
   })
 
   it('dispoDesierta + fechaDispoDesierta → q-desierto (máxima prioridad)', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
       dispoDesierta: 'DI-DESIERTA',
       fechaDispoDesierta: d('2026-09-01'),
     })
@@ -365,19 +381,21 @@ describe('calcConcursoCph — invariantes', () => {
       fechaIfacs: d('2026-06-01'),
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
       dispoDesierta: 'DI-DESIERTA',
       fechaDispoDesierta: d('2026-09-01'),
     })
     expect(r.subEstado).toBe('q-desierto')
   })
 
-  it('o-alta sial gana sobre n-designado', () => {
+  it('o-alta sial (validado) gana sobre n-designado', () => {
     const r = calcConcursoCph({
       ...ACTIVO,
       resolucionDesignacion: 'RESOL/1',
       fechaResolucion: d('2026-09-01'),
-      cargoSial: '001234567-1',
+      validado: true,
+      validadoIdSialRol: '001234567-1',
     })
     expect(r.subEstado).toBe('o-alta sial')
   })
@@ -395,7 +413,7 @@ describe('calcConcursoCph — invariantes', () => {
 
 // ─── Filtro por ETAPA (stepper 1..5) ↔ sub_estado ────────────────────────────
 describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
-  it('etapa 2: autorización / jurado', () => {
+  it('etapa 2: jurado / dispo', () => {
     for (const s of ['a-autzn', 'b-sorteo jur', 'c-dispo de llamado']) {
       expect(etapaDeSubEstado(s)).toBe(2)
     }
@@ -429,7 +447,7 @@ describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
     }
   })
 
-  it('etapa 1: baja / apertura (complemento, incluye null, a-caratulado, no iniciado, vacante)', () => {
+  it('etapa 1: apertura / autorización (complemento, incluye null, a-caratulado, no iniciado, vacante)', () => {
     for (const s of ['a-caratulado', 'no iniciado', 'vacante', null, '', 'cualquier-cosa']) {
       expect(etapaDeSubEstado(s)).toBe(1)
     }
@@ -448,5 +466,48 @@ describe('etapaDeSubEstado — mapeo etapa↔sub_estado', () => {
         vistos.add(s)
       }
     }
+  })
+})
+
+// ─── Paso 5b: salto por orden de mérito ──────────────────────────────────────
+describe('calcConcursoCph — saltoPorOm', () => {
+  const nuevoAutorizado: ConcursoCphCalcInput = {
+    ...BASE,
+    eeConcurso: 'EE-1',
+    fechaAutorizacion: d('2026-11-01'),
+    autorizacionNuevoCargo: 'autorizado',
+  }
+  it('saltoPorOm → sub_estado f-ifacs y sub_estado_3 f-prox. a desig', () => {
+    const r = calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true })
+    expect(r.subEstado).toBe('f-ifacs')
+    expect(r.subEstado3).toBe('f-prox. a desig')
+    expect(r.estado).toBe('activo')
+    expect(etapaDeSubEstado(r.subEstado)).toBe(4)
+  })
+  it('sin saltoPorOm (false o ausente) todo igual que antes', () => {
+    const sin = calcConcursoCph(nuevoAutorizado)
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: false })).toEqual(sin)
+    expect(sin.subEstado).toBe('b-sorteo jur')
+  })
+  it('con resolucionDesignacion gana n-designado / g-resolucion / finalizado', () => {
+    const r = calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, resolucionDesignacion: 'RES-1' })
+    expect(r.subEstado).toBe('n-designado')
+    expect(r.subEstado3).toBe('g-resolucion')
+    expect(r.estado).toBe('finalizado')
+  })
+  it('los pasos posteriores (insal, TAD, etapa 5) siguen ganando sobre f-ifacs', () => {
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, fechaInsal: d('2026-11-03') }).subEstado).toBe('g-insal')
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, eeDesignacion: 'EE-9' }).subEstado).toBe('h-tad')
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, cargaDocumentacion: true }).subEstado).toBe('i-carga docu')
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, fechaIte: d('2026-11-05') }).subEstado).toBe('k-ite')
+  })
+  it('suspendido sigue dando estado suspendido', () => {
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, suspendido: true }).estado).toBe('suspendido')
+  })
+  it('espejo SQL: SUB_ESTADO_3_SQL_PG tiene la rama del salto (complemento, no verificación única)', () => {
+    expect(SUB_ESTADO_3_SQL_PG).toContain("WHEN salto_om_at IS NOT NULL THEN 'f-prox. a desig'")
+    // La rama del salto va después de la de resolución y antes de las fechas de examen.
+    expect(SUB_ESTADO_3_SQL_PG.indexOf('salto_om_at')).toBeGreaterThan(SUB_ESTADO_3_SQL_PG.indexOf('g-resolucion'))
+    expect(SUB_ESTADO_3_SQL_PG.indexOf('salto_om_at')).toBeLessThan(SUB_ESTADO_3_SQL_PG.indexOf('e-adjudi'))
   })
 })

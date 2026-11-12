@@ -1,9 +1,22 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
-import type { CargosQuery, CreateCargoBody, AltasQuery, GrupoCatalogo } from './cargos.schema.js'
-import { prefijoDeCargo, siguienteCodigoCargo, PREFIJOS_CONDUCCION } from '../../shared/codigoCargo.js'
+import type {
+  CargosQuery,
+  CreateCargoBody,
+  AltasQuery,
+  GrupoCatalogo,
+  CargosExportQuery,
+} from './cargos.schema.js'
+import type { CargoExportRow } from '@srrhh/types'
+import {
+  prefijoDeCargo,
+  siguienteCodigoCargo,
+  PREFIJOS_CONDUCCION,
+} from '../../shared/codigoCargo.js'
 import { cargoIdsOcultosPorRolRedundante } from '../../shared/cargosOcultos.js'
+import { normalizarCrCphId } from '../../shared/crCph.js'
+import { tipoConcursoDeCargo } from '../incidencias/incidencias.gestionable.js'
 
 // S21: compila un grupo de la cascada de catálogo a un CargoWhereInput (AND de
 // sus campos). Devuelve null si el grupo no aporta nada. Varios grupos se
@@ -36,14 +49,42 @@ interface PuestoCargoRow {
 export async function listPuestosCargosService(escalafonId?: string) {
   const puestos = await prisma.puestoCargo.findMany({
     where: { activo: true, ...(escalafonId && { escalafonId }) },
-    select: { id: true, nombre: true, especialidades: { where: { activo: true }, select: { id: true, nombre: true } } },
+    select: {
+      id: true,
+      nombre: true,
+      especialidades: { where: { activo: true }, select: { id: true, nombre: true } },
+    },
     orderBy: { nombre: 'asc' },
   })
-  return puestos.map((p): PuestoCargoRow => ({ id: p.id, puesto: p.nombre, especialidades: p.especialidades }))
+  return puestos.map((p): PuestoCargoRow => ({
+    id: p.id,
+    puesto: p.nombre,
+    especialidades: p.especialidades,
+  }))
 }
 
 export async function listCargosService(query: CargosQuery) {
-  const { page, limit, search, hospitalId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId, grupos, estado, ocupado, soloJefes, personaSearch } = query
+  const {
+    page,
+    limit,
+    search,
+    hospitalId,
+    escalafonId,
+    codigoRegistroId,
+    modalidad,
+    puestoCargoId,
+    especialidadPuestoId,
+    grupos,
+    estado,
+    ocupado,
+    subEstado,
+    soloJefes,
+    sinJefes,
+    personaSearch,
+    literalPuesto,
+    especialidad,
+    situacionRevista,
+  } = query
 
   // Reportado por Jorge: buscar "medico" no encontraba "Médico" — el
   // `contains`/`mode: insensitive` de Prisma es case-insensitive pero NO
@@ -77,29 +118,93 @@ export async function listCargosService(query: CargosQuery) {
     searchIds = rows.map((r) => r.id)
   }
 
-  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL en personas con ocupación vigente O histórica
-  // (incluye cargos vacantes donde la persona fue la última ocupante)
+  // Filtro personaSearch: busca por nombre, CUIL o ID SIAL contra la OCUPACIÓN
+  // REPRESENTANTE de cada cargo — el ocupante actual (hasta IS NULL), o si el
+  // cargo está vacante, el ÚLTIMO que lo ocupó (hasta más reciente). No matchea
+  // ocupantes históricos intermedios: para cada cargo solo cuenta "quién lo
+  // ocupa hoy o, si está vacante, quién lo dejó último" (decisión del usuario).
+  // Se elige 1 ocupación por cargo con DISTINCT ON ordenando las vigentes
+  // primero (hasta NULLS FIRST) y luego por hasta desc, y recién sobre esa fila
+  // representante se aplica el filtro de texto.
   let personaIds: string[] | undefined
   if (personaSearch) {
     const like = `%${personaSearch}%`
     // Normalizar: quitar guiones para buscar CUIL sin formato (27-12345678-9 -> 27123456789)
     const likeNorm = `%${personaSearch.replace(/-/g, '')}%`
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT DISTINCT o.cargo_id AS id
-      FROM ocupaciones o
-      JOIN personas p ON p.id = o.persona_id
+      WITH representante AS (
+        SELECT DISTINCT ON (o.cargo_id)
+               o.cargo_id,
+               o.persona_id,
+               o.id_sial_rol
+        FROM ocupaciones o
+        ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST
+      )
+      SELECT r.cargo_id AS id
+      FROM representante r
+      JOIN personas p ON p.id = r.persona_id
       WHERE (unaccent(p.apellido_nombre) ILIKE unaccent(${like})
           OR p.cuil ILIKE ${likeNorm}
-          OR o.id_sial_rol ILIKE ${like}
-          OR o.cuil_y_rol  ILIKE ${like})
+          OR r.id_sial_rol ILIKE ${like})
     `)
     personaIds = rows.map((r) => r.id)
   }
 
+  // Filtro literalPuesto: puesto del cargo elegido de un desplegable (literal
+  // canónico, ej. "PROFESIONAL GUARDIA MEDICO"). Igual que `search`, Prisma no
+  // deja usar unaccent() dentro del `where` tipado, así que se resuelven los
+  // ids con una query raw y se intersectan abajo. Match EXACTO normalizado
+  // (unaccent + lower + trim) — no `contains` — porque el valor viene del
+  // catálogo, no es texto libre.
+  let literalPuestoIds: string[] | undefined
+  if (literalPuesto) {
+    const term = literalPuesto.toLowerCase().trim()
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT c.id FROM cargos c
+      WHERE lower(unaccent(trim(coalesce(c.literal_puesto, '')))) = unaccent(${term})
+    `)
+    literalPuestoIds = rows.map((r) => r.id)
+  }
+
+  // Filtro especialidad: especialidad del cargo elegida en cascada del puesto
+  // (desplegable de "Cobertura Dotación"). Match exacto normalizado contra la
+  // especialidad del catálogo (join a especialidades_puestos) o el snapshot
+  // legacy (`especialidad_legacy`). Mismo patrón raw→ids que los demás filtros.
+  let especialidadIds: string[] | undefined
+  if (especialidad) {
+    const term = especialidad.toLowerCase().trim()
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT c.id FROM cargos c
+      LEFT JOIN especialidades_puesto ep ON ep.id = c.especialidad_puesto_id
+      WHERE lower(unaccent(trim(coalesce(ep.nombre, '')))) = unaccent(${term})
+         OR lower(unaccent(trim(coalesce(c.especialidad_legacy, '')))) = unaccent(${term})
+    `)
+    especialidadIds = rows.map((r) => r.id)
+  }
+
+  // Filtro situacionRevista: estado de la persona en el puesto (situación de
+  // revista de la OCUPACIÓN VIGENTE del cargo). El dato crudo en BD viene con
+  // mayúsculas/tildes/espacios inconsistentes, así que se normaliza en SQL con
+  // lower(unaccent(trim(...))) — mismo criterio que normalizarSituacionRevista
+  // (kpis.service) — y se compara contra el valor ya normalizado del query.
+  let situacionRevistaIds: string[] | undefined
+  if (situacionRevista) {
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT DISTINCT o.cargo_id AS id
+      FROM ocupaciones o
+      WHERE o.hasta IS NULL
+        AND lower(unaccent(trim(coalesce(o.situacion_revista, '')))) = ${situacionRevista}
+    `)
+    situacionRevistaIds = rows.map((r) => r.id)
+  }
+
   // Intersectar todos los filtros de id con AND
   const idFilters: Prisma.CargoWhereInput[] = [
-    ...(searchIds  !== undefined ? [{ id: { in: searchIds  } }] : []),
+    ...(searchIds !== undefined ? [{ id: { in: searchIds } }] : []),
     ...(personaIds !== undefined ? [{ id: { in: personaIds } }] : []),
+    ...(literalPuestoIds !== undefined ? [{ id: { in: literalPuestoIds } }] : []),
+    ...(especialidadIds !== undefined ? [{ id: { in: especialidadIds } }] : []),
+    ...(situacionRevistaIds !== undefined ? [{ id: { in: situacionRevistaIds } }] : []),
   ]
 
   // S21: cascada de catálogo con UNIONES (OR). Los campos sueltos forman el
@@ -142,23 +247,45 @@ export async function listCargosService(query: CargosQuery) {
               // (A) jefatura por el código del cargo (ocupado o vacante)
               { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
               // (B) jefatura por JCAT de la ocupación vigente (enfermería, etc.)
-              { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+              {
+                ocupaciones: {
+                  some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } },
+                },
+              },
             ],
           },
         ]
+      // Sin jefes: inverso exacto de (A)/(B) de arriba — negación de la OR
+      // completa, no de cada condición por separado (De Morgan: NOT(A OR B) =
+      // NOT A AND NOT B).
+      : sinJefes === true
+        ? [
+            ...idFilters,
+            {
+              NOT: {
+                OR: [
+                  { OR: [...PREFIJOS_CONDUCCION].map((p) => ({ codigo: { startsWith: `${p}-` } })) },
+                  { ocupaciones: { some: { hasta: null, codigoJefaturas: { not: null, notIn: ['', '0'] } } } },
+                ],
+              },
+            },
+          ]
       : idFilters),
   ]
 
   const where: Prisma.CargoWhereInput = {
     ...(catalogoWhere && catalogoWhere),
-    ...(estado      && { estado }),
+    ...(estado && { estado }),
     // Filtro ocupado: relación nativa de Prisma (EXISTS/NOT EXISTS), no una
     // lista de ids armada a mano — con `ocupado=true` esa lista incluía TODOS
     // los cargos ocupados de toda la base (sin acotar por los demás filtros)
     // y podía superar el máximo de bind variables de Postgres (32767),
     // tirando abajo el listado entero con cualquier combinación de filtros.
-    ...(ocupado === true  && { ocupaciones: { some: { hasta: null } } }),
+    ...(ocupado === true && { ocupaciones: { some: { hasta: null } } }),
     ...(ocupado === false && { ocupaciones: { none: { hasta: null } } }),
+    // Filtro por sub-estado persistido (aditivo al filtro `ocupado`, que sigue
+    // operando sobre la relación `ocupaciones` por compatibilidad — ver D4).
+    ...(subEstado && { subEstado }),
     ...(andClauses.length > 0 && { AND: andClauses }),
   }
 
@@ -188,11 +315,14 @@ export async function listCargosService(query: CargosQuery) {
   return {
     data: cargos.map(({ ocupaciones, ...c }) => ({
       ...c,
+      // Sub-estado persistido (ya viene en `c` por el spread del cargo). Los
+      // consumidores lo leen; `ocupado` se mantiene como fallback transitorio.
+      subEstado: c.subEstado,
       ocupado: ocupaciones.length > 0,
       ocupadoDesde: ocupaciones[0]?.cargoDesdeFecha
-        ? (ocupaciones[0].cargoDesdeFecha instanceof Date
-            ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
-            : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10))
+        ? ocupaciones[0].cargoDesdeFecha instanceof Date
+          ? ocupaciones[0].cargoDesdeFecha.toISOString().slice(0, 10)
+          : String(ocupaciones[0].cargoDesdeFecha).slice(0, 10)
         : null,
       personaOcupante: ocupaciones[0]?.persona
         ? { ...ocupaciones[0].persona, idSialRol: ocupaciones[0].idSialRol }
@@ -200,6 +330,156 @@ export async function listCargosService(query: CargosQuery) {
     })),
     meta: { total, page, limit, pages: Math.ceil(total / limit) },
   }
+}
+
+// ─── Export de /cargos: universo completo con las 9 columnas resueltas ──────
+// Trae la TOTALIDAD de los cargos SIN filtros de pantalla y SIN excluir
+// estados (vigentes, en concurso, de baja, vacantes). Única exclusión:
+// borrados lógicos (deletedAt != null) — el listado normal NO los filtra, pero
+// el export SÍ (criterio confirmado por el usuario). Endpoint dedicado para no
+// encarecer cada request del listado paginado con los joins extra.
+const ESTADO_LABEL_EXPORT: Record<string, string> = {
+  vigente: 'Vigente',
+  no_vigente: 'No vigente',
+  validacion_vacante: 'En validación',
+}
+
+// Etiqueta de la columna "Situación" del exportable a partir del sub-estado
+// persistido del cargo (ocupado | vacante | concurso).
+const SUB_ESTADO_LABEL_EXPORT: Record<string, string> = {
+  ocupado: 'Ocupado',
+  vacante: 'Vacante',
+  concurso: 'Concurso',
+}
+
+const TIPO_PUESTO_LABEL: Record<string, string> = {
+  ejecucion: 'Ejecución',
+  conduccion: 'Conducción',
+}
+
+// Quita viñetas, guiones y espacios iniciales que vienen pegados en el dato
+// legacy de especialidad (ej. "•\u00a0Cardiología", "- Clínica Médica").
+function limpiarEspecialidad(valor: string): string {
+  return valor.replace(/^[\s•·∙‣◦\-*·\u00a0]+/, '').trim()
+}
+
+export async function exportCargosService(query: CargosExportQuery) {
+  const { page, limit } = query
+  const where: Prisma.CargoWhereInput = { deletedAt: null }
+
+  const [total, cargos] = await Promise.all([
+    prisma.cargo.count({ where }),
+    prisma.cargo.findMany({
+      where,
+      include: {
+        // codigo → columna "Código de Registro" (ej. "37"); literal → columna
+        // "Carrera" (descripción del CR, ej. "Nueva Carrera Profesional
+        // Hospitalaria").
+        codigoRegistro: { select: { codigo: true, literal: true } },
+        puestoCargo: { select: { tipoPuesto: true } },
+        escalafon: { select: { nombre: true } },
+        // Sigla del hospital/repartición del cargo. Se usa en ambos grupos:
+        // "Sigla" del grupo 1 (info del cargo) y "Sigla" del grupo 2
+        // (info de ocupación) son la misma sigla del cargo.
+        hospital: { select: { sigla: true } },
+        // Especialidad del cargo (catálogo, con fallback al legacy del padrón).
+        // El modelo Ocupacion NO tiene especialidad propia; la "especialidad del
+        // ocupante" es la del cargo que ocupa — se muestra solo si está ocupado.
+        especialidadPuesto: { select: { nombre: true } },
+        // Ocupación vigente (si existe): CUIL y situación de revista del ocupante.
+        ocupaciones: {
+          where: { hasta: null },
+          select: {
+            cuil: true,
+            idSialRol: true,
+            situacionRevista: true,
+            persona: { select: { cuil: true } },
+          },
+          take: 1,
+        },
+        // Baja asociada más reciente: expediente (eeBaja) cuando el cargo no
+        // está ocupado.
+        bajas: {
+          select: { eeBaja: true },
+          orderBy: [{ fechaBaja: 'desc' }, { createdAt: 'desc' }],
+          take: 1,
+        },
+      },
+      orderBy: { idSial: 'asc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ])
+
+  const data: CargoExportRow[] = cargos.map((c) => {
+    const ocupacion = c.ocupaciones[0] ?? null
+    const estadoLabel = ESTADO_LABEL_EXPORT[c.estado] ?? c.estado
+
+    // Col 8 — CUIL del ocupante / Expediente (condicional):
+    //  1) OCUPADO → CUIL del ocupante (fallback a persona.cuil)
+    //  2) no ocupado + baja con eeBaja → expediente de la baja
+    //  3) sin ocupante ni baja → '' (sin fallback a expediente de creación)
+    let cuilOExpediente = ''
+    if (ocupacion) {
+      cuilOExpediente = ocupacion.cuil ?? ocupacion.persona?.cuil ?? ''
+    } else {
+      cuilOExpediente = c.bajas[0]?.eeBaja ?? ''
+    }
+
+    return {
+      codigo: c.codigo ?? '',
+      codigoRegistro: c.codigoRegistro?.codigo ?? '',
+      // Columna "Carrera": la DESCRIPCIÓN (literal) del código de registro del
+      // cargo (ej. "Nueva Carrera Profesional Hospitalaria"), sin el código
+      // —el código va en su propia columna "Código de Registro"—. Fallback al
+      // nombre del escalafón si el cargo no tiene CR vinculado.
+      regimen: c.codigoRegistro?.literal ?? c.escalafon?.nombre ?? '',
+      // Columna "Sigla" (grupo 1): sigla del hospital/repartición del cargo.
+      sigla: c.hospital?.sigla ?? '',
+      // Grupo 1 (INFORMACIÓN DE CARGOS): código y descripción de la repartición
+      // del CARGO. Se muestran SIEMPRE (el cargo existe, ocupado o vacante).
+      codigoReparticion: c.codigoRepa ?? '',
+      reparticionCargo: c.descripcionRepa ?? '',
+      tipo: c.puestoCargo
+        ? (TIPO_PUESTO_LABEL[c.puestoCargo.tipoPuesto] ?? c.puestoCargo.tipoPuesto)
+        : '',
+      estado: estadoLabel,
+      // Situación del CARGO: lee el sub-estado persistido (ocupado/vacante/
+      // concurso). Fallback transitorio a la ocupación mientras el backfill no
+      // haya poblado la columna (ver D4). Distinto del Estado (vigente/etc.) y
+      // de la situación de revista del ocupante (grupo 2).
+      situacion: c.subEstado
+        ? (SUB_ESTADO_LABEL_EXPORT[c.subEstado] ?? c.subEstado)
+        : ocupacion ? 'Ocupado' : 'Vacante',
+      literalPuesto: c.literalPuesto ?? '',
+      // Grupo 2 (INFORMACIÓN DE OCUPACIÓN DEL CARGO): código, descripción y sigla
+      // de la repartición del OCUPANTE. Solo si el cargo está OCUPADO; vacías si
+      // está vacante (el valor coincide con el del cargo, pero representa dónde
+      // trabaja el ocupante, por eso se omite cuando no hay ocupación).
+      codigoReparticionOcupacion: ocupacion ? (c.codigoRepa ?? '') : '',
+      reparticion: ocupacion ? (c.descripcionRepa ?? '') : '',
+      siglaOcupacion: ocupacion ? (c.hospital?.sigla ?? '') : '',
+      cuilOExpediente,
+      // ID SIAL Rol del ocupante: el dato crudo es "legajo-rol-cuil-rol"
+      // (ej. "001081578-7-27188648229-7"); se recorta a "legajo-rol"
+      // (ej. "001081578-7") — los 2 primeros segmentos — porque el resto es el
+      // CUIL (que ya va en su propia columna). Solo si está ocupado.
+      idSialRolOcupante: ocupacion?.idSialRol
+        ? ocupacion.idSialRol.split('-').slice(0, 2).join('-')
+        : '',
+      situacionRevistaOcupante: ocupacion?.situacionRevista ?? '',
+      // Especialidad del ocupante = especialidad del cargo que ocupa (catálogo,
+      // fallback al legacy del padrón). Solo si el cargo está ocupado; vacía
+      // si está vacante. El modelo Ocupacion no guarda especialidad propia.
+      // Se limpian viñetas/guiones iniciales que vienen embebidos en el dato
+      // legacy (ej. "• Cardiología" → "Cardiología").
+      especialidadOcupante: ocupacion
+        ? limpiarEspecialidad(c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? '')
+        : '',
+    }
+  })
+
+  return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
 // ─── S3-5: detalle con ocupación actual e historial ────────────────────────
@@ -211,6 +491,15 @@ export async function getCargoByIdService(id: string) {
       escalafon: true,
       codigoRegistro: true,
       especialidadPuesto: { select: { id: true, nombre: true } },
+      // Área programática: solo aplica a cargos de Atención Primaria asignados a
+      // un CeSAC (cargo.cesacId). La mayoría de los cargos no tienen → null.
+      cesac: {
+        select: {
+          id: true,
+          numero: true,
+          areaProgramatica: { select: { id: true, nombre: true } },
+        },
+      },
       ocupaciones: {
         include: { persona: true },
         orderBy: { hasta: 'desc' }, // vigente (null) primero, luego más reciente
@@ -222,11 +511,20 @@ export async function getCargoByIdService(id: string) {
         where: { estado: 'vigente' },
         select: { id: true, codigo: true, literalPuesto: true, tipoOrigen: true, estado: true },
       },
+      // Etiquetas asignadas al cargo (relación N:M vía tabla join). Se aplanan
+      // abajo para que el frontend consuma un array plano de `Etiqueta`.
+      etiquetas: { include: { etiqueta: true } },
     },
   })
   if (!cargo) throw AppError.notFound('Cargo no encontrado')
 
-  const { ocupaciones, ...rest } = cargo
+  const { ocupaciones, etiquetas, ...rest } = cargo
+  // Aplana la relación join `etiquetas: [{ etiqueta }]` a `Etiqueta[]`, dejando
+  // solo las activas y ordenadas por nombre (mismo criterio que concursos-cph).
+  const etiquetasPlanas = etiquetas
+    .map((e) => e.etiqueta)
+    .filter((e) => e.activo)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
   const ocupacionActual = ocupaciones.find((o) => o.hasta === null) ?? null
   const historial = ocupaciones.filter((o) => o.hasta !== null)
 
@@ -252,17 +550,32 @@ export async function getCargoByIdService(id: string) {
   const [concursosCph, concursosCeetps] = await Promise.all([
     prisma.concursoCph.findMany({
       where: { cargoId: id },
-      include: { concurso: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      include: {
+        concurso: true,
+        personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } },
+      },
       orderBy: { createdAt: 'desc' },
     }),
     prisma.concursoCeetps.findMany({
       where: { cargoId: id },
-      include: { concurso: true, escalafon: true, personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } } },
+      include: {
+        concurso: true,
+        escalafon: true,
+        personaDesignada: { select: { id: true, apellidoNombre: true, cuil: true } },
+      },
       orderBy: { createdAt: 'desc' },
     }),
   ])
 
-  return { ...rest, ocupacionActual, historial, cargoActivo, concursosCph, concursosCeetps }
+  return {
+    ...rest,
+    ocupacionActual,
+    historial,
+    cargoActivo,
+    concursosCph,
+    concursosCeetps,
+    etiquetas: etiquetasPlanas,
+  }
 }
 
 // ─── S5-10 + S7-2 + S7-5 + S14-3: Alta de Cargo manual ─────────────────────────────────
@@ -273,10 +586,16 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   const escalafon = await prisma.escalafon.findUnique({ where: { id: body.escalafonId } })
   if (!escalafon) throw AppError.notFound('Escalafon no encontrado')
 
+  // Código de REGISTRO del cargo (no el de escalafón): es la base de la regla
+  // unificada CPH/CEETPS (ver tipoConcursoDeCargo).
+  let codigoRegistroCodigo: string | null = null
   if (body.codigoRegistroId) {
     const cr = await prisma.codigoRegistro.findUnique({ where: { id: body.codigoRegistroId } })
     if (!cr) throw AppError.notFound('Codigo de registro no encontrado')
+    codigoRegistroCodigo = cr.codigo
   }
+  // CPH: el CR 22 es un duplicado del 37 — el cargo se crea siempre con el 37.
+  const codigoRegistroId = await normalizarCrCphId(prisma, body.codigoRegistroId)
 
   const puestoCargo = await prisma.puestoCargo.findUnique({ where: { id: body.puestoCargoId } })
   if (!puestoCargo || puestoCargo.escalafonId !== body.escalafonId) {
@@ -284,7 +603,9 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   }
   let especialidadPuesto: { id: string; nombre: string; puestoCargId: string } | null = null
   if (body.especialidadPuestoId) {
-    especialidadPuesto = await prisma.especialidadPuesto.findUnique({ where: { id: body.especialidadPuestoId } })
+    especialidadPuesto = await prisma.especialidadPuesto.findUnique({
+      where: { id: body.especialidadPuestoId },
+    })
     if (!especialidadPuesto || especialidadPuesto.puestoCargId !== body.puestoCargoId) {
       throw AppError.notFound('Especialidad no encontrada en el catálogo para ese puesto')
     }
@@ -293,8 +614,8 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
   if (!body.forzar) {
     const duplicado = await prisma.cargo.findFirst({
       where: {
-        hospitalId:   body.hospitalId,
-        escalafonId:  body.escalafonId,
+        hospitalId: body.hospitalId,
+        escalafonId: body.escalafonId,
         puestoCargoId: body.puestoCargoId,
         estado: 'vigente',
       },
@@ -302,11 +623,11 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     })
     if (duplicado) {
       throw AppError.conflict('Ya existe un cargo vigente con la misma estructura', {
-        codigo:       duplicado.codigo,
+        codigo: duplicado.codigo,
         literalPuesto: duplicado.literalPuesto,
-        hospital:     duplicado.hospital.sigla,
-        escalafon:    duplicado.escalafon.nombre,
-        id:           duplicado.id,
+        hospital: duplicado.hospital.sigla,
+        escalafon: duplicado.escalafon.nombre,
+        id: duplicado.id,
       })
     }
   }
@@ -316,6 +637,7 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     unificadorPuesto: body.unificadorPuesto ?? null,
     agrupador: body.agrupador ?? null,
     puestoCargo,
+    tieneEspecialidad: Boolean(body.especialidadPuestoId),
   })
 
   const cargos = await prisma.$transaction(async (tx) => {
@@ -327,21 +649,23 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
         data: {
           idSial,
           codigo,
-          hospitalId:       body.hospitalId,
-          escalafonId:      body.escalafonId,
-          codigoRegistroId: body.codigoRegistroId ?? null,
-          puestoCargoId:      body.puestoCargoId,
+          hospitalId: body.hospitalId,
+          escalafonId: body.escalafonId,
+          codigoRegistroId: codigoRegistroId ?? null,
+          puestoCargoId: body.puestoCargoId,
           especialidadPuestoId: body.especialidadPuestoId ?? null,
           // Snapshot de auditoría — nombre canónico del catálogo al momento del alta.
-          literalPuesto:    puestoCargo.nombre,
+          literalPuesto: puestoCargo.nombre,
           especialidadLegacy: especialidadPuesto?.nombre ?? null,
-          agrupador:        body.agrupador ?? null,
+          agrupador: body.agrupador ?? null,
           unificadorPuesto: body.unificadorPuesto ?? null,
-          regimen:          body.regimen ?? null,
-          expediente:       body.expediente ?? null,
-          fechaDesde:       body.desde ? new Date(body.desde) : null,
-          createdById:      createdById ?? null,
+          regimen: body.regimen ?? null,
+          expediente: body.expediente ?? null,
+          fechaDesde: body.desde ? new Date(body.desde) : null,
+          createdById: createdById ?? null,
           estado: 'vigente',
+          // Cargo recién creado, vigente sin ocupante ni concurso -> 'vacante'.
+          subEstado: 'vacante',
         },
         include: { hospital: true, escalafon: true },
       })
@@ -350,17 +674,14 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     return creados
   })
 
-  // S14-3: determinar si el cargo puede iniciar concurso y qué tipo
-  // CPH = escalafones con código 22 o 37 (Carrera Profesional Hospitalaria)
-  // CEETPS = escalafones con código 83 (ENF), 85 (TEC), 87 (EG-CEETPS)
-  const CPH_CODIGOS = new Set(['22', '37'])
-  const CEETPS_CODIGOS = new Set(['83', '85', '87'])
-  const codigoEscalafon = escalafon.codigo
-  let tipoConcursoSugerido: 'cph' | 'ceetps' | null = null
-  if (CPH_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'cph'
-  else if (CEETPS_CODIGOS.has(codigoEscalafon)) tipoConcursoSugerido = 'ceetps'
-
+  // S14-3 + Paso B: determinar si el cargo puede iniciar concurso y qué tipo.
+  // Regla ÚNICA por CÓDIGO DE REGISTRO (no escalafón): CPH {37,22,23},
+  // CEETPS {85,87} + 83-AnexoII. Fuente de verdad: tipoConcursoDeCargo.
   const primero = cargos[0]!
+  const tipoConcursoSugerido = tipoConcursoDeCargo({
+    codigoRegistro: codigoRegistroCodigo,
+    literalPuesto: primero.literalPuesto,
+  })
   const puedeIniciarConcurso = tipoConcursoSugerido !== null
 
   return {
@@ -368,13 +689,13 @@ export async function createCargoService(body: CreateCargoBody, createdById?: st
     puedeIniciarConcurso,
     ...(puedeIniciarConcurso && {
       concursoInfo: {
-        cargoId:              primero.id,
-        hospitalId:           primero.hospitalId,
-        codigo:               primero.codigo,
-        literalPuesto:        primero.literalPuesto,
-        hospitalSigla:        hospital.sigla,
+        cargoId: primero.id,
+        hospitalId: primero.hospitalId,
+        codigo: primero.codigo,
+        literalPuesto: primero.literalPuesto,
+        hospitalSigla: hospital.sigla,
         tipoConcursoSugerido: tipoConcursoSugerido as 'cph' | 'ceetps',
-        escalafonId:          primero.escalafonId,
+        escalafonId: primero.escalafonId,
       },
     }),
   }
@@ -396,7 +717,7 @@ export async function listAltasService(query: AltasQuery) {
     prisma.cargo.findMany({
       where,
       include: {
-        hospital:  { select: { sigla: true, nombre: true } },
+        hospital: { select: { sigla: true, nombre: true } },
         escalafon: { select: { nombre: true } },
         createdBy: { select: { username: true, email: true } },
       },

@@ -24,6 +24,16 @@ enum EstadoCargo {
   validacion_vacante
 }
 
+// Sub-estado del cargo cuando `estado = vigente` (ver SPRINT_estado_subestado_cargo.md,
+// decisión A1-corregido). Columna PERSISTIDA (no cálculo), mutuamente excluyente:
+// un cargo vigente tiene exactamente uno; es null cuando el cargo es
+// validacion_vacante o no_vigente. NO se agregan valores a EstadoCargo.
+enum SubEstadoCargo {
+  ocupado
+  vacante
+  concurso
+}
+
 enum EstadoSnapshot {
   procesando
   pendiente
@@ -51,6 +61,8 @@ enum TipoConcurso {
 enum MotivoConcurso {
   nuevo_cargo
   alta_por_baja
+  retencion_de_cargo
+  cobertura_dotacion
 }
 
 enum EstadoConcursoCph {
@@ -237,17 +249,21 @@ model UnidadFijaApayC {
   @@map("unidades_fijas_apayc")
 }
 
-// Resumen de evolución histórica de dotación por escalafón.
-// Una fila por (fecha, escalafon) — se inserta al aprobar cada snapshot
-// de padrón (padron.service.ts, aprobarSnapshotService). El escalafón
-// viene de cargo_id → escalafones.nombre (nombre canónico, no el texto
-// desnormalizado de padron_historico que tiene variantes históricas).
+// Resumen de evolución histórica de dotación por código de registro y
+// situación de revista. Una fila por (fecha, codigo_registro, situacion_revista)
+// más una fila reservada '(total)' de situacion_revista por carrera — se
+// inserta al aprobar cada snapshot de padrón (padron.service.ts). El código de
+// registro viene de cargo_id → codigos_registro.codigo (NULL → '(sin codigo)');
+// la situación de revista se normaliza a lower(unaccent(trim(...))). Las series
+// por situación NO son disjuntas: una persona cuenta en cada estado donde tiene
+// ocupación vigente, por eso el total se materializa aparte y NO es la suma.
 model KpisDotacionSnapshot {
-  fecha     DateTime @db.Date
-  escalafon String   @db.VarChar(100)
-  personas  Int
+  fecha            DateTime @db.Date
+  codigoRegistro   String   @map("codigo_registro") @db.VarChar(20)
+  situacionRevista String   @map("situacion_revista") @db.VarChar(50)
+  personas         Int
 
-  @@id([fecha, escalafon])
+  @@id([fecha, codigoRegistro, situacionRevista])
   @@index([fecha])
   @@map("kpis_dotacion_snapshot")
 }
@@ -325,6 +341,23 @@ model CodigoRegistro {
   @@map("codigos_registro")
 }
 
+// Régimen: clasificación de grupos de cargos (concepto reutilizable en toda la
+// app: filtros, reportes, export). Catálogo modelado como tabla con FK desde
+// Cargo.regimenId (molde escalafones/codigos_registro).
+model Regimen {
+  id        String   @id @default(uuid()) @db.Uuid
+  nombre    String   @unique @db.VarChar(100)
+  orden     Int
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relaciones
+  cargos Cargo[]
+
+  @@map("regimenes")
+}
+
 // =============================================================================
 // ENTIDADES PRINCIPALES
 // =============================================================================
@@ -381,13 +414,13 @@ model Persona {
 }
 
 model Cargo {
-  id                   String      @id @default(uuid()) @db.Uuid
+  id                   String          @id @default(uuid()) @db.Uuid
   // id_sial = identificador del SIAL del gobierno. Es dato EXTERNO: el sistema
   // NO lo inventa, lo trae del padrón. Nullable (S24): un cargo de conducción
   // vacante generado desde el organigrama no tiene id_sial porque nadie lo
   // ocupa — cuando una persona lo ocupe, el padrón le asigna el id_sial real.
   // El identificador que SÍ genera el sistema es `codigo` (CPH-D-xxx).
-  idSial               String?     @unique @map("id_sial") @db.VarChar(50)
+  idSial               String?         @unique @map("id_sial") @db.VarChar(50)
   // Código interno del sistema (distinto del id_sial, que es del SIAL del
   // gobierno) — nomenclatura heredada del sistema legacy dotacion-rrhh
   // (Doc/REGLAS_NEGOCIO.MD ahí, sección 3): {CARRERA}[-{TIPO}][-{MODALIDAD}]-{seq 6 dígitos},
@@ -395,41 +428,49 @@ model Cargo {
   // (2026-08-25) y debería generarse también en una futura función de "Alta
   // de Cargo" manual — no existe todavía en este proyecto, ver
   // Doc/Planificacion/PLAN_SCRUM_2026.md.
-  codigo               String?     @unique @db.VarChar(30)
-  hospitalId           String      @map("hospital_id") @db.Uuid
-  escalafonId          String      @map("escalafon_id") @db.Uuid
-  codigoRegistroId     String?     @map("codigo_registro_id") @db.Uuid
+  codigo               String?         @unique @db.VarChar(30)
+  hospitalId           String          @map("hospital_id") @db.Uuid
+  escalafonId          String          @map("escalafon_id") @db.Uuid
+  codigoRegistroId     String?         @map("codigo_registro_id") @db.Uuid
   // S20-2: catálogo real de puesto/especialidad, FK obligatoria (puesto) /
   // opcional (especialidad, no todo puesto la tiene). literalPuesto/
   // especialidadLegacy se mantienen como snapshot de auditoría del padrón
   // SIAL tal cual llegó esa semana — ningún filtro/dropdown/lógica de
   // negocio debe leerlos, solo puestoCargoId/especialidadPuestoId.
-  puestoCargoId        String      @map("puesto_cargo_id") @db.Uuid
-  especialidadPuestoId String?     @map("especialidad_puesto_id") @db.Uuid
-  literalPuesto        String?     @map("literal_puesto") @db.VarChar(200)
-  especialidadLegacy   String?     @map("especialidad_legacy") @db.VarChar(200)
-  agrupador            String?     @db.VarChar(150)
-  unificadorPuesto     String?     @map("unificador_puesto") @db.VarChar(200)
-  regimen              String?     @db.VarChar(50)
+  puestoCargoId        String          @map("puesto_cargo_id") @db.Uuid
+  especialidadPuestoId String?         @map("especialidad_puesto_id") @db.Uuid
+  literalPuesto        String?         @map("literal_puesto") @db.VarChar(200)
+  especialidadLegacy   String?         @map("especialidad_legacy") @db.VarChar(200)
+  agrupador            String?         @db.VarChar(150)
+  unificadorPuesto     String?         @map("unificador_puesto") @db.VarChar(200)
+  // Columna legacy (snapshot de texto del padrón); NO se toca. El concepto
+  // nuevo de régimen persistido vive en regimenId/regimenRef.
+  regimen              String?         @db.VarChar(50)
+  // Régimen persistido (clasificación reutilizable). El campo de relación se
+  // llama regimenRef porque `regimen` ya está ocupado por el string legacy.
+  regimenId            String?         @map("regimen_id") @db.Uuid
   // S2-17: repartición y clasificaciones SIAL
-  codigoRepa           String?     @map("codigo_repa") @db.VarChar(20)
-  descripcionRepa      String?     @map("descripcion_repa") @db.VarChar(200)
-  codAgrupamiento      String?     @map("cod_agrupamiento") @db.VarChar(20)
-  agrupamiento         String?     @db.VarChar(150)
+  codigoRepa           String?         @map("codigo_repa") @db.VarChar(20)
+  descripcionRepa      String?         @map("descripcion_repa") @db.VarChar(200)
+  codAgrupamiento      String?         @map("cod_agrupamiento") @db.VarChar(20)
+  agrupamiento         String?         @db.VarChar(150)
   // A21-7: cod_familia/lit_familia eliminadas — columnas muertas (0/48k filas,
   // ningún flujo las escribe; el único consumidor era el panel de detalle que
   // mostraba "Familia" siempre vacío).
-  puestoCodigoSial     String?     @map("puesto_codigo_sial") @db.VarChar(20)
-  estado               EstadoCargo @default(vigente)
+  puestoCodigoSial     String?         @map("puesto_codigo_sial") @db.VarChar(20)
+  estado               EstadoCargo     @default(vigente)
+  // Sub-estado persistido del cargo vigente (ocupado | vacante | concurso).
+  // null cuando el cargo NO es vigente. Ver SPRINT_estado_subestado_cargo.md.
+  subEstado            SubEstadoCargo? @map("sub_estado")
   // S8A-1: fecha en que el cargo entró al estado actual (para calcular días en estado)
-  estadoDesde          DateTime?   @map("estado_desde") @db.Date
+  estadoDesde          DateTime?       @map("estado_desde") @db.Date
   // S7-1: trazabilidad del alta manual (RF-11/12/13)
-  expediente           String?     @db.VarChar(150)
-  fechaDesde           DateTime?   @map("fecha_desde") @db.Date
-  createdById          String?     @map("created_by_id") @db.Uuid
-  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
-  deletedAt            DateTime?   @map("deleted_at") @db.Timestamptz
+  expediente           String?         @db.VarChar(150)
+  fechaDesde           DateTime?       @map("fecha_desde") @db.Date
+  createdById          String?         @map("created_by_id") @db.Uuid
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt            DateTime?       @map("deleted_at") @db.Timestamptz
 
   // S18-1: retención y cadena
   tipoOrigen String? @map("tipo_origen") @db.VarChar(5)
@@ -476,6 +517,7 @@ model Cargo {
   codigoRegistro     CodigoRegistro?     @relation(fields: [codigoRegistroId], references: [id])
   puestoCargo        PuestoCargo         @relation(fields: [puestoCargoId], references: [id])
   especialidadPuesto EspecialidadPuesto? @relation(fields: [especialidadPuestoId], references: [id])
+  regimenRef         Regimen?            @relation(fields: [regimenId], references: [id])
   cesac              Cesac?              @relation(fields: [cesacId], references: [id])
   unidadFija         UnidadFijaApayC?    @relation(fields: [unidadFijaId], references: [id])
   createdBy          Usuario?            @relation("CargosCreados", fields: [createdById], references: [id])
@@ -485,6 +527,7 @@ model Cargo {
   concursosCph       ConcursoCph[]
   concursosCeetps    ConcursoCeetps[]
   padronHistorico    PadronHistorico[]
+  padronIncidencias  PadronIncidencia[]
   bajas              Baja[]
   etiquetas          EtiquetaCargo[]
 
@@ -497,10 +540,12 @@ model Cargo {
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
+  @@index([subEstado])
   @@index([cargoBaseId])
   @@index([cargoRetenidoId])
   @@index([puestoCargoId])
   @@index([especialidadPuestoId])
+  @@index([regimenId])
   @@index([cesacId])
   @@index([unidadFijaId])
   @@map("cargos")
@@ -517,7 +562,9 @@ model Ocupacion {
   // el CUIL puro.
   cuil                  String?   @map("cuil") @db.VarChar(11)
   situacionRevista      String?   @map("situacion_revista") @db.VarChar(50)
-  estadoPersona         String?   @map("estado_persona") @db.VarChar(50)
+  // FASE 5: `estado_persona` eliminada (columna muerta). La condición de
+  // bloqueo del puesto vive en `fechaBloqueo`. El histórico conserva su
+  // propia `padron_historico.estado_persona` como dato inmutable.
   desde                 DateTime? @db.Date
   hasta                 DateTime? @db.Date
   // S2-17: jefatura
@@ -619,15 +666,22 @@ model PadronSnapshot {
   // S2-16: rutas de archivos generados por el pipeline
   archivoResultadoPath String?        @map("archivo_resultado_path") @db.VarChar(500)
   archivoCalidadPath   String?        @map("archivo_calidad_path") @db.VarChar(500)
+  // Guarda contra padrón parcial: ratio de tamaño (totalRegistros / total del
+  // último snapshot aprobado) calculado al terminar el pipeline, y el texto de
+  // la advertencia cuando el ratio cae bajo PADRON_RATIO_MINIMO. null = la guarda
+  // no aplicó (primer padrón sin aprobado previo) o el ratio fue normal.
+  ratioTamano          Float?         @map("ratio_tamano")
+  advertenciaTamano    String?        @map("advertencia_tamano") @db.Text
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones
-  procesadoPor    Usuario?          @relation("SnapshotProcesadoPor", fields: [procesadoPorId], references: [id])
-  aprobadoPor     Usuario?          @relation("SnapshotAprobadoPor", fields: [aprobadoPorId], references: [id])
-  diffs           PadronDiff[]
-  ocupaciones     Ocupacion[]
-  padronHistorico PadronHistorico[]
-  bajasVinculadas Baja[]            @relation("BajaSnapshotVinculado")
+  procesadoPor      Usuario?           @relation("SnapshotProcesadoPor", fields: [procesadoPorId], references: [id])
+  aprobadoPor       Usuario?           @relation("SnapshotAprobadoPor", fields: [aprobadoPorId], references: [id])
+  diffs             PadronDiff[]
+  ocupaciones       Ocupacion[]
+  padronHistorico   PadronHistorico[]
+  padronIncidencias PadronIncidencia[]
+  bajasVinculadas   Baja[]             @relation("BajaSnapshotVinculado")
 
   @@map("padron_snapshots")
 }
@@ -642,13 +696,52 @@ model PadronDiff {
   valorNuevo    String?  @map("valor_nuevo") @db.Text
   // null = pendiente decisión, true = aprobado (se crea cargo+persona+ocupación), false = rechazado (se crea sin código)
   aprobado      Boolean?
+  // Resolución tomada en Incidencias para un id_sial nuevo: cómo se
+  // gestionó el diff. Valores esperados: 'cargo' | 'concurso_vinculado' |
+  // 'concurso_creado' | 'transferencia' | 'sin_codigo'. Aditivo y nullable.
+  resolucion    String?  @map("resolucion") @db.VarChar(50)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relaciones
   snapshot PadronSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
   @@index([snapshotId])
+  // FASE 3 (paso 12, design §C.3): el paso 12 cruza padron_diff del snapshot
+  // con ocupaciones por (snapshot_id, id_sial_rol) para las señales de puesto y
+  // situación de revista. El compuesto evita scan por id_sial_rol dentro del
+  // snapshot. NO reemplaza al simple (snapshot_id): se agrega adyacente.
+  @@index([snapshotId, idSialRol])
   @@map("padron_diff")
+}
+
+// FASE 3 (design §D.2): incidencias del ciclo de vida del cargo, persistidas por
+// snapshot en el paso 12 de aprobarSnapshotService. Una fila por incidencia
+// detectada (tipos 3/4/5/6a/6b/6c). `estadoAnterior`/`estadoNuevo` son Json
+// (divergencia DELIBERADA con padron_diff.valor_* Text: una incidencia resume un
+// estado de forma variable, no un escalar). `tipo` es un slug string (no enum):
+// aditivo y barato de extender.
+model PadronIncidencia {
+  id             String   @id @default(uuid()) @db.Uuid
+  snapshotId     String   @map("snapshot_id") @db.Uuid
+  cargoId        String?  @map("cargo_id") @db.Uuid
+  idSial         String?  @map("id_sial") @db.VarChar(50)
+  idSialRol      String?  @map("id_sial_rol") @db.VarChar(50)
+  tipo           String   @db.VarChar(40) // slug: 'cayo-del-padron' | 'cambio-situacion-revista' | 'cambios-del-puesto' | 'otras:nueva-baja' | 'otras:cambio-persona' | 'otras:reaparecio'
+  estadoAnterior Json?    @map("estado_anterior")
+  estadoNuevo    Json?    @map("estado_nuevo")
+  detalle        String?  @db.Text
+  resuelta       Boolean  @default(false)
+  resolucion     String?  @db.VarChar(50)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  snapshot PadronSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  cargo    Cargo?         @relation(fields: [cargoId], references: [id])
+
+  @@index([snapshotId])
+  @@index([cargoId])
+  @@index([tipo])
+  @@index([snapshotId, tipo])
+  @@map("padron_incidencias")
 }
 
 model PadronHistorico {
@@ -684,6 +777,11 @@ model PadronHistorico {
   // S24: evolución de dotación — intervalo de vigencia por rol (LEAD sobre
   // id_sial_rol ordenado por fecha). Sin este índice la serie tardaba minutos.
   @@index([idSialRol, fechaAsignada])
+  // FASE 2 (histórico denso): consulta "estado del subuniverso gestionable en
+  // la semana S" del paso 12 — filtro por (fecha_asignada, cargo_id). Con el
+  // denso la tabla crece a millones de filas; el compuesto evita un bitmap-and
+  // sobre (fecha_asignada) + (cargo_id) por separado (design §C.3).
+  @@index([fechaAsignada, cargoId])
   @@map("padron_historico")
 }
 
@@ -707,6 +805,10 @@ model Concurso {
   // campo `motivo` libre de arriba) — usado cuando el concurso nace de una
   // solicitud de alta, ver notificación concurso_iniciado a sgrasv.
   motivoConcurso  MotivoConcurso? @map("motivo_concurso")
+  // Paso 1 "Concurso autorizado": SGRASV aprobó el pedido de autorización. Un
+  // concurso con motivoConcurso = nuevo_cargo no cuenta como activo para el cargo
+  // hasta tener este valor (ver cargos/concursoActivo.regla.ts). NULL = sin autorizar.
+  autorizadoAt    DateTime?       @map("autorizado_at") @db.Timestamptz
   registradoPorId String?         @map("registrado_por") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
@@ -793,6 +895,16 @@ model ConcursoCph {
   dispoDesierta                  String?           @map("dispo_desierta") @db.VarChar(50)
   fechaDispoDesierta             DateTime?         @map("fecha_dispo_desierta") @db.Date
   personaDesignadaId             String?           @map("persona_designada_id") @db.Uuid
+  // Carga manual por referencia (Paso 2, tercera vía de "elegir candidato"):
+  // el designado NO está en la BD de personas ni en la orden de mérito. Se
+  // guarda sólo la referencia (CUIL normalizado + nombre) SIN crear Persona.
+  // La Persona real se vincula cuando el padrón la traiga (enganche automático).
+  // designadoRefIdSialRol: id_sial_rol que el operador tipea si lo conoce, para
+  // el match directo contra el padrón (distinto de validadoIdSialRol, que es el
+  // rol real con el que se cerró la validación).
+  designadoRefCuil               String?           @map("designado_ref_cuil") @db.VarChar(11)
+  designadoRefNombre             String?           @map("designado_ref_nombre") @db.VarChar(200)
+  designadoRefIdSialRol          String?           @map("designado_ref_id_sial_rol") @db.VarChar(50)
   suspendido                     Boolean           @default(false)
   // Campos nuevos — datos del CSV histórico y flujo completo
   ifacs                          String?           @db.VarChar(200) // expediente IF del IFACS
@@ -823,6 +935,11 @@ model ConcursoCph {
   qInscriptos                    Int?              @map("q_inscriptos")
   pendienteAutorizacion          Boolean           @default(false) @map("pendiente_autorizacion")
   aprobadoDirector               Boolean           @default(false) @map("aprobado_director")
+  // Paso 5b: salto por orden de mérito. Cuando un concurso nuevo_cargo designa
+  // directo a alguien de una OM existente, se registra cuándo y a quién (el
+  // integrante de la OM). Si está seteado, el sub-estado salta a h-tad.
+  saltoOmAt                      DateTime?         @map("salto_om_at") @db.Timestamptz
+  saltoOmIntegranteId            String?           @map("salto_om_integrante_id") @db.Uuid
   siglaSolicitada                String?           @map("sigla_solicitada") @db.VarChar(20)
   codigoRegistroSolicitadoId     String?           @map("codigo_registro_solicitado_id") @db.Uuid
   codigoRegistroSolicitado       CodigoRegistro?   @relation("CphCodigoRegistroSolicitado", fields: [codigoRegistroSolicitadoId], references: [id])
@@ -832,6 +949,7 @@ model ConcursoCph {
 
   // Relaciones
   concurso                     Concurso                @relation(fields: [concursoId], references: [id])
+  saltoOmIntegrante            OrdenMeritoIntegrante?  @relation("SaltoOmIntegrante", fields: [saltoOmIntegranteId], references: [id], onDelete: SetNull)
   cargo                        Cargo                   @relation(fields: [cargoId], references: [id])
   hospital                     Hospital                @relation(fields: [hospitalId], references: [id])
   puestoCargoSolicitado        PuestoCargo?            @relation(fields: [puestoCargoSolicitadoId], references: [id])
@@ -1074,6 +1192,8 @@ model ConcursoCeetps {
   escalafonId             String               @map("escalafon_id") @db.Uuid
   estado                  EstadoConcursoCeetps @default(sin_autorizar)
   expedienteConcurso      String?              @map("expediente_concurso") @db.VarChar(150)
+  // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+  ifAutorizacion          String?              @map("if_autorizacion") @db.VarChar(150)
   puestoSolicitado        String?              @map("puesto_solicitado") @db.VarChar(200)
   // S20-3: FK al catálogo, nullable igual que puestoSolicitado (texto que reemplaza).
   puestoCargoSolicitadoId String?              @map("puesto_cargo_solicitado_id") @db.Uuid
@@ -1086,11 +1206,38 @@ model ConcursoCeetps {
   apertura2x18            Boolean              @default(false) @map("apertura_2x18")
   informeApertura         String?              @map("informe_apertura") @db.VarChar(150)
   expedienteConcurso2     String?              @map("expediente_concurso_2") @db.VarChar(150)
+  // Fechas del proceso previo al concurso (recuperadas del legacy)
+  fechaCaratulacion       DateTime?            @map("fecha_caratulacion") @db.Date
+  fechaAutorizacion       DateTime?            @map("fecha_autorizacion") @db.Date
+  tipificadorOrigen       String?              @map("tipificador_origen") @db.VarChar(200)
   fechaIfacs              DateTime?            @map("fecha_ifacs") @db.Date
   fechaInsal              DateTime?            @map("fecha_insal") @db.Date
+  // Cambio de especialidad respecto a la baja de origen (recuperado del legacy).
+  // No dispara flujo de autorización separado — solo documenta el cambio con
+  // la referencia al expediente/informe que lo respalda.
+  cambioEspecialidad      Boolean              @default(false) @map("cambio_especialidad")
+  docCambioEspecialidad   String?              @map("doc_cambio_especialidad") @db.VarChar(500)
+  // Sub-estado granular dentro del estado principal (sin_autorizar/autorizado/
+  // en_proceso/finalizado). Permite distinguir en la vista de detalle y en el
+  // listado qué etapa puntual alcanzó el concurso sin expandir el enum principal.
+  // Valores posibles: EXP_CARATULADO | DISPO_LLAMADO | IFACS | INSAL | TAD |
+  // DISPO_DESIGNACION (mirror de los 8 estados string del legacy).
+  subEstado               String?              @map("sub_estado") @db.VarChar(30)
+  // Cantidad de cargos a cubrir en el concurso (default 1). Puede ser > 1
+  // en casos de apertura 2x18hs o concursos de cobertura múltiple.
+  cantidadCargos          Int                  @default(1) @map("cantidad_cargos")
   expedienteDesignacion   String?              @map("expediente_designacion") @db.VarChar(150)
   dispoDesignacion        String?              @map("dispo_designacion") @db.VarChar(500)
   resolucionDesignacion   String?              @map("resolucion_designacion") @db.VarChar(500)
+  // Campos de designación granulares recuperados del legacy
+  puestoDesignado         String?              @map("puesto_designado") @db.VarChar(150)
+  estadoApto              String?              @map("estado_apto") @db.VarChar(100)
+  numeroAptoMedico        String?              @map("numero_apto_medico") @db.VarChar(100)
+  fechaProyectoDispo      DateTime?            @map("fecha_proyecto_dispo") @db.Date
+  altaSial                Boolean?             @map("alta_sial")
+  // Código del cargo en SIAL asignado tras la designación (equivalente a
+  // cargoSial en ConcursoCph).
+  codigoSial              String?              @map("codigo_sial") @db.VarChar(100)
   personaDesignadaId      String?              @map("persona_designada_id") @db.Uuid
   observaciones           String?              @db.Text
   createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz
@@ -1107,6 +1254,7 @@ model ConcursoCeetps {
   @@index([hospitalId])
   @@index([escalafonId])
   @@index([estado])
+  @@index([subEstado])
   @@map("concursos_ceetps")
 }
 
@@ -1125,6 +1273,7 @@ enum TipoAutorizacion {
   concurso_cph
   alta_cargo
   baja_cargo
+  concurso_ceetps
 }
 
 enum EstadoAutorizacion {
@@ -1162,6 +1311,11 @@ model Baja {
   cargaHoraria          Int?       @map("carga_horaria")
   generaConcurso        Boolean    @default(true) @map("genera_concurso")
   estado                EstadoBaja @default(pendiente)
+  // Especialidad elegida en el formulario de baja cuando el cargo la trae
+  // vacía (entre las disponibles según el Puesto). Se persiste en el registro
+  // de la baja y alimenta como semilla la carátula del concurso que se genere.
+  // Aditivo y nullable: bajas viejas sin especialidad siguen válidas.
+  especialidad          String?    @db.VarChar(200)
   observaciones         String?    @db.Text
   registradoPorId       String?    @map("registrado_por") @db.Uuid
   // S17: vinculación al archivo semanal del padrón
@@ -1286,6 +1440,12 @@ model Usuario {
   id           String   @id @default(uuid()) @db.Uuid
   username     String   @unique @db.VarChar(64)
   email        String   @unique @db.VarChar(255)
+  // Clave de vinculación "de ahora en más" (login multi-identificador). Nullable
+  // hasta el backfill: hay usuarios existentes sin CUIL; el UNIQUE de Postgres
+  // admite múltiples NULL, así que el estado intermedio no rompe la restricción.
+  cuil         String?  @unique @db.VarChar(11)
+  nombre       String?  @db.VarChar(120)
+  apellido     String?  @db.VarChar(120)
   passwordHash String   @map("password_hash") @db.VarChar(255)
   roleId       String   @map("role_id") @db.Uuid
   hospitalId   String?  @map("hospital_id") @db.Uuid
@@ -1311,6 +1471,8 @@ model Usuario {
   sorteosJuradoGenerados    SorteoJurado[]        @relation("SorteoJuradoGeneradoPor")
   sorteosJuradoConfirmados  SorteoJurado[]        @relation("SorteoJuradoConfirmadoPor")
   organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
+  tareasRecibidas           TareaPendiente[]      @relation("TareaDestinatario")
+  tareasCreadas             TareaPendiente[]      @relation("TareaCreadaPor")
 
   @@map("usuarios")
 }
@@ -1523,6 +1685,8 @@ model OrdenMeritoIntegrante {
   ordenMerito          OrdenMerito  @relation(fields: [ordenMeritoId], references: [id], onDelete: Cascade)
   persona              Persona?     @relation(fields: [personaId], references: [id])
   concursoCphDesignado ConcursoCph? @relation("IntegranteDesignadoEn", fields: [concursoCphDesignadoId], references: [id])
+  // Paso 5b: concursos que saltaron a designación usando este integrante.
+  saltosOm             ConcursoCph[] @relation("SaltoOmIntegrante")
 
   @@unique([ordenMeritoId, posicion])
   @@unique([ordenMeritoId, cuil])
@@ -1753,6 +1917,30 @@ model Notificacion {
   @@index([tipo])
   @@index([creadaAt])
   @@map("notificaciones")
+}
+
+// Tarea pendiente dirigida a un usuario concreto (a diferencia de Notificacion,
+// que apunta a un rol). tipo/estado como string VarChar con union TS de contrato
+// en @srrhh/types. referenciaTipo/referenciaId siguen el patrón de Autorizacion.
+model TareaPendiente {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tipo                  String    @db.VarChar(50)
+  estado                String    @default("pendiente") @db.VarChar(20)
+  usuarioDestinatarioId String    @map("usuario_destinatario_id") @db.Uuid
+  referenciaTipo        String    @map("referencia_tipo") @db.VarChar(50)
+  referenciaId          String    @map("referencia_id") @db.Uuid
+  mensaje               String?   @db.Text
+  creadaPorId           String?   @map("creada_por_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resueltaAt            DateTime? @map("resuelta_at") @db.Timestamptz
+
+  destinatario Usuario  @relation("TareaDestinatario", fields: [usuarioDestinatarioId], references: [id])
+  creadaPor    Usuario? @relation("TareaCreadaPor", fields: [creadaPorId], references: [id])
+
+  @@index([usuarioDestinatarioId, estado])
+  @@index([referenciaTipo, referenciaId])
+  @@index([estado])
+  @@map("tareas_pendientes")
 }
 
 // =============================================================================

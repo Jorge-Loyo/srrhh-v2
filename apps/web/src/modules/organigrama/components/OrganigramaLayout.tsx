@@ -8,9 +8,15 @@ import { can } from '@/shared/lib/can'
 // detalle (sección, hospital puntual, AP/CeSAC/unidad fija puntual) quedan
 // FUERA del layout (no llevan la barra de pestañas), igual que CargoDetailPanel
 // respecto de CargosLayout.
+// "Estructura" se deja SIN `permiso`: el acceso a Organigrama sigue ABIERTO a
+// todos por código (decisión E2 del diseño §3.5/§7) — su ruta /organigrama no
+// lleva RequirePermiso y el filtro `!t.permiso || can(...)` la muestra siempre.
+// El permiso `organigrama/tab:estructura` existe (aparece en la grilla) pero es
+// cosmético/informativo, no gobierna el acceso. "Área Programática" sí gatea
+// por su permiso propio `tab:*`.
 const TABS: Array<{ to: string; label: string; end: boolean; permiso?: { modulo: string; accion: string } }> = [
   { to: '/organigrama', label: 'Estructura', end: true },
-  { to: '/organigrama/areas-programaticas', label: 'Área Programática', end: false, permiso: { modulo: 'dotacion', accion: 'ver' } },
+  { to: '/organigrama/areas-programaticas', label: 'Área Programática', end: false, permiso: { modulo: 'organigrama', accion: 'tab:areas-programaticas' } },
 ]
 
 export function OrganigramaLayout() {

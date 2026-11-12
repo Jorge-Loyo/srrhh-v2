@@ -2,6 +2,21 @@
 // poder testearlos (padron.diff.test.ts) sin levantar Postgres ni validar env.
 // padron.service.ts los importa y re-exporta como única fuente.
 
+import { especialidadSialReal } from './resolverPuestoCargo.js'
+
+// Forma mínima de una fila del padrón que llega del Dotaneitor. Se declara acá
+// (igual que en padron.service.ts) para no acoplar los helpers puros al módulo
+// de servicio; es un simple mapa clave→valor.
+export type RegistroPython = Record<string, unknown>
+
+// Normaliza cualquier valor a string trim-eado ('' para null/undefined). Es la
+// ÚNICA fuente de este helper: padron.service.ts lo re-importa de acá (antes
+// tenía una copia local). Puro, sin dependencias.
+export function strVal(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  return String(v).trim()
+}
+
 // Fechas del padrón real vienen como "DD/MM/YYYY" (string). new Date("DD/MM/YYYY")
 // las interpreta mal (Node asume MM/DD), así que se parsean los componentes a mano
 // y se anclan a UTC con Date.UTC.
@@ -35,6 +50,33 @@ export function toISO(v: unknown): string {
   return iso === CENTINELA_ISO ? '' : iso
 }
 
+// Campos de Ocupacion cuyo valor es una FECHA y por lo tanto el diff los compara
+// en ISO (toISO) y los persiste parseados con parseFechaDDMMYYYY (null = campo
+// vacío -> NULL en BD), en vez de la comparación normalizada de texto. Única
+// fuente del literal que antes estaba triplicado en padron.service.ts. Incluye
+// fecha_bloqueo: es la CONDICIÓN de bloqueo del rol, recalculada en cada carga
+// del padrón (fecha presente = bloqueado; ausente = desbloqueado), por eso debe
+// compararse y limpiarse a NULL igual que cargo_desde/cargo_hasta.
+export function esCampoFechaOcupacion(colPython: string): boolean {
+  return colPython === 'cargo_desde' || colPython === 'cargo_hasta' || colPython === 'fecha_bloqueo'
+}
+
+// Réplica PURA de la rama fecha del diff (calcularDiff), para poder testear sin
+// BD los casos de completado / desbloqueo / cambio-de-fecha. Recibe el valor
+// anterior YA en ISO ('' si no había) y el valor nuevo crudo del padrón
+// ('DD/MM/YYYY' o '' si vino vacío). Devuelve si hubo `cambio`, si es un
+// `esCompletado` (vacío -> valor) y el `valorNuevo` que el diff emitiría:
+// la fecha nueva en ISO, o null cuando el padrón nuevo trae vacío (DESBLOQUEO).
+export function evaluarCampoFecha(
+  anteriorIso: string,
+  nuevoRaw: string,
+): { cambio: boolean; esCompletado: boolean; valorNuevo: string | null } {
+  const nuevoIso = toISO(nuevoRaw)
+  const cambio = anteriorIso !== nuevoIso
+  const completado = anteriorIso === '' && nuevoRaw !== ''
+  return { cambio, esCompletado: completado, valorNuevo: nuevoIso || null }
+}
+
 // Despoja el prefijo 'completado:' de un campo de diff. Idempotente para campos
 // no prefijados (incluido el marcador '__reabrir_ocupacion__').
 export function stripCompletado(campo: string): string {
@@ -58,4 +100,244 @@ export function categoriaBaja(
   const esBajaNueva =
     estado === 'vigente' && ocup != null && ocup.hasta == null && ocup.persona?.activo === true
   return esBajaNueva ? null : 'baja_previa'
+}
+
+// ─── GUARDA CONTRA PADRÓN PARCIAL (ratio de tamaño) ──────────────────────────
+// Previene que un padrón PARCIAL (error de exportación del SIAL) se procese como
+// completo y genere miles de falsas bajas (validacion_vacante). Funciones PURAS,
+// sin Prisma/env, para testearlas como el resto de los helpers del diff.
+
+export interface EvaluacionRatioTamano {
+  // Ratio nuevo/últimoAprobado. null cuando la guarda NO aplica (sin referencia).
+  ratio: number | null
+  // true cuando ratio < umbral (padrón sospechosamente chico). false si no aplica.
+  anomalo: boolean
+}
+
+// Calcula el ratio de tamaño del padrón nuevo contra el último snapshot APROBADO
+// y decide si es anómalo (ratio < umbral). La guarda NO aplica (ratio null,
+// anomalo false) cuando no hay referencia de tamaño: primer padrón sin aprobado
+// previo, o referencia con total <= 0 (evita división por cero / dato corrupto).
+// Pura: recibe los conteos y el umbral, no toca BD ni env.
+export function evaluarRatioTamano(
+  totalNuevo: number,
+  totalUltimoAprobado: number | null | undefined,
+  umbral: number,
+): EvaluacionRatioTamano {
+  if (totalUltimoAprobado == null || totalUltimoAprobado <= 0) {
+    return { ratio: null, anomalo: false }
+  }
+  const ratio = totalNuevo / totalUltimoAprobado
+  return { ratio, anomalo: ratio < umbral }
+}
+
+// ─── GUARDA CONTRA PADRÓN SIN BAJA SIAL DE LA SEMANA ─────────────────────────
+// Previene que un padrón se apruebe sin haber subido las bajas SIAL de esa
+// semana: eso hace que el padrón detecte como "eliminados" a personas que en
+// realidad ya son bajas registradas en SIAL y las deje en validacion_vacante
+// sin vincular (causa del backlog de 2.214 bajas recién limpiado por backfill).
+// Bloqueo BLANDO con override auditado, igual que la guarda de ratio. Función
+// PURA, sin Prisma/env, para testearla como el resto de los helpers del diff.
+
+// Milisegundos en un día (ventana ±ventanaDias). Local al helper.
+const MS_POR_DIA = 24 * 60 * 60 * 1000
+
+// Decide si falta la baja SIAL de la semana del padrón. Si `exigir` es false la
+// guarda NO aplica (nunca falta). Si `exigir` es true, basta con que exista al
+// menos una fecha en `fechasBajaSialDisponibles` (fecha_archivo de snapshots
+// SIAL válidos) dentro de ±`ventanaDias` de `fechaPadron` para que NO falte.
+// `ventanaDias === 0` exige fecha exacta (mismo día). Si no hay ninguna dentro
+// de la ventana (incluida la lista vacía) ⇒ falta=true con una advertencia que
+// menciona la fecha del padrón y la ventana. PURA: no toca BD ni env.
+export function evaluarBajaSialRequerida(
+  fechaPadron: Date,
+  fechasBajaSialDisponibles: Date[],
+  exigir: boolean,
+  ventanaDias: number,
+): { falta: boolean; advertencia: string | null } {
+  if (!exigir) return { falta: false, advertencia: null }
+
+  const toleranciaMs = ventanaDias * MS_POR_DIA
+  const refMs = fechaPadron.getTime()
+  const hayDentroDeVentana = fechasBajaSialDisponibles.some(
+    (f) => Math.abs(f.getTime() - refMs) <= toleranciaMs,
+  )
+  if (hayDentroDeVentana) return { falta: false, advertencia: null }
+
+  const fechaIso = fechaPadron.toISOString().slice(0, 10)
+  const advertencia =
+    `No hay una baja SIAL subida para la semana del padrón (${fechaIso}, ventana ±${ventanaDias} día(s)). ` +
+    `Aprobar sin la baja SIAL de la semana reacumula bajas en validacion_vacante sin vincular. ` +
+    `Subí la baja SIAL de la semana o confirmá el override para aprobar igual.`
+  return { falta: true, advertencia }
+}
+
+// ─── DESDOBLADO (24 Residencias / 07 Docentes) ───────────────────────────────
+// Fix del pipeline: estos dos cod_registro llevan un cargo 1:1 por rol (1 cargo
+// = 1 rol = 1 persona), identificado por id_sial_rol, NO por cargo.id_sial. El
+// resto de las carreras sigue por id_sial sin cambios. Ver design.md §2/§3.
+
+// Cod_registros cuyos cargos están desdoblados (1:1 por rol).
+export const COD_REGISTROS_DESDOBLADOS = new Set(['24', '07'])
+
+// true si el cod_registro corresponde a una carrera desdoblada (24/07).
+export function esDesdoblado(codRegistro: string | null | undefined): boolean {
+  return COD_REGISTROS_DESDOBLADOS.has((codRegistro ?? '').trim())
+}
+
+// Réplica EXACTA en TS de la función SQL norm_esp(text) del script
+// scripts/fix_desdoblado_cargos.sql (B.0). Se reimplementa acá para no depender
+// de que la función SQL persista fuera de la transacción del split y para poder
+// testearla sin BD. Pasos (en orden): unaccent, lower, quita "(...)" y su
+// contenido, quita el bullet "•", quita guiones, colapsa espacios, trim final.
+// El trim final es imprescindible: sin él "pediatria (clinica)" quedaría
+// "pediatria " (con espacio de cola) y no matchearía el catálogo.
+export function normEspDesdoblado(txt: string | null | undefined): string {
+  return (txt ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // unaccent
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ') // quita "(...)" y su contenido
+    .replace(/•/g, ' ') // quita el bullet
+    .replace(/-/g, ' ') // quita guiones
+    .replace(/\s+/g, ' ') // colapsa espacios
+    .trim()
+}
+
+export interface ParticionRegistros {
+  nuevosMap: Map<string, RegistroPython> // resto de carreras (clave id_sial)
+  nuevosDesdobladosMap: Map<string, RegistroPython> // 24/07 (clave id_sial_rol)
+}
+
+// Clasifica cada fila del padrón en dos conjuntos: las carreras normales van a
+// `nuevosMap` keyed por id_sial (comportamiento actual); las 24/07 van a
+// `nuevosDesdobladosMap` keyed por id_sial_rol = `${idSial}-${cuilYRol}`.
+// Invariante central del fix: una fila 24/07 NUNCA entra a `nuevosMap`, así los
+// loops por id_sial jamás regeneran un cargo compartido.
+export function particionarRegistros(registros: RegistroPython[]): ParticionRegistros {
+  const nuevosMap = new Map<string, RegistroPython>()
+  const nuevosDesdobladosMap = new Map<string, RegistroPython>()
+  for (let i = 0; i < registros.length; i++) {
+    const r = registros[i]!
+    const idSial = strVal(r['ID SIAL'] ?? r['id_sial'])
+    if (!idSial) continue
+    const codReg = strVal(r['CODIGO DE REGISTRO'] ?? r['codigo_de_registro'])
+    if (esDesdoblado(codReg)) {
+      const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
+      const idSialRol = cuilYRol ? `${idSial}-${cuilYRol}` : idSial
+      // Clave duplicada (dos filas 24/07 que colapsan al mismo id_sial_rol —
+      // p. ej. ambas sin CUIL Y ROL → clave degradada a idSial): NO se pisa en
+      // silencio. Se conserva la primera y se descarta la segunda con warn.
+      if (nuevosDesdobladosMap.has(idSialRol)) {
+        console.warn(
+          `[padron][desdoblado] clave id_sial_rol duplicada "${idSialRol}" (fila ${i}); se conserva la primera, se descarta la segunda`,
+        )
+        continue
+      }
+      if (!cuilYRol) {
+        console.warn(
+          `[padron][desdoblado] registro 24/07 sin CUIL Y ROL (id_sial ${idSial}, fila ${i}); clave degradada a id_sial`,
+        )
+      }
+      nuevosDesdobladosMap.set(idSialRol, r)
+    } else {
+      nuevosMap.set(idSial, r)
+    }
+  }
+  return { nuevosMap, nuevosDesdobladosMap }
+}
+
+// Resolver ESTRICTO de especialidad para el alta 1:1 desdoblada (réplica de la
+// regla 5 / REGLA DE ORO del script SQL): match exacto de `especialidadRaw`
+// contra las EspecialidadPuesto del MISMO puesto, usando la misma normalización
+// que norm_esp. Devuelve NULL si el rol no trae especialidad real o no hay
+// match. PURA por construcción: no recibe `tx`, por lo que NO puede derivar por
+// puesto ni auto-crear (a diferencia de resolverEspecialidadPuestoId). El índice
+// `catalogoNormEsp` tiene clave `${puestoId}:${normEspDesdoblado(nombre)}`.
+export function resolverEspecialidadDesdobladaId(
+  catalogoNormEsp: Map<string, string>,
+  puestoId: string,
+  especialidadRaw: string | null | undefined,
+): string | null {
+  const real = especialidadSialReal(especialidadRaw ?? null) // descarta placeholders "SIN ESPECIALIDAD"
+  if (!real) return null // regla de oro: sin especialidad real → NULL
+  const key = `${puestoId}:${normEspDesdoblado(real)}`
+  return catalogoNormEsp.get(key) ?? null // sin match → NULL (regla de oro)
+}
+
+// Prefijo correcto del cargo desdoblado FORZADO por la carrera (el cod_registro
+// manda, igual que el script): '24' → 'RES', '07' → 'DOC'. SIN guion (es lo que
+// espera maxSecuencialCargo, que arma el LIKE `${prefijo}-%`). Recibe el prefijo
+// que calculó prefijoDeCargo y, si no coincide con el esperado por carrera, lo
+// fuerza. Puro y testeable sin Prisma.
+export function prefijoDesdobladoForzado(
+  codRegistro: string | null | undefined,
+  prefijoCalculado: string | null | undefined,
+): 'RES' | 'DOC' {
+  const esperado: 'RES' | 'DOC' = (codRegistro ?? '').trim() === '07' ? 'DOC' : 'RES' // 24 → RES
+  if (prefijoCalculado !== esperado) {
+    if (prefijoCalculado != null && prefijoCalculado !== '') {
+      console.warn(
+        `[padron][desdoblado] prefijo ${prefijoCalculado} != ${esperado} para cod_registro ${codRegistro}; se fuerza ${esperado}`,
+      )
+    }
+    return esperado
+  }
+  return esperado
+}
+
+// Decide el tipo de diff de un rol 24/07 del padrón nuevo según exista o no su
+// cargo 1:1 (resuelto por id_sial_rol vía ocupación viva o mapeo). Puro: la
+// resolución real del "actual" vive en calcularDiff (toca BD); acá solo la
+// regla. 'alta' = rol nunca visto → cargo 1:1 nuevo; 'modificado' = ya existe.
+export function tipoDiffDesdoblado(existeActual: boolean): 'alta' | 'modificado' {
+  return existeActual ? 'modificado' : 'alta'
+}
+
+// Clasificación informativa de una baja desdoblada para el listado (§3.6): se
+// decide por el estado del cargo 1:1 guardado en valorAnterior (id_sial es NULL
+// en los clones, no se puede usar el lookup por id_sial). Puro y testeable.
+export function clasificacionEliminadoDesdoblado(
+  estadoCargo: string | null | undefined,
+): 'en_validacion' | 'sin_persona' {
+  return estadoCargo === 'validacion_vacante' ? 'en_validacion' : 'sin_persona'
+}
+
+// Formatea un código correlativo de cargo desdoblado: `${prefijo}-${n 6 dígitos}`
+// (ej. 'RES' + 1 → 'RES-000001', 'DOC' + 460 → 'DOC-000460'). El prefijo va SIN
+// guion. Puro; la unicidad/blindaje contra huecos se maneja en el call site con
+// la BD (maxSecuencialCargo + count), acá solo el formateo determinista.
+export function formatearCodigoDesdoblado(prefijo: string, n: number): string {
+  return `${prefijo}-${String(n).padStart(6, '0')}`
+}
+
+// Clasifica un grupo de diffs de un mismo id_sial_rol en el cubo que el paso 4
+// del aprobar (padron.service.ts) usa para materializar. Réplica PURA de la
+// cadena de ramas del `for (const [idSialRol, cambios] of porSialRol)`: la
+// condición "¿es desdoblada?" (campo '__alta_desdoblada__') se evalúa PRIMERO
+// para que un desdoblado NUNCA caiga en nuevos/rechazados. Clave para FASE 0:
+// un tipo 'nuevo' con aprobado=null (pendiente, sin decisión) NO matchea
+// ninguna rama → devuelve null → NO se materializa (no crea cargo/ocupación ni
+// entra a padron_historico). Puro y testeable sin Prisma.
+export function clasificarGrupoAprobar(primerCambio: {
+  tipo: string
+  campo: string
+  aprobado: boolean | null
+}):
+  | 'nuevosDesdoblados'
+  | 'rechazadosDesdoblados'
+  | 'nuevos'
+  | 'rechazados'
+  | 'eliminados'
+  | 'modificados'
+  | null {
+  const { tipo, campo, aprobado } = primerCambio
+  const esDesd = campo === '__alta_desdoblada__'
+  if (tipo === 'nuevo' && esDesd && aprobado === true) return 'nuevosDesdoblados'
+  if (tipo === 'nuevo' && esDesd && aprobado === false) return 'rechazadosDesdoblados'
+  if (tipo === 'nuevo' && aprobado === true) return 'nuevos'
+  if (tipo === 'nuevo' && aprobado === false) return 'rechazados'
+  if (tipo === 'eliminado') return 'eliminados'
+  if (tipo === 'modificado') return 'modificados'
+  return null
 }

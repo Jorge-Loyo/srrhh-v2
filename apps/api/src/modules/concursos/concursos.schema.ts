@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { TipoConcurso } from '@srrhh/types'
+import { concursosCphQuerySchema } from '../concursos-cph/concursos-cph.schema.js'
 // MotivoConcurso viene del cliente Prisma (nuevo_cargo/alta_por_baja, S14-1)
 // — no confundir con el MotivoConcurso de @srrhh/types (concepto legacy
 // distinto y sin uso: baja/ampliacion/cobertura_pou/jefatura/otro).
@@ -30,3 +31,30 @@ export const createConcursoSchema = z
   })
 
 export type CreateConcursoBody = z.infer<typeof createConcursoSchema>
+
+// ─── Bandeja mixta de concursos (CPH + CEETPS) — GET /concursos/bandeja ──────
+// Filtros COMUNES a ambos tipos. Se lee del Concurso base, así que el filtro de
+// estado va contra el campo string de la extensión (ver bandeja.service.ts).
+export const bandejaConcursosQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  hospitalId: z.string().uuid().optional(),
+  // tipo: discriminador de la bandeja. Omitido = ambos.
+  tipo: z.nativeEnum(TipoConcurso).optional(),
+  // estado: valor textual de la extensión (EstadoConcursoCph o EstadoConcursoCeetps).
+  estado: z.string().trim().min(1).optional(),
+  motivo: z.nativeEnum(MotivoConcurso).optional(),
+  search: z.string().trim().min(1).optional(),
+})
+
+export type BandejaConcursosQuery = z.infer<typeof bandejaConcursosQuerySchema>
+
+// ─── Bandeja RICA de "Gestión de Concursos" (/cargos/concurso) — PASO 1b ─────
+// La tabla COMPLETA mudada de /concursos/cph reutiliza los MISMOS filtros que
+// el listado CPH (ConcursoCphFilters). Se extiende con `tipo` para poder
+// filtrar CPH / CEETPS / ambos. Ver bandeja-gestion.service.ts (opción i).
+export const bandejaGestionQuerySchema = concursosCphQuerySchema.extend({
+  tipo: z.enum(['cph', 'ceetps']).optional(),
+})
+
+export type BandejaGestionQuerySchema = z.infer<typeof bandejaGestionQuerySchema>

@@ -2,8 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import multipart from '@fastify/multipart'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { bajasQuerySchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
-import { listBajasService, createBajaService, updateBajaService, getBajaService, listValidacionService, listValidacionHistoricoService, listSoloBajaSialService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
+import { bajasQuerySchema, camposDiferidosSchema, createBajaSchema, updateBajaSchema, vinculacionQuerySchema } from './bajas.schema.js'
+// FASE 6: listValidacionService, listValidacionHistoricoService,
+// listSoloBajaSialService y listClasificacionVacantesService ya NO se importan
+// acá: sus endpoints GET se retiraron (sólo servían a la pantalla jubilada
+// ValidacionBajasPage). Las funciones siguen existiendo en bajas.service.ts.
+import { listBajasService, createBajaService, updateBajaService, anularBajaService, updateCamposDiferidosService, getBajaService, listVinculacionService, confirmarValidacionService, rechazarValidacionService, importarBajasCsvService } from './bajas.service.js'
 
 const WRITE_PERMISO = { modulo: 'bajas', accion: 'crear' }
 
@@ -66,23 +70,42 @@ export async function bajasRoutes(app: FastifyInstance) {
     }
   )
 
-  // S8B: GET /validacion/solo-baja — en SIAL pero aún activos en padrón
-  app.get('/validacion/solo-baja', async (_request, reply) => {
-    const data = await listSoloBajaSialService()
-    return reply.send({ data })
-  })
+  // POST /:id/anular — anular un borrador (resolucion_a_la_firma → anulada).
+  // NO toca el cargo ni crea concurso (el borrador nunca confirmó nada).
+  app.post(
+    '/:id/anular',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const user = request.user as { id: string }
+      const data = await anularBajaService(id, user.id)
+      return reply.send({ data })
+    }
+  )
 
-  // S8B: GET /validacion/historico — cargos no_vigente confirmados
-  app.get('/validacion/historico', async (_request, reply) => {
-    const data = await listValidacionHistoricoService()
-    return reply.send({ data })
-  })
+  // PATCH /:id/campos-diferidos — completar Doc. respaldatoria y Fecha pase
+  // paralelo/GT sin tocar estado/cargo/concurso (endpoint dedicado, ver service)
+  app.patch(
+    '/:id/campos-diferidos',
+    { preHandler: requirePermiso(WRITE_PERMISO) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const body = camposDiferidosSchema.parse(request.body)
+      const data = await updateCamposDiferidosService(id, body)
+      return reply.send({ data })
+    }
+  )
 
-  // S8B: GET /validacion — cargos en validacion_vacante
-  app.get('/validacion', async (_request, reply) => {
-    const data = await listValidacionService()
-    return reply.send({ data })
-  })
+  // FASE 6: los 4 GET de solo-vista (/validacion, /validacion/historico,
+  // /validacion/solo-baja, /validacion/clasificacion) se RETIRARON de la API.
+  // Sólo servían a la pantalla ValidacionBajasPage, ya jubilada de la
+  // navegación; su función la cubren las pestañas nuevas de Incidencias. Las
+  // funciones de servicio (listValidacionService, listValidacionHistoricoService,
+  // listSoloBajaSialService, listClasificacionVacantesService) se CONSERVAN en
+  // bajas.service.ts (no se borran; enfoque conservador), simplemente dejan de
+  // exponerse por HTTP. Los POST confirmar/rechazar SE MANTIENEN (los usa
+  // confirmarValidacionService/rechazarValidacionService, que conservan la regla
+  // datosTrasConfirmar viva del pipeline).
 
   // S8B: POST /validacion/:cargoId/confirmar
   app.post(

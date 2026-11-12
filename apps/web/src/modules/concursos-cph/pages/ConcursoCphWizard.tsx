@@ -1,12 +1,12 @@
 // Wizard de seguimiento CPH — funciona en dos modos:
 // Wizard de seguimiento de un concurso CPH — carga el concurso real por su UUID
-// (id de la ruta) y guía las 5 etapas del proceso: Baja/Apertura, Autorización/
+// (id de la ruta) y guía las 5 etapas del proceso: Apertura/Autorización, Autorización/
 // Jurado, Inscripción/Examen/OM, IFACS/INSAL y Designación.
 // "Declarar desierto" NO es una etapa: es una acción disponible en la Etapa 3
 // que relanza el concurso desde la Etapa 1.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import {
@@ -25,9 +25,15 @@ import {
 } from '@/shared/lib/exportConcursoDocs'
 import type { ConcursoCph } from '@srrhh/types'
 import { useAuth } from '@/modules/auth/hooks/useAuth'
+import { can } from '@/shared/lib/can'
+import { CorregirTipoControl } from '../components/CorregirTipoControl'
+import { etapa1CompletaParaAutorizar, puedeCorregirTipo } from '../lib/corregirTipo'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { motivoConcursoLabel } from '@/modules/cargos/lib/bajasHelpers'
+import { documentoOrigenDeConcurso } from '../lib/documentoOrigen'
 import {
   useDesignarConcursoCph,
+  useAsignarDesignadoCph,
   useDeclararDesiertoCph,
   useSuspenderConcursoCph,
   useGenerarSorteoJurado,
@@ -62,9 +68,22 @@ import {
   SUB_ESTADOS,
 } from '../lib/wizard.constants'
 import { PanelSubEstados } from '../components/PanelSubEstados'
+import {
+  etapasVisiblesPara,
+  puedeVerEtapa,
+  siguienteVisible,
+  anteriorVisible,
+} from '../lib/etapasVisibles'
+import {
+  aplicarBloqueoPorAutorizacion,
+  avisoAutorizacionNuevoCargo,
+  esNuevoCargoSinAutorizar,
+} from '../lib/bloqueoAutorizacion'
 import { HistorialCambios } from '../components/HistorialCambios'
-import { EtiquetasControl } from '../components/EtiquetasControl'
+import { EtiquetasControl } from '@/shared/components/EtiquetasControl'
 import { PanelReutilizarOm } from '../components/PanelReutilizarOm'
+import { PanelOmDisponibles } from '../components/PanelOmDisponibles'
+import { aplicarSaltoOm, debeOcultarPanelEtapa1 } from '../lib/saltoOm'
 
 // Calcula el orden de mérito a partir de la nota de cada inscripto: nota más
 // alta = posición 1. No puede haber dos personas en la misma posición — un
@@ -103,6 +122,11 @@ export function ConcursoCphWizard() {
 
   const { user } = useAuth()
   const queryClient = useQueryClient()
+  // Paso 5a: aviso de éxito que deja la corrección de tipo al navegar a este concurso.
+  const location = useLocation()
+  const [avisoTipo, setAvisoTipo] = useState<string | null>(
+    (location.state as { avisoTipo?: string } | null)?.avisoTipo ?? null,
+  )
 
   // S13-C: la Autorizacion pendiente real (tabla genérica) para este concurso,
   // si existe y le corresponde resolverla al usuario logueado. Reemplaza al
@@ -124,8 +148,18 @@ export function ConcursoCphWizard() {
     },
     enabled: !!id,
   })
+  // Paso 2a: el GET del concurso trae la autorización pendiente; sirve de
+  // respaldo para el admin (el listado /autorizaciones filtra por el rol propio
+  // y no se la devuelve) y para evitar el límite de página del listado.
+  const autorizacionPendienteEfectiva = cphData?.autorizacionPendiente ?? autorizacionPendiente ?? null
   const puedeResolverAutorizacion =
-    !!autorizacionPendiente && autorizacionPendiente.resolverPorRolSlug === user?.rolSlug
+    !!autorizacionPendienteEfectiva &&
+    (autorizacionPendienteEfectiva.resolverPorRolSlug === user?.rolSlug || user?.rolSlug === 'admin')
+  // Quien puede resolver como SGRASV (permiso autorizaciones/resolver_sgrasv, o
+  // admin que los tiene todos) puede corregir la Etapa 1 mientras hay una
+  // autorización pendiente; el PATCH sigue exigiendo concursos-cph/editar.
+  const puedeCorregirEtapa1 =
+    can(user, 'autorizaciones', 'resolver_sgrasv') && can(user, 'concursos-cph', 'editar')
 
   const { data: escalafones = [] } = useEscalafones()
   const { data: hospitales = [] } = useHospitales()
@@ -134,9 +168,31 @@ export function ConcursoCphWizard() {
   const escalafonesOrdenados = [...escalafones].sort((a, b) =>
     escalafonLabel(a.nombre).localeCompare(escalafonLabel(b.nombre), 'es'),
   )
-  // Helper: dado un escalafonId, devuelve el primer codigoRegistroId asociado
-  const crIdDeEscalafon = (escId: string) =>
-    codigosRegistro.find((cr) => cr.escalafonId === escId)?.id ?? null
+  // Helper: dado un escalafonId, devuelve un codigoRegistroId DETERMINÍSTICO
+  // del escalafón. FIX A (informe diag-bug1-persiste): antes se usaba
+  // `codigosRegistro.find(...)`, que devuelve el PRIMER CR según el orden del
+  // array — arbitrario. Cuando un escalafón tiene 2 CRs con el mismo literal
+  // (CPH: CR 22 y CR 37), ese orden elegía uno al azar y disparaba el falso
+  // "cambio de carrera". Ahora se elige por una regla estable: el CR de menor
+  // `codigo` (comparado numérico si aplica, si no alfabético), y como desempate
+  // el menor `id`. Esto solo se usa cuando la carrera REALMENTE cambió de
+  // escalafón; el backend compara por escalafón, así que cualquier CR válido de
+  // ese escalafón representa la misma carrera.
+  const crIdDeEscalafon = (escId: string) => {
+    const delEsc = codigosRegistro.filter((cr) => cr.escalafonId === escId)
+    if (delEsc.length === 0) return null
+    const ordenados = [...delEsc].sort((a, b) => {
+      const ca = a.codigo ?? ''
+      const cb = b.codigo ?? ''
+      const na = Number(ca)
+      const nb = Number(cb)
+      if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb
+      const byCodigo = ca.localeCompare(cb, 'es')
+      if (byCodigo !== 0) return byCodigo
+      return a.id.localeCompare(b.id)
+    })
+    return ordenados[0].id
+  }
   const escalafonCph = escalafones.find(
     (e) => e.nombre === 'Nueva Carrera Profesional Hospitalaria',
   )
@@ -157,6 +213,7 @@ export function ConcursoCphWizard() {
           partidaPresupuestaria?: string | null
           cargaHoraria?: number | null
           fechaPaseParalelo?: string | Date | null
+          persona?: { apellidoNombre?: string | null; numeroDoc?: string | null; cuil?: string | null } | null
         }
       }
     )?.baja
@@ -179,12 +236,16 @@ export function ConcursoCphWizard() {
         c?.cargo?.especialidad ??
         '—',
       escalafon: 'CPH',
-      personaBaja: c?.persona?.apellidoNombre ?? '—',
+      // Fallback a baja.persona: los concursos importados no tienen
+      // concurso.persona, pero la persona que se fue está en la baja.
+      personaBaja: c?.persona?.apellidoNombre ?? baja?.persona?.apellidoNombre ?? '—',
+      cuilBaja: c?.persona?.cuil ?? baja?.persona?.cuil ?? '',
       fechaBaja: fechaBajaVal,
       eeBaja: eeBajaVal,
       subEstado: cphData.subEstado ?? 'vacante',
       subEstado3: cphData.subEstado3 ?? '',
       suspendido: cphData.suspendido,
+      motivoConcurso: c?.motivoConcurso ?? null,
       observaciones: cphData.observaciones ?? '',
     }
   }, [cphData])
@@ -230,6 +291,23 @@ export function ConcursoCphWizard() {
         ? rawFecha.slice(0, 10)
         : (rawFecha as Date).toISOString().slice(0, 10)
       : ''
+    // Datos informativos de la baja (readonly). Se reutilizan los valores ya
+    // resueltos en el memo `concurso` (cuilBaja / especialidad) para no volver
+    // a traerlos ni duplicar la lógica de fallback.
+    const cuilBajaResuelto = concurso?.cuilBaja ?? ''
+    const especialidadBajaResuelto = concurso?.especialidad ?? ''
+    // Documento de origen (Baja | Creación) según el motivo del concurso. No toca
+    // eeBaja: solo cambia el rótulo/valor mostrado en la Etapa 1.
+    const concursoBase = cphData?.concurso as unknown as
+      | { expediente?: string | null; cargo?: { expediente?: string | null; fechaDesde?: string | null } }
+      | undefined
+    const docOrigen = documentoOrigenDeConcurso({
+      motivoConcurso: cphData?.concurso?.motivoConcurso ?? null,
+      eeBaja: eeBajaResuelto || v('eeBaja'),
+      expedienteConcurso: concursoBase?.expediente,
+      expedienteCargo: concursoBase?.cargo?.expediente,
+    })
+    const fechaAltaCargo = (concursoBase?.cargo?.fechaDesde ?? '').slice(0, 10)
     // Determinar estado de cada etapa según qué campos tiene completados.
     // Etapa 2 COMPLETA solo con TODOS sus requisitos: fecha de autorización +
     // jurado CONFIRMADO + disposición de llamado. Mientras falte alguno, la
@@ -258,12 +336,14 @@ export function ConcursoCphWizard() {
       return 'pendiente'
     }
 
-    return [
+    const etapasBase: Etapa[] = [
       {
         id: 'baja',
         numero: 1,
-        titulo: 'Baja / Apertura',
-        descripcion: 'Registro de la baja del agente y apertura del expediente de concurso.',
+        titulo: 'Apertura / Autorización',
+        descripcion: docOrigen.esCreacion
+          ? 'Documento de creación del cargo y apertura del expediente de concurso.'
+          : 'Registro de la baja del agente y apertura del expediente de concurso.',
         estado: !cphData
           ? 'activa'
           : cphData.eeConcurso && !cphData.pendienteAutorizacion
@@ -273,23 +353,58 @@ export function ConcursoCphWizard() {
         campos: [
           {
             key: 'eeBaja',
-            label: 'Expediente de baja',
+            label: docOrigen.etiqueta,
             tipo: 'texto',
-            valor: eeBajaResuelto || v('eeBaja'),
+            valor: docOrigen.esCreacion ? docOrigen.valor : eeBajaResuelto || v('eeBaja'),
             readonly: true,
           },
-          {
-            key: 'fechaBaja',
-            label: 'Fecha de baja',
-            tipo: 'fecha',
-            valor: fechaBajaResuelto || v('fechaBaja'),
-            readonly: true,
-          },
+          // Cargo nuevo: no hay fecha de baja; se muestra la fecha de alta ("Desde").
+          // Si no está disponible, el campo se oculta.
+          ...(docOrigen.esCreacion
+            ? fechaAltaCargo
+              ? [
+                  {
+                    key: 'fechaBaja',
+                    label: 'Fecha de alta',
+                    tipo: 'fecha' as const,
+                    valor: fechaAltaCargo,
+                    readonly: true,
+                  },
+                ]
+              : []
+            : [
+                {
+                  key: 'fechaBaja',
+                  label: 'Fecha de baja',
+                  tipo: 'fecha' as const,
+                  valor: fechaBajaResuelto || v('fechaBaja'),
+                  readonly: true,
+                },
+              ]),
           {
             key: 'puesto',
             label: 'Puesto',
             tipo: 'texto',
             valor: cphData?.concurso?.cargo?.literalPuesto ?? '',
+            readonly: true,
+          },
+          // CUIL del agente: solo aplica a una baja.
+          ...(docOrigen.esCreacion
+            ? []
+            : [
+                {
+                  key: 'cuilBaja',
+                  label: 'CUIL',
+                  tipo: 'texto' as const,
+                  valor: cuilBajaResuelto,
+                  readonly: true,
+                },
+              ]),
+          {
+            key: 'especialidadBaja',
+            label: docOrigen.esCreacion ? 'Especialidad' : 'Especialidad de la baja',
+            tipo: 'texto',
+            valor: especialidadBajaResuelto,
             readonly: true,
           },
           {
@@ -310,7 +425,7 @@ export function ConcursoCphWizard() {
       {
         id: 'autorizacion',
         numero: 2,
-        titulo: 'Autorización / Jurado',
+        titulo: 'Jurado / Dispo',
         descripcion: 'Autorización por DGAYDRH, sorteo de jurado y disposición de llamado.',
         estado: estadoEtapa(
           etapa2Completa,
@@ -473,6 +588,9 @@ export function ConcursoCphWizard() {
         ],
       },
     ]
+    // Paso 2a: nuevo_cargo sin autorizar → Etapas 2–5 bloqueadas hasta que SGRASV autorice.
+    // Paso 5b: con salto por orden de mérito, Etapas 2–3 resueltas y Etapa 4 (IFACS) activa.
+    return aplicarBloqueoPorAutorizacion(aplicarSaltoOm(etapasBase, cphData), cphData?.concurso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cphData, juradoData?.confirmado])
 
@@ -507,13 +625,25 @@ export function ConcursoCphWizard() {
   // 'proponer' (Etapa 4): solo elegir a quién notificar por INSAL, no ocupa
   // el cargo ni pide fecha de inicio. 'designar' (Etapa 5): designación
   // oficial real, crea la ocupación — comportamiento existente sin cambios.
-  const [modalDesignarModo, setModalDesignarModo] = useState<'proponer' | 'designar'>('designar')
+  // 'asignar': vincular la persona designada SIN ocupar el cargo (caso
+  // histórico: concurso finalizado sin persona vinculada). Oculta fecha/idSial
+  // y usa asignarDesignadoMutation.
+  // 'manual': carga manual por referencia (tercera vía) — el candidato no está
+  // en la orden de mérito ni en la BD de personas. Guarda solo la referencia
+  // (CUIL + nombre + id_sial opcional); NO crea Persona ni ocupa el cargo.
+  const [modalDesignarModo, setModalDesignarModo] = useState<
+    'proponer' | 'designar' | 'asignar' | 'manual'
+  >('designar')
   const [designarPersonaId, setDesignarPersonaId] = useState('')
   const [designarPersonaNombre, setDesignarPersonaNombre] = useState('')
   const [designarPersonaEspCph, setDesignarPersonaEspCph] = useState<string | null>(null)
   const [designarFechaDesde, setDesignarFechaDesde] = useState('')
   const [designarIdSialRol, setDesignarIdSialRol] = useState('')
   const [designarSearch, setDesignarSearch] = useState('')
+  // Vía manual por referencia: CUIL (11 díg), apellido/nombre y id_sial opcional.
+  const [manualCuil, setManualCuil] = useState('')
+  const [manualNombre, setManualNombre] = useState('')
+  const [manualIdSial, setManualIdSial] = useState('')
   // Inscripto (de este concurso) que corresponde a la persona propuesta —
   // se necesita para poder marcarlo en insalRechazados si no acepta.
   const [designarInscriptoId, setDesignarInscriptoId] = useState('')
@@ -696,6 +826,7 @@ export function ConcursoCphWizard() {
   const inscriptoFileRef = useRef<HTMLInputElement>(null)
 
   const designarMutation = useDesignarConcursoCph(id!)
+  const asignarDesignadoMutation = useAsignarDesignadoCph(id!)
   const declararDesiertoMutation = useDeclararDesiertoCph(id!)
   const suspenderMutation = useSuspenderConcursoCph(id!)
 
@@ -785,6 +916,67 @@ export function ConcursoCphWizard() {
     },
     enabled: !!designarPersonaId,
   })
+
+  // Búsqueda libre de personas por texto (nombre/CUIL/DNI) — solo en el modo
+  // 'asignar', donde no hay orden de mérito con la persona ganadora (casos
+  // históricos). Mismo endpoint y shape que usa seleccionarCandidatoOM.
+  const { data: personasBusqueda = [] } = useQuery({
+    queryKey: ['personas-busqueda', designarSearch],
+    enabled:
+      modalDesignar &&
+      modalDesignarModo === 'asignar' &&
+      designarSearch.trim().length >= 2,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: designarSearch.trim(), limit: 10 } })
+      return res.data.data
+    },
+  })
+
+  // Vía 'manual': lookup por CUIL contra la BD de personas. Cuando el operador
+  // tipea 11 dígitos, se busca el match exacto por CUIL para informar si la
+  // persona ya existe (y qué roles SIAL vincularían). NO crea nada: solo informa.
+  const manualCuilNorm = manualCuil.replace(/\D/g, '')
+  const { data: manualMatch = null } = useQuery({
+    queryKey: ['personas-busqueda-manual', manualCuilNorm],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && manualCuilNorm.length === 11,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          id: string
+          apellidoNombre: string
+          cuil: string
+          numeroDoc?: string | null
+          especialidadCph?: string | null
+        }[]
+      }>('/api/v1/personas', { params: { search: manualCuilNorm, limit: 5 } })
+      return res.data.data.find((p) => p.cuil.replace(/\D/g, '') === manualCuilNorm) ?? null
+    },
+  })
+  // Roles SIAL de la persona que matcheó por CUIL (para mostrar qué vincularía).
+  const { data: manualSialRoles = [] } = useQuery({
+    queryKey: ['persona-sial-roles-manual', manualMatch?.id],
+    enabled: modalDesignar && modalDesignarModo === 'manual' && !!manualMatch?.id,
+    queryFn: async () => {
+      const res = await apiClient.get<{
+        data: {
+          idSialRol: string
+          codigoCargo: string | null
+          literalPuesto: string | null
+          hospitalSigla: string
+        }[]
+      }>(`/api/v1/personas/${manualMatch!.id}/sial-roles`)
+      return res.data.data
+    },
+  })
+
   const formRef = useRef<HTMLDivElement>(null)
   const tipoGestionRef = useRef<HTMLSelectElement>(null)
   // Valores originales para detectar cambios en etapa baja
@@ -795,6 +987,22 @@ export function ConcursoCphWizard() {
     especialidad: '',
   }
   const [originales, setOriginales] = useState(originalesRef)
+  // FIX A.2 (informe diag-bug1-persiste): fuente de verdad INMUTABLE de los
+  // valores originales de SIGLA y ESCALAFÓN, poblada UNA sola vez cuando llega
+  // cphData y NO re-pisada por refetches de codigosRegistro. La comparación de
+  // "cambió sigla/carrera" en confirmarCambios usa este ref, no el estado
+  // `originales` (que puede quedar desalineado en un re-render intermedio y
+  // producía el falso-positivo que enrutaba al Director). `inicializado=false`
+  // mientras no haya cargado ⇒ no se evalúan cambios ni se envían
+  // sigla/codigoRegistroId.
+  const originalesSiglaCarreraRef = useRef<{
+    inicializado: boolean
+    sigla: string
+    escalafonId: string
+  }>({ inicializado: false, sigla: '', escalafonId: '' })
+  // Guarda para "cargar una sola vez" los campos del cargo desde cphData, sin
+  // que un refetch de codigosRegistro los re-pise (FIX A.3).
+  const cargaInicialHechaRef = useRef<string | null>(null)
   const { data: especialidadesDisponiblesCatalogo = [] } = useEspecialidadesPuesto(
     escalafonId || undefined,
     puestoConcurso || undefined,
@@ -847,6 +1055,15 @@ export function ConcursoCphWizard() {
     }
   }, [especialidadesDisponibles])
 
+  // FIX A.3 (informe diag-bug1-persiste): CARGAR UNA SOLA VEZ los campos del
+  // cargo desde cphData. Antes este efecto dependía también de
+  // `codigosRegistro`, así que cada refetch de ese catálogo re-pisaba
+  // siglaConcurso/escalafonId/originales — una ventana de re-render en la que
+  // `originales` podía quedar a medio cargar mientras el estado vivo ya estaba
+  // poblado, lo que producía el falso "cambió sigla/carrera". Ahora el efecto
+  // depende SOLO de cphData y se guarda con `cargaInicialHechaRef` por id del
+  // concurso. La resolución de fallback por CR (cuando el cargo no trae
+  // escalafonId propio) vive en un efecto aparte dep [codigosRegistro].
   useEffect(() => {
     if (!cphData) return
     type CargoCph = {
@@ -858,25 +1075,16 @@ export function ConcursoCphWizard() {
       especialidadLegacy?: string
     }
     const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const cphId = cphData.id
+    // Si ya se inicializó para ESTE concurso, no re-pisar (evita que un
+    // re-render por otra dependencia resetee lo que el usuario está editando).
+    if (cargaInicialHechaRef.current === cphId) return
+
     setSiglaConcurso(cargo?.hospital?.sigla ?? '')
-    // El cargo ya trae escalafonId propio (FK real) — se usa directo. Antes
-    // esto se re-derivaba SOLO a través de cargo.codigoRegistro, que puede
-    // ser null (cargos sin codigoRegistroId vinculado, ej. altas más viejas o
-    // datos legacy) y dejaba escalafonId vacío en silencio, rompiendo los
-    // combos de puesto/especialidad de todo el wizard. Se deja el fallback
-    // por codigoRegistro por compatibilidad, pero ya no es la vía principal.
-    let resolvedEscalafonId = cargo?.escalafonId ?? ''
-    if (!resolvedEscalafonId) {
-      const crId = cargo?.codigoRegistro?.id ?? ''
-      const crLiteral = cargo?.codigoRegistro?.literal ?? ''
-      if (crId && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.id === crId)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      } else if (crLiteral && codigosRegistro.length > 0) {
-        const cr = codigosRegistro.find((c) => c.literal === crLiteral)
-        resolvedEscalafonId = cr?.escalafonId ?? ''
-      }
-    }
+    // El cargo ya trae escalafonId propio (FK real) — se usa directo. El
+    // fallback por codigoRegistro (cuando escalafonId viene vacío) se resuelve
+    // en el efecto separado dep [codigosRegistro] más abajo.
+    const resolvedEscalafonId = cargo?.escalafonId ?? ''
     setEscalafonId(resolvedEscalafonId)
     setEeConcursoInput(cphData.eeConcurso ?? '')
     setIfAutorizacionInput(cphData.ifAutorizacion ?? '')
@@ -894,12 +1102,56 @@ export function ConcursoCphWizard() {
       puesto: rawPuesto,
       especialidad: rawEspecialidad,
     })
+    // Fuente de verdad inmutable para sigla/carrera (FIX A.2). Si el cargo trae
+    // escalafonId propio, ya queda inicializado; si no, se completa en el
+    // efecto de fallback por CR. Solo se marca `inicializado` cuando hay un
+    // escalafonId resuelto, para no evaluar cambios contra un ref vacío.
+    originalesSiglaCarreraRef.current = {
+      inicializado: resolvedEscalafonId !== '',
+      sigla: cargo?.hospital?.sigla ?? '',
+      escalafonId: resolvedEscalafonId,
+    }
+    cargaInicialHechaRef.current = cphId
+  }, [cphData])
+
+  // FIX A.3: resolución de FALLBACK del escalafón por codigoRegistro, separada
+  // del "cargar una vez". Solo corre si el escalafón aún no se resolvió (cargo
+  // sin escalafonId propio, datos legacy) y ya llegó el catálogo de CRs. No
+  // re-pisa nada si el escalafón ya está puesto.
+  useEffect(() => {
+    if (!cphData) return
+    if (originalesSiglaCarreraRef.current.inicializado) return
+    if (codigosRegistro.length === 0) return
+    type CargoCph = { codigoRegistro?: { id?: string; literal?: string } }
+    const cargo = (cphData.concurso as unknown as { cargo?: CargoCph })?.cargo
+    const crId = cargo?.codigoRegistro?.id ?? ''
+    const crLiteral = cargo?.codigoRegistro?.literal ?? ''
+    let resolved = ''
+    if (crId) {
+      resolved = codigosRegistro.find((c) => c.id === crId)?.escalafonId ?? ''
+    }
+    if (!resolved && crLiteral) {
+      resolved = codigosRegistro.find((c) => c.literal === crLiteral)?.escalafonId ?? ''
+    }
+    if (!resolved) return
+    setEscalafonId(resolved)
+    setOriginales((prev) => ({ ...prev, escalafonId: resolved }))
+    originalesSiglaCarreraRef.current = {
+      inicializado: true,
+      sigla: originalesSiglaCarreraRef.current.sigla,
+      escalafonId: resolved,
+    }
   }, [cphData, codigosRegistro])
   // Leer pendienteAutorizacion desde la API (no estado local)
   const pendienteAutorizacion = !!(cphData as unknown as { pendienteAutorizacion?: boolean })
     ?.pendienteAutorizacion
   const aprobadoDirector = !!(cphData as unknown as { aprobadoDirector?: boolean })
     ?.aprobadoDirector
+  // Paso 2a: con una autorización pendiente la Etapa 1 queda de solo lectura,
+  // salvo para quien resuelve como SGRASV (puede corregir antes de aprobar).
+  const bloqueoEdicionEtapa1 = pendienteAutorizacion && !puedeCorregirEtapa1
+  const esNuevoCargoPendiente = esNuevoCargoSinAutorizar(cphData?.concurso)
+  const avisoNuevoCargo = avisoAutorizacionNuevoCargo(cphData?.concurso)
   const tieneCambioSiglaCr =
     !!(
       cphData as unknown as {
@@ -918,6 +1170,15 @@ export function ConcursoCphWizard() {
       // Por si el patch tocó personaDesignadaId (proponer candidato al INSAL).
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-persona-designada', id] })
     },
+    onError: (err: unknown) => {
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'No se pudo guardar'
+      toast.error(msg)
+    },
   })
 
   // S13-C: aprobar/rechazar via el módulo genérico de autorizaciones — ya no
@@ -925,10 +1186,10 @@ export function ConcursoCphWizard() {
   // "pendiente" porque nunca actualizaba esa tabla).
   const autorizarMutation = useMutation({
     mutationFn: ({ aprobado, observaciones }: { aprobado: boolean; observaciones?: string }) => {
-      if (!autorizacionPendiente) throw new Error('No hay autorización pendiente para resolver')
+      if (!autorizacionPendienteEfectiva) throw new Error('No hay autorización pendiente para resolver')
       const accion = aprobado ? 'aprobar' : 'rechazar'
       return apiClient
-        .post(`/api/v1/autorizaciones/${autorizacionPendiente.id}/${accion}`, {
+        .post(`/api/v1/autorizaciones/${autorizacionPendienteEfectiva.id}/${accion}`, {
           observaciones,
         })
         .then((r) => r.data.data)
@@ -940,16 +1201,33 @@ export function ConcursoCphWizard() {
       setObsAutorizacion('')
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Error al resolver la autorización'
+      const data = (
+        err as {
+          response?: { data?: { error?: { message?: string }; message?: string } }
+        }
+      )?.response?.data
+      const msg = data?.error?.message ?? data?.message ?? 'Error al resolver la autorización'
       toast.error(msg)
     },
   })
 
-  const [etapaActiva, setEtapaActiva] = useState(
+  const [etapaActivaRaw, setEtapaActivaRaw] = useState(
     etapasIniciales.find((e) => e.estado === 'activa')?.id ?? 'baja',
   )
+  // Etapas que el rol puede ver (permiso concursos-cph/tab:<slug>). Solo UI:
+  // etapasActuales NO se filtra porque los cálculos usan índice por número.
+  const etapasVisibles = etapasVisiblesPara(etapasIniciales, user, !id)
+  // Etapa activa derivada: si la pedida/por defecto no es visible, cae en la
+  // primera visible (undefined si no hay ninguna).
+  const etapaActiva = etapasVisibles.some((e) => e.id === etapaActivaRaw)
+    ? etapaActivaRaw
+    : etapasVisibles[0]?.id
+  function setEtapaActiva(etapaId: string) {
+    if (!etapasVisibles.some((e) => e.id === etapaId) && etapasVisibles.length > 0) {
+      toast.info('El concurso volvió a la primera etapa disponible')
+    }
+    setEtapaActivaRaw(etapaId)
+  }
 
   // Al cambiar de etapa, subir el scroll al tope (la etapa nueva empieza arriba,
   // no a mitad de página donde quedó el scroll de la etapa anterior).
@@ -979,7 +1257,7 @@ export function ConcursoCphWizard() {
   // hay concurso), por eso se usa directamente el useMemo.
   const etapasActuales = etapasIniciales
 
-  const etapa = etapasActuales.find((e) => e.id === etapaActiva)!
+  const etapa = etapasActuales.find((e) => e.id === etapaActiva) ?? etapasActuales[0]
 
   // Validación de campos requeridos en etapa baja antes de habilitar "Guardar y continuar"
   const etapaBajaCompleta =
@@ -1009,34 +1287,58 @@ export function ConcursoCphWizard() {
 
   if (isLoading) return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
   if (!concurso) return <div className="p-8 text-sm text-danger">No se encontró el concurso.</div>
+  if (!user) return <div className="p-8 text-sm text-gray-400">Cargando concurso...</div>
+  if (etapasVisibles.length === 0) {
+    return (
+      <div className="p-8 text-sm text-gray-500">
+        No tenés acceso a ninguna etapa de este concurso.
+      </div>
+    )
+  }
   const c = concurso!
 
   function handleGuardar() {
     if (etapaActiva === 'baja') {
       const labelEsc = (eId: string) => escalafones.find((e) => e.id === eId)?.nombre ?? eId
+      // La comparación que decide "cambió / no cambió" es normalizada
+      // (trim + toLowerCase) para sigla/especialidad/puesto: un cambio de
+      // solo-capitalización ('Medico de Planta' vs 'medico de planta') NO
+      // cuenta como cambio y no dispara autorización. El valor que se muestra
+      // y se persiste conserva el texto que escribió el usuario.
+      // FIX D: normalización robusta (acentos/espacios/invisibles).
+      const norm = (s: string | null | undefined) =>
+        (s ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase()
       const cambiosConAutorizacion: { campo: string; de: string; a: string }[] = []
-      // Sigla y escalafón: autorización doble (director → sgrasv)
-      if (siglaConcurso !== originales.sigla)
+      // Sigla y escalafón: autorización doble (director → sgrasv). FIX A.2: se
+      // comparan contra el ref inmutable y solo si ya está inicializado, para
+      // no abrir el modal por un falso-positivo de timing.
+      const origRef = originalesSiglaCarreraRef.current
+      if (origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla))
         cambiosConAutorizacion.push({
           campo: 'Sigla',
-          de: originales.sigla,
+          de: origRef.sigla,
           a: siglaConcurso,
         })
-      if (escalafonId !== originales.escalafonId)
+      if (origRef.inicializado && escalafonId !== origRef.escalafonId)
         cambiosConAutorizacion.push({
           campo: 'Carrera',
-          de: escalafonLabel(labelEsc(originales.escalafonId)),
+          de: escalafonLabel(labelEsc(origRef.escalafonId)),
           a: escalafonLabel(labelEsc(escalafonId)),
         })
       // Especialidad y puesto: autorización simple (solo sgrasv)
       const eeConcursoActual = cphData?.eeConcurso
-      if (especialidadConcurso !== originales.especialidad)
+      if (norm(especialidadConcurso) !== norm(originales.especialidad))
         cambiosConAutorizacion.push({
           campo: 'Especialidad',
           de: originales.especialidad,
           a: especialidadConcurso,
         })
-      if (puestoConcurso !== originales.puesto)
+      if (norm(puestoConcurso) !== norm(originales.puesto))
         cambiosConAutorizacion.push({
           campo: 'Puesto',
           de: originales.puesto,
@@ -1071,13 +1373,17 @@ export function ConcursoCphWizard() {
           }
         })
     }
-    // Incluir valores de SearchableSelect (no tienen data-key, viven en estado React)
+    // Incluir valores de SearchableSelect (no tienen data-key, viven en estado
+    // React). La comparación es normalizada (trim + toLowerCase): un cambio de
+    // solo-capitalización no viaja como cambio protegido; si cambió de verdad,
+    // se persiste el texto tal cual lo escribió el usuario.
     if (etapaActiva === 'baja') {
-      if (especialidadConcurso !== originales.especialidad) {
+      const normCmp = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+      if (normCmp(especialidadConcurso) !== normCmp(originales.especialidad)) {
         body.especialidadSolicitada = especialidadConcurso || null
         body.especialidadPuestoSolicitadaId = especialidadConcursoId
       }
-      if (puestoConcurso !== originales.puesto) {
+      if (normCmp(puestoConcurso) !== normCmp(originales.puesto)) {
         body.puestoSolicitado = puestoConcurso || null
         body.puestoCargoSolicitadoId = puestoConcursoId
       }
@@ -1138,23 +1444,95 @@ export function ConcursoCphWizard() {
       setFaltantesEtapa4([])
     }
 
-    const siguiente = etapasActuales[etapa.numero]
-    if (siguiente && siguiente.estado !== 'bloqueada') setEtapaActiva(siguiente.id)
+    const siguiente = siguienteVisible(etapasVisibles, etapa.numero)
+    if (siguiente) setEtapaActiva(siguiente.id)
     setGuardado(true)
     setTimeout(() => setGuardado(false), 2500)
   }
 
   function confirmarCambios() {
     setModalCambios(null)
-    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado)
-    patchMutation.mutate({
-      sigla: siglaConcurso || null,
-      codigoRegistroId: crIdDeEscalafon(escalafonId),
-      especialidadSolicitada: especialidadConcurso || null,
-      especialidadPuestoSolicitadaId: especialidadConcursoId,
-    })
-    setGuardado(true)
-    setTimeout(() => setGuardado(false), 2500)
+    // Con cambios sensibles: enviar a autorización, NO avanzar (queda bloqueado).
+    // Persistir los campos de la Etapa 1 para que el usuario no pierda lo
+    // cargado al salir y volver a entrar.
+    //
+    // BUG-FIX autorización doble: antes se mandaban SIEMPRE `sigla` y
+    // `codigoRegistroId`, aunque no hubieran cambiado. El backend
+    // (patchConcursoCphService) compara `body.sigla`/`body.codigoRegistroId`
+    // contra los valores del cargo y, si viajan y difieren, enruta al Director
+    // (requiereAutorizacionDoble). Peor: `codigoRegistroId` salía de
+    // `crIdDeEscalafon(escalafonId)`, que devuelve el PRIMER CR del escalafón
+    // ordenado por literal — y CPH tiene 2 CRs (22 y 37), así que ese id casi
+    // nunca coincide con el CR real del cargo → `cambiaCr` falso-positivo →
+    // Director indebido. Ahora `sigla` y `codigoRegistroId` solo viajan si de
+    // verdad cambiaron respecto de los originales (comparación de sigla
+    // normalizada trim+toLowerCase; carrera por `escalafonId`). Si el usuario
+    // solo tocó especialidad/puesto, no viajan y el backend cae en
+    // tieneCambioProtegido (solo SGRASV), no en autorización doble.
+    // FIX D: normalización robusta (acentos/espacios internos/invisibles fuera)
+    // para que diferencias solo de formato no cuenten como cambio.
+    const norm = (s: string | null | undefined) =>
+      (s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    // FIX A.2: la comparación de sigla/carrera usa el ref INMUTABLE poblado una
+    // vez desde cphData, no el estado `originales` (que podía quedar a medio
+    // cargar en un re-render y disparar el falso "cambio"). Si el ref aún no se
+    // inicializó (escalafón sin resolver), NO evaluamos ni enviamos
+    // sigla/codigoRegistroId — así un guardado prematuro nunca arrastra esos
+    // campos al PATCH.
+    const origRef = originalesSiglaCarreraRef.current
+    const cambioSigla = origRef.inicializado && norm(siglaConcurso) !== norm(origRef.sigla)
+    // Carrera por ESCALAFÓN (identidad estable), no por id de CR.
+    const cambioCarrera = origRef.inicializado && escalafonId !== origRef.escalafonId
+    // Puesto: un cambio de solo-capitalización ('Medico de Planta' vs 'medico
+    // de planta') NO cuenta como cambio. Se compara normalizado (trim +
+    // toLowerCase); si solo difiere el casing, no se envía como cambio. El
+    // valor persistido conserva el texto que escribió el usuario.
+    const cambioPuesto =
+      norm(puestoConcurso) !== norm(originales.puesto) ||
+      puestoConcursoId !== (puestosDisponiblesCatalogo.find((p) => p.nombre === originales.puesto)?.id ?? null)
+    const cambioEspecialidad = norm(especialidadConcurso) !== norm(originales.especialidad)
+
+    const body: Record<string, unknown> = {
+      eeConcurso: eeConcursoInput || null,
+      ifAutorizacion: ifAutorizacionInput || null,
+    }
+    if (cambioSigla) body.sigla = siglaConcurso || null
+    // FIX A.1: NO mandar un CR arbitrario. `codigoRegistroId` solo viaja cuando
+    // el ESCALAFÓN realmente cambió, y se deriva de forma DETERMINÍSTICA del
+    // nuevo escalafón (crIdDeEscalafon elige por regla estable, no por orden de
+    // array). El backend compara por escalafón, así que cualquier CR válido de
+    // ese escalafón representa la misma carrera; mientras la carrera no cambie,
+    // este campo nunca se envía y el guardado cae en el flujo sin Director.
+    if (cambioCarrera) {
+      const crNuevo = crIdDeEscalafon(escalafonId)
+      if (crNuevo) body.codigoRegistroId = crNuevo
+    }
+    if (cambioEspecialidad) {
+      body.especialidadSolicitada = especialidadConcurso || null
+      body.especialidadPuestoSolicitadaId = especialidadConcursoId
+    }
+    if (cambioPuesto) {
+      body.puestoSolicitado = puestoConcurso || null
+      body.puestoCargoSolicitadoId = puestoConcursoId
+    }
+
+    patchMutation.mutate(
+      body,
+      {
+        onSuccess: () => {
+          toast.success(
+            'Enviado a autorización del Director. La nueva sigla/carrera se aplicarán cuando se apruebe.',
+          )
+        },
+        // El error se comunica vía el onError global de patchMutation; no duplicar
+        // el toast ni marcar guardado.
+      },
+    )
   }
 
   return (
@@ -1673,25 +2051,180 @@ export function ConcursoCphWizard() {
               <span className="text-green-500 text-xl">👤</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
-                  {modalDesignarModo === 'proponer' ? 'Proponer candidato' : 'Registrar designación'}
+                  {modalDesignarModo === 'proponer'
+                    ? 'Proponer candidato'
+                    : modalDesignarModo === 'asignar'
+                      ? 'Asignar persona designada'
+                      : modalDesignarModo === 'manual'
+                        ? 'Carga manual por referencia'
+                        : 'Registrar designación'}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {modalDesignarModo === 'proponer'
                     ? 'Elegí a quién notificar por INSAL. Esto no ocupa el cargo — la designación oficial es en la Etapa 5.'
-                    : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
+                    : modalDesignarModo === 'asignar'
+                      ? 'Solo vincula a la persona que ganó el concurso. NO ocupa el cargo — el cargo pasa a ocupado recién cuando la persona aparezca en el padrón semanal.'
+                      : modalDesignarModo === 'manual'
+                        ? 'Cargá al designado cuando NO está en la orden de mérito ni en la base de personas. Se guarda solo la referencia (CUIL + nombre); la persona real se vincula cuando el padrón la traiga. No ocupa el cargo.'
+                        : 'El cargo quedará ocupado inmediatamente, sin esperar el padrón.'}
                 </p>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
+              {/* Modo 'asignar': buscador libre de personas por texto. Estos
+                  concursos históricos no tienen orden de mérito con la persona
+                  ganadora, así que se busca directo contra /api/v1/personas. */}
+              {modalDesignarModo === 'asignar' && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Buscar persona (nombre, CUIL o DNI){' '}
+                    <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={designarSearch}
+                    onChange={(e) => setDesignarSearch(e.target.value)}
+                    placeholder="Escribí al menos 2 caracteres..."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  {designarSearch.trim().length >= 2 && (
+                    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                      {personasBusqueda.length === 0 ? (
+                        <p className="px-3 py-2.5 text-xs text-gray-400">
+                          Sin resultados para «{designarSearch.trim()}».
+                        </p>
+                      ) : (
+                        personasBusqueda.map((p) => {
+                          const elegido = designarPersonaId === p.id
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setDesignarPersonaId(p.id)
+                                setDesignarPersonaNombre(p.apellidoNombre)
+                                setDesignarPersonaEspCph(p.especialidadCph ?? null)
+                                setDesignarSearch(p.apellidoNombre)
+                              }}
+                              className={`w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3 ${
+                                elegido ? 'bg-green-50' : ''
+                              }`}
+                            >
+                              <span className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                <span className="col-span-2 font-medium text-gray-800 truncate">
+                                  {p.apellidoNombre}
+                                </span>
+                                <span className="text-xs text-gray-400 font-mono">
+                                  CUIL {p.cuil ?? '—'}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  DNI {p.numeroDoc ?? '—'}
+                                </span>
+                                {p.especialidadCph && (
+                                  <span className="col-span-2 text-xs text-gray-500 truncate">
+                                    🩺 {p.especialidadCph}
+                                  </span>
+                                )}
+                              </span>
+                              {elegido && <span className="text-green-600 shrink-0">✓</span>}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Modo 'manual': carga por referencia. CUIL + apellido/nombre
+                  requeridos, id_sial opcional. Al tipear 11 dígitos de CUIL se
+                  consulta la BD y se informa si la persona ya existe. */}
+              {modalDesignarModo === 'manual' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      CUIL <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={manualCuil}
+                      onChange={(e) => setManualCuil(e.target.value)}
+                      placeholder="11 dígitos"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                    {manualCuil.trim().length > 0 && manualCuilNorm.length !== 11 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        El CUIL debe tener 11 dígitos ({manualCuilNorm.length} hasta ahora).
+                      </p>
+                    )}
+                    {manualCuilNorm.length === 11 && (
+                      <div className="mt-2 rounded-lg border px-3 py-2 text-xs">
+                        {manualMatch ? (
+                          <div className="text-emerald-700">
+                            <p className="font-semibold">
+                              ✓ Esta persona ya está en la base: {manualMatch.apellidoNombre}
+                            </p>
+                            {manualSialRoles.length > 0 ? (
+                              <p className="mt-1 text-gray-600">
+                                Roles SIAL que vincularían:{' '}
+                                {manualSialRoles.map((r) => r.idSialRol).join(', ')}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-gray-500">
+                                Sin roles SIAL activos — se vinculará y ocupará cuando aparezca en
+                                el padrón.
+                              </p>
+                            )}
+                            <p className="mt-1 text-gray-500">
+                              Se vinculará la persona real además de guardar la referencia.
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-blue-700">
+                            No está en la base — se guardará solo la referencia. La persona se
+                            creará/vinculará cuando el padrón la traiga.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Apellido y nombre <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualNombre}
+                      onChange={(e) => setManualNombre(e.target.value)}
+                      placeholder="Apellido, Nombre"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      id_sial (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualIdSial}
+                      onChange={(e) => setManualIdSial(e.target.value)}
+                      placeholder="Si lo conocés, para el match directo con el padrón"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Elegibles del orden de mérito de este concurso */}
-              {elegiblesOM.length === 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   ⚠ Todavía no hay orden de mérito calculado para este concurso — no hay
                   candidatos para proponer. Andá a la Etapa 3 (Inscripción/Examen/OM), cargá las
                   notas de los presentados y apretá «📊 Cargar notas / calcular orden».
                 </div>
               )}
-              {elegiblesOM.length > 0 && (
+              {modalDesignarModo !== 'asignar' && modalDesignarModo !== 'manual' && elegiblesOM.length > 0 && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Orden de mérito — elegí a quién proponer <span className="text-danger">*</span>
@@ -1945,6 +2478,94 @@ export function ConcursoCphWizard() {
                 >
                   {patchMutation.isPending ? 'Guardando...' : 'Proponer candidato'}
                 </button>
+              ) : modalDesignarModo === 'asignar' ? (
+                <button
+                  className="btn-primary"
+                  disabled={!designarPersonaId || asignarDesignadoMutation.isPending}
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      { personaId: designarPersonaId },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            'Persona designada vinculada — el cargo se ocupará cuando aparezca en el padrón.',
+                          )
+                          setModalDesignar(false)
+                          setDesignarPersonaId('')
+                          setDesignarPersonaNombre('')
+                          setDesignarPersonaEspCph(null)
+                          setDesignarSearch('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: {
+                                    message?: string
+                                    error?: { message?: string }
+                                  }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo vincular la persona.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending
+                    ? 'Guardando...'
+                    : 'Vincular persona designada'}
+                </button>
+              ) : modalDesignarModo === 'manual' ? (
+                <button
+                  className="btn-primary"
+                  disabled={
+                    manualCuilNorm.length !== 11 ||
+                    manualNombre.trim().length === 0 ||
+                    asignarDesignadoMutation.isPending
+                  }
+                  onClick={() =>
+                    asignarDesignadoMutation.mutate(
+                      {
+                        refCuil: manualCuilNorm,
+                        refNombre: manualNombre.trim(),
+                        ...(manualIdSial.trim() ? { idSialRol: manualIdSial.trim() } : {}),
+                      },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            manualMatch
+                              ? 'Designado vinculado por referencia (persona encontrada en la base). El cargo se ocupará cuando el padrón lo confirme.'
+                              : 'Designado guardado por referencia. La persona se vinculará cuando el padrón la traiga.',
+                          )
+                          setModalDesignar(false)
+                          setManualCuil('')
+                          setManualNombre('')
+                          setManualIdSial('')
+                        },
+                        onError: (e) =>
+                          toast.error(
+                            (
+                              e as {
+                                response?: {
+                                  data?: { message?: string; error?: { message?: string } }
+                                }
+                              }
+                            )?.response?.data?.error?.message ??
+                              (e as { response?: { data?: { message?: string } } })?.response?.data
+                                ?.message ??
+                              'No se pudo guardar la referencia del designado.',
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {asignarDesignadoMutation.isPending ? 'Guardando...' : 'Guardar referencia'}
+                </button>
               ) : (
                 <button
                   className="btn-primary"
@@ -2055,7 +2676,7 @@ export function ConcursoCphWizard() {
                   setDesiertoDisp('')
                   setDesiertoFecha('')
                   setDesiertoObs('')
-                  // Relanzamiento: el concurso vuelve a la Etapa 1 (Baja / Apertura).
+                  // Relanzamiento: el concurso vuelve a la Etapa 1 (Apertura / Autorización).
                   setEtapaActiva('baja')
                 }}
               >
@@ -2193,7 +2814,7 @@ export function ConcursoCphWizard() {
             </div>
             <div className="px-6 py-4 space-y-3">
               <label className="block text-sm font-semibold text-gray-700">
-                Observaciones (opcional)
+                Observaciones <span className="font-normal text-gray-500">(obligatorias para rechazar)</span>
               </label>
               <textarea
                 value={obsAutorizacion}
@@ -2209,11 +2830,12 @@ export function ConcursoCphWizard() {
               </button>
               <button
                 className="btn-danger"
-                disabled={autorizarMutation.isPending}
+                disabled={autorizarMutation.isPending || !obsAutorizacion.trim()}
+                title={!obsAutorizacion.trim() ? 'Indicá el motivo del rechazo' : undefined}
                 onClick={() =>
                   autorizarMutation.mutate({
                     aprobado: false,
-                    observaciones: obsAutorizacion || undefined,
+                    observaciones: obsAutorizacion.trim(),
                   })
                 }
               >
@@ -2510,6 +3132,7 @@ export function ConcursoCphWizard() {
                 {c.personaBaja !== '—' && (
                   <span className="font-medium text-gray-700">{c.personaBaja}</span>
                 )}
+                {c.cuilBaja && <span className="text-gray-500">CUIL {c.cuilBaja}</span>}
                 {c.eeBaja && <span className="font-mono text-gray-500">{c.eeBaja}</span>}
                 {c.fechaBaja && <span className="text-gray-500">{c.fechaBaja}</span>}
               </div>
@@ -2525,6 +3148,11 @@ export function ConcursoCphWizard() {
               {c.subEstado3 && (
                 <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
                   {c.subEstado3}
+                </span>
+              )}
+              {motivoConcursoLabel(c.motivoConcurso) && (
+                <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                  {motivoConcursoLabel(c.motivoConcurso)}
                 </span>
               )}
               {c.suspendido && (
@@ -2549,7 +3177,11 @@ export function ConcursoCphWizard() {
                         <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                           Etiquetas
                         </p>
-                        <EtiquetasControl concursoCphId={id} asignadas={cphData.etiquetas ?? []} />
+                        <EtiquetasControl
+                          entidad="concurso_cph"
+                          entidadId={id}
+                          asignadas={cphData.etiquetas ?? []}
+                        />
                       </div>
                     )}
                     {/* Ver baja */}
@@ -2562,6 +3194,36 @@ export function ConcursoCphWizard() {
                     >
                       📋 Ver baja
                     </button>
+                    {/* Asignar designado (sin ocupar) — solo si el concurso aún
+                        no tiene persona vinculada (caso histórico). NO ocupa el
+                        cargo; eso ocurre cuando la persona aparezca en el padrón. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('asignar')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        👤 Asignar designado (sin ocupar)
+                      </button>
+                    )}
+                    {/* Carga manual por referencia — candidato que no está en la
+                        orden de mérito ni en la base de personas. Guarda solo la
+                        referencia; no ocupa el cargo. */}
+                    {!cphData?.personaDesignadaId && (
+                      <button
+                        onClick={() => {
+                          setModalDesignarModo('manual')
+                          setModalDesignar(true)
+                          setMenuAcciones(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        ✍ Cargar designado manual (por referencia)
+                      </button>
+                    )}
                     {/* Suspender / Activar */}
                     <button
                       disabled={suspenderMutation.isPending}
@@ -2710,7 +3372,7 @@ export function ConcursoCphWizard() {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2 px-2">
               Etapas
             </p>
-            {etapasActuales.map((e) => {
+            {etapasVisibles.map((e) => {
               const cfg = ESTADO_ETAPA_CONFIG[e.estado]
               const isActive = e.id === etapaActiva
               return (
@@ -2718,6 +3380,11 @@ export function ConcursoCphWizard() {
                   key={e.id}
                   onClick={() => e.estado !== 'bloqueada' && setEtapaActiva(e.id)}
                   disabled={e.estado === 'bloqueada'}
+                  title={
+                    e.estado === 'bloqueada' && esNuevoCargoPendiente
+                      ? 'Pendiente de autorización de SGRASV'
+                      : undefined
+                  }
                   className={[
                     'w-full text-left px-2.5 py-2 rounded flex items-center gap-2 transition-colors',
                     isActive
@@ -2810,13 +3477,24 @@ export function ConcursoCphWizard() {
                 <p className="text-sm text-gray-500 mt-0.5">{etapa.descripcion}</p>
               </div>
               <div className="flex items-center gap-2">
+                <span className="badge-default text-xs" title="Tipo de concurso">Tipo: CPH</span>
+                {etapaActiva === 'baja' && id && puedeCorregirTipo(user, cphData) && (
+                  <CorregirTipoControl
+                    tipoActual="cph"
+                    detalleId={id}
+                    puestos={[cphData?.puestoSolicitado, cphData?.concurso?.cargo?.literalPuesto]}
+                    etapa1Completa={etapa1CompletaParaAutorizar(cphData)}
+                  />
+                )}
                 <span className={`${ESTADO_ETAPA_CONFIG[etapa.estado].badge} text-xs`}>
                   {ESTADO_ETAPA_CONFIG[etapa.estado].label}
                 </span>
-                {pendienteAutorizacion && etapaActiva === 'baja' && (
-                  <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
-                )}
-                {puedeResolverAutorizacion && etapaActiva === 'baja' && (
+                {pendienteAutorizacion &&
+                  (etapaActiva === 'baja' || !puedeVerEtapa(user, 'baja')) && (
+                    <span className="badge-warning text-xs">⏳ Pendiente de autorización</span>
+                  )}
+                {puedeResolverAutorizacion &&
+                  (etapaActiva === 'baja' || !puedeVerEtapa(user, 'baja')) && (
                   <button
                     className="btn-primary text-xs py-1 px-3"
                     onClick={() => setModalAutorizacion(true)}
@@ -2862,6 +3540,62 @@ export function ConcursoCphWizard() {
                 </div>
               )}
 
+              {avisoTipo && (
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800" role="status">
+                  <span>✓ {avisoTipo}</span>
+                  <button type="button" className="text-xs underline" onClick={() => setAvisoTipo(null)}>
+                    Cerrar
+                  </button>
+                </div>
+              )}
+              {/* Paso 2a: estado de autorización de un concurso de cargo nuevo */}
+              {avisoNuevoCargo && (
+                <div
+                  className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+                    esNuevoCargoPendiente
+                      ? 'bg-amber-50 border-amber-200'
+                      : 'bg-green-50 border-green-200'
+                  }`}
+                >
+                  <span className="text-base mt-0.5">{esNuevoCargoPendiente ? '🔒' : '✅'}</span>
+                  <div>
+                    <p
+                      className={`font-semibold ${esNuevoCargoPendiente ? 'text-amber-800' : 'text-green-800'}`}
+                    >
+                      {avisoNuevoCargo}
+                    </p>
+                    {esNuevoCargoPendiente && (
+                      <p className="text-amber-700 text-xs mt-0.5">
+                        Las Etapas 2 a 5 se habilitan cuando SGRASV autoriza el concurso. Cargá el
+                        expediente en la Etapa 1 para solicitarla. El IF puede completarse después.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Paso 2a: observación del último rechazo, visible hasta que haya una nueva solicitud */}
+              {etapaActiva === 'baja' &&
+                !pendienteAutorizacion &&
+                cphData?.ultimaAutorizacionRechazada && (
+                  <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm">
+                    <span className="text-red-500 text-base mt-0.5">⛔</span>
+                    <div>
+                      <p className="font-semibold text-red-800">Autorización rechazada</p>
+                      <p className="text-red-700 text-xs mt-0.5 whitespace-pre-line">
+                        Motivo: {cphData.ultimaAutorizacionRechazada.observaciones || 'sin observación'}
+                      </p>
+                      <p className="text-red-600 text-[11px] mt-1">
+                        {cphData.ultimaAutorizacionRechazada.resueltaPor
+                          ? `Rechazada por ${cphData.ultimaAutorizacionRechazada.resueltaPor} el `
+                          : 'Rechazada el '}
+                        {new Date(cphData.ultimaAutorizacionRechazada.resueltaAt).toLocaleDateString(
+                          'es-AR',
+                        )}
+                        . Corregí y volvé a guardar para solicitarla de nuevo.
+                      </p>
+                    </div>
+                  </div>
+                )}
               {pendienteAutorizacion && etapaActiva === 'baja' && (
                 <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
                   <span className="text-amber-500 text-base mt-0.5">⏳</span>
@@ -2982,10 +3716,12 @@ export function ConcursoCphWizard() {
                 </div>
               ) : etapa.id === 'baja' ? (
                 <>
-                  {/* ── Datos de la baja (readonly) ── */}
+                  {/* ── Datos de la baja / de origen (readonly) ── */}
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                      Datos de la baja
+                      {cphData?.concurso?.motivoConcurso === 'nuevo_cargo'
+                        ? 'Datos de origen'
+                        : 'Datos de la baja'}
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {etapa.campos
@@ -3081,8 +3817,10 @@ export function ConcursoCphWizard() {
                     </div>
                   </div>
 
-                  {/* ── Datos del concurso (editables solo en etapa activa) ── */}
-                  <div>
+                  {/* ── Datos del concurso (editables solo en etapa activa) ──
+                      Separación visual clara respecto del bloque de la baja:
+                      línea superior (border-t) + espaciado. */}
+                  <div className="mt-8 border-t border-gray-200 pt-6">
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
                       Datos del concurso
                     </p>
@@ -3156,12 +3894,46 @@ export function ConcursoCphWizard() {
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
                             IF de autorización
                           </label>
-                          <input
-                            type="text"
-                            value={cphData?.ifAutorizacion ?? '—'}
-                            className="input h-10 w-full bg-gray-50 text-gray-500"
-                            readOnly
-                          />
+                          {cphData?.concurso?.motivoConcurso === 'nuevo_cargo' ? (
+                            <>
+                              {/* Cargo nuevo ya autorizado: el IF sigue editable (no reabre la autorización). */}
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={ifAutorizacionInput}
+                                  onChange={(e) => setIfAutorizacionInput(e.target.value)}
+                                  placeholder="Nro. de documento IF para autorizar"
+                                  className="input h-10 w-full"
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-primary whitespace-nowrap"
+                                  disabled={
+                                    patchMutation.isPending ||
+                                    (ifAutorizacionInput.trim() || null) === (cphData?.ifAutorizacion ?? null)
+                                  }
+                                  onClick={() =>
+                                    patchMutation.mutate(
+                                      { ifAutorizacion: ifAutorizacionInput.trim() || null },
+                                      { onSuccess: () => toast.success('IF de autorización guardado.') },
+                                    )
+                                  }
+                                >
+                                  Guardar IF
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-gray-400 mt-1">
+                                El IF puede completarse después, incluso con el concurso ya autorizado.
+                              </p>
+                            </>
+                          ) : (
+                            <input
+                              type="text"
+                              value={cphData?.ifAutorizacion ?? '—'}
+                              className="input h-10 w-full bg-gray-50 text-gray-500"
+                              readOnly
+                            />
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -3181,7 +3953,7 @@ export function ConcursoCphWizard() {
                                 data-key={campo.key}
                                 className="input h-10 w-full"
                                 disabled={
-                                  pendienteAutorizacion ||
+                                  bloqueoEdicionEtapa1 ||
                                   etapa.estado === 'pendiente' ||
                                   etapa.estado === 'bloqueada'
                                 }
@@ -3202,13 +3974,15 @@ export function ConcursoCphWizard() {
                             placeholder="Nro. de documento IF para autorizar"
                             className="input h-10 w-full"
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
                           />
                           <p className="text-[11px] text-gray-400 mt-1">
-                            Requerido para solicitar la autorización de SGRASV.
+                            {cphData?.concurso?.motivoConcurso === 'nuevo_cargo'
+                              ? 'El IF puede completarse después, incluso con el concurso ya autorizado.'
+                              : 'Requerido para solicitar la autorización de SGRASV.'}
                           </p>
                         </div>
                         {/* Sigla */}
@@ -3222,7 +3996,7 @@ export function ConcursoCphWizard() {
                             options={hospitales.map((h) => hospitalLabel(h))}
                             placeholder="Buscar sigla..."
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
@@ -3250,7 +4024,7 @@ export function ConcursoCphWizard() {
                             options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
                             placeholder="Buscar carrera..."
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
@@ -3280,7 +4054,7 @@ export function ConcursoCphWizard() {
                               escalafonId ? 'Buscar puesto...' : 'Elegí una carrera primero'
                             }
                             disabled={
-                              pendienteAutorizacion ||
+                              bloqueoEdicionEtapa1 ||
                               !escalafonId ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
@@ -3299,7 +4073,7 @@ export function ConcursoCphWizard() {
                               options={especialidadesDisponibles}
                               placeholder="Buscar especialidad..."
                               disabled={
-                                pendienteAutorizacion ||
+                                bloqueoEdicionEtapa1 ||
                                 etapa.estado === 'pendiente' ||
                                 etapa.estado === 'bloqueada'
                               }
@@ -3327,7 +4101,7 @@ export function ConcursoCphWizard() {
                                 className="input w-full py-2 border-amber-300 focus:border-amber-500"
                                 placeholder="Justificá por qué se cambia la especialidad del concurso..."
                                 disabled={
-                                  pendienteAutorizacion ||
+                                  bloqueoEdicionEtapa1 ||
                                   etapa.estado === 'pendiente' ||
                                   etapa.estado === 'bloqueada'
                                 }
@@ -3341,7 +4115,10 @@ export function ConcursoCphWizard() {
                         Expediente de Concurso cargado y sin autorización en curso.
                         Permite reservar un candidato antes de solicitar la
                         autorización de SGRASV (define si el concurso salta etapas). */}
-                    {id && eeConcursoInput.trim() && !pendienteAutorizacion && (
+                    {id &&
+                      eeConcursoInput.trim() &&
+                      !pendienteAutorizacion &&
+                      !debeOcultarPanelEtapa1(cphData?.concurso) && (
                       <div className="mt-5">
                         <PanelReutilizarOm concursoId={id} />
                       </div>
@@ -3403,6 +4180,16 @@ export function ConcursoCphWizard() {
                     )}
                   </div>
 
+                  {/* Paso 5b: designar desde una orden de mérito existente (salta
+                      a F — IFACS, Etapa 4). Solo con tipo de gestión guardado. */}
+                  {id && (
+                    <PanelOmDisponibles
+                      concursoId={id}
+                      cph={cphData}
+                      user={user}
+                      onDesignado={() => setEtapaActiva('ifacs_insal')}
+                    />
+                  )}
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}
                   {cphData && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-4 py-4 space-y-3">
@@ -4724,6 +5511,78 @@ export function ConcursoCphWizard() {
                   const ocup = v?.ocupacionVigente ?? v?.ultimaOcupacion ?? null
                   return (
                     <div className="space-y-5">
+                      {/* Asignar persona designada manualmente (caso histórico:
+                          concurso sin persona vinculada NI referencia manual).
+                          Solo vincula; NO ocupa el cargo (eso pasa cuando aparezca
+                          en el padrón). */}
+                      {cphData && !cphData.personaDesignadaId && !cphData.designadoRefCuil && !cphData.designadoRefNombre && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              Asignar persona designada
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              Este concurso no tiene persona vinculada. Vinculá a quien ganó
+                              (caso histórico). No ocupa el cargo — eso pasa cuando aparezca en
+                              el padrón.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-primary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('asignar')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              👤 Asignar designado
+                            </button>
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✍ Carga manual por referencia
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {/* Designado cargado por REFERENCIA manual (sin persona en la
+                          BD todavía). Muestra los datos cargados y permite editar.
+                          El cargo se ocupará cuando el padrón traiga a la persona. */}
+                      {cphData && !cphData.personaDesignadaId && (cphData.designadoRefCuil || cphData.designadoRefNombre) && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-blue-800">
+                              ✍ Designado cargado por referencia
+                            </p>
+                            <p className="text-sm font-bold text-gray-900 mt-1">
+                              {cphData.designadoRefNombre ?? '—'}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {cphData.designadoRefCuil && <>CUIL <span className="font-mono">{cphData.designadoRefCuil}</span></>}
+                              {cphData.designadoRefIdSialRol && <> · ID SIAL rol <span className="font-mono">{cphData.designadoRefIdSialRol}</span></>}
+                            </p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              A la espera del padrón. Cuando la persona aparezca con este CUIL, el
+                              cargo pasa a ocupado automáticamente.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button
+                              className="btn-secondary text-sm"
+                              onClick={() => {
+                                setModalDesignarModo('manual')
+                                setModalDesignar(true)
+                              }}
+                            >
+                              ✏ Editar referencia
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {/* ── ARRIBA: detalle informativo de la persona ── */}
                       {v && (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
@@ -5312,11 +6171,11 @@ export function ConcursoCphWizard() {
 
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
               <div className="flex gap-2">
-                {etapa.numero > 1 && (
+                {anteriorVisible(etapasVisibles, etapa.numero) && (
                   <button
                     className="btn-outline"
                     onClick={() => {
-                      const prev = etapasActuales[etapa.numero - 2]
+                      const prev = anteriorVisible(etapasVisibles, etapa.numero)
                       if (prev) setEtapaActiva(prev.id)
                     }}
                   >
@@ -5349,23 +6208,32 @@ export function ConcursoCphWizard() {
                   faltantesEtapa4.length === 0 && (
                     <span className="text-sm text-green-600 font-medium">✓ Guardado</span>
                   )}
+                {pendienteAutorizacion && etapaActiva === 'baja' && (
+                  <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5 max-w-md">
+                    <span className="font-semibold">
+                      Modificación pendiente de autorización del Director.
+                    </span>{' '}
+                    La nueva sigla/carrera se aplicarán cuando se apruebe.
+                  </div>
+                )}
                 {etapa.estado !== 'pendiente' &&
                   etapa.estado !== 'bloqueada' &&
                   etapa.estado !== 'completada' && (
                     <>
                       {etapaActiva === 'baja' && !etapaBajaCompleta && (
                         <span className="text-xs text-gray-400">
-                          Completá expediente, sigla, carrera, puesto
+                          Completá expediente,
+                          sigla, carrera, puesto
                           {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
                         </span>
                       )}
                       <button
                         className="btn-primary"
                         disabled={
-                          (pendienteAutorizacion && etapaActiva === 'baja') || !etapaBajaCompleta
+                          (bloqueoEdicionEtapa1 && etapaActiva === 'baja') || !etapaBajaCompleta
                         }
                         title={
-                          pendienteAutorizacion && etapaActiva === 'baja'
+                          bloqueoEdicionEtapa1 && etapaActiva === 'baja'
                             ? 'Hay una modificación pendiente de autorización por SGRASV'
                             : !etapaBajaCompleta
                               ? 'Completá todos los campos requeridos'
@@ -5373,7 +6241,7 @@ export function ConcursoCphWizard() {
                         }
                         onClick={handleGuardar}
                       >
-                        {etapa.numero < etapasActuales.length
+                        {siguienteVisible(etapasVisibles, etapa.numero)
                           ? 'Guardar y continuar →'
                           : 'Guardar cambios'}
                       </button>

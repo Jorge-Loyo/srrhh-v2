@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import { queryBool } from '../../shared/queryBool.js'
 
 export const etiquetasQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
-  activo: z.coerce.boolean().optional(),
+  activo: queryBool.optional(),
 })
 
 export const createEtiquetaSchema = z.object({

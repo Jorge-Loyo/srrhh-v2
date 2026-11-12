@@ -1,7 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { CadenaMandoPanel } from '@/modules/cadena-mando/CadenaMandoPanel'
 import { CadenaRetencionPanel } from '@/modules/retenciones/components/CadenaRetencionPanel'
-import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps } from '@srrhh/types'
+import { EstadoCargo, EstadoConcursoCph, EstadoConcursoCeetps, SubEstadoCargo } from '@srrhh/types'
 import { useCargo } from '../hooks/useCargos'
 import { capitalizarEtiqueta } from '@/shared/lib/utils'
 
@@ -39,6 +39,19 @@ export function CargoDetailPanel() {
   const vigente = cargo.estado === EstadoCargo.VIGENTE
   const ocupado = !!persona
   const retenido = ocup?.situacionRevista === 'Retencion de Cargo'
+
+  // Sub-estado a mostrar junto al estado: lee la columna persistida `subEstado`;
+  // mientras esté en null (backfill pendiente) usa la ocupación como fallback
+  // transitorio (ver D4 del plan).
+  const subEstadoCargo = cargo.subEstado ?? (ocupado ? SubEstadoCargo.OCUPADO : SubEstadoCargo.VACANTE)
+  const subEstadoLabel =
+    subEstadoCargo === SubEstadoCargo.OCUPADO ? 'Ocupado'
+    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'Concurso'
+    : 'Vacante'
+  const subEstadoClase =
+    subEstadoCargo === SubEstadoCargo.OCUPADO ? 'bg-blue-100 text-blue-800'
+    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'bg-indigo-100 text-indigo-700'
+    : 'bg-orange-100 text-orange-700'
 
   const desdeOcup = ocup?.cargoDesdeFecha
     ? ocup.cargoDesdeFecha.slice(0, 10)
@@ -80,8 +93,8 @@ export function CargoDetailPanel() {
                 {ESTADO_LABEL[cargo.estado]}
               </span>
               {vigente && (
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${ocupado ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-700'}`}>
-                  {ocupado ? 'Ocupado' : 'Vacante'}
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${subEstadoClase}`}>
+                  {subEstadoLabel}
                 </span>
               )}
             </div>
@@ -90,8 +103,9 @@ export function CargoDetailPanel() {
 
         <div className="divide-y divide-gray-100">
           <Section title="Identificación">
-            <Dato label="Código Cargo"      value={cargo.codigo} />
-            <Dato label="ID SIAL"           value={cargo.idSial} />
+            {/* El Código Cargo no se repite acá: ya figura como título del
+                encabezado. El ID SIAL identifica al ROL de la persona, no al
+                cargo — se muestra en "Persona actual" como "ID SIAL Rol". */}
             <Dato label="Régimen"           value={cargo.regimen} />
             <Dato label="Código de Registro"
               value={cargo.codigoRegistro ? `${cargo.codigoRegistro.codigo} — ${capitalizarEtiqueta(cargo.codigoRegistro.literal)}` : null}
@@ -106,18 +120,22 @@ export function CargoDetailPanel() {
             <Dato label="Repartición"
               value={cargo.codigoRepa ? `${cargo.codigoRepa} — ${cargo.descripcionRepa}` : cargo.descripcionRepa}
             />
+            {/* Área programática: solo si el cargo pertenece a un CeSAC (Atención
+                Primaria). La mayoría de los cargos no aplican → no se muestra. */}
+            {cargo.cesac?.areaProgramatica && (
+              <Dato label="Área programática"
+                value={`${cargo.cesac.areaProgramatica.nombre} · CeSAC ${cargo.cesac.numero}`}
+              />
+            )}
           </Section>
 
-          {/* Solo mostrar Clasificación si hay al menos un campo con dato */}
-          {((cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) || cargo.agrupador || cargo.unificadorPuesto || cargo.agrupamiento) && (
+          {/* Clasificación: Agrupador / Unificador de puesto / Agrupamiento /
+              Puesto SIAL se eliminaron del pipeline del Dotaneitor (pasos 6/7/9
+              removidos, ver DOTANEITOR_DECISIONES.md) → siempre vacíos. Solo se
+              muestra Especialidad, que es el único dato de clasificación vigente. */}
+          {(cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad) && (
             <Section title="Clasificación">
               <Dato label="Especialidad"        value={cargo.especialidadPuesto?.nombre ?? cargo.especialidadLegacy ?? cargo.especialidad} />
-              <Dato label="Agrupador"           value={cargo.agrupador} />
-              <Dato label="Unificador de puesto" value={cargo.unificadorPuesto} />
-              <Dato label="Agrupamiento"
-                value={cargo.codAgrupamiento ? `${cargo.codAgrupamiento} — ${cargo.agrupamiento}` : cargo.agrupamiento}
-              />
-              <Dato label="Puesto SIAL" value={cargo.puestoCodigoSial} />
             </Section>
           )}
 
@@ -143,7 +161,11 @@ export function CargoDetailPanel() {
           </div>
         ) : !persona ? (
           <div className="p-6 text-center">
-            <p className="text-gray-400 text-sm">Cargo vacante — sin persona asignada.</p>
+            <p className="text-gray-400 text-sm">
+              {subEstadoCargo === SubEstadoCargo.CONCURSO
+                ? 'Cargo en concurso — sin persona asignada.'
+                : 'Cargo vacante — sin persona asignada.'}
+            </p>
           </div>
         ) : (
           <div className="p-6">
@@ -170,7 +192,12 @@ export function CargoDetailPanel() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 text-sm border-t border-gray-100 pt-4">
               <Dato label="En el cargo desde" value={desdeOcup} />
               <Dato label="Situación de revista" value={ocup?.situacionRevista} />
-              <Dato label="Estado"               value={ocup?.estadoPersona} />
+              {/* FASE 5: estado_persona (muerto) reemplazado por la marca de
+                  bloqueo derivada de fecha_bloqueo. */}
+              <Dato
+                label="Bloqueo"
+                value={ocup?.fechaBloqueo ? `Bloqueado desde ${fechaCorta(ocup.fechaBloqueo)}` : '—'}
+              />
               <Dato label="Comisión"             value={ocup?.comision} />
               <Dato label="ID SIAL Rol"          value={ocup?.idSialRol?.split('-').slice(0, 2).join('-')} />
               {ocup?.codigoJefaturas && (
@@ -213,7 +240,7 @@ export function CargoDetailPanel() {
       {(concursoCphActivo || concursoCeetpsActivo) && (() => {
         const esCph = !!concursoCphActivo
         const c = (concursoCphActivo ?? concursoCeetpsActivo)!
-        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos-ceetps/${c.id}`
+        const href = esCph ? `/concursos/cph/${c.id}/wizard` : `/concursos/ceetps/${c.id}`
         const tipo = esCph ? 'CPH' : 'CEETPS'
         const sub = esCph
           ? (concursoCphActivo!.subEstado3 ?? concursoCphActivo!.subEstado)
@@ -324,7 +351,7 @@ export function CargoDetailPanel() {
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{fechaCorta(c.concurso.fechaVacante)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link to={`/concursos-ceetps/${c.id}`} className="btn-outline">Ver</Link>
+                    <Link to={`/concursos/ceetps/${c.id}`} className="btn-outline">Ver</Link>
                   </td>
                 </tr>
               ))}

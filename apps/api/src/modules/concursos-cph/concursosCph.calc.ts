@@ -48,7 +48,22 @@ export interface ConcursoCphCalcInput {
   // Desierto
   dispoDesierta: string | null
   fechaDispoDesierta: Date | null
+  // Validación contra el padrón (nómina legal). El alta SIAL (o-alta sial) se
+  // dispara cuando la persona designada aparece en el padrón por su
+  // id_sial_rol — eso enciende `validado`. `validadoIdSialRol` es informativo
+  // (el rol real del padrón con el que se cerró).
+  validado: boolean
+  validadoIdSialRol: string | null
+  // Paso 2b — SOLO concursos nuevo_cargo. Estado de la autorización de SGRASV:
+  // fija el piso del sub-estado (a-caratulado / a-autzn / b-sorteo jur). Los
+  // campos de etapas posteriores siguen ganando. undefined = comportamiento de siempre.
+  autorizacionNuevoCargo?: AutorizacionNuevoCargoCalc
+  // Paso 5b: el concurso saltó a designación usando una persona de una orden de
+  // mérito existente (salto_om_at != null). Sub-estado f-ifacs / sub_estado_3
+  // f-prox. a desig, igual que si tuviera ee_designacion. undefined = false.
+  saltoPorOm?: boolean
 }
+export type AutorizacionNuevoCargoCalc = 'sin_solicitar' | 'pendiente' | 'autorizado'
 
 // String literal en vez del enum de @srrhh/types o @prisma/client a propósito:
 // son dos tipos nominalmente distintos aunque compartan los mismos valores, y
@@ -74,8 +89,19 @@ function calcEstadoBase(row: ConcursoCphCalcInput): EstadoConcursoCphCalc {
 
 function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaDispoDesierta && row.dispoDesierta) return 'q-desierto'
-  if (row.cargoSial) return 'o-alta sial'
-  if (row.fechaResolucion && row.resolucionDesignacion) return 'n-designado'
+  // o-alta sial: la persona designada apareció en el padrón (nómina legal) por
+  // su id_sial_rol y quedó validada. El disparador es `validado` (no `cargoSial`,
+  // que es sólo un atajo informativo): el PATCH manual enciende `validado` cuando
+  // se carga `cargoSial` a mano (ver patchConcursoCphService), y el enganche
+  // automático del padrón lo enciende al ocupar (ver aprobarDiffNuevoService).
+  if (row.validado) return 'o-alta sial'
+  // n-designado: hay persona designada con resolución de designación cargada.
+  // El concurso está finalizado administrativamente y espera que la persona
+  // aparezca en el padrón (nómina legal) por su id_sial_rol — ahí se completa
+  // el alta SIAL (o-alta sial, vía cargoSial / vinculación del padrón).
+  // La fecha de la resolución es opcional: basta el número de resolución para
+  // considerar designado el concurso (regla de negocio confirmada 2026-10-29).
+  if (row.resolucionDesignacion) return 'n-designado'
   if (row.resoALaFirma) return 'm-reso a la firma'
   if (row.proyectoResolucion) return 'l-pycto de reso'
   if (row.fechaIte) return 'k-ite'
@@ -83,6 +109,9 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.cargaDocumentacion) return 'i-carga docu'
   if (row.eeDesignacion) return 'h-tad'
   if (row.fechaInsal) return 'g-insal'
+  // Salto por OM: aterriza en F-IFACS (el ministerio avisa al hospital que hay
+  // un postulante designado). Los campos reales de etapas posteriores ganan.
+  if (row.saltoPorOm) return 'f-ifacs'
   if (row.fechaIfacs) return 'f-ifacs'
   if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'e-orden de merito'
   if (row.fechaExamen) return 'd-examen publicado'
@@ -95,6 +124,10 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaInscDesde && row.fechaInscHasta) return 'c2-inscripcion ex'
   if (row.disposicion) return 'c-dispo de llamado'
   if (row.sorteoJurado) return 'b-sorteo jur'
+  // Paso 2b (nuevo_cargo): el estado de la autorización decide el piso.
+  if (row.autorizacionNuevoCargo === 'autorizado') return 'b-sorteo jur'
+  if (row.autorizacionNuevoCargo === 'pendiente') return 'a-autzn'
+  if (row.autorizacionNuevoCargo === 'sin_solicitar') return row.eeConcurso ? 'a-caratulado' : 'vacante'
   if (row.fechaAutorizacion) return 'a-autzn'
   if (row.eeConcurso && row.eeBaja) return 'a-caratulado'
   if (!row.eeBaja && !row.eeConcurso) return 'vacante'
@@ -111,6 +144,7 @@ function calcSubEstado3(row: ConcursoCphCalcInput): string {
   if (row.fechaDispoDesierta) return 'h-desierto'
   if (row.resolucionDesignacion) return 'g-resolucion'
   if (row.eeDesignacion) return 'f-prox. a desig'
+  if (row.saltoPorOm) return 'f-prox. a desig'
   if (row.fechaExamen && hoy >= row.fechaExamen) return 'e-adjudi'
   if (row.fechaInscHasta && hoy >= row.fechaInscHasta) return 'd-etapa eval'
   if (row.disposicion) return 'c-inscripcion'
@@ -179,6 +213,7 @@ export const SUB_ESTADO_3_SQL_PG = `
     WHEN fecha_dispo_desierta IS NOT NULL THEN 'h-desierto'
     WHEN COALESCE(resolucion_designacion, '') <> '' THEN 'g-resolucion'
     WHEN COALESCE(ee_designacion, '') <> '' THEN 'f-prox. a desig'
+    WHEN salto_om_at IS NOT NULL THEN 'f-prox. a desig'
     WHEN fecha_examen IS NOT NULL AND fecha_examen <= CURRENT_DATE THEN 'e-adjudi'
     WHEN fecha_insc_hasta IS NOT NULL AND fecha_insc_hasta <= CURRENT_DATE THEN 'd-etapa eval'
     WHEN COALESCE(disposicion, '') <> '' THEN 'c-inscripcion'

@@ -66,13 +66,13 @@ export function usePuestosCargos(escalafonId?: string, hospitalId?: string, tipo
 
 // S20-11: devuelve {id, nombre} — el id es lo que hay que mandar al backend
 // como puestoCargoId, nombre es solo para mostrar en el combobox.
-export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos', tipoPuesto?: 'ejecucion' | 'conduccion') {
+export function usePuestosCargoNormalizados(escalafonId?: string, modalidad?: 'pof' | 'pou' | 'ambos', tipoPuesto?: 'ejecucion' | 'conduccion', incluirAmbos?: boolean) {
   return useQuery({
-    queryKey: ['puestos-cargo', escalafonId, modalidad, tipoPuesto],
+    queryKey: ['puestos-cargo', escalafonId, modalidad, tipoPuesto, !!incluirAmbos],
     enabled: !!escalafonId,
     queryFn: async () => {
       const res = await apiClient.get<{ data: PuestoCatalogoEspecialidad[] }>('/api/v1/puestos-cargo', {
-        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }), ...(tipoPuesto && { tipoPuesto }) },
+        params: { ...(escalafonId && { escalafonId }), ...(modalidad && { modalidad }), ...(tipoPuesto && { tipoPuesto }), ...(incluirAmbos && { incluirAmbos: true }) },
       })
       return res.data.data
     },

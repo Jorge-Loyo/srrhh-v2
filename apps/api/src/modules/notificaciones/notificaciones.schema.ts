@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { queryBool } from '../../shared/queryBool.js'
 
 export const notificacionesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -13,7 +14,7 @@ export const notificacionesQuerySchema = z.object({
       'vencimiento_conduccion',
     ])
     .optional(),
-  soloNoLeidas: z.coerce.boolean().optional(),
+  soloNoLeidas: queryBool.optional(),
 })
 
 export type NotificacionesQuery = z.infer<typeof notificacionesQuerySchema>

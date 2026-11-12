@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 export function LoginPage() {
-  const [username, setUsername] = useState('')
+  const [identificador, setIdentificador] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const { login, isLoading } = useAuth()
@@ -13,7 +13,7 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     try {
-      await login(username, password)
+      await login(identificador, password)
       navigate('/')
     } catch {
       setError('Usuario o contraseña incorrectos')
@@ -41,14 +41,14 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Usuario <span className="text-danger">*</span>
+                Email, CUIL o usuario <span className="text-danger">*</span>
               </label>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={identificador}
+                onChange={(e) => setIdentificador(e.target.value)}
                 className="w-full h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-                placeholder="usuario"
+                placeholder="email, CUIL o usuario"
                 required
               />
             </div>

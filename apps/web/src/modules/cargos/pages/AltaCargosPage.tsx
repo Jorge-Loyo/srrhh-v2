@@ -1,12 +1,16 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad, Etiqueta } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
-import { useEtiquetas } from '@/modules/concursos-cph/hooks/useEtiquetas'
-import { useSolicitudesAlta, useCreateSolicitudAlta } from '../hooks/useSolicitudesAlta'
+import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '../lib/carrerasGestionadas'
+import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
+import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
+import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
+import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -29,6 +33,23 @@ const ESTADO_BADGE: Record<SolicitudAltaEstado, string> = {
   pendiente: 'badge-warning',
   aprobada:  'badge-success',
   rechazada: 'badge-danger',
+}
+
+// Estado AGREGADO del grupo (expediente) para la vista Cargos Históricos.
+// "parcial" (mezcla de estados) se muestra en ámbar; el resto reusa el mismo
+// color/label que las solicitudes individuales.
+const ESTADO_GRUPO_LABEL: Record<EstadoGrupo, string> = {
+  pendiente: 'Pendiente',
+  aprobada:  'Aprobado',
+  rechazada: 'Rechazado',
+  parcial:   'Parcial',
+}
+
+const ESTADO_GRUPO_BADGE: Record<EstadoGrupo, string> = {
+  pendiente: 'badge-warning',
+  aprobada:  'badge-success',
+  rechazada: 'badge-danger',
+  parcial:   'bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium',
 }
 
 interface OpcionModalidad {
@@ -98,51 +119,6 @@ interface ItemPendiente {
   desde: string
   cantidad: number
   etiqueta: string
-}
-
-// ── Combobox con búsqueda — S20-11: opera sobre {id, nombre}, emite el id ────
-function PuestoCombobox({ opciones, value, onChange, placeholder = 'Buscar...' }: {
-  opciones: PuestoCatalogoEspecialidad[]
-  value: string
-  onChange: (opcion: PuestoCatalogoEspecialidad) => void
-  placeholder?: string
-}) {
-  const [query,   setQuery]   = useState('')
-  const [abierto, setAbierto] = useState(false)
-  // Filtra por el texto original o el capitalizado (para que buscar "Medi" o
-  // "medi" funcione igual). La caja de la BD es minúscula; se muestra capitalizado.
-  const filtrados = query.trim()
-    ? opciones.filter((p) =>
-        p.nombre.toLowerCase().includes(query.toLowerCase()) ||
-        capitalizar(p.nombre).toLowerCase().includes(query.toLowerCase()),
-      )
-    : opciones
-  return (
-    <div className="relative">
-      <input
-        type="text"
-        value={abierto ? query : capitalizar(value)}
-        placeholder={capitalizar(value) || placeholder}
-        className="h-10 input w-full"
-        onFocus={() => { setAbierto(true); setQuery('') }}
-        onBlur={() => setTimeout(() => setAbierto(false), 150)}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {abierto && (
-        <ul className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-          {filtrados.length === 0
-            ? <li className="px-3 py-2 text-sm text-gray-400">Sin resultados</li>
-            : filtrados.map((p) => (
-                <li key={p.id} onMouseDown={() => { onChange(p); setQuery(''); setAbierto(false) }}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-secondary/10 ${p.nombre === value ? 'bg-secondary/10 font-medium text-secondary' : 'text-gray-700'}`}>
-                  {capitalizar(p.nombre)}
-                </li>
-              ))
-          }
-        </ul>
-      )}
-    </div>
-  )
 }
 
 // ── Selector de etiqueta ─────────────────────────────────────────────────────
@@ -230,12 +206,23 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   const opciones          = escalafonId ? opcionesModalidad(escNombre, tipo) : []
   const modalidadEfectiva = opciones.length === 1 ? opciones[0]! : (modalidadIdx !== null ? opciones[modalidadIdx] ?? null : null)
 
-  const { data: puestos        = [] } = usePuestosCargoNormalizados(escalafonId || undefined, modalidadParaTipo(tipo))
+  // Carrera 87: solo Enfermero Profesional / Licenciado en Enfermería (ver lib/carrerasGestionadas).
+  const escCodigo = escalafonesFiltrados.find((e) => e.id === escalafonId)?.codigo
+  // Solo las carreras con regla de puestos piden también los puestos 'ambos'
+  // (la 87 los necesita); el resto del alta queda con su lista de hoy.
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(
+    escalafonId || undefined, modalidadParaTipo(tipo), undefined, pideIncluirAmbosAlta(escCodigo, tipo),
+  )
+  const puestos   = filtrarPuestosAlta(puestosCatalogo, escCodigo, tipo)
   // S21: especialidades del puesto EXACTO por id (evita el bug de homónimos).
-  const { data: especialidades = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+  const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+  // Regla enfermería: solo "Enfermeros ATP/ATC"; si aún no están en el catálogo,
+  // avisa y no bloquea el alta (ver lib/especialidadesAlta).
+  const { opciones: especialidades, faltanAtpAtc, obligatoria: especialidadObligatoria } =
+    especialidadesPermitidasAlta(puesto, especialidadesCatalogo)
 
   const formCompleto = expConfirmado && !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puesto
-    && (especialidades.length === 0 || !!especialidad) && !!desde
+    && (!especialidadObligatoria || !!especialidad) && !!desde
   const expLabel       = tipo === 'estructura' ? 'Decreto' : 'Expediente'
   const expPlaceholder = tipo === 'estructura' ? 'Ej: DEC-541/MSGC/26' : 'Ej: EX-2026-32260736-GCABA-DGAYDRH'
 
@@ -317,10 +304,12 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Carrera <span className="text-danger">*</span></label>
-            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
-              <option value="">Seleccionar...</option>
-              {escalafonesFiltrados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-            </select>
+            <SearchableSelect
+              value={escalafonId}
+              onChange={(v) => { setEscalafonId(v); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
+              options={opcionesCarreraAlta(escalafonesFiltrados, tipo)}
+              placeholder="Seleccionar carrera..."
+            />
           </div>
         </div>
 
@@ -348,13 +337,28 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto <span className="text-danger">*</span></label>
-              <PuestoCombobox opciones={puestos} value={puesto} onChange={(op) => { setPuestoSel(op); setEspecialidadSel(null) }} />
+              <SearchableSelect
+                value={puestoSel?.id ?? ''}
+                onChange={(id) => { setPuestoSel(puestos.find((p) => p.id === id) ?? null); setEspecialidadSel(null) }}
+                options={puestos.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+                placeholder="Seleccionar puesto..."
+              />
             </div>
             {puesto && especialidades.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad <span className="text-danger">*</span></label>
-                <PuestoCombobox opciones={especialidades} value={especialidad} onChange={setEspecialidadSel} placeholder="Buscar especialidad..." />
+                <SearchableSelect
+                  value={especialidadSel?.id ?? ''}
+                  onChange={(id) => setEspecialidadSel(especialidades.find((e) => e.id === id) ?? null)}
+                  options={especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) }))}
+                  placeholder="Seleccionar especialidad..."
+                />
               </div>
+            )}
+            {puesto && faltanAtpAtc && (
+              <p role="status" className="text-xs font-semibold text-warning">
+                Faltan cargar las especialidades Enfermeros ATP/ATC en el catálogo. Podés dar el alta sin especialidad.
+              </p>
             )}
           </div>
         )}
@@ -394,6 +398,14 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
   )
 }
 
+// Resumen del grupo enviado a aprobación — alimenta el modal de confirmación.
+// Se arma con los ítems recién enviados (comparten el expediente del lote).
+interface ResumenEnvio {
+  expediente: string
+  totalCargos: number
+  items: ItemPendiente[]
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 export function AltaCargosPage() {
   const [tab,        setTab]        = useState<'historial' | 'nueva' | 'transferencia'>('historial')
@@ -403,10 +415,12 @@ export function AltaCargosPage() {
   const [error,      setError]      = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
   const [filtroEstado, setFiltroEstado] = useState<SolicitudAltaEstado | ''>('')
+  const [confirmacion, setConfirmacion] = useState<ResumenEnvio | null>(null)
 
   // S13-D: historial ahora lista SolicitudAlta (con estado pendiente/aprobada/
   // rechazada) — el Cargo real recién existe cuando el director aprueba.
   const { data: solicitudesData, refetch: refetchSolicitudes } = useSolicitudesAlta({
+    limit: 100,
     ...(filtroEstado && { estado: filtroEstado }),
     ...(tab === 'transferencia' && { esTransferencia: true }),
     ...(tab === 'historial' && { esTransferencia: false }),
@@ -416,36 +430,41 @@ export function AltaCargosPage() {
     ? solicitudes.filter((s) => (s.expediente ?? '').toLowerCase().includes(search.trim().toLowerCase()))
     : solicitudes
 
-  const crearSolicitud = useCreateSolicitudAlta()
+  const crearLote = useCreateSolicitudesAltaBatch()
 
   function handleAgregar(item: ItemPendiente) {
     setPendientes((prev) => [...prev, item])
-  }
-
-  async function registrarItem(item: ItemPendiente) {
-    return crearSolicitud.mutateAsync({
-      hospitalId:       item.hospitalId,
-      escalafonId:      item.escalafonId,
-      puestoCargoId:       item.puestoCargoId,
-      especialidadPuestoId: item.especialidadPuestoId,
-      unificadorPuesto: item.unificadorPuesto,
-      agrupador:        item.agrupador,
-      expediente:       item.expediente || undefined,
-      desde:            item.desde,
-      cantidad:         item.cantidad,
-      etiqueta:         item.etiqueta || undefined,
-    })
   }
 
   async function handleRegistrarTodos() {
     if (pendientes.length === 0) return
     setGuardando(true); setError(null)
     try {
-      for (const item of pendientes) {
-        await registrarItem(item)
-      }
+      // LOTE: una sola request → una transacción en el backend que crea las N
+      // solicitudes + autorizaciones (evita el timeout de 5 s de N requests).
+      await crearLote.mutateAsync({
+        items: pendientes.map((item) => ({
+          hospitalId:       item.hospitalId,
+          escalafonId:      item.escalafonId,
+          puestoCargoId:       item.puestoCargoId,
+          especialidadPuestoId: item.especialidadPuestoId,
+          unificadorPuesto: item.unificadorPuesto,
+          agrupador:        item.agrupador,
+          expediente:       item.expediente || undefined,
+          desde:            item.desde,
+          cantidad:         item.cantidad,
+          etiqueta:         item.etiqueta || undefined,
+        })),
+      })
+      // Resumen para el modal (todos los ítems del lote comparten el expediente).
+      const enviados = pendientes
+      const expediente = enviados[0]?.expediente ?? ''
+      const totalCargos = enviados.reduce((acc, p) => acc + p.cantidad, 0)
+      // Form limpio: se vacían los pendientes y se cierra el formulario abierto.
       setPendientes([])
+      setTipoActivo(null)
       refetchSolicitudes()
+      setConfirmacion({ expediente, totalCargos, items: enviados })
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -491,7 +510,7 @@ export function AltaCargosPage() {
                   ? 'border-secondary text-secondary'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'historial' ? 'Historial de solicitudes' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
+              {t === 'historial' ? 'Cargos Históricos' : t === 'nueva' ? 'Nueva alta' : 'Transferencia'}
             </button>
           ))}
         </div>
@@ -565,9 +584,10 @@ export function AltaCargosPage() {
           </div>
         )}
 
-        {/* Contenido pestaña Historial */}
+        {/* Contenido pestaña Cargos Históricos — vista AGRUPADA por expediente,
+            solo lectura (ver + descargar PDF del grupo). */}
         {tab === 'historial' && (
-          <HistorialSolicitudes
+          <CargosHistoricos
             search={search} setSearch={setSearch}
             filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
             solicitudes={solicitudesFiltradas}
@@ -583,6 +603,96 @@ export function AltaCargosPage() {
             esTransferencia
           />
         )}
+      </div>
+
+      {/* Modal de confirmación tras enviar a aprobación */}
+      {confirmacion && (
+        <ModalConfirmacionEnvio
+          resumen={confirmacion}
+          onCerrar={() => setConfirmacion(null)}
+          onIrAHistorial={() => { setConfirmacion(null); setTab('historial') }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Modal de confirmación del envío a aprobación ──────────────────────────────
+// Se muestra al enviar el lote: confirma N cargos enviados a aprobación con el
+// detalle del grupo (expediente + una línea por cargo) y permite descargar el
+// PDF del expediente (on-demand del backend) o ir a Cargos Históricos.
+function ModalConfirmacionEnvio({ resumen, onCerrar, onIrAHistorial }: {
+  resumen: ResumenEnvio
+  onCerrar: () => void
+  onIrAHistorial: () => void
+}) {
+  const [descargando, setDescargando] = useState(false)
+  const [errorPdf, setErrorPdf] = useState<string | null>(null)
+
+  async function onDescargar() {
+    setDescargando(true); setErrorPdf(null)
+    try {
+      await descargarPdfGrupo(resumen.expediente)
+    } catch (err) {
+      setErrorPdf(getApiErrorMessage(err))
+    } finally {
+      setDescargando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="bg-navy px-6 py-4 rounded-t-xl flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+              <p className="text-white font-bold text-sm">Se enviaron {resumen.totalCargos} cargo(s) a aprobación</p>
+            </div>
+            <p className="text-white/60 text-xs mt-1">Expediente <span className="font-mono">{resumen.expediente || '(sin expediente)'}</span></p>
+          </div>
+          <button onClick={onCerrar} className="text-white/60 hover:text-white text-2xl leading-none mt-0.5">×</button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto">
+          <p className="text-xs text-gray-500 mb-3">
+            Cada cargo queda como solicitud pendiente hasta que el director la apruebe.
+            Podés descargar el documento del expediente ahora o después desde el historial.
+          </p>
+          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600 text-left">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Hospital</th>
+                  <th className="px-3 py-2 font-semibold">Carrera</th>
+                  <th className="px-3 py-2 font-semibold">Puesto</th>
+                  <th className="px-3 py-2 font-semibold">Especialidad</th>
+                  <th className="px-3 py-2 font-semibold text-center">Cant.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {resumen.items.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-3 py-2 text-gray-700">{item.hospitalSigla}</td>
+                    <td className="px-3 py-2 text-gray-700">{item.escalafon}</td>
+                    <td className="px-3 py-2 text-gray-800">{item.puesto}</td>
+                    <td className="px-3 py-2 text-gray-500">{item.especialidad || '—'}</td>
+                    <td className="px-3 py-2 text-center font-bold text-secondary">{item.cantidad}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {errorPdf && <p className="mt-2 text-xs text-red-500">{errorPdf}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button onClick={onCerrar} className="btn-outline">Cerrar</button>
+          <button onClick={onIrAHistorial} className="btn-outline">Ir a Cargos Históricos</button>
+          <button onClick={onDescargar} disabled={descargando} className="btn-primary disabled:opacity-40">
+            {descargando ? 'Generando...' : 'Descargar PDF'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -807,6 +917,157 @@ function HistorialSolicitudes({
       ) : (
         <p className="p-8 text-center text-sm text-gray-400">
           No hay {esTransferencia ? 'transferencias' : 'solicitudes de alta'}{search ? ` para "${search}"` : ''}.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Cargos Históricos (Paso 3) ────────────────────────────────────────────────
+// Vista AGRUPADA POR EXPEDIENTE del lote de creación: una fila por expediente
+// (el grupo), con estado AGREGADO del grupo. SOLO LECTURA: únicas acciones son
+// VER el detalle (expandir la fila → solicitudes del grupo con su estado
+// individual; link al cargo /cargos/:id si ya existe) y DESCARGAR el PDF del
+// grupo (reusa descargarPdfGrupo → GET /solicitudes-alta/grupo/pdf, el endpoint
+// que ya existe). No hay editar/borrar/aprobar.
+function CargosHistoricos({
+  search, setSearch, filtroEstado, setFiltroEstado, solicitudes,
+}: {
+  search: string
+  setSearch: (v: string) => void
+  filtroEstado: SolicitudAltaEstado | ''
+  setFiltroEstado: (v: SolicitudAltaEstado | '') => void
+  solicitudes: SolicitudAlta[]
+}) {
+  const [expandido, setExpandido] = useState<string | null>(null)
+  const [descargando, setDescargando] = useState<string | null>(null)
+  const [errorPdf, setErrorPdf] = useState<string | null>(null)
+
+  const grupos = agruparPorExpediente(solicitudes)
+
+  async function onDescargar(g: GrupoExpediente) {
+    if (!g.expediente) return
+    setDescargando(g.expediente); setErrorPdf(null)
+    try {
+      await descargarPdfGrupo(g.expediente)
+    } catch (err) {
+      setErrorPdf(getApiErrorMessage(err))
+    } finally {
+      setDescargando(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Filtros — la búsqueda por expediente se aplica aguas arriba (sobre las
+          solicitudes); el filtro por estado filtra las solicitudes subyacentes
+          que luego se agrupan. */}
+      <div className="p-6 border-b border-gray-100 flex flex-wrap gap-3">
+        <input type="text" placeholder="Buscar por expediente..."
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[200px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary" />
+        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as SolicitudAltaEstado | '')}
+          className="h-10 px-3 border border-gray-300 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary">
+          <option value="">Todos los estados</option>
+          {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+
+      {errorPdf && <p className="px-6 pt-3 text-xs text-red-500">{errorPdf}</p>}
+
+      {/* Tabla agrupada — una fila por expediente */}
+      {grupos.length > 0 ? (
+        <table className="w-full text-sm">
+          <thead className="bg-navy text-white text-left sticky top-0 z-10">
+            <tr>
+              <th className="px-4 py-3 font-semibold rounded-tl-lg">Expediente</th>
+              <th className="px-4 py-3 font-semibold">Fecha de creación</th>
+              <th className="px-4 py-3 font-semibold">Solicitante</th>
+              <th className="px-4 py-3 font-semibold text-center">Cargos</th>
+              <th className="px-4 py-3 font-semibold">Estado</th>
+              <th className="px-4 py-3 rounded-tr-lg" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {grupos.map((g) => {
+              const clave = g.expediente || '(sin-expediente)'
+              const abierto = expandido === clave
+              return (
+                <Fragment key={clave}>
+                  <tr className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-secondary max-w-[220px] truncate" title={g.expediente}>{g.expediente || '(sin expediente)'}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{g.createdAt.slice(0, 10)}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{g.solicitante ?? '—'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold">{g.totalCargos}</span>
+                    </td>
+                    <td className="px-4 py-3"><span className={`${ESTADO_GRUPO_BADGE[g.estado]} text-xs`}>{ESTADO_GRUPO_LABEL[g.estado]}</span></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => setExpandido(abierto ? null : clave)} className="btn-outline text-xs px-3 py-1">
+                          {abierto ? 'Ocultar' : 'Ver detalle'}
+                        </button>
+                        <button onClick={() => onDescargar(g)} disabled={!g.expediente || descargando === g.expediente}
+                          className="btn-primary text-xs px-3 py-1 disabled:opacity-40">
+                          {descargando === g.expediente ? 'Generando...' : 'Descargar PDF'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {abierto && (
+                    <tr className="bg-gray-50/60">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="overflow-x-auto border border-gray-100 rounded-lg bg-white">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 text-gray-600 text-left">
+                              <tr>
+                                <th className="px-3 py-2 font-semibold">Hospital</th>
+                                <th className="px-3 py-2 font-semibold">Carrera</th>
+                                <th className="px-3 py-2 font-semibold">Puesto</th>
+                                <th className="px-3 py-2 font-semibold text-center">Cant.</th>
+                                <th className="px-3 py-2 font-semibold">Estado</th>
+                                <th className="px-3 py-2 font-semibold">Cargos</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {g.solicitudes.map((s) => (
+                                <tr key={s.id}>
+                                  <td className="px-3 py-2 text-gray-700">{s.hospital?.sigla ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-700">{s.escalafon?.nombre ?? '—'}</td>
+                                  <td className="px-3 py-2 text-gray-800">{s.literalPuesto}</td>
+                                  <td className="px-3 py-2 text-center font-bold text-secondary">{s.cantidad}</td>
+                                  <td className="px-3 py-2"><span className={`${ESTADO_BADGE[s.estado]} text-xs`}>{ESTADO_LABEL[s.estado]}</span></td>
+                                  <td className="px-3 py-2">
+                                    {/* Para solicitudes APROBADAS el cargo real ya existe → link al
+                                        detalle /cargos/:id. Para pendientes aún no existe el cargo. */}
+                                    {s.estado === 'aprobada' && s.cargosCreadosIds.length > 0 ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {s.cargosCreadosIds.map((cargoId, i) => (
+                                          <Link key={cargoId} to={`/cargos/${cargoId}`} className="text-secondary underline hover:text-secondary/80">
+                                            Ver cargo {s.cargosCreadosIds.length > 1 ? i + 1 : ''}
+                                          </Link>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400">Aún no creado</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <p className="p-8 text-center text-sm text-gray-400">
+          No hay cargos históricos{search ? ` para "${search}"` : ''}.
         </p>
       )}
     </div>

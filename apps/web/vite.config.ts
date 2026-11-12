@@ -57,5 +57,27 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Aislar en chunks propios SOLO los vendors que conviene forzar: React
+        // (común a todo, cacheable entre deploys que no lo tocan), @xyflow/react
+        // (pesado, exclusivo del organigrama) y @heroicons (iconos compartidos).
+        // El resto de node_modules devuelve undefined a propósito: así Rollup
+        // los parte por la ruta/chunk lazy que los importa. En particular las
+        // libs de export (jspdf/xlsx/docx/html-to-image) NO se agrupan a mano
+        // —cada una es pesada y vive en rutas distintas— para no arrastrar un
+        // mega-chunk a una página que usa solo una de ellas. Todas cuelgan de
+        // páginas lazy, así que ya salen del bundle inicial igual.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) {
+            return 'react'
+          }
+          if (/node_modules\/@xyflow\//.test(id)) return 'xyflow'
+          if (/node_modules\/@heroicons\//.test(id)) return 'icons'
+          return undefined
+        },
+      },
+    },
   },
 })

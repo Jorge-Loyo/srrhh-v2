@@ -45,6 +45,7 @@ function invalidarTodo(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['solicitudes-alta'] })
   queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard'] })
   queryClient.invalidateQueries({ queryKey: ['concursos-cph'] })
+  queryClient.invalidateQueries({ queryKey: ['concursos-ceetps'] })
 }
 
 export function useAprobarAutorizacion() {
@@ -63,34 +64,6 @@ export function useRechazarAutorizacion() {
   return useMutation({
     mutationFn: async ({ id, observaciones }: { id: string; observaciones?: string }) => {
       const res = await apiClient.post<{ data: Autorizacion }>(`/api/v1/autorizaciones/${id}/rechazar`, { observaciones })
-      return res.data.data
-    },
-    onSuccess: () => invalidarTodo(queryClient),
-  })
-}
-
-// S14-7: crear el concurso sugerido tras aprobar un alta_cargo. No hay un
-// wizard de creación "desde cero" en el frontend — los concursos siempre
-// nacen de un flujo automático (igual que createConcursoTx desde bajas.service.ts
-// en el backend) — así que esto llama directo al mismo POST /concursos
-// genérico (S4-6), no navega a una ruta de wizard que no sabe crear nada.
-export interface CrearConcursoBody {
-  cargoId: string
-  hospitalId: string
-  tipoConcurso: 'cph' | 'ceetps'
-  motivoConcurso: 'nuevo_cargo' | 'alta_por_baja'
-  origen: string
-  fechaVacante: string
-  escalafonId?: string
-}
-export function useCrearConcurso() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (body: CrearConcursoBody) => {
-      const res = await apiClient.post<{ data: { concurso: { id: string }; concursoCph?: { id: string }; concursoCeetps?: { id: string } } }>(
-        '/api/v1/concursos',
-        body,
-      )
       return res.data.data
     },
     onSuccess: () => invalidarTodo(queryClient),

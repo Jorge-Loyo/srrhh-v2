@@ -11,6 +11,9 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { InscriptoBody, InscriptoPatchBody } from './inscriptos.schema.js'
 import { calcConcursoCph } from './concursosCph.calc.js'
+import { assertEtapa2Habilitada } from './bloqueoEtapa2.js'
+import { TX_OPTS_LARGA } from '../../shared/txOpts.js'
+import { revertirSaltoOm } from './omSaltoRevertir.js'
 
 function toDate(v: string | null | undefined): Date | null {
   return v ? new Date(v) : null
@@ -42,6 +45,7 @@ export async function listInscriptosService(concursoCphId: string) {
 
 // Alta manual de un inscripto.
 export async function createInscriptoService(concursoCphId: string, body: InscriptoBody) {
+  await assertEtapa2Habilitada(concursoCphId)
   await assertConcurso(concursoCphId)
   const inscripto = await prisma.inscriptoConcurso.create({
     data: {
@@ -71,6 +75,7 @@ export async function updateInscriptoService(
   inscriptoId: string,
   body: InscriptoPatchBody,
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const existe = await prisma.inscriptoConcurso.findFirst({
     where: { id: inscriptoId, concursoCphId },
     select: { id: true },
@@ -103,6 +108,7 @@ export async function updateInscriptoService(
 
 // Baja de un inscripto.
 export async function deleteInscriptoService(concursoCphId: string, inscriptoId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const existe = await prisma.inscriptoConcurso.findFirst({
     where: { id: inscriptoId, concursoCphId },
     select: { id: true },
@@ -179,6 +185,7 @@ function celdaAFecha(v: unknown): string | null {
 }
 
 export async function importarInscriptosService(concursoCphId: string, buffer: Buffer) {
+  await assertEtapa2Habilitada(concursoCphId)
   await assertConcurso(concursoCphId)
 
   const wb = XLSX.read(buffer, { type: 'buffer' })
@@ -261,6 +268,9 @@ function recalcCph(c: ConcursoCph) {
     cargoSial: c.cargoSial,
     dispoDesierta: c.dispoDesierta,
     fechaDispoDesierta: c.fechaDispoDesierta,
+    validado: c.validado,
+    validadoIdSialRol: c.validadoIdSialRol,
+    saltoPorOm: c.saltoOmAt != null,
   })
 }
 
@@ -274,6 +284,7 @@ export async function cerrarInscripcionService(
   concursoCphId: string,
   fechas?: { fechaInscDesde?: string | null; fechaInscHasta?: string | null },
 ) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
 
@@ -306,6 +317,7 @@ export async function cerrarInscripcionService(
 // "Publicar examen": requiere inscripción publicada. Guarda la fecha de examen
 // (si viene en el body) → el sub-estado queda en D con E como próximo pendiente.
 export async function publicarExamenService(concursoCphId: string, fechaExamenStr?: string | null) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.inscripcionCerrada) throw AppError.conflict('Publicá primero las fechas de inscripción.')
@@ -328,6 +340,7 @@ export async function publicarExamenService(concursoCphId: string, fechaExamenSt
 
 // Despublica el examen (revertir): solo si presentados NO están confirmados.
 export async function despublicarExamenService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.fechaExamen) throw AppError.conflict('El examen no está publicado.')
@@ -350,6 +363,7 @@ export async function despublicarExamenService(concursoCphId: string) {
 // Reabre el período de inscripción (por si se cerró por error). Solo si el
 // examen aún no fue publicado.
 export async function reabrirInscripcionService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.inscripcionCerrada) throw AppError.conflict('Las inscripciones no están cerradas.')
@@ -373,6 +387,7 @@ export async function reabrirInscripcionService(concursoCphId: string) {
 // Congela quién se presentó (no se puede editar después). Requiere fecha de
 // examen cargada.
 export async function confirmarPresentadosService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.fechaExamen)
@@ -385,6 +400,7 @@ export async function confirmarPresentadosService(concursoCphId: string) {
 }
 
 export async function revertirPresentadosService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.presentadosConfirmados) throw AppError.conflict('Los presentados no están confirmados.')
@@ -401,6 +417,7 @@ export async function revertirPresentadosService(concursoCphId: string) {
 // y sin faltantes. Al confirmar: setea fechaOrdenMerito=hoy, marca el flag y
 // recalcula el sub-estado (avanza a E — Orden de mérito).
 export async function confirmarOrdenMeritoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({
     where: { id: concursoCphId },
     include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
@@ -480,6 +497,7 @@ export async function confirmarOrdenMeritoService(concursoCphId: string) {
 }
 
 export async function revertirOrdenMeritoService(concursoCphId: string) {
+  await assertEtapa2Habilitada(concursoCphId)
   const c = await prisma.concursoCph.findUnique({ where: { id: concursoCphId } })
   if (!c) throw AppError.notFound('Concurso CPH no encontrado')
   if (!c.ordenMeritoConfirmado) throw AppError.conflict('El orden de mérito no está confirmado.')
@@ -575,6 +593,7 @@ export async function reservarIntegranteOmService(
   integranteId: string,
   _usuarioId: string | null,
 ) {
+  await assertEtapa2Habilitada(concursoDestinoId)
   const destino = await prisma.concursoCph.findUnique({
     where: { id: concursoDestinoId },
     include: { concurso: { include: { cargo: { include: { especialidadPuesto: true } } } } },
@@ -643,7 +662,7 @@ export async function reservarIntegranteOmService(
 
 // Libera una reserva de integrante (revierte designado + concursoCphDesignadoId)
 // y limpia la persona designada del concurso destino.
-export async function liberarIntegranteOmService(integranteId: string) {
+export async function liberarIntegranteOmService(integranteId: string, usuarioId: string | null = null) {
   const integrante = await prisma.ordenMeritoIntegrante.findUnique({
     where: { id: integranteId },
   })
@@ -657,6 +676,8 @@ export async function liberarIntegranteOmService(integranteId: string) {
       where: { id: integranteId },
       data: { designado: false, concursoCphDesignadoId: null },
     })
+    // Paso 5b: si el destino saltó a designación con este integrante, se revierte el salto.
+    await revertirSaltoOm(tx, destinoId, integranteId, usuarioId)
     if (destinoId && integrante.personaId) {
       const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
       if (c?.personaDesignadaId === integrante.personaId) {
@@ -667,7 +688,7 @@ export async function liberarIntegranteOmService(integranteId: string) {
       }
     }
     return { ok: true }
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // Candidato de OM actualmente reservado para un concurso (el integrante con
@@ -690,7 +711,11 @@ export async function getCandidatoOmReservadoService(concursoDestinoId: string) 
 // del concurso destino. Devuelve cuántos integrantes disponibles quedan en la
 // misma orden de mérito (para decidir si se puede reelegir o hay que declarar
 // desierto).
-export async function rechazarIntegranteOmService(integranteId: string, motivo?: string) {
+export async function rechazarIntegranteOmService(
+  integranteId: string,
+  motivo?: string,
+  usuarioId: string | null = null,
+) {
   const integrante = await prisma.ordenMeritoIntegrante.findUnique({
     where: { id: integranteId },
   })
@@ -709,6 +734,8 @@ export async function rechazarIntegranteOmService(integranteId: string, motivo?:
         concursoCphDesignadoId: null,
       },
     })
+    // Paso 5b: si el destino saltó a designación con este integrante, se revierte el salto.
+    await revertirSaltoOm(tx, destinoId, integranteId, usuarioId)
     if (destinoId && integrante.personaId) {
       const c = await tx.concursoCph.findUnique({ where: { id: destinoId } })
       if (c?.personaDesignadaId === integrante.personaId) {
@@ -723,7 +750,7 @@ export async function rechazarIntegranteOmService(integranteId: string, motivo?:
       where: { ordenMeritoId: integrante.ordenMeritoId, designado: false, anulado: false },
     })
     return { ok: true, disponiblesRestantes: disponibles }
-  })
+  }, TX_OPTS_LARGA)
 }
 
 // Órdenes de mérito COMPATIBLES con un concurso destino (mismo puesto +
@@ -747,9 +774,12 @@ export async function listOmCompatiblesService(concursoDestinoId: string) {
       .toLowerCase()
       .trim()
 
+  const escalafonDestino = cargo?.escalafonId ?? null
   const vigentes = await listOrdenesMeritoVigentesService()
   return vigentes.filter((o) => {
     if (o.concursoCphId === concursoDestinoId) return false
+    // Misma carrera (escalafón) que el cargo del concurso origen de la OM.
+    if (!escalafonDestino || o.concursoCph?.concurso?.cargo?.escalafonId !== escalafonDestino) return false
     if (norm(o.especialidad) !== norm(especialidadDestino)) return false
     // Puesto: si ambos tienen puesto, deben coincidir; si el destino no lo
     // define, no se exige.

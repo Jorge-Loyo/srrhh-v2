@@ -19,6 +19,16 @@ export const EstadoCargo = {
 } as const
 export type EstadoCargo = (typeof EstadoCargo)[keyof typeof EstadoCargo]
 
+// Sub-estado del cargo vigente (ocupado | vacante | concurso) — columna
+// persistida, mutuamente excluyente, null cuando el cargo NO es vigente.
+// Ver SPRINT_estado_subestado_cargo.md (decisión A1-corregido).
+export const SubEstadoCargo = {
+  OCUPADO: 'ocupado',
+  VACANTE: 'vacante',
+  CONCURSO: 'concurso',
+} as const
+export type SubEstadoCargo = (typeof SubEstadoCargo)[keyof typeof SubEstadoCargo]
+
 export const EstadoSnapshot = {
   PROCESANDO: 'procesando',
   PENDIENTE: 'pendiente',
@@ -196,6 +206,10 @@ export interface Cargo {
   estado: EstadoCargo
   // S8A-1: días en estado actual (calculado por el backend)
   estadoDesde: string | null
+  // Sub-estado persistido del cargo vigente (null si no es vigente, o si el
+  // backfill todavía no corrió). Los consumidores leen esta columna; mientras
+  // esté en null, usan `ocupado` como fallback transitorio (ver D4 del plan).
+  subEstado: SubEstadoCargo | null
   ocupado: boolean
   ocupadoDesde: string | null
   // S7-1/S7-2: campos de trazabilidad de alta manual
@@ -217,6 +231,9 @@ export interface Cargo {
   hospital?: Hospital
   escalafon?: Escalafon
   codigoRegistro?: CodigoRegistro | null
+  // Etiquetas asignadas (aplanadas desde la tabla join por el backend; hoy las
+  // incluye el detalle GET /cargos/:id).
+  etiquetas?: Etiqueta[]
 }
 
 export interface Ocupacion {
@@ -226,7 +243,6 @@ export interface Ocupacion {
   idSialRol: string
   cuilYRol: string | null
   situacionRevista: string | null
-  estadoPersona: string | null
   desde: string | null
   hasta: string | null
   codigoJefaturas: string | null
@@ -264,6 +280,11 @@ export interface PadronSnapshot {
   estado: EstadoSnapshot
   pasoActual: string | null
   errorMsg: string | null
+  // Guarda contra padrón parcial: ratio totalRegistros / total del último
+  // aprobado y texto de advertencia cuando el padrón vino sospechosamente chico.
+  // null = la guarda no aplicó (primer padrón) o el ratio fue normal.
+  ratioTamano: number | null
+  advertenciaTamano: string | null
   aprobadoAt: string | null
   createdAt: string
   procesadoPor: { username: string } | null
@@ -317,6 +338,8 @@ export interface Concurso {
   expediente: string | null
   tipoConcurso: TipoConcurso
   motivoConcurso: string | null
+  // Paso 2a: fecha en que SGRASV autorizó un concurso de cargo nuevo (null = sin autorizar)
+  autorizadoAt?: string | null
   createdAt: string
   // Relaciones expandidas
   persona?: Persona
@@ -350,6 +373,16 @@ export interface CrearEtiquetaRequest {
 // S4-4: estado/subEstado/subEstado3 son calculados por el backend
 // (calcConcursoCph, apps/api/.../concursos-cph/concursosCph.calc.ts) en cada
 // create/PATCH — no forman parte de PatchConcursoCphRequest más abajo.
+/** Paso 5a: entrada del historial de correcciones de tipo de un concurso. */
+export interface CorreccionTipoConcurso {
+  id: string
+  fecha: string
+  tipoOrigen: 'cph' | 'ceetps'
+  tipoDestino: 'cph' | 'ceetps'
+  motivo: string
+  usuario: string | null
+}
+
 export interface ConcursoCph {
   id: string
   concursoId: string
@@ -371,6 +404,16 @@ export interface ConcursoCph {
   eeConcurso: string | null
   fechaEeConcurso: string | null
   ifAutorizacion: string | null
+  // Paso 5a: correcciones de tipo (CPH <-> CEETPS) del concurso, más reciente primero
+  correccionesTipo?: CorreccionTipoConcurso[]
+  // Paso 2a (solo GET /concursos-cph/:id): autorización pendiente y último rechazo
+  autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null
+  ultimaAutorizacionRechazada?: {
+    id: string
+    observaciones: string | null
+    resueltaAt: string
+    resueltaPor: string | null
+  } | null
   fechaAutorizacion: string | null
   sorteoJurado: string | null
   tipoGestion: 'centralizado' | 'descentralizado' | null
@@ -398,6 +441,13 @@ export interface ConcursoCph {
   fechaDispoDesierta: string | null
   cantidadCargos: number
   personaDesignadaId: string | null
+  // Carga manual por referencia (Paso 2): designado que no está en la BD de
+  // personas. Sólo referencia (no crea Persona); la Persona real se vincula
+  // cuando el padrón la traiga. designadoRefIdSialRol = id_sial_rol tipeado
+  // por el operador para el match directo.
+  designadoRefCuil: string | null
+  designadoRefNombre: string | null
+  designadoRefIdSialRol: string | null
   suspendido: boolean
   ifacs: string | null
   insal: string | null
@@ -432,6 +482,59 @@ export interface ConcursoCph {
   personaDesignada?: Persona
   // Etiquetas asignadas (aplanadas desde la tabla join por el backend)
   etiquetas?: Etiqueta[]
+  // Paso 5b: salto a designación desde una orden de mérito existente.
+  // saltoOm viene solo en GET /:id (null si no hubo salto).
+  saltoOmAt?: string | null
+  saltoOm?: SaltoOmConcurso | null
+}
+// Paso 5b — datos del salto por orden de mérito (GET /concursos-cph/:id).
+export interface SaltoOmConcurso {
+  at: string
+  integrante: { id: string; posicion: number; apellidoNombre: string; cuil: string }
+  ordenMeritoId: string | null
+  concursoOrigen: { id: string; codigo: string | null } | null
+  tipoGestionOrigen: string | null
+  pasosResueltos: string[]
+  // Nombre de quien hizo el salto (audit_log); null si no se pudo determinar.
+  usuario: string | null
+}
+// Paso 5b — GET /concursos-cph/:id/om-disponibles
+export interface OmDisponibleIntegrante {
+  id: string
+  posicion: number
+  apellidoNombre: string
+  cuil: string
+}
+export interface OmDisponible {
+  id: string
+  concursoOrigen: {
+    id: string
+    codigo: string | null
+    tipoGestion: 'centralizado' | 'descentralizado' | null
+    hospital: { sigla: string | null; nombre: string | null }
+  }
+  especialidad: string
+  puesto: string | null
+  expediente: string | null
+  fechaPublicacion: string
+  vigenteHasta: string
+  // Avisos de la regla de gestión (centralizado/descentralizado). Nunca bloquean.
+  advertencias: string[]
+  integrantes: OmDisponibleIntegrante[]
+}
+export type MotivoNoHabilitadoOm =
+  | 'solo_nuevo_cargo'
+  | 'sin_tipo_gestion'
+  | 'concurso_finalizado'
+  | 'concurso_suspendido'
+  | 'etapa_avanzada'
+  | 'ya_resuelto'
+  | 'sin_especialidad'
+export interface OmDisponiblesResponse {
+  habilitado: boolean
+  motivoNoHabilitado: MotivoNoHabilitadoOm | null
+  tipoGestionDestino: 'centralizado' | 'descentralizado' | null
+  ordenes: OmDisponible[]
 }
 
 export interface ConcursoCeetps {
@@ -441,22 +544,46 @@ export interface ConcursoCeetps {
   hospitalId: string
   escalafonId: string
   estado: EstadoConcursoCeetps
+  // Sub-estado granular dentro del estado principal (calculado server-side).
+  // Valores: 'EXP_CARATULADO' | 'DISPO_LLAMADO' | 'IFACS' | 'INSAL' |
+  //          'TAD' | 'DISPO_DESIGNACION' | 'A_AUTORIZACION' | null
+  subEstado: string | null
+  // ── Proceso previo al concurso ──────────────────────────────────────────
   expedienteConcurso: string | null
+  // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+  ifAutorizacion: string | null
+  fechaCaratulacion: string | null
+  fechaAutorizacion: string | null
+  tipificadorOrigen: string | null
+  // ── Puesto solicitado ───────────────────────────────────────────────────
   puestoCargoSolicitadoId: string | null
   puestoSolicitado: string | null
   dispoLlamado: string | null
-  // Carga horaria (hs, Enfermería/Técnicos) y apertura 2x18hs (solo Enfermería)
-  // — usados por los documentos exportables (Validación/Autorización).
+  // ── Carga horaria / apertura (Enfermería/Técnicos) ──────────────────────
+  // Usados por los documentos exportables (Validación/Autorización).
   cargaHoraria: number | null
   apertura2x18: boolean
   informeApertura: string | null
   expedienteConcurso2: string | null
+  // ── Cambio de especialidad ──────────────────────────────────────────────
+  // No dispara flujo de autorización: solo documenta el cambio con el
+  // expediente/informe respaldatorio (igual que CPH).
+  cambioEspecialidad: boolean
+  docCambioEspecialidad: string | null
+  // ── IFACS / INSAL ───────────────────────────────────────────────────────
   cantidadCargos: number
   fechaIfacs: string | null
   fechaInsal: string | null
+  // ── Designación ─────────────────────────────────────────────────────────
   expedienteDesignacion: string | null
   dispoDesignacion: string | null
   resolucionDesignacion: string | null
+  puestoDesignado: string | null
+  estadoApto: string | null
+  numeroAptoMedico: string | null
+  fechaProyectoDispo: string | null
+  altaSial: boolean | null
+  codigoSial: string | null
   personaDesignadaId: string | null
   observaciones: string | null
   createdAt: string
@@ -466,12 +593,29 @@ export interface ConcursoCeetps {
   hospital?: Hospital
   escalafon?: Escalafon
   personaDesignada?: Persona
+  // Paso 5a: correcciones de tipo (CPH <-> CEETPS) del concurso, más reciente primero
+  correccionesTipo?: CorreccionTipoConcurso[]
+  // Paso 2b (solo GET /concursos-ceetps/:id, nuevo_cargo sin autorizar): autorización
+  // pendiente y último rechazo. Misma forma que en ConcursoCph.
+  autorizacionPendiente?: { id: string; resolverPorRolSlug: string; createdAt: string } | null
+  ultimaAutorizacionRechazada?: {
+    id: string
+    observaciones: string | null
+    resueltaAt: string
+    resueltaPor: string | null
+  } | null
 }
 
 export interface Usuario {
   id: string
   username: string
   email: string
+  // Clave de vinculación del usuario ("de ahora en más"), inmutable para el
+  // propio usuario. Opcional/nullable: los usuarios viejos pueden no tenerlo
+  // hasta el backfill (CUIL provisorio con prefijo '00').
+  cuil?: string | null
+  nombre?: string | null
+  apellido?: string | null
   rol: string // display: role.nombre (editable por el admin — no usar para gating de UI)
   rolSlug: string // estable, usar esto para comparar en el frontend (ej. rolSlug === 'admin')
   roleId: string
@@ -571,6 +715,7 @@ export type NotificacionDetalle =
     }
   | {
       tipo: 'concurso_ceetps'
+      estado?: string | null // estado de la autorización si vino de ese flujo
       concurso: {
         cargo: CargoRef
         hospital: HospitalRef
@@ -584,6 +729,7 @@ export const TipoAutorizacion = {
   CONCURSO_CPH: 'concurso_cph',
   ALTA_CARGO: 'alta_cargo',
   BAJA_CARGO: 'baja_cargo',
+  CONCURSO_CEETPS: 'concurso_ceetps',
 } as const
 export type TipoAutorizacion = (typeof TipoAutorizacion)[keyof typeof TipoAutorizacion]
 
@@ -623,10 +769,15 @@ export interface Baja {
   fechaPaseParalelo: string | null
   generaConcurso: boolean
   estado: EstadoBaja
+  // Especialidad elegida en el formulario cuando el cargo la trae vacía.
+  especialidad: string | null
   observaciones: string | null
   registradoPorId: string | null
   createdAt: string
   updatedAt: string
+  // Flag calculado por el listado GET /bajas: true si el cargo.idSial figura
+  // en el padrón de bajas SIAL (informativo, no persistido).
+  enSial?: boolean
   // Relaciones expandidas
   cargo?: Cargo & { hospital: Hospital; escalafon: Escalafon }
   hospital?: Hospital
@@ -647,7 +798,7 @@ export interface Autorizacion {
   createdAt: string
   updatedAt: string
   // Relaciones expandidas (opcionales)
-  solicitadoPor?: Pick<Usuario, 'id' | 'username'> | null
+  solicitadoPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
   resueltoPor?: Pick<Usuario, 'id' | 'username'> | null
 }
 
@@ -686,12 +837,42 @@ export interface RoleJerarquia {
   rolPadreSlug: string
 }
 
+// ─── Tareas pendientes ───────────────────────────────────────────────────────
+// Tarea de acción personal asignada a un usuario concreto (a diferencia de las
+// notificaciones, que van por rol). Union extensible: hoy solo el rechazo de
+// autorización de concurso genera tareas; se agregan tipos a medida que crecen
+// los flujos. `tipo`/`estado` viajan como string (VarChar en Postgres), con el
+// contrato tipado acá (mismo patrón que Notificacion.tipo).
+export type TipoTareaPendiente = 'rechazo_autorizacion_concurso'
+
+export type EstadoTareaPendiente = 'pendiente' | 'resuelta'
+
+export interface TareaPendiente {
+  id: string
+  tipo: TipoTareaPendiente
+  estado: EstadoTareaPendiente
+  usuarioDestinatarioId: string
+  referenciaTipo: string
+  referenciaId: string
+  mensaje: string | null
+  creadaPorId: string | null
+  createdAt: string
+  resueltaAt: string | null
+  // Relaciones expandidas (opcionales)
+  creadaPor?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
+  destinatario?: Pick<Usuario, 'id' | 'username' | 'nombre' | 'apellido'> | null
+}
+
 // -----------------------------------------------------------------------------
 // DTOs — Requests
 // -----------------------------------------------------------------------------
 
 export interface LoginRequest {
-  username: string
+  // Login multi-identificador: el usuario ingresa email, CUIL o username; el
+  // backend resuelve cuál es automáticamente. `username` queda como alias
+  // legacy opcional (retrocompatibilidad con clientes viejos).
+  identificador: string
+  username?: string
   password: string
 }
 
@@ -719,9 +900,22 @@ export interface AprobarSnapshotRequest {
 export interface CreateUsuarioRequest {
   username: string
   email: string
+  nombre: string
+  apellido: string
+  cuil: string
   password: string
   roleId: string
   hospitalId?: string
+}
+
+export interface UpdateUsuarioRequest {
+  username?: string
+  email?: string
+  nombre?: string
+  apellido?: string
+  cuil?: string
+  roleId?: string
+  hospitalId?: string | null
 }
 
 // S4-6 — POST /api/v1/concursos. Carga manual por ahora (el disparador
@@ -826,7 +1020,7 @@ export interface DiffSummary {
 export interface SnapshotDiffResponse {
   // Subconjunto de PadronSnapshot: getSnapshotDiffService devuelve solo estos
   // campos (no aprobadoAt/createdAt/procesadoPor/aprobadoPor).
-  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado'>
+  snapshot: Pick<PadronSnapshot, 'id' | 'fechaAsignada' | 'filename' | 'totalRegistros' | 'estado' | 'ratioTamano' | 'advertenciaTamano'>
   summary: DiffSummary
   diffs: PaginatedResponse<PadronDiff>
 }
@@ -883,13 +1077,31 @@ export interface KpiConcursos {
   tiempoPromedioPorEtapa: { etapa: string; diasPromedio: number | null; muestras: number }[]
 }
 
+// Situación de revista normalizada a lower(unaccent(trim(...))). El catálogo
+// está CERRADO a estos 3 valores; un 4º valor se conserva tal cual y se reporta
+// (de ahí el `| string`), nunca se fuerza a uno de los canónicos.
+export type SituacionRevista = 'activo' | 'comision' | 'retencion de cargo' | string
+
+// Orden canónico de las series por situación de revista en el front
+// ('(sin dato)' agrupa las ocupaciones sin situacion_revista).
+export const ORDEN_SITUACION_REVISTA = [
+  'activo',
+  'comision',
+  'retencion de cargo',
+  '(sin dato)',
+] as const
+
 // S6-5 — GET /api/v1/kpis/dotacion-historica
 export interface KpiDotacionHistorica {
-  escalafones: string[] // nombres canónicos presentes en los datos
+  carreras: { codigo: string; literal: string }[] // códigos de registro presentes en los datos
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     fecha: string
-    total: number
-    porEscalafon: Record<string, number> // escalafon.nombre -> personas acumuladas
+    // codigo de registro -> { total, porSituacion }. OJO: `total` es un
+    // count(DISTINCT cuil) aparte y NO es la suma de porSituacion — las series
+    // por situación NO son disjuntas (una persona cuenta en cada estado donde
+    // tiene ocupación vigente).
+    porCarrera: Record<string, { total: number; porSituacion: Record<SituacionRevista, number> }>
   }[]
 }
 
@@ -900,6 +1112,8 @@ export type FiltroJefatura = 'todos' | 'solo' | 'sin'
 // MAYÚSCULAS; el front las muestra con capitalización legible.
 export interface FiltrosDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón como antes. El front resuelve codigo→literal para mostrar.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
@@ -910,19 +1124,39 @@ export interface FiltrosDotacionEvolucion {
   jefatura?: FiltroJefatura
   mesDesde?: string
   mesHasta?: string
+  // Situación de revista del perfil en edición (punto 2): acota QUÉ personas
+  // entran en la reconstrucción del estado acumulado. Multivaluado; vacío/ausente
+  // = todas.
+  situaciones?: SituacionRevista[]
   // Uniones (OR): cada grupo es un AND de dimensiones; los grupos se combinan
   // con OR. Las dimensiones sueltas de arriba actúan como "grupo en edición".
   grupos?: GrupoDotacionEvolucion[]
+  // Indicadores comparables (punto 3): cada uno es un perfil que se grafica como
+  // una línea independiente. Cuando viene, el backend devuelve N series en
+  // `KpiDotacionEvolucion.indicadores`.
+  indicadores?: PerfilIndicadorEvolucion[]
 }
 
 // Un grupo de la unión del gráfico de evolución (+ labels solo presentación).
 export interface GrupoDotacionEvolucion {
   siglas?: string[]
+  // Ahora transporta CÓDIGOS de registro (codigos_registro.codigo), no nombres
+  // de escalafón. El label de carrera se resuelve codigo→literal en el front.
   carreras?: string[]
   puestos?: string[]
   especialidades?: string[]
   gruposEspecialidad?: string[]
+  // Situación de revista del grupo/indicador (punto 2): se agrega una sola vez
+  // acá y el perfil de indicador la hereda. Vacío/ausente = todas.
+  situaciones?: SituacionRevista[]
   labels?: string[]
+}
+
+// Perfil de un indicador comparable (punto 3): reutiliza EXACTAMENTE las
+// dimensiones del grupo (incluida `situaciones?`) y agrega solo un `id` estable
+// que genera el front para identidad/color de la serie.
+export interface PerfilIndicadorEvolucion extends GrupoDotacionEvolucion {
+  id?: string
 }
 
 // GET /api/v1/kpis/dotacion-evolucion/opciones
@@ -930,7 +1164,7 @@ export interface GrupoDotacionEvolucion {
 // los filtros ya elegidos. Listas planas normalizadas.
 export interface KpiDotacionEvolucionOpciones {
   siglas: string[]
-  carreras: string[]
+  carreras: { codigo: string; literal: string }[]
   puestos: string[]
   especialidades: string[]
   // S25: grupos de especialidad disponibles dada la selección actual. Vacío si
@@ -951,9 +1185,34 @@ export interface KpiDotacionEvolucion {
   jefatura: FiltroJefatura
   mesDesde: string | null
   mesHasta: string | null
+  situaciones: SituacionRevista[] // situaciones de revista presentes en los datos
   puntos: {
     mes: string // 'YYYY-MM'
-    cantidad: number
+    // total = count(DISTINCT cuil) aparte; NO es la suma de porSituacion (series
+    // no disjuntas). activosYComisionados = personas en estado activo o comisión.
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
+  }[]
+  // Punto 3: presente cuando el request mandó `indicadores`. Cada elemento es
+  // una serie comparable independiente; el front la grafica como una línea. En
+  // ese modo `puntos`/`situaciones` de arriba vienen vacíos (el perfil "en
+  // edición" no se grafica cuando hay indicadores fijados).
+  indicadores?: SerieIndicadorEvolucion[]
+}
+
+// Una serie comparable (indicador) de la evolución: el perfil congelado por el
+// usuario, con su identidad/etiqueta y su reconstrucción mensual completa (el
+// front elige mostrar `total` por línea o el desglose por situación).
+export interface SerieIndicadorEvolucion {
+  id: string // id estable que mandó el front (identidad/color)
+  label: string // etiqueta legible del perfil
+  situaciones: SituacionRevista[] // situaciones presentes DENTRO de este indicador
+  puntos: {
+    mes: string // 'YYYY-MM'
+    total: number
+    porSituacion: Record<SituacionRevista, number>
+    activosYComisionados: number
   }[]
 }
 
@@ -1028,10 +1287,54 @@ export interface CargoFilters {
   grupos?: string
   estado?: EstadoCargo
   ocupado?: boolean
+  // Filtro por el sub-estado persistido del cargo vigente (aditivo a `ocupado`).
+  subEstado?: SubEstadoCargo
   // Solo cargos cuya ocupación vigente es de jefatura (codigoJefaturas).
   soloJefes?: boolean
+  // Inverso de soloJefes: todos los cargos que NO son de jefatura.
+  sinJefes?: boolean
+  // Literal del puesto del cargo (texto canónico del catálogo). Match exacto
+  // normalizado — usado por "Cobertura Dotación" (desplegable de puestos POU).
+  literalPuesto?: string
+  // Especialidad del cargo (catálogo o legacy). Match exacto normalizado —
+  // cascada del puesto en "Cobertura Dotación".
+  especialidad?: string
+  // Situación de revista del ocupante vigente (estado de la persona en el
+  // puesto). Catálogo normalizado minúscula sin tilde.
+  situacionRevista?: 'activo' | 'comision' | 'retencion de cargo'
   page?: number
   limit?: number
+}
+
+// Export de /cargos: fila ya resuelta y FORMATEADA en el backend para el Excel
+// de dos niveles de encabezado (ver GET /api/v1/cargos/export y
+// downloadExcelConGrupos). Cada clave es una de las 9 columnas, como string
+// listo para volcar a la celda (sin más transformación en el front).
+export interface CargoExportRow {
+  // Grupo 1 — INFORMACIÓN DE CARGOS (siempre, el cargo existe)
+  codigo: string
+  codigoRegistro: string
+  regimen: string
+  // Sigla del hospital/repartición del cargo (= cargo.hospital.sigla).
+  sigla: string
+  // Código y descripción de la repartición del CARGO (siempre).
+  codigoReparticion: string
+  reparticionCargo: string
+  tipo: string
+  estado: string
+  situacion: string
+  // Grupo 2 — INFORMACIÓN DE OCUPACIÓN DEL CARGO (solo si ocupado)
+  literalPuesto: string
+  // Código, descripción y sigla de la repartición del OCUPANTE. Vacías si el
+  // cargo está vacante (coinciden con las del cargo cuando está ocupado).
+  codigoReparticionOcupacion: string
+  reparticion: string
+  siglaOcupacion: string
+  cuilOExpediente: string
+  // ID SIAL Rol del ocupante (identificador natural del rol en el padrón).
+  idSialRolOcupante: string
+  situacionRevistaOcupante: string
+  especialidadOcupante: string
 }
 
 export interface ConcursoFilters {
@@ -1049,6 +1352,10 @@ export interface ConcursoCphFilters {
   page?: number
   limit?: number
   hospitalId?: string
+  // CSV de ids de hospital (efector) — filtro multi-sigla; un concurso matchea
+  // si pertenece a alguno de los efectores pedidos (IN/OR). Tiene prioridad
+  // sobre hospitalId single en el back.
+  hospitalIds?: string
   estado?: EstadoConcursoCph
   subEstado?: string
   subEstado3?: string
@@ -1071,6 +1378,15 @@ export interface ConcursoCphFilters {
   personaOm?: boolean
   // Etapa 5: concursos validados contra el padrón (flag validado).
   validado?: boolean
+  // Ordenamiento por fecha: columna + dirección. DEFAULT en el back es
+  // fecha_ee_concurso desc (más reciente primero), con NULLS LAST.
+  ordenarPor?: 'fecha_ee_concurso' | 'fecha_baja'
+  orden?: 'asc' | 'desc'
+  // Filtros de rango por fecha (YYYY-MM-DD), independientes y combinables.
+  fechaBajaDesde?: string
+  fechaBajaHasta?: string
+  fechaEeConcursoDesde?: string
+  fechaEeConcursoHasta?: string
 }
 
 // ─── Etapa 5 CPH: estado de designación / validación contra el padrón ────────
@@ -1116,7 +1432,7 @@ export interface OcupacionResumen {
   especialidad: string | null
   especialidadLegacy: string | null
   situacionRevista: string | null // incluye 'Retencion de Cargo'
-  estadoPersona: string | null
+  fechaBloqueo: string | null // FASE 5: condición de bloqueo (reemplaza estado_persona muerto)
   cargoEstado: string // vigente | no_vigente | validacion_vacante
   hospitalSigla: string | null
   desde: string | null
@@ -1177,6 +1493,54 @@ export interface ConcursoCeetpsFilters {
   hospitalId?: string
   escalafonId?: string
   estado?: EstadoConcursoCeetps
+  subEstado?: string
+  fechaCaratulacionDesde?: string
+  fechaCaratulacionHasta?: string
+  fechaAutorizacionDesde?: string
+  fechaAutorizacionHasta?: string
+  fechaIfacsDesde?: string
+  fechaIfacsHasta?: string
+  fechaInsalDesde?: string
+  fechaInsalHasta?: string
+  search?: string
+}
+
+// ─── Bandeja mixta de concursos (CPH + CEETPS) — /cargos/concurso ───────────
+// Fila unificada que lee del Concurso base y trae las columnas COMUNES a ambos
+// tipos. El discriminador `tipo` dice de qué extensión salió el estado/subEstado
+// (concursoCph vs concursoCeetps). Es la gestión del INICIO de todos los
+// concursos; NO reemplaza las pantallas /concursos/cph ni /concursos/ceetps.
+export interface ConcursoBandejaItem {
+  // id del Concurso base (no de la extensión)
+  id: string
+  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)
+  cargoId: string
+  hospitalId: string
+  hospitalSigla: string | null
+  // Carrera/Puesto: literalPuesto del cargo (snapshot) con fallback al puesto
+  // solicitado de la extensión.
+  puesto: string | null
+  especialidad: string | null
+  // Estado + sub-estado de la extensión que corresponda al tipo. Se exponen
+  // como string para que la tabla mixta los muestre sin ramificar por tipo.
+  estado: string | null
+  subEstado: string | null
+  motivoConcurso: string | null
+  // Último movimiento: updatedAt de la extensión (fallback a createdAt del base).
+  ultimoMovimiento: string
+  createdAt: string
+}
+
+export interface ConcursoBandejaFilters {
+  page?: number
+  limit?: number
+  hospitalId?: string
+  // Filtro por tipo: 'cph' | 'ceetps'. Omitido = ambos (todos).
+  tipo?: TipoConcurso
+  // Estado textual de la extensión (string, común a ambos tipos).
+  estado?: string
+  // Motivo tipificado del inicio del concurso (MotivoConcurso del Concurso base).
+  motivo?: string
   search?: string
 }
 
@@ -1205,6 +1569,13 @@ export interface CreateSolicitudAltaRequest {
   etiqueta?: string
   esTransferencia?: boolean
   bajaOrigenId?: string
+}
+
+// POST /api/v1/solicitudes-alta/batch — envío a aprobación de un LOTE.
+// Los "Cargos pendientes" se mandan en UNA request (una transacción) en vez de
+// N requests separadas que se pasan del timeout contra Neon.
+export interface CreateSolicitudesAltaBatchRequest {
+  items: CreateSolicitudAltaRequest[]
 }
 
 // S13 — POST /api/v1/autorizaciones/:id/aprobar|rechazar
@@ -1241,29 +1612,50 @@ export interface CreateBajaRequest {
   generaConcurso?: boolean
   tipoConcurso?: TipoConcurso
   escalafonId?: string
+  especialidad?: string | null
   observaciones?: string
 }
 
 // S5-1 — PATCH /api/v1/concursos-ceetps/:id. `estado` queda afuera — lo
 // calcula el backend (calcEstadoCeetps), no es editable por el cliente.
 export interface PatchConcursoCeetpsRequest {
+  // ── Proceso previo ────────────────────────────────────────────────────────
   expedienteConcurso?: string | null
+  ifAutorizacion?: string | null
+  fechaCaratulacion?: string | null
+  fechaAutorizacion?: string | null
+  tipificadorOrigen?: string | null
+  // ── Puesto solicitado ─────────────────────────────────────────────────────
   // S20-10: el combobox manda el id del catálogo — puestoSolicitado (texto)
   // se sigue aceptando por compatibilidad/auditoría pero deja de ser la
   // fuente de verdad.
   puestoCargoSolicitadoId?: string | null
   puestoSolicitado?: string | null
   dispoLlamado?: string | null
+  // ── Carga horaria / apertura ──────────────────────────────────────────────
   cargaHoraria?: number | null
   apertura2x18?: boolean
   informeApertura?: string | null
   expedienteConcurso2?: string | null
+  // ── Cambio de especialidad ────────────────────────────────────────────────
+  cambioEspecialidad?: boolean
+  docCambioEspecialidad?: string | null
+  // ── IFACS / INSAL ─────────────────────────────────────────────────────────
+  cantidadCargos?: number
   fechaIfacs?: string | null
   fechaInsal?: string | null
+  // ── Designación ───────────────────────────────────────────────────────────
   expedienteDesignacion?: string | null
   dispoDesignacion?: string | null
   resolucionDesignacion?: string | null
-  personaDesignadaId?: string | null
+  puestoDesignado?: string | null
+  estadoApto?: string | null
+  numeroAptoMedico?: string | null
+  fechaProyectoDispo?: string | null
+  altaSial?: boolean | null
+  codigoSial?: string | null
+  // personaDesignadaId NO va en PATCH — usar POST /:id/designar
+  // ── Observaciones ─────────────────────────────────────────────────────────
   observaciones?: string | null
 }
 
@@ -1331,6 +1723,9 @@ export interface CargoDetail extends Cargo {
   ocupacionActual: (Ocupacion & { persona: Persona }) | null
   historial: (Ocupacion & { persona: Persona })[]
   cargoActivo: (Ocupacion & { cargo: Cargo & { hospital: Hospital; escalafon: Escalafon } }) | null
+  // Área programática: solo presente si el cargo está asignado a un CeSAC
+  // (Atención Primaria). null en la mayoría de los cargos.
+  cesac: { id: string; numero: number; areaProgramatica: { id: string; nombre: string } } | null
   // S8C-1: concursos asociados al cargo
   concursosCph: (ConcursoCph & {
     concurso: Concurso
@@ -1596,13 +1991,24 @@ export interface DesignarConcursoRequest {
   observaciones?: string | null
 }
 
+// POST /api/v1/concursos-cph/:id/asignar-designado — vincula el designado SIN
+// ocupar el cargo. Dos formas:
+//  (1) `{ personaId }`: vincular una Persona real ya en la BD (caso histórico:
+//      finalizado sin persona vinculada).
+//  (2) `{ refCuil, refNombre, idSialRol? }`: carga manual por referencia cuando
+//      el designado NO está en la BD. No crea Persona; sólo guarda la referencia.
+//      idSialRol opcional (match directo contra el padrón si el operador lo conoce).
+export type AsignarDesignadoCphRequest =
+  | { personaId: string }
+  | { refCuil: string; refNombre: string; idSialRol?: string }
+
 // ---- SPRINT 18 — Retención de cargos ----
 
 export const TipoOrigen = {
-  R: 'R',     // remplazante de ejecución
+  R: 'R', // remplazante de ejecución
   TTR: 'TTR', // remplazante de conducción (Titular Transitorio por Reemplazo)
 } as const
-export type TipoOrigen = typeof TipoOrigen[keyof typeof TipoOrigen] | null
+export type TipoOrigen = (typeof TipoOrigen)[keyof typeof TipoOrigen] | null
 
 // Nodo de una cadena de retención — distinto de `NodoCadena` (useCadenaMando.ts,
 // feature no relacionada de "cadena de mando"/jerarquía org).
@@ -1717,17 +2123,16 @@ export interface VencimientoCargo {
 // PATCH /api/v1/retenciones/:cargoId/renovar
 export interface RenovarPeriodoRequest {
   periodoHasta: string // 'YYYY-MM-DD'
-  docRespaldo: string  // acto administrativo que respalda la renovación
+  docRespaldo: string // acto administrativo que respalda la renovación
 }
 
 // POST /api/v1/comisiones — registrar una comisión sobre una ocupación activa
 export interface ComisionInput {
   ocupacionId: string
-  comision: string      // motivo / descripción
-  repaComision: string  // repartición / hospital de destino
+  comision: string // motivo / descripción
+  repaComision: string // repartición / hospital de destino
   crComentario?: string
 }
-
 
 // ─── Jornada de sorteos CPH ─────────────────────────────────────────────────
 
@@ -1775,4 +2180,187 @@ export interface CrearJornadaRequest {
   titulo?: string
   observaciones?: string
   concursoCphIds: string[]
+}
+
+// ─── Indicadores de cargos (Reportes) ────────────────────────────────────────
+// GET /api/v1/kpis/cargos-indicadores — tablas de cantidad de cargos por carrera
+// y estado, mes actual vs mes anterior (solo lectura). Los cargos NO VIGENTES no
+// suman al total ni son columna: el total es "a gestionar" (validación + vigente)
+// y los pasajes a no vigente se informan aparte (`pasaronNoVigente`, fuera de toda suma).
+export type CargosIndicadoresColumnaId =
+  | 'total' // total a gestionar
+  | 'validacion'
+  | 'vigente'
+  | 'ocupado'
+  | 'ocupado_activo'
+  | 'ocupado_comision'
+  | 'ocupado_retencion'
+  | 'ocupado_otra'
+  | 'vacante'
+  | 'concurso'
+  | 'personas_ref' // informativa (kpis_dotacion_snapshot); no entra en sumas
+
+export type CargosIndicadoresTendencia = 'sube' | 'baja' | 'igual'
+
+export interface CargosIndicadoresCelda {
+  actual: number | null // null = n/d (período no disponible o referencia sin dato)
+  actualAprox: number // cargos inferidos dentro de `actual`
+  anterior: number | null // null = n/d
+  anteriorAprox: number
+  variacionAbs: number | null // actual - anterior; null si alguno es n/d
+  variacionPct: number | null // 2 decimales; null si hay n/d o anterior = 0 con actual > 0; 0 si ambos son 0
+  tendencia: CargosIndicadoresTendencia | null // signo de variacionAbs; null si variacionAbs es null
+}
+
+export interface CargosIndicadoresFila {
+  carreraId: string | null // null = "(sin código)" y también la fila Total
+  codigo: string // '(sin codigo)' si no tiene; 'Total' en la fila total
+  literal: string | null
+  etiqueta: string // `${codigo} — ${literal}`, o el código solo
+  celdas: Record<CargosIndicadoresColumnaId, CargosIndicadoresCelda>
+  // Cargos que pasaron a no vigente DENTRO del período (informativo, FUERA del total).
+  // actualAprox/anteriorAprox = cuántos tienen fecha de pasaje inferida (~). null = n/d.
+  pasaronNoVigente: CargosIndicadoresCelda
+}
+
+export interface CargosIndicadoresColumnaMeta {
+  id: CargosIndicadoresColumnaId
+  etiqueta: string
+  destacada: boolean // columna "padre" de la tabla (se muestra en negrita)
+  nota: string | null // tooltip
+}
+
+export interface CargosIndicadoresTablaMeta {
+  id: 'estado' | 'vigente' | 'ocupado'
+  titulo: string
+  nota: string | null
+  columnas: CargosIndicadoresColumnaMeta[] // ya filtradas por visibilidad (decide la API)
+}
+
+export interface CargosIndicadoresPeriodo {
+  mes: string // 'YYYY-MM'
+  desde: string // 'YYYY-MM-01': inicio de la ventana de pasajes a no vigente
+  fechaCorte: string // 'YYYY-MM-DD' (fin de la ventana)
+  modo: 'vivo' | 'reconstruido'
+  disponible: boolean
+  motivoNoDisponible: string | null
+}
+
+export interface CargosIndicadores {
+  actual: CargosIndicadoresPeriodo
+  anterior: CargosIndicadoresPeriodo
+  tablas: CargosIndicadoresTablaMeta[]
+  filas: CargosIndicadoresFila[] // por carrera; código numérico asc, texto después, "(sin código)" al final
+  total: CargosIndicadoresFila
+  referenciaPersonas: { actualFecha: string | null; anteriorFecha: string | null }
+  conciliacion: { ok: boolean; totalActual: number | null; totalAnterior: number | null } // totales A GESTIONAR
+  // Cargos hoy no vigentes cuya fecha de pasaje no se puede determinar: no entran en ningún período.
+  noVigenteSinFecha: number | null
+}
+
+// -----------------------------------------------------------------------------
+// CARRERAS GESTIONADAS (escalafones que pueden producir concurso)
+// -----------------------------------------------------------------------------
+// Clave = `escalafones.codigo` en BD (el número que el selector muestra como
+// "87 — Nueva Carrera Enfermería"); valor = código de registro (`codigos_registro.codigo`)
+// con el que se da de alta el cargo. El TIPO (CPH/CEETPS) NO se define acá: lo
+// decide `tipoConcursoDeCargo` (api) a partir del CR. El 83 solo concursa si el
+// puesto es del Anexo II (también lo resuelve `tipoConcursoDeCargo`).
+// El 22 es un duplicado histórico del 37 (CPH) y se guarda como 37.
+export const CR_POR_CODIGO_ESCALAFON_GESTIONADO: Readonly<Record<string, string>> = {
+  '37': '37',
+  '22': '37',
+  '23': '23',
+  '83': '83',
+  '85': '85',
+  '87': '87',
+}
+
+/** Códigos de escalafón de las carreras que gestionamos (selector Carrera de /cargos/alta). */
+export const CODIGOS_ESCALAFON_GESTIONADOS: readonly string[] = Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO)
+
+// Documento de origen del concurso (función pura compartida API/Web)
+
+// Documento de origen de un concurso (Etapa 1 de los wizards).
+//
+// Función pura: según el motivo que originó el concurso decide la etiqueta y de
+// qué dato sale el documento. NO modifica eeBaja (el cálculo de estado/sub-estado
+// sigue usando eeBaja/eeConcurso tal cual).
+//
+//  - nuevo_cargo  → documento de la CREACIÓN del cargo: el expediente (o decreto,
+//    se guarda en el mismo campo) con el que se dio el alta. El concurso
+//    automático del Paso 3 lo hereda en concurso.expediente; si no está, se usa
+//    cargo.expediente (misma fuente: SolicitudAlta.expediente).
+//  - resto        → expediente de la baja (eeBaja), igual que antes.
+
+export type TipoDocumentoOrigen = 'baja' | 'creacion' | 'otro'
+export type FuenteDocumentoOrigen =
+  | 'concurso.expediente'
+  | 'cargo.expediente'
+  | 'decreto'
+  | 'eeBaja'
+  | 'sin_dato'
+
+export interface DocumentoOrigenInput {
+  motivoConcurso?: string | null
+  /** Expediente de baja ya resuelto (cphData.eeBaja ?? baja.eeBaja). */
+  eeBaja?: string | null
+  /** concurso.expediente (heredado del alta en el Paso 3). */
+  expedienteConcurso?: string | null
+  /** cargo.expediente (expediente o decreto del alta). */
+  expedienteCargo?: string | null
+}
+
+export interface DocumentoOrigen {
+  tipo: TipoDocumentoOrigen
+  etiqueta: string
+  valor: string
+  fuente: FuenteDocumentoOrigen
+  /** true si es un cargo nuevo (cambia título/subtítulo y oculta campos de baja). */
+  esCreacion: boolean
+}
+
+const limpio = (s: string | null | undefined): string => (s ?? '').trim()
+
+// El alta guarda "expediente o decreto" en un único campo (ej. "DEC-541/MSGC/26").
+const esDecreto = (s: string): boolean => /^\s*(dec(reto)?\b|dec[-\s.\d])/i.test(s)
+
+export function documentoOrigenDeConcurso(input: DocumentoOrigenInput): DocumentoOrigen {
+  if (input.motivoConcurso === 'nuevo_cargo') {
+    const delConcurso = limpio(input.expedienteConcurso)
+    const delCargo = limpio(input.expedienteCargo)
+    const valor = delConcurso || delCargo
+    const fuente: FuenteDocumentoOrigen = !valor
+      ? 'sin_dato'
+      : esDecreto(valor)
+        ? 'decreto'
+        : delConcurso
+          ? 'concurso.expediente'
+          : 'cargo.expediente'
+    return {
+      tipo: 'creacion',
+      etiqueta: 'Documento de origen (Creación)',
+      valor,
+      fuente,
+      esCreacion: true,
+    }
+  }
+  const valorBaja = limpio(input.eeBaja)
+  if (input.motivoConcurso) {
+    return {
+      tipo: 'baja',
+      etiqueta: 'Documento de origen (Baja)',
+      valor: valorBaja,
+      fuente: valorBaja ? 'eeBaja' : 'sin_dato',
+      esCreacion: false,
+    }
+  }
+  // Sin motivo tipificado (concursos importados/legacy): hoy solo existe eeBaja.
+  return {
+    tipo: valorBaja ? 'baja' : 'otro',
+    etiqueta: valorBaja ? 'Documento de origen (Baja)' : 'Documento de origen',
+    valor: valorBaja,
+    fuente: valorBaja ? 'eeBaja' : 'sin_dato',
+    esCreacion: false,
+  }
 }

@@ -1,15 +1,16 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Autorizacion, ConcursoCph, SolicitudAlta, TipoAutorizacion } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { capitalizarEtiqueta, getApiErrorMessage } from '@/shared/lib/utils'
+import { useToast } from '@/shared/components/ui/useToast'
 import {
   useAutorizaciones,
   useAprobarAutorizacion,
   useRechazarAutorizacion,
-  useCrearConcurso,
 } from '../hooks/useAutorizaciones'
+import { mensajeAvisoAlta } from '../lib/avisoAltaConcursos'
 
 // S13-A — Panel de autorizaciones pendientes, filtrado server-side por el rol
 // del usuario logueado (ver GET /autorizaciones — resolverPorRolSlug === rolSlug).
@@ -18,6 +19,7 @@ const TIPO_LABEL: Record<TipoAutorizacion, string> = {
   concurso_cph: 'Concurso CPH',
   alta_cargo:   'Alta de cargo',
   baja_cargo:   'Baja de cargo',
+  concurso_ceetps: 'Concurso CEETPS',
 }
 
 function formatFecha(iso: string) {
@@ -153,15 +155,54 @@ function ReferenciaBaja({ id }: { id: string }) {
         <div className="flex items-center gap-2 pt-0.5">
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">CEETPS</span>
           <span className="text-xs text-gray-500">{ceetps.estado}</span>
-          <Link to={`/concursos-ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
+          <Link to={`/concursos/ceetps/${ceetps.id}`} className="text-xs text-secondary hover:underline ml-auto">Ver concurso →</Link>
         </div>
       )}
     </div>
   )
 }
 
+type CeetpsRef = {
+  puestoSolicitado?: string | null
+  expedienteConcurso?: string | null
+  ifAutorizacion?: string | null
+  hospital?: { sigla?: string }
+  concurso?: { cargo?: { codigo?: string; literalPuesto?: string } }
+}
+
+function ReferenciaCeetps({ id }: { id: string }) {
+  const { data } = useQuery({
+    queryKey: ['concursos-ceetps', id, 'autorizaciones-ref'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CeetpsRef }>(`/api/v1/concursos-ceetps/${id}`)
+      return res.data.data
+    },
+  })
+  if (!data) return <span className="text-gray-300 text-xs">Cargando...</span>
+  const cargo = data.concurso?.cargo
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-sm font-semibold text-gray-900 truncate">
+        {cargo?.literalPuesto ?? data.puestoSolicitado ?? '—'}
+        {data.hospital?.sigla && <span className="font-normal text-gray-500"> · {data.hospital.sigla}</span>}
+      </p>
+      <p className="text-xs text-gray-400 font-mono">{cargo?.codigo ?? '—'}</p>
+      {data.expedienteConcurso && (
+        <p className="text-xs text-gray-500">
+          Exp. <span className="font-mono">{data.expedienteConcurso}</span>
+          {data.ifAutorizacion && <> · IF <span className="font-mono">{data.ifAutorizacion}</span></>}
+        </p>
+      )}
+      <Link to={`/concursos/ceetps/${id}`} className="text-xs text-secondary hover:underline">
+        Ver concurso →
+      </Link>
+    </div>
+  )
+}
+
 function Referencia({ autorizacion, onEsInformativa }: { autorizacion: Autorizacion; onEsInformativa?: (id: string) => void }) {
   if (autorizacion.tipo === 'concurso_cph') return <ReferenciaCph id={autorizacion.referenciaId} onEsInformativa={onEsInformativa} />
+  if (autorizacion.tipo === 'concurso_ceetps') return <ReferenciaCeetps id={autorizacion.referenciaId} />
   if (autorizacion.tipo === 'alta_cargo')   return <ReferenciaAlta id={autorizacion.referenciaId} />
   if (autorizacion.tipo === 'baja_cargo')   return <ReferenciaBaja id={autorizacion.referenciaId} />
   return <span className="text-xs text-gray-400">—</span>
@@ -173,15 +214,12 @@ export function AutorizacionesPage() {
   const [modal, setModal] = useState<{ id: string; accion: 'aprobar' | 'rechazar' } | null>(null)
   const [obs, setObs] = useState('')
   const [informativas, setInformativas] = useState<Set<string>>(new Set())
-  // S14-7: modal post-aprobación de alta_cargo
-  const [modalConcurso, setModalConcurso] = useState<{
-    cargoId: string; hospitalId: string; codigo: string | null
-    literalPuesto: string | null; hospitalSigla: string
-    tipoConcursoSugerido: 'cph' | 'ceetps'; escalafonId: string
-  } | null>(null)
-  const [errorConcurso, setErrorConcurso] = useState<string | null>(null)
-  const navigate = useNavigate()
-  const crearConcurso = useCrearConcurso()
+  // Paso 3: aviso tras aprobar un alta de cargo (los concursos se crean solos).
+  const [avisoAlta, setAvisoAlta] = useState<string | null>(null)
+  // Error de aprobar/rechazar: se muestra dentro del modal (y vía toast) para
+  // que un 409/500 del backend sea visible en vez de dejar el botón mudo.
+  const [errorResolver, setErrorResolver] = useState<string | null>(null)
+  const { toast, ToastUI } = useToast()
 
   function marcarInformativa(referenciaId: string) {
     setInformativas((prev) => prev.has(referenciaId) ? prev : new Set([...prev, referenciaId]))
@@ -201,27 +239,48 @@ export function AutorizacionesPage() {
   function cerrarModal() {
     setModal(null)
     setObs('')
+    setErrorResolver(null)
   }
 
   async function confirmar() {
     if (!modal) return
-    const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
-    const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
-    // S14-7: si se aprobó una alta_cargo y el cargo puede iniciar concurso, mostrar modal
-    if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
-      const res = result as { data?: { puedeIniciarConcurso?: boolean; concursoInfo?: typeof modalConcurso } }
-      if (res?.data?.puedeIniciarConcurso && res.data.concursoInfo) {
-        setModalConcurso(res.data.concursoInfo)
-      }
+    if (obsObligatoria && !obs.trim()) {
+      setErrorResolver('Ingresá el motivo del rechazo.')
+      return
     }
-    cerrarModal()
+    const mutation = modal.accion === 'aprobar' ? aprobar : rechazar
+    // BUG-FIX "al dar aprobar no avanza": antes este mutateAsync no tenía
+    // try/catch, así que un 409 del backend (p. ej. resolverSlugPorPermiso
+    // encuentra más de un rol con 'autorizaciones.resolver_sgrasv' → 'ambiguo')
+    // rechazaba la promesa en silencio: el modal no se cerraba, nada se
+    // refrescaba y el botón quedaba mudo. Ahora, si falla, se muestra el
+    // mensaje real del backend (getApiErrorMessage) y el modal queda ABIERTO;
+    // solo se cierra/invalida en éxito.
+    setErrorResolver(null)
+    try {
+      const result = await mutation.mutateAsync({ id: modal.id, observaciones: obs || undefined })
+      // Paso 3: al aprobar un alta de cargo el backend crea solo un concurso por
+      // cada cargo nuevo; se avisa cuántos quedaron pendientes de caratular.
+      if (modal.accion === 'aprobar' && modalItem?.tipo === 'alta_cargo') {
+        setAvisoAlta(mensajeAvisoAlta(result))
+      }
+      cerrarModal()
+    } catch (err) {
+      const msg = getApiErrorMessage(err)
+      setErrorResolver(msg)
+      toast.error(msg)
+    }
   }
 
   const modalItem = items.find((a) => a.id === modal?.id)
   const enCurso = aprobar.isPending || rechazar.isPending
+  // Paso 2b: al rechazar un concurso (CPH o CEETPS) la observación es obligatoria.
+  const obsObligatoria =
+    modal?.accion === 'rechazar' && (modalItem?.tipo === 'concurso_cph' || modalItem?.tipo === 'concurso_ceetps')
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
+      {ToastUI}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Autorizaciones pendientes</h1>
@@ -239,57 +298,14 @@ export function AutorizacionesPage() {
         </select>
       </div>
 
-      {/* Modal iniciar concurso post-alta (S14-7) */}
-      {modalConcurso && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="font-primary font-bold text-gray-900">¿Iniciar concurso?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                El cargo <span className="font-semibold">{modalConcurso.codigo ?? '—'}</span> ({modalConcurso.literalPuesto}) en <span className="font-semibold">{modalConcurso.hospitalSigla}</span> fue creado.
-              </p>
-            </div>
-            <div className="px-6 py-4 text-sm text-gray-600">
-              ¿Querés iniciar un concurso <span className="font-semibold uppercase">{modalConcurso.tipoConcursoSugerido}</span> para este cargo ahora?
-            </div>
-            {errorConcurso && <p className="px-6 pb-2 text-xs text-danger">{errorConcurso}</p>}
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button className="btn-outline" onClick={() => { setModalConcurso(null); setErrorConcurso(null) }} disabled={crearConcurso.isPending}>
-                Ahora no
-              </button>
-              <button
-                className="btn-primary disabled:opacity-40"
-                disabled={crearConcurso.isPending}
-                onClick={async () => {
-                  setErrorConcurso(null)
-                  try {
-                    // No hay wizard de creación "desde cero" — se crea directo
-                    // contra el mismo POST /concursos que usa bajas.service.ts
-                    // para el flujo alta_por_baja, y se navega al concurso real.
-                    const data = await crearConcurso.mutateAsync({
-                      cargoId: modalConcurso.cargoId,
-                      hospitalId: modalConcurso.hospitalId,
-                      tipoConcurso: modalConcurso.tipoConcursoSugerido,
-                      motivoConcurso: 'nuevo_cargo',
-                      origen: 'Alta de cargo',
-                      fechaVacante: new Date().toISOString().slice(0, 10),
-                      ...(modalConcurso.tipoConcursoSugerido === 'ceetps' && { escalafonId: modalConcurso.escalafonId }),
-                    })
-                    setModalConcurso(null)
-                    if (data.concursoCph) navigate(`/concursos/cph/${data.concursoCph.id}/wizard`)
-                    else if (data.concursoCeetps) navigate(`/concursos/ceetps/${data.concursoCeetps.id}`)
-                  } catch (err) {
-                    setErrorConcurso(getApiErrorMessage(err))
-                  }
-                }}
-              >
-                {crearConcurso.isPending ? 'Creando...' : 'Sí, iniciar concurso'}
-              </button>
-            </div>
-          </div>
+      {avisoAlta && (
+        <div role="status" className="flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <span>{avisoAlta}</span>
+          <button type="button" className="text-green-700 hover:underline shrink-0" onClick={() => setAvisoAlta(null)}>
+            Cerrar
+          </button>
         </div>
       )}
-
       {/* Modal resolver */}
       {modal && modalItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -304,7 +320,7 @@ export function AutorizacionesPage() {
               </div>
             </div>
             <div className="px-6 py-4 space-y-3">
-              <label className="block text-sm font-semibold text-gray-700">Observaciones (opcional)</label>
+              <label className="block text-sm font-semibold text-gray-700">Observaciones{obsObligatoria ? <span className="text-danger"> *</span> : ' (opcional)'}</label>
               <textarea
                 value={obs}
                 onChange={(e) => setObs(e.target.value)}
@@ -314,11 +330,14 @@ export function AutorizacionesPage() {
                 autoFocus
               />
             </div>
+            {errorResolver && (
+              <p className="px-6 pb-1 text-xs text-danger">{errorResolver}</p>
+            )}
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
               <button className="btn-outline" onClick={cerrarModal} disabled={enCurso}>Cancelar</button>
               <button
                 className={modal.accion === 'aprobar' ? 'btn-primary' : 'btn-danger'}
-                disabled={enCurso}
+                disabled={enCurso || (obsObligatoria && !obs.trim())}
                 onClick={confirmar}
               >
                 {enCurso ? 'Guardando...' : modal.accion === 'aprobar' ? 'Aprobar' : 'Rechazar'}
@@ -347,20 +366,22 @@ export function AutorizacionesPage() {
                 </div>
                 <Referencia autorizacion={a} onEsInformativa={marcarInformativa} />
                 {a.solicitadoPor && (
-                  <p className="text-xs text-gray-400 mt-1">Solicitado por {a.solicitadoPor.username}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Solicitado por {[a.solicitadoPor.nombre, a.solicitadoPor.apellido].filter(Boolean).join(' ') || a.solicitadoPor.username}
+                  </p>
                 )}
               </div>
               {!informativas.has(a.referenciaId) && (
               <div className="flex flex-col gap-2 shrink-0">
                 <button
                   className="btn-danger text-xs px-3 py-1"
-                  onClick={() => setModal({ id: a.id, accion: 'rechazar' })}
+                  onClick={() => { setErrorResolver(null); setModal({ id: a.id, accion: 'rechazar' }) }}
                 >
                   Rechazar
                 </button>
                 <button
                   className="btn-primary text-xs px-3 py-1"
-                  onClick={() => setModal({ id: a.id, accion: 'aprobar' })}
+                  onClick={() => { setErrorResolver(null); setModal({ id: a.id, accion: 'aprobar' }) }}
                 >
                   Aprobar
                 </button>

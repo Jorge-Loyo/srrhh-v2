@@ -11,6 +11,7 @@ import type {
   KpiDotacionEvolucionOpciones,
   KpiDotacionEvolucion,
   FiltrosDotacionEvolucion,
+  CargosIndicadores,
 } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
@@ -52,6 +53,28 @@ function filtrosToParams(f: FiltrosDotacionEvolucion): URLSearchParams {
     })
     sp.set('grupos', JSON.stringify(limpios))
   }
+  // Situación de revista del perfil en edición (punto 2): un parámetro repetido
+  // por valor. Vacío/ausente = todas.
+  if (f.situaciones?.length) {
+    for (const s of f.situaciones) sp.append('situaciones', s)
+  }
+  // Indicadores comparables (punto 3): JSON array de perfiles (id + dimensiones
+  // + situaciones), sin labels. El backend descarta perfiles sin dimensión ni
+  // situación.
+  if (f.indicadores?.length) {
+    const limpios = f.indicadores.map((ind) => {
+      const o: Record<string, string | string[]> = {}
+      if (ind.id) o.id = ind.id
+      if (ind.siglas?.length) o.siglas = ind.siglas
+      if (ind.carreras?.length) o.carreras = ind.carreras
+      if (ind.puestos?.length) o.puestos = ind.puestos
+      if (ind.especialidades?.length) o.especialidades = ind.especialidades
+      if (ind.gruposEspecialidad?.length) o.gruposEspecialidad = ind.gruposEspecialidad
+      if (ind.situaciones?.length) o.situaciones = ind.situaciones
+      return o
+    })
+    sp.set('indicadores', JSON.stringify(limpios))
+  }
   return sp
 }
 
@@ -67,6 +90,8 @@ function filtrosKey(f: FiltrosDotacionEvolucion) {
     f.mesDesde ?? '',
     f.mesHasta ?? '',
     JSON.stringify(f.grupos ?? []),
+    [...(f.situaciones ?? [])].sort(),
+    JSON.stringify(f.indicadores ?? []),
   ]
 }
 
@@ -114,7 +139,8 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
       (filtros.puestos?.length ?? 0) +
       (filtros.especialidades?.length ?? 0) +
       (filtros.gruposEspecialidad?.length ?? 0) +
-      (filtros.grupos?.length ?? 0) >
+      (filtros.grupos?.length ?? 0) +
+      (filtros.indicadores?.length ?? 0) >
     0
   return useQuery({
     queryKey: ['kpis', 'dotacion-evolucion', 'serie', ...filtrosKey(filtros)],
@@ -126,5 +152,31 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
     },
     enabled: haySeleccion,
     staleTime: 60_000,
+  })
+}
+
+// Indicadores de cargos: mes actual vs anterior (solo lectura). `enabled` evita
+// consultar mientras la sección está colapsada.
+export interface CargosIndicadoresParams {
+  mes?: string
+  hospitalId?: string
+  codigoRegistroId?: string
+}
+export function useCargosIndicadores(params: CargosIndicadoresParams, enabled: boolean) {
+  return useQuery({
+    queryKey: ['kpis', 'cargos-indicadores', params],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: CargosIndicadores }>('/api/v1/kpis/cargos-indicadores', {
+        params: {
+          ...(params.mes && { mes: params.mes }),
+          ...(params.hospitalId && { hospitalId: params.hospitalId }),
+          ...(params.codigoRegistroId && { codigoRegistroId: params.codigoRegistroId }),
+        },
+      })
+      return res.data.data
+    },
+    enabled,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 }

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
+import { AppError } from '../../shared/errors/AppError.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
+import { corregirTipoSchema } from '../concursos/corregirTipo.schema.js'
+import { corregirTipoConcursoService } from '../concursos/corregirTipo.service.js'
 import { concursosCeetpsQuerySchema, patchConcursoCeetpsSchema, designarCeetpsSchema } from './concursos-ceetps.schema.js'
 import {
   listConcursosCeetpsService,
@@ -32,12 +35,22 @@ export async function concursosCeetpsRoutes(app: FastifyInstance) {
     '/:id',
     { preHandler: requirePermiso(WRITE_PERMISO) },
     async (request, reply) => {
+      const usuarioId = (request as any).user?.id as string | undefined
+      if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
       const body = patchConcursoCeetpsSchema.parse(request.body)
-      const data = await patchConcursoCeetpsService(request.params.id, body)
+      const data = await patchConcursoCeetpsService(request.params.id, body, usuarioId)
       return reply.send({ data })
     }
   )
 
+  // POST /:id/corregir-tipo — Paso 5a: CEETPS -> CPH, solo quien autoriza (se valida en el service)
+  app.post<{ Params: { id: string } }>('/:id/corregir-tipo', async (request, reply) => {
+    const usuarioId = (request as any).user?.id as string | undefined
+    if (!usuarioId) throw AppError.unauthorized('Sesion requerida')
+    const body = corregirTipoSchema.parse(request.body)
+    const data = await corregirTipoConcursoService('ceetps', request.params.id, body, usuarioId)
+    return reply.send({ data })
+  })
   // POST /:id/designar — S16-2: registra la designación, crea Ocupacion, avanza a finalizado
   app.post<{ Params: { id: string } }>(
     '/:id/designar',

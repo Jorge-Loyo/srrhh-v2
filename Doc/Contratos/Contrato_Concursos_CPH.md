@@ -74,9 +74,9 @@ sub-estado sigue en, p.ej., `I-CARGA DOCU`. Por eso `validado` **NO** entra en
 El concurso tiene **5 etapas**. "Declarar desierto" **NO es una etapa**: es una
 acción que relanza el concurso desde la Etapa 1.
 
-1. **Baja / Apertura** — datos de la baja (readonly) + Expediente de Concurso,
+1. **Apertura / Autorización** — datos de la baja (readonly) + Expediente de Concurso,
    Sigla, Escalafón, Puesto, Especialidad e **IF de autorización**.
-2. **Autorización / Jurado** — autorización DGAYDRH/SGRASV, sorteo de jurado y
+2. **Jurado / Dispo** — autorización DGAYDRH/SGRASV, sorteo de jurado y
    disposición de llamado.
 3. **Inscripción / Examen / OM** — inscriptos, cierre de inscripción, examen,
    presentados y orden de mérito.
@@ -96,6 +96,27 @@ Mapeo sub-estado → etapa (columna "Etapa" / stepper de la lista):
 
 Al cambiar de etapa en el wizard, el scroll sube al tope automáticamente.
 
+### 2.1 Permisos por pestaña / etapa (solo UI)
+
+Cada pestaña de `ConcursosCphPage` y cada etapa del wizard está gateada por un permiso propio
+`concursos-cph/tab:<slug>` (`apps/web/src/modules/concursos-cph/lib/etapasVisibles.ts`,
+`puedeVerEtapa` con `can(user,'concursos-cph',\`tab:${slug}\`)`). Slugs:
+
+- `tab:baja-apertura` (Etapa 1), `tab:autorizacion-jurado` (Etapa 2), `tab:inscripcion-examen-om` (Etapa 3), `tab:ifacs-insal` (Etapa 4), `tab:designacion` (Etapa 5).
+
+Son **solo de visibilidad de UI**: NO alteran el estado del concurso, ni la validación, ni el cálculo
+de la etapa actual. Si un rol no ve una etapa, esa etapa no aparece en el stepper y la navegación cae
+en la primera visible. Requieren **re-login** para tomar efecto (los permisos viajan en el token).
+
+### 2.2 Código de registro: CR 22 → 37 (duplicado histórico)
+
+El escalafón CPH tiene dos códigos de registro con el mismo literal: `22` (histórico) y `37` (vigente).
+**Ningún cargo CPH gestionable debe quedar en el código 22**: al crear o normalizar un cargo/concurso
+CPH el sistema fuerza el `37` (`derivarCodigoRegistro.ts` mapea `'22'→'37'`; guardas en
+`cargos.service.ts`, `autorizaciones.service.ts`, `concursos.service.ts`, `concursos-cph.service.ts`).
+La lectura de datos históricos sigue tolerando el 22. **Cobertura de Dotación** acepta las carreras
+`37` y `23`.
+
 ---
 
 ## 3. IF de autorización y flujo de apertura (Etapa 1 → autorización SGRASV)
@@ -108,17 +129,12 @@ Al cambiar de etapa en el wizard, el scroll sube al tope automáticamente.
   `eeConcurso` por primera vez **con `ifAutorizacion` presente**, se solicita la
   autorización a **SGRASV** (`pendienteAutorizacion=true`, solo sgrasv). Sin IF,
   solo se genera una notificación informativa.
-- **Al autorizar SGRASV** (`aprobarAutorizacionCphService`, paso sgrasv aprobado):
-  - Si hay **candidato de OM reservado** para el concurso → se **arrastran** del
-    concurso de origen de esa OM: `fechaAutorizacion`, `sorteoJurado`,
-    `disposicion`, `fechaInscDesde`, `fechaInscHasta`, `inscripcionCerrada`,
-    `fechaExamen`, `fechaOrdenMerito`, `presentadosConfirmados`,
-    `ordenMeritoConfirmado`; se recalcula y el concurso **salta a la Etapa 4**
-    (IFACS/INSAL). No se copia IFACS/INSAL (son propios del nuevo concurso).
-  - Si **no hay candidato reservado** → flujo normal a la **Etapa 2**.
-
-> El salto de etapas ocurre **al autorizar**, no al reservar el candidato: si
-> SGRASV no autoriza, no se avanza.
+- **Al autorizar SGRASV** el concurso queda autorizado y pasa a la **Etapa 2**.
+  **Autorizar ya NO salta etapas ni arrastra fechas** de ningún concurso de
+  origen (`aprobarAutorizacionCphService` no tiene llamadores; su lógica de
+  arrastre se descartó a propósito: no se inventan datos de examen ni de
+  jurado). El salto por orden de mérito es una decisión explícita en la
+  **Etapa 2** (ver §6.1).
 
 ---
 
@@ -200,7 +216,10 @@ confirmar.
 ## 6. Reutilización de OM y reelección (Etapa 1)
 
 - **Compatibilidad de OM**: mismo **puesto + especialidad + escalafón** que el
-  concurso destino.
+  concurso destino. Especialidad (igualdad normalizada), puesto (solo si ambos
+  lo tienen) y escalafón (el del cargo del concurso origen de la OM debe ser el
+  del cargo del destino; sin escalafón no es elegible). Centralizado /
+  descentralizado NO restringe: solo advierte.
 - **Reservar** (`POST /:id/om/reservar`): toma un integrante disponible de una
   OM compatible vigente → `designado=true`, `concursoCphDesignadoId=destino`, y
   lo registra como `personaDesignada` del destino **si tiene `personaId`**. NO
@@ -218,6 +237,35 @@ confirmar.
 > **Reservar/designar de la OM ≠ terminación del concurso.** Solo marca al
 > candidato. La validación real ocurre cuando el CUIL aparece en el padrón
 > semanal triangulado con el concurso (ver §6ter y §6qua).
+> Para concursos `nuevo_cargo`, el panel de la Etapa 1 se reemplaza por el de la
+> Etapa 2 (§6.1); el resto de los motivos conserva el panel de la Etapa 1.
+
+### 6.1 Designar desde una orden de mérito existente (Etapa 2, Paso 5b)
+- **Dónde y quién**: Etapa 2, tras **guardar el Tipo de gestión**, para quien
+  tiene el permiso `concursos-cph/tab:autorizacion-jurado` (admin pasa por
+  bypass). Panel `PanelOmDisponibles` ("Órdenes de mérito disponibles").
+- **Alcance**: solo `motivoConcurso = 'nuevo_cargo'` ya autorizado, en Etapa 1–2,
+  sin salto previo ni resolución. Un nuevo_cargo sin autorizar responde 409.
+  **CEETPS queda fuera**: no tiene OM ni tipo de gestión.
+- **Elegibilidad**: OM vigente (no vencida, con prórroga si hay), misma
+  especialidad y puesto, distinta de la OM del propio concurso, integrantes
+  `!designado && !anulado` cuyo CUIL no esté designado en otro concurso. La regla
+  centralizado/descentralizado **no bloquea**: solo genera advertencias
+  (pendiente de definición, ver `reglaGestionOm`).
+- **Rutas**: `GET /:id/om-disponibles` y `POST /:id/om/designar`
+  (`{integranteId, motivo?}`), ambas con el permiso de arriba.
+- **Qué hace el POST** (una transacción con `FOR UPDATE` del concurso y reclamo
+  atómico del integrante): marca al integrante como designado en este concurso,
+  registra la persona (`personaDesignadaId`, o `designadoRefCuil/Nombre` si no
+  está en el padrón), setea `salto_om_at` y `salto_om_integrante_id`, recalcula
+  y deja el concurso en **F-IFACS** (sub-estado 3 "F-PROX. A DESIG"), estado
+  `activo`. Se **saltan** jurado, inscripción, examen y orden de mérito propio;
+  IFACS e INSAL siguen siendo pasos normales; no se copia ni inventa ningún dato de esas etapas. Audita
+  `designar_desde_om` (entidad `concurso_cph_om`).
+- **Revertir**: `/om/rechazar` ("No aceptó el cargo") y `/om/liberar` sobre ese
+  integrante limpian el salto y el concurso vuelve a la Etapa 2.
+- **"Seguir con el concurso"**: solo oculta la oferta en la sesión; no llama al
+  backend.
 
 ---
 
@@ -411,6 +459,8 @@ Bajo `/api/v1/concursos-cph`:
 | GET    | `/:id/om-compatibles`                                 | OM compatibles con disponibles                 |
 | GET    | `/:id/candidato-om`                                   | Candidato de OM reservado (o null)             |
 | POST   | `/:id/om/reservar` \| `/liberar` \| `/rechazar`       | Gestión del candidato de OM                    |
+| GET    | `/:id/om-disponibles`                                 | OM para designar y saltar (Etapa 2, 5b)        |
+| POST   | `/:id/om/designar`                                    | Designar desde OM: salta a F-IFACS (5b)        |
 | ...    | (inscriptos, presentados, orden-merito, importar-csv) | Etapa 3                                        |
 
 En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
@@ -454,10 +504,10 @@ En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
 
 ## 12. Ciclo de punta a punta (resumen)
 
-1. **Etapa 1 — Baja/Apertura**: cargar Expediente de Concurso + IF → solicitud
+1. **Etapa 1 — Apertura/Autorización**: cargar Expediente de Concurso + IF → solicitud
    de autorización a SGRASV. (Opcional: reservar un candidato de una OM
    compatible; si SGRASV autoriza, el concurso salta a Etapa 4.)
-2. **Etapa 2 — Autorización/Jurado**: sorteo (o reutilización) de jurado +
+2. **Etapa 2 — Jurado/Dispo**: sorteo (o reutilización) de jurado +
    disposición de llamado.
 3. **Etapa 3 — Inscripción/Examen/OM**: inscriptos → cierre → examen →
    presentados → orden de mérito (documento reutilizable).
@@ -477,7 +527,7 @@ En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:
 flowchart TD
     Start([Baja o cargo nuevo]) --> E1
 
-    subgraph E1["Etapa 1 — Baja / Apertura"]
+    subgraph E1["Etapa 1 — Apertura / Autorización"]
         A1[Cargar Expediente de Concurso + IF autorizacion] --> A2{Reservar candidato<br/>de OM compatible?}
         A2 -->|Si| A3[Reserva OM<br/>PanelReutilizarOm]
         A2 -->|No| A4[Sin reserva]
@@ -490,7 +540,7 @@ flowchart TD
     AUTZ -->|Si + habia reserva OM| E4
     AUTZ -->|Si sin reserva| E2
 
-    subgraph E2["Etapa 2 — Autorizacion / Jurado"]
+    subgraph E2["Etapa 2 — Jurado / Dispo"]
         B1[Sorteo de jurado<br/>Regla 1 -> 2 -> 3] --> B2[Confirmar jurado]
         B2 --> B3[Disposicion de llamado]
     end

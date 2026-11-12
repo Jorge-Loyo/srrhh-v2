@@ -23,6 +23,20 @@ export function HistorialCambios({ cphData, juradoData }: HistorialCambiosProps)
         const bool = (b: boolean | null | undefined) => b === true
 
         const eventos: { fecha: string; texto: string }[] = [
+          // Paso 5a: correcciones de tipo (CPH <-> CEETPS) con su motivo.
+          ...(cphData.correccionesTipo ?? []).map((c) => ({
+            fecha: c.fecha,
+            texto: `Tipo corregido de ${c.tipoOrigen === 'cph' ? 'CPH' : 'CEETPS'} a ${c.tipoDestino === 'cph' ? 'CPH' : 'CEETPS'}${c.usuario ? ` por ${c.usuario}` : ''}. Motivo: ${c.motivo}`,
+          })),
+          // Paso 5b: designación directa desde una orden de mérito existente.
+          ...(cphData.saltoOm
+            ? [
+                {
+                  fecha: cphData.saltoOm.at,
+                  texto: `Designado desde la orden de mérito de ${cphData.saltoOm.concursoOrigen?.codigo ?? 'otro concurso'} (posición ${cphData.saltoOm.integrante.posicion}: ${cphData.saltoOm.integrante.apellidoNombre})${cphData.saltoOm.usuario ? ` por ${cphData.saltoOm.usuario}` : ''}`,
+                },
+              ]
+            : []),
           {
             fecha: cphData.fechaBaja,
             texto: 'Baja registrada' + (cphData.eeBaja ? `: ${cphData.eeBaja}` : ''),

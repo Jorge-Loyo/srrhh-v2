@@ -1,3 +1,4 @@
+import { esAdmin } from '../../shared/esAdmin.js'
 import { prisma } from '../../shared/prisma.js'
 
 // Catálogo completo — cada fila es un punto de aplicación real o reservado
@@ -19,7 +20,7 @@ export interface PermisoEfectivo {
 // es un bypass explícito en requirePermiso (siempre pasa) — acá se materializa
 // como "tiene todo el catálogo" para que la UI no tenga que conocer ese caso especial.
 export async function getPermisosEfectivos(roleId: string, rolSlug: string): Promise<PermisoEfectivo[]> {
-  if (rolSlug === 'admin') {
+  if (esAdmin(rolSlug)) {
     const catalogo = await getCatalogo()
     return catalogo.map((p) => ({ modulo: p.modulo, accion: p.accion }))
   }
