@@ -73,13 +73,15 @@ export function ComboBuscable({
 
   return (
     <div className="relative" ref={boxRef}>
-      <label className="block text-xs text-gray-500 mb-1">
-        {label}
-        {requerido && <span className="text-danger">*</span>}
-        {!unico && selected.length > 0 && (
-          <span className="text-secondary font-semibold"> ({selected.length})</span>
-        )}
-      </label>
+      {label !== '' && (
+        <label className="block text-xs text-gray-500 mb-1">
+          {label}
+          {requerido && <span className="text-danger">*</span>}
+          {!unico && selected.length > 0 && (
+            <span className="text-secondary font-semibold"> ({selected.length})</span>
+          )}
+        </label>
+      )}
 
       <input
         type="text"

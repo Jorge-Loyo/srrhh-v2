@@ -59,6 +59,7 @@ import {
 } from '../hooks/useConcursosCph'
 import type { GenerarSorteoJuradoRequest, InscriptoRequest } from '@srrhh/types'
 import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { useConfirm } from '@/shared/components/ui/useConfirm'
 import { useToast } from '@/shared/components/ui/useToast'
 import {
@@ -2718,10 +2719,13 @@ export function ConcursoCphWizard() {
                   Nueva especialidad <span className="text-danger">*</span>
                 </label>
                 {especialidadesDisponibles.length > 0 ? (
-                  <SearchableSelect
-                    value={cambioEspNueva}
-                    onChange={setCambioEspNueva}
-                    options={especialidadesDisponibles}
+                  <ComboBuscable
+                    modo="unico"
+                    label=""
+                    requerido
+                    options={especialidadesDisponibles.map((x) => ({ value: x, label: x }))}
+                    selected={cambioEspNueva ? [cambioEspNueva] : []}
+                    onChange={(v) => setCambioEspNueva(v[0] ?? '')}
                     placeholder="Buscar especialidad..."
                   />
                 ) : (
@@ -4011,45 +4015,35 @@ export function ConcursoCphWizard() {
                         </div>
                         {/* Escalafón */}
                         <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Carrera
-                          </label>
-                          <SearchableSelect
-                            value={escalafonId}
-                            onChange={(id) => {
-                              setEscalafonId(id)
+                          <ComboBuscable
+                            modo="unico"
+                            label="Carrera"
+                            options={escalafonesOrdenados.map((e) => ({ value: e.id, label: escalafonLabel(e.nombre) }))}
+                            selected={escalafonId ? [escalafonId] : []}
+                            onChange={(v) => {
+                              setEscalafonId(v[0] ?? '')
                               setPuestoConcurso('')
                               setEspecialidadConcurso('')
                             }}
-                            options={escalafonesOrdenados.map((e) => escalafonLabel(e.nombre))}
                             placeholder="Buscar carrera..."
                             disabled={
                               bloqueoEdicionEtapa1 ||
                               etapa.estado === 'pendiente' ||
                               etapa.estado === 'bloqueada'
                             }
-                            displayToValue={(label) =>
-                              escalafonesOrdenados.find((e) => escalafonLabel(e.nombre) === label)
-                                ?.id ?? label
-                            }
-                            valueToDisplay={(id) => {
-                              const e = escalafonesOrdenados.find((e) => e.id === id)
-                              return e ? escalafonLabel(e.nombre) : id
-                            }}
                           />
                         </div>
                         {/* Puesto — en cascada con escalafón */}
                         <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                            Puesto
-                          </label>
-                          <SearchableSelect
-                            value={puestoConcurso}
-                            onChange={(p) => {
-                              setPuestoConcurso(p)
+                          <ComboBuscable
+                            modo="unico"
+                            label="Puesto"
+                            options={puestosDisponibles.map((x) => ({ value: x, label: x }))}
+                            selected={puestoConcurso ? [puestoConcurso] : []}
+                            onChange={(v) => {
+                              setPuestoConcurso(v[0] ?? '')
                               setEspecialidadConcurso('')
                             }}
-                            options={puestosDisponibles}
                             placeholder={
                               escalafonId ? 'Buscar puesto...' : 'Elegí una carrera primero'
                             }
@@ -4064,13 +4058,12 @@ export function ConcursoCphWizard() {
                         {/* Especialidad — condicional */}
                         {especialidadesDisponibles.length > 0 && (
                           <div>
-                            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-                              Especialidad del concurso
-                            </label>
-                            <SearchableSelect
-                              value={especialidadConcurso}
-                              onChange={setEspecialidadConcurso}
-                              options={especialidadesDisponibles}
+                            <ComboBuscable
+                              modo="unico"
+                              label="Especialidad del concurso"
+                              options={especialidadesDisponibles.map((x) => ({ value: x, label: x }))}
+                              selected={especialidadConcurso ? [especialidadConcurso] : []}
+                              onChange={(v) => setEspecialidadConcurso(v[0] ?? '')}
                               placeholder="Buscar especialidad..."
                               disabled={
                                 bloqueoEdicionEtapa1 ||

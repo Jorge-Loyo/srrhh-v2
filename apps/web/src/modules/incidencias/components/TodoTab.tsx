@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useTodoIncidencias, type TipoIncidenciaSlug } from '../hooks/useIncidencias'
@@ -68,16 +68,19 @@ export function TodoTab({
           />
         </label>
         <div className="block text-sm sm:w-64">
-          <span className="text-gray-700 font-medium">Carrera</span>
-          <SearchableSelect
-            value={carrera}
+          <ComboBuscable
+            modo="unico"
+            label="Carrera"
+            options={(escalafones ?? []).map((e) => {
+              const l = escalafonLabel(e.nombre)
+              return { value: l, label: l }
+            })}
+            selected={carrera ? [carrera] : []}
             onChange={(v) => {
-              setCarrera(v)
+              setCarrera(v[0] ?? '')
               setPage(1)
             }}
-            options={(escalafones ?? []).map((e) => escalafonLabel(e.nombre))}
             placeholder="Todas las carreras"
-            className="mt-1"
           />
         </div>
       </div>
