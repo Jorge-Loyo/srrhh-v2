@@ -1,7 +1,8 @@
 // ─── Paso 5b: designar desde una orden de mérito existente (salto de etapas) ──
 // Funciones puras de UI. La oferta vive en la Etapa 2 (Jurado / Dispo) y la ven
 // quienes tienen `concursos-cph/tab:autorizacion-jurado` (admin incluido, sin
-// slugs de rol). Tras el salto, las Etapas 2–4 quedan resueltas y la 5 activa.
+// slugs de rol). Tras el salto, las Etapas 2–3 quedan resueltas y el concurso
+// aterriza en la Etapa 4 (F — IFACS).
 import type { ConcursoCph, MotivoNoHabilitadoOm, OmDisponible, Usuario } from '@srrhh/types'
 import { puedeVerEtapa } from './etapasVisibles'
 
@@ -10,10 +11,10 @@ export function puedeOperarOm(user: Usuario | null | undefined): boolean {
   return puedeVerEtapa(user, 'autorizacion')
 }
 
-/** Etapas que el salto da por resueltas (jurado, inscripción/examen/OM, IFACS/INSAL). */
-const ETAPAS_RESUELTAS_POR_SALTO = ['autorizacion', 'inscripcion', 'ifacs_insal']
+/** Etapas que el salto da por resueltas (jurado e inscripción/examen/OM propio). */
+const ETAPAS_RESUELTAS_POR_SALTO = ['autorizacion', 'inscripcion']
 
-/** Con salto registrado: Etapas 2–4 'completada' y Etapa 5 'activa'. Sin salto, sin cambios. */
+/** Con salto registrado: Etapas 2–3 'completada' y Etapa 4 (IFACS) 'activa'. Sin salto, sin cambios. */
 export function aplicarSaltoOm<T extends { id: string; estado: string }>(
   etapas: T[],
   cph: Pick<ConcursoCph, 'saltoOmAt'> | null | undefined,
@@ -21,7 +22,7 @@ export function aplicarSaltoOm<T extends { id: string; estado: string }>(
   if (!cph?.saltoOmAt) return etapas
   return etapas.map((e) => {
     if (ETAPAS_RESUELTAS_POR_SALTO.includes(e.id)) return { ...e, estado: 'completada' }
-    if (e.id === 'designacion') return { ...e, estado: 'activa' }
+    if (e.id === 'ifacs_insal' && e.estado !== 'completada') return { ...e, estado: 'activa' }
     return e
   })
 }

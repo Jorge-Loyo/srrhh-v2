@@ -215,10 +215,11 @@ confirmar.
 
 ## 6. Reutilización de OM y reelección (Etapa 1)
 
-- **Compatibilidad de OM**: mismo **puesto + especialidad** que el concurso
-  destino. **El código NO valida el escalafón** aunque este documento lo
-  mencionara antes: la regla vigente es especialidad (igualdad normalizada) y
-  puesto (solo si ambos lo tienen). Exigir escalafón es una pregunta abierta.
+- **Compatibilidad de OM**: mismo **puesto + especialidad + escalafón** que el
+  concurso destino. Especialidad (igualdad normalizada), puesto (solo si ambos
+  lo tienen) y escalafón (el del cargo del concurso origen de la OM debe ser el
+  del cargo del destino; sin escalafón no es elegible). Centralizado /
+  descentralizado NO restringe: solo advierte.
 - **Reservar** (`POST /:id/om/reservar`): toma un integrante disponible de una
   OM compatible vigente → `designado=true`, `concursoCphDesignadoId=destino`, y
   lo registra como `personaDesignada` del destino **si tiene `personaId`**. NO
@@ -257,9 +258,9 @@ confirmar.
   atómico del integrante): marca al integrante como designado en este concurso,
   registra la persona (`personaDesignadaId`, o `designadoRefCuil/Nombre` si no
   está en el padrón), setea `salto_om_at` y `salto_om_integrante_id`, recalcula
-  y deja el concurso en **H-TAD** (sub-estado 3 "F-PROX. A DESIG"), estado
-  `activo`. Se **saltan** jurado, inscripción, examen, orden de mérito propio,
-  IFACS e INSAL; no se copia ni inventa ningún dato de esas etapas. Audita
+  y deja el concurso en **F-IFACS** (sub-estado 3 "F-PROX. A DESIG"), estado
+  `activo`. Se **saltan** jurado, inscripción, examen y orden de mérito propio;
+  IFACS e INSAL siguen siendo pasos normales; no se copia ni inventa ningún dato de esas etapas. Audita
   `designar_desde_om` (entidad `concurso_cph_om`).
 - **Revertir**: `/om/rechazar` ("No aceptó el cargo") y `/om/liberar` sobre ese
   integrante limpian el salto y el concurso vuelve a la Etapa 2.
@@ -459,7 +460,7 @@ Bajo `/api/v1/concursos-cph`:
 | GET    | `/:id/candidato-om`                                   | Candidato de OM reservado (o null)             |
 | POST   | `/:id/om/reservar` \| `/liberar` \| `/rechazar`       | Gestión del candidato de OM                    |
 | GET    | `/:id/om-disponibles`                                 | OM para designar y saltar (Etapa 2, 5b)        |
-| POST   | `/:id/om/designar`                                    | Designar desde OM: salta a Etapa 5 (5b)        |
+| POST   | `/:id/om/designar`                                    | Designar desde OM: salta a F-IFACS (5b)        |
 | ...    | (inscriptos, presentados, orden-merito, importar-csv) | Etapa 3                                        |
 
 En el módulo **padrón** (`/api/v1/padron`), relacionados con la validación:

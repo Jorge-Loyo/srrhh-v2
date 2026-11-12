@@ -774,9 +774,12 @@ export async function listOmCompatiblesService(concursoDestinoId: string) {
       .toLowerCase()
       .trim()
 
+  const escalafonDestino = cargo?.escalafonId ?? null
   const vigentes = await listOrdenesMeritoVigentesService()
   return vigentes.filter((o) => {
     if (o.concursoCphId === concursoDestinoId) return false
+    // Misma carrera (escalafón) que el cargo del concurso origen de la OM.
+    if (!escalafonDestino || o.concursoCph?.concurso?.cargo?.escalafonId !== escalafonDestino) return false
     if (norm(o.especialidad) !== norm(especialidadDestino)) return false
     // Puesto: si ambos tienen puesto, deben coincidir; si el destino no lo
     // define, no se exige.

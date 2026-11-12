@@ -117,8 +117,8 @@ describe('reglaGestionOm — advierte y nunca bloquea', () => {
 
 describe('evaluarElegibilidadOm', () => {
   const om = { concursoCphId: 'origen', estado: 'vigente', fechaVencimiento: d('2027-01-01'), fechaProrroga: null, especialidad: 'Enfermeros ATP', puesto: null }
-  const destino = { concursoCphId: 'destino', especialidad: 'enfermeros atp', puesto: null, tipoGestion: 'centralizado', hospitalId: 'h1' }
-  const origen = { tipoGestion: 'centralizado', hospitalId: 'h1' }
+  const destino = { concursoCphId: 'destino', especialidad: 'enfermeros atp', puesto: null, tipoGestion: 'centralizado', hospitalId: 'h1', escalafonId: 'e1' }
+  const origen = { tipoGestion: 'centralizado', hospitalId: 'h1', escalafonId: 'e1' }
   it('elegible', () => {
     expect(evaluarElegibilidadOm({ om, destino, origen, hoy: HOY })).toEqual({ elegible: true, advertencias: [] })
   })
@@ -126,6 +126,16 @@ describe('evaluarElegibilidadOm', () => {
     expect(evaluarElegibilidadOm({ om: { ...om, concursoCphId: 'destino' }, destino, origen, hoy: HOY })).toEqual({ elegible: false, motivo: 'propia' })
     expect(evaluarElegibilidadOm({ om: { ...om, estado: 'vencida' }, destino, origen, hoy: HOY })).toEqual({ elegible: false, motivo: 'vencida' })
     expect(evaluarElegibilidadOm({ om: { ...om, especialidad: 'otra' }, destino, origen, hoy: HOY })).toEqual({ elegible: false, motivo: 'especialidad_puesto' })
+  })
+  it('otro escalafón (o sin escalafón) no es elegible; mismo escalafón sí', () => {
+    expect(evaluarElegibilidadOm({ om, destino, origen: { ...origen, escalafonId: 'e2' }, hoy: HOY })).toEqual({ elegible: false, motivo: 'escalafon' })
+    expect(evaluarElegibilidadOm({ om, destino: { ...destino, escalafonId: null }, origen, hoy: HOY })).toEqual({ elegible: false, motivo: 'escalafon' })
+    expect(evaluarElegibilidadOm({ om, destino, origen, hoy: HOY }).elegible).toBe(true)
+  })
+  it('centralizado/descentralizado no bloquea: solo advierte', () => {
+    const r = evaluarElegibilidadOm({ om, destino: { ...destino, tipoGestion: 'descentralizado', hospitalId: 'h9' }, origen: { ...origen, tipoGestion: 'descentralizado' }, hoy: HOY })
+    expect(r.elegible).toBe(true)
+    expect((r as { advertencias: string[] }).advertencias.length).toBeGreaterThan(0)
   })
   it('tipo distinto: elegible con advertencia', () => {
     const r = evaluarElegibilidadOm({ om, destino, origen: { ...origen, tipoGestion: 'descentralizado' }, hoy: HOY })
@@ -136,6 +146,6 @@ describe('evaluarElegibilidadOm', () => {
 
 describe('PASOS_RESUELTOS_POR_OM', () => {
   it('lista los pasos que el salto da por resueltos', () => {
-    expect([...PASOS_RESUELTOS_POR_OM]).toEqual(['jurado', 'inscripcion', 'examen', 'orden_merito', 'ifacs', 'insal'])
+    expect([...PASOS_RESUELTOS_POR_OM]).toEqual(['jurado', 'inscripcion', 'examen', 'orden_merito'])
   })
 })

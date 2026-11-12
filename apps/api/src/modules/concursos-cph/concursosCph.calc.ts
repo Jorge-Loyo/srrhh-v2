@@ -59,7 +59,7 @@ export interface ConcursoCphCalcInput {
   // campos de etapas posteriores siguen ganando. undefined = comportamiento de siempre.
   autorizacionNuevoCargo?: AutorizacionNuevoCargoCalc
   // Paso 5b: el concurso saltó a designación usando una persona de una orden de
-  // mérito existente (salto_om_at != null). Sub-estado h-tad / sub_estado_3
+  // mérito existente (salto_om_at != null). Sub-estado f-ifacs / sub_estado_3
   // f-prox. a desig, igual que si tuviera ee_designacion. undefined = false.
   saltoPorOm?: boolean
 }
@@ -108,8 +108,10 @@ function calcSubEstado(row: ConcursoCphCalcInput): string {
   if (row.fechaAptoMedico) return 'j-apto med'
   if (row.cargaDocumentacion) return 'i-carga docu'
   if (row.eeDesignacion) return 'h-tad'
-  if (row.saltoPorOm) return 'h-tad'
   if (row.fechaInsal) return 'g-insal'
+  // Salto por OM: aterriza en F-IFACS (el ministerio avisa al hospital que hay
+  // un postulante designado). Los campos reales de etapas posteriores ganan.
+  if (row.saltoPorOm) return 'f-ifacs'
   if (row.fechaIfacs) return 'f-ifacs'
   if (row.ordenMeritoConfirmado || row.fechaOrdenMerito) return 'e-orden de merito'
   if (row.fechaExamen) return 'd-examen publicado'

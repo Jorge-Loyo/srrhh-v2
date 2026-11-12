@@ -477,12 +477,12 @@ describe('calcConcursoCph — saltoPorOm', () => {
     fechaAutorizacion: d('2026-11-01'),
     autorizacionNuevoCargo: 'autorizado',
   }
-  it('saltoPorOm → sub_estado h-tad y sub_estado_3 f-prox. a desig', () => {
+  it('saltoPorOm → sub_estado f-ifacs y sub_estado_3 f-prox. a desig', () => {
     const r = calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true })
-    expect(r.subEstado).toBe('h-tad')
+    expect(r.subEstado).toBe('f-ifacs')
     expect(r.subEstado3).toBe('f-prox. a desig')
     expect(r.estado).toBe('activo')
-    expect(etapaDeSubEstado(r.subEstado)).toBe(5)
+    expect(etapaDeSubEstado(r.subEstado)).toBe(4)
   })
   it('sin saltoPorOm (false o ausente) todo igual que antes', () => {
     const sin = calcConcursoCph(nuevoAutorizado)
@@ -495,7 +495,9 @@ describe('calcConcursoCph — saltoPorOm', () => {
     expect(r.subEstado3).toBe('g-resolucion')
     expect(r.estado).toBe('finalizado')
   })
-  it('los pasos posteriores de la etapa 5 siguen ganando sobre h-tad', () => {
+  it('los pasos posteriores (insal, TAD, etapa 5) siguen ganando sobre f-ifacs', () => {
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, fechaInsal: d('2026-11-03') }).subEstado).toBe('g-insal')
+    expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, eeDesignacion: 'EE-9' }).subEstado).toBe('h-tad')
     expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, cargaDocumentacion: true }).subEstado).toBe('i-carga docu')
     expect(calcConcursoCph({ ...nuevoAutorizado, saltoPorOm: true, fechaIte: d('2026-11-05') }).subEstado).toBe('k-ite')
   })

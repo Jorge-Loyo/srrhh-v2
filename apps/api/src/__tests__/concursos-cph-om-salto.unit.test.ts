@@ -65,6 +65,7 @@ function destinoBase(over: Record<string, unknown> = {}, concursoOver: Record<st
         id: 'c1',
         codigo: 'CPH-1',
         hospitalId: 'h1',
+        escalafonId: 'e1',
         literalPuesto: 'Enfermero',
         especialidadLegacy: null,
         especialidadPuesto: { nombre: 'Enfermeros ATP' },
@@ -93,7 +94,7 @@ function integranteBase(over: Record<string, unknown> = {}, omOver: Record<strin
       estado: 'vigente',
       fechaVencimiento: futuro,
       fechaProrroga: null,
-      concursoCph: { id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { codigo: 'CPH-9', hospitalId: 'h1' } } },
+      concursoCph: { id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { codigo: 'CPH-9', hospitalId: 'h1', escalafonId: 'e1' } } },
       ...omOver,
     },
     ...over,
@@ -135,7 +136,7 @@ describe('designarDesdeOmService', () => {
       personaDesignadaId: 'p1',
       designadoRefCuil: null,
       estado: 'activo',
-      subEstado: 'h-tad',
+      subEstado: 'f-ifacs',
       subEstado3: 'f-prox. a desig',
     })
     expect(data.saltoOmAt).toBeInstanceOf(Date)
@@ -163,10 +164,10 @@ describe('designarDesdeOmService', () => {
       tipoGestionOrigen: 'centralizado',
       tipoGestionDestino: 'centralizado',
       advertencias: [],
-      pasosResueltos: ['jurado', 'inscripcion', 'examen', 'orden_merito', 'ifacs', 'insal'],
+      pasosResueltos: ['jurado', 'inscripcion', 'examen', 'orden_merito'],
       motivo: 'porque sí',
       subEstadoAnterior: 'b-sorteo jur',
-      subEstadoNuevo: 'h-tad',
+      subEstadoNuevo: 'f-ifacs',
     })
     expect(notifMock.crearNotificacion).toHaveBeenCalledWith(
       expect.objectContaining({ rolSlug: 'concursales_cph', origenKey: 'designacion_om:cph1:i1' }),
@@ -264,7 +265,7 @@ describe('designarDesdeOmService', () => {
   })
 
   it('concurso ya con salto o finalizado: 409', async () => {
-    destino = destinoBase({ saltoOmAt: new Date(), subEstado: 'h-tad' })
+    destino = destinoBase({ saltoOmAt: new Date(), subEstado: 'f-ifacs' })
     await expect(designar()).rejects.toMatchObject({ statusCode: 409 })
     destino = destinoBase({ estado: 'finalizado', resolucionDesignacion: 'R-1' })
     await expect(designar()).rejects.toMatchObject({ statusCode: 409 })
@@ -309,7 +310,7 @@ describe('listOmDisponiblesService', () => {
     fechaPublicacion: new Date('2026-10-01'),
     fechaVencimiento: futuro,
     fechaProrroga: null,
-    concursoCph: { id: 'origen', concurso: { cargo: { codigo: 'CPH-9', hospital: { sigla: 'HZ', nombre: 'Hospital Z' } } } },
+    concursoCph: { id: 'origen', concurso: { cargo: { codigo: 'CPH-9', escalafonId: 'e1', hospital: { sigla: 'HZ', nombre: 'Hospital Z' } } } },
     integrantes: [
       { id: 'i1', posicion: 1, apellidoNombre: 'Perez, Juan', cuil: '20111111112', designado: false, anulado: false, concursoCphDesignadoId: null },
       { id: 'i2', posicion: 2, apellidoNombre: 'Gomez, Ana', cuil: '27222222223', designado: false, anulado: false, concursoCphDesignadoId: null },
@@ -318,7 +319,7 @@ describe('listOmDisponiblesService', () => {
   })
   beforeEach(() => {
     prismaMock.ordenMerito.findMany.mockResolvedValue([omVigente()])
-    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { hospitalId: 'h1' } } }])
+    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { hospitalId: 'h1', escalafonId: 'e1' } } }])
     prismaMock.ordenMeritoIntegrante.findMany.mockResolvedValue([])
   })
 
@@ -376,8 +377,14 @@ describe('listOmDisponiblesService', () => {
     expect((await listOmDisponiblesService('cph1')).ordenes).toEqual([])
   })
 
+  it('OM de otro escalafón: se excluye; del mismo escalafón: se incluye', async () => {
+    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { hospitalId: 'h1', escalafonId: 'e2' } } }])
+    expect((await listOmDisponiblesService('cph1')).ordenes).toEqual([])
+    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'centralizado', concurso: { cargo: { hospitalId: 'h1', escalafonId: 'e1' } } }])
+    expect((await listOmDisponiblesService('cph1')).ordenes).toHaveLength(1)
+  })
   it('tipo de gestión distinto: la ofrece con advertencia', async () => {
-    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'descentralizado', concurso: { cargo: { hospitalId: 'h1' } } }])
+    prismaMock.concursoCph.findMany.mockResolvedValue([{ id: 'origen', tipoGestion: 'descentralizado', concurso: { cargo: { hospitalId: 'h1', escalafonId: 'e1' } } }])
     const r = await listOmDisponiblesService('cph1')
     expect(r.ordenes[0].advertencias.length).toBeGreaterThan(0)
   })
@@ -392,7 +399,7 @@ describe('listOmDisponiblesService', () => {
 
   it('concurso sin especialidad: habilitado=false', async () => {
     destino = destinoBase({ especialidadSolicitada: null }, {
-      cargo: { id: 'c1', codigo: 'CPH-1', hospitalId: 'h1', literalPuesto: null, especialidadLegacy: null, especialidadPuesto: null },
+      cargo: { id: 'c1', codigo: 'CPH-1', hospitalId: 'h1', escalafonId: 'e1', literalPuesto: null, especialidadLegacy: null, especialidadPuesto: null },
     })
     expect((await listOmDisponiblesService('cph1')).motivoNoHabilitado).toBe('sin_especialidad')
   })
@@ -414,7 +421,7 @@ describe('listOmDisponiblesService', () => {
 })
 
 describe('reverso del salto al liberar / rechazar', () => {
-  const conSalto = () => destinoBase({ saltoOmAt: new Date(), saltoOmIntegranteId: 'i1', subEstado: 'h-tad', subEstado3: 'f-prox. a desig', personaDesignadaId: 'p1' })
+  const conSalto = () => destinoBase({ saltoOmAt: new Date(), saltoOmIntegranteId: 'i1', subEstado: 'f-ifacs', subEstado3: 'f-prox. a desig', personaDesignadaId: 'p1' })
   beforeEach(() => {
     prismaMock.ordenMeritoIntegrante.findUnique.mockResolvedValue({ id: 'i1', personaId: 'p1', cuil: '20111111112', designado: true, anulado: false, concursoCphDesignadoId: 'cph1', ordenMeritoId: 'om1' })
     txMock.ordenMeritoIntegrante.findUnique.mockResolvedValue({ personaId: 'p1', cuil: '20111111112' })

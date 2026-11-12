@@ -553,7 +553,7 @@ export function ConcursoCphWizard() {
       },
     ]
     // Paso 2a: nuevo_cargo sin autorizar → Etapas 2–5 bloqueadas hasta que SGRASV autorice.
-    // Paso 5b: con salto por orden de mérito, Etapas 2–4 resueltas y Etapa 5 activa.
+    // Paso 5b: con salto por orden de mérito, Etapas 2–3 resueltas y Etapa 4 (IFACS) activa.
     return aplicarBloqueoPorAutorizacion(aplicarSaltoOm(etapasBase, cphData), cphData?.concurso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cphData, juradoData?.confirmado])
@@ -4143,13 +4143,13 @@ export function ConcursoCphWizard() {
                   </div>
 
                   {/* Paso 5b: designar desde una orden de mérito existente (salta
-                      a la Etapa 5). Solo con tipo de gestión guardado. */}
+                      a F — IFACS, Etapa 4). Solo con tipo de gestión guardado. */}
                   {id && (
                     <PanelOmDisponibles
                       concursoId={id}
                       cph={cphData}
                       user={user}
-                      onDesignado={() => setEtapaActiva('designacion')}
+                      onDesignado={() => setEtapaActiva('ifacs_insal')}
                     />
                   )}
                   {/* Bloque sorteo de jurado (primero — es lo primero que se hace) */}

@@ -1,7 +1,8 @@
 // Paso 5b — Panel "Órdenes de mérito disponibles" de la Etapa 2 (Jurado / Dispo).
 // Aparece tras guardar el Tipo de gestión y solo para quien ve la Etapa 2.
 // Designar desde una OM existente salta jurado, inscripción, examen, orden de
-// mérito propio, IFACS e INSAL y deja el concurso en la Etapa 5 (Designación).
+// mérito propio y deja el concurso en F — IFACS (Etapa 4), donde el ministerio
+// avisa al hospital que hay un postulante designado.
 // "Seguir con el concurso" solo oculta la oferta en la sesión (sin llamadas).
 import { useState } from 'react'
 import type { ConcursoCph, OmDisponible, OmDisponibleIntegrante, Usuario } from '@srrhh/types'
@@ -37,15 +38,13 @@ const PASOS_SALTADOS = [
   'Inscripción',
   'Examen',
   'Orden de mérito propio',
-  'IFACS',
-  'INSAL',
 ]
 
 interface Props {
   concursoId: string
   cph: ConcursoCph | null | undefined
   user: Usuario | null | undefined
-  /** Se llama tras designar con éxito (el wizard pasa a la Etapa 5). */
+  /** Se llama tras designar con éxito (el wizard pasa a la Etapa 4, IFACS). */
   onDesignado?: () => void
 }
 
@@ -206,7 +205,7 @@ export function PanelOmDisponibles({ concursoId, cph, user, onDesignado }: Props
       <p className="text-sm font-semibold text-gray-800">Órdenes de mérito disponibles</p>
       <p className="mt-1 text-xs text-gray-600">
         Si designás a una persona de una orden de mérito vigente, el concurso pasa directo a la
-        Etapa 5 (Designación). Si preferís, seguí con el concurso normal.
+        F — IFACS (Etapa 4). Si preferís, seguí con el concurso normal.
       </p>
       <div className="mt-3 space-y-3">
         {data.ordenes.map((o) => (
@@ -281,14 +280,12 @@ export function PanelOmDisponibles({ concursoId, cph, user, onDesignado }: Props
                 <strong>{elegido.orden.concursoOrigen.codigo ?? 'seleccionada'}</strong>.
               </p>
               <div>
-                <p>Se saltan estas etapas y el concurso pasa a Designación:</p>
+                <p>Se saltan estas etapas y el concurso pasa a F — IFACS:</p>
                 <ul className="mt-1 list-disc pl-5 text-xs">
                   <li>Sorteo de jurado</li>
                   <li>Inscripción</li>
                   <li>Examen</li>
                   <li>Orden de mérito propio</li>
-                  <li>IFACS</li>
-                  <li>INSAL</li>
                 </ul>
               </div>
               <div>

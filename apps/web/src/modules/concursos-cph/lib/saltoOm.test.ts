@@ -34,14 +34,14 @@ describe('puedeOperarOm', () => {
 })
 
 describe('aplicarSaltoOm', () => {
-  it('con salto: Etapas 2-4 completadas y Etapa 5 activa; la 1 no cambia', () => {
+  it('con salto: Etapas 2-3 completadas y Etapa 4 (IFACS) activa; la 1 y la 5 no cambian', () => {
     const r = aplicarSaltoOm(etapas, { saltoOmAt: '2026-11-15T10:00:00Z' })
     expect(r.map((e) => [e.id, e.estado])).toEqual([
       ['baja', 'completada'],
       ['autorizacion', 'completada'],
       ['inscripcion', 'completada'],
-      ['ifacs_insal', 'completada'],
-      ['designacion', 'activa'],
+      ['ifacs_insal', 'activa'],
+      ['designacion', 'pendiente'],
     ])
   })
   it('sin salto: devuelve las mismas etapas', () => {

@@ -13,8 +13,6 @@ export const PASOS_RESUELTOS_POR_OM = [
   'inscripcion',
   'examen',
   'orden_merito',
-  'ifacs',
-  'insal',
 ] as const
 
 export type MotivoNoOfrecerOm =
@@ -154,26 +152,35 @@ export function reglaGestionOm(i: ReglaGestionInput): { permite: true; advertenc
 export interface OmCandidataInput extends OmVigenciaInput, OmEspecialidadInput {
   concursoCphId: string
 }
+
+/** Mismo escalafón (carrera) entre el cargo del concurso origen y el del destino. */
+export function mismoEscalafon(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a && !!b && a === b
+}
 export interface EvaluarElegibilidadInput {
   om: OmCandidataInput
   destino: DestinoEspecialidadInput & {
     concursoCphId: string
     tipoGestion: string | null
     hospitalId: string | null
+    escalafonId: string | null
   }
-  origen: { tipoGestion: string | null; hospitalId: string | null }
+  origen: { tipoGestion: string | null; hospitalId: string | null; escalafonId: string | null }
   hoy: Date
 }
 export type EvaluarElegibilidadResult =
   | { elegible: true; advertencias: string[] }
-  | { elegible: false; motivo: 'propia' | 'vencida' | 'especialidad_puesto' }
+  | { elegible: false; motivo: 'propia' | 'vencida' | 'especialidad_puesto' | 'escalafon' }
 
-/** Compone todo: no es la propia OM, vigente, misma especialidad/puesto y regla de gestión. */
+/** Compone todo: no es la propia OM, vigente, misma especialidad/puesto, mismo escalafón y regla de gestión. */
 export function evaluarElegibilidadOm(i: EvaluarElegibilidadInput): EvaluarElegibilidadResult {
   if (i.om.concursoCphId === i.destino.concursoCphId) return { elegible: false, motivo: 'propia' }
   if (!omVigente(i.om, i.hoy)) return { elegible: false, motivo: 'vencida' }
   if (!coincideEspecialidadPuesto(i.om, i.destino)) {
     return { elegible: false, motivo: 'especialidad_puesto' }
+  }
+  if (!mismoEscalafon(i.origen.escalafonId, i.destino.escalafonId)) {
+    return { elegible: false, motivo: 'escalafon' }
   }
   const regla = reglaGestionOm({
     tipoGestionOrigen: i.origen.tipoGestion,

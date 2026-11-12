@@ -3,9 +3,9 @@
 // =============================================================================
 // Un concurso de cargo nuevo, ya autorizado y todavía en Etapa 1-2, puede
 // designar directo a una persona de una OM vigente de la misma especialidad y
-// puesto. El concurso salta a "H — TAD": se dan por resueltos jurado,
-// inscripción, examen, OM, IFACS e INSAL (NO se copian ni inventan datos de
-// esas etapas; ver PASOS_RESUELTOS_POR_OM). La resolución de designación y el
+// puesto. El concurso salta a "F — IFACS": se dan por resueltos jurado,
+// inscripción, examen y OM propia (NO se copian ni inventan datos de
+// esas etapas; IFACS e INSAL siguen siendo pasos normales; ver PASOS_RESUELTOS_POR_OM). La resolución de designación y el
 // alta siguen siendo pasos normales de la Etapa 5.
 import pino from 'pino'
 import { prisma } from '../../shared/prisma.js'
@@ -51,6 +51,7 @@ const destinoInclude = {
           id: true,
           codigo: true,
           hospitalId: true,
+          escalafonId: true,
           literalPuesto: true,
           especialidadLegacy: true,
           especialidadPuesto: { select: { nombre: true } },
@@ -126,7 +127,7 @@ export async function listOmDisponiblesService(cphId: string) {
   // Datos del concurso de origen que el listado de vigentes no trae.
   const origenes = await prisma.concursoCph.findMany({
     where: { id: { in: [...new Set(vigentes.map((o) => o.concursoCphId))] } },
-    select: { id: true, tipoGestion: true, concurso: { select: { cargo: { select: { hospitalId: true } } } } },
+    select: { id: true, tipoGestion: true, concurso: { select: { cargo: { select: { hospitalId: true, escalafonId: true } } } } },
   })
   const origenPorId = new Map(origenes.map((o) => [o.id, o]))
 
@@ -140,10 +141,12 @@ export async function listOmDisponiblesService(cphId: string) {
         puesto,
         tipoGestion: destino.tipoGestion,
         hospitalId: destino.concurso?.cargo?.hospitalId ?? null,
+        escalafonId: destino.concurso?.cargo?.escalafonId ?? null,
       },
       origen: {
         tipoGestion: origen?.tipoGestion ?? null,
         hospitalId: origen?.concurso?.cargo?.hospitalId ?? null,
+        escalafonId: origen?.concurso?.cargo?.escalafonId ?? null,
       },
       hoy,
     })
@@ -237,7 +240,7 @@ export async function designarDesdeOmService(
               select: {
                 id: true,
                 tipoGestion: true,
-                concurso: { select: { cargo: { select: { codigo: true, hospitalId: true } } } },
+                concurso: { select: { cargo: { select: { codigo: true, hospitalId: true, escalafonId: true } } } },
               },
             },
           },
@@ -256,10 +259,12 @@ export async function designarDesdeOmService(
         puesto,
         tipoGestion: destino.tipoGestion,
         hospitalId: destino.concurso?.cargo?.hospitalId ?? null,
+        escalafonId: destino.concurso?.cargo?.escalafonId ?? null,
       },
       origen: {
         tipoGestion: origen?.tipoGestion ?? null,
         hospitalId: origen?.concurso?.cargo?.hospitalId ?? null,
+        escalafonId: origen?.concurso?.cargo?.escalafonId ?? null,
       },
       hoy: new Date(),
     })
@@ -268,6 +273,7 @@ export async function designarDesdeOmService(
         propia: 'No se puede usar el orden de mérito del propio concurso',
         vencida: 'La orden de mérito de origen ya no está vigente',
         especialidad_puesto: 'La orden de mérito no es compatible: especialidad o puesto distinto',
+        escalafon: 'La orden de mérito no es compatible: pertenece a otra carrera (escalafón)',
       }[ev.motivo]
       throw AppError.conflict(msg)
     }
@@ -389,7 +395,7 @@ export async function designarDesdeOmService(
       tipo: 'autorizacion_resuelta',
       rolSlug: 'concursales_cph',
       titulo: `Designación desde orden de mérito — ${resultado.cargoCodigo}`,
-      mensaje: `${resultado.apellidoNombre} fue designado/a en el cargo ${resultado.cargoCodigo} desde un orden de mérito existente. El concurso pasó a la Etapa 5.`,
+      mensaje: `${resultado.apellidoNombre} fue designado/a en el cargo ${resultado.cargoCodigo} desde un orden de mérito existente. El concurso pasó a F — IFACS.`,
       origenTipo: 'concurso_cph',
       origenId: cphId,
       origenKey: `designacion_om:${cphId}:${integranteId}`,
