@@ -5,8 +5,9 @@ import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
-import { SearchableSelect } from '@/shared/components/ui/SearchableSelect'
+import { SelectorCarreraPuestoEspecialidad } from '@/shared/components/selectores/SelectorCarreraPuestoEspecialidad'
 import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '../lib/carrerasGestionadas'
+import { resolverSeleccionAlta } from '../lib/altaSelector'
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
 import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
@@ -304,15 +305,18 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
               {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Carrera <span className="text-danger">*</span></label>
-            <SearchableSelect
-              value={escalafonId}
-              onChange={(v) => { setEscalafonId(v); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
-              options={opcionesCarreraAlta(escalafonesFiltrados, tipo)}
-              placeholder="Seleccionar carrera..."
-            />
-          </div>
+          <SelectorCarreraPuestoEspecialidad
+            modo="unico"
+            resetDependientes
+            mostrar={{ carrera: true, puesto: false, especialidad: false }}
+            requeridos={{ carrera: true }}
+            valor={{ carrera: escalafonId ? [escalafonId] : [], puesto: [], especialidad: [] }}
+            carreraOpciones={opcionesCarreraAlta(escalafonesFiltrados, tipo)}
+            puestoOpciones={[]}
+            especialidadOpciones={[]}
+            placeholders={{ carrera: 'Seleccionar carrera...' }}
+            onChange={(next) => { setEscalafonId(next.carrera[0] ?? ''); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
+          />
         </div>
 
         {/* Modalidad — solo si hay más de una opción */}
@@ -337,26 +341,26 @@ function FormAlta({ tipo, onAgregar, onCancelar }: {
         {/* Puesto + Especialidad */}
         {escalafonId && (
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Puesto <span className="text-danger">*</span></label>
-              <SearchableSelect
-                value={puestoSel?.id ?? ''}
-                onChange={(id) => { setPuestoSel(puestos.find((p) => p.id === id) ?? null); setEspecialidadSel(null) }}
-                options={puestos.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
-                placeholder="Seleccionar puesto..."
-              />
-            </div>
-            {puesto && especialidades.length > 0 && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Especialidad <span className="text-danger">*</span></label>
-                <SearchableSelect
-                  value={especialidadSel?.id ?? ''}
-                  onChange={(id) => setEspecialidadSel(especialidades.find((e) => e.id === id) ?? null)}
-                  options={especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) }))}
-                  placeholder="Seleccionar especialidad..."
-                />
-              </div>
-            )}
+            <SelectorCarreraPuestoEspecialidad
+              modo="unico"
+              resetDependientes
+              mostrar={{ carrera: false, puesto: true, especialidad: true }}
+              requeridos={{ puesto: true, especialidad: true }}
+              ocultarSiVacio={{ especialidad: true }}
+              valor={{ carrera: [], puesto: puestoSel ? [puestoSel.id] : [], especialidad: especialidadSel ? [especialidadSel.id] : [] }}
+              carreraOpciones={[]}
+              puestoOpciones={puestos.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+              especialidadOpciones={puesto ? especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) })) : []}
+              placeholders={{ puesto: 'Seleccionar puesto...', especialidad: 'Seleccionar especialidad...' }}
+              onChange={(next, campo) => {
+                if (campo === 'puesto') {
+                  setPuestoSel(resolverSeleccionAlta(next.puesto, puestos))
+                  setEspecialidadSel(null)
+                } else {
+                  setEspecialidadSel(resolverSeleccionAlta(next.especialidad, especialidades))
+                }
+              }}
+            />
             {puesto && faltanAtpAtc && (
               <p role="status" className="text-xs font-semibold text-warning">
                 Faltan cargar las especialidades Enfermeros ATP/ATC en el catálogo. Podés dar el alta sin especialidad.
