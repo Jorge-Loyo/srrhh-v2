@@ -10,7 +10,6 @@ import {
   debeSolicitarAperturaNuevoCargo,
   esNuevoCargoSinAutorizar,
   validarBloqueoEtapa2,
-  validarIfAutorizacionNuevoCargo,
 } from '../modules/concursos-cph/autorizacionNuevoCargo.js'
 
 // ── Mocks para patchConcursoCphService (Paso 2b) ─────────────────────────────
@@ -87,7 +86,7 @@ describe('bloqueo de Etapa 2+ en nuevo_cargo sin autorizar', () => {
   })
 })
 
-describe('IF obligatorio y solicitud de autorización en nuevo_cargo', () => {
+describe('IF opcional y solicitud de autorización en nuevo_cargo', () => {
   const base = {
     concurso: nuevoSinAut,
     eeConcurso: 'EE-1' as string | null,
@@ -98,13 +97,8 @@ describe('IF obligatorio y solicitud de autorización en nuevo_cargo', () => {
     tieneCambioProtegido: false,
   }
 
-  it('sin IF junto al expediente → error 400', () => {
-    expect(() => validarIfAutorizacionNuevoCargo({ ...base, ifAutorizacion: null })).toThrow(/IF de autorización/)
-  })
-  it('con IF → ok; guardado ajeno a la Etapa 1 → no valida; no nuevo_cargo → no exige IF', () => {
-    expect(() => validarIfAutorizacionNuevoCargo(base)).not.toThrow()
-    expect(() => validarIfAutorizacionNuevoCargo({ ...base, ifAutorizacion: null, tocaEtapa1: false })).not.toThrow()
-    expect(() => validarIfAutorizacionNuevoCargo({ ...base, concurso: existente, ifAutorizacion: null })).not.toThrow()
+  it('solo con expediente (sin IF) también solicita: el IF es opcional', () => {
+    expect(debeSolicitarAperturaNuevoCargo({ ...base, ifAutorizacion: null })).toBe(true)
   })
 
   it('solicita cuando la Etapa 1 queda completa y no hay pendiente (no depende de "primera vez")', () => {
@@ -113,9 +107,8 @@ describe('IF obligatorio y solicitud de autorización en nuevo_cargo', () => {
   it('no duplica: con pendiente no vuelve a solicitar', () => {
     expect(debeSolicitarAperturaNuevoCargo({ ...base, pendienteAutorizacion: true })).toBe(false)
   })
-  it('no solicita si ya está autorizado, si falta IF/expediente o si no se tocó la Etapa 1', () => {
+  it('no solicita si ya está autorizado, si falta el expediente o si no se tocó la Etapa 1', () => {
     expect(debeSolicitarAperturaNuevoCargo({ ...base, concurso: nuevoAut })).toBe(false)
-    expect(debeSolicitarAperturaNuevoCargo({ ...base, ifAutorizacion: null })).toBe(false)
     expect(debeSolicitarAperturaNuevoCargo({ ...base, eeConcurso: null })).toBe(false)
     expect(debeSolicitarAperturaNuevoCargo({ ...base, tocaEtapa1: false })).toBe(false)
   })
@@ -170,6 +163,44 @@ describe('patchConcursoCphService — Etapa 1 completa en nuevo_cargo (Paso 2b)'
     expect(authMock.crearAutorizacion).not.toHaveBeenCalled()
   })
 
+  it('sin IF: solicita (sin permiso) y auto-aprueba (con permiso) igual', async () => {
+    const soloEe = { eeConcurso: 'EE-1' }
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(false)
+    await patchConcursoCphService('cph1', soloEe as never, 'u1')
+    expect(prismaMock.concursoCph.update.mock.calls[0]![0].data).toMatchObject({ pendienteAutorizacion: true, subEstado: 'a-autzn' })
+    expect(authMock.crearAutorizacion).toHaveBeenCalledTimes(1)
+    vi.clearAllMocks()
+    txMock.concursoCph.update.mockImplementation(async ({ data }: { data: object }) => ({ id: 'cph1', ...data }))
+    txMock.concursoCph.findUnique.mockResolvedValue(null)
+    authMock.autoAprobarConcurso.mockResolvedValue({ id: 'aut-auto' })
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    await patchConcursoCphService('cph1', soloEe as never, 'u1')
+    expect(authMock.autoAprobarConcurso).toHaveBeenCalledTimes(1)
+    expect(txMock.concursoCph.update.mock.calls[0]![0].data).toMatchObject({ pendienteAutorizacion: false, subEstado: 'b-sorteo jur' })
+  })
+  it('sin expediente (solo IF) no solicita autorización', async () => {
+    prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    await patchConcursoCphService('cph1', { ifAutorizacion: 'IF-1' } as never, 'u1')
+    expect(authMock.autoAprobarConcurso).not.toHaveBeenCalled()
+    expect(authMock.crearAutorizacion).not.toHaveBeenCalled()
+  })
+  it('ya autorizado: editar el IF después no reabre la autorización ni cambia el sub-estado', async () => {
+    const aut = existing('nuevo_cargo')
+    aut.concurso.autorizadoAt = new Date('2026-02-01') as never
+    ;(aut as Record<string, unknown>).eeConcurso = 'EE-1'
+    ;(aut as Record<string, unknown>).subEstado = 'b-sorteo jur'
+    prismaMock.concursoCph.findUnique.mockResolvedValue(aut)
+    authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)
+    await patchConcursoCphService('cph1', { ifAutorizacion: 'IF-7' } as never, 'u1')
+    expect(authMock.autoAprobarConcurso).not.toHaveBeenCalled()
+    expect(authMock.crearAutorizacion).not.toHaveBeenCalled()
+    const data = prismaMock.concursoCph.update.mock.calls[0]![0].data
+    expect(data).toMatchObject({ ifAutorizacion: 'IF-7' })
+    expect(data.pendienteAutorizacion).toBeUndefined()
+    expect(data.subEstado).toBe('b-sorteo jur')
+  })
   it('con permiso: si falla la autorización automática, la promesa rechaza y nada se escribió fuera de la tx', async () => {
     prismaMock.concursoCph.findUnique.mockResolvedValue(existing('nuevo_cargo'))
     authMock.usuarioPuedeResolverSgrasv.mockResolvedValue(true)

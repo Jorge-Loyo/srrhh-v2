@@ -5,12 +5,13 @@ import { AppError } from '../../shared/errors/AppError.js'
 import {
   MENSAJE_BLOQUEO_ETAPA_2,
   esNuevoCargoSinAutorizar,
+  excluirNuevoCargoSinAutorizar,
   type ConcursoBaseAutorizable,
 } from '../concursos-cph/autorizacionNuevoCargo.js'
 import type { AutorizacionNuevoCargoCeetpsCalc } from './concursosCeetps.calc.js'
 import type { PatchConcursoCeetpsBody } from './concursos-ceetps.schema.js'
 
-export { MENSAJE_BLOQUEO_ETAPA_2, esNuevoCargoSinAutorizar }
+export { MENSAJE_BLOQUEO_ETAPA_2, esNuevoCargoSinAutorizar, excluirNuevoCargoSinAutorizar }
 
 /** Campos del PATCH que pertenecen a la Etapa 2 en adelante (disposición, IFACS/INSAL, designación). */
 export const CAMPOS_ETAPA_2_EN_ADELANTE_CEETPS = [
@@ -83,26 +84,10 @@ export function resolverEtapa1Ceetps(
   }
 }
 
-/** 400 si un nuevo_cargo sin autorizar toca la Etapa 1 y queda un expediente sin IF. */
-export function validarIfCeetps(
-  concurso: ConcursoBaseAutorizable | null | undefined,
-  body: PatchConcursoCeetpsBody,
-  existing: { expedienteConcurso?: string | null; ifAutorizacion?: string | null },
-): void {
-  if (!esNuevoCargoSinAutorizar(concurso)) return
-  const e1 = resolverEtapa1Ceetps(body, existing)
-  if (!e1.tocaEtapa1) return
-  if (e1.expedienteConcurso && !e1.ifAutorizacion) {
-    throw AppError.badRequest(
-      'Para un concurso de cargo nuevo, el IF de autorización es obligatorio junto con el expediente de concurso',
-    )
-  }
-}
-
 /**
  * ¿Hay que solicitar (o auto-aprobar) la autorización de apertura? Para
  * nuevo_cargo sin autorizar: el guardado toca la Etapa 1, queda completa
- * (expediente + IF) y no hay otra autorización pendiente.
+ * (solo expediente; el IF es opcional) y no hay otra autorización pendiente.
  */
 export function debeSolicitarAperturaCeetps(i: {
   concurso: ConcursoBaseAutorizable | null | undefined
@@ -112,7 +97,7 @@ export function debeSolicitarAperturaCeetps(i: {
 }): boolean {
   if (!esNuevoCargoSinAutorizar(i.concurso)) return false
   const e1 = resolverEtapa1Ceetps(i.body, i.existing)
-  return e1.tocaEtapa1 && !i.pendienteAutorizacion && !!e1.expedienteConcurso && !!e1.ifAutorizacion
+  return e1.tocaEtapa1 && !i.pendienteAutorizacion && !!e1.expedienteConcurso
 }
 
 /** Estado de autorización para calcEstadoCeetps; `undefined` si no es nuevo_cargo. */

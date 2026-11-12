@@ -86,8 +86,8 @@ export function CorregirTipoControl({ tipoActual, detalleId, puestos = [], etapa
                 Se crea el concurso {LABEL_TIPO_CONCURSO[destino]} con los datos ya cargados y se elimina el actual. Si
                 había una autorización pendiente, se cierra con el motivo del cambio.{' '}
                 {etapa1Completa
-                  ? 'Como el expediente y el IF ya están cargados, se autoriza en este mismo acto.'
-                  : 'Falta cargar el expediente y/o el IF: el concurso se corrige pero NO se autoriza.'}
+                  ? 'Como el expediente ya está cargado, se autoriza en este mismo acto (el IF puede completarse después).'
+                  : 'Falta cargar el expediente: el concurso se corrige pero NO se autoriza.'}
               </p>
             </div>
             <div className="px-6 py-4 space-y-2">

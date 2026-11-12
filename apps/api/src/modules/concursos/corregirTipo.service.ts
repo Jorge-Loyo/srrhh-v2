@@ -38,7 +38,7 @@ export const CR_DEFECTO_POR_TIPO: Record<TipoConcursoCorregible, string> = { cph
 
 /** Códigos de registro elegibles al pasar a CEETPS: 85 Técnicos, 87 Nueva Carrera Enfermería. */
 export const CR_ELEGIBLES_CEETPS = ['85', '87'] as const
-export const MOTIVO_NO_AUTORIZADO = 'Falta expediente/IF'
+export const MOTIVO_NO_AUTORIZADO = 'Falta expediente'
 
 export const MSG_YA_AUTORIZADO =
   'El concurso ya fue autorizado: el tipo ya no se puede corregir'
@@ -116,10 +116,10 @@ export function mapearCeetpsACph(c: Record<string, any>): MapeoCampos {
   }
 }
 
-/** Etapa 1 completa (expediente + IF) en el mapeo ya hecho, sea cual sea el destino. */
+/** Etapa 1 completa (solo expediente; el IF es opcional) en el mapeo ya hecho, sea cual sea el destino. */
 function etapa1Completa(tipoOrigen: TipoConcursoCorregible, origen: Record<string, any>): boolean {
   const exp = tipoOrigen === 'cph' ? origen.eeConcurso : origen.expedienteConcurso
-  return !!exp && !!origen.ifAutorizacion
+  return !!exp
 }
 
 // ─── CR del cargo coherente con el tipo destino ───────────────────────────────

@@ -87,7 +87,7 @@ export async function concursosCphRoutes(app: FastifyInstance) {
   // GET / — S4-1: listado paginado con filtros
   app.get('/', async (request, reply) => {
     const query = concursosCphQuerySchema.parse(request.query)
-    const result = await listConcursosCphService(query)
+    const result = await listConcursosCphService(query, { soloEtapa1Superada: true })
     return reply.send(result)
   })
 

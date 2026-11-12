@@ -1227,9 +1227,7 @@ export function ConcursoCphWizard() {
       !!siglaConcurso &&
       !!escalafonId &&
       !!puestoConcurso &&
-      (especialidadesDisponibles.length === 0 || !!especialidadConcurso) &&
-      // Paso 2a: en un concurso de cargo nuevo el IF de autorización es obligatorio.
-      (!esNuevoCargoPendiente || !!ifAutorizacionInput.trim()))
+      (especialidadesDisponibles.length === 0 || !!especialidadConcurso))
 
   // Índice del marcador "en curso" (amarillo) en el panel de sub-estados.
   // Regla: VERDE = lo ya completado, AMARILLO = el primer paso pendiente.
@@ -3530,7 +3528,7 @@ export function ConcursoCphWizard() {
                     {esNuevoCargoPendiente && (
                       <p className="text-amber-700 text-xs mt-0.5">
                         Las Etapas 2 a 5 se habilitan cuando SGRASV autoriza el concurso. Cargá el
-                        expediente y el IF de autorización en la Etapa 1 para solicitarla.
+                        expediente en la Etapa 1 para solicitarla. El IF puede completarse después.
                       </p>
                     )}
                   </div>
@@ -3855,12 +3853,46 @@ export function ConcursoCphWizard() {
                           <label className="block text-sm font-semibold text-gray-700 mb-1">
                             IF de autorización
                           </label>
-                          <input
-                            type="text"
-                            value={cphData?.ifAutorizacion ?? '—'}
-                            className="input h-10 w-full bg-gray-50 text-gray-500"
-                            readOnly
-                          />
+                          {cphData?.concurso?.motivoConcurso === 'nuevo_cargo' ? (
+                            <>
+                              {/* Cargo nuevo ya autorizado: el IF sigue editable (no reabre la autorización). */}
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={ifAutorizacionInput}
+                                  onChange={(e) => setIfAutorizacionInput(e.target.value)}
+                                  placeholder="Nro. de documento IF para autorizar"
+                                  className="input h-10 w-full"
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-primary whitespace-nowrap"
+                                  disabled={
+                                    patchMutation.isPending ||
+                                    (ifAutorizacionInput.trim() || null) === (cphData?.ifAutorizacion ?? null)
+                                  }
+                                  onClick={() =>
+                                    patchMutation.mutate(
+                                      { ifAutorizacion: ifAutorizacionInput.trim() || null },
+                                      { onSuccess: () => toast.success('IF de autorización guardado.') },
+                                    )
+                                  }
+                                >
+                                  Guardar IF
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-gray-400 mt-1">
+                                El IF puede completarse después, incluso con el concurso ya autorizado.
+                              </p>
+                            </>
+                          ) : (
+                            <input
+                              type="text"
+                              value={cphData?.ifAutorizacion ?? '—'}
+                              className="input h-10 w-full bg-gray-50 text-gray-500"
+                              readOnly
+                            />
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -3907,7 +3939,9 @@ export function ConcursoCphWizard() {
                             }
                           />
                           <p className="text-[11px] text-gray-400 mt-1">
-                            Requerido para solicitar la autorización de SGRASV.
+                            {cphData?.concurso?.motivoConcurso === 'nuevo_cargo'
+                              ? 'El IF puede completarse después, incluso con el concurso ya autorizado.'
+                              : 'Requerido para solicitar la autorización de SGRASV.'}
                           </p>
                         </div>
                         {/* Sigla */}
@@ -6134,7 +6168,7 @@ export function ConcursoCphWizard() {
                     <>
                       {etapaActiva === 'baja' && !etapaBajaCompleta && (
                         <span className="text-xs text-gray-400">
-                          Completá expediente{esNuevoCargoPendiente ? ', IF de autorización' : ''},
+                          Completá expediente,
                           sigla, carrera, puesto
                           {especialidadesDisponibles.length > 0 ? ' y especialidad' : ''}
                         </span>

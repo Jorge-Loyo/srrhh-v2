@@ -35,7 +35,7 @@ vi.mock('../modules/tareas/tareas.service.js', () => ({
 }))
 
 const {
-  camposEtapa2Modificados, validarBloqueoEtapa2Ceetps, validarIfCeetps, debeSolicitarAperturaCeetps,
+  camposEtapa2Modificados, validarBloqueoEtapa2Ceetps, debeSolicitarAperturaCeetps,
 } = await import('../modules/concursos-ceetps/autorizacionNuevoCargo.js')
 const {
   patchConcursoCeetpsService, getConcursoCeetpsByIdService, designarConcursoCeetpsService,
@@ -89,11 +89,11 @@ describe('lógica pura CEETPS', () => {
     expect(() => validarBloqueoEtapa2Ceetps(nuevoOk, { dispoLlamado: 'D-9' }, filaBase)).not.toThrow()
   })
 
-  it('IF obligatorio (400) junto con el expediente solo en nuevo_cargo sin autorizar', () => {
-    expect(() => validarIfCeetps(nuevoSin, { expedienteConcurso: 'EE-1' }, filaBase)).toThrow(/IF de autorización/)
-    expect(() => validarIfCeetps(nuevoSin, { expedienteConcurso: 'EE-1', ifAutorizacion: 'IF-1' }, filaBase)).not.toThrow()
-    expect(() => validarIfCeetps(nuevoSin, { observaciones: 'x' }, filaBase)).not.toThrow()
-    expect(() => validarIfCeetps(otroMotivo, { expedienteConcurso: 'EE-1' }, filaBase)).not.toThrow()
+  it('el IF es opcional: solicita con solo el expediente; sin expediente no solicita aunque haya IF', () => {
+    const solo = { expedienteConcurso: 'EE-1' }
+    expect(debeSolicitarAperturaCeetps({ concurso: nuevoSin, body: solo, existing: filaBase, pendienteAutorizacion: false })).toBe(true)
+    const soloIf = { ifAutorizacion: 'IF-1' }
+    expect(debeSolicitarAperturaCeetps({ concurso: nuevoSin, body: soloIf, existing: filaBase, pendienteAutorizacion: false })).toBe(false)
   })
 
   it('debeSolicitarAperturaCeetps: Etapa 1 completa, sin pendiente', () => {
@@ -117,9 +117,38 @@ describe('patchConcursoCeetpsService', () => {
     expect(concursoCeetps.update).not.toHaveBeenCalled()
   })
 
-  it('expediente sin IF => 400', async () => {
+  it('expediente sin IF => solicita la autorización (el IF es opcional)', async () => {
     dado(nuevoSin)
-    await expect(patchConcursoCeetpsService('ce1', { expedienteConcurso: 'EE-1' }, 'u1')).rejects.toMatchObject({ statusCode: 400 })
+    usuario.findUnique.mockResolvedValue({ role: { id: 'r1', slug: 'concursales_ceetps' } })
+    await patchConcursoCeetpsService('ce1', { expedienteConcurso: 'EE-1' }, 'u1')
+    expect(autorizacion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ tipo: 'concurso_ceetps', referenciaId: 'ce1', solicitadoPorId: 'u1' }),
+    })
+    expect(concursoCeetps.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ estado: 'sin_autorizar', subEstado: 'A_AUTORIZACION' }),
+    }))
+  })
+  it('sin expediente (solo IF) no solicita autorización y sigue bloqueado', async () => {
+    dado(nuevoSin)
+    usuario.findUnique.mockResolvedValue({ role: { id: 'r1', slug: 'concursales_ceetps' } })
+    await patchConcursoCeetpsService('ce1', { ifAutorizacion: 'IF-1' }, 'u1')
+    expect(autorizacion.create).not.toHaveBeenCalled()
+    await expect(patchConcursoCeetpsService('ce1', { dispoLlamado: 'D-1' }, 'u1')).rejects.toMatchObject({ statusCode: 409, message: MSG })
+  })
+  it('con permiso: auto-aprueba con solo el expediente (sin IF)', async () => {
+    dado(nuevoSin)
+    usuario.findUnique.mockResolvedValue({ role: { id: 'r0', slug: 'admin' } })
+    concurso.findUnique.mockResolvedValue({ cargoId: 'cg1', ...nuevoSin })
+    await patchConcursoCeetpsService('ce1', { expedienteConcurso: 'EE-1' }, 'u1')
+    expect(autorizacion.create).toHaveBeenCalledWith({ data: expect.objectContaining({ estado: 'aprobada' }) })
+  })
+  it('ya autorizado: el IF se puede editar después sin nueva solicitud ni cambio de estado', async () => {
+    dado({ ...nuevoSin, autorizadoAt: new Date('2026-02-01') }, { expedienteConcurso: 'EE-1' })
+    await patchConcursoCeetpsService('ce1', { ifAutorizacion: 'IF-9' }, 'u1')
+    expect(autorizacion.create).not.toHaveBeenCalled()
+    expect(concursoCeetps.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ ifAutorizacion: 'IF-9', estado: 'autorizado' }),
+    }))
   })
 
   it('sin permiso: crea autorización pendiente y deja A_AUTORIZACION', async () => {

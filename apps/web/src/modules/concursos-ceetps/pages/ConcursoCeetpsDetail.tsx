@@ -32,7 +32,7 @@ const texto = z.string()
 const formSchema = z.object({
   // ── Proceso previo ─────────────────────────────────────────────────────────
   expedienteConcurso: texto,
-  // Paso 2b: IF de autorización de apertura (obligatorio con el expediente en nuevo_cargo)
+  // Paso 2b: IF de autorización de apertura (opcional: puede completarse después, aun autorizado)
   ifAutorizacion: texto,
   fechaCaratulacion: fecha,
   fechaAutorizacion: fecha,
@@ -161,8 +161,6 @@ export function ConcursoCeetpsDetail() {
   // S20-10: catálogo de puestos del escalafón del concurso, para el combobox.
   const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(concurso?.escalafonId)
   const puestoCargoSolicitadoId = watch('puestoCargoSolicitadoId')
-  const expedienteValue = watch('expedienteConcurso')
-  const ifValue = watch('ifAutorizacion')
   const aperturaChecked = watch('apertura2x18')
   const cambioEspecialidadChecked = watch('cambioEspecialidad')
 
@@ -213,7 +211,6 @@ export function ConcursoCeetpsDetail() {
   const rechazoAviso = sinAutorizar && !autorizacionPendiente ? concurso.ultimaAutorizacionRechazada ?? null : null
   const puedeResolver =
     !!autorizacionPendiente && (autorizacionPendiente.resolverPorRolSlug === user?.rolSlug || user?.rolSlug === 'admin')
-  const faltaIf = sinAutorizar && !!expedienteValue?.trim() && !ifValue?.trim()
 
   const codigoRegistro = concurso.concurso?.cargo?.codigoRegistro?.codigo ?? ''
   const esEnfermeria = codigoRegistro === '87'
@@ -529,7 +526,7 @@ export function ConcursoCeetpsDetail() {
             {concurso.concurso?.motivoConcurso === 'nuevo_cargo' && (
               <Campo label="IF de autorización de apertura">
                 <input {...register('ifAutorizacion')} className="input h-10 w-full" placeholder="Ej: IF-2026-00000000-GDEBA-SSRHH" />
-                {faltaIf && <p className="text-xs text-danger mt-1">El IF es obligatorio con el expediente de concurso.</p>}
+                <p className="text-xs text-gray-500 mt-1">El IF puede completarse después, incluso con el concurso ya autorizado.</p>
               </Campo>
             )}
             <Campo label="Fecha de caratulación">
@@ -664,7 +661,7 @@ export function ConcursoCeetpsDetail() {
         )}
 
         {puedeEditar && !estadoTerminal && (
-          <button type="submit" disabled={formState.isSubmitting || faltaIf} className="btn-primary">
+          <button type="submit" disabled={formState.isSubmitting} className="btn-primary">
             {formState.isSubmitting ? 'Guardando...' : 'Guardar cambios'}
           </button>
         )}

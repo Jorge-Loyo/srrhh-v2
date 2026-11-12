@@ -8,9 +8,9 @@ import {
   MENSAJE_BLOQUEO_ETAPA_2,
   autorizacionParaCalcCeetps,
   debeSolicitarAperturaCeetps,
+  excluirNuevoCargoSinAutorizar,
   esNuevoCargoSinAutorizar,
   validarBloqueoEtapa2Ceetps,
-  validarIfCeetps,
 } from './autorizacionNuevoCargo.js'
 import { autoAprobarConcurso, resolverSlugPorPermiso, usuarioPuedeResolverSgrasv } from '../autorizaciones/autorizaciones.service.js'
 import { notificarSgrasvYHijos } from '../notificaciones/notificarSgrasv.js'
@@ -91,6 +91,9 @@ export async function listConcursosCeetpsService(query: ConcursosCeetpsQuery) {
     }),
   }
 
+  // Listado de /concursos/ceetps: los nuevo_cargo sin autorizar (Etapa 1) no se
+  // muestran; siguen en Nuevos cargos y en la bandeja Gestión de Concursos.
+  where.AND = [excluirNuevoCargoSinAutorizar()]
   const [total, data] = await Promise.all([
     prisma.concursoCeetps.count({ where }),
     prisma.concursoCeetps.findMany({
@@ -161,10 +164,9 @@ export async function patchConcursoCeetpsService(id: string, body: PatchConcurso
   }
 
   // Paso 2b — cargo nuevo: la Etapa 2+ requiere la autorización de SGRASV (409
-  // solo si el valor CAMBIA: el formulario reenvía todos los campos) y el IF es
-  // obligatorio junto con el expediente (400).
+  // solo si el valor CAMBIA: el formulario reenvía todos los campos). El IF de
+  // autorización es opcional: solo el expediente es obligatorio para solicitar.
   validarBloqueoEtapa2Ceetps(concursoBase, body, existing)
-  validarIfCeetps(concursoBase, body, existing)
   const nuevoSinAutorizar = esNuevoCargoSinAutorizar(concursoBase)
   const hayPendiente = nuevoSinAutorizar
     ? !!(await prisma.autorizacion.findFirst({

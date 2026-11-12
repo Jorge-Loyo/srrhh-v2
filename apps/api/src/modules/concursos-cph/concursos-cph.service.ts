@@ -32,8 +32,8 @@ import {
   autorizacionParaCalc,
   debeSolicitarAperturaNuevoCargo,
   esNuevoCargoSinAutorizar,
+  excluirNuevoCargoSinAutorizar,
   validarBloqueoEtapa2,
-  validarIfAutorizacionNuevoCargo,
 } from './autorizacionNuevoCargo.js'
 import {
   normalizarCrCphDeCargo,
@@ -83,7 +83,10 @@ function flattenEtiquetas<
 }
 
 // ─── S4-1: listado paginado con filtros ─────────────────────────────────────
-export async function listConcursosCphService(query: ConcursosCphQuery) {
+export async function listConcursosCphService(
+  query: ConcursosCphQuery,
+  opts: { soloEtapa1Superada?: boolean } = {},
+) {
   const {
     page,
     limit,
@@ -339,6 +342,13 @@ export async function listConcursosCphService(query: ConcursosCphQuery) {
     ...(rangoFechaEeConcurso && { fechaEeConcurso: rangoFechaEeConcurso }),
   }
 
+  // Listado de /concursos/cph: los nuevo_cargo sin autorizar (todavía en la
+  // Etapa 1) no se muestran. La bandeja Gestión de Concursos NO lo pide.
+  // Con cargoId (búsqueda directa de un cargo) no se filtra.
+  if (opts.soloEtapa1Superada && !cargoId) {
+    const previo = where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND]
+    where.AND = [...previo, excluirNuevoCargoSinAutorizar()]
+  }
   // Orden dinámico por la fecha elegida (fecha_ee_concurso / fecha_baja) en la
   // dirección pedida, con NULLS LAST: los concursos sin esa fecha quedan al
   // final sin importar asc/desc. Prisma 5.22 soporta la forma
@@ -536,22 +546,15 @@ export async function patchConcursoCphService(id: string, body: PatchConcursoCph
   // ya existente). Este es el gatillo del paso Etapa 1 → autorización.
   const ifAutorizacionResuelto =
     body.ifAutorizacion !== undefined ? body.ifAutorizacion : existing.ifAutorizacion
-  // Paso 2a (solo nuevo_cargo): exige IF junto con el expediente y pide la
-  // autorización cada vez que la Etapa 1 queda completa (sin depender de "primera
-  // vez"). Los demás concursos mantienen el gatillo original.
+  // Paso 2a (solo nuevo_cargo): pide la autorización cada vez que hay expediente
+  // (el IF es opcional y puede completarse después, incluso ya autorizado), sin
+  // depender de "primera vez". Los demás concursos mantienen el gatillo original.
   const eeConcursoResuelto = body.eeConcurso !== undefined ? body.eeConcurso : existing.eeConcurso
   const tocaEtapa1 = body.eeConcurso !== undefined || body.ifAutorizacion !== undefined
-  validarIfAutorizacionNuevoCargo({
-    concurso: concursoBase,
-    eeConcurso: eeConcursoResuelto,
-    ifAutorizacion: ifAutorizacionResuelto,
-    tocaEtapa1,
-  })
   const solicitaAutorizacionApertura = esNuevoCargoSinAutorizar(concursoBase)
     ? debeSolicitarAperturaNuevoCargo({
         concurso: concursoBase,
         eeConcurso: eeConcursoResuelto,
-        ifAutorizacion: ifAutorizacionResuelto,
         tocaEtapa1,
         pendienteAutorizacion: existing.pendienteAutorizacion,
         requiereAutorizacionDoble,

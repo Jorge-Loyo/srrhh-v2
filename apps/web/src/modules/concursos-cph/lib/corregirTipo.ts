@@ -55,11 +55,11 @@ export function codigoRegistroPreseleccionado(...puestos: (string | null | undef
   return puestos.some((p) => normalizar(p).includes('enfermer')) ? '87' : '85'
 }
 
-/** Etapa 1 completa (expediente + IF): condición para que la corrección autorice. */
+/** Etapa 1 completa (solo expediente; el IF es opcional): condición para que la corrección autorice. */
 export function etapa1CompletaParaAutorizar(
   c: { eeConcurso?: string | null; expedienteConcurso?: string | null; ifAutorizacion?: string | null } | null | undefined,
 ): boolean {
-  return !!c && !!(c.eeConcurso || c.expedienteConcurso) && !!c.ifAutorizacion
+  return !!c && !!(c.eeConcurso || c.expedienteConcurso)
 }
 
 export function textoConfirmacionCambio(actual: TipoConcursoUi, autoriza = true): string {
@@ -67,11 +67,11 @@ export function textoConfirmacionCambio(actual: TipoConcursoUi, autoriza = true)
   const base = `Este concurso pasará de ${LABEL_TIPO_CONCURSO[actual]} a ${LABEL_TIPO_CONCURSO[destino]}`
   return autoriza
     ? `${base} y quedará AUTORIZADO en este acto.`
-    : `${base} y quedará sin autorizar hasta cargar expediente e IF.`
+    : `${base} y quedará sin autorizar hasta cargar el expediente.`
 }
 
 export function avisoCorreccionExitosa(destino: TipoConcursoUi, autorizado = false): string {
   return autorizado
     ? `El concurso ahora es ${LABEL_TIPO_CONCURSO[destino]} y quedó AUTORIZADO.`
-    : `El concurso ahora es ${LABEL_TIPO_CONCURSO[destino]} y quedó sin autorizar: falta expediente/IF. Completá la Etapa 1 para autorizarlo.`
+    : `El concurso ahora es ${LABEL_TIPO_CONCURSO[destino]} y quedó sin autorizar: falta el expediente. Completá la Etapa 1 para autorizarlo.`
 }

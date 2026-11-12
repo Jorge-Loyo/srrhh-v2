@@ -43,7 +43,7 @@ describe('textos y rutas', () => {
     expect(tipoDestinoDe('cph')).toBe('ceetps')
     expect(tipoDestinoDe('ceetps')).toBe('cph')
     expect(textoConfirmacionCambio('cph')).toBe('Este concurso pasará de CPH a CEETPS y quedará AUTORIZADO en este acto.')
-    expect(textoConfirmacionCambio('ceetps', false)).toBe('Este concurso pasará de CEETPS a CPH y quedará sin autorizar hasta cargar expediente e IF.')
+    expect(textoConfirmacionCambio('ceetps', false)).toBe('Este concurso pasará de CEETPS a CPH y quedará sin autorizar hasta cargar el expediente.')
     expect(avisoCorreccionExitosa('cph')).toContain('CPH')
   })
   it('ruta del concurso nuevo según tipo', () => {
@@ -62,10 +62,10 @@ describe('código de registro al pasar a CEETPS', () => {
     expect(codigoRegistroPreseleccionado('Médico', undefined)).toBe('85')
     expect(codigoRegistroPreseleccionado()).toBe('85')
   })
-  it('autoriza solo con expediente + IF', () => {
+  it('autoriza solo con expediente (el IF es opcional)', () => {
     expect(etapa1CompletaParaAutorizar({ eeConcurso: 'EE-1', ifAutorizacion: 'IF-1' })).toBe(true)
     expect(etapa1CompletaParaAutorizar({ expedienteConcurso: 'EE-1', ifAutorizacion: 'IF-1' })).toBe(true)
-    expect(etapa1CompletaParaAutorizar({ eeConcurso: 'EE-1', ifAutorizacion: null })).toBe(false)
+    expect(etapa1CompletaParaAutorizar({ eeConcurso: 'EE-1', ifAutorizacion: null })).toBe(true)
     expect(etapa1CompletaParaAutorizar({ ifAutorizacion: 'IF-1' })).toBe(false)
     expect(etapa1CompletaParaAutorizar(undefined)).toBe(false)
   })

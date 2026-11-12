@@ -12,6 +12,21 @@ export interface ConcursoBaseAutorizable {
   autorizadoAt?: Date | null
 }
 
+/**
+ * Filtro Prisma (reutilizable por CPH y CEETPS) para los listados de
+ * /concursos/cph y /concursos/ceetps: deja afuera los concursos de cargo nuevo
+ * que todavía NO pasaron la Etapa 1 (motivo 'nuevo_cargo' y sin autorizado_at).
+ * Los demás (incluido motivo NULL) y los nuevo_cargo ya autorizados siguen
+ * apareciendo. Se expresa como NOT sobre la relación (subconsulta por id) para
+ * que un motivo NULL no se descarte por la lógica de tres valores de SQL.
+ */
+export function excluirNuevoCargoSinAutorizar() {
+  return {
+    NOT: {
+      concurso: { is: { motivoConcurso: MOTIVO_CONCURSO_NUEVO_CARGO, autorizadoAt: null } },
+    },
+  } as const
+}
 /** Campos del PATCH que pertenecen a las Etapas 2 a 5 del wizard. */
 export const CAMPOS_ETAPA_2_EN_ADELANTE = [
   // Etapa 2 — Jurado / Dispo
@@ -89,7 +104,8 @@ export interface DecisionAperturaInput {
   concurso: ConcursoBaseAutorizable | null | undefined
   /** Valores resueltos (body sobre existente) de la Etapa 1. */
   eeConcurso: string | null | undefined
-  ifAutorizacion: string | null | undefined
+  /** El IF de autorización es opcional: se informa pero no condiciona la solicitud. */
+  ifAutorizacion?: string | null | undefined
   /** El body toca eeConcurso o ifAutorizacion (descarta guardados ajenos a la Etapa 1). */
   tocaEtapa1: boolean
   pendienteAutorizacion: boolean
@@ -98,22 +114,8 @@ export interface DecisionAperturaInput {
 }
 
 /**
- * Concurso nuevo_cargo: exige el IF junto con el expediente. Lanza 400 si el
- * guardado toca la Etapa 1 y queda un expediente sin IF.
- */
-export function validarIfAutorizacionNuevoCargo(i: Pick<DecisionAperturaInput, 'concurso' | 'eeConcurso' | 'ifAutorizacion' | 'tocaEtapa1'>): void {
-  if (!esNuevoCargoSinAutorizar(i.concurso)) return
-  if (!i.tocaEtapa1) return
-  if (i.eeConcurso && !i.ifAutorizacion) {
-    throw AppError.badRequest(
-      'Para un concurso de cargo nuevo, el IF de autorización es obligatorio junto con el expediente de concurso',
-    )
-  }
-}
-
-/**
  * ¿Hay que solicitar la autorización de apertura a SGRASV? Para nuevo_cargo se
- * pide cada vez que la Etapa 1 queda completa (expediente + IF), no hay una
+ * pide cada vez que la Etapa 1 queda completa (solo expediente; el IF es opcional), no hay una
  * autorización pendiente y el concurso no está autorizado todavía.
  */
 export function debeSolicitarAperturaNuevoCargo(i: DecisionAperturaInput): boolean {
@@ -123,7 +125,6 @@ export function debeSolicitarAperturaNuevoCargo(i: DecisionAperturaInput): boole
     !i.requiereAutorizacionDoble &&
     !i.tieneCambioProtegido &&
     !i.pendienteAutorizacion &&
-    !!i.eeConcurso &&
-    !!i.ifAutorizacion
+    !!i.eeConcurso
   )
 }

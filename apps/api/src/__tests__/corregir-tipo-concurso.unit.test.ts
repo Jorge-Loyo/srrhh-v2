@@ -210,15 +210,19 @@ describe('CPH -> CEETPS', () => {
     })
     expect(recalcularSubEstadoCargo).toHaveBeenCalledWith(tx, 'cg1')
   })
-  it('sin expediente/IF corrige igual pero NO autoriza y lo indica', async () => {
+  it('sin IF (con expediente) autoriza igual: el IF es opcional', async () => {
     concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph({ ifAutorizacion: null })))
     const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
-    expect(r).toMatchObject({ autorizado: false, motivoNoAutorizado: 'Falta expediente/IF', autorizacionId: null })
+    expect(r).toMatchObject({ autorizado: true, autorizacionId: 'aut-ok' })
+    expect(autoAprobarConcurso).toHaveBeenCalledTimes(1)
+  })
+  it('sin expediente corrige igual pero NO autoriza y lo indica', async () => {
+    concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph({ eeConcurso: null })))
+    const r = await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')
+    expect(r).toMatchObject({ autorizado: false, motivoNoAutorizado: 'Falta expediente', autorizacionId: null })
     expect(autoAprobarConcurso).not.toHaveBeenCalled()
     expect(recalcularCalcCeetps).toHaveBeenCalledWith(tx, 'ce2', 'sin_solicitar')
     expect(auditLog.create.mock.calls[0]![0].data.cambios).toMatchObject({ autorizado: false, autorizacionId: null })
-    concursoCph.findUnique.mockImplementation(async (a: { select?: unknown }) => (a.select ? { concursoId: 'c1' } : cph({ eeConcurso: null })))
-    expect((await corregirTipoConcursoService('cph', 'cph1', BODY_A_CEETPS, 'u-aut')).autorizado).toBe(false)
   })
   it('si falla la autorización se propaga el error (rollback) sin auditoría ni avisos', async () => {
     autoAprobarConcurso.mockRejectedValue(new Error('fallo aut'))
