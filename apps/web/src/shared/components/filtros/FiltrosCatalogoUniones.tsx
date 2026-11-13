@@ -72,6 +72,7 @@ interface Props {
   onQuitarGrupo: (index: number) => void
   mostrarReparticion?: boolean
   mostrarEspecialidad?: boolean
+  mostrarModalidad?: boolean
 }
 
 // S21: cascada de catálogo + UNIONES (OR). Debajo de la cascada muestra un
@@ -86,6 +87,7 @@ export function FiltrosCatalogoUniones({
   onQuitarGrupo,
   mostrarReparticion = true,
   mostrarEspecialidad = true,
+  mostrarModalidad = true,
 }: Props) {
   const puedeAgregar = grupoTieneFiltro(valores)
 
@@ -97,6 +99,7 @@ export function FiltrosCatalogoUniones({
           onChange={onChange}
           mostrarReparticion={mostrarReparticion}
           mostrarEspecialidad={mostrarEspecialidad}
+          mostrarModalidad={mostrarModalidad}
         />
         <button
           type="button"

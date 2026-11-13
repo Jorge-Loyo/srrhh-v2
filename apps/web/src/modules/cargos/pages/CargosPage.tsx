@@ -13,6 +13,7 @@ import {
   serializarGrupos,
 } from '@/shared/components/filtros/FiltrosCatalogoUniones'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
 import { capitalizar } from '@/shared/lib/utils'
 import { useCargos } from '../hooks/useCargos'
 import { ReglasNegocioModal } from '../components/ReglasNegocioModal'
@@ -56,7 +57,8 @@ export function CargosPage() {
   const hospitalId    = searchParams.get('hospitalId') ?? ''
   const escalafonId   = searchParams.get('escalafonId') ?? ''
   const codigoRegistroId = searchParams.get('codigoRegistroId') ?? ''
-  const modalidad     = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
+  // /cargos ya no filtra por modalidad: se ignora `modalidad` de la URL (links viejos).
+  const modalidad = '' as '' | 'pof' | 'pou'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
   const estado        = (searchParams.get('estado') ?? '') as '' | EstadoCargo
@@ -108,7 +110,6 @@ export function CargosPage() {
     ...(hospitalId  && { hospitalId }),
     ...(escalafonId && { escalafonId }),
     ...(codigoRegistroId && { codigoRegistroId }),
-    ...(modalidad && { modalidad }),
     ...(puestoCargoId      && { puestoCargoId }),
     ...(especialidadPuestoId && { especialidadPuestoId }),
     ...(grupos.length > 0 && { grupos: serializarGrupos(grupos) }),
@@ -323,6 +324,7 @@ export function CargosPage() {
             grupos={grupos}
             onAgregarUnion={agregarUnion}
             onQuitarGrupo={quitarGrupo}
+            mostrarModalidad={false}
           />
           <select
             value={estado}
@@ -407,14 +409,15 @@ export function CargosPage() {
             chips.push({ label: h?.sigla ?? hospitalId, key: 'hospitalId' })
           }
           if (escalafonId) {
-            const e = escalafones?.find((e) => e.id === escalafonId)
-            chips.push({ label: e ? escalafonLabel(e.nombre) : escalafonId, key: 'escalafonId' })
-          }
-          if (codigoRegistroId) {
+            // Un solo chip con la misma etiqueta del desplegable de carrera ('37 — …');
+            // quitarlo limpia escalafonId y codigoRegistroId.
+            const valorCarrera = codigoRegistroId ? `cr:${codigoRegistroId}` : escalafonId
+            const op = opcionesCarreraConCodigosSeparados(escalafones ?? [], codigosRegistro ?? []).find((o) => o.value === valorCarrera)
+            chips.push({ label: op?.label ?? escalafonId, key: 'escalafonId' })
+          } else if (codigoRegistroId) {
             const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
             chips.push({ label: cr ? `${cr.codigo} — ${cr.literal}` : codigoRegistroId, key: 'codigoRegistroId' })
           }
-          if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
             const esp = especialidadesDelPuesto.find((e) => e.id === especialidadPuestoId)
@@ -434,7 +437,6 @@ export function CargosPage() {
                     onClick={() => {
                       if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', codigoRegistroId: '', modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
                       else if (chip.key === 'codigoRegistroId') onChangeFiltros({ codigoRegistroId: '' })
-                      else if (chip.key === 'modalidad') onChangeFiltros({ modalidad: '', puestoCargoId: '', especialidadPuestoId: '' })
                       else if (chip.key === 'hospitalId') onChangeFiltros({ reparticionId: '' })
                       else if (chip.key === 'puestoCargoId') onChangeFiltros({ puestoCargoId: '', especialidadPuestoId: '' })
                       else if (chip.key === 'especialidadPuestoId') onChangeFiltros({ especialidadPuestoId: '' })

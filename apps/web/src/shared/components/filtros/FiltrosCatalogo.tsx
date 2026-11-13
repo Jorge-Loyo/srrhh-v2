@@ -33,6 +33,8 @@ interface FiltrosCatalogoProps {
   // Permite ocultar el nivel de especialidad (ej. CEETPS, cuyo concurso no
   // guarda especialidad — solo puesto solicitado).
   mostrarEspecialidad?: boolean
+  // Permite ocultar el desplegable de modalidad (POF/POU), ej. en /cargos.
+  mostrarModalidad?: boolean
   // Clase extra para el contenedor.
   className?: string
 }
@@ -51,6 +53,7 @@ export function FiltrosCatalogo({
   onChange,
   mostrarReparticion = true,
   mostrarEspecialidad = true,
+  mostrarModalidad = true,
   className,
 }: FiltrosCatalogoProps) {
   const { reparticionId, escalafonId, codigoRegistroId, modalidad, puestoCargoId, especialidadPuestoId } = valores
@@ -131,7 +134,7 @@ export function FiltrosCatalogo({
         />
       </div>
 
-      {escalafonId && (
+      {mostrarModalidad && escalafonId && (
         <select value={modalidad} onChange={(e) => cambiarModalidad(e.target.value)} className={selectCls}>
           <option value="">Todas las modalidades</option>
           <option value="pof">Planta (POF)</option>
