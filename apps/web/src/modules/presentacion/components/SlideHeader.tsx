@@ -18,7 +18,7 @@ export function SlideHeader({ tag, titulo, subtitulo, subtitulo2, marcaAgua }: P
   return (
     <header className="relative mb-3">
       <div className="absolute right-0 top-0 flex flex-col items-end">
-        <span className="pres-halo bg-primary text-black font-extrabold text-xs px-4 py-1.5 rounded uppercase tracking-wide">
+        <span className="pres-banda pres-banda-amarillo text-black font-extrabold text-xs pl-5 pr-4 py-1.5 uppercase tracking-wide">
           {tag}
         </span>
         {marcaAgua && (
@@ -28,7 +28,7 @@ export function SlideHeader({ tag, titulo, subtitulo, subtitulo2, marcaAgua }: P
         )}
       </div>
       <p className="font-primary font-bold text-gray-500 text-[11px] uppercase tracking-wide mb-1">{titulo}</p>
-      <h1 className="inline-block bg-navy text-white font-extrabold text-xl px-4 py-1.5 rounded">
+      <h1 className="pres-banda pres-banda-navy inline-block text-white font-extrabold text-xl pl-5 pr-4 py-2">
         {subtitulo}
       </h1>
       {subtitulo2 && <p className="text-gray-500 font-semibold text-xs mt-1">{subtitulo2}</p>}

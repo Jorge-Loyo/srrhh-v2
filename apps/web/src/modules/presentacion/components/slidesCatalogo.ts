@@ -8,6 +8,10 @@ import { Slide08SuplentesGuardia } from '../slides/Slide08SuplentesGuardia'
 import { Slide09CargosEstructura } from '../slides/Slide09CargosEstructura'
 import { Slide10Enfermeria } from '../slides/Slide10Enfermeria'
 import { Slide11Tecnicos } from '../slides/Slide11Tecnicos'
+import { Slide12EscalafonGeneral } from '../slides/Slide12EscalafonGeneral'
+import { Slide13Residentes } from '../slides/Slide13Residentes'
+import { Slide14OtrosEscalafones } from '../slides/Slide14OtrosEscalafones'
+import { Slide15Comparativa } from '../slides/Slide15Comparativa'
 import { buildSlide04Data } from '../data/slide04.mock'
 import { buildSlide05Data } from '../data/slide05.mock'
 import { buildSlide06Data } from '../data/slide06.mock'
@@ -16,6 +20,10 @@ import { buildSlide08Data } from '../data/slide08.mock'
 import { buildSlide09Data } from '../data/slide09.mock'
 import { buildSlide10Data } from '../data/slide10.mock'
 import { buildSlide11Data } from '../data/slide11.mock'
+import { buildSlide12Data } from '../data/slide12.mock'
+import { buildSlide13Data } from '../data/slide13.mock'
+import { buildSlide14Data } from '../data/slide14.mock'
+import { buildSlide15Data } from '../data/slide15.mock'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Catálogo centralizado de slides (4–11) de la presentación.
@@ -54,4 +62,8 @@ export const SLIDES_CATALOGO: SlideCatalogoItem[] = [
   { numero: 9, titulo: 'Cargos Estructura', build: buildSlide09Data, Component: Slide09CargosEstructura },
   { numero: 10, titulo: 'Enfermería', build: buildSlide10Data, Component: Slide10Enfermeria },
   { numero: 11, titulo: 'Técnicos', build: buildSlide11Data, Component: Slide11Tecnicos },
+  { numero: 12, titulo: 'Escalafón General', build: buildSlide12Data, Component: Slide12EscalafonGeneral },
+  { numero: 13, titulo: 'Residentes', build: buildSlide13Data, Component: Slide13Residentes },
+  { numero: 14, titulo: 'Otros Escalafones', build: buildSlide14Data, Component: Slide14OtrosEscalafones },
+  { numero: 15, titulo: 'Comparativa Cuatrimestres', build: buildSlide15Data, Component: Slide15Comparativa },
 ]

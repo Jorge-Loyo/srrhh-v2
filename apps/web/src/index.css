@@ -137,6 +137,49 @@
   .pres-slide-wrap {
     box-shadow: 0 6px 24px -10px rgba(16, 24, 40, 0.35);
   }
+
+  /* ── Bandas de título refinadas ───────────────────────────────────────────
+     Degradé sutil + sombra proyectada + acento lateral claro, para que las
+     bandas de rótulo se vean profesionales (en vez de un color plano saturado).
+     Cada variante define sus dos tonos del degradé. */
+  .pres-banda {
+    position: relative;
+    border-radius: 6px;
+    color: #fff;
+    box-shadow:
+      0 2px 6px -1px rgba(16, 24, 40, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+  }
+  /* Acento vertical claro a la izquierda de la banda. */
+  .pres-banda::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: rgba(255, 255, 255, 0.55);
+  }
+  .pres-banda-naranja {
+    background: linear-gradient(135deg, #e8873a 0%, #c75f16 100%);
+  }
+  .pres-banda-rojo {
+    background: linear-gradient(135deg, #b23a3a 0%, #7f1d1d 100%);
+  }
+  .pres-banda-verde {
+    background: linear-gradient(135deg, #2f8f6b 0%, #1b5e45 100%);
+  }
+  .pres-banda-navy {
+    background: linear-gradient(135deg, #27456f 0%, #1a2b4a 100%);
+  }
+  .pres-banda-amarillo {
+    background: linear-gradient(135deg, #f5c84b 0%, #d9a21a 100%);
+    color: #1a2b4a;
+  }
+  .pres-banda-amarillo::before {
+    background: rgba(26, 43, 74, 0.35);
+  }
 }
 
 /* ─── Impresión / exportación a PDF del reporte ─────────────────────────────

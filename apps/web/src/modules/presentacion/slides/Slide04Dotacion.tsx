@@ -39,7 +39,7 @@ export function Slide04Dotacion({ data, numero }: Props) {
             {data.ctaFooter && (
               <button
                 type="button"
-                className="pres-halo bg-primary text-black font-bold text-[11px] px-3 py-1.5 rounded uppercase tracking-wide inline-flex items-center gap-1 self-start hover:bg-primary-dark transition-colors"
+                className="pres-banda pres-banda-amarillo text-black font-bold text-[11px] pl-4 pr-3 py-1.5 uppercase tracking-wide inline-flex items-center gap-1 self-start"
               >
                 Click para ver {data.ctaFooter} <span aria-hidden>↗</span>
               </button>

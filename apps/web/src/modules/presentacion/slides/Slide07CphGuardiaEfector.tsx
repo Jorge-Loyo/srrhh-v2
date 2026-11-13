@@ -33,7 +33,7 @@ export function Slide07CphGuardiaEfector({ data, numero }: Props) {
 
         {data.rotulo && (
           <div className="mb-2">
-            <span className="inline-block bg-navy text-white font-bold text-xs px-3 py-1 rounded uppercase tracking-wide">
+            <span className="pres-banda pres-banda-navy inline-block text-white font-bold text-xs pl-4 pr-3 py-1 uppercase tracking-wide">
               {data.rotulo}
             </span>
           </div>

@@ -63,6 +63,7 @@ export const HUB_PLANILLAS: HubCategoria[] = [
       { nombre: 'KINESIOLOGÍA', url: 'https://docs.google.com/spreadsheets/d/1eR7CQZOtqg-sF4k9TxRodtoIURcFO071oZRLQDM_RsI/edit?gid=717794166#gid=717794166', acceso: 'SGORASV - Equipo Alexis' },
       { nombre: 'SALUD MENTAL', url: 'https://docs.google.com/spreadsheets/d/12colytlE2CKlYvATDDGrVBLUX2rbkILbDnNcGEKaSA0/edit?gid=1059789713#gid=1059789713', acceso: 'SGORASV - Equipo Alexis' },
       { nombre: 'DESIGNADOS RRHH TURNOS', url: 'https://docs.google.com/spreadsheets/d/17jOr7ZP9njkNkS5uoejHitRe36X5gJiflRhm94saI0I/edit?gid=293030356#gid=293030356', acceso: 'SGORASV - Equipo Alexis' },
+      { nombre: 'CARDIOLOGÍA', url: 'https://docs.google.com/spreadsheets/d/1qzx6NeFKIdwm8KN5AeG1AtrB6eQyfF1lPBKuGu-zGNg/edit?gid=0#gid=0', acceso: 'SGORASV - Equipo Alexis' },
     ],
   },
 ]

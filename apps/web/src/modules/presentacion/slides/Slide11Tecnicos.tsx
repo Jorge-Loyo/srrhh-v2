@@ -4,12 +4,16 @@ import { SlideHeader } from '../components/SlideHeader'
 import { GraficoBarras } from '../components/GraficoBarras'
 import { TablaVariacion } from '../components/TablaVariacion'
 import { Caja } from '../components/Caja'
-import { CajonKpi, ChipKpi, CajaResumen, BadgeBloque, FlechaTendencia } from '../components/kpiPiezas'
+import { Cuadrante } from '../components/Cuadrante'
+import { BloqueKpiComparativo } from '../components/BloqueKpiComparativo'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Slide 11 — "Dotación Activa · Técnicos de la Salud".
-// Misma maquetación por coordenadas que la S10. Gráfico de barras simples con
-// línea de tendencia. Activá `?guia` en la URL para la regla de ayuda.
+//
+// Layout por CUADRANTES (ver Cuadrante.tsx): header full-width arriba, y el
+// cuerpo repartido en zonas con margen propio, de modo que nada se solape:
+//   sup-izq → bloques KPI    |  derecha → tabla por efector (alto completo)
+//   inf-izq → gráfico        |
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -18,91 +22,48 @@ interface Props {
 }
 
 export function Slide11Tecnicos({ data, numero }: Props) {
-  const total = data.bloques[0]
-  const jefes = data.bloques[1]
-
   return (
     <SlideCanvas numero={numero} modo="absoluto">
-      {/* Header */}
-      <Caja x={40} y={24} w={460}>
+      {/* Header full-width (título izq + tag der) */}
+      <Caja x={36} y={24} w={1208}>
         <SlideHeader tag={data.tag} titulo={data.titulo} subtitulo={data.subtitulo} />
       </Caja>
 
-      {/* ── Bloque "Dotación Total" (sube) ─────────────────────────────────── */}
-      <Caja x={48} y={96}>
-        <BadgeBloque texto={total.etiqueta ?? ''} tono={total.etiquetaTono ?? 'amarillo'} />
-      </Caja>
-      <Caja x={48} y={114} w={96}>
-        <CajonKpi kpi={total.kpis[0]} />
-      </Caja>
-      <Caja x={150} y={135} anclaje="cl">
-        <FlechaTendencia sentido="sube" />
-      </Caja>
-      <Caja x={170} y={114} w={96}>
-        <CajonKpi kpi={total.kpis[1]} />
-      </Caja>
-      <Caja x={48} y={160}>
-        <div className="flex gap-1.5">
-          {total.kpisSecundarios.map((k) => (
-            <ChipKpi key={k.label} kpi={k} />
-          ))}
+      {/* sup-izq: bloques KPI (debajo del header) */}
+      <Cuadrante zona="sup-izq" alignV="end" padding={10}>
+        <div className="flex flex-col gap-3">
+          <BloqueKpiComparativo bloque={data.bloques[0]} />
+          <BloqueKpiComparativo bloque={data.bloques[1]} />
         </div>
-      </Caja>
-      <Caja x={290} y={104} w={78}>
-        <CajaResumen kpi={total.kpis[2]} />
-      </Caja>
-      <Caja x={290} y={142} w={78}>
-        <CajaResumen kpi={total.kpis[3]} />
-      </Caja>
+      </Cuadrante>
 
-      {/* ── Bloque "Jefes" (baja) ──────────────────────────────────────────── */}
-      <Caja x={48} y={200}>
-        <BadgeBloque texto={jefes.etiqueta ?? ''} tono={jefes.etiquetaTono ?? 'rojo'} />
-      </Caja>
-      <Caja x={48} y={218} w={96}>
-        <CajonKpi kpi={jefes.kpis[0]} />
-      </Caja>
-      <Caja x={150} y={239} anclaje="cl">
-        <FlechaTendencia sentido="baja" />
-      </Caja>
-      <Caja x={170} y={218} w={96}>
-        <CajonKpi kpi={jefes.kpis[1]} />
-      </Caja>
-      <Caja x={48} y={264}>
-        <div className="flex gap-1.5">
-          {jefes.kpisSecundarios.map((k) => (
-            <ChipKpi key={k.label} kpi={k} />
-          ))}
+      {/* inf-izq: gráfico */}
+      <Cuadrante zona="inf-izq" alignH="start" alignV="start" padding={10}>
+        <div className="flex flex-col w-full h-full">
+          {(data.tituloGrafico || data.subtituloGrafico) && (
+            <div className="mb-1 flex items-center gap-2">
+              {data.tituloGrafico && (
+                <span className="pres-banda pres-banda-navy inline-block text-white font-bold text-[11px] pl-4 pr-3 py-1 uppercase tracking-wide">
+                  {data.tituloGrafico}
+                </span>
+              )}
+              {data.subtituloGrafico && (
+                <span className="text-secondary font-bold text-[10px] uppercase tracking-wide">
+                  {data.subtituloGrafico}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="flex-1 min-h-0">
+            <GraficoBarras data={data.grafico} width={540} height={280} />
+          </div>
         </div>
-      </Caja>
-      <Caja x={290} y={208} w={78}>
-        <CajaResumen kpi={jefes.kpis[2]} />
-      </Caja>
-      <Caja x={290} y={246} w={78}>
-        <CajaResumen kpi={jefes.kpis[3]} />
-      </Caja>
+      </Cuadrante>
 
-      {/* ── Rótulo + gráfico ───────────────────────────────────────────────── */}
-      <Caja x={48} y={308}>
-        {data.tituloGrafico && (
-          <span className="inline-block bg-navy text-white font-bold text-[11px] px-3 py-1 rounded uppercase tracking-wide">
-            {data.tituloGrafico}
-          </span>
-        )}
-      </Caja>
-      {data.subtituloGrafico && (
-        <Caja x={48} y={336}>
-          <span className="text-secondary font-bold text-[10px] uppercase tracking-wide">{data.subtituloGrafico}</span>
-        </Caja>
-      )}
-      <Caja x={40} y={356} w={480} h={288}>
-        <GraficoBarras data={data.grafico} width={480} height={288} />
-      </Caja>
-
-      {/* ── Tabla por efector (derecha) ────────────────────────────────────── */}
-      <Caja x={538} y={30} w={700} h={610}>
+      {/* derecha: tabla por efector (alto completo; pt deja lugar al tag) */}
+      <Cuadrante zona="derecha" padding={8} pt={44}>
         <TablaVariacion data={data.tablaEfector} densidad="compacta" />
-      </Caja>
+      </Cuadrante>
     </SlideCanvas>
   )
 }
