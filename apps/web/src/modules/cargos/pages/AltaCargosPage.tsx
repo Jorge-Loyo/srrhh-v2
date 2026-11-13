@@ -1058,7 +1058,8 @@ function ModalBuscarCargoEstructura({ onSeleccionar, onCerrar }: {
 
 // ── Formulario (expediente + campos, agrega al panel) ────────────────────────
 function FormAlta({ tipo, onAgregar, onCancelar }: {
-  tipo: TipoAlta
+  // Solo las altas desde cero; pou_a_pof y editar_estructura tienen su propio form.
+  tipo: Exclude<TipoAlta, 'pou_a_pof' | 'editar_estructura'>
   onAgregar: (item: ItemPendiente | ItemPendiente[]) => void
   onCancelar: () => void
 }) {
