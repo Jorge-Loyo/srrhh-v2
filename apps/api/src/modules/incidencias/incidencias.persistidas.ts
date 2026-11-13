@@ -9,7 +9,7 @@
 // sprint). Acá no se filtra por resuelta: se muestran todas las incidencias del
 // snapshot.
 import { prisma } from '../../shared/prisma.js'
-import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
+import { normalizarBusqueda, coincideBusqueda, coincideCarrera } from './incidencias.clasificacion.js'
 
 // Slugs persistidos en padron_incidencias.tipo (espejo de
 // incidencias.clasificacion.ts). La pestaña "otras" AGRUPA los tres 'otras:*'.
@@ -36,6 +36,7 @@ export interface IncidenciaPersistidaRow {
   codigo: string | null
   hospital_sigla: string | null
   carrera: string | null
+  codigo_registro?: string | null
   puesto: string | null
   especialidad: string | null
   persona_cuil: string | null
@@ -83,6 +84,7 @@ SELECT
   c.codigo,
   h.sigla AS hospital_sigla,
   e.nombre AS carrera,
+  cr.codigo AS codigo_registro,
   c.literal_puesto AS puesto,
   c.especialidad_legacy AS especialidad,
   occ_viva.persona_cuil,
@@ -94,6 +96,7 @@ JOIN padron_snapshots s  ON s.id = pi.snapshot_id
 LEFT JOIN cargos c       ON c.id = pi.cargo_id
 LEFT JOIN hospitales h   ON h.id = c.hospital_id
 LEFT JOIN escalafones e  ON e.id = c.escalafon_id
+LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
 LEFT JOIN occ_viva       ON occ_viva.cargo_id = pi.cargo_id
 WHERE pi.tipo IN (${placeholders})`,
     ...slugs,
@@ -120,9 +123,8 @@ export function filtrarPersistidas(
   f: { q?: string; carrera?: string },
 ): IncidenciaPersistidaRow[] {
   const qNorm = normalizarBusqueda(f.q)
-  const carreraNorm = normalizarBusqueda(f.carrera)
   return rows.filter((r) => {
-    if (carreraNorm && normalizarBusqueda(r.carrera) !== carreraNorm) return false
+    if (!coincideCarrera(f.carrera, r.carrera, r.codigo_registro)) return false
     return coincideBusqueda(camposBusqueda(r), qNorm)
   })
 }

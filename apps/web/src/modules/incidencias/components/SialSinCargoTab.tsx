@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { can } from '@/shared/lib/can'
-import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
-import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
+import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
 import {
   useIncidenciasPendientes,
   useCrearCargo,
@@ -54,6 +54,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
   const { data, isLoading, isError } = useIncidenciasPendientes()
   // Catálogo de escalafones (carreras) — misma fuente que CargosPage.
   const { data: escalafones } = useEscalafones(true)
+  const { data: codigosRegistro } = useCodigosRegistro()
   const crearCargo = useCrearCargo()
   const vincularConcurso = useVincularConcurso()
   const transferencia = useTransferencia()
@@ -131,14 +132,19 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
   // acá, sin round-trips extra por tecla (lo más simple y consistente para una
   // lista chica). El buscador matchea en un solo campo contra persona (ayn),
   // id_sial e id_sial_rol, y CUIL. Mínimo 2 caracteres, como el resto del repo.
-  const carreraNorm = norm(carrera)
+  // `cr:<código>` filtra por código de registro (22 y 37 separados); si no, por escalafón.
+  const coincideCarrera = (v: { escalafon: string | null; codigoDeRegistro: string | null }) =>
+    !carrera ||
+    (carrera.startsWith('cr:')
+      ? (v.codigoDeRegistro ?? '').trim() === carrera.slice(3)
+      : norm(v.escalafon) === norm(carrera))
   const q = norm(busqueda)
   const buscarActivo = q.length >= 2
 
   const pendientesFiltrados = pendientes.filter((p) => {
     if (filtro === 'con_concurso' && p.diagnostico?.concursoCphId == null) return false
     if (filtro === 'sin_concurso' && p.diagnostico?.concursoCphId != null) return false
-    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
+    if (!coincideCarrera(p.valorNuevo)) return false
     if (buscarActivo) {
       const v = p.valorNuevo
       const matchBusqueda =
@@ -155,7 +161,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
   // el propio filtro con/sin concurso), para que los números coincidan con lo
   // que ve el usuario tras filtrar por carrera o buscar.
   const baseFiltrada = pendientes.filter((p) => {
-    if (carreraNorm && norm(p.valorNuevo.escalafon) !== carreraNorm) return false
+    if (!coincideCarrera(p.valorNuevo)) return false
     if (buscarActivo) {
       const v = p.valorNuevo
       return (
@@ -167,7 +173,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
     }
     return true
   })
-  const hayFiltroExtra = carreraNorm !== '' || buscarActivo
+  const hayFiltroExtra = carrera !== '' || buscarActivo
   const CONTEOS: Record<FiltroConcurso, number> = hayFiltroExtra
     ? {
         todos: baseFiltrada.length,
@@ -219,7 +225,10 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
             <ComboBuscable
               modo="unico"
               label="Carrera"
-              options={opcionesCarreraEscalafon(escalafones ?? [], (e) => e.nombre)}
+              options={opcionesCarreraConCodigosSeparados(escalafones ?? [], codigosRegistro ?? [], {
+                valor: (e) => e.nombre,
+                valorCr: (cr) => `cr:${cr.codigo.trim()}`,
+              })}
               selected={carrera ? [carrera] : []}
               onChange={(v) => setCarrera(v[0] ?? '')}
               placeholder="Todas las carreras"
@@ -258,7 +267,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           {pendientesFiltrados.length === 0 ? (
             <p className="p-6 text-sm text-gray-400 text-center">
-              {carreraNorm || buscarActivo
+              {carrera || buscarActivo
                 ? 'No hay incidencias que coincidan con los filtros.'
                 : 'No hay id_sial pendientes para este filtro.'}
             </p>

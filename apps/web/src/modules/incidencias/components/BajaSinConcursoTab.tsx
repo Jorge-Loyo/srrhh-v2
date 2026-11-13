@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
-import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
-import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
+import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useBajaSinConcurso } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
@@ -25,6 +25,7 @@ export function BajaSinConcursoTab() {
   const [estadoCargo, setEstadoCargo] = useState<FiltroEstado>('')
   const [page, setPage] = useState(1)
   const { data: escalafones } = useEscalafones()
+  const { data: codigosRegistro } = useCodigosRegistro()
 
   const params = {
     page,
@@ -73,7 +74,10 @@ export function BajaSinConcursoTab() {
           <ComboBuscable
             modo="unico"
             label="Carrera"
-            options={opcionesCarreraEscalafon(escalafones ?? [], (e) => escalafonLabel(e.nombre))}
+            options={opcionesCarreraConCodigosSeparados(escalafones ?? [], codigosRegistro ?? [], {
+              valor: (e) => escalafonLabel(e.nombre),
+              valorCr: (cr) => `cr:${cr.codigo.trim()}`,
+            })}
             selected={carrera ? [carrera] : []}
             onChange={(v) => reiniciarPagina(setCarrera)(v[0] ?? '')}
             placeholder="Todas las carreras"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
-import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
-import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
+import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useBloqueados } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
@@ -14,6 +14,7 @@ export function BloqueadosTab() {
   const [carrera, setCarrera] = useState('')
   const [page, setPage] = useState(1)
   const { data: escalafones } = useEscalafones()
+  const { data: codigosRegistro } = useCodigosRegistro()
 
   const params = {
     page,
@@ -67,7 +68,10 @@ export function BloqueadosTab() {
           <ComboBuscable
             modo="unico"
             label="Carrera"
-            options={opcionesCarreraEscalafon(escalafones ?? [], (e) => escalafonLabel(e.nombre))}
+            options={opcionesCarreraConCodigosSeparados(escalafones ?? [], codigosRegistro ?? [], {
+              valor: (e) => escalafonLabel(e.nombre),
+              valorCr: (cr) => `cr:${cr.codigo.trim()}`,
+            })}
             selected={carrera ? [carrera] : []}
             onChange={(v) => reiniciarPagina(setCarrera)(v[0] ?? '')}
             placeholder="Todas las carreras"
