@@ -8,6 +8,7 @@ import { hospitalLabel } from '@/shared/lib/hospitalLabel'
 import { capitalizar } from '@/shared/lib/utils'
 import { SelectorCarreraPuestoEspecialidad } from '@/shared/components/selectores/SelectorCarreraPuestoEspecialidad'
 import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '../lib/carrerasGestionadas'
+import type { TipoAltaCarrera } from '../lib/carrerasGestionadas'
 import { resolverSeleccionAlta } from '../lib/altaSelector'
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
@@ -1058,8 +1059,7 @@ function ModalBuscarCargoEstructura({ onSeleccionar, onCerrar }: {
 
 // ── Formulario (expediente + campos, agrega al panel) ────────────────────────
 function FormAlta({ tipo, onAgregar, onCancelar }: {
-  // Solo las altas desde cero; pou_a_pof y editar_estructura tienen su propio form.
-  tipo: Exclude<TipoAlta, 'pou_a_pof' | 'editar_estructura'>
+  tipo: TipoAltaCarrera
   onAgregar: (item: ItemPendiente | ItemPendiente[]) => void
   onCancelar: () => void
 }) {
@@ -1779,7 +1779,7 @@ export function AltaCargosPage() {
                   {tipoActivo === 'pou' && <BannerNormaPou onVerPou={() => navigate('/pou')} onEditarPou={() => navigate('/pou/carga')} />}
                   {tipoActivo === 'estructura' && <BannerNodoOrganigrama value={nodoOrg} onChange={setNodoOrg} />}
                   {tipoActivo && tipoActivo !== 'pou_a_pof' && tipoActivo !== 'editar_estructura' && (
-                    <FormAlta key={tipoActivo} tipo={tipoActivo} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                    <FormAlta key={tipoActivo} tipo={tipoActivo as TipoAltaCarrera} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
                   )}
                   {tipoActivo === 'pou_a_pof' && (
                     <FormPouAPof onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
