@@ -4,7 +4,7 @@
 // `tab:*` propio (son vistas bajo `incidencias/ver`); esos permisos por pestaña
 // se eliminaron en el commit c3cf0cf.
 import { prisma } from '../../shared/prisma.js'
-import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
+import { normalizarBusqueda, coincideBusqueda, coincideCarrera } from './incidencias.clasificacion.js'
 import { esCargoGestionable } from './incidencias.gestionable.js'
 import {
   obtenerSnapshotIncidencias,
@@ -125,13 +125,12 @@ const sialSinCargo: TipoIncidencia = {
       },
     })
     const qNorm = normalizarBusqueda(f.q)
-    const carreraNorm = normalizarBusqueda(f.carrera)
     const out: IncidenciaItem[] = []
     for (const d of diffs) {
       const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
       if (!esDiffSialGestionable(datos)) continue
       const escalafon = datos.escalafon ?? null
-      if (carreraNorm && normalizarBusqueda(escalafon) !== carreraNorm) continue
+      if (!coincideCarrera(f.carrera, escalafon, datos.codigo_de_registro)) continue
       const cuil = cuilDeDatos(datos)
       const idSial = datos.id_sial ?? null
       if (

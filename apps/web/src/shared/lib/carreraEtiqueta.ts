@@ -66,7 +66,13 @@ export function opcionesCarreraEscalafon(
 export function opcionesCarreraConCodigosSeparados(
   escalafones: { id: string; codigo: string; nombre: string }[],
   codigosRegistro: { id: string; codigo: string; escalafonId: string }[],
+  opts: {
+    valor?: (e: { id: string; codigo: string; nombre: string }) => string
+    valorCr?: (cr: { id: string; codigo: string }) => string
+  } = {},
 ): { value: string; label: string }[] {
+  const valor = opts.valor ?? ((e) => e.id)
+  const valorCr = opts.valorCr ?? ((cr) => `cr:${cr.id}`)
   const out: { sort: string; value: string; label: string }[] = []
   for (const e of escalafones) {
     const dividir = codigoMostradoCarrera(e.codigo) !== e.codigo.trim()
@@ -78,10 +84,10 @@ export function opcionesCarreraConCodigosSeparados(
     if (crs.length > 1) {
       const nombre = NOMBRE_MOSTRADO_POR_CODIGO[codigoMostradoCarrera(e.codigo)] ?? e.nombre
       for (const cr of crs) {
-        out.push({ sort: cr.codigo.trim(), value: `cr:${cr.id}`, label: `${cr.codigo.trim()} — ${nombre}` })
+        out.push({ sort: cr.codigo.trim(), value: valorCr(cr), label: `${cr.codigo.trim()} — ${nombre}` })
       }
     } else {
-      out.push({ sort: codigoMostradoCarrera(e.codigo), value: e.id, label: etiquetaCarrera(e) })
+      out.push({ sort: codigoMostradoCarrera(e.codigo), value: valor(e), label: etiquetaCarrera(e) })
     }
   }
   return out

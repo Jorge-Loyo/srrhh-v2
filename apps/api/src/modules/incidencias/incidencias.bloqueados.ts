@@ -10,7 +10,7 @@
 // NO hay backfill. Con el próximo padrón la lista se completa.
 import { prisma } from '../../shared/prisma.js'
 import { sqlCargoGestionable } from './incidencias.baja-sin-concurso.js'
-import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
+import { normalizarBusqueda, coincideBusqueda, coincideCarrera } from './incidencias.clasificacion.js'
 
 // ─── Tipo del contrato ───────────────────────────────────────────────────────
 
@@ -111,9 +111,8 @@ export function construirItemBloqueado(r: BloqueadoRow): BloqueadosItem {
 // Filtro q/carrera en memoria (mismo criterio que las demás pestañas).
 export function filtrarBloqueados(items: BloqueadosItem[], f: { q?: string; carrera?: string }): BloqueadosItem[] {
   const qNorm = normalizarBusqueda(f.q)
-  const carreraNorm = normalizarBusqueda(f.carrera)
   return items.filter((i) => {
-    if (carreraNorm && normalizarBusqueda(i.carrera) !== carreraNorm) return false
+    if (!coincideCarrera(f.carrera, i.carrera, i.codigoRegistro)) return false
     return coincideBusqueda(
       { nombre: i.persona?.nombre, cuil: i.persona?.cuil, idSial: i.idSial, codigo: i.codigoRegistro },
       qNorm,

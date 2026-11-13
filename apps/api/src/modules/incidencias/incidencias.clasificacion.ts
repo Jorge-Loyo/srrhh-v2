@@ -178,6 +178,18 @@ export function normalizarBusqueda(q: string | null | undefined): string {
     .trim()
 }
 
+// Filtro de carrera: `cr:<código>` filtra por código de registro (22 y 37 van
+// separados); cualquier otro valor compara el nombre del escalafón normalizado.
+export function coincideCarrera(
+  filtro: string | null | undefined,
+  carrera: string | null | undefined,
+  codigoRegistro: string | null | undefined,
+): boolean {
+  const f = (filtro ?? '').trim()
+  if (!f) return true
+  if (f.startsWith('cr:')) return (codigoRegistro ?? '').trim() === f.slice(3).trim()
+  return normalizarBusqueda(carrera) === normalizarBusqueda(f)
+}
 export interface BusquedaCampos {
   nombre?: string | null
   cuil?: string | null

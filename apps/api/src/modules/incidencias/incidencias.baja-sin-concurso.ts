@@ -17,6 +17,7 @@ import {
   describirDeteccion,
   calcularDiasSinCubrir,
   normalizarBusqueda,
+  coincideCarrera,
   coincideBusqueda,
   type CargoFacts,
   type GrupoCargo,
@@ -31,6 +32,7 @@ export interface BajaSinConcursoItem {
   idSial: string | null
   hospitalSigla: string | null
   carrera: string | null
+  codigoRegistro?: string | null
   puesto: string | null
   especialidad: string | null
   persona: { cuil: string | null; nombre: string | null } | null
@@ -80,6 +82,7 @@ export interface HechoRow {
   especialidad_legacy: string | null
   hospital_sigla: string | null
   carrera: string | null
+  codigo_registro?: string | null
   persona_cuil: string | null
   persona_nombre: string | null
   tiene_ocupante_vigente: boolean
@@ -266,7 +269,7 @@ SELECT
   cand.id AS cargo_id, cand.codigo, cand.id_sial,
   cand.estado::text AS estado, cand.sub_estado::text AS sub_estado, cand.estado_desde,
   cand.literal_puesto, cand.especialidad_legacy,
-  h.sigla AS hospital_sigla, e.nombre AS carrera,
+  h.sigla AS hospital_sigla, e.nombre AS carrera, cr.codigo AS codigo_registro,
   occ.persona_cuil, occ.persona_nombre,
   (occ.cargo_id IS NOT NULL AND occ.occ_hasta IS NULL) AS tiene_ocupante_vigente,
   occ_max.ultima_hasta AS ocupacion_hasta,
@@ -284,6 +287,7 @@ SELECT
 FROM cand
 LEFT JOIN hospitales h   ON h.id = cand.hospital_id
 LEFT JOIN escalafones e  ON e.id = cand.escalafon_id
+LEFT JOIN codigos_registro cr ON cr.id = cand.codigo_registro_id
 LEFT JOIN occ            ON occ.cargo_id = cand.id
 LEFT JOIN occ_max        ON occ_max.cargo_id = cand.id
 LEFT JOIN conc           ON conc.cargo_id = cand.id
@@ -450,6 +454,7 @@ export function construirItem(h: HechoRow, ultimaBajaFechaArchivo: string | null
     idSial: h.id_sial,
     hospitalSigla: h.hospital_sigla,
     carrera: h.carrera,
+    codigoRegistro: h.codigo_registro ?? null,
     puesto: h.literal_puesto,
     especialidad: h.especialidad_legacy,
     persona: cuil || nombre ? { cuil: cuil ?? null, nombre: nombre ?? null } : null,
@@ -524,15 +529,14 @@ export interface FiltrosBajaSinConcurso {
   estadoCargo?: 'vigente' | 'validacion_vacante'
 }
 
-export function filtrarPorQueryYCarrera<T extends { carrera: string | null }>(
+export function filtrarPorQueryYCarrera<T extends { carrera: string | null; codigoRegistro?: string | null }>(
   items: T[],
   f: { q?: string; carrera?: string },
   campos: (i: T) => { nombre?: string | null; cuil?: string | null; idSial?: string | null; codigo?: string | null },
 ): T[] {
   const qNorm = normalizarBusqueda(f.q)
-  const carreraNorm = normalizarBusqueda(f.carrera)
   return items.filter((i) => {
-    if (carreraNorm && normalizarBusqueda(i.carrera) !== carreraNorm) return false
+    if (!coincideCarrera(f.carrera, i.carrera, i.codigoRegistro)) return false
     return coincideBusqueda(campos(i), qNorm)
   })
 }

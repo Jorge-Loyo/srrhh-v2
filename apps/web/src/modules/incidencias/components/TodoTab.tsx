@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
-import { opcionesCarreraEscalafon } from '@/shared/lib/carreraEtiqueta'
-import { useEscalafones } from '@/shared/hooks/useCatalogos'
+import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
+import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 import { useTodoIncidencias, type TipoIncidenciaSlug } from '../hooks/useIncidencias'
 import { fechaCorta } from '../lib/tabsIncidencias'
@@ -34,6 +34,7 @@ export function TodoTab({
   const tipo: '' | TipoIncidenciaSlug = ''
   const [page, setPage] = useState(1)
   const { data: escalafones } = useEscalafones()
+  const { data: codigosRegistro } = useCodigosRegistro()
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -72,7 +73,10 @@ export function TodoTab({
           <ComboBuscable
             modo="unico"
             label="Carrera"
-            options={opcionesCarreraEscalafon(escalafones ?? [], (e) => escalafonLabel(e.nombre))}
+            options={opcionesCarreraConCodigosSeparados(escalafones ?? [], codigosRegistro ?? [], {
+              valor: (e) => escalafonLabel(e.nombre),
+              valorCr: (cr) => `cr:${cr.codigo.trim()}`,
+            })}
             selected={carrera ? [carrera] : []}
             onChange={(v) => {
               setCarrera(v[0] ?? '')
