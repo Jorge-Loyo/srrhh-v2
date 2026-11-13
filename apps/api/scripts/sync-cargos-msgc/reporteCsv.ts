@@ -6,6 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ResumenCarga } from './cargar.js'
+import type { PlanFusionEscalafones } from './escalafonesDuplicados.js'
 import type { FilaPlanBorrado, ResumenBajas } from './limpieza.js'
 import { CATEGORIAS, type Categoria, type ConcursoColgado, type ConcursoSinExpediente, type ConflictoExpediente, type Entrada, type ResultadoCruce } from './cruce.js'
 
@@ -150,6 +152,10 @@ export interface ResumenJson extends MetaCorrida {
   plan_borrado?: FilaPlanBorrado[]
   /** Alcance de bajas: a borrar (de usuario) vs conservadas (por concurso del Excel / por origen import-padron). */
   bajas?: ResumenBajas
+  /** Proyeccion exacta de la carga (mismo resolutor que el modo escritura, con el fallback "pendiente de curar"). */
+  carga_proyectada?: ResumenCarga
+  /** Fusion del escalafon Docentes duplicado y limpieza de escalafones basura (conteos de solo lectura). */
+  fusion_escalafones?: PlanFusionEscalafones
   /** Delta por categoría contra la corrida anterior (--previo). */
   delta_vs_previo?: Record<string, number>
 }
@@ -160,6 +166,8 @@ export function armarResumen(
   previo?: ResumenJson | null,
   planBorrado?: FilaPlanBorrado[] | null,
   bajas?: ResumenBajas | null,
+  cargaProyectada?: ResumenCarga | null,
+  fusionEscalafones?: PlanFusionEscalafones | null,
 ): ResumenJson {
   const resumen: ResumenJson = {
     ...meta,
@@ -184,6 +192,8 @@ export function armarResumen(
   }
   if (planBorrado) resumen.plan_borrado = planBorrado
   if (bajas) resumen.bajas = bajas
+  if (cargaProyectada) resumen.carga_proyectada = cargaProyectada
+  if (fusionEscalafones) resumen.fusion_escalafones = fusionEscalafones
   if (previo) {
     const delta: Record<string, number> = {}
     for (const c of CATEGORIAS) delta[c] = r.conteos[c] - (previo.conteos?.[c] ?? 0)
@@ -205,6 +215,25 @@ export function markdownDeResumen(s: ResumenJson): string {
   l.push(`- Version de equivalencias: ${s.version_equivalencias}`)
   l.push(`- Filas del Excel: ${s.total_excel}`)
   l.push('')
+  if (s.carga_proyectada) {
+    const c = s.carga_proyectada
+    l.push('## Carga proyectada (mismo resolutor que la carga)')
+    l.push('')
+    l.push(`- Cargos a crear: ${c.cargos_creados}; a actualizar: ${c.cargos_actualizados}; a no vigente: ${c.cargos_no_vigente}; concursos a crear: ${c.concursos_creados}; reasignados: ${c.concursos_reasignados}; etiquetados: ${c.etiquetas_asignadas}.`)
+    l.push(`- Puestos nuevos "pendiente de curar" que se crearian: ${c.puestos_pendiente_curar_creados} (cargos que los usan: ${c.filas_con_puesto_pendiente}).`)
+    l.push(`- Especialidades nuevas "pendiente de curar" que se crearian: ${c.especialidades_pendiente_curar_creadas} (cargos que las usan: ${c.filas_con_especialidad_pendiente}).`)
+    l.push(`- Omitidos (sigla sin hospital / CR sin codigos_registro): ${JSON.stringify(c.omitidos_sin_catalogo)}.`)
+    l.push('')
+  }
+  if (s.fusion_escalafones) {
+    const f = s.fusion_escalafones
+    l.push('## Escalafones duplicados (Docentes -> 7)')
+    l.push('')
+    l.push(`- Escalafon Docentes duplicado presente: ${f.docentes_duplicado_existe ? 'si' : 'no'}. Filas que pasarian al 7: ${JSON.stringify(f.filas_a_mover)}; puestos fusionados con uno del 7: ${f.puestos_a_fusionar}; puestos que se mueven: ${f.puestos_a_mover}.`)
+    l.push(`- Escalafones que se eliminarian (sin ninguna referencia): ${f.a_eliminar.length}. Con referencias (no se borran): ${f.con_referencias.map((c) => `${c.codigo} (${c.referencias})`).join(', ') || 'ninguno'}.`)
+    l.push(`- Otros codigos autogenerados que quedarian: ${f.autogenerados_restantes.map((c) => `${c.codigo} (${c.referencias})`).join(', ') || 'ninguno'}.`)
+    l.push('')
+  }
   l.push('## Categorias')
   l.push('')
   l.push('| Cat | Entradas |')

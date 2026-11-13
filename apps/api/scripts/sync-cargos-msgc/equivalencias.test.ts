@@ -10,6 +10,8 @@ import {
   equivalenciaSigla,
   esAnexoIIExcel,
   esSiglaACrear,
+  equivalenciaPuestoPropuesta,
+  habilitarPropuestas,
   reglaPuestoSucio,
 } from './equivalencias.js'
 
@@ -91,5 +93,26 @@ describe('equivalencias', () => {
     expect(equivalenciaEspecialidad(undefined)).toBeNull()
     expect(esAnexoIIExcel(null)).toBe(false)
     expect(esSiglaACrear(undefined)).toBe(false)
+  })
+  it('puestos v3: las de confianza normalizada se aplican (CR 37 y 22) y las propuestas NO sin el flag', () => {
+    expect(equivalenciaPuesto('37', 'JEFE UNIDAD (05)')).toBe('jefe de unidad (05)')
+    expect(equivalenciaPuesto('22', 'JEFE SECCION (06)')).toBe('jefe de seccion (06)')
+    expect(equivalenciaPuesto('37', 'JEFE DIVISION (04)')).toBe('jefe de division (04)')
+    expect(equivalenciaPuesto('37', 'JEFE DEPARTAMENTO (02)')).toBe('jefe de departamento (02)')
+    expect(equivalenciaPuesto('23', 'LIC. KINESIOLOGIA DE GUARDIA')).toBe('lic. en kinesiologia de guardia')
+    // propuesta: existe como propuesta pero no se aplica mientras el flag este apagado.
+    expect(equivalenciaPuestoPropuesta('83', 'Jefatura SECCION CA')).toBe('jefe de seccion')
+    expect(equivalenciaPuesto('83', 'Jefatura SECCION CA')).toBeNull()
+    expect(equivalenciaPuesto('37', 'Jefatura SDHOS')).toBeNull()
+  })
+  it('puestos v3: con el flag las propuestas se aplican', () => {
+    habilitarPropuestas(true)
+    try {
+      expect(equivalenciaPuesto('83', 'Jefatura SECCION CA')).toBe('jefe de seccion')
+      expect(equivalenciaPuesto('60', 'Jefatura SGO')).toBe('subgerente operativo')
+    } finally {
+      habilitarPropuestas(false)
+    }
+    expect(equivalenciaPuesto('60', 'Jefatura SGO')).toBeNull()
   })
 })

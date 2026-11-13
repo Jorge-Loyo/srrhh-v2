@@ -286,3 +286,23 @@ El script no depende de código nuevo de `src/` ni de `@srrhh/types`: solo impor
 KPIs). Alcanza con re-copiar la carpeta del script; no hace falta reconstruir la imagen para el dry-run. (Para probar la API con la
 base ya recodificada sí hay que reconstruirla, `... up -d --build api`, con `NOMENCLATURA_CODIGO_CARGO=msgc`.)
 
+## Puestos sin equivalencia: fallback "pendiente de curar" (versión de equivalencias `2026-11-msgc-3`)
+- Toda fila cuyo puesto no está en el catálogo CREA (o reusa, si ya lo creó otra fila de la misma pasada o una corrida anterior) un `PuestoCargo`
+  del escalafón del CR con `nombre` = literal normalizado (minúscula, sin tilde), `modalidad` pof/pou según planta/guardia, `tipo_puesto`
+  conducción si el Excel dice «Conducción» o el literal es jefe/jefatura/director/gerente, y `pendiente_curar = true` (S20-6). Idempotente:
+  `ON CONFLICT (escalafon_id, modalidad, nombre) DO NOTHING`. Una fila **nunca** se omite por el puesto.
+- Misma regla para la especialidad: si el puesto no tiene la del Excel, se crea una `EspecialidadPuesto` `pendiente_curar` (la especialidad
+  tampoco omite filas; dejarla vacía rompía la idempotencia porque el cruce la volvía a ver «distinta»).
+- Solo se omiten filas cuya sigla no tiene hospital o cuyo CR no existe en `codigos_registro` (`omitidos_sin_catalogo`).
+- Equivalencias de puestos (`equivalencias.ts`): las de confianza exacta/normalizada se aplican; las `propuesta` esperan el OK de Jorge
+  (`equivalencias_puestos_propuesta.csv`) y se activan con `SYNC_EQUIVALENCIAS_PROPUESTAS=1` (o `habilitarPropuestas(true)`); mientras tanto esas
+  filas van al fallback.
+- Dry-run = carga: `proyectarCarga()` corre el mismo `ejecutarCarga` contra un repositorio en memoria (catálogos con ids leídos en solo lectura) y
+  `resumen.md/json` traen `carga_proyectada` (puestos/especialidades pendiente de curar que se crearían). `probar-sql-local.ts` verifica que la
+  proyección y la carga den los mismos contadores.
+- Idempotencia: la segunda pasada en seco debe dar 0. `probar-sql-local.ts` imprime el desglose (`desglosarCambios`) si no da 0.
+## Escalafones duplicados (`escalafonesDuplicados.ts`)
+`Docentes-c32a65d` se fusiona en `7 — Docentes Históricos` (cargos, código de registro 07, puestos —los que ya existen en el 7 con la misma
+modalidad y nombre se fusionan—, especialidades, solicitudes y concursos CEETPS) y se elimina; los 16 escalafones basura del import se eliminan
+solo si no tienen NINGUNA referencia (si tienen, se listan). Corre después del escalafón 37 y antes de la carga, en el modo escritura; el dry-run
+informa los conteos. La verificación final exige duplicado sin cargos y CR 07 en el escalafón 7, y avisa de otros códigos autogenerados.

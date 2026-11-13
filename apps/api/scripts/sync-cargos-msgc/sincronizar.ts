@@ -23,6 +23,7 @@ import path from 'node:path'
 import { contarCambios, ejecutarCarga, type ResumenCarga } from './cargar.js'
 import { cruzar, sistemaAcronimo, type PlanCarga, type SnapshotSistema } from './cruce.js'
 import { ejecutarEscalafonCph, type ResultadoEscalafon } from './escalafon.js'
+import { ejecutarEscalafonesDuplicados, type ResultadoEscalafonesDuplicados } from './escalafonesDuplicados.js'
 import { asegurarBaseLocal } from './guardaBase.js'
 import { leerNominal, type FilaNominal } from './leerNominal.js'
 import { ejecutarRecodificacion, type PlanRecodificacion } from './recodificar.js'
@@ -58,6 +59,7 @@ export interface ResultadoSync {
   cambiosPlanificados: number
   limpiezaEjecutada: boolean
   escalafon?: ResultadoEscalafon
+  escalafonesDuplicados?: ResultadoEscalafonesDuplicados
   carga?: ResumenCarga
   recodificacion?: { cambios: number; colisiones: number; sin_regla: Record<string, number> }
   /** Filas insertadas al regenerar kpis_dotacion_snapshot. */
@@ -142,6 +144,11 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
         : 'Escalafon CPH: ya estaba en codigo 37 con el nombre nuevo',
     )
 
+    // Escalafon 'Docentes' duplicado -> '7' (y escalafones basura sin referencias): ANTES de leer el snapshot de la carga.
+    const duplicados = await base.transaccion((repo) => ejecutarEscalafonesDuplicados(repo))
+    deps.log(
+      `Escalafones duplicados: Docentes ${duplicados.docentes}${duplicados.fusion ? ` (${duplicados.fusion.puestos_fusionados} puestos fusionados, ${duplicados.fusion.puestos_movidos} movidos, filas ${JSON.stringify(duplicados.fusion.filas_movidas)})` : ''}; eliminados ${duplicados.eliminados.length}; con referencias (no se borran) ${duplicados.con_referencias.length}; autogenerados restantes ${duplicados.autogenerados_restantes.map((a) => a.codigo).join(', ') || 'ninguno'}`,
+    )
     const snapshot2 = await base.leerSnapshot()
     const r2 = cruzar(filas, snapshot2)
     const cambiosPlanificados = contarCambios(r2.plan)
@@ -171,6 +178,7 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
       cambiosPlanificados,
       limpiezaEjecutada: limpiar,
       escalafon,
+      escalafonesDuplicados: duplicados,
       carga,
       recodificacion: { cambios: recod.cambios.length, colisiones: recod.colisiones, sin_regla: recod.sin_regla },
       kpisFilas,

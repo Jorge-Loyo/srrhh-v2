@@ -30,7 +30,7 @@ from pathlib import Path
 import openpyxl
 
 # Debe coincidir con VERSION_EQUIVALENCIAS de equivalencias.ts (lo verifica un test).
-VERSION_EQUIVALENCIAS = "2026-11-msgc-2"
+VERSION_EQUIVALENCIAS = "2026-11-msgc-3"
 
 HOJA = "NOMINAL DE CARGOS"
 FILA_ENCABEZADO = 2

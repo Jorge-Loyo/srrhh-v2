@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto'
 import { normalizarTexto } from '@srrhh/normalizacion'
-import { esCrCph, especialidadCanonica, normalizarExpediente, puestoCanonico, siglaCanonica, type EstadoCargoSistema, type ItemCargo, type PlanCarga } from './cruce.js'
+import { PUESTO_SIN_ESPECIFICAR, esCrCph, especialidadCanonica, normalizarExpediente, puestoCanonico, siglaCanonica, type EstadoCargoSistema, type ItemCargo, type PlanCarga } from './cruce.js'
 import { esSiglaACrear } from './equivalencias.js'
 
 export const ETIQUETA_CEETPS_SI = 'Tipificador SI'
@@ -22,6 +22,20 @@ export interface CatalogosCrudos {
   especialidades: { id: string; puestoId: string; nombre: string }[]
 }
 
+/** Puesto que la carga crea porque el literal del Excel no tiene equivalencia en el catalogo (`pendiente_curar = true`). */
+export interface NuevoPuesto {
+  id: string
+  escalafonId: string
+  modalidad: 'pof' | 'pou'
+  nombre: string
+  tipoPuesto: 'ejecucion' | 'conduccion'
+}
+/** Especialidad (de un puesto) que la carga crea porque el Excel trae una que el puesto no tiene (`pendiente_curar = true`). */
+export interface NuevaEspecialidad {
+  id: string
+  puestoCargoId: string
+  nombre: string
+}
 export interface NuevoCargo {
   id: string
   codigo: string
@@ -71,6 +85,10 @@ export interface RepoCarga {
   /** Mayor número por prefijo de código (`CPH-P`, `R-CPH-G`, ...) entre los cargos existentes. */
   maximosCodigo(): Promise<Map<string, number>>
   crearHospital(sigla: string): Promise<string>
+  /** Idempotente por (escalafon, modalidad, nombre): ON CONFLICT DO NOTHING. */
+  crearPuestosPendientes(lote: NuevoPuesto[]): Promise<void>
+  /** Idempotente por (puesto, nombre): ON CONFLICT DO NOTHING. */
+  crearEspecialidadesPendientes(lote: NuevaEspecialidad[]): Promise<void>
   crearCargos(lote: NuevoCargo[]): Promise<void>
   actualizarCargos(lote: ActualizacionCargo[]): Promise<void>
   pasarNoVigente(ids: string[]): Promise<number>
@@ -87,7 +105,14 @@ export interface ResumenCarga {
   concursos_creados: number
   concursos_reasignados: number
   etiquetas_asignadas: number
-  /** Items del plan que no se pudieron resolver contra los catálogos (no se escriben). */
+  /** Puestos nuevos `pendiente_curar` (fallback: el literal del Excel no tiene equivalencia en el catalogo). */
+  puestos_pendiente_curar_creados: number
+  /** Especialidades nuevas `pendiente_curar` (el puesto no tenia la especialidad del Excel). */
+  especialidades_pendiente_curar_creadas: number
+  /** Filas del Excel cuyo cargo queda con un puesto nuevo `pendiente_curar` (creado en esta pasada). */
+  filas_con_puesto_pendiente: number
+  filas_con_especialidad_pendiente: number
+  /** Items del plan que no se pueden resolver (sigla sin hospital o CR sin codigos_registro; el puesto y la especialidad NUNCA omiten). */
   omitidos_sin_catalogo: Record<string, number>
   total_cambios: number
 }
@@ -101,17 +126,27 @@ export interface FilaResuelta {
   codigoRegistroId: string
   puestoCargoId: string
   especialidadPuestoId: string | null
-  /** Motivo de revisión agregado si la especialidad no está en el catálogo. */
-  notaEspecialidad: string | null
+  /** El puesto es uno de los creados `pendiente_curar` por esta carga. */
+  puestoPendiente: boolean
+  /** La especialidad es una de las creadas `pendiente_curar` por esta carga. */
+  especialidadPendiente: boolean
 }
-
+/** Tipo del puesto nuevo: lo dice la columna `tipo` del Excel (Conducción) o el literal (jefe/director/gerente/jefatura). */
+function tipoPuestoDe(f: ItemCargo['fila']): 'ejecucion' | 'conduccion' {
+  if (norm(f.tipo).startsWith('conduccion')) return 'conduccion'
+  return /\b(jefe|jefatura|director|gerente)\b/.test(norm(f.literal_puesto)) ? 'conduccion' : 'ejecucion'
+}
 export class ResolutorCatalogos {
   private readonly hospitales = new Map<string, string>()
   private readonly crs = new Map<string, { id: string; escalafonId: string }>()
   private readonly puestos = new Map<string, { id: string; modalidad: string }[]>()
   private readonly especialidades = new Map<string, string>()
-
-  constructor(c: CatalogosCrudos) {
+  private readonly puestosPendientes = new Set<string>()
+  private readonly especialidadesPendientes = new Set<string>()
+  /** Puestos que el fallback "pendiente de curar" va a crear (en orden de creación). */
+  readonly puestosNuevos: NuevoPuesto[] = []
+  readonly especialidadesNuevas: NuevaEspecialidad[] = []
+  constructor(c: CatalogosCrudos, private readonly nuevoId: () => string = randomUUID) {
     for (const h of c.hospitales) this.hospitales.set(norm(h.sigla), h.id)
     for (const x of c.codigosRegistro) this.crs.set(up(x.codigo), { id: x.id, escalafonId: x.escalafonId })
     for (const p of c.puestos) {
@@ -122,36 +157,61 @@ export class ResolutorCatalogos {
     }
     for (const e of c.especialidades) this.especialidades.set(`${e.puestoId}|${norm(e.nombre)}`, e.id)
   }
-
   agregarHospital(sigla: string, id: string): void {
     this.hospitales.set(norm(sigla), id)
   }
-
   tieneHospital(sigla: string): boolean {
     return this.hospitales.has(norm(siglaCanonica(sigla)))
   }
-
-  /** Resuelve la fila contra los catálogos o devuelve el motivo por el que no se puede. */
+  /**
+   * Resuelve la fila contra los catálogos. Solo devuelve `falta` si la sigla no tiene hospital o el CR no existe:
+   * un puesto sin equivalencia crea (o reusa, si ya lo creó otra fila) un PuestoCargo `pendiente_curar`, y una especialidad
+   * que el puesto no tiene crea una EspecialidadPuesto `pendiente_curar`. Nunca se omite una fila por puesto o especialidad.
+   */
   resolver(f: ItemCargo['fila']): FilaResuelta | { falta: string } {
     const hospitalId = this.hospitales.get(norm(siglaCanonica(f.sigla)))
     if (!hospitalId) return { falta: 'sigla sin hospital' }
     const cr = this.crs.get(up(f.cr))
     if (!cr) return { falta: 'CR sin codigos_registro' }
-    const candidatos = this.puestos.get(`${cr.escalafonId}|${puestoCanonico(f.cr, f.literal_puesto)}`)
-    if (!candidatos?.length) return { falta: 'puesto sin equivalencia en catalogo' }
+    const nombrePuesto = puestoCanonico(f.cr, f.literal_puesto)
+    const clave = `${cr.escalafonId}|${nombrePuesto}`
     const prefiereU = up(f.planta_guardia).includes('POU')
+    let candidatos = this.puestos.get(clave)
+    if (!candidatos?.length) {
+      const nuevo: NuevoPuesto = {
+        id: this.nuevoId(),
+        escalafonId: cr.escalafonId,
+        modalidad: prefiereU ? 'pou' : 'pof',
+        nombre: (nombrePuesto || PUESTO_SIN_ESPECIFICAR).slice(0, 200),
+        tipoPuesto: tipoPuestoDe(f),
+      }
+      this.puestosNuevos.push(nuevo)
+      this.puestosPendientes.add(nuevo.id)
+      candidatos = [{ id: nuevo.id, modalidad: nuevo.modalidad }]
+      this.puestos.set(clave, candidatos)
+    }
     const orden = prefiereU ? ['pou', 'ambos', 'pof'] : ['pof', 'ambos', 'pou']
     const puesto = [...candidatos].sort((a, b) => orden.indexOf(a.modalidad) - orden.indexOf(b.modalidad))[0]
     let especialidadPuestoId: string | null = null
-    let notaEspecialidad: string | null = null
     if (norm(f.especialidad_cargo)) {
-      especialidadPuestoId = this.especialidades.get(`${puesto.id}|${especialidadCanonica(f.especialidad_cargo)}`) ?? null
-      if (!especialidadPuestoId) notaEspecialidad = 'especialidad sin catalogo'
+      const nombre = especialidadCanonica(f.especialidad_cargo).slice(0, 200)
+      const k = `${puesto.id}|${nombre}`
+      especialidadPuestoId = this.especialidades.get(k) ?? null
+      if (!especialidadPuestoId) {
+        const nueva: NuevaEspecialidad = { id: this.nuevoId(), puestoCargoId: puesto.id, nombre }
+        this.especialidadesNuevas.push(nueva)
+        this.especialidadesPendientes.add(nueva.id)
+        this.especialidades.set(k, nueva.id)
+        especialidadPuestoId = nueva.id
+      }
     }
-    return { hospitalId, escalafonId: cr.escalafonId, codigoRegistroId: cr.id, puestoCargoId: puesto.id, especialidadPuestoId, notaEspecialidad }
+    return {
+      hospitalId, escalafonId: cr.escalafonId, codigoRegistroId: cr.id, puestoCargoId: puesto.id, especialidadPuestoId,
+      puestoPendiente: this.puestosPendientes.has(puesto.id),
+      especialidadPendiente: especialidadPuestoId !== null && this.especialidadesPendientes.has(especialidadPuestoId),
+    }
   }
 }
-
 const lotes = <T>(xs: T[], n = TAMANIO_LOTE): T[][] => {
   const out: T[][] = []
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n))
@@ -170,6 +230,24 @@ export function contarCambios(plan: PlanCarga): number {
   return n
 }
 
+/** Desglose de `contarCambios` por tipo de operación (diagnóstico de idempotencia; sin datos personales). */
+export function desglosarCambios(plan: PlanCarga): Record<string, number> {
+  const d: Record<string, number> = {}
+  const suma = (k: string) => { d[k] = (d[k] ?? 0) + 1 }
+  for (let i = 0; i < plan.noVigenteIds.length; i++) suma('no_vigente')
+  for (let i = 0; i < plan.concursosReasignar.length; i++) suma('reasignar_concurso')
+  for (const it of plan.items) {
+    if (it.cargoId === null) suma(`crear_cargo_${it.categoria}`)
+    else if (it.cambios.length > 0 || it.completarExpediente || it.revision !== null) {
+      for (const c of it.cambios) suma(`cambio_${c}`)
+      if (it.completarExpediente) suma('completar_expediente')
+      if (it.revision !== null) suma('revision')
+    }
+    if (it.crearConcurso !== null) suma('crear_concurso')
+    if (it.etiquetar) suma('etiquetar')
+  }
+  return d
+}
 /** Prefijo y número de un código `PREFIJO-NNNNNN`; null si no tiene ese formato. */
 export function partirCodigo(codigo: string): { prefijo: string; numero: number } | null {
   const m = /^(.+)-(\d{6})$/.exec(codigo)
@@ -184,6 +262,8 @@ export interface OpcionesCarga {
   /** Generador de ids; inyectable para tests deterministas. */
   nuevoId?: () => string
   log?: (mensaje: string) => void
+  /** Recibe el resolutor ya usado (puestos y especialidades nuevos) para reportes de diagnostico. */
+  alResolver?: (resolutor: ResolutorCatalogos) => void
 }
 
 /** Aplica el plan. Devuelve contadores (sin datos personales). */
@@ -193,9 +273,10 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
   const resumen: ResumenCarga = {
     hospitales_creados: 0, cargos_creados: 0, cargos_actualizados: 0, cargos_no_vigente: 0, concursos_creados: 0,
     concursos_reasignados: 0, etiquetas_asignadas: 0, omitidos_sin_catalogo: {}, total_cambios: 0,
+    puestos_pendiente_curar_creados: 0, especialidades_pendiente_curar_creadas: 0, filas_con_puesto_pendiente: 0, filas_con_especialidad_pendiente: 0,
   }
   const catalogos = await repo.catalogos()
-  const resolutor = new ResolutorCatalogos(catalogos)
+  const resolutor = new ResolutorCatalogos(catalogos, nuevoId)
 
   // Siglas a crear (SSSAME): único caso donde la sincronización crea un hospital.
   const siglasNuevas = new Set<string>()
@@ -214,8 +295,18 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
     if (!hace) continue
     const r = resolutor.resolver(it.fila)
     if ('falta' in r) omitir(r.falta)
-    else resueltos.set(it, r)
+    else {
+      resueltos.set(it, r)
+      if (r.puestoPendiente) resumen.filas_con_puesto_pendiente++
+      if (r.especialidadPendiente) resumen.filas_con_especialidad_pendiente++
+    }
   }
+  // ── Fallback "pendiente de curar": puestos y especialidades nuevos ANTES de los cargos que los referencian. ──
+  for (const l of lotes(resolutor.puestosNuevos)) await repo.crearPuestosPendientes(l)
+  for (const l of lotes(resolutor.especialidadesNuevas)) await repo.crearEspecialidadesPendientes(l)
+  opciones.alResolver?.(resolutor)
+  resumen.puestos_pendiente_curar_creados = resolutor.puestosNuevos.length
+  resumen.especialidades_pendiente_curar_creadas = resolutor.especialidadesNuevas.length
 
   // ── Cargos nuevos: bases primero, jefaturas después (cargo_base_id referencia a cargos). ──
   const maximos = await repo.maximosCodigo()
@@ -235,7 +326,7 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
     const n = (maximos.get(prefijo) ?? 0) + 1
     maximos.set(prefijo, n)
     const expediente = normalizarExpediente(it.fila.expediente) ? it.fila.expediente : null
-    const motivos = [it.revision, r.notaEspecialidad].filter((x): x is string => Boolean(x))
+    const motivos = [it.revision].filter((x): x is string => Boolean(x))
     return {
       id: idDe.get(it) as string,
       codigo: formatoCodigo(prefijo, n),
@@ -328,6 +419,31 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
 
   resumen.total_cambios =
     resumen.hospitales_creados + resumen.cargos_creados + resumen.cargos_actualizados + resumen.cargos_no_vigente +
-    resumen.concursos_creados + resumen.concursos_reasignados + resumen.etiquetas_asignadas
+    resumen.concursos_creados + resumen.concursos_reasignados + resumen.etiquetas_asignadas +
+    resumen.puestos_pendiente_curar_creados + resumen.especialidades_pendiente_curar_creadas
   return resumen
+}
+
+/**
+ * Proyección EXACTA de la carga para el dry-run: corre `ejecutarCarga` (mismo resolutor, mismo fallback, mismos contadores)
+ * contra un repositorio en memoria que no escribe nada. Así el dry-run y la carga no pueden divergir.
+ * Los códigos de los cargos nuevos no importan para los conteos (los máximos arrancan en 0).
+ */
+export async function proyectarCarga(plan: PlanCarga, catalogos: CatalogosCrudos): Promise<ResumenCarga> {
+  let n = 0
+  const nuevoId = () => `proy-${++n}`
+  const repo: RepoCarga = {
+    catalogos: async () => catalogos,
+    maximosCodigo: async () => new Map(),
+    crearHospital: async () => nuevoId(),
+    crearPuestosPendientes: async () => undefined,
+    crearEspecialidadesPendientes: async () => undefined,
+    crearCargos: async () => undefined,
+    actualizarCargos: async () => undefined,
+    pasarNoVigente: async (ids) => ids.length,
+    crearConcursos: async () => undefined,
+    reasignarConcursos: async () => undefined,
+    asignarEtiqueta: async () => undefined,
+  }
+  return ejecutarCarga(repo, plan, { nuevoId })
 }

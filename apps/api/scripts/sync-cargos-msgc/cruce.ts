@@ -13,6 +13,7 @@
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { concursoCuentaComoActivo } from '../../src/modules/cargos/concursoActivo.regla.js'
 import type { FilaNominal } from './leerNominal.js'
+import type { CatalogosCrudos } from './cargar.js'
 import { ACRONIMOS_MSGC, acronimoMsgc, recodificarCodigo } from './acronimoMsgc.js'
 import {
   equivalenciaEspecialidad,
@@ -81,6 +82,8 @@ export interface ConcursoSistema {
   bajaId?: string | null
   bajaDeUsuario?: boolean | null
   expedientes: (string | null)[]
+  /** `concursos.origen` ('msgc' = lo creo la sincronizacion). Opcional en fixtures. */
+  origen?: string | null
 }
 
 export interface OcupacionViva {
@@ -102,8 +105,12 @@ export interface SnapshotSistema {
   codigosRegistro: { codigo: string; escalafon: string }[]
   puestos: { escalafon: string; nombre: string }[]
   especialidades: string[]
+  /**
+   * Catalogos con ids (hospitales, codigos de registro, puestos con modalidad, especialidades por puesto): permite proyectar la
+   * carga exacta en el dry-run (mismo resolutor que la carga, incluido el fallback "pendiente de curar"). Opcional.
+   */
+  catalogos?: CatalogosCrudos
 }
-
 export const SNAPSHOT_VACIO: SnapshotSistema = {
   cargos: [],
   ocupaciones: [],
@@ -484,8 +491,10 @@ export function siglaCanonica(raw: string): string {
   return equivalenciaSigla(raw) ?? raw.trim()
 }
 
+/** Nombre del puesto que se usa cuando el Excel no trae literal (igual que el catalogo/padron). */
+export const PUESTO_SIN_ESPECIFICAR = '(sin especificar)'
 export function puestoCanonico(cr: string, literal: string): string {
-  return equivalenciaPuesto(cr, literal) ?? norm(literal)
+  return equivalenciaPuesto(cr, literal) ?? (norm(literal) || PUESTO_SIN_ESPECIFICAR)
 }
 
 export function especialidadCanonica(raw: string): string {
@@ -547,6 +556,9 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   const revisiones = new Map<FilaNominal, string[]>()
   const puestosPorExp = new Map<string, Set<string>>()
   for (const co of sistema.concursos ?? []) {
+    // Los concursos que creo la propia sincronizacion (origen 'msgc') no son un dato del sistema: nacen del puesto que esta
+    // misma regla resolvio. Contarlos haria que la 2a pasada resuelva distinto que la 1a (no idempotente).
+    if (co.origen === ORIGEN_MSGC) continue
     const cg = cargoPorId.get(co.cargoId)
     if (!cg) continue
     for (const e of expedientesDeConcurso(co)) {
@@ -754,9 +766,21 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
     else poolMsgc.set(k, [c])
   }
   const reclamados = new Set<string>()
+  // Expedientes de concursos activos de cargos libres que NO son 'msgc' (reusables por expediente).
+  const expedientesReusables = new Set<string>()
+  for (const c of sistema.cargos) {
+    if (c.origen === ORIGEN_MSGC || c.eliminado || c.estado === 'no_vigente' || (ocupPorCargo.get(c.id) ?? 0) > 0) continue
+    for (const co of concursosPorCargo.get(c.id) ?? []) if (concursoActivo(co)) for (const e of expedientesDeConcurso(co)) expedientesReusables.add(e)
+  }
   const tomarMsgc = (f: FilaNominal, nuevoCargo: boolean): CargoSistema | undefined => {
     const k = claveCupo(f.sigla, f.acronimo, f.cr, f.literal_puesto, f.especialidad_cargo, true)
-    const c = (poolMsgc.get(k) ?? []).find((x) => !reclamados.has(x.id) && tieneNuevoCargo(x.id) === nuevoCargo)
+    const exp = normalizarExpediente(f.expediente)
+    // Ampliacion cuyo expediente ya tiene un concurso activo en un cargo del sistema que no creo la sincronizacion:
+    // lo reusa el cruce por expediente (no se le asigna un cargo 'msgc' que pertenece a otra fila).
+    if (nuevoCargo && exp && expedientesReusables.has(exp)) return undefined
+    const lista = (poolMsgc.get(k) ?? []).filter((x) => !reclamados.has(x.id) && tieneNuevoCargo(x.id) === nuevoCargo)
+    // Entre los cargos 'msgc' del cupo, el de esta fila es el que lleva su mismo expediente.
+    const c = (exp ? lista.find((x) => (concursosPorCargo.get(x.id) ?? []).some((co) => expedientesDeConcurso(co).includes(exp))) : undefined) ?? lista[0]
     if (c) reclamados.add(c.id)
     return c
   }
@@ -983,15 +1007,24 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   }
   const mejor = (r: FilaE, lista: Candidato[]): Candidato | undefined => {
     let best: Candidato | undefined
-    let bestK: [number, number, number] = [0, 0, 0]
+    let bestK: number[] = []
+    const menor = (a: number[], b: number[]) => {
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i]
+      return false
+    }
+    const siEtiqueta = esCeetpsSi(r.f)
     for (const cand of lista) {
       if (candAsignado.has(cand)) continue
-      const k: [number, number, number] = [
+      const tieneEtiqueta = cand.c.vinculos.etiquetas > 0
+      const k = [
         esConcurso(r) ? (cand.activo ? 0 : 1) : cand.activo ? 1 : 0,
         cand.c.estado === destinoDe(r) ? 0 : 1,
+        // Idempotencia: la fila con tipificador "SI" prefiere el cargo ya etiquetado y las demas el que no lo esta
+        // (si no, la 2a pasada reparte distinto que la 1a y vuelve a etiquetar).
+        siEtiqueta === tieneEtiqueta ? 0 : 1,
         -cand.vinc,
       ]
-      if (!best || k[0] < bestK[0] || (k[0] === bestK[0] && (k[1] < bestK[1] || (k[1] === bestK[1] && k[2] < bestK[2])))) {
+      if (!best || menor(k, bestK)) {
         best = cand
         bestK = k
       }

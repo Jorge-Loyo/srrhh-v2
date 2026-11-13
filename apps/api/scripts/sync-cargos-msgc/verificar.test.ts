@@ -61,4 +61,13 @@ describe('evaluarVerificacion', () => {
   it('el texto no trae datos personales', () => {
     expect(textoVerificacion(evaluarVerificacion(OK, 100, 0))).not.toMatch(/cuil|\d{9}-\d/i)
   })
+  it('Docentes duplicado: falla si le quedan cargos o el CR 07 no esta en el 7; los autogenerados que quedan son aviso', () => {
+    const ok = { ...OK, docentesDuplicadoExiste: false, docentesDuplicadoCargos: 0, escalafonDelCr07: '7', escalafonesAutogenerados: [] }
+    expect(evaluarVerificacion(ok, 100, 0).ok).toBe(true)
+    expect(evaluarVerificacion({ ...ok, docentesDuplicadoExiste: true, docentesDuplicadoCargos: 5 }, 100, 0).ok).toBe(false)
+    expect(evaluarVerificacion({ ...ok, escalafonDelCr07: 'Docentes-c32a65d' }, 100, 0).ok).toBe(false)
+    const aviso = evaluarVerificacion({ ...ok, escalafonesAutogenerados: ['Otro-1234abc'] }, 100, 0)
+    expect(aviso.ok).toBe(true)
+    expect(aviso.chequeos.find((c) => c.nombre.includes('autogenerado'))?.detalle).toContain('Otro-1234abc')
+  })
 })

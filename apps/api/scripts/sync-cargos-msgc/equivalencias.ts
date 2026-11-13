@@ -11,7 +11,7 @@
 import { normalizarTexto } from '@srrhh/normalizacion'
 
 /** Debe coincidir con VERSION_EQUIVALENCIAS de preprocesar_excel.py (lo verifica un test). */
-export const VERSION_EQUIVALENCIAS = '2026-11-msgc-2'
+export const VERSION_EQUIVALENCIAS = '2026-11-msgc-3'
 
 // ── Siglas ───────────────────────────────────────────────────────────────────
 /**
@@ -66,7 +66,62 @@ const PUESTOS_EQUIVALENTES = new Map<string, string>([
   ['85|asistencia dental', 'tecnico en asistencia dental'],
   ['85|hemoterapia', 'tecnico en hemoterapia'],
   ['85|laboratorio de patologia', 'tecnico en laboratorio de patologia'],
+  // ── v3 (12-nov, tabla de los 35 puestos sin equivalencia): confianza 'normalizada' ─────────────────────
+  // Mismo puesto y mismo numero de nivel (04/05/06/02); el Excel solo omite el "de". CR 22 y 37 comparten escalafon.
+  ['37|jefe unidad (05)', 'jefe de unidad (05)'],
+  ['37|jefe seccion (06)', 'jefe de seccion (06)'],
+  ['37|jefe division (04)', 'jefe de division (04)'],
+  ['37|jefe departamento (02)', 'jefe de departamento (02)'],
+  ['22|jefe unidad (05)', 'jefe de unidad (05)'],
+  ['22|jefe seccion (06)', 'jefe de seccion (06)'],
+  ['22|jefe division (04)', 'jefe de division (04)'],
+  ['22|jefe departamento (02)', 'jefe de departamento (02)'],
+  // Mismo puesto de guardia; el Excel omite el "en".
+  ['23|lic. kinesiologia de guardia', 'lic. en kinesiologia de guardia'],
 ])
+/**
+ * Equivalencias de confianza 'propuesta': criterio semantico razonable pero SIN confirmar por Jorge. NO se aplican
+ * salvo que se active el flag (`SYNC_EQUIVALENCIAS_PROPUESTAS=1` o `habilitarPropuestas(true)`); mientras tanto esas
+ * filas van al fallback "pendiente de curar". Tabla completa y filas que resuelve cada una:
+ * .agents/tasks/sync-cargos-msgc/equivalencias_puestos_propuesta.csv
+ */
+const PUESTOS_PROPUESTOS = new Map<string, string>([
+  // Jefaturas de la carrera profesional (37): nombre corto del Excel -> puesto de conduccion del catalogo.
+  ['37|jefatura seccion', 'jefe de seccion (06)'],
+  ['37|jefatura unid', 'jefe de unidad (05)'],
+  ['37|jefatura dept', 'jefe de departamento (02)'],
+  ['37|jefatura div', 'jefe de division (04)'],
+  ['37|jefatura sdhos', 'sub-director (03)'],
+  ['37|jefatura dhos', 'director (01)'],
+  // Jefaturas "CA" (carrera administrativa 83) -> puestos de conduccion de la 83.
+  ['83|jefatura seccion ca', 'jefe de seccion'],
+  ['83|jefatura div ca', 'jefe de division'],
+  ['83|jefatura dept ca', 'jefe de departamento'],
+  // CEETPS (85) tiene sus jefes marcados pendiente_curar en el catalogo.
+  ['85|jefatura seccion ca', 'jefe de seccion'],
+  ['85|jefatura div ca', 'jefe de division'],
+  // Carrera gerencial (60).
+  ['60|jefatura sgo', 'subgerente operativo'],
+  ['60|jefatura go', 'gerente operativo'],
+  // Profesionales: el Excel no aclara planta/guardia en el literal; se toma el de planta (37) o el de guardia (23).
+  ['37|lic. en terapia ocupacional', 'lic. en terapia ocupacional de planta'],
+  ['37|licenciado en psicologia / psicologo', 'lic. en psicologia de planta'],
+  ['37|lic. en kinesiologia', 'lic. en kinesiologia de planta'],
+  ['37|licenciado en kinesiologia', 'lic. en kinesiologia de planta'],
+  ['37|lic. en servicio social salud de planta', 'lic. en servicio social de planta'],
+  ['37|lic. bioquimico de planta', 'lic. en bioquimica de planta'],
+  ['37|kinesiologo fisiatra de planta', 'kinesiologo de planta'],
+  ['37|lic. en comunicacion social o en cs.de la comunicacion', 'lic. en comunicacion social de planta'],
+  ['23|kinesiologo fisiatra de guardia', 'kinesiologo de guardia'],
+  ['23|lic. bioquimico de guardia', 'lic. en bioquimica de guardia'],
+  ['23|nutricionista dietista de guardia', 'nutricionista de guardia'],
+])
+let propuestasHabilitadas = false
+/** Activa/desactiva las equivalencias 'propuesta' (para tests y para cuando Jorge las confirme). */
+export function habilitarPropuestas(on: boolean): void {
+  propuestasHabilitadas = on
+}
+const usarPropuestas = () => propuestasHabilitadas || process.env.SYNC_EQUIVALENCIAS_PROPUESTAS === '1'
 
 /**
  * Puestos sucios que NO tienen un destino fijo en la tabla: se resuelven en el cruce (ver `reglaPuestoSucio`).
@@ -97,7 +152,12 @@ const clavePuesto = (cr: string, literal: string | null | undefined) =>
 
 /** Puesto del catálogo (normalizado) equivalente al literal del Excel, o null si no hay. */
 export function equivalenciaPuesto(cr: string, literal: string | null | undefined): string | null {
-  return PUESTOS_EQUIVALENTES.get(clavePuesto(cr, literal)) ?? null
+  const k = clavePuesto(cr, literal)
+  return PUESTOS_EQUIVALENTES.get(k) ?? (usarPropuestas() ? PUESTOS_PROPUESTOS.get(k) ?? null : null)
+}
+/** Equivalencia 'propuesta' (sin confirmar) del literal, aunque el flag este apagado. Solo para reportes/tests. */
+export function equivalenciaPuestoPropuesta(cr: string, literal: string | null | undefined): string | null {
+  return PUESTOS_PROPUESTOS.get(clavePuesto(cr, literal)) ?? null
 }
 
 /** Regla de resolución del puesto sucio (null si el literal no es uno de los sucios conocidos). */

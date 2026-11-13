@@ -13,9 +13,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { contarCambios, ejecutarCarga } from './cargar.js'
+import { contarCambios, desglosarCambios, ejecutarCarga, proyectarCarga } from './cargar.js'
 import { cruzar } from './cruce.js'
 import { ejecutarEscalafonCph } from './escalafon.js'
+import { ejecutarEscalafonesDuplicados } from './escalafonesDuplicados.js'
 import { asegurarBaseLocal } from './guardaBase.js'
 import { leerNominal } from './leerNominal.js'
 import { ejecutarRecodificacion } from './recodificar.js'
@@ -94,10 +95,24 @@ async function main() {
           const esc = await ejecutarEscalafonCph(repo)
           console.log(`Escalafon CPH: ${esc.accion}`)
 
+          const dup = await ejecutarEscalafonesDuplicados(repo)
+          console.log(`Escalafones duplicados: ${JSON.stringify(dup)}`)
           const snap2 = await leerSnapshot(lectura)
           const r2 = cruzar(filas, snap2)
           const acronimos = construirAcronimos(r2.plan, snap2)
-          const carga = await ejecutarCarga(repo, r2.plan, { log: (m) => console.log(`  ${m}`) })
+          // Dry-run = carga: la proyeccion (mismo resolutor, repositorio en memoria) tiene que dar los mismos contadores.
+          const proyeccion = snap2.catalogos ? await proyectarCarga(r2.plan, snap2.catalogos) : null
+          const carga = await ejecutarCarga(repo, r2.plan, {
+            log: (m) => console.log(`  ${m}`),
+            // Detalle del fallback (nombres de catalogo y cantidades; sin datos personales).
+            alResolver: (res) => {
+              for (const p of res.puestosNuevos) console.log(`  PUESTO pendiente_curar: escalafon=${p.escalafonId.slice(0, 8)} ${p.modalidad}/${p.tipoPuesto} "${p.nombre}"`)
+              const porPuesto = new Map<string, number>()
+              for (const e of res.especialidadesNuevas) porPuesto.set(e.puestoCargoId, (porPuesto.get(e.puestoCargoId) ?? 0) + 1)
+              console.log(`  ESPECIALIDADES pendiente_curar: ${res.especialidadesNuevas.length} en ${porPuesto.size} puestos`)
+            },
+          })
+          console.log(proyeccion && JSON.stringify(proyeccion) === JSON.stringify(carga) ? 'OK dry-run = carga: la proyeccion coincide con la carga.' : `FALLA dry-run != carga: proyeccion ${JSON.stringify(proyeccion)}`)
           console.log(`Carga: ${JSON.stringify(carga)}`)
           const recod = await ejecutarRecodificacion(repo, acronimos)
           console.log(`Recodificacion: ${recod.cambios.length} cambios, ${recod.colisiones} colisiones`)
@@ -106,6 +121,19 @@ async function main() {
           const r3 = cruzar(filas, await leerSnapshot(lectura))
           const datos = await repo.datosVerificacion()
           console.log(textoVerificacion(evaluarVerificacion(datos, filas.length, contarCambios(r3.plan))))
+          console.log('2a pasada, desglose:', JSON.stringify(desglosarCambios(r3.plan)))
+          // Detalle de lo que sigue pendiente (solo codigos de cargo/fila y atributos de catalogo; sin datos personales).
+          const snap3 = await leerSnapshot(lectura)
+          for (const it of r3.plan.items) {
+            if (it.cargoId === null || it.cambios.length > 0 || it.completarExpediente || it.revision !== null || it.crearConcurso !== null || it.etiquetar) {
+              const c = snap3.cargos.find((x) => x.id === it.cargoId)
+              console.log('  pendiente:', JSON.stringify({ fila: it.fila.codigo_excel, cat: it.categoria, cambios: it.cambios, rev: it.revision, exp: it.completarExpediente, conc: it.crearConcurso, etq: it.etiquetar, cr: it.fila.cr, sigla: it.fila.sigla, puesto: it.fila.literal_puesto, esp: it.fila.especialidad_cargo, bloque: it.fila.bloque, cargo: c ? { cod: c.codigo, estado: c.estado, puesto: c.puesto, esp: c.especialidad, rev: c.revisionMotivo } : null }))
+            }
+          }
+          for (const id of r3.plan.noVigenteIds) {
+            const c = snap3.cargos.find((x) => x.id === id)
+            console.log('  a no vigente:', JSON.stringify({ cod: c?.codigo, estado: c?.estado, origen: c?.origen, sigla: c?.sigla, puesto: c?.puesto, esp: c?.especialidad }))
+          }
           await repo.registrarCorrida('prueba', null, { prueba: true })
           console.log('Dentro de la transaccion:', JSON.stringify(await conteos(txReal)))
           throw new RollbackPrueba()

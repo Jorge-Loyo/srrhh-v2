@@ -7,8 +7,20 @@
 // por lote. Los textos SQL son fijos; cada lote viaja como UN solo parámetro de texto JSON (jsonLote.ts), nunca como array.
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto'
-import type { ActualizacionCargo, CatalogosCrudos, NuevoCargo, NuevoConcurso, RepoCarga } from './cargar.js'
+import type { ActualizacionCargo, CatalogosCrudos, NuevaEspecialidad, NuevoCargo, NuevoConcurso, NuevoPuesto, RepoCarga } from './cargar.js'
 import type { EscalafonFila, RepoEscalafon } from './escalafon.js'
+import {
+  ESCALAFON_DOCENTES_DUPLICADO,
+  CODIGO_REGISTRO_DOCENTES,
+  SQL_ESCALAFONES_TODOS,
+  SQL_ESPECIALIDADES_COINCIDENTES,
+  SQL_FKS_HACIA,
+  SQL_PUESTOS_COINCIDENTES,
+  ident,
+  type FkRef,
+  type RepoEscalafonesDuplicados,
+  type ResumenFusionEscalafon,
+} from './escalafonesDuplicados.js'
 import { jsonLote, trocear } from './jsonLote.js'
 import { estadoActivoSqlDelSistema, regenerarKpisDotacion } from './kpisDotacion.js'
 import { ejecutarLimpieza } from './limpieza.js'
@@ -22,7 +34,7 @@ export interface TxSql {
 }
 
 /** Todo lo que el modo escritura necesita de la base (carga + recodificación + verificación + bitácora). */
-export interface RepoEscritura extends RepoCarga, RepoRecodificacion, RepoVerificacion, RepoEscalafon {
+export interface RepoEscritura extends RepoCarga, RepoRecodificacion, RepoVerificacion, RepoEscalafon, RepoEscalafonesDuplicados {
   limpiar(conservarConcursoIds: string[]): Promise<Record<string, number>>
   recalcularSubEstado(): Promise<number>
   /** Borra y regenera kpis_dotacion_snapshot con el mecanismo del sistema (kpisDotacion.ts). Devuelve filas insertadas. */
@@ -39,6 +51,16 @@ SELECT v.id, v.codigo, v.hospital_id, v.escalafon_id, v.cr_id, v.puesto_id, v.es
 FROM json_to_recordset($1::text::json)
   AS v(id uuid, codigo text, hospital_id uuid, escalafon_id uuid, cr_id uuid, puesto_id uuid, esp_id uuid, literal text, estado text, expediente text, revision text, base_id uuid)`
 
+export const SQL_CREAR_PUESTOS_PENDIENTES = `
+INSERT INTO puestos_cargo (id, escalafon_id, modalidad, nombre, activo, tipo_puesto, pendiente_curar)
+SELECT v.id, v.escalafon_id, v.modalidad::"ModalidadPuesto", v.nombre, true, v.tipo::"TipoPuesto", true
+FROM json_to_recordset($1::text::json) AS v(id uuid, escalafon_id uuid, modalidad text, nombre text, tipo text)
+ON CONFLICT (escalafon_id, modalidad, nombre) DO NOTHING`
+export const SQL_CREAR_ESPECIALIDADES_PENDIENTES = `
+INSERT INTO especialidades_puesto (id, puesto_cargo_id, nombre, activo, pendiente_curar)
+SELECT v.id, v.puesto_id, v.nombre, true, true
+FROM json_to_recordset($1::text::json) AS v(id uuid, puesto_id uuid, nombre text)
+ON CONFLICT (puesto_cargo_id, nombre) DO NOTHING`
 export const SQL_ACTUALIZAR_CARGOS = `
 UPDATE cargos c SET
   hospital_id = COALESCE(v.hospital_id, c.hospital_id),
@@ -136,6 +158,51 @@ export function crearRepoEscritura(
     async actualizarEscalafon(id: string, codigo: string, nombre: string) {
       await tx.$executeRawUnsafe('UPDATE escalafones SET codigo = $2, nombre = $3, updated_at = now() WHERE id = $1::uuid', id, codigo, nombre)
     },
+    async escalafonesTodos(): Promise<EscalafonFila[]> {
+      return tx.$queryRawUnsafe<EscalafonFila[]>(SQL_ESCALAFONES_TODOS)
+    },
+    async referenciasEscalafon(id: string) {
+      let n = 0
+      for (const f of await tx.$queryRawUnsafe<FkRef[]>(SQL_FKS_HACIA, 'escalafones')) {
+        const r = await tx.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM ${ident(f.tabla)} WHERE ${ident(f.col)} = $1::uuid`, id)
+        n += Number(r[0]?.n ?? 0)
+      }
+      return n
+    },
+    async eliminarEscalafon(id: string) {
+      await tx.$executeRawUnsafe('DELETE FROM escalafones WHERE id = $1::uuid', id)
+    },
+    async fusionarEscalafon(origen: string, destino: string): Promise<ResumenFusionEscalafon> {
+      const fkEscalafon = await tx.$queryRawUnsafe<FkRef[]>(SQL_FKS_HACIA, 'escalafones')
+      const fkPuesto = (await tx.$queryRawUnsafe<FkRef[]>(SQL_FKS_HACIA, 'puestos_cargo')).filter((f) => f.tabla !== 'especialidades_puesto')
+      const fkEspecialidad = await tx.$queryRawUnsafe<FkRef[]>(SQL_FKS_HACIA, 'especialidades_puesto')
+      const res: ResumenFusionEscalafon = { puestos_fusionados: 0, puestos_movidos: 0, especialidades_fusionadas: 0, filas_movidas: {} }
+      const sumar = (k: string, n: number) => {
+        if (n > 0) res.filas_movidas[k] = (res.filas_movidas[k] ?? 0) + n
+      }
+      const reapuntar = async (fks: FkRef[], de: string, a: string, prefijo: string) => {
+        for (const f of fks) {
+          const n = Number(await tx.$executeRawUnsafe(`UPDATE ${ident(f.tabla)} SET ${ident(f.col)} = $2::uuid WHERE ${ident(f.col)} = $1::uuid`, de, a))
+          sumar(`${prefijo}${f.tabla}.${f.col}`, n)
+        }
+      }
+      // 1) Puestos que ya existen en el destino: se fusionan (sus especialidades y cargos se reapuntan al puesto del destino).
+      for (const p of await tx.$queryRawUnsafe<{ origen: string; destino: string }[]>(SQL_PUESTOS_COINCIDENTES, origen, destino)) {
+        for (const e of await tx.$queryRawUnsafe<{ origen: string; destino: string }[]>(SQL_ESPECIALIDADES_COINCIDENTES, p.origen, p.destino)) {
+          await reapuntar(fkEspecialidad, e.origen, e.destino, 'especialidad:')
+          await tx.$executeRawUnsafe('DELETE FROM especialidades_puesto WHERE id = $1::uuid', e.origen)
+          res.especialidades_fusionadas++
+        }
+        sumar('especialidades_puesto.puesto_cargo_id', Number(await tx.$executeRawUnsafe('UPDATE especialidades_puesto SET puesto_cargo_id = $2::uuid WHERE puesto_cargo_id = $1::uuid', p.origen, p.destino)))
+        await reapuntar(fkPuesto, p.origen, p.destino, 'puesto:')
+        await tx.$executeRawUnsafe('DELETE FROM puestos_cargo WHERE id = $1::uuid', p.origen)
+        res.puestos_fusionados++
+      }
+      // 2) El resto de lo que cuelga del escalafon (puestos que no existian en el destino, codigos de registro, cargos, ...).
+      res.puestos_movidos = Number(await tx.$executeRawUnsafe('UPDATE puestos_cargo SET escalafon_id = $2::uuid WHERE escalafon_id = $1::uuid', origen, destino))
+      await reapuntar(fkEscalafon.filter((f) => f.tabla !== 'puestos_cargo'), origen, destino, '')
+      return res
+    },
     async regenerarKpisDotacion() {
       return regenerarKpisDotacion(tx, obtenerEstadoActivoSql)
     },
@@ -159,6 +226,19 @@ export function crearRepoEscritura(
       const id = randomUUID()
       await tx.$executeRawUnsafe('INSERT INTO hospitales (id, sigla, nombre, activo, updated_at) VALUES ($1::uuid, $2, $2, true, now())', id, sigla)
       return id
+    },
+    async crearPuestosPendientes(l: NuevoPuesto[]) {
+      for (const t of trocear(l)) {
+        await tx.$executeRawUnsafe(
+          SQL_CREAR_PUESTOS_PENDIENTES,
+          jsonLote(t.map((x) => ({ id: x.id, escalafon_id: x.escalafonId, modalidad: x.modalidad, nombre: x.nombre, tipo: x.tipoPuesto }))),
+        )
+      }
+    },
+    async crearEspecialidadesPendientes(l: NuevaEspecialidad[]) {
+      for (const t of trocear(l)) {
+        await tx.$executeRawUnsafe(SQL_CREAR_ESPECIALIDADES_PENDIENTES, jsonLote(t.map((x) => ({ id: x.id, puesto_id: x.puestoCargoId, nombre: x.nombre }))))
+      }
     },
     async crearCargos(l: NuevoCargo[]) {
       for (const t of trocear(l)) {
@@ -264,6 +344,9 @@ export function crearRepoEscritura(
       const sub = await tx.$queryRawUnsafe<{ n: number }[]>(SQL_SUB_ESTADO_INCONSISTENTES)
       const esc = await tx.$queryRawUnsafe<{ codigo: string; nombre: string }[]>("SELECT codigo, nombre FROM escalafones WHERE codigo IN ('22', '37')")
       const kpis = await tx.$queryRawUnsafe<{ filas: number; meses: number; esperados: number }[]>(SQL_KPIS_VERIFICACION)
+      const dup = await tx.$queryRawUnsafe<{ existe: boolean; cargos: number }[]>(SQL_DOCENTES_DUPLICADO, ESCALAFON_DOCENTES_DUPLICADO)
+      const cr07 = await tx.$queryRawUnsafe<{ escalafon: string }[]>(SQL_CR_DOCENTES, CODIGO_REGISTRO_DOCENTES)
+      const autogenerados = await tx.$queryRawUnsafe<{ codigo: string }[]>(SQL_ESCALAFONES_AUTOGENERADOS)
       return {
         vigentes: Number(estados.find((e) => e.estado === 'vigente')?.n ?? 0),
         validacionVacante: Number(estados.find((e) => e.estado === 'validacion_vacante')?.n ?? 0),
@@ -274,11 +357,21 @@ export function crearRepoEscritura(
         kpisFilas: Number(kpis[0]?.filas ?? 0),
         kpisMeses: Number(kpis[0]?.meses ?? 0),
         kpisMesesEsperados: Number(kpis[0]?.esperados ?? 0),
+        docentesDuplicadoExiste: Boolean(dup[0]?.existe),
+        docentesDuplicadoCargos: Number(dup[0]?.cargos ?? 0),
+        escalafonDelCr07: cr07[0]?.escalafon ?? null,
+        escalafonesAutogenerados: autogenerados.map((a) => a.codigo),
       }
     },
   }
 }
 
+/** Escalafon Docentes duplicado ('Docentes-c32a65d'): si existe y cuantos cargos tiene. */
+export const SQL_DOCENTES_DUPLICADO = `
+SELECT EXISTS (SELECT 1 FROM escalafones WHERE codigo = $1) AS existe,
+       (SELECT count(*)::int FROM cargos c JOIN escalafones e ON e.id = c.escalafon_id WHERE e.codigo = $1) AS cargos`
+export const SQL_CR_DOCENTES = 'SELECT e.codigo AS escalafon FROM codigos_registro cr JOIN escalafones e ON e.id = cr.escalafon_id WHERE cr.codigo = $1'
+export const SQL_ESCALAFONES_AUTOGENERADOS = "SELECT codigo FROM escalafones WHERE codigo ~ '-[0-9a-f]{7}$' ORDER BY codigo"
 /** kpis_dotacion_snapshot: filas, meses con datos y meses con padrón aprobado (los que el mecanismo debe cubrir). */
 export const SQL_KPIS_VERIFICACION = `
 SELECT (SELECT count(*)::int FROM kpis_dotacion_snapshot) AS filas,

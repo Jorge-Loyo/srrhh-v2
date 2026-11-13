@@ -50,6 +50,10 @@ function armar() {
       escrituras.push('subEstado')
       return 0
     },
+    escalafonesTodos: async () => [],
+    referenciasEscalafon: async () => 0,
+    fusionarEscalafon: async () => ({ puestos_fusionados: 0, puestos_movidos: 0, especialidades_fusionadas: 0, filas_movidas: {} }),
+    eliminarEscalafon: async () => undefined,
     escalafonesCph: async () => estado.escalafones,
     actualizarEscalafon: async (_id: string, codigo: string, nombre: string) => {
       escrituras.push('escalafon')

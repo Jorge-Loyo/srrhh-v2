@@ -9,6 +9,7 @@
 import { TX_OPTS_LARGA } from '../../src/shared/txOpts.js'
 import { TABLAS_BORRAR } from './limpieza.js'
 import type { CargoSistema, ConcursoSistema, EstadoCargoSistema, OcupacionViva, SnapshotSistema, VinculosCargo } from './cruce.js'
+import type { CatalogosCrudos } from './cargar.js'
 
 /** Subconjunto de la transacción de Prisma que se usa acá (permite simularla en tests). */
 export interface TxLectura {
@@ -57,14 +58,14 @@ const SQL_CONCURSOS_CPH = `
 SELECT co.id::text AS concurso_id, cph.cargo_id::text AS cargo_id, cph.estado::text AS estado, cph.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
        co.baja_id::text AS baja_id, (SELECT b.registrado_por IS NOT NULL FROM bajas b WHERE b.id = co.baja_id) AS baja_de_usuario,
-       co.expediente AS expediente, NULL::text AS expediente_2
+       co.expediente AS expediente, NULL::text AS expediente_2, co.origen::text AS origen
 FROM concursos_cph cph
 JOIN concursos co ON co.id = cph.concurso_id`
 const SQL_CONCURSOS_CEETPS = `
 SELECT co.id::text AS concurso_id, ce.cargo_id::text AS cargo_id, ce.estado::text AS estado, ce.sub_estado AS sub_estado,
        co.motivo_concurso::text AS motivo_concurso, (co.autorizado_at IS NOT NULL) AS autorizado,
        co.baja_id::text AS baja_id, (SELECT b.registrado_por IS NOT NULL FROM bajas b WHERE b.id = co.baja_id) AS baja_de_usuario,
-       co.expediente AS expediente, ce.expediente_concurso AS expediente_2, ce.expediente_concurso_2 AS expediente_3
+       co.expediente AS expediente, ce.expediente_concurso AS expediente_2, ce.expediente_concurso_2 AS expediente_3, co.origen::text AS origen
 FROM concursos_ceetps ce
 JOIN concursos co ON co.id = ce.concurso_id`
 
@@ -75,6 +76,13 @@ const SQL_CODIGOS_REGISTRO =
 const SQL_PUESTOS = 'SELECT e.codigo AS escalafon, p.nombre AS nombre FROM puestos_cargo p JOIN escalafones e ON e.id = p.escalafon_id'
 const SQL_ESPECIALIDADES = 'SELECT DISTINCT nombre FROM especialidades_puesto'
 
+/** Catalogos con ids: permiten al dry-run proyectar la carga con el MISMO resolutor (fallback pendiente de curar incluido). */
+export const SQL_CATALOGOS = {
+  hospitales: 'SELECT id::text AS id, sigla FROM hospitales',
+  codigosRegistro: 'SELECT id::text AS id, codigo, escalafon_id::text AS "escalafonId" FROM codigos_registro',
+  puestos: 'SELECT id::text AS id, escalafon_id::text AS "escalafonId", nombre, modalidad::text AS modalidad FROM puestos_cargo',
+  especialidades: 'SELECT id::text AS id, puesto_cargo_id::text AS "puestoId", nombre FROM especialidades_puesto',
+} as const
 /** Todas las consultas que ejecuta este módulo (para el test de solo lectura). */
 export const CONSULTAS_SNAPSHOT: readonly string[] = [
   SQL_CARGOS,
@@ -87,6 +95,7 @@ export const CONSULTAS_SNAPSHOT: readonly string[] = [
   SQL_CODIGOS_REGISTRO,
   SQL_PUESTOS,
   SQL_ESPECIALIDADES,
+  ...Object.values(SQL_CATALOGOS),
 ]
 
 interface FilaConcurso {
@@ -101,6 +110,7 @@ interface FilaConcurso {
   expediente: string | null
   expediente_2?: string | null
   expediente_3?: string | null
+  origen?: string | null
 }
 
 interface FilaCargo {
@@ -141,6 +151,7 @@ export async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
     bajaId: f.baja_id ?? null,
     bajaDeUsuario: f.baja_id ? Boolean(f.baja_de_usuario) : null,
     expedientes: [f.expediente, f.expediente_2 ?? null, f.expediente_3 ?? null],
+    origen: f.origen ?? null,
   })
   const concursos: ConcursoSistema[] = [...filasCph.map(aConcurso('cph')), ...filasCeetps.map(aConcurso('ceetps'))]
 
@@ -164,6 +175,12 @@ export async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
   const puestos = await tx.$queryRawUnsafe<{ escalafon: string; nombre: string }[]>(SQL_PUESTOS)
   const especialidades = await tx.$queryRawUnsafe<{ nombre: string }[]>(SQL_ESPECIALIDADES)
 
+  const catalogos: CatalogosCrudos = {
+    hospitales: await tx.$queryRawUnsafe<CatalogosCrudos['hospitales']>(SQL_CATALOGOS.hospitales),
+    codigosRegistro: await tx.$queryRawUnsafe<CatalogosCrudos['codigosRegistro']>(SQL_CATALOGOS.codigosRegistro),
+    puestos: await tx.$queryRawUnsafe<CatalogosCrudos['puestos']>(SQL_CATALOGOS.puestos),
+    especialidades: await tx.$queryRawUnsafe<CatalogosCrudos['especialidades']>(SQL_CATALOGOS.especialidades),
+  }
   const cargos: CargoSistema[] = cargosRaw.map((c) => ({
     id: c.id,
     codigo: c.codigo,
@@ -196,6 +213,7 @@ export async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
     codigosRegistro: crs,
     puestos,
     especialidades: especialidades.map((e) => e.nombre),
+    catalogos,
   }
 }
 

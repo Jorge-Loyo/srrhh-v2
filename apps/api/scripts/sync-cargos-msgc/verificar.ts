@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { ACRONIMOS_MSGC } from './acronimoMsgc.js'
 import { CODIGO_ESCALAFON_CPH_NUEVO, NOMBRE_ESCALAFON_CPH_NUEVO } from './escalafon.js'
+import { CODIGO_REGISTRO_DOCENTES, ESCALAFON_DOCENTES_DESTINO, ESCALAFON_DOCENTES_DUPLICADO } from './escalafonesDuplicados.js'
 
 export interface DatosVerificacion {
   /** Cargos vivos (deleted_at nulo) vigentes / en validación. */
@@ -21,6 +22,13 @@ export interface DatosVerificacion {
   kpisFilas: number
   kpisMeses: number
   kpisMesesEsperados: number
+  /** Escalafon Docentes duplicado ('Docentes-c32a65d'): existe y cargos que le quedan (debe ser 0 cargos). */
+  docentesDuplicadoExiste?: boolean
+  docentesDuplicadoCargos?: number
+  /** Codigo del escalafon al que pertenece el codigo de registro 07 (debe ser '7'). */
+  escalafonDelCr07?: string | null
+  /** Codigos de escalafon autogenerados (`<texto>-<7 hex>`) que quedan (aviso para Jorge). */
+  escalafonesAutogenerados?: string[]
 }
 
 export interface Chequeo {
@@ -101,6 +109,22 @@ export function evaluarVerificacion(d: DatosVerificacion, totalExcel: number, ca
       nombre: 'kpis_dotacion_snapshot cubre todos los meses con padron aprobado',
       ok: false,
       detalle: `${d.kpisMeses} meses con datos; meses con padron aprobado ${d.kpisMesesEsperados}`,
+      severidad: 'aviso',
+    })
+  }
+  if (d.docentesDuplicadoExiste !== undefined) {
+    chequeos.push({
+      nombre: `escalafon Docentes duplicado (${ESCALAFON_DOCENTES_DUPLICADO}) fusionado en ${ESCALAFON_DOCENTES_DESTINO}`,
+      ok: (d.docentesDuplicadoCargos ?? 0) === 0 && d.escalafonDelCr07 === ESCALAFON_DOCENTES_DESTINO,
+      detalle: `duplicado ${d.docentesDuplicadoExiste ? 'existe' : 'eliminado'}, ${d.docentesDuplicadoCargos ?? 0} cargos en el duplicado; CR ${CODIGO_REGISTRO_DOCENTES} en escalafon ${d.escalafonDelCr07 ?? 'ninguno'}`,
+      severidad: 'error',
+    })
+  }
+  if (d.escalafonesAutogenerados !== undefined) {
+    chequeos.push({
+      nombre: 'escalafones con codigo autogenerado que quedan (para Jorge)',
+      ok: d.escalafonesAutogenerados.length === 0,
+      detalle: d.escalafonesAutogenerados.length ? d.escalafonesAutogenerados.join(', ') : 'ninguno',
       severidad: 'aviso',
     })
   }

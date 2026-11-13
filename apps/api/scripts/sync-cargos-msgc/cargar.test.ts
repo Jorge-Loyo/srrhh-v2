@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  contarCambios, ejecutarCarga, partirCodigo, ResolutorCatalogos, ETIQUETA_CEETPS_SI,
+  contarCambios, desglosarCambios, ejecutarCarga, partirCodigo, proyectarCarga, ResolutorCatalogos, ETIQUETA_CEETPS_SI,
   type CatalogosCrudos, type RepoCarga,
 } from './cargar.js'
 import { cruzar, type CargoSistema, type ConcursoSistema, type OcupacionViva, type SnapshotSistema } from './cruce.js'
@@ -45,6 +45,7 @@ const CAT: CatalogosCrudos = {
   especialidades: [],
 }
 const ESCALAFON_DE_CR: Record<string, string> = { '37': 'CPH', '87': 'ENF', '85': 'TEC' }
+const ESCALAFON_DE_ID: Record<string, string> = { 'e-cph': 'CPH', 'e-enf': 'ENF', 'e-tec': 'TEC' }
 
 /** Sistema en memoria que implementa RepoCarga y sabe armar el snapshot que lee el cruce. */
 function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], concursos: ConcursoSistema[] = []) {
@@ -52,6 +53,8 @@ function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], 
   const siglaDe = (id: string) => catalogos.hospitales.find((h) => h.id === id)?.sigla as string
   const crDe = (id: string) => catalogos.codigosRegistro.find((c) => c.id === id)?.codigo as string
   const puestoDe = (id: string) => catalogos.puestos.find((p) => p.id === id)?.nombre as string
+  const espDe = (id: string | null) => (id ? (catalogos.especialidades.find((e) => e.id === id)?.nombre ?? null) : null)
+  const pendientes = { puestos: [] as string[], especialidades: [] as string[] }
   const porId = (id: string) => cargos.find((c) => c.id === id) as CargoSistema
   const llamadas = { crearCargos: 0, actualizarCargos: 0 }
   const repo: RepoCarga = {
@@ -68,13 +71,25 @@ function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], 
       catalogos.hospitales.push({ id: `h-${sigla}`, sigla })
       return `h-${sigla}`
     },
+    crearPuestosPendientes: async (lote) => {
+      for (const x of lote) {
+        catalogos.puestos.push({ id: x.id, escalafonId: x.escalafonId, nombre: x.nombre, modalidad: x.modalidad })
+        pendientes.puestos.push(`${x.modalidad}|${x.tipoPuesto}|${x.nombre}`)
+      }
+    },
+    crearEspecialidadesPendientes: async (lote) => {
+      for (const x of lote) {
+        catalogos.especialidades.push({ id: x.id, puestoId: x.puestoCargoId, nombre: x.nombre })
+        pendientes.especialidades.push(x.nombre)
+      }
+    },
     crearCargos: async (lote) => {
       llamadas.crearCargos++
       for (const x of lote) {
         cargos.push(cargo({
           id: x.id, codigo: x.codigo, estado: x.estado, subEstado: null, origen: 'msgc', expediente: x.expediente,
           sigla: siglaDe(x.hospitalId), cr: crDe(x.codigoRegistroId as string), escalafon: ESCALAFON_DE_CR[crDe(x.codigoRegistroId as string)],
-          puesto: puestoDe(x.puestoCargoId), especialidad: null, cargoBaseId: x.cargoBaseId,
+          puesto: puestoDe(x.puestoCargoId), especialidad: espDe(x.especialidadPuestoId), cargoBaseId: x.cargoBaseId,
           revisionDato: x.revisionMotivo !== null, revisionMotivo: x.revisionMotivo,
         }))
       }
@@ -89,6 +104,7 @@ function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], 
           c.escalafon = ESCALAFON_DE_CR[c.cr]
         }
         if (a.puestoCargoId) c.puesto = puestoDe(a.puestoCargoId)
+        if (a.especialidadPuestoId !== undefined) c.especialidad = espDe(a.especialidadPuestoId)
         if (a.estado) c.estado = a.estado
         if (a.expediente) c.expediente = a.expediente
         if (a.revisionMotivo) {
@@ -113,7 +129,7 @@ function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], 
       for (const x of lote) {
         concursos.push({
           concursoId: x.concursoId, cargoId: x.cargoId, tipo: x.tipo, estado: x.tipo === 'cph' ? 'no_iniciado' : 'sin_autorizar',
-          subEstado: null, motivoConcurso: x.motivoConcurso, autorizado: false, expedientes: [x.expediente],
+          subEstado: null, motivoConcurso: x.motivoConcurso, autorizado: false, expedientes: [x.expediente], origen: 'msgc',
         })
       }
     },
@@ -134,10 +150,11 @@ function sistemaEnMemoria(cargos: CargoSistema[], ocupaciones: OcupacionViva[], 
     siglasHospital: catalogos.hospitales.map((h) => h.sigla),
     siglasOrganigrama: [],
     codigosRegistro: [{ codigo: '37', escalafon: 'CPH' }, { codigo: '87', escalafon: 'ENF' }, { codigo: '85', escalafon: 'TEC' }],
-    puestos: [{ escalafon: 'CPH', nombre: 'Medico' }, { escalafon: 'ENF', nombre: 'Enfermero' }, { escalafon: 'TEC', nombre: 'Tecnico en esterilizacion' }],
-    especialidades: [],
+    puestos: catalogos.puestos.map((p) => ({ escalafon: ESCALAFON_DE_ID[p.escalafonId], nombre: p.nombre })),
+    especialidades: catalogos.especialidades.map((e) => e.nombre),
+    catalogos: structuredClone(catalogos),
   })
-  return { repo, snapshot, cargos, concursos, llamadas }
+  return { repo, snapshot, cargos, concursos, llamadas, pendientes, catalogos }
 }
 
 function escenario() {
@@ -284,9 +301,111 @@ describe('ResolutorCatalogos', () => {
   it('informa el motivo cuando el CR o el puesto no existen', () => {
     const r = new ResolutorCatalogos(CAT)
     expect(r.resolver(fila({ codigo_excel: 'x', cr: '99' }))).toEqual({ falta: 'CR sin codigos_registro' })
-    expect(r.resolver(fila({ codigo_excel: 'x', literal_puesto: 'Inexistente' }))).toEqual({ falta: 'puesto sin equivalencia en catalogo' })
+    expect(r.resolver(fila({ codigo_excel: 'x', sigla: 'NOEXISTE' }))).toEqual({ falta: 'sigla sin hospital' })
+    // Un puesto sin equivalencia NO es un motivo de omision: se crea pendiente de curar.
+    expect('falta' in r.resolver(fila({ codigo_excel: 'x', literal_puesto: 'Inexistente' }))).toBe(false)
   })
   it('la etiqueta del tipificador tiene un nombre fijo', () => {
     expect(ETIQUETA_CEETPS_SI).toBe('Tipificador SI')
+  })
+})
+
+describe('fallback "pendiente de curar": nunca se omite una fila por puesto ni por especialidad', () => {
+  const filasFallback = () => [
+    // Mismo literal sin equivalencia en dos filas (una de planta y una de guardia): se crea UN puesto y lo usan las dos.
+    fila({ codigo_excel: 'CPH-J-00001', literal_puesto: 'JEFE DE LA COSA (99)', tipo: 'Conducción', acronimo: 'CPH-J-POF', bloque: 'Sin designar' }),
+    fila({ codigo_excel: 'CPH-J-00002', literal_puesto: 'Jefe de la Cosa (99)', tipo: 'Conducción', acronimo: 'CPH-J-POU', bloque: 'Sin designar', planta_guardia: 'POU' }),
+    // Puesto del catálogo con una especialidad que el puesto no tiene: se crea la especialidad pendiente.
+    fila({ codigo_excel: 'CPH-P-00001', literal_puesto: 'Medico', especialidad_cargo: 'Hemoterapia', bloque: 'Sin designar' }),
+    fila({ codigo_excel: 'CPH-P-00002', literal_puesto: 'Medico', especialidad_cargo: 'HEMOTERAPIA', bloque: 'Sin designar' }),
+    // Puesto nuevo + especialidad nueva en el mismo cargo; literal en otro CR (otro escalafón => otro puesto).
+    fila({ codigo_excel: 'TEC-00001', cr: '85', acronimo: 'TEC', literal_puesto: 'Tecnico/a de la salud de guardia', especialidad_cargo: 'Guardia', bloque: 'Sin designar' }),
+  ]
+  const nuevo = () => sistemaEnMemoria([], [])
+  it('crea el puesto y la especialidad pendiente de curar y el cargo igual (cierre = filas del Excel)', async () => {
+    const sis = nuevo()
+    const filas = filasFallback()
+    const res = await ejecutarCarga(sis.repo, cruzar(filas, sis.snapshot()).plan, { nuevoId: contador() })
+    expect(res.omitidos_sin_catalogo).toEqual({})
+    expect(res.cargos_creados).toBe(filas.length)
+    // Un puesto por (escalafon, nombre normalizado): el de la 2a fila reusa el de la 1a (la modalidad la fija la primera).
+    expect(res.puestos_pendiente_curar_creados).toBe(2)
+    expect(sis.pendientes.puestos).toEqual(['pof|conduccion|jefe de la cosa (99)', 'pof|ejecucion|tecnico/a de la salud de guardia'])
+    expect(res.filas_con_puesto_pendiente).toBe(3)
+    // Especialidades: 'hemoterapia' (1 por puesto, normalizada) y 'guardia' sobre el puesto nuevo.
+    expect(res.especialidades_pendiente_curar_creadas).toBe(2)
+    expect(sis.pendientes.especialidades.sort()).toEqual(['guardia', 'hemoterapia'])
+    expect(res.filas_con_especialidad_pendiente).toBe(3)
+    expect(sis.cargos.filter((c) => c.estado !== 'no_vigente')).toHaveLength(filas.length)
+  })
+  it('es idempotente: la 2a pasada con el mismo Excel da 0 cambios y no crea mas puestos', async () => {
+    const sis = nuevo()
+    const filas = filasFallback()
+    const id = contador()
+    await ejecutarCarga(sis.repo, cruzar(filas, sis.snapshot()).plan, { nuevoId: id })
+    const r2 = cruzar(filas, sis.snapshot())
+    expect(desglosarCambios(r2.plan)).toEqual({})
+    expect(contarCambios(r2.plan)).toBe(0)
+    const res2 = await ejecutarCarga(sis.repo, r2.plan, { nuevoId: id })
+    expect(res2.total_cambios).toBe(0)
+    expect(res2.puestos_pendiente_curar_creados).toBe(0)
+    expect(res2.especialidades_pendiente_curar_creadas).toBe(0)
+  })
+  it('dry-run = carga: proyectarCarga da los mismos contadores que ejecutarCarga (y no escribe)', async () => {
+    const sis = nuevo()
+    const filas = filasFallback()
+    const plan = cruzar(filas, sis.snapshot()).plan
+    const proyeccion = await proyectarCarga(plan, sis.snapshot().catalogos as CatalogosCrudos)
+    expect(sis.cargos).toHaveLength(0)
+    expect(sis.pendientes.puestos).toHaveLength(0)
+    const carga = await ejecutarCarga(sis.repo, plan, { nuevoId: contador() })
+    expect(proyeccion).toEqual(carga)
+  })
+  it('una sigla sin hospital o un CR inexistente SI se omiten (no son un problema de puesto)', async () => {
+    const sis = nuevo()
+    const filas = [fila({ codigo_excel: 'CPH-P-00001', sigla: 'NOEXISTE', literal_puesto: 'Raro' }), fila({ codigo_excel: 'CPH-P-00002', cr: '99', literal_puesto: 'Raro' })]
+    const res = await ejecutarCarga(sis.repo, cruzar(filas, sis.snapshot()).plan, { nuevoId: contador() })
+    expect(res.cargos_creados).toBe(0)
+    expect(res.puestos_pendiente_curar_creados).toBe(0)
+  })
+})
+
+describe('idempotencia: la 2a pasada en seco da 0 cambios (regresiones de la prueba real)', () => {
+  const pasadaDoble = async (sis: ReturnType<typeof sistemaEnMemoria>, filas: FilaNominal[]) => {
+    const id = contador()
+    await ejecutarCarga(sis.repo, cruzar(filas, sis.snapshot()).plan, { nuevoId: id })
+    const r2 = cruzar(filas, sis.snapshot())
+    return desglosarCambios(r2.plan)
+  }
+  it('ampliaciones del mismo cupo: la que ya tiene concurso en un cargo manual lo reusa y las demas reusan los cargos creados', async () => {
+    const manual = cargo({ id: 'm1', codigo: 'CPH-POF-000500', subEstado: 'concurso', origen: 'manual' })
+    const concursos: ConcursoSistema[] = [
+      { concursoId: 'k1', cargoId: 'm1', tipo: 'cph', estado: 'activo', subEstado: null, motivoConcurso: 'cobertura_dotacion', autorizado: true, expedientes: ['EX-2026-00000902'] },
+    ]
+    const sis = sistemaEnMemoria([manual], [], concursos)
+    const amp = (n: number, exp: string) => fila({ codigo_excel: `CPH-P-0090${n}`, bloque: 'Concurso', detalle: 'Ampliación', expediente: exp })
+    // La fila del medio es la que comparte expediente con el cargo manual.
+    const filas = [amp(1, 'EX-2026-00000901'), amp(2, 'EX-2026-00000902'), amp(3, 'EX-2026-00000903')]
+    expect(await pasadaDoble(sis, filas)).toEqual({})
+    expect(sis.cargos.find((c) => c.id === 'm1')?.estado).toBe('vigente')
+  })
+  it('CR 87 Enfermeria y CR 85 Tecnico con el mismo expediente y sin concurso previo: la 2a pasada resuelve igual', async () => {
+    const sis = sistemaEnMemoria([], [])
+    const filas = [
+      fila({ codigo_excel: 'ENF-00001', cr: '87', acronimo: 'ENF', literal_puesto: 'Enfermeria', bloque: 'Concurso', expediente: 'EX-2026-00000300' }),
+      fila({ codigo_excel: 'TEC-00001', cr: '85', acronimo: 'TEC', literal_puesto: 'Tecnico', bloque: 'Concurso', expediente: 'EX-2026-00000300' }),
+    ]
+    expect(await pasadaDoble(sis, filas)).toEqual({})
+  })
+  it('dos filas del mismo cupo, una con tipificador SI: la etiqueta queda en el cargo de esa fila y la 2a pasada no la mueve', async () => {
+    const v = (id: string, codigo: string) => cargo({ id, codigo, cr: '85', escalafon: 'TEC', puesto: 'Tecnico en esterilizacion', subEstado: 'vacante' })
+    const sis = sistemaEnMemoria([v('t1', 'TEC-000001'), v('t2', 'TEC-000002')], [])
+    const base = { cr: '85', acronimo: 'TEC', literal_puesto: 'Tecnico en esterilizacion', bloque: 'Concurso' }
+    const filas = [
+      fila({ codigo_excel: 'TEC-00001', ...base, expediente: 'EX-2026-00000401' }),
+      fila({ codigo_excel: 'TEC-00002', ...base, expediente: 'EX-2026-00000402', detalle: 'Caratular / SI' }),
+    ]
+    expect(await pasadaDoble(sis, filas)).toEqual({})
+    expect(sis.cargos.filter((c) => c.vinculos.etiquetas > 0)).toHaveLength(1)
   })
 })
