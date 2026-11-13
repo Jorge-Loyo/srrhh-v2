@@ -24,7 +24,8 @@ export function PersonasPage() {
   const hospitalId   = searchParams.get('hospitalId') ?? ''
   const escalafonId  = searchParams.get('escalafonId') ?? ''
   const codigoRegistroId = searchParams.get('codigoRegistroId') ?? ''
-  const modalidad    = (searchParams.get('modalidad') ?? '') as '' | 'pof' | 'pou'
+  // Personas ya no filtra por modalidad: se ignora `modalidad` de la URL (links viejos).
+  const modalidad    = '' as '' | 'pof' | 'pou'
   const activo       = (searchParams.get('activo') ?? '') as '' | 'true' | 'false'
   const puestoCargoId        = searchParams.get('puestoCargoId') ?? ''
   const especialidadPuestoId = searchParams.get('especialidadPuestoId') ?? ''
@@ -256,6 +257,7 @@ export function PersonasPage() {
             grupos={grupos}
             onAgregarUnion={agregarUnion}
             onQuitarGrupo={quitarGrupo}
+            mostrarModalidad={false}
           />
           <button
             type="button"
@@ -313,7 +315,6 @@ export function PersonasPage() {
             const cr = codigosRegistro?.find((c) => c.id === codigoRegistroId)
             chips.push({ label: cr ? `${cr.codigo} — ${cr.literal}` : codigoRegistroId, key: 'codigoRegistroId' })
           }
-          if (modalidad) chips.push({ label: modalidad === 'pof' ? 'Planta (POF)' : 'Guardia (POU)', key: 'modalidad' })
           if (activo) chips.push({ label: activo === 'true' ? 'Solo activos' : 'Solo inactivos', key: 'activo' })
           if (puestoCargoId) chips.push({ label: capitalizar(puestoSeleccionado?.nombre) || puestoCargoId, key: 'puestoCargoId' })
           if (especialidadPuestoId) {
@@ -334,7 +335,6 @@ export function PersonasPage() {
                       // repartición mapea a hospitalId.
                       if (chip.key === 'escalafonId') onChangeFiltros({ escalafonId: '', codigoRegistroId: '' })
                       else if (chip.key === 'codigoRegistroId') onChangeFiltros({ codigoRegistroId: '' })
-                      else if (chip.key === 'modalidad') onChangeFiltros({ modalidad: '' })
                       else if (chip.key === 'puestoCargoId') onChangeFiltros({ puestoCargoId: '' })
                       else if (chip.key === 'especialidadPuestoId') onChangeFiltros({ especialidadPuestoId: '' })
                       else if (chip.key === 'hospitalId') onChangeFiltros({ reparticionId: '' })
