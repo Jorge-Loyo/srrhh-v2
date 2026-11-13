@@ -72,10 +72,10 @@ describe('listBandejaGestionService — filtro de estado contra CEETPS', () => {
 })
 
 describe('listBandejaGestionService — filtros CPH-only excluyen CEETPS en modo mixto', () => {
-  it('con filtro de etapa activo NO consulta CEETPS (no pueden matchear)', async () => {
+  it('con filtro de etapa en modo mixto SÍ consulta CEETPS con su propio where de etapa', async () => {
     await listBandejaGestionService(query({ etapa: 3 }))
     expect(listConcursosCphService).toHaveBeenCalled()
-    expect(concursoCeetps.findMany).not.toHaveBeenCalled()
+    expect(JSON.stringify(concursoCeetps.findMany.mock.calls[0][0].where)).toContain('DISPO_LLAMADO')
   })
 
   it('con filtro de origen (respaldatoria) activo NO consulta CEETPS', async () => {
@@ -86,5 +86,24 @@ describe('listBandejaGestionService — filtros CPH-only excluyen CEETPS en modo
   it('sin filtros CPH-only SÍ consulta CEETPS en modo mixto', async () => {
     await listBandejaGestionService(query())
     expect(concursoCeetps.findMany).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('listBandejaGestionService — etapa en CEETPS', () => {
+  it('tipo ceetps + etapa 2 consulta CEETPS con el where de etapa y marca la etapa en las filas', async () => {
+    concursoCeetps.findMany.mockResolvedValue([
+      {
+        id: 'c1', concursoId: 'k1', cargoId: 'g1', hospitalId: 'h1', estado: 'autorizado', subEstado: null,
+        puestoSolicitado: null, puestoCargoSolicitadoId: null, expedienteConcurso: null,
+        fechaAutorizacion: null, fechaIfacs: null, fechaInsal: null, expedienteDesignacion: null,
+        resolucionDesignacion: null, codigoSial: null, cantidadCargos: 1, personaDesignadaId: null,
+        cambioEspecialidad: false, observaciones: null, createdAt: new Date(), updatedAt: new Date(),
+        concurso: null, hospital: null,
+      },
+    ])
+    const res = await listBandejaGestionService(query({ tipo: 'ceetps', etapa: 2 }))
+    const where = concursoCeetps.findMany.mock.calls[0][0].where
+    expect(where).toEqual({ AND: [{ estado: 'autorizado' }] })
+    expect((res.data[0] as { etapa: number }).etapa).toBe(2)
   })
 })

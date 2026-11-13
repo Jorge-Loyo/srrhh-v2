@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcEstadoCeetps } from '../modules/concursos-ceetps/concursosCeetps.calc.js'
+import { calcEstadoCeetps, etapaCeetps, whereEtapaCeetps } from '../modules/concursos-ceetps/concursosCeetps.calc.js'
 import type { ConcursoCeetpsCalcInput } from '../modules/concursos-ceetps/concursosCeetps.calc.js'
 
 const d = (iso: string) => new Date(iso)
@@ -84,5 +84,23 @@ describe('calcEstadoCeetps — cascada de estados + subEstado', () => {
         resolucionDesignacion: 'RES/647/SSGRH/2025',
       }),
     ).toEqual({ estado: 'finalizado', subEstado: null })
+  })
+})
+
+describe('etapaCeetps / whereEtapaCeetps (stepper de la bandeja)', () => {
+  it('deriva la etapa del estado + subEstado', () => {
+    expect(etapaCeetps('sin_autorizar', 'EXP_CARATULADO')).toBe(1)
+    expect(etapaCeetps('autorizado', null)).toBe(2)
+    expect(etapaCeetps('en_proceso', 'DISPO_LLAMADO')).toBe(3)
+    expect(etapaCeetps('en_proceso', 'IFACS')).toBe(4)
+    expect(etapaCeetps('en_proceso', 'INSAL')).toBe(4)
+    expect(etapaCeetps('en_proceso', 'TAD')).toBe(5)
+    expect(etapaCeetps('finalizado', null)).toBe(5)
+    expect(etapaCeetps('desierto', null)).toBe(5)
+  })
+
+  it('where de etapa: 2 = autorizado; fuera de 1..5 = null', () => {
+    expect(whereEtapaCeetps(2)).toEqual({ estado: 'autorizado' })
+    expect(whereEtapaCeetps(6)).toBeNull()
   })
 })

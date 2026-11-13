@@ -99,3 +99,49 @@ export function calcEstadoCeetps(row: ConcursoCeetpsCalcInput): CalcCeetpsResult
 
   return { estado: 'sin_autorizar', subEstado: null }
 }
+
+// ─── Etapa (1..5) del stepper de la bandeja "Gestión de Concursos" ────────────
+// El stepper de 5 pasos es el de CPH (Apertura/Autorización, Jurado/Dispo,
+// Inscripción/Examen/OM, IFACS/INSAL, Designación). CEETPS no tiene los
+// sub-estados de jurado/inscripción de CPH, así que su etapa se deriva de
+// estado + subEstado:
+//   1: sin_autorizar
+//   2: autorizado — SGRASV autorizó el concurso; en esta etapa se toman los
+//      jurados del sorteo de la dotación (CEETPS no sortea por su cuenta)
+//   3: DISPO_LLAMADO
+//   4: IFACS / INSAL
+//   5: TAD / DISPO_DESIGNACION / finalizado / desierto
+export type EtapaCeetps = 1 | 2 | 3 | 4 | 5
+
+export function etapaCeetps(estado: string, subEstado: string | null): EtapaCeetps {
+  if (estado === 'finalizado' || estado === 'desierto') return 5
+  if (subEstado === 'TAD' || subEstado === 'DISPO_DESIGNACION') return 5
+  if (subEstado === 'IFACS' || subEstado === 'INSAL') return 4
+  if (subEstado === 'DISPO_LLAMADO') return 3
+  if (estado === 'autorizado') return 2
+  return 1
+}
+
+// where de Prisma equivalente a etapaCeetps(...) === etapa. null = etapa fuera
+// de 1..5 (el caller no consulta).
+export function whereEtapaCeetps(etapa: number): Record<string, unknown> | null {
+  switch (etapa) {
+    case 1:
+      return { estado: 'sin_autorizar' }
+    case 2:
+      return { estado: 'autorizado' }
+    case 3:
+      return { subEstado: 'DISPO_LLAMADO' }
+    case 4:
+      return { subEstado: { in: ['IFACS', 'INSAL'] } }
+    case 5:
+      return {
+        OR: [
+          { estado: { in: ['finalizado', 'desierto'] } },
+          { subEstado: { in: ['TAD', 'DISPO_DESIGNACION'] } },
+        ],
+      }
+    default:
+      return null
+  }
+}

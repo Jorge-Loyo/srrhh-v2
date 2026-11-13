@@ -28,6 +28,8 @@ import {
   diasSinMovimiento,
 } from '../lib/labels'
 import { apiClient } from '@/shared/lib/api-client'
+import { EstadoConcursoCeetps } from '@srrhh/types'
+import { ESTADO_LABEL as ESTADO_LABEL_CEETPS } from '@/modules/concursos-ceetps/lib/labels'
 
 export const LIMIT = 50
 
@@ -36,13 +38,17 @@ export const LIMIT = 50
 // 'suspendido', así que tiene prioridad para el color rojo.
 function semaforoClass(c: ConcursoCph): string {
   if (c.suspendido || c.estado === 'suspendido') return 'bg-red-500'
-  if (c.estado === 'activo') return 'bg-green-500'
-  if (c.estado === 'finalizado') return 'bg-orange-500'
-  return 'bg-gray-300' // no_iniciado
+  const estado: string = c.estado // puede ser un estado CEETPS (variante 'ceetps')
+  if (estado === 'activo' || estado === 'autorizado' || estado === 'en_proceso') return 'bg-green-500'
+  if (estado === 'finalizado') return 'bg-orange-500'
+  if (estado === 'desierto') return 'bg-red-500'
+  return 'bg-gray-300' // no_iniciado / sin_autorizar
 }
 
 function semaforoLabel(c: ConcursoCph): string {
   if (c.suspendido || c.estado === 'suspendido') return 'Suspendido'
+  const estadoCeetps = ESTADO_LABEL_CEETPS[c.estado as unknown as EstadoConcursoCeetps]
+  if (estadoCeetps) return estadoCeetps
   if (c.estado === 'activo') return 'Activo'
   if (c.estado === 'finalizado') return 'Finalizado'
   return 'No iniciado'
@@ -132,8 +138,10 @@ function etapaActual(subEstado: string | null): number {
 
 // Mini-stepper de 5 pasos para la columna "Etapa". El paso actual se resalta,
 // los anteriores van con check, los siguientes en gris.
-function EtapaStepper({ subEstado }: { subEstado: string | null }) {
-  const actual = etapaActual(subEstado)
+// Las filas CEETPS traen la etapa ya resuelta (`etapa`, la deriva el back); las
+// CPH la derivan del sub-estado.
+function EtapaStepper({ subEstado, etapa }: { subEstado: string | null; etapa?: number }) {
+  const actual = etapa ?? etapaActual(subEstado)
   return (
     <div className="flex items-center gap-1">
       {ETAPAS.map((titulo, idx) => {
@@ -180,6 +188,9 @@ export interface ConcursosListaTabProps {
   titulo?: string
   descripcion?: string
   useData?: UseDataHook
+  // 'ceetps': misma vista pero sin lo que es solo de CPH (acciones, etiquetas,
+  // especialidad, filtros avanzados) y con los estados propios de CEETPS.
+  variante?: 'cph' | 'ceetps'
 }
 
 // Tab "Concursos": el listado principal (filtros + tabla + etiquetado masivo).
@@ -189,12 +200,14 @@ export function ConcursosListaTab({
   titulo = 'Concursos CPH',
   descripcion,
   useData = useConcursosCph,
+  variante = 'cph',
 }: ConcursosListaTabProps = {}) {
+  const esCeetps = variante === 'ceetps'
   const [search, setSearch] = useState('')
   const [especialidad, setEspecialidad] = useState('')
   // Filtro multi-sigla (efector): ids de hospital seleccionados. [] = todas.
   const [hospitalIds, setHospitalIds] = useState<string[]>([])
-  const [estado, setEstado] = useState<'' | EstadoConcursoCph>('')
+  const [estado, setEstado] = useState<'' | EstadoConcursoCph | EstadoConcursoCeetps>('')
   const [subEstado, setSubEstado] = useState('')
   // Filtro por ETAPA (1..5 del stepper), reemplaza al viejo filtro por
   // subEstado3. '' = todas. Filtra por sub_estado vía el param `etapa` al back.
@@ -286,7 +299,7 @@ export function ConcursosListaTab({
     ...(puestoDebounced && { puesto: puestoDebounced }),
     ...(conduccion && { conduccion: conduccion === 'true' }),
     ...(hospitalIds.length && { hospitalIds: hospitalIds.join(',') }),
-    ...(estado && { estado }),
+    ...(estado && { estado: estado as EstadoConcursoCph }),
     ...(subEstado && { subEstado }),
     ...(etapa !== '' && { etapa }),
     ...(origen && { origen }),
@@ -418,6 +431,7 @@ export function ConcursosListaTab({
             <h1 className="font-primary text-xl font-bold text-gray-900">{titulo}</h1>
             {descripcion && <p className="text-sm text-gray-500">{descripcion}</p>}
           </div>
+          {!esCeetps && (
           <div className="relative" ref={menuAccionesRef}>
             <button
               onClick={() => setMenuAcciones((v) => !v)}
@@ -484,6 +498,7 @@ export function ConcursosListaTab({
               </div>
             )}
           </div>
+          )}
         </div>
         {importResult && (
           <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
@@ -532,13 +547,15 @@ export function ConcursosListaTab({
             onChange={(e) => resetPage(setSearch)(e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[240px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
           />
-          <input
-            type="text"
-            placeholder="Especialidad..."
-            value={especialidad}
-            onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
-            className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
-          />
+          {!esCeetps && (
+            <input
+              type="text"
+              placeholder="Especialidad..."
+              value={especialidad}
+              onChange={(e) => resetPage(setEspecialidad)(e.target.value)}
+              className="h-10 px-3 border border-gray-300 rounded min-w-[180px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
+            />
+          )}
           {/* Multi-sigla: varios efectores a la vez (OR/IN). El value guarda
               ids de hospital; formatOption muestra "SIGLA — Nombre". Sin
               selección muestra "Todas las siglas"; con selección el propio
@@ -558,7 +575,10 @@ export function ConcursosListaTab({
 
         {/* Filtro rápido por estado (4 botones) + filtros avanzados */}
         <div className="flex flex-wrap items-center gap-2">
-          {Object.values(EstadoConcursoCph).map((e) => (
+          {(esCeetps
+            ? Object.values(EstadoConcursoCeetps)
+            : Object.values(EstadoConcursoCph)
+          ).map((e) => (
             <button
               key={e}
               type="button"
@@ -569,7 +589,9 @@ export function ConcursosListaTab({
                   : 'bg-white text-gray-600 border-gray-300 hover:border-secondary hover:text-secondary'
               }`}
             >
-              {ESTADO_LABEL[e]}
+              {esCeetps
+                ? ESTADO_LABEL_CEETPS[e as EstadoConcursoCeetps]
+                : ESTADO_LABEL[e as EstadoConcursoCph]}
             </button>
           ))}
           {/* Ordenamiento por fecha: columna + dirección (default fecha de
@@ -599,6 +621,7 @@ export function ConcursosListaTab({
               <option value="asc">Más antiguo primero</option>
             </select>
           </div>
+          {!esCeetps && (
           <button
             type="button"
             onClick={() => setDrawerAvanzado(true)}
@@ -641,6 +664,7 @@ export function ConcursosListaTab({
               </span>
             )}
           </button>
+          )}
         </div>
 
         {/* Burbujas de filtros aplicados */}
@@ -682,8 +706,12 @@ export function ConcursosListaTab({
           })
           if (estado)
             chips.push({
-              label: `Estado: ${ESTADO_LABEL[estado]}`,
-              onClear: () => resetPage(setEstado)('' as '' | EstadoConcursoCph),
+              label: `Estado: ${
+                esCeetps
+                  ? ESTADO_LABEL_CEETPS[estado as EstadoConcursoCeetps]
+                  : ESTADO_LABEL[estado as EstadoConcursoCph]
+              }`,
+              onClear: () => resetPage(setEstado)(''),
             })
           if (subEstado)
             chips.push({
@@ -833,7 +861,7 @@ export function ConcursosListaTab({
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
-                      <th className="px-4 py-3 font-semibold">Etiquetas</th>
+                      {!esCeetps && <th className="px-4 py-3 font-semibold">Etiquetas</th>}
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
                   </thead>
@@ -890,7 +918,10 @@ export function ConcursosListaTab({
                             {c.concurso?.cargo?.descripcionRepa ?? c.concurso?.cargo?.codigoRepa ?? '—'}
                           </td>
                           <td className="px-4 py-3">
-                            <EtapaStepper subEstado={c.subEstado} />
+                            <EtapaStepper
+                              subEstado={c.subEstado}
+                              etapa={(c as ConcursoCph & { etapa?: number }).etapa}
+                            />
                           </td>
                           <td className="px-4 py-3 text-gray-600">{subEstadoLabel(c.subEstado)}</td>
                           <td className="px-4 py-3">
@@ -901,14 +932,16 @@ export function ConcursosListaTab({
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
                             )}
                           </td>
-                          <td className="px-4 py-3">
-                            <EtiquetasControl
-                              entidad="concurso_cph"
-                              entidadId={c.id}
-                              asignadas={c.etiquetas ?? []}
-                              variant="compacto"
-                            />
-                          </td>
+                          {!esCeetps && (
+                            <td className="px-4 py-3">
+                              <EtiquetasControl
+                                entidad="concurso_cph"
+                                entidadId={c.id}
+                                asignadas={c.etiquetas ?? []}
+                                variant="compacto"
+                              />
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button
@@ -1262,7 +1295,10 @@ function DetalleConcursoModal({
   const r = respaldatoria(c)
   const dias = diasSinMovimiento(c.updatedAt)
   const filas: { label: string; valor: string }[] = [
-    { label: 'Carrera', valor: 'CPH' },
+    {
+      label: 'Carrera',
+      valor: (c as ConcursoCph & { tipoConcurso?: string }).tipoConcurso === 'ceetps' ? 'CEETPS' : 'CPH',
+    },
     {
       label: 'Cargo (código)',
       valor: c.concurso?.cargo?.codigo ?? c.concurso?.cargo?.literalPuesto ?? '—',

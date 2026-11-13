@@ -2,6 +2,7 @@ import { Prisma, type ConcursoCeetps } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
 import type { ConcursosCphQuery } from '../concursos-cph/concursos-cph.schema.js'
 import { listConcursosCphService } from '../concursos-cph/concursos-cph.service.js'
+import { etapaCeetps, whereEtapaCeetps } from '../concursos-ceetps/concursosCeetps.calc.js'
 
 // ─── PASO 1b (flujo concursos): bandeja RICA mixta CPH + CEETPS ─────────────
 // Alimenta la tabla COMPLETA mudada a /cargos/concurso ("Gestión de Concursos").
@@ -48,9 +49,11 @@ export function ceetpsToConcursoCphShape(row: CeetpsRow): Record<string, unknown
     cargoId: row.cargoId,
     hospitalId: row.hospitalId,
     // Estado/sub-estado reales del CEETPS (strings propios de su enum) — la
-    // tabla los muestra como texto; el stepper (CPH-only) queda en etapa 1.
+    // tabla los muestra como texto. `etapa` (1..5) la deriva etapaCeetps y la
+    // usa el stepper en lugar de mapear el sub-estado (que es CPH-only).
     estado: row.estado,
     subEstado: row.subEstado,
+    etapa: etapaCeetps(row.estado, row.subEstado),
     subEstado3: null,
     especialidadSolicitada: null,
     puestoSolicitado: row.puestoSolicitado,
@@ -154,8 +157,7 @@ const ESTADOS_CEETPS = new Set<ConcursoCeetps['estado']>([
 // CEETPS, pero un estado que solape (finalizado) sí se aplica.
 function tieneFiltroCphOnlyActivo(query: BandejaGestionQuery): boolean {
   return Boolean(
-    query.etapa !== undefined ||
-      query.origen ||
+    query.origen ||
       query.conFaltantes ||
       query.personaOm !== undefined ||
       query.validado !== undefined ||
@@ -192,7 +194,7 @@ export async function listBandejaGestionService(query: BandejaGestionQuery) {
   // todo el conjunto filtrado (el límite duro del schema es 200; se itera si
   // hiciera falta, pero el volumen real entra holgado en una página grande).
   //
-  // CEETPS en mixto: si hay un filtro CPH-only activo (etapa, origen, puesto,
+  // CEETPS en mixto: si hay un filtro CPH-only activo (origen, puesto,
   // etc.), las filas CEETPS no pueden evaluarse contra ese criterio y se
   // OCULTAN — así el filtro no "fuga" filas CEETPS que no matchean. Sin filtro
   // CPH-only, se incluyen los CEETPS (aplicando solo hospital/estado/search).
@@ -226,7 +228,7 @@ async function fetchCeetpsMapeados(query: BandejaGestionQuery): Promise<Record<s
   // hospital(es), estado (solo si es un estado válido del enum CEETPS), search.
   // El sub-estado es CPH-only (los valores con prefijo de letra son del flujo
   // CPH), así que no se reenvía a CEETPS.
-  const { hospitalId, hospitalIds, estado, search } = query
+  const { hospitalId, hospitalIds, estado, search, etapa } = query
 
   // El filtro de estado llega como valor del enum CPH
   // (no_iniciado/activo/finalizado/suspendido). Solo 'finalizado' es miembro
@@ -237,7 +239,12 @@ async function fetchCeetpsMapeados(query: BandejaGestionQuery): Promise<Record<s
     return []
   }
 
+  // Etapa (stepper): se traduce a un where propio de CEETPS (ver whereEtapaCeetps).
+  const whereEtapa = etapa !== undefined ? whereEtapaCeetps(etapa) : undefined
+  if (whereEtapa === null) return []
+
   const where: Prisma.ConcursoCeetpsWhereInput = {
+    ...(whereEtapa && { AND: [whereEtapa as Prisma.ConcursoCeetpsWhereInput] }),
     ...(hospitalIds?.length
       ? { hospitalId: { in: hospitalIds } }
       : hospitalId
