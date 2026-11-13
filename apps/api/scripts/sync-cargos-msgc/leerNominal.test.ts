@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ENCABEZADOS_NOMINAL, parsearNominal } from './leerNominal.js'
+import { ENCABEZADOS_NOMINAL, esReemplazanteExcel, parsearNominal, prefijoExcel } from './leerNominal.js'
 
 const ENC = ENCABEZADOS_NOMINAL.join(',')
 // Fixture sintético de 5 filas (sin datos reales). Orden de columnas = ENCABEZADOS_NOMINAL.
@@ -33,5 +33,15 @@ describe('leerNominal', () => {
 
   it('rechaza un expediente que no cumple EX-AAAA-', () => {
     expect(() => parsearNominal(`${ENC}\n${fila('CPH-P-00001', '20123456789')}`)).toThrow(/expediente/)
+  })
+})
+
+describe('marca de reemplazante del Excel', () => {
+  it('R- adelante del codigo_excel (la columna acronimo viene sin R-)', () => {
+    const [r, n] = parsearNominal([ENC, fila('R-CPH-G-00001'), fila('CPH-G-00002')].join('\n'))
+    expect(esReemplazanteExcel(r)).toBe(true)
+    expect(esReemplazanteExcel(n)).toBe(false)
+    expect(prefijoExcel({ codigo_excel: r.codigo_excel, acronimo: 'CPH-G' })).toBe('R-CPH-G')
+    expect(prefijoExcel({ codigo_excel: n.codigo_excel, acronimo: 'CPH-G' })).toBe('CPH-G')
   })
 })

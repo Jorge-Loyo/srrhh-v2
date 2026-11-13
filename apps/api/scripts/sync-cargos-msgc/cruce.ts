@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { concursoCuentaComoActivo } from '../../src/modules/cargos/concursoActivo.regla.js'
-import type { FilaNominal } from './leerNominal.js'
+import { esReemplazanteExcel, type FilaNominal } from './leerNominal.js'
 import type { CatalogosCrudos } from './cargar.js'
 import { ACRONIMOS_MSGC, acronimoMsgc, recodificarCodigo } from './acronimoMsgc.js'
 import {
@@ -794,7 +794,7 @@ export function cruzar(filasEntrada: FilaNominal[], sistema: SnapshotSistema): R
   ) => {
     cargosCubiertos.add(cargo.id)
     filaDeCargo.set(cargo.id, f)
-    const propuesto = cargo.codigo ? recodificarCodigo(cargo.codigo, f.acronimo) : null
+    const propuesto = cargo.codigo ? recodificarCodigo(cargo.codigo, f.acronimo, esReemplazanteExcel(f)) : null
     if (propuesto) propuestoPorCargo.set(cargo.id, propuesto)
     compararExpediente(f, cargo)
     const difs = diferencias(f, cargo, propuesto, estadoExcel, escalafonDeCr)

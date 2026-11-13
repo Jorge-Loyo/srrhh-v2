@@ -16,6 +16,8 @@ export interface CargoCodigo {
   codigo: string
   /** Acrónimo nuevo del cargo; null = sin regla (no se toca). */
   acronimo: string | null
+  /** Marca de reemplazante decidida (true agrega R- adelante, false la quita); undefined = conserva la actual. */
+  reemplazante?: boolean
 }
 
 export interface CambioCodigo {
@@ -45,7 +47,7 @@ export function planificarRecodificacion(cargos: CargoCodigo[]): PlanRecodificac
   const finalDe = new Map<string, string>()
   const sinRegla: Record<string, number> = {}
   for (const c of cargos) {
-    const nuevo = c.acronimo ? recodificarCodigo(c.codigo, c.acronimo) : null
+    const nuevo = c.acronimo ? recodificarCodigo(c.codigo, c.acronimo, c.reemplazante) : null
     finalDe.set(c.id, nuevo ?? c.codigo)
     if (nuevo === null) {
       const pref = prefijoAcronimo(c.codigo) ?? c.codigo
@@ -92,11 +94,17 @@ export interface RepoRecodificacion {
 /** Recodifica todos los cargos en dos fases (liberar, asignar) para no chocar con el índice único. */
 export async function ejecutarRecodificacion(
   repo: RepoRecodificacion,
+  /** Prefijo decidido por cargo: 'CPH-G' (no reemplazante) o 'R-CPH-G' (reemplazante); null = sin regla. */
   acronimoPorCargo: ReadonlyMap<string, string | null>,
   tamanioLote = 1000,
 ): Promise<PlanRecodificacion> {
   const filas = await repo.leerCodigos()
-  const plan = planificarRecodificacion(filas.map((f) => ({ id: f.id, codigo: f.codigo, acronimo: acronimoPorCargo.get(f.id) ?? null })))
+  const plan = planificarRecodificacion(
+    filas.map((f) => {
+      const p = acronimoPorCargo.get(f.id) ?? null
+      return { id: f.id, codigo: f.codigo, acronimo: p === null ? null : p.replace(/^R-/, ''), reemplazante: p === null ? undefined : p.startsWith('R-') }
+    }),
+  )
   for (let i = 0; i < plan.cambios.length; i += tamanioLote) await repo.liberarCodigos(plan.cambios.slice(i, i + tamanioLote).map((c) => c.id))
   for (let i = 0; i < plan.cambios.length; i += tamanioLote) await repo.asignarCodigos(plan.cambios.slice(i, i + tamanioLote))
   return plan

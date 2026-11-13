@@ -336,6 +336,7 @@ export function crearRepoEscritura(
         `SELECT regexp_replace(regexp_replace(codigo, '-[0-9]+$', ''), '^R-', '') AS prefijo, count(*)::int AS n
          FROM cargos WHERE codigo IS NOT NULL GROUP BY 1`,
       )
+      const acrs = await tx.$queryRawUnsafe<{ acronimo: string | null; n: number }[]>(SQL_DISTRIBUCION_ACRONIMOS)
       const integridad: Record<string, number> = {}
       for (const [nombre, sql] of Object.entries(CONSULTAS_INTEGRIDAD)) {
         const f = await tx.$queryRawUnsafe<{ n: number }[]>(sql)
@@ -351,6 +352,7 @@ export function crearRepoEscritura(
         vigentes: Number(estados.find((e) => e.estado === 'vigente')?.n ?? 0),
         validacionVacante: Number(estados.find((e) => e.estado === 'validacion_vacante')?.n ?? 0),
         prefijosCodigo: Object.fromEntries(prefijos.map((p) => [p.prefijo, Number(p.n)])),
+        distribucionAcronimos: Object.fromEntries(acrs.map((a) => [a.acronimo ?? 'sin-codigo', Number(a.n)])),
         integridad,
         subEstadoInconsistentes: Number(sub[0]?.n ?? 0),
         escalafonesCph: esc.map((e) => ({ codigo: e.codigo, nombre: e.nombre })),
@@ -365,6 +367,11 @@ export function crearRepoEscritura(
     },
   }
 }
+
+/** Cargos vigentes + validacion_vacante por acronimo del codigo (R- adelante incluido), como el diff por acronimo de Jorge. */
+export const SQL_DISTRIBUCION_ACRONIMOS = `
+SELECT regexp_replace(codigo, '-[0-9]+$', '') AS acronimo, count(*)::int AS n
+FROM cargos WHERE estado IN ('vigente','validacion_vacante') AND deleted_at IS NULL GROUP BY 1`
 
 /** Escalafon Docentes duplicado ('Docentes-c32a65d'): si existe y cuantos cargos tiene. */
 export const SQL_DOCENTES_DUPLICADO = `

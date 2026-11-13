@@ -201,4 +201,26 @@ describe('parseArgs y construirAcronimos', () => {
     )
     expect(m.get('c1')).toBe('CPH-G')
   })
+  it('la marca R- la decide el Excel: fila con R- adelante -> R-; sin R- quita el reemplazo del sistema; sin fila conserva la del sistema', () => {
+    const base = {
+      estado: 'vigente', subEstado: null, eliminado: false, origen: 'padron', tipoOrigen: null,
+      expediente: null, codigoRepa: null, sigla: 'HTAL', cr: '37', escalafon: 'CPH', puesto: 'Medico', especialidad: null,
+      cargoBaseId: null, cargoRetenidoId: null,
+      vinculos: { concursos: 0, concursosCph: 0, concursosCeetps: 0, bajas: 0, padronHistorico: 0, padronIncidencias: 0, etiquetas: 0, solicitudesAlta: 0 },
+    } as const
+    const item = (cargoId: string, codigo_excel: string, acronimo: string) => ({ cargoId, categoria: 'b' as const, fila: { ...FILA, codigo_excel, acronimo }, estado: 'vigente' as const, cambios: [], completarExpediente: false, revision: null, etiquetar: false, ampliacion: false, esJefatura: false, claveRol: '', baseCargoId: null, crearConcurso: null })
+    const m = construirAcronimos(
+      { items: [item('g', 'R-CPH-G-00001', 'CPH-G'), item('p', 'CPH-P-00001', 'CPH-P')], noVigenteIds: [], concursosConservar: [], concursosEliminar: [], concursosReasignar: [] },
+      { ...SNAPSHOT, cargos: [
+        { ...base, id: 'g', codigo: 'CPH-G-000001' }, // lo tenia sin R-: el Excel dice R-
+        { ...base, id: 'p', codigo: 'CPH-POF-R-000002' }, // lo tenia como reemplazo: el Excel dice que no
+        { ...base, id: 'z', codigo: 'CPH-POF-R-000003' }, // sin fila (pasa a no vigente): conserva la marca
+        { ...base, id: 'y', codigo: 'CPH-POF-000004' },
+      ] },
+    )
+    expect(m.get('g')).toBe('R-CPH-G')
+    expect(m.get('p')).toBe('CPH-P')
+    expect(m.get('z')).toBe('R-CPH-P')
+    expect(m.get('y')).toBe('CPH-P')
+  })
 })

@@ -123,6 +123,12 @@ describe('recodificarCodigo', () => {
   it('sufijo -R- pasa a R- adelante', () => {
     expect(recodificarCodigo('CPH-POU-R-000123', 'CPH-G')).toBe('R-CPH-G-000123')
   })
+  it('con reemplazante explicito la marca R- la decide quien llama (Excel): true agrega, false quita', () => {
+    expect(recodificarCodigo('CPH-POU-000123', 'CPH-G', true)).toBe('R-CPH-G-000123')
+    expect(recodificarCodigo('CPH-POF-R-000123', 'CPH-P', false)).toBe('CPH-P-000123')
+    expect(recodificarCodigo('R-CPH-P-000123', 'CPH-P', false)).toBe('CPH-P-000123')
+    expect(recodificarCodigo('R-CPH-G-000123', 'CPH-G', true)).toBe('R-CPH-G-000123')
+  })
   it('es idempotente sobre un código ya recodificado', () => {
     expect(recodificarCodigo('CPH-P-000123', 'CPH-P')).toBe('CPH-P-000123')
     expect(recodificarCodigo('R-CPH-G-000123', 'CPH-G')).toBe('R-CPH-G-000123')

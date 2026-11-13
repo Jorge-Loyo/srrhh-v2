@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluarVerificacion, textoVerificacion, type DatosVerificacion } from './verificar.js'
+import { distribucionEsperada, evaluarVerificacion, EXCEPCIONES_ENF_CR85, textoVerificacion, type DatosVerificacion } from './verificar.js'
 
 const OK: DatosVerificacion = {
   vigentes: 90, validacionVacante: 10,
@@ -69,5 +69,41 @@ describe('evaluarVerificacion', () => {
     const aviso = evaluarVerificacion({ ...ok, escalafonesAutogenerados: ['Otro-1234abc'] }, 100, 0)
     expect(aviso.ok).toBe(true)
     expect(aviso.chequeos.find((c) => c.nombre.includes('autogenerado'))?.detalle).toContain('Otro-1234abc')
+  })
+})
+
+describe('control de distribucion por acronimo (con R-)', () => {
+  const filas = [
+    { codigo_excel: 'CPH-G-00001', acronimo: 'CPH-G' },
+    { codigo_excel: 'R-CPH-G-00002', acronimo: 'CPH-G' },
+    { codigo_excel: 'CPH-P-00001', acronimo: 'CPH-P' },
+    { codigo_excel: 'TEC-00001', acronimo: 'TEC' },
+    { codigo_excel: EXCEPCIONES_ENF_CR85[0], acronimo: 'TEC' },
+  ]
+  const esperada = distribucionEsperada(filas)
+  const real = { 'CPH-G': 1, 'R-CPH-G': 1, 'CPH-P': 1, TEC: 1, ENF: 1 }
+  const ctl = (r: ReturnType<typeof evaluarVerificacion>) => r.chequeos.find((c) => c.nombre.startsWith('distribucion por acronimo'))
+  it('esperada: R- sale del codigo_excel y las excepciones de Jorge cuentan como ENF', () => {
+    expect(esperada).toEqual(real)
+  })
+  it('OK cuando coincide', () => {
+    const r = evaluarVerificacion({ ...OK, vigentes: 4, validacionVacante: 1, distribucionAcronimos: real }, 5, 0, esperada)
+    expect(ctl(r)?.ok).toBe(true)
+    expect(r.ok).toBe(true)
+  })
+  it('FALLA con detalle cuando los reemplazantes quedan sin R- o un R- sobra', () => {
+    const r = evaluarVerificacion(
+      { ...OK, vigentes: 4, validacionVacante: 1, distribucionAcronimos: { 'CPH-G': 2, 'R-CPH-P': 1, TEC: 1, ENF: 1 } },
+      5, 0, esperada,
+    )
+    expect(r.ok).toBe(false)
+    expect(ctl(r)?.detalle).toBe('CPH-G: Excel 1, local 2; CPH-P: Excel 1, local 0; R-CPH-G: Excel 1, local 0; R-CPH-P: Excel 0, local 1')
+  })
+  it('FALLA si una excepcion no decidida (un TEC mas como ENF) cambia la distribucion', () => {
+    const r = evaluarVerificacion({ ...OK, vigentes: 4, validacionVacante: 1, distribucionAcronimos: { ...real, TEC: 0, ENF: 2 } }, 5, 0, esperada)
+    expect(ctl(r)?.ok).toBe(false)
+  })
+  it('sin distribucion esperada no se evalua el control', () => {
+    expect(ctl(evaluarVerificacion(OK, 100, 0))).toBeUndefined()
   })
 })

@@ -128,14 +128,16 @@ const ACRONIMOS = new Set<string>(ACRONIMOS_MSGC)
  * Recodifica un código del sistema al acrónimo nuevo conservando los 6 dígitos del sistema:
  *   CPH-POF-000123   + CPH-P -> CPH-P-000123
  *   CPH-POU-R-000123 + CPH-G -> R-CPH-G-000123   (sufijo -R- pasa a R- adelante)
+ *   `reemplazante` (opcional) fuerza la marca: true agrega R-, false la quita (el Excel manda).
  * Devuelve null (sin regla) para `-TTR-`, formato desconocido o acrónimo desconocido. No inventa.
  */
-export function recodificarCodigo(codigoViejo: string, acronimoNuevo: string): string | null {
+export function recodificarCodigo(codigoViejo: string, acronimoNuevo: string, reemplazante?: boolean): string | null {
   if (!ACRONIMOS.has(acronimoNuevo)) return null
   const m = /^(R-)?([A-Z0-9]+(?:-[A-Z0-9]+)*?)(-R)?-(\d{6})$/.exec(String(codigoViejo ?? '').trim())
   if (!m) return null
   const [, rAdelante, prefijoViejo, rSufijo, numero] = m
   if (prefijoViejo.split('-').includes('TTR') || prefijoViejo.endsWith('-TTR')) return null
-  const reemplazante = Boolean(rAdelante || rSufijo)
-  return `${reemplazante ? 'R-' : ''}${acronimoNuevo}-${numero}`
+  // `reemplazante` explicito (lo decide el Excel: R- si y solo si su codigo empieza con 'R-'); si no, se conserva la marca del sistema.
+  const esReemplazante = reemplazante ?? Boolean(rAdelante || rSufijo)
+  return `${esReemplazante ? 'R-' : ''}${acronimoNuevo}-${numero}`
 }

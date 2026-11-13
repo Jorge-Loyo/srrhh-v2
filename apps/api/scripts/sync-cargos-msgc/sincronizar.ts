@@ -25,10 +25,10 @@ import { cruzar, sistemaAcronimo, type PlanCarga, type SnapshotSistema } from '.
 import { ejecutarEscalafonCph, type ResultadoEscalafon } from './escalafon.js'
 import { ejecutarEscalafonesDuplicados, type ResultadoEscalafonesDuplicados } from './escalafonesDuplicados.js'
 import { asegurarBaseLocal } from './guardaBase.js'
-import { leerNominal, type FilaNominal } from './leerNominal.js'
+import { leerNominal, prefijoExcel, type FilaNominal } from './leerNominal.js'
 import { ejecutarRecodificacion, type PlanRecodificacion } from './recodificar.js'
 import type { RepoEscritura } from './repoPrisma.js'
-import { evaluarVerificacion, textoVerificacion, type ResultadoVerificacion } from './verificar.js'
+import { distribucionEsperada, evaluarVerificacion, textoVerificacion, type ResultadoVerificacion } from './verificar.js'
 
 export interface ArgsSync {
   input: string
@@ -88,9 +88,11 @@ export function construirAcronimos(plan: PlanCarga, sistema: SnapshotSistema): M
   const m = new Map<string, string | null>()
   for (const c of sistema.cargos) {
     const a = sistemaAcronimo(c)
-    m.set(c.id, a === 'sin-regla' ? null : a)
+    // Cargo sin fila del Excel: conserva la marca de reemplazante que tiene (R- adelante o sufijo -R-).
+    m.set(c.id, a === 'sin-regla' ? null : /^R-|-R-\d{6}$/.test(c.codigo ?? '') ? `R-${a}` : a)
   }
-  for (const it of plan.items) if (it.cargoId !== null) m.set(it.cargoId, it.fila.acronimo)
+  // Cargo con fila: la marca R- la decide SOLO el Excel (codigo_excel con R- adelante); si el sistema lo tenia como reemplazo y el Excel no, se quita.
+  for (const it of plan.items) if (it.cargoId !== null) m.set(it.cargoId, prefijoExcel(it.fila))
   return m
 }
 
@@ -170,7 +172,7 @@ export async function sincronizar(args: ArgsSync, env: { DATABASE_URL?: string }
     // Verificación: datos de la base + segunda corrida en seco con el mismo Excel (debe dar 0 cambios).
     const r3 = cruzar(filas, await base.leerSnapshot())
     const datos = await base.transaccion((repo) => repo.datosVerificacion())
-    const verificacion = evaluarVerificacion(datos, filas.length, contarCambios(r3.plan))
+    const verificacion = evaluarVerificacion(datos, filas.length, contarCambios(r3.plan), distribucionEsperada(filas))
     deps.log(textoVerificacion(verificacion))
 
     const resultado: ResultadoSync = {

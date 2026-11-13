@@ -102,3 +102,43 @@ describe('ejecutarRecodificacion', () => {
     expect(orden.slice(2).every((o) => o.startsWith('asignar'))).toBe(true)
   })
 })
+
+describe('marca de reemplazante: la decide el Excel', () => {
+  it('Excel con R-: un cargo sin marca en el sistema pasa a R- adelante', () => {
+    const p = planificarRecodificacion([{ id: 'a', codigo: 'CPH-POU-000010', acronimo: 'CPH-G', reemplazante: true }])
+    expect(p.cambios[0].hasta).toBe('R-CPH-G-000010')
+  })
+  it('Excel sin R-: el sistema lo tenia como reemplazo (sufijo -R- o R- adelante) y la marca se quita', () => {
+    const p = planificarRecodificacion([
+      { id: 'a', codigo: 'CPH-POF-R-000011', acronimo: 'CPH-P', reemplazante: false },
+      { id: 'b', codigo: 'R-CPH-P-000012', acronimo: 'CPH-P', reemplazante: false },
+    ])
+    expect(p.cambios.map((c) => c.hasta)).toEqual(['CPH-P-000011', 'CPH-P-000012'])
+  })
+  it('la quita de R- que choca con un cargo existente recibe el siguiente numero libre', () => {
+    const p = planificarRecodificacion([
+      { id: 'a', codigo: 'CPH-P-000011', acronimo: 'CPH-P', reemplazante: false },
+      { id: 'b', codigo: 'R-CPH-P-000011', acronimo: 'CPH-P', reemplazante: false },
+    ])
+    expect(p.colisiones).toBe(1)
+    expect(p.cambios).toEqual([{ id: 'b', desde: 'R-CPH-P-000011', hasta: 'CPH-P-000012' }])
+  })
+  it('re-ejecucion sobre la base ya cargada: 2a corrida recodifica, 3a da 0 cambios', async () => {
+    let codigos = [
+      { id: 'g', codigo: 'CPH-G-000001' }, // Excel R-CPH-G
+      { id: 'p', codigo: 'R-CPH-P-000002' }, // Excel CPH-P
+      { id: 'q', codigo: 'CPH-P-000003' }, // Excel CPH-P (sin cambio)
+    ]
+    const repo: RepoRecodificacion = {
+      leerCodigos: async () => codigos,
+      liberarCodigos: async () => undefined,
+      asignarCodigos: async (l) => {
+        codigos = codigos.map((c) => ({ ...c, codigo: l.find((x) => x.id === c.id)?.hasta ?? c.codigo }))
+      },
+    }
+    const mapa = new Map<string, string | null>([['g', 'R-CPH-G'], ['p', 'CPH-P'], ['q', 'CPH-P']])
+    expect((await ejecutarRecodificacion(repo, mapa)).cambios).toHaveLength(2)
+    expect(codigos.map((c) => c.codigo)).toEqual(['R-CPH-G-000001', 'CPH-P-000002', 'CPH-P-000003'])
+    expect((await ejecutarRecodificacion(repo, mapa)).cambios).toHaveLength(0)
+  })
+})

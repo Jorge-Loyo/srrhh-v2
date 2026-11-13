@@ -71,6 +71,19 @@ export function parsearNominal(contenido: string): FilaNominal[] {
   })
 }
 
+/**
+ * Marca de reemplazante del Excel: `R-` adelante del codigo_excel (R-CPH-G-00001). La columna `acronimo` del
+ * CSV viene SIN el R-, asi que la marca sale solo de codigo_excel. El Excel es la ley.
+ */
+export function esReemplazanteExcel(f: Pick<FilaNominal, 'codigo_excel'>): boolean {
+  return /^R-/.test(String(f.codigo_excel ?? '').trim())
+}
+
+/** Prefijo de codigo de la fila: el acronimo del Excel con `R-` adelante si la fila es reemplazante. */
+export function prefijoExcel(f: Pick<FilaNominal, 'codigo_excel' | 'acronimo'>): string {
+  return esReemplazanteExcel(f) ? `R-${f.acronimo}` : f.acronimo
+}
+
 export function leerNominal(ruta: string): FilaNominal[] {
   return parsearNominal(fs.readFileSync(ruta, 'utf8'))
 }

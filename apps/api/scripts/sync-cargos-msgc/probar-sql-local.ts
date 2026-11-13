@@ -23,7 +23,7 @@ import { ejecutarRecodificacion } from './recodificar.js'
 import { crearRepoEscritura, type TxSql } from './repoPrisma.js'
 import { cargarSnapshot, leerSnapshot, type TxLectura } from './sistemaReadonly.js'
 import { construirAcronimos } from './sincronizar.js'
-import { evaluarVerificacion, textoVerificacion } from './verificar.js'
+import { distribucionEsperada, evaluarVerificacion, textoVerificacion } from './verificar.js'
 
 class RollbackPrueba extends Error {
   constructor() {
@@ -120,7 +120,7 @@ async function main() {
           console.log(`kpis_dotacion_snapshot regenerado: ${await repo.regenerarKpisDotacion()} filas`)
           const r3 = cruzar(filas, await leerSnapshot(lectura))
           const datos = await repo.datosVerificacion()
-          console.log(textoVerificacion(evaluarVerificacion(datos, filas.length, contarCambios(r3.plan))))
+          console.log(textoVerificacion(evaluarVerificacion(datos, filas.length, contarCambios(r3.plan), distribucionEsperada(filas))))
           console.log('2a pasada, desglose:', JSON.stringify(desglosarCambios(r3.plan)))
           // Detalle de lo que sigue pendiente (solo codigos de cargo/fila y atributos de catalogo; sin datos personales).
           const snap3 = await leerSnapshot(lectura)

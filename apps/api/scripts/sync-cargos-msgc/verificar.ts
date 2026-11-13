@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { ACRONIMOS_MSGC } from './acronimoMsgc.js'
 import { CODIGO_ESCALAFON_CPH_NUEVO, NOMBRE_ESCALAFON_CPH_NUEVO } from './escalafon.js'
+import { prefijoExcel, type FilaNominal } from './leerNominal.js'
 import { CODIGO_REGISTRO_DOCENTES, ESCALAFON_DOCENTES_DESTINO, ESCALAFON_DOCENTES_DUPLICADO } from './escalafonesDuplicados.js'
 
 export interface DatosVerificacion {
@@ -27,6 +28,8 @@ export interface DatosVerificacion {
   docentesDuplicadoCargos?: number
   /** Codigo del escalafon al que pertenece el codigo de registro 07 (debe ser '7'). */
   escalafonDelCr07?: string | null
+  /** Cargos vigentes + validacion_vacante vivos por acronimo del codigo (con R- adelante si es reemplazante). */
+  distribucionAcronimos?: Record<string, number>
   /** Codigos de escalafon autogenerados (`<texto>-<7 hex>`) que quedan (aviso para Jorge). */
   escalafonesAutogenerados?: string[]
 }
@@ -50,6 +53,30 @@ export interface RepoVerificacion {
 
 const ACRONIMOS = new Set<string>(ACRONIMOS_MSGC)
 
+/**
+ * Excepciones DECIDIDAS por Jorge a la distribucion del Excel: auxiliares de enfermeria de la carrera 85 que el
+ * Excel codifica TEC y el sistema deja como ENF (CR 85 no se toca; el acronimo es ENF). Por codigo_excel
+ * (HBR y HGAZ sin puesto, HGNPE 'Enfermeria'). Cualquier otra diferencia es un error.
+ */
+export const EXCEPCIONES_ENF_CR85: readonly string[] = ['TEC-03578', 'TEC-03623', 'TEC-03624']
+
+/** Distribucion esperada por acronimo (R- adelante solo si el codigo_excel lo trae), con las excepciones de Jorge aplicadas. */
+export function distribucionEsperada(filas: Pick<FilaNominal, 'codigo_excel' | 'acronimo'>[]): Record<string, number> {
+  const excepciones = new Set(EXCEPCIONES_ENF_CR85)
+  const out: Record<string, number> = {}
+  for (const f of filas) {
+    const k = excepciones.has(f.codigo_excel) ? (prefijoExcel(f).startsWith('R-') ? 'R-ENF' : 'ENF') : prefijoExcel(f)
+    out[k] = (out[k] ?? 0) + 1
+  }
+  return out
+}
+
+/** Diferencias entre la distribucion esperada y la real ("ACR: Excel n, local m"), ordenadas. */
+export function diferenciasDistribucion(esperada: Record<string, number>, real: Record<string, number>): string[] {
+  const claves = [...new Set([...Object.keys(esperada), ...Object.keys(real)])].sort()
+  return claves.filter((k) => (esperada[k] ?? 0) !== (real[k] ?? 0)).map((k) => `${k}: Excel ${esperada[k] ?? 0}, local ${real[k] ?? 0}`)
+}
+
 /** Prefijos que ya no deben existir tras la recodificación (los viejos que el Excel reemplaza). */
 export const PREFIJOS_VIEJOS = ['CPH-POF', 'CPH-POU', 'TEC-POF', 'TEC-POU', 'RES', 'RG-CG', 'CT', 'PT', 'PG', 'RME'] as const
 
@@ -57,7 +84,7 @@ export const PREFIJOS_VIEJOS = ['CPH-POF', 'CPH-POU', 'TEC-POF', 'TEC-POU', 'RES
  * Evalúa los datos leídos. `totalExcel` = filas del Excel; `cambiosSegundaCorrida` = operaciones
  * que haría una segunda corrida con el mismo Excel (null = no se calculó).
  */
-export function evaluarVerificacion(d: DatosVerificacion, totalExcel: number, cambiosSegundaCorrida: number | null): ResultadoVerificacion {
+export function evaluarVerificacion(d: DatosVerificacion, totalExcel: number, cambiosSegundaCorrida: number | null, distribucionExcel?: Record<string, number>): ResultadoVerificacion {
   const chequeos: Chequeo[] = []
   const suma = d.vigentes + d.validacionVacante
   chequeos.push({
@@ -66,6 +93,15 @@ export function evaluarVerificacion(d: DatosVerificacion, totalExcel: number, ca
     detalle: `vigentes ${d.vigentes} + validacion_vacante ${d.validacionVacante} = ${suma}; Excel ${totalExcel}`,
     severidad: 'error',
   })
+  if (distribucionExcel !== undefined) {
+    const dif = diferenciasDistribucion(distribucionExcel, d.distribucionAcronimos ?? {})
+    chequeos.push({
+      nombre: 'distribucion por acronimo (con R-) igual a la del Excel',
+      ok: dif.length === 0,
+      detalle: dif.length ? dif.join('; ') : `${Object.keys(distribucionExcel).length} acronimos iguales (excepciones de Jorge: aux. enfermeria CR 85 -> ENF, ${EXCEPCIONES_ENF_CR85.length} filas)`,
+      severidad: 'error',
+    })
+  }
   const viejos = Object.entries(d.prefijosCodigo).filter(([p, n]) => n > 0 && !ACRONIMOS.has(p))
   const explicitos = viejos.filter(([p]) => (PREFIJOS_VIEJOS as readonly string[]).includes(p) || /^AS-/.test(p))
   chequeos.push({

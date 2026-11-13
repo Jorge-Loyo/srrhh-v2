@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { PUESTO_SIN_ESPECIFICAR, esCrCph, especialidadCanonica, normalizarExpediente, puestoCanonico, siglaCanonica, type EstadoCargoSistema, type ItemCargo, type PlanCarga } from './cruce.js'
 import { esSiglaACrear } from './equivalencias.js'
+import { prefijoExcel } from './leerNominal.js'
 
 export const ETIQUETA_CEETPS_SI = 'Tipificador SI'
 export const TAMANIO_LOTE = 1000
@@ -322,7 +323,7 @@ export async function ejecutarCarga(repo: RepoCarga, plan: PlanCarga, opciones: 
   const baseDe = (it: ItemCargo): string | null => it.baseCargoId ?? (it.esJefatura ? idPorClave.get(it.claveRol) ?? null : null)
   const armar = (it: ItemCargo): NuevoCargo => {
     const r = resueltos.get(it) as FilaResuelta
-    const prefijo = it.fila.acronimo
+    const prefijo = prefijoExcel(it.fila)
     const n = (maximos.get(prefijo) ?? 0) + 1
     maximos.set(prefijo, n)
     const expediente = normalizarExpediente(it.fila.expediente) ? it.fila.expediente : null
