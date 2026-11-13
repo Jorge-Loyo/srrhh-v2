@@ -75,12 +75,11 @@ export function opcionesCarreraConCodigosSeparados(
   const valorCr = opts.valorCr ?? ((cr) => `cr:${cr.id}`)
   const out: { sort: string; value: string; label: string }[] = []
   for (const e of escalafones) {
-    const dividir = codigoMostradoCarrera(e.codigo) !== e.codigo.trim()
-    const crs = dividir
-      ? codigosRegistro.filter(
-          (cr) => cr.escalafonId === e.id && Object.keys(CR_POR_CODIGO_ESCALAFON_GESTIONADO).includes(cr.codigo.trim()) && CR_POR_CODIGO_ESCALAFON_GESTIONADO[cr.codigo.trim()] === codigoMostradoCarrera(e.codigo),
-        )
-      : []
+    // Se divide según los CR del escalafón (no según su código): vale con escalafón '22' (nombre viejo) o '37'.
+    const mostrado = codigoMostradoCarrera(e.codigo)
+    const crs = codigosRegistro.filter(
+      (cr) => cr.escalafonId === e.id && CR_POR_CODIGO_ESCALAFON_GESTIONADO[cr.codigo.trim()] === mostrado,
+    )
     if (crs.length > 1) {
       const nombre = NOMBRE_MOSTRADO_POR_CODIGO[codigoMostradoCarrera(e.codigo)] ?? e.nombre
       for (const cr of crs) {

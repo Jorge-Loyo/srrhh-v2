@@ -49,4 +49,21 @@ describe('carreraEtiqueta', () => {
       { value: 'e85', label: '85 — Técnicos' },
     ])
   })
+
+  it('escalafón ya pasado a 37 (nombre nuevo) con CR 22 y 37: también separa', () => {
+    const esc = [{ id: 'ecph', codigo: '37', nombre: CPH }]
+    const crs = [
+      { id: 'c22', codigo: '22', escalafonId: 'ecph' },
+      { id: 'c37', codigo: '37', escalafonId: 'ecph' },
+    ]
+    expect(opcionesCarreraConCodigosSeparados(esc, crs)).toEqual([
+      { value: 'cr:c22', label: `22 — ${CPH}` },
+      { value: 'cr:c37', label: `37 — ${CPH}` },
+    ])
+  })
+  it('escalafón 37 con un solo CR no se divide', () => {
+    const esc = [{ id: 'ecph', codigo: '37', nombre: CPH }]
+    const crs = [{ id: 'c37', codigo: '37', escalafonId: 'ecph' }]
+    expect(opcionesCarreraConCodigosSeparados(esc, crs)).toEqual([{ value: 'ecph', label: `37 — ${CPH}` }])
+  })
 })
