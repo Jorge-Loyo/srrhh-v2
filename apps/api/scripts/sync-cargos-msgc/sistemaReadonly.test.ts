@@ -79,8 +79,8 @@ describe('el directorio no tiene código de escritura', () => {
   const fuentes = fs
     .readdirSync(dir)
     // limpieza.ts, kpisDotacion.ts (lo usa solo repoPrisma.ts) y repoPrisma.ts son los UNICOS modulos con SQL de escritura
-    // (locales y con guardaBase); el dry-run no puede usarlos.
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !['limpieza.ts', 'kpisDotacion.ts', 'repoPrisma.ts'].includes(f))
+    // (locales y con guardaBase); el dry-run no puede usarlos. probar-sql-local.ts los ejercita siempre con ROLLBACK (solo base local).
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !['limpieza.ts', 'kpisDotacion.ts', 'repoPrisma.ts', 'probar-sql-local.ts'].includes(f))
 
   /** Quita comentarios de bloque y de línea (aproximación suficiente para este chequeo). */
   const sinComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')

@@ -139,11 +139,11 @@ describe('ejecutarLimpieza', () => {
     expect(Object.values(r2).every((n) => n === 0)).toBe(true)
   })
 
-  it('pasa los concursos a conservar como parametro solo en el alcance fuera_excel', async () => {
+  it('pasa los concursos a conservar como UN parametro JSON de texto solo en el alcance fuera_excel', async () => {
     const { tx, sentencias } = txSimulada({})
     await ejecutarLimpieza(tx, { databaseUrl: local, conservarConcursoIds: ['a', 'b'] })
     for (const [i, t] of TABLAS_BORRAR.entries()) {
-      expect(sentencias[i].valores).toEqual(t.alcance === 'todo' ? [] : [['a', 'b']])
+      expect(sentencias[i].valores).toEqual(t.alcance === 'todo' ? [] : ['["a","b"]'])
     }
   })
 
@@ -183,7 +183,7 @@ describe('alcance de bajas: solo las de usuario que no sostienen un concurso con
     for (const t of [bajas, etiquetas]) {
       expect(t.alcance).toBe('bajas_usuario')
       expect(t.donde).toContain('registrado_por IS NOT NULL')
-      expect(t.donde).toContain('baja_id IS NOT NULL AND id = ANY($1::text[]::uuid[])')
+      expect(t.donde).toContain('baja_id IS NOT NULL AND id = ANY(ARRAY(SELECT (jsonb_array_elements_text($1::text::jsonb))::uuid))')
     }
     expect(bajas.donde).not.toMatch(/registrado_por IS NULL/)
   })
@@ -218,6 +218,6 @@ describe('alcance de bajas: solo las de usuario que no sostienen un concurso con
     await ejecutarLimpieza(tx, { databaseUrl: 'postgresql://u:p@localhost:5432/srrhh', conservarConcursoIds: ['a'] })
     const sb = sentencias.filter((s) => /DELETE FROM (bajas|etiquetas_baja)\b/.test(s.sql))
     expect(sb).toHaveLength(2)
-    for (const x of sb) expect(x.valores).toEqual([['a']])
+    for (const x of sb) expect(x.valores).toEqual(['["a"]'])
   })
 })

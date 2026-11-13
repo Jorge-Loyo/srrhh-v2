@@ -124,7 +124,7 @@ interface FilaCargo {
   revision_motivo: string | null
 }
 
-async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
+export async function leerSnapshot(tx: TxLectura): Promise<SnapshotSistema> {
   const cargosRaw = await tx.$queryRawUnsafe<FilaCargo[]>(SQL_CARGOS)
   const ocup = await tx.$queryRawUnsafe<{ id_sial_rol: string; cargo_id: string }[]>(SQL_OCUPACIONES)
 

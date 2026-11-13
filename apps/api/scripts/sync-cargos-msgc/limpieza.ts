@@ -16,7 +16,7 @@
 //   vez borra 0). No se usa TRUNCATE.
 // - ejecutarLimpieza exige una URL de base local (guardaBase) y NUNCA corre en el dry-run.
 // ─────────────────────────────────────────────────────────────────────────────
-import { arrTexto } from './arrayTexto.js'
+import { jsonLote } from './jsonLote.js'
 import { asegurarBaseLocal } from './guardaBase.js'
 
 export type Alcance = 'todo' | 'fuera_excel' | 'bajas_usuario'
@@ -26,16 +26,18 @@ export type Clasificacion = 'BORRAR' | 'CONSERVAR' | 'PREGUNTA'
 export interface TablaBorrar {
   tabla: string
   alcance: Alcance
-  /** Cláusula WHERE (texto fijo; $1 = uuid[] de concursos base a conservar). Vacía = todo. */
+  /** Cláusula WHERE (texto fijo; $1 = JSON con los ids de concursos base a conservar). Vacía = todo. */
   donde: string
 }
 
-/** Concursos CPH/CEETPS/base que NO están en el Excel ($1 = ids de concursos base a conservar). */
-const FUERA_BASE = 'concurso_id <> ALL($1::text[]::uuid[])'
+/** Ids de concursos base a conservar: UN parámetro de texto JSON `["id", ...]` ($1), nunca un array. */
+const CONSERVAR = 'ARRAY(SELECT (jsonb_array_elements_text($1::text::jsonb))::uuid)'
+/** Concursos CPH/CEETPS/base que NO están en el Excel ($1 = JSON con los ids de concursos base a conservar). */
+const FUERA_BASE = `concurso_id <> ALL(${CONSERVAR})`
 /** Bajas de usuario que NO sostienen un concurso conservado ($1 = ids de concursos base a conservar). */
 const BAJAS_USUARIO_BORRAR =
-  'registrado_por IS NOT NULL AND id NOT IN (SELECT baja_id FROM concursos WHERE baja_id IS NOT NULL AND id = ANY($1::text[]::uuid[]))'
-const CPH_FUERA = '(SELECT id FROM concursos_cph WHERE concurso_id <> ALL($1::text[]::uuid[]))'
+  `registrado_por IS NOT NULL AND id NOT IN (SELECT baja_id FROM concursos WHERE baja_id IS NOT NULL AND id = ANY(${CONSERVAR}))`
+const CPH_FUERA = `(SELECT id FROM concursos_cph WHERE concurso_id <> ALL(${CONSERVAR}))`
 
 /** Orden FK: cada tabla se borra antes que las tablas de las que depende. */
 export const TABLAS_BORRAR: readonly TablaBorrar[] = [
@@ -54,7 +56,7 @@ export const TABLAS_BORRAR: readonly TablaBorrar[] = [
   { tabla: 'etiquetas_concurso_cph', alcance: 'fuera_excel', donde: `concurso_cph_id IN ${CPH_FUERA}` },
   { tabla: 'concursos_cph', alcance: 'fuera_excel', donde: FUERA_BASE },
   { tabla: 'concursos_ceetps', alcance: 'fuera_excel', donde: FUERA_BASE },
-  { tabla: 'concursos', alcance: 'fuera_excel', donde: 'id <> ALL($1::text[]::uuid[])' },
+  { tabla: 'concursos', alcance: 'fuera_excel', donde: `id <> ALL(${CONSERVAR})` },
   // Solicitudes de alta, bajas manuales y sus etiquetas.
   { tabla: 'etiquetas_solicitud_alta', alcance: 'todo', donde: '' },
   { tabla: 'solicitudes_alta', alcance: 'todo', donde: '' },
@@ -189,7 +191,7 @@ export interface OpcionesLimpieza {
 export async function ejecutarLimpieza(tx: TxEscritura, opciones: OpcionesLimpieza): Promise<Record<string, number>> {
   asegurarBaseLocal(opciones.databaseUrl)
   const borradas: Record<string, number> = {}
-  const conservar = arrTexto(opciones.conservarConcursoIds)
+  const conservar = jsonLote(opciones.conservarConcursoIds)
   for (const t of TABLAS_BORRAR) {
     const sql = `DELETE FROM ${t.tabla}${t.donde ? ` WHERE ${t.donde}` : ''}`
     borradas[t.tabla] = Number(t.alcance === 'todo' ? await tx.$executeRawUnsafe(sql) : await tx.$executeRawUnsafe(sql, conservar))

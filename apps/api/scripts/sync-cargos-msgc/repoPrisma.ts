@@ -3,13 +3,13 @@
 // ÚNICO módulo, junto con limpieza.ts, con sentencias de escritura. Solo lo usa
 // sincronizar.ts después de asegurarBaseLocal(DATABASE_URL).
 //
-// Todo es set-based (INSERT ... SELECT FROM unnest / UPDATE ... FROM unnest): una sentencia
-// por lote. Los textos SQL son fijos; los valores viajan como parámetros.
+// Todo es set-based (INSERT ... SELECT FROM json_to_recordset / UPDATE ... FROM json_to_recordset): una sentencia
+// por lote. Los textos SQL son fijos; cada lote viaja como UN solo parámetro de texto JSON (jsonLote.ts), nunca como array.
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto'
 import type { ActualizacionCargo, CatalogosCrudos, NuevoCargo, NuevoConcurso, RepoCarga } from './cargar.js'
 import type { EscalafonFila, RepoEscalafon } from './escalafon.js'
-import { arrTexto } from './arrayTexto.js'
+import { jsonLote, trocear } from './jsonLote.js'
 import { estadoActivoSqlDelSistema, regenerarKpisDotacion } from './kpisDotacion.js'
 import { ejecutarLimpieza } from './limpieza.js'
 import type { CambioCodigo, RepoRecodificacion } from './recodificar.js'
@@ -36,8 +36,8 @@ INSERT INTO cargos (id, codigo, hospital_id, escalafon_id, codigo_registro_id, p
                     literal_puesto, estado, estado_desde, expediente, origen, revision_dato, revision_motivo, cargo_base_id, updated_at)
 SELECT v.id, v.codigo, v.hospital_id, v.escalafon_id, v.cr_id, v.puesto_id, v.esp_id,
        v.literal, v.estado::"EstadoCargo", CURRENT_DATE, v.expediente, 'msgc', v.revision IS NOT NULL, v.revision, v.base_id, now()
-FROM unnest($1::text[]::uuid[], $2::text[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[]::uuid[], $7::text[]::uuid[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[]::uuid[])
-  AS v(id, codigo, hospital_id, escalafon_id, cr_id, puesto_id, esp_id, literal, estado, expediente, revision, base_id)`
+FROM json_to_recordset($1::text::json)
+  AS v(id uuid, codigo text, hospital_id uuid, escalafon_id uuid, cr_id uuid, puesto_id uuid, esp_id uuid, literal text, estado text, expediente text, revision text, base_id uuid)`
 
 export const SQL_ACTUALIZAR_CARGOS = `
 UPDATE cargos c SET
@@ -54,37 +54,52 @@ UPDATE cargos c SET
   revision_motivo = COALESCE(v.revision, c.revision_motivo),
   cargo_base_id = COALESCE(v.base_id, c.cargo_base_id),
   updated_at = now()
-FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[], $7::text[]::boolean[], $8::text[]::uuid[], $9::text[], $10::text[], $11::text[], $12::text[]::uuid[])
-  AS v(id, hospital_id, escalafon_id, cr_id, puesto_id, literal, set_esp, esp_id, estado, expediente, revision, base_id)
+FROM json_to_recordset($1::text::json)
+  AS v(id uuid, hospital_id uuid, escalafon_id uuid, cr_id uuid, puesto_id uuid, literal text, set_esp boolean, esp_id uuid, estado text, expediente text, revision text, base_id uuid)
 WHERE c.id = v.id`
+
+/** Lista de ids (uuid) desde UN parámetro de texto JSON `["id", ...]`; `$1` por defecto. */
+const sqlIdsJson = (n: number) => `SELECT (jsonb_array_elements_text($${n}::text::jsonb))::uuid`
+const SQL_IDS_JSON = sqlIdsJson(1)
 
 export const SQL_NO_VIGENTE = `
 UPDATE cargos SET estado = 'no_vigente', estado_desde = CURRENT_DATE, updated_at = now()
-WHERE id = ANY($1::text[]::uuid[]) AND estado <> 'no_vigente'`
+WHERE id IN (${SQL_IDS_JSON}) AND estado <> 'no_vigente'`
 
 export const SQL_CONCURSOS = `
 INSERT INTO concursos (id, cargo_id, hospital_id, origen, fecha_vacante, expediente, tipo_concurso, motivo_concurso)
 SELECT v.id, v.cargo_id, v.hospital_id, 'msgc', CURRENT_DATE, v.expediente, v.tipo::"TipoConcurso", v.motivo::"MotivoConcurso"
-FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[], $5::text[], $6::text[]) AS v(id, cargo_id, hospital_id, expediente, tipo, motivo)`
+FROM json_to_recordset($1::text::json) AS v(id uuid, cargo_id uuid, hospital_id uuid, expediente text, tipo text, motivo text)`
 
 export const SQL_CONCURSOS_CPH = `
 INSERT INTO concursos_cph (id, concurso_id, cargo_id, hospital_id, observaciones, updated_at)
 SELECT v.id, v.concurso_id, v.cargo_id, v.hospital_id, v.obs, now()
-FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]) AS v(id, concurso_id, cargo_id, hospital_id, obs)`
+FROM json_to_recordset($1::text::json) AS v(id uuid, concurso_id uuid, cargo_id uuid, hospital_id uuid, obs text)`
 
 export const SQL_CONCURSOS_CEETPS = `
 INSERT INTO concursos_ceetps (id, concurso_id, cargo_id, hospital_id, escalafon_id, observaciones, updated_at)
 SELECT v.id, v.concurso_id, v.cargo_id, v.hospital_id, v.escalafon_id, v.obs, now()
-FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[]) AS v(id, concurso_id, cargo_id, hospital_id, escalafon_id, obs)`
+FROM json_to_recordset($1::text::json) AS v(id uuid, concurso_id uuid, cargo_id uuid, hospital_id uuid, escalafon_id uuid, obs text)`
 
 export const SQL_REASIGNAR = [
   `UPDATE concursos x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id
-   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM json_to_recordset($1::text::json) AS v(concurso_id uuid, cargo_id uuid), cargos c WHERE x.id = v.concurso_id AND c.id = v.cargo_id`,
   `UPDATE concursos_cph x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id, updated_at = now()
-   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM json_to_recordset($1::text::json) AS v(concurso_id uuid, cargo_id uuid), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
   `UPDATE concursos_ceetps x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id, updated_at = now()
-   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM json_to_recordset($1::text::json) AS v(concurso_id uuid, cargo_id uuid), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
 ] as const
+
+export const SQL_ETIQUETAR = `
+INSERT INTO etiquetas_cargo (etiqueta_id, cargo_id)
+SELECT e.id, x.id FROM etiquetas e, (${sqlIdsJson(2)} AS id) x WHERE e.nombre = $1 ON CONFLICT DO NOTHING`
+
+export const SQL_LIBERAR_CODIGOS = `
+UPDATE cargos SET codigo_legacy = COALESCE(codigo_legacy, codigo), codigo = NULL, updated_at = now()
+WHERE id IN (${SQL_IDS_JSON})`
+
+export const SQL_ASIGNAR_CODIGOS = `
+UPDATE cargos c SET codigo = v.hasta FROM json_to_recordset($1::text::json) AS v(id uuid, hasta text) WHERE c.id = v.id`
 
 /** Réplica de scripts/sql/recalcular-sub-estado-cargos.sql (misma regla; idempotente: solo toca donde difiere). */
 export const SQL_SUB_ESTADO = `
@@ -146,71 +161,79 @@ export function crearRepoEscritura(
       return id
     },
     async crearCargos(l: NuevoCargo[]) {
-      if (!l.length) return
-      await tx.$executeRawUnsafe(
-        SQL_CREAR_CARGOS,
-        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.codigo)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.escalafonId)),
-        arrTexto(l.map((x) => x.codigoRegistroId)), arrTexto(l.map((x) => x.puestoCargoId)), arrTexto(l.map((x) => x.especialidadPuestoId)),
-        arrTexto(l.map((x) => x.literalPuesto)), arrTexto(l.map((x) => x.estado)), arrTexto(l.map((x) => x.expediente)),
-        arrTexto(l.map((x) => x.revisionMotivo)), arrTexto(l.map((x) => x.cargoBaseId)),
-      )
+      for (const t of trocear(l)) {
+        await tx.$executeRawUnsafe(
+          SQL_CREAR_CARGOS,
+          jsonLote(t.map((x) => ({
+            id: x.id, codigo: x.codigo, hospital_id: x.hospitalId, escalafon_id: x.escalafonId, cr_id: x.codigoRegistroId,
+            puesto_id: x.puestoCargoId, esp_id: x.especialidadPuestoId, literal: x.literalPuesto, estado: x.estado,
+            expediente: x.expediente, revision: x.revisionMotivo, base_id: x.cargoBaseId,
+          }))),
+        )
+      }
     },
     async actualizarCargos(l: ActualizacionCargo[]) {
-      if (!l.length) return
-      await tx.$executeRawUnsafe(
-        SQL_ACTUALIZAR_CARGOS,
-        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.escalafonId)),
-        arrTexto(l.map((x) => x.codigoRegistroId)), arrTexto(l.map((x) => x.puestoCargoId)), arrTexto(l.map((x) => x.literalPuesto)),
-        arrTexto(l.map((x) => x.especialidadPuestoId !== undefined)), arrTexto(l.map((x) => x.especialidadPuestoId)),
-        arrTexto(l.map((x) => x.estado)), arrTexto(l.map((x) => x.expediente)),
-        arrTexto(l.map((x) => x.revisionMotivo)), arrTexto(l.map((x) => x.cargoBaseId)),
-      )
+      for (const t of trocear(l)) {
+        await tx.$executeRawUnsafe(
+          SQL_ACTUALIZAR_CARGOS,
+          jsonLote(t.map((x) => ({
+            id: x.id, hospital_id: x.hospitalId, escalafon_id: x.escalafonId, cr_id: x.codigoRegistroId, puesto_id: x.puestoCargoId,
+            literal: x.literalPuesto, set_esp: x.especialidadPuestoId !== undefined, esp_id: x.especialidadPuestoId,
+            estado: x.estado, expediente: x.expediente, revision: x.revisionMotivo, base_id: x.cargoBaseId,
+          }))),
+        )
+      }
     },
     async pasarNoVigente(ids: string[]) {
-      return ids.length ? Number(await tx.$executeRawUnsafe(SQL_NO_VIGENTE, arrTexto(ids))) : 0
+      let n = 0
+      for (const t of trocear(ids)) n += Number(await tx.$executeRawUnsafe(SQL_NO_VIGENTE, jsonLote(t)))
+      return n
     },
     async crearConcursos(l: NuevoConcurso[]) {
-      if (!l.length) return
-      await tx.$executeRawUnsafe(
-        SQL_CONCURSOS,
-        arrTexto(l.map((x) => x.concursoId)), arrTexto(l.map((x) => x.cargoId)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.expediente)),
-        arrTexto(l.map((x) => x.tipo)), arrTexto(l.map((x) => x.motivoConcurso)),
-      )
-      const cph = l.filter((x) => x.tipo === 'cph')
-      if (cph.length) {
-        await tx.$executeRawUnsafe(SQL_CONCURSOS_CPH, arrTexto(cph.map((x) => x.detalleId)), arrTexto(cph.map((x) => x.concursoId)), arrTexto(cph.map((x) => x.cargoId)), arrTexto(cph.map((x) => x.hospitalId)), arrTexto(cph.map((x) => x.observaciones)))
-      }
-      const ce = l.filter((x) => x.tipo === 'ceetps')
-      if (ce.length) {
-        await tx.$executeRawUnsafe(SQL_CONCURSOS_CEETPS, arrTexto(ce.map((x) => x.detalleId)), arrTexto(ce.map((x) => x.concursoId)), arrTexto(ce.map((x) => x.cargoId)), arrTexto(ce.map((x) => x.hospitalId)), arrTexto(ce.map((x) => x.escalafonId)), arrTexto(ce.map((x) => x.observaciones)))
+      for (const t of trocear(l)) {
+        await tx.$executeRawUnsafe(
+          SQL_CONCURSOS,
+          jsonLote(t.map((x) => ({
+            id: x.concursoId, cargo_id: x.cargoId, hospital_id: x.hospitalId, expediente: x.expediente, tipo: x.tipo, motivo: x.motivoConcurso,
+          }))),
+        )
+        const cph = t.filter((x) => x.tipo === 'cph')
+        if (cph.length) {
+          await tx.$executeRawUnsafe(
+            SQL_CONCURSOS_CPH,
+            jsonLote(cph.map((x) => ({ id: x.detalleId, concurso_id: x.concursoId, cargo_id: x.cargoId, hospital_id: x.hospitalId, obs: x.observaciones }))),
+          )
+        }
+        const ce = t.filter((x) => x.tipo === 'ceetps')
+        if (ce.length) {
+          await tx.$executeRawUnsafe(
+            SQL_CONCURSOS_CEETPS,
+            jsonLote(ce.map((x) => ({
+              id: x.detalleId, concurso_id: x.concursoId, cargo_id: x.cargoId, hospital_id: x.hospitalId, escalafon_id: x.escalafonId, obs: x.observaciones,
+            }))),
+          )
+        }
       }
     },
     async reasignarConcursos(l) {
-      if (!l.length) return
-      for (const sql of SQL_REASIGNAR) await tx.$executeRawUnsafe(sql, arrTexto(l.map((x) => x.concursoId)), arrTexto(l.map((x) => x.cargoId)))
-
+      for (const t of trocear(l)) {
+        const lote = jsonLote(t.map((x) => ({ concurso_id: x.concursoId, cargo_id: x.cargoId })))
+        for (const sql of SQL_REASIGNAR) await tx.$executeRawUnsafe(sql, lote)
+      }
     },
     async asignarEtiqueta(nombre: string, cargoIds: string[]) {
       if (!cargoIds.length) return
       await tx.$executeRawUnsafe('INSERT INTO etiquetas (id, nombre, activo) VALUES ($1::uuid, $2, true) ON CONFLICT (nombre) DO NOTHING', randomUUID(), nombre)
-      await tx.$executeRawUnsafe(
-        'INSERT INTO etiquetas_cargo (etiqueta_id, cargo_id) SELECT e.id, x FROM etiquetas e, unnest($2::text[]::uuid[]) AS x WHERE e.nombre = $1 ON CONFLICT DO NOTHING',
-        nombre, arrTexto(cargoIds),
-      )
+      for (const t of trocear(cargoIds)) await tx.$executeRawUnsafe(SQL_ETIQUETAR, nombre, jsonLote(t))
     },
     async leerCodigos() {
       return tx.$queryRawUnsafe<{ id: string; codigo: string }[]>('SELECT id::text AS id, codigo FROM cargos WHERE codigo IS NOT NULL')
     },
     async liberarCodigos(ids: string[]) {
-      if (!ids.length) return
-      await tx.$executeRawUnsafe('UPDATE cargos SET codigo_legacy = COALESCE(codigo_legacy, codigo), codigo = NULL, updated_at = now() WHERE id = ANY($1::text[]::uuid[])', arrTexto(ids))
+      for (const t of trocear(ids)) await tx.$executeRawUnsafe(SQL_LIBERAR_CODIGOS, jsonLote(t))
     },
     async asignarCodigos(l: CambioCodigo[]) {
-      if (!l.length) return
-      await tx.$executeRawUnsafe(
-        'UPDATE cargos c SET codigo = v.hasta FROM unnest($1::text[]::uuid[], $2::text[]) AS v(id, hasta) WHERE c.id = v.id',
-        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.hasta)),
-      )
+      for (const t of trocear(l)) await tx.$executeRawUnsafe(SQL_ASIGNAR_CODIGOS, jsonLote(t.map((x) => ({ id: x.id, hasta: x.hasta }))))
     },
     async limpiar(conservarConcursoIds: string[]) {
       return ejecutarLimpieza(tx, { databaseUrl, conservarConcursoIds })
