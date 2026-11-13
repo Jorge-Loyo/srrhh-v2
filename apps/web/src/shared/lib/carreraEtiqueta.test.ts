@@ -4,6 +4,7 @@ import {
   etiquetaCarrera,
   etiquetaCarreraCR,
   opcionesCarreraConCodigosSeparados,
+  opcionesCarreraEscalafon,
   ordenarCarrerasCR,
 } from './carreraEtiqueta'
 
@@ -65,5 +66,30 @@ describe('carreraEtiqueta', () => {
     const esc = [{ id: 'ecph', codigo: '37', nombre: CPH }]
     const crs = [{ id: 'c37', codigo: '37', escalafonId: 'ecph' }]
     expect(opcionesCarreraConCodigosSeparados(esc, crs)).toEqual([{ value: 'ecph', label: `37 — ${CPH}` }])
+  })
+  it('código de escalafón no numérico con CR: muestra el CR', () => {
+    expect(etiquetaCarrera({ codigo: 'Docentes-c32a65d', nombre: 'Docentes', codigosRegistro: [{ codigo: '07' }] })).toBe(
+      '07 — Docentes',
+    )
+  })
+  it('código de escalafón no numérico sin CR: solo el nombre', () => {
+    expect(etiquetaCarrera({ codigo: 'Docentes-c32a65d', nombre: 'Docentes' })).toBe('Docentes')
+    expect(etiquetaCarrera({ codigo: 'ENF', nombre: 'Carrera de Enfermería', codigosRegistro: [] })).toBe(
+      'Carrera de Enfermería',
+    )
+  })
+  it('opciones: ordenadas por código mostrado y los sin código al final', () => {
+    const esc = [
+      { id: 'a', codigo: 'ENF', nombre: 'Carrera de Enfermería' },
+      { id: 'b', codigo: '85', nombre: 'CEETPS' },
+      { id: 'c', codigo: 'Docentes-c32a65d', nombre: 'Docentes', codigosRegistro: [{ codigo: '07' }] },
+    ]
+    expect(opcionesCarreraEscalafon(esc).map((o) => o.label)).toEqual([
+      '07 — Docentes',
+      '85 — CEETPS',
+      'Carrera de Enfermería',
+    ])
+    const sep = opcionesCarreraConCodigosSeparados(esc, [{ id: 'x', codigo: '07', escalafonId: 'c' }])
+    expect(sep.map((o) => o.label)).toEqual(['07 — Docentes', '85 — CEETPS', 'Carrera de Enfermería'])
   })
 })

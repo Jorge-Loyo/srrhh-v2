@@ -35,6 +35,7 @@ export async function escalafonesRoutes(app: FastifyInstance) {
           : { cargos: { some: {} } }
         ),
       },
+      include: { codigosRegistro: { select: { codigo: true }, orderBy: { codigo: 'asc' } } },
       orderBy: { nombre: 'asc' },
     })
     return reply.send({ data: escalafones })

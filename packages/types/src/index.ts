@@ -169,6 +169,8 @@ export interface Escalafon {
   codigo: string
   nombre: string
   activo: boolean
+  /** Códigos de registro del escalafón (los usa la etiqueta de carrera cuando `codigo` no es numérico). */
+  codigosRegistro?: { codigo: string }[]
 }
 
 export interface CodigoRegistro {
