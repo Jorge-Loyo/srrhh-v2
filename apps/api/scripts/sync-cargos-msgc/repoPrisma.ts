@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ActualizacionCargo, CatalogosCrudos, NuevoCargo, NuevoConcurso, RepoCarga } from './cargar.js'
 import type { EscalafonFila, RepoEscalafon } from './escalafon.js'
+import { arrTexto } from './arrayTexto.js'
 import { estadoActivoSqlDelSistema, regenerarKpisDotacion } from './kpisDotacion.js'
 import { ejecutarLimpieza } from './limpieza.js'
 import type { CambioCodigo, RepoRecodificacion } from './recodificar.js'
@@ -35,7 +36,7 @@ INSERT INTO cargos (id, codigo, hospital_id, escalafon_id, codigo_registro_id, p
                     literal_puesto, estado, estado_desde, expediente, origen, revision_dato, revision_motivo, cargo_base_id, updated_at)
 SELECT v.id, v.codigo, v.hospital_id, v.escalafon_id, v.cr_id, v.puesto_id, v.esp_id,
        v.literal, v.estado::"EstadoCargo", CURRENT_DATE, v.expediente, 'msgc', v.revision IS NOT NULL, v.revision, v.base_id, now()
-FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[], $12::uuid[])
+FROM unnest($1::text[]::uuid[], $2::text[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[]::uuid[], $7::text[]::uuid[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[]::uuid[])
   AS v(id, codigo, hospital_id, escalafon_id, cr_id, puesto_id, esp_id, literal, estado, expediente, revision, base_id)`
 
 export const SQL_ACTUALIZAR_CARGOS = `
@@ -53,36 +54,36 @@ UPDATE cargos c SET
   revision_motivo = COALESCE(v.revision, c.revision_motivo),
   cargo_base_id = COALESCE(v.base_id, c.cargo_base_id),
   updated_at = now()
-FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[], $6::text[], $7::boolean[], $8::uuid[], $9::text[], $10::text[], $11::text[], $12::uuid[])
+FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[], $7::text[]::boolean[], $8::text[]::uuid[], $9::text[], $10::text[], $11::text[], $12::text[]::uuid[])
   AS v(id, hospital_id, escalafon_id, cr_id, puesto_id, literal, set_esp, esp_id, estado, expediente, revision, base_id)
 WHERE c.id = v.id`
 
 export const SQL_NO_VIGENTE = `
 UPDATE cargos SET estado = 'no_vigente', estado_desde = CURRENT_DATE, updated_at = now()
-WHERE id = ANY($1::uuid[]) AND estado <> 'no_vigente'`
+WHERE id = ANY($1::text[]::uuid[]) AND estado <> 'no_vigente'`
 
 export const SQL_CONCURSOS = `
 INSERT INTO concursos (id, cargo_id, hospital_id, origen, fecha_vacante, expediente, tipo_concurso, motivo_concurso)
 SELECT v.id, v.cargo_id, v.hospital_id, 'msgc', CURRENT_DATE, v.expediente, v.tipo::"TipoConcurso", v.motivo::"MotivoConcurso"
-FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[]) AS v(id, cargo_id, hospital_id, expediente, tipo, motivo)`
+FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[], $5::text[], $6::text[]) AS v(id, cargo_id, hospital_id, expediente, tipo, motivo)`
 
 export const SQL_CONCURSOS_CPH = `
 INSERT INTO concursos_cph (id, concurso_id, cargo_id, hospital_id, observaciones, updated_at)
 SELECT v.id, v.concurso_id, v.cargo_id, v.hospital_id, v.obs, now()
-FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[]) AS v(id, concurso_id, cargo_id, hospital_id, obs)`
+FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]) AS v(id, concurso_id, cargo_id, hospital_id, obs)`
 
 export const SQL_CONCURSOS_CEETPS = `
 INSERT INTO concursos_ceetps (id, concurso_id, cargo_id, hospital_id, escalafon_id, observaciones, updated_at)
 SELECT v.id, v.concurso_id, v.cargo_id, v.hospital_id, v.escalafon_id, v.obs, now()
-FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[], $6::text[]) AS v(id, concurso_id, cargo_id, hospital_id, escalafon_id, obs)`
+FROM unnest($1::text[]::uuid[], $2::text[]::uuid[], $3::text[]::uuid[], $4::text[]::uuid[], $5::text[]::uuid[], $6::text[]) AS v(id, concurso_id, cargo_id, hospital_id, escalafon_id, obs)`
 
 export const SQL_REASIGNAR = [
   `UPDATE concursos x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id
-   FROM unnest($1::uuid[], $2::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.id = v.concurso_id AND c.id = v.cargo_id`,
   `UPDATE concursos_cph x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id, updated_at = now()
-   FROM unnest($1::uuid[], $2::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
   `UPDATE concursos_ceetps x SET cargo_id = v.cargo_id, hospital_id = c.hospital_id, updated_at = now()
-   FROM unnest($1::uuid[], $2::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
+   FROM unnest($1::text[]::uuid[], $2::text[]::uuid[]) AS v(concurso_id, cargo_id), cargos c WHERE x.concurso_id = v.concurso_id AND c.id = v.cargo_id`,
 ] as const
 
 /** Réplica de scripts/sql/recalcular-sub-estado-cargos.sql (misma regla; idempotente: solo toca donde difiere). */
@@ -105,7 +106,6 @@ FROM (
 ) v
 WHERE v.id = c.id AND c.sub_estado IS DISTINCT FROM v.esperado`
 
-const sinNulosFin = <T>(xs: (T | null | undefined)[]): (T | null)[] => xs.map((x) => x ?? null)
 
 /** Repositorio sobre una transacción de Prisma ya abierta contra una base LOCAL. */
 export function crearRepoEscritura(
@@ -149,52 +149,53 @@ export function crearRepoEscritura(
       if (!l.length) return
       await tx.$executeRawUnsafe(
         SQL_CREAR_CARGOS,
-        l.map((x) => x.id), l.map((x) => x.codigo), l.map((x) => x.hospitalId), l.map((x) => x.escalafonId),
-        sinNulosFin(l.map((x) => x.codigoRegistroId)), l.map((x) => x.puestoCargoId), sinNulosFin(l.map((x) => x.especialidadPuestoId)),
-        l.map((x) => x.literalPuesto), l.map((x) => x.estado), sinNulosFin(l.map((x) => x.expediente)),
-        sinNulosFin(l.map((x) => x.revisionMotivo)), sinNulosFin(l.map((x) => x.cargoBaseId)),
+        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.codigo)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.escalafonId)),
+        arrTexto(l.map((x) => x.codigoRegistroId)), arrTexto(l.map((x) => x.puestoCargoId)), arrTexto(l.map((x) => x.especialidadPuestoId)),
+        arrTexto(l.map((x) => x.literalPuesto)), arrTexto(l.map((x) => x.estado)), arrTexto(l.map((x) => x.expediente)),
+        arrTexto(l.map((x) => x.revisionMotivo)), arrTexto(l.map((x) => x.cargoBaseId)),
       )
     },
     async actualizarCargos(l: ActualizacionCargo[]) {
       if (!l.length) return
       await tx.$executeRawUnsafe(
         SQL_ACTUALIZAR_CARGOS,
-        l.map((x) => x.id), sinNulosFin(l.map((x) => x.hospitalId)), sinNulosFin(l.map((x) => x.escalafonId)),
-        sinNulosFin(l.map((x) => x.codigoRegistroId)), sinNulosFin(l.map((x) => x.puestoCargoId)), sinNulosFin(l.map((x) => x.literalPuesto)),
-        l.map((x) => x.especialidadPuestoId !== undefined), sinNulosFin(l.map((x) => x.especialidadPuestoId)),
-        sinNulosFin(l.map((x) => x.estado)), sinNulosFin(l.map((x) => x.expediente)),
-        sinNulosFin(l.map((x) => x.revisionMotivo)), sinNulosFin(l.map((x) => x.cargoBaseId)),
+        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.escalafonId)),
+        arrTexto(l.map((x) => x.codigoRegistroId)), arrTexto(l.map((x) => x.puestoCargoId)), arrTexto(l.map((x) => x.literalPuesto)),
+        arrTexto(l.map((x) => x.especialidadPuestoId !== undefined)), arrTexto(l.map((x) => x.especialidadPuestoId)),
+        arrTexto(l.map((x) => x.estado)), arrTexto(l.map((x) => x.expediente)),
+        arrTexto(l.map((x) => x.revisionMotivo)), arrTexto(l.map((x) => x.cargoBaseId)),
       )
     },
     async pasarNoVigente(ids: string[]) {
-      return ids.length ? Number(await tx.$executeRawUnsafe(SQL_NO_VIGENTE, ids)) : 0
+      return ids.length ? Number(await tx.$executeRawUnsafe(SQL_NO_VIGENTE, arrTexto(ids))) : 0
     },
     async crearConcursos(l: NuevoConcurso[]) {
       if (!l.length) return
       await tx.$executeRawUnsafe(
         SQL_CONCURSOS,
-        l.map((x) => x.concursoId), l.map((x) => x.cargoId), l.map((x) => x.hospitalId), sinNulosFin(l.map((x) => x.expediente)),
-        l.map((x) => x.tipo), sinNulosFin(l.map((x) => x.motivoConcurso)),
+        arrTexto(l.map((x) => x.concursoId)), arrTexto(l.map((x) => x.cargoId)), arrTexto(l.map((x) => x.hospitalId)), arrTexto(l.map((x) => x.expediente)),
+        arrTexto(l.map((x) => x.tipo)), arrTexto(l.map((x) => x.motivoConcurso)),
       )
       const cph = l.filter((x) => x.tipo === 'cph')
       if (cph.length) {
-        await tx.$executeRawUnsafe(SQL_CONCURSOS_CPH, cph.map((x) => x.detalleId), cph.map((x) => x.concursoId), cph.map((x) => x.cargoId), cph.map((x) => x.hospitalId), cph.map((x) => x.observaciones))
+        await tx.$executeRawUnsafe(SQL_CONCURSOS_CPH, arrTexto(cph.map((x) => x.detalleId)), arrTexto(cph.map((x) => x.concursoId)), arrTexto(cph.map((x) => x.cargoId)), arrTexto(cph.map((x) => x.hospitalId)), arrTexto(cph.map((x) => x.observaciones)))
       }
       const ce = l.filter((x) => x.tipo === 'ceetps')
       if (ce.length) {
-        await tx.$executeRawUnsafe(SQL_CONCURSOS_CEETPS, ce.map((x) => x.detalleId), ce.map((x) => x.concursoId), ce.map((x) => x.cargoId), ce.map((x) => x.hospitalId), ce.map((x) => x.escalafonId), ce.map((x) => x.observaciones))
+        await tx.$executeRawUnsafe(SQL_CONCURSOS_CEETPS, arrTexto(ce.map((x) => x.detalleId)), arrTexto(ce.map((x) => x.concursoId)), arrTexto(ce.map((x) => x.cargoId)), arrTexto(ce.map((x) => x.hospitalId)), arrTexto(ce.map((x) => x.escalafonId)), arrTexto(ce.map((x) => x.observaciones)))
       }
     },
     async reasignarConcursos(l) {
       if (!l.length) return
-      for (const sql of SQL_REASIGNAR) await tx.$executeRawUnsafe(sql, l.map((x) => x.concursoId), l.map((x) => x.cargoId))
+      for (const sql of SQL_REASIGNAR) await tx.$executeRawUnsafe(sql, arrTexto(l.map((x) => x.concursoId)), arrTexto(l.map((x) => x.cargoId)))
+
     },
     async asignarEtiqueta(nombre: string, cargoIds: string[]) {
       if (!cargoIds.length) return
       await tx.$executeRawUnsafe('INSERT INTO etiquetas (id, nombre, activo) VALUES ($1::uuid, $2, true) ON CONFLICT (nombre) DO NOTHING', randomUUID(), nombre)
       await tx.$executeRawUnsafe(
-        'INSERT INTO etiquetas_cargo (etiqueta_id, cargo_id) SELECT e.id, x FROM etiquetas e, unnest($2::uuid[]) AS x WHERE e.nombre = $1 ON CONFLICT DO NOTHING',
-        nombre, cargoIds,
+        'INSERT INTO etiquetas_cargo (etiqueta_id, cargo_id) SELECT e.id, x FROM etiquetas e, unnest($2::text[]::uuid[]) AS x WHERE e.nombre = $1 ON CONFLICT DO NOTHING',
+        nombre, arrTexto(cargoIds),
       )
     },
     async leerCodigos() {
@@ -202,13 +203,13 @@ export function crearRepoEscritura(
     },
     async liberarCodigos(ids: string[]) {
       if (!ids.length) return
-      await tx.$executeRawUnsafe('UPDATE cargos SET codigo_legacy = COALESCE(codigo_legacy, codigo), codigo = NULL, updated_at = now() WHERE id = ANY($1::uuid[])', ids)
+      await tx.$executeRawUnsafe('UPDATE cargos SET codigo_legacy = COALESCE(codigo_legacy, codigo), codigo = NULL, updated_at = now() WHERE id = ANY($1::text[]::uuid[])', arrTexto(ids))
     },
     async asignarCodigos(l: CambioCodigo[]) {
       if (!l.length) return
       await tx.$executeRawUnsafe(
-        'UPDATE cargos c SET codigo = v.hasta FROM unnest($1::uuid[], $2::text[]) AS v(id, hasta) WHERE c.id = v.id',
-        l.map((x) => x.id), l.map((x) => x.hasta),
+        'UPDATE cargos c SET codigo = v.hasta FROM unnest($1::text[]::uuid[], $2::text[]) AS v(id, hasta) WHERE c.id = v.id',
+        arrTexto(l.map((x) => x.id)), arrTexto(l.map((x) => x.hasta)),
       )
     },
     async limpiar(conservarConcursoIds: string[]) {

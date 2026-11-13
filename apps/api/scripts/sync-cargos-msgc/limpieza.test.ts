@@ -183,7 +183,7 @@ describe('alcance de bajas: solo las de usuario que no sostienen un concurso con
     for (const t of [bajas, etiquetas]) {
       expect(t.alcance).toBe('bajas_usuario')
       expect(t.donde).toContain('registrado_por IS NOT NULL')
-      expect(t.donde).toContain('baja_id IS NOT NULL AND id = ANY($1::uuid[])')
+      expect(t.donde).toContain('baja_id IS NOT NULL AND id = ANY($1::text[]::uuid[])')
     }
     expect(bajas.donde).not.toMatch(/registrado_por IS NULL/)
   })
