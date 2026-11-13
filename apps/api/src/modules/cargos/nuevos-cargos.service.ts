@@ -44,6 +44,7 @@ export interface NuevoCargoItem {
   especialidad: string | null
   carrera: string | null
   cargo: { id: string; codigo: string | null; idSial: string | null }
+  etiquetas: { id: string; nombre: string; color: string | null }[]
   /** Fecha en que se aprobó el alta (creación automática del concurso). */
   fechaAlta: string
 }
@@ -76,6 +77,7 @@ const cargoInclude = {
   escalafon: { select: { nombre: true } },
   puestoCargo: { select: { nombre: true } },
   especialidadPuesto: { select: { nombre: true } },
+  etiquetas: { select: { etiqueta: { select: { id: true, nombre: true, color: true } } } },
 } satisfies Prisma.CargoInclude
 
 type CargoRow = Prisma.CargoGetPayload<{ include: typeof cargoInclude }>
@@ -97,6 +99,7 @@ function cargoSearch(search: string): Prisma.CargoWhereInput {
       { especialidadLegacy: { contains: search, mode: 'insensitive' } },
       { puestoCargo: { nombre: { contains: search, mode: 'insensitive' } } },
       { especialidadPuesto: { nombre: { contains: search, mode: 'insensitive' } } },
+      { etiquetas: { some: { etiqueta: { nombre: { contains: search, mode: 'insensitive' } } } } },
     ],
   }
 }
@@ -184,12 +187,11 @@ export async function listNuevosCargosService(query: NuevosCargosQuery) {
     hospital: r.cargo.hospital,
     ...textoCargo(r.cargo),
     cargo: { id: r.cargo.id, codigo: r.cargo.codigo, idSial: r.cargo.idSial },
+    etiquetas: r.cargo.etiquetas.map((e) => e.etiqueta),
     fechaAlta: r.concurso.createdAt.toISOString(),
   })
 
   const items: NuevoCargoItem[] = [
-    // Defensa en profundidad: el estado persistido manda, pero si la Etapa 1
-    // tuviera datos cargados el concurso ya fue iniciado por un usuario.
     ...cphRows.filter((r) => !r.eeConcurso).map((r) => aItem('cph', r)),
     ...ceetpsRows.filter((r) => !r.expedienteConcurso && !r.fechaCaratulacion).map((r) => aItem('ceetps', r)),
   ]

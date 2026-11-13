@@ -39,7 +39,10 @@ export interface FilaCargoHistorico {
   solicitudId: string
   /** Id del Cargo real; null si todavía no se creó. */
   cargoId: string | null
+  /** Código interno del sistema (CPH-POF-000001). */
   codigo: string | null
+  /** Código SAME (idSial del cargo en SIAL). Editable post-aprobación. */
+  idSial: string | null
   tipoAlta: string
   hospital: string | null
   carrera: string | null
@@ -79,7 +82,8 @@ export function filasPorCargo(solicitudes: SolicitudAlta[]): FilaCargoHistorico[
           key: `${s.id}:${c.id}`,
           solicitudId: s.id,
           cargoId: c.id,
-          codigo: c.codigo ?? c.idSial,
+          codigo: c.codigo,
+          idSial: c.idSial,
           tipoAlta,
           hospital: c.hospital?.sigla ?? s.hospital?.sigla ?? null,
           carrera: carreraTexto(c.carreraCodigo, c.carrera) ?? carreraTexto(s.escalafon?.codigo, s.escalafon?.nombre),
@@ -101,6 +105,7 @@ export function filasPorCargo(solicitudes: SolicitudAlta[]): FilaCargoHistorico[
         solicitudId: s.id,
         cargoId: null,
         codigo: null,
+        idSial: null,
         tipoAlta,
         hospital: s.hospital?.sigla ?? null,
         carrera: carreraTexto(s.escalafon?.codigo, s.escalafon?.nombre),

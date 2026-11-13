@@ -59,6 +59,48 @@ export function useOrganigrama(params: OrganigramaParams | null) {
   })
 }
 
+export interface SiglaOrganigrama {
+  sigla: string
+  nombre: string
+  esSeccion: boolean
+}
+
+export function useSiglasOrganigrama() {
+  return useQuery({
+    queryKey: ['organigrama', 'siglas'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: SiglaOrganigrama[] }>('/api/v1/organigrama/siglas')
+      return res.data.data
+    },
+  })
+}
+
+// Aplana el árbol en una lista de nodos con su path legible (para el selector
+// de nodo padre en el alta de estructura).
+export interface NodoPlano {
+  id: string           // codigoReparticion
+  nombre: string
+  tipo: string
+  nivel: number
+  path: string         // "Ministerio > DG Hospitales > HGAIP"
+}
+
+export function aplanarArbol(raiz: OrganigramaNodo, pathPadre = ''): NodoPlano[] {
+  const nombreNodo = raiz.nombre ?? raiz.id
+  const pathActual = pathPadre ? `${pathPadre} > ${nombreNodo}` : nombreNodo
+  const resultado: NodoPlano[] = [{
+    id:     raiz.id,
+    nombre: nombreNodo,
+    tipo:   raiz.tipo,
+    nivel:  raiz.nivel,
+    path:   pathActual,
+  }]
+  for (const hijo of raiz.hijos) {
+    resultado.push(...aplanarArbol(hijo, pathActual))
+  }
+  return resultado
+}
+
 // Módulo "Árbol" (solo admin) — reemplaza toda la estructura desde un Excel.
 export function useSubirEstructuraOrganigrama() {
   const queryClient = useQueryClient()

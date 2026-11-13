@@ -89,6 +89,7 @@ export async function createSolicitudAltaService(
         cantidad:         body.cantidad,
         bajaOrigenId:     body.bajaOrigenId ?? null,
         esTransferencia:  body.esTransferencia ?? false,
+        observaciones:    body.observaciones ?? null,
         solicitadoPorId,
       },
       include,
@@ -247,6 +248,7 @@ export async function createSolicitudesAltaBatchService(
           cantidad:         item.cantidad,
           bajaOrigenId:     item.bajaOrigenId ?? null,
           esTransferencia:  item.esTransferencia ?? false,
+          observaciones:    item.observaciones ?? null,
           solicitadoPorId,
         },
         include,
@@ -362,6 +364,34 @@ export async function adjuntarCargosCreados<T extends { cargosCreadosIds: string
       return c ? [c] : []
     }),
   }))
+}
+
+// --- PATCH /:id/validar --- aprobar directamente con doc respaldatorio ------
+// El operador carga el número de documento respaldatorio y la solicitud se
+// aprueba en el acto (sin pasar por el flujo de autorizaciones del director).
+// Busca la autorización alta_cargo pendiente de la solicitud y la aprueba.
+export async function validarSolicitudAltaService(
+  id: string,
+  docRespaldatoria: string,
+  resueltoPorId: string,
+) {
+  const solicitud = await prisma.solicitudAlta.findUnique({ where: { id } })
+  if (!solicitud) throw AppError.notFound('Solicitud de alta no encontrada')
+  if (solicitud.estado !== 'pendiente') throw AppError.badRequest('La solicitud ya fue resuelta')
+
+  const autorizacion = await prisma.autorizacion.findFirst({
+    where: { referenciaId: id, tipo: 'alta_cargo', estado: 'pendiente' },
+  })
+  if (!autorizacion) throw AppError.notFound('No hay autorización pendiente para esta solicitud')
+
+  // Reutiliza el mismo service de autorizaciones — crea cargos, concursos y notifica
+  const { aprobarAutorizacionService } = await import('../autorizaciones/autorizaciones.service.js')
+  return aprobarAutorizacionService(
+    autorizacion.id,
+    resueltoPorId,
+    'admin', // bypass de rol: el operador que valida tiene permiso explícito
+    `Doc. respaldatorio: ${docRespaldatoria}`,
+  )
 }
 
 // --- GET / --- listado paginado ---------------------------------------------

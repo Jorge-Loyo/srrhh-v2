@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
-import { cargosQuerySchema, createCargoSchema, altasQuerySchema, nuevosCargosQuerySchema, cargosExportQuerySchema } from './cargos.schema.js'
+import { prisma } from '../../shared/prisma.js'
+import { AppError } from '../../shared/errors/AppError.js'
+import { cargosQuerySchema, createCargoSchema, patchCargoSchema, altasQuerySchema, nuevosCargosQuerySchema, cargosExportQuerySchema } from './cargos.schema.js'
 import { listCargosService, listPuestosCargosService, getCargoByIdService, createCargoService, listAltasService, exportCargosService } from './cargos.service.js'
 import { listNuevosCargosService } from './nuevos-cargos.service.js'
 
@@ -57,6 +59,21 @@ export async function cargosRoutes(app: FastifyInstance) {
     const body = createCargoSchema.parse(request.body)
     const data = await createCargoService(body, (request.user as { id?: string })?.id)
     return reply.status(201).send({ data })
+  })
+
+  // PATCH /:id — actualizar código SAME del cargo
+  app.patch<{ Params: { id: string } }>('/:id', {
+    preHandler: requirePermiso({ modulo: 'cargos', accion: 'crear' }),
+  }, async (request, reply) => {
+    const { id } = request.params
+    const { codigoSame } = patchCargoSchema.parse(request.body)
+    const cargo = await prisma.cargo.findUnique({ where: { id }, select: { id: true } })
+    if (!cargo) throw AppError.notFound('Cargo no encontrado')
+    const data = await prisma.cargo.update({
+      where: { id },
+      data: { idSial: codigoSame },
+    })
+    return reply.send({ data })
   })
 
   // GET /:id — S3-5: detalle con ocupación actual

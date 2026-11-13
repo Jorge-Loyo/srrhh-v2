@@ -643,6 +643,21 @@ async function _aprobarAltaCargo(
         subEstado:        'vacante' as const,
       })),
     })
+    // Propagar etiquetas de la solicitud a cada cargo creado.
+    const solicitudConEtiquetas = await tx.solicitudAlta.findUnique({
+      where:  { id: aut.referenciaId },
+      select: { etiquetas: { select: { etiquetaId: true } } },
+    })
+    const etiquetaIds = solicitudConEtiquetas?.etiquetas.map((e) => e.etiquetaId) ?? []
+    if (etiquetaIds.length > 0) {
+      await tx.etiquetaCargo.createMany({
+        data: cargosCreadosIds.flatMap((cargoId) =>
+          etiquetaIds.map((etiquetaId) => ({ etiquetaId, cargoId }))
+        ),
+        skipDuplicates: true,
+      })
+    }
+
     await tx.solicitudAlta.update({
       where: { id: aut.referenciaId },
       data:  { estado: 'aprobada', cargosCreadosIds, ...(crDerivado ? { codigoRegistroId: crDerivado.id } : {}) },

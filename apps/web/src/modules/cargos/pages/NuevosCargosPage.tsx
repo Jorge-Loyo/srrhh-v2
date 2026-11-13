@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useDebounce } from '@/shared/hooks/useDebounce'
 import { useHospitales } from '@/shared/hooks/useCatalogos'
 import { capitalizar } from '@/shared/lib/utils'
+import { EtiquetasChips } from '@/shared/components/EtiquetaChip'
 import { useNuevosCargos, type NuevosCargosFilters } from '../hooks/useNuevosCargos'
 import {
   ETIQUETA_TIPO,
@@ -62,6 +63,12 @@ export function NuevosCargosPage() {
   const { data: hospitales } = useHospitales()
   const hayFiltros = Boolean(searchDebounced || hospitalId || tipo)
 
+  const claves = data?.data.map((g) => g.expediente ?? '') ?? []
+  const todoColapsado = claves.length > 0 && claves.every((c) => colapsados.has(c))
+  function toggleTodo() {
+    setColapsados(todoColapsado ? new Set() : new Set(claves))
+  }
+
   return (
     <div className="flex flex-col gap-6 h-full">
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
@@ -77,7 +84,7 @@ export function NuevosCargosPage() {
           <input
             type="text"
             aria-label="Buscar nuevos cargos"
-            placeholder="Buscar por expediente, código, puesto o especialidad..."
+            placeholder="Buscar por expediente, código, puesto, especialidad o etiqueta..."
             value={search}
             onChange={(e) => setParam('search', e.target.value)}
             className="h-10 px-3 border border-gray-300 rounded flex-1 min-w-[260px] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
@@ -105,6 +112,15 @@ export function NuevosCargosPage() {
             <option value="cph">Solo CPH</option>
             <option value="ceetps">Solo CEETPS</option>
           </select>
+          {data && data.data.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleTodo}
+              className="h-10 px-3 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 whitespace-nowrap"
+            >
+              {todoColapsado ? '▸ Descolapsar todo' : '▾ Colapsar todo'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -135,6 +151,7 @@ export function NuevosCargosPage() {
                     <th className="px-4 py-3 font-semibold">Carrera</th>
                     <th className="px-4 py-3 font-semibold">Puesto</th>
                     <th className="px-4 py-3 font-semibold">Especialidad</th>
+                    <th className="px-4 py-3 font-semibold">Etiquetas</th>
                     <th className="px-4 py-3 font-semibold">Fecha del alta</th>
                     <th className="px-4 py-3 font-semibold rounded-tr-lg" />
                   </tr>
@@ -146,7 +163,7 @@ export function NuevosCargosPage() {
                     return (
                       <Fragment key={clave || 'sin-expediente'}>
                         <tr className="bg-gray-50">
-                          <td colSpan={8} className="px-4 py-2">
+                          <td colSpan={9} className="px-4 py-2">
                             <button
                               type="button"
                               onClick={() => toggleGrupo(clave)}
@@ -176,6 +193,9 @@ export function NuevosCargosPage() {
                               <td className="px-4 py-3 text-gray-600">{it.carrera ?? '—'}</td>
                               <td className="px-4 py-3 text-gray-600">{capitalizar(it.puesto) || '—'}</td>
                               <td className="px-4 py-3 text-gray-600">{capitalizar(it.especialidad) || '—'}</td>
+                              <td className="px-4 py-3">
+                                <EtiquetasChips etiquetas={it.etiquetas} />
+                              </td>
                               <td className="px-4 py-3 text-gray-500 text-xs">{fmtFecha(it.fechaAlta)}</td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-2">

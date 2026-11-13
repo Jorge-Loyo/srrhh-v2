@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { organigramaQuerySchema } from './organigrama.schema.js'
-import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, getVacantesConduccionService, getCargosConduccionHuerfanosService } from './organigrama.service.js'
+import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, listSiglasOrganigramaService, getVacantesConduccionService, getCargosConduccionHuerfanosService } from './organigrama.service.js'
 
 export async function organigramaRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -14,6 +14,13 @@ export async function organigramaRoutes(app: FastifyInstance) {
     const query = organigramaQuerySchema.parse(request.query)
     const result = await getOrganigramaService(query)
     return reply.send(result)
+  })
+
+  // Lista de siglas con nodos en el organigrama (para el selector de alta de
+  // estructura). Incluye las secciones fijas nivel-central y atencion-primaria.
+  app.get('/siglas', async (_request, reply) => {
+    const data = await listSiglasOrganigramaService()
+    return reply.send({ data })
   })
 
   // S24-9: KPI y listado de vacantes de conducción (jefaturas sin ocupante

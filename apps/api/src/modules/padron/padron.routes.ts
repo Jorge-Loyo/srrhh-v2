@@ -32,7 +32,7 @@ export async function padronRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
   // Cleanup al arrancar: snapshots que quedaron en procesando por reinicio
-  await cleanupSnapshotsProcesando()
+  await cleanupSnapshotsProcesando().catch(() => {/* tabla puede no existir en BD local */})
 
   // GET /snapshots — listar todos los snapshots
   app.get('/snapshots', async (_request, reply) => {

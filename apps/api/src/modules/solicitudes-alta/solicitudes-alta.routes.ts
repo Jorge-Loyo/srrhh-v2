@@ -6,12 +6,14 @@ import {
   createSolicitudesAltaBatchSchema,
   solicitudesAltaQuerySchema,
   grupoPdfQuerySchema,
+  validarSolicitudAltaSchema,
 } from './solicitudes-alta.schema.js'
 import {
   createSolicitudAltaService,
   createSolicitudesAltaBatchService,
   listSolicitudesAltaService,
   getSolicitudAltaService,
+  validarSolicitudAltaService,
 } from './solicitudes-alta.service.js'
 import { generarPdfGrupoSolicitudesAltaService } from './solicitudes-alta.pdf.js'
 
@@ -61,6 +63,18 @@ export async function solicitudesAltaRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/pdf')
     reply.header('Content-Disposition', `attachment; filename="${filename}"`)
     return reply.send(buffer)
+  })
+
+  // PATCH /:id/validar --- aprobar directamente con doc respaldatorio
+  // Declarado ANTES de GET /:id para que la ruta param no capture "/xxx/validar".
+  app.patch('/:id/validar', {
+    preHandler: requirePermiso({ modulo: 'solicitudes-alta', accion: 'crear' }),
+  }, async (request, reply) => {
+    const user = request.user as { id: string }
+    const { id } = request.params as { id: string }
+    const body = validarSolicitudAltaSchema.parse(request.body)
+    const data = await validarSolicitudAltaService(id, body.docRespaldatoria, user.id)
+    return reply.send({ data })
   })
 
   // GET /:id --- detalle

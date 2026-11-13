@@ -15,7 +15,7 @@ export function EtiquetaChip({ etiqueta }: { etiqueta: Pick<Etiqueta, 'nombre' |
 }
 
 // Lista compacta: muestra las primeras `max` y un "+N" con tooltip (title) con el resto.
-export function EtiquetasChips({ etiquetas, max = 3 }: { etiquetas: Etiqueta[]; max?: number }) {
+export function EtiquetasChips({ etiquetas, max = 3 }: { etiquetas: Pick<Etiqueta, 'id' | 'nombre' | 'color'>[]; max?: number }) {
   if (etiquetas.length === 0) return <span className="text-gray-400">—</span>
   const visibles = etiquetas.slice(0, max)
   const resto = etiquetas.slice(max)

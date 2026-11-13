@@ -1,6 +1,7 @@
-import { Fragment, useState } from 'react'
-import { Link } from 'react-router-dom'
-import type { SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad, Etiqueta } from '@srrhh/types'
+import { Fragment, useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import type { SolicitudAlta, SolicitudAltaEstado, PuestoCatalogoEspecialidad, Etiqueta, PersonaListItem } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 import { useHospitales, useEscalafonesPorTipoAlta, usePuestosCargoNormalizados, useEspecialidadesDePuestoId } from '@/shared/hooks/useCatalogos'
 import { hospitalLabel } from '@/shared/lib/hospitalLabel'
@@ -10,20 +11,24 @@ import { opcionesCarreraAlta, filtrarPuestosAlta, pideIncluirAmbosAlta } from '.
 import { resolverSeleccionAlta } from '../lib/altaSelector'
 import { especialidadesPermitidasAlta } from '../lib/especialidadesAlta'
 import { useEtiquetas } from '@/shared/hooks/useEtiquetas'
-import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo } from '../hooks/useSolicitudesAlta'
+import { useSolicitudesAlta, useCreateSolicitudesAltaBatch, descargarPdfGrupo, useValidarSolicitudAlta } from '../hooks/useSolicitudesAlta'
 import { EtiquetasChips } from '@/shared/components/EtiquetaChip'
 import { filasPorCargo, solicitudMatcheaEtiqueta, etiquetasDeSolicitudes } from '../lib/historicoCargos'
 import { agruparPorExpediente, type EstadoGrupo, type GrupoExpediente } from '../lib/agruparPorExpediente'
+import { useHospitalesPou, usePouCargas } from '@/modules/pou/hooks/usePou'
+import { useSiglasOrganigrama, useOrganigrama, aplanarArbol, type NodoPlano } from '@/modules/organigrama/hooks/useOrganigrama'
 import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-type TipoAlta = 'pof' | 'pou' | 'estructura'
+type TipoAlta = 'pof' | 'pou' | 'estructura' | 'pou_a_pof' | 'editar_estructura'
 
 const TIPO_LABEL: Record<TipoAlta, string> = {
-  pof:        'Ejecución POF',
-  pou:        'Ejecución POU',
-  estructura: 'Estructura',
+  pof:               'Ejecución POF',
+  pou:               'Ejecución POU',
+  estructura:        'Estructura',
+  pou_a_pof:         'POU a POF',
+  editar_estructura: 'Editar Estructura',
 }
 
 const ESTADO_LABEL: Record<SolicitudAltaEstado, string> = {
@@ -122,6 +127,15 @@ interface ItemPendiente {
   desde: string
   cantidad: number
   etiqueta: string
+  // Estructura: nodo del organigrama donde se ubica el nuevo cargo
+  nodoOrgId?: string
+  nodoOrgPath?: string
+  nodoOrgSigla?: string
+  // POU a POF: cargo POU origen
+  cargoOrigenId?: string
+  cargoOrigenCodigo?: string
+  cargoOrigenOcupado?: boolean
+  cargoOrigenPersona?: string
 }
 
 // ── Selector de etiqueta ─────────────────────────────────────────────────────
@@ -179,10 +193,873 @@ function EtiquetaPicker({ value, onChange, catalogo }: {
   )
 }
 
+// ── Banner informativo del nodo de organigrama (Estructura) ────────────────
+// Se muestra cuando el usuario elige "Estructura". Permite elegir la sigla
+// (hospital o sección) y luego el nodo del árbol donde se ubicará el cargo.
+const SECCIONES_FIJAS = [
+  { sigla: 'nivel-central',     nombre: 'Nivel Central'     },
+  { sigla: 'atencion-primaria', nombre: 'Atención Primaria' },
+]
+
+// Helpers para navegar el árbol de organigrama
+function buscarPadreEnArbol(nodo: import('@/modules/organigrama/hooks/useOrganigrama').OrganigramaNodo, targetId: string): string | null {
+  for (const hijo of nodo.hijos) {
+    if (hijo.id === targetId) return nodo.id
+    const found = buscarPadreEnArbol(hijo, targetId)
+    if (found) return found
+  }
+  return null
+}
+
+function buscarHijosEnArbol(
+  nodo: import('@/modules/organigrama/hooks/useOrganigrama').OrganigramaNodo,
+  targetId: string,
+): { id: string; nombre: string; tipo: string }[] {
+  if (nodo.id === targetId) {
+    return nodo.hijos.map((h) => ({ id: h.id, nombre: h.nombre ?? h.id, tipo: h.tipo }))
+  }
+  for (const hijo of nodo.hijos) {
+    const found = buscarHijosEnArbol(hijo, targetId)
+    if (found.length > 0 || hijo.id === targetId) return found
+  }
+  return []
+}
+
+// Vista en cascada: padre → nodo seleccionado → hijos directos
+function NodoCascada({
+  nodoPadre,
+  nodoSeleccionado,
+  hijosDirectos,
+  onCambiar,
+  labelNodo = 'Nodo seleccionado',
+  colorScheme = 'violet',
+}: {
+  nodoPadre: NodoPlano | null | undefined
+  nodoSeleccionado: NodoPlano | null | undefined
+  hijosDirectos: { id: string; nombre: string; tipo: string }[]
+  onCambiar: () => void
+  labelNodo?: string
+  colorScheme?: 'violet' | 'indigo'
+}) {
+  const ring = colorScheme === 'violet' ? 'border-violet-400 bg-violet-50' : 'border-indigo-400 bg-indigo-50'
+  const text = colorScheme === 'violet' ? 'text-violet-800' : 'text-indigo-800'
+  const badge = colorScheme === 'violet' ? 'bg-violet-100 text-violet-700' : 'bg-indigo-100 text-indigo-700'
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+      {/* Padre */}
+      {nodoPadre && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
+          <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide w-16 shrink-0">Depende de</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">{nodoPadre.tipo}</span>
+          <span className="text-xs text-gray-600 truncate">{nodoPadre.nombre}</span>
+        </div>
+      )}
+      {/* Nodo seleccionado */}
+      <div className={`flex items-center justify-between gap-2 px-3 py-2.5 border-2 ${ring}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 w-16 shrink-0">{labelNodo}</span>
+          {nodoSeleccionado && (
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badge}`}>{nodoSeleccionado.tipo}</span>
+          )}
+          <span className={`text-xs font-bold truncate ${text}`}>{nodoSeleccionado?.nombre ?? '—'}</span>
+        </div>
+        <button type="button" onClick={onCambiar}
+          className="text-xs text-gray-400 hover:text-red-500 shrink-0 underline">Cambiar</button>
+      </div>
+      {/* Hijos directos */}
+      {hijosDirectos.length > 0 && (
+        <div className="border-t border-gray-100">
+          <p className="px-3 pt-1.5 pb-0.5 text-[10px] text-gray-400 font-semibold uppercase tracking-wide">Dependen de este nodo</p>
+          <div className="divide-y divide-gray-50">
+            {hijosDirectos.slice(0, 5).map((h) => (
+              <div key={h.id} className="flex items-center gap-2 px-3 py-1.5">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{h.tipo}</span>
+                <span className="text-xs text-gray-500 truncate">{h.nombre}</span>
+              </div>
+            ))}
+            {hijosDirectos.length > 5 && (
+              <p className="px-3 py-1.5 text-[10px] text-gray-400">...y {hijosDirectos.length - 5} más</p>
+            )}
+          </div>
+        </div>
+      )}
+      {hijosDirectos.length === 0 && nodoSeleccionado && (
+        <div className="px-3 py-1.5 border-t border-gray-100">
+          <p className="text-[10px] text-gray-400">Sin dependientes directos</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BannerNodoOrganigrama({ value, onChange }: {
+  value: { sigla: string; nodoId: string; nodoPath: string } | null
+  onChange: (v: { sigla: string; nodoId: string; nodoPath: string } | null) => void
+}) {
+  const [siglaElegida, setSiglaElegida] = useState('')
+  const [busquedaSigla, setBusquedaSigla] = useState('')
+  const [busquedaNodo,  setBusquedaNodo]  = useState('')
+  const { data: siglas = [] } = useSiglasOrganigrama()
+
+  const esSeccion = SECCIONES_FIJAS.some((s) => s.sigla === siglaElegida)
+  const orgParams = siglaElegida
+    ? esSeccion
+      ? { seccion: siglaElegida as 'nivel-central' | 'atencion-primaria' }
+      : { sigla: siglaElegida }
+    : null
+  const { data: arbol, isLoading: cargandoArbol } = useOrganigrama(orgParams)
+
+  const nodosPlanos: NodoPlano[] = arbol ? aplanarArbol(arbol) : []
+  const q = busquedaNodo.trim().toLowerCase()
+  const nodosFiltrados = q
+    ? nodosPlanos.filter((n) => n.nombre.toLowerCase().includes(q) || n.path.toLowerCase().includes(q))
+    : nodosPlanos
+
+  const siglasFiltradas = busquedaSigla.trim()
+    ? siglas.filter((s) => s.nombre.toLowerCase().includes(busquedaSigla.toLowerCase()) || s.sigla.toLowerCase().includes(busquedaSigla.toLowerCase()))
+    : siglas
+
+  // Cascada: nodo padre, nodo seleccionado, hijos directos
+  const nodoSeleccionado = value ? nodosPlanos.find((n) => n.id === value.nodoId) : null
+  const nodoPadre = nodoSeleccionado
+    ? nodosPlanos.find((n) => arbol && buscarPadreEnArbol(arbol, nodoSeleccionado.id) === n.id)
+    : null
+  const hijosDirectos = nodoSeleccionado && arbol
+    ? buscarHijosEnArbol(arbol, nodoSeleccionado.id)
+    : []
+
+  function elegirSigla(sigla: string) {
+    setSiglaElegida(sigla)
+    setBusquedaNodo('')
+    onChange(null)
+  }
+
+  function elegirNodo(nodo: NodoPlano) {
+    onChange({ sigla: siglaElegida, nodoId: nodo.id, nodoPath: nodo.path })
+    setBusquedaNodo('')
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <span className="text-2xl leading-none mt-0.5">🏗️</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-violet-900">Ubicación en el organigrama</p>
+          <p className="text-xs text-violet-700 mt-0.5">
+            Elegí la sigla y el nodo del organigrama donde se ubicará el nuevo cargo de estructura.
+          </p>
+        </div>
+        <a href="/organigrama" target="_blank" rel="noopener noreferrer"
+          className="text-xs px-3 py-1.5 rounded border border-violet-300 bg-white text-violet-700 hover:bg-violet-100 font-medium transition-colors whitespace-nowrap">
+          Ver organigrama →
+        </a>
+      </div>
+
+      {/* Selector de sigla */}
+      {!siglaElegida ? (
+        <div className="space-y-2">
+          <input
+            type="text" value={busquedaSigla}
+            onChange={(e) => setBusquedaSigla(e.target.value)}
+            placeholder="Buscar sigla u hospital..."
+            className="h-9 input w-full text-sm"
+          />
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-violet-100 bg-white divide-y divide-gray-50">
+            {siglasFiltradas.map((s) => (
+              <button key={s.sigla} type="button" onClick={() => elegirSigla(s.sigla)}
+                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-violet-50 transition-colors">
+                <span className="font-mono text-xs font-bold text-violet-700 w-28 shrink-0">{s.esSeccion ? s.nombre : s.sigla}</span>
+                {!s.esSeccion && <span className="text-sm text-gray-700 truncate">{s.nombre}</span>}
+              </button>
+            ))}
+            {siglasFiltradas.length === 0 && <p className="px-3 py-4 text-xs text-gray-400 text-center">Sin resultados</p>}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {/* Sigla elegida */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-violet-100 border border-violet-200">
+            <span className="text-sm font-bold text-violet-900">
+              {siglas.find((s) => s.sigla === siglaElegida)?.nombre ?? siglaElegida}
+            </span>
+            <button type="button" onClick={() => { setSiglaElegida(''); onChange(null) }}
+              className="text-xs text-violet-500 hover:text-violet-700 underline">Cambiar</button>
+          </div>
+
+          {/* Nodo elegido con cascada */}
+          {value ? (
+            <div className="space-y-1">
+              <NodoCascada
+                nodoPadre={nodoPadre}
+                nodoSeleccionado={nodoSeleccionado}
+                hijosDirectos={hijosDirectos}
+                onCambiar={() => onChange(null)}
+              />
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <input
+                type="text" value={busquedaNodo}
+                onChange={(e) => setBusquedaNodo(e.target.value)}
+                placeholder="Buscar nodo del organigrama..."
+                className="h-9 input w-full text-sm"
+                autoFocus
+              />
+              {cargandoArbol ? (
+                <p className="text-xs text-gray-400 px-2 py-3">Cargando árbol...</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-violet-100 bg-white divide-y divide-gray-50">
+                  {nodosFiltrados.map((n) => (
+                    <button key={n.id} type="button" onClick={() => elegirNodo(n)}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-violet-50 transition-colors">
+                      <span
+                        className="mt-0.5 shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700"
+                        style={{ marginLeft: `${Math.min(n.nivel, 6) * 8}px` }}
+                      >{n.tipo}</span>
+                      <span className="text-xs text-gray-700 truncate">{n.nombre}</span>
+                    </button>
+                  ))}
+                  {nodosFiltrados.length === 0 && <p className="px-3 py-4 text-xs text-gray-400 text-center">Sin resultados</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Banner informativo de la norma POU ───────────────────────────────────────
+// Se muestra cuando el usuario elige "Ejecución POU". Recuerda que crear un
+// cargo POU equivale a editar la norma estructural de TODOS los hospitales, y
+// permite ver la POU actual o subir una nueva versión antes de continuar.
+function BannerNormaPou({ onVerPou, onEditarPou }: { onVerPou: () => void; onEditarPou: () => void }) {
+  const { data: hospitales = [] } = useHospitalesPou()
+  const { data: cargas = [] } = usePouCargas()
+  const ultimaCarga = cargas[0] ?? null
+
+  return (
+    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <span className="text-2xl leading-none mt-0.5">📋</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-blue-900">Estás editando la norma de estructura POU</p>
+          <p className="text-xs text-blue-700 mt-0.5">
+            Crear un cargo POU modifica la dotación estructural de <strong>todos los hospitales</strong>.
+            El documento que se genera refleja cómo queda la POU completa tras esta edición.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="text-xs text-blue-800">
+          <span className="font-semibold">{hospitales.length}</span> hospital{hospitales.length !== 1 ? 'es' : ''} con datos POU cargados
+          {ultimaCarga && (
+            <span className="ml-2 text-blue-600">
+              · Última norma: <span className="font-mono">{ultimaCarga.archivo}</span>{' '}
+              ({new Date(ultimaCarga.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })})
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button type="button" onClick={onVerPou}
+          className="text-xs px-3 py-1.5 rounded border border-blue-300 bg-white text-blue-700 hover:bg-blue-100 font-medium transition-colors">
+          Ver norma POU actual →
+        </button>
+        <button type="button" onClick={onEditarPou}
+          className="text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-600 text-white hover:bg-blue-700 font-medium transition-colors">
+          Actualizar norma POU (subir Excel)
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Formulario POU a POF ────────────────────────────────────────────────────
+// Permite seleccionar uno o más cargos POU vigentes y convertirlos a POF.
+// Cada cargo seleccionado se agrega al panel de pendientes como un item.
+function FormPouAPof({ onAgregar, onCancelar }: {
+  onAgregar: (items: ItemPendiente[]) => void
+  onCancelar: () => void
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [expediente, setExpediente] = useState('')
+  const [expConfirmado, setExpConfirmado] = useState(false)
+  const [expInput, setExpInput] = useState('')
+  const [desde, setDesde] = useState('')
+  const [etiqueta, setEtiqueta] = useState('')
+  const [seleccionados, setSeleccionados] = useState<ItemPendiente[]>([])
+  const { data: catalogoEtiquetas = [] } = useEtiquetas()
+
+  function confirmarExp() {
+    const v = expInput.trim()
+    if (!v) return
+    setExpediente(v)
+    setExpConfirmado(true)
+  }
+
+  function agregarCargo(c: CargoPou) {
+    // Evitar duplicados
+    if (seleccionados.some((s) => s.cargoOrigenId === c.id)) return
+    const item: ItemPendiente = {
+      id:               crypto.randomUUID(),
+      tipo:             'pou_a_pof',
+      hospitalId:       c.hospitalId,
+      hospitalSigla:    c.hospital?.sigla ?? c.hospitalId,
+      escalafonId:      c.escalafonId ?? '',
+      escalafon:        c.escalafon?.nombre ?? '',
+      puestoCargoId:    c.puestoCargoId ?? '',
+      puesto:           c.literalPuesto ?? '',
+      especialidad:     c.especialidadPuesto?.nombre ?? c.especialidad ?? '',
+      unificadorPuesto: 'POF',
+      expediente,
+      desde,
+      cantidad:         1,
+      etiqueta,
+      cargoOrigenId:    c.id,
+      cargoOrigenCodigo: c.codigo ?? undefined,
+      cargoOrigenOcupado: c.ocupado ?? false,
+      cargoOrigenPersona: c.personaOcupante?.apellidoNombre ?? undefined,
+    }
+    setSeleccionados((prev) => [...prev, item])
+  }
+
+  function quitarCargo(id: string) {
+    setSeleccionados((prev) => prev.filter((s) => s.cargoOrigenId !== id))
+  }
+
+  function handleAgregar() {
+    if (seleccionados.length === 0 || !expConfirmado || !desde) return
+    // Actualizar expediente/desde/etiqueta en todos los seleccionados
+    const items = seleccionados.map((s) => ({ ...s, expediente, desde, etiqueta }))
+    onAgregar(items)
+    setSeleccionados([])
+    setExpConfirmado(false)
+    setExpInput('')
+    setExpediente('')
+    setDesde('')
+    setEtiqueta('')
+  }
+
+  const formCompleto = expConfirmado && !!desde && seleccionados.length > 0
+
+  return (
+    <>
+      {modalAbierto && (
+        <ModalBuscarCargoPou
+          onSeleccionar={(c) => { agregarCargo(c); }}
+          onCerrar={() => setModalAbierto(false)}
+          yaSeleccionados={seleccionados.map((s) => s.cargoOrigenId!).filter(Boolean)}
+        />
+      )}
+      <div className="border-t border-gray-100 pt-5 space-y-4">
+        {/* Banner informativo */}
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 flex items-start gap-3">
+          <span className="text-2xl leading-none mt-0.5">🔄</span>
+          <div>
+            <p className="text-sm font-bold text-orange-900">Conversión POU → POF</p>
+            <p className="text-xs text-orange-700 mt-0.5">
+              Seleccioná los cargos POU vigentes a convertir. Si el cargo está ocupado, pasa a POF con la persona. Si está vacante, va a concurso.
+            </p>
+          </div>
+        </div>
+
+        {/* Expediente */}
+        {!expConfirmado ? (
+          <div className="flex items-end gap-3 p-4 rounded-lg border-2 border-secondary/30 bg-secondary/5">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-secondary mb-1.5 uppercase tracking-wider">
+                Expediente <span className="text-danger">*</span>
+              </label>
+              <input type="text" value={expInput} onChange={(e) => setExpInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmarExp()}
+                placeholder="EX-2026-32260736-GCABA-DGAYDRH" className="h-10 input w-full" autoFocus />
+            </div>
+            <button type="button" onClick={confirmarExp} disabled={!expInput.trim()} className="btn-primary disabled:opacity-40">
+              Confirmar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-4 rounded-lg border border-green-200 bg-green-50">
+            <div className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+              <div>
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Expediente confirmado</p>
+                <p className="text-sm font-bold text-gray-800 mt-0.5">{expediente}</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => { setExpConfirmado(false); setExpInput(expediente) }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline">Cambiar</button>
+          </div>
+        )}
+
+        <div className={`space-y-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
+          {/* Cargos seleccionados */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-gray-500">Cargos POU a convertir <span className="text-danger">*</span></label>
+              <button type="button" onClick={() => setModalAbierto(true)}
+                className="text-xs px-3 py-1.5 rounded border border-secondary text-secondary hover:bg-secondary/10 font-medium transition-colors">
+                + Seleccionar cargo POU
+              </button>
+            </div>
+            {seleccionados.length === 0 ? (
+              <button type="button" onClick={() => setModalAbierto(true)}
+                className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-secondary hover:text-secondary transition-colors">
+                + Seleccionar cargo POU
+              </button>
+            ) : (
+              <div className="space-y-2">
+                {seleccionados.map((s) => (
+                  <div key={s.cargoOrigenId} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-orange-50 border border-orange-200">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-gray-700">{s.cargoOrigenCodigo ?? '—'}</span>
+                        <span className="text-xs text-gray-400">·</span>
+                        <span className="text-xs font-medium text-gray-700">{s.hospitalSigla}</span>
+                        {s.cargoOrigenOcupado ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Ocupado</span>
+                        ) : (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Vacante → concurso</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5 truncate">{s.puesto}{s.especialidad ? ` · ${s.especialidad}` : ''}</p>
+                      {s.cargoOrigenPersona && <p className="text-xs text-gray-400 truncate">{s.cargoOrigenPersona}</p>}
+                    </div>
+                    <button type="button" onClick={() => quitarCargo(s.cargoOrigenId!)}
+                      className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none flex-shrink-0">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Desde + Etiqueta + botones */}
+          <div className="grid grid-cols-5 gap-4 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Desde <span className="text-danger">*</span></label>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 input w-full" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta</label>
+              <EtiquetaPicker value={etiqueta} onChange={setEtiqueta} catalogo={catalogoEtiquetas} />
+            </div>
+            <div className="col-span-2 flex gap-2">
+              <button type="button" onClick={onCancelar} className="btn-outline flex-1">Cancelar</button>
+              <button type="button" onClick={handleAgregar} disabled={!formCompleto}
+                className="btn-primary flex-1 disabled:opacity-40">
+                + Agregar ({seleccionados.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Tipo liviano para el modal de búsqueda POU / Estructura
+interface CargoPou {
+  id: string
+  codigo?: string | null
+  hospitalId: string
+  hospital?: { sigla: string } | null
+  escalafonId?: string | null
+  escalafon?: { nombre: string } | null
+  puestoCargoId?: string | null
+  literalPuesto?: string | null
+  especialidad?: string | null
+  especialidadPuesto?: { nombre: string } | null
+  ocupado?: boolean | null
+  personaOcupante?: { apellidoNombre: string } | null
+  subEstado?: string | null
+  estado?: string
+}
+
+// ── Modal de búsqueda de cargos POU vigentes ─────────────────────────────────
+function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
+  onSeleccionar: (c: CargoPou) => void
+  onCerrar: () => void
+  yaSeleccionados: string[]
+}) {
+  const [hospitalId, setHospitalId] = useState('')
+  const [busqueda, setBusqueda] = useState('')
+  const { data: hospitales = [] } = useHospitales()
+
+  const activo = !!hospitalId || busqueda.length >= 2
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['cargos-pou-modal', hospitalId, busqueda],
+    enabled: activo,
+    placeholderData: (prev: CargoPou[] | undefined) => prev,
+    queryFn: async () => {
+      const params: Record<string, string> = { limit: '50', estado: 'vigente' }
+      // Filtrar por unificadorPuesto POU — el endpoint acepta este param
+      params.unificadorPuesto = 'POU'
+      if (hospitalId) params.hospitalId = hospitalId
+      if (busqueda.length >= 2) params.search = busqueda
+      const res = await apiClient.get<{ data: CargoPou[] }>('/api/v1/cargos', { params })
+      return res.data.data
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onCerrar} />
+      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-primary text-base font-bold text-gray-900">Seleccionar cargo POU</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Cargos POU vigentes — podés seleccionar varios</p>
+          </div>
+          <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-3 border-b border-gray-100 flex gap-3">
+          <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="h-9 input text-sm flex-1">
+            <option value="">Todas las siglas</option>
+            {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+          </select>
+          <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Código, puesto, especialidad..." className="h-9 input text-sm flex-1" />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
+          {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
+          {activo && !isLoading && (data?.length ?? 0) === 0 && <p className="p-6 text-sm text-gray-400 text-center">Sin resultados.</p>}
+          {activo && !isLoading && (data?.length ?? 0) > 0 && (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Código</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Puesto</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Especialidad</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Persona</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Estado</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data?.map((c) => {
+                  const yaEsta = yaSeleccionados.includes(c.id)
+                  const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
+                  return (
+                    <tr key={c.id} className={yaEsta ? 'bg-orange-50' : 'hover:bg-blue-50 cursor-pointer'}
+                      onClick={() => !yaEsta && onSeleccionar(c)}>
+                      <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{c.codigo ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[200px]">
+                        <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">
+                        {c.especialidadPuesto?.nombre ?? c.especialidad ?? <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">
+                        {c.personaOcupante?.apellidoNombre ?? <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={sub === 'ocupado' ? 'badge-success' : sub === 'concurso' ? 'badge-info' : 'badge-warning'}>
+                          {sub === 'ocupado' ? 'Ocupado' : sub === 'concurso' ? 'Concurso' : 'Vacante'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {yaEsta
+                          ? <span className="text-xs text-orange-600 font-medium">✓ Agregado</span>
+                          : <span className="text-xs text-secondary font-medium">Seleccionar</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onCerrar} className="btn-primary">Listo</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Formulario Editar Estructura ────────────────────────────────────────────────────
+// Selecciona un cargo de estructura existente, lo da de baja y crea uno nuevo
+// en el nodo destino del organigrama. Si tiene persona, pasa al nuevo cargo.
+// Si está vacante, va a concurso.
+function FormEditarEstructura({ onAgregar, onCancelar }: {
+  onAgregar: (item: ItemPendiente | ItemPendiente[]) => void
+  onCancelar: () => void
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [cargoOrigen, setCargoOrigen] = useState<CargoPou | null>(null)
+  const [expInput, setExpInput] = useState('')
+  const [expConfirmado, setExpConfirmado] = useState(false)
+  const [expediente, setExpediente] = useState('')
+  const [desde, setDesde] = useState('')
+  const [etiqueta, setEtiqueta] = useState('')
+  const [nodoOrg, setNodoOrg] = useState<{ sigla: string; nodoId: string; nodoPath: string } | null>(null)
+  const { data: catalogoEtiquetas = [] } = useEtiquetas()
+
+  function confirmarExp() {
+    const v = expInput.trim()
+    if (!v) return
+    setExpediente(v)
+    setExpConfirmado(true)
+  }
+
+  function seleccionarCargo(c: CargoPou) {
+    setCargoOrigen(c)
+    setModalAbierto(false)
+  }
+
+  function handleAgregar() {
+    if (!cargoOrigen || !expConfirmado || !desde || !nodoOrg) return
+    const item: ItemPendiente = {
+      id:               crypto.randomUUID(),
+      tipo:             'editar_estructura',
+      hospitalId:       cargoOrigen.hospitalId,
+      hospitalSigla:    cargoOrigen.hospital?.sigla ?? cargoOrigen.hospitalId,
+      escalafonId:      cargoOrigen.escalafonId ?? '',
+      escalafon:        cargoOrigen.escalafon?.nombre ?? '',
+      puestoCargoId:    cargoOrigen.puestoCargoId ?? '',
+      puesto:           cargoOrigen.literalPuesto ?? '',
+      especialidad:     cargoOrigen.especialidadPuesto?.nombre ?? cargoOrigen.especialidad ?? '',
+      unificadorPuesto: 'Estructura',
+      expediente,
+      desde,
+      cantidad:         1,
+      etiqueta,
+      cargoOrigenId:    cargoOrigen.id,
+      cargoOrigenCodigo: cargoOrigen.codigo ?? undefined,
+      cargoOrigenOcupado: cargoOrigen.ocupado ?? false,
+      cargoOrigenPersona: cargoOrigen.personaOcupante?.apellidoNombre ?? undefined,
+      nodoOrgId:   nodoOrg.nodoId,
+      nodoOrgPath: nodoOrg.nodoPath,
+      nodoOrgSigla: nodoOrg.sigla,
+    }
+    onAgregar(item)
+    setCargoOrigen(null)
+    setNodoOrg(null)
+    setExpConfirmado(false)
+    setExpInput('')
+    setExpediente('')
+    setDesde('')
+    setEtiqueta('')
+  }
+
+  const formCompleto = !!cargoOrigen && expConfirmado && !!desde && !!nodoOrg
+
+  return (
+    <>
+      {modalAbierto && (
+        <ModalBuscarCargoEstructura
+          onSeleccionar={seleccionarCargo}
+          onCerrar={() => setModalAbierto(false)}
+        />
+      )}
+      <div className="border-t border-gray-100 pt-5 space-y-4">
+        {/* Banner */}
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 flex items-start gap-3">
+          <span className="text-2xl leading-none mt-0.5">✏️</span>
+          <div>
+            <p className="text-sm font-bold text-indigo-900">Edición de cargo de estructura</p>
+            <p className="text-xs text-indigo-700 mt-0.5">
+              El cargo de estructura seleccionado se da de baja y se crea uno nuevo en el nodo destino.
+              Si tiene persona, pasa al nuevo cargo. Si está vacante, va a concurso.
+            </p>
+          </div>
+        </div>
+
+        {/* Expediente */}
+        {!expConfirmado ? (
+          <div className="flex items-end gap-3 p-4 rounded-lg border-2 border-secondary/30 bg-secondary/5">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-secondary mb-1.5 uppercase tracking-wider">
+                Decreto <span className="text-danger">*</span>
+              </label>
+              <input type="text" value={expInput} onChange={(e) => setExpInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmarExp()}
+                placeholder="Ej: DEC-541/MSGC/26" className="h-10 input w-full" autoFocus />
+            </div>
+            <button type="button" onClick={confirmarExp} disabled={!expInput.trim()} className="btn-primary disabled:opacity-40">
+              Confirmar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-4 rounded-lg border border-green-200 bg-green-50">
+            <div className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+              <div>
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Decreto confirmado</p>
+                <p className="text-sm font-bold text-gray-800 mt-0.5">{expediente}</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => { setExpConfirmado(false); setExpInput(expediente) }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline">Cambiar</button>
+          </div>
+        )}
+
+        <div className={`space-y-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
+          {/* Cargo origen */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Cargo de estructura a editar <span className="text-danger">*</span></label>
+            {cargoOrigen ? (
+              <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-red-50 border border-red-200">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold text-gray-700">{cargoOrigen.codigo ?? '—'}</span>
+                    <span className="text-xs text-gray-400">·</span>
+                    <span className="text-xs font-medium text-gray-700">{cargoOrigen.hospital?.sigla}</span>
+                    <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Se da de baja</span>
+                    {cargoOrigen.ocupado
+                      ? <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Ocupado → pasa al nuevo</span>
+                      : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Vacante → concurso</span>}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-0.5 truncate">{cargoOrigen.literalPuesto}{cargoOrigen.especialidad ? ` · ${cargoOrigen.especialidad}` : ''}</p>
+                  {cargoOrigen.personaOcupante && <p className="text-xs text-gray-400 truncate">{cargoOrigen.personaOcupante.apellidoNombre}</p>}
+                </div>
+                <button type="button" onClick={() => setCargoOrigen(null)}
+                  className="text-xs text-gray-400 hover:text-red-500 underline shrink-0">Cambiar</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setModalAbierto(true)}
+                className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+                + Seleccionar cargo de estructura
+              </button>
+            )}
+          </div>
+
+          {/* Nodo destino con cascada */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Nodo destino en el organigrama <span className="text-danger">*</span></label>
+            <BannerNodoOrganigrama value={nodoOrg} onChange={setNodoOrg} />
+          </div>
+
+          {/* Desde + Etiqueta + botones */}
+          <div className="grid grid-cols-5 gap-4 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Desde <span className="text-danger">*</span></label>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 input w-full" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta</label>
+              <EtiquetaPicker value={etiqueta} onChange={setEtiqueta} catalogo={catalogoEtiquetas} />
+            </div>
+            <div className="col-span-2 flex gap-2">
+              <button type="button" onClick={onCancelar} className="btn-outline flex-1">Cancelar</button>
+              <button type="button" onClick={handleAgregar} disabled={!formCompleto}
+                className="btn-primary flex-1 disabled:opacity-40">+ Agregar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Modal de búsqueda de cargos de estructura vigentes ──────────────────────
+function ModalBuscarCargoEstructura({ onSeleccionar, onCerrar }: {
+  onSeleccionar: (c: CargoPou) => void
+  onCerrar: () => void
+}) {
+  const [hospitalId, setHospitalId] = useState('')
+  const [busqueda, setBusqueda] = useState('')
+  const { data: hospitales = [] } = useHospitales()
+
+  const activo = !!hospitalId || busqueda.length >= 2
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['cargos-estructura-modal', hospitalId, busqueda],
+    enabled: activo,
+    placeholderData: (prev: CargoPou[] | undefined) => prev,
+    queryFn: async () => {
+      const params: Record<string, string> = { limit: '50', estado: 'vigente', unificadorPuesto: 'Estructura' }
+      if (hospitalId) params.hospitalId = hospitalId
+      if (busqueda.length >= 2) params.search = busqueda
+      const res = await apiClient.get<{ data: CargoPou[] }>('/api/v1/cargos', { params })
+      return res.data.data
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onCerrar} />
+      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-primary text-base font-bold text-gray-900">Seleccionar cargo de estructura</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Cargos de estructura vigentes</p>
+          </div>
+          <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-3 border-b border-gray-100 flex gap-3">
+          <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)} className="h-9 input text-sm flex-1">
+            <option value="">Todas las siglas</option>
+            {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+          </select>
+          <input autoFocus type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Código, puesto, especialidad..." className="h-9 input text-sm flex-1" />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {!activo && <p className="p-6 text-sm text-gray-400 text-center">Seleccioná una sigla o escribí al menos 2 caracteres</p>}
+          {activo && isLoading && <p className="p-6 text-sm text-gray-400 text-center">Buscando...</p>}
+          {activo && !isLoading && (data?.length ?? 0) === 0 && <p className="p-6 text-sm text-gray-400 text-center">Sin resultados.</p>}
+          {activo && !isLoading && (data?.length ?? 0) > 0 && (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Código</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sigla</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Puesto</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Persona</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Estado</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data?.map((c) => {
+                  const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
+                  return (
+                    <tr key={c.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => onSeleccionar(c)}>
+                      <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{c.codigo ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">{c.hospital?.sigla ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[220px]">
+                        <span className="font-medium leading-tight line-clamp-2">{c.literalPuesto ?? '—'}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">
+                        {c.personaOcupante?.apellidoNombre ?? <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={sub === 'ocupado' ? 'badge-success' : sub === 'concurso' ? 'badge-info' : 'badge-warning'}>
+                          {sub === 'ocupado' ? 'Ocupado' : sub === 'concurso' ? 'Concurso' : 'Vacante'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className="text-xs text-secondary font-medium">Seleccionar</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onCerrar} className="btn-outline">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Formulario (expediente + campos, agrega al panel) ────────────────────────
 function FormAlta({ tipo, onAgregar, onCancelar }: {
   tipo: TipoAlta
-  onAgregar: (item: ItemPendiente) => void
+  onAgregar: (item: ItemPendiente | ItemPendiente[]) => void
   onCancelar: () => void
 }) {
   const [expInput,      setExpInput]      = useState('')
@@ -412,8 +1289,336 @@ interface ResumenEnvio {
   items: ItemPendiente[]
 }
 
+// ── Transferencias ──────────────────────────────────────────────────────────
+// El usuario declara transferencias (nombre, apellido, sigla origen, sigla
+// destino, CUIL). Se guardan en localStorage. La tabla consulta el padrón por
+// CUIL; cuando aparece → notificación + botón Confirmar que crea la SolicitudAlta
+// con esTransferencia:true (se aprueba directamente sin pasar por el director).
+
+interface TransferenciaDeclarada {
+  id: string
+  apellido: string
+  nombre: string
+  cuil: string
+  siglaOrigen: string
+  siglaDestino: string
+  declaradaAt: string
+  // Datos del cargo destino (para la solicitud)
+  hospitalId?: string
+  escalafonId?: string
+  puestoCargoId?: string
+}
+
+function normalizarCuil(cuil: string): string {
+  return cuil.replace(/[^0-9]/g, '')
+}
+
+// Fila de la tabla: consulta el padrón por CUIL y muestra el estado
+function FilaTransferencia({
+  t,
+  onEliminar,
+  onConfirmada,
+}: {
+  t: TransferenciaDeclarada
+  onEliminar: () => void
+  onConfirmada: () => void
+}) {
+  const cuil = normalizarCuil(t.cuil)
+  const [confirmando, setConfirmando] = useState(false)
+  const [errorConf, setErrorConf] = useState<string | null>(null)
+  const crearLote = useCreateSolicitudesAltaBatch()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['persona-padron-cuil', cuil],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: PersonaListItem[] }>('/api/v1/personas', {
+        params: { search: cuil, limit: 5 },
+      })
+      return res.data.data
+    },
+    enabled: cuil.length >= 10,
+    refetchInterval: 60_000, // re-consulta cada minuto
+  })
+
+  const persona = data?.find((p) => normalizarCuil(p.cuil) === cuil) ?? null
+  const enPadron = !!persona
+
+  async function confirmar() {
+    if (!persona || !t.hospitalId || !t.escalafonId || !t.puestoCargoId) return
+    setConfirmando(true); setErrorConf(null)
+    try {
+      await crearLote.mutateAsync({
+        items: [{
+          hospitalId:      t.hospitalId,
+          escalafonId:     t.escalafonId,
+          puestoCargoId:   t.puestoCargoId,
+          esTransferencia: true,
+          expediente:      `Transferencia ${t.siglaOrigen} → ${t.siglaDestino}`,
+        }],
+      })
+      onConfirmada()
+    } catch (err) {
+      setErrorConf(getApiErrorMessage(err))
+    } finally {
+      setConfirmando(false)
+    }
+  }
+
+  return (
+    <tr className="hover:bg-gray-50">
+      <td className="px-4 py-3">
+        <p className="font-medium text-gray-800 text-sm">{t.apellido}, {t.nombre}</p>
+        <p className="font-mono text-xs text-gray-500">{t.cuil}</p>
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-600">{t.siglaOrigen}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">{t.siglaDestino}</td>
+      <td className="px-4 py-3 text-xs text-gray-400">{t.declaradaAt.slice(0, 10)}</td>
+      <td className="px-4 py-3">
+        {isLoading ? (
+          <span className="text-xs text-gray-400">Consultando padrón...</span>
+        ) : enPadron ? (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+              <span>●</span> En padrón
+            </span>
+            <span className="text-xs text-gray-500 truncate max-w-[160px]">{persona.apellidoNombre}</span>
+          </div>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+            <span>○</span> Sin padrón — esperando
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-2">
+          {enPadron && t.hospitalId && t.escalafonId && t.puestoCargoId && (
+            <button
+              type="button"
+              onClick={confirmar}
+              disabled={confirmando}
+              className="btn-primary text-xs px-3 py-1 disabled:opacity-40"
+            >
+              {confirmando ? 'Confirmando...' : 'Confirmar transferencia'}
+            </button>
+          )}
+          {errorConf && <span className="text-xs text-red-500">{errorConf}</span>}
+          <button type="button" onClick={onEliminar}
+            className="text-gray-300 hover:text-red-400 text-lg leading-none transition-colors">×</button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+// Formulario para declarar una nueva transferencia
+function FormTransferencia({ onAgregar, onCancelar }: {
+  onAgregar: (t: TransferenciaDeclarada) => void
+  onCancelar: () => void
+}) {
+  const [apellido, setApellido] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [cuil, setCuil] = useState('')
+  const [siglaOrigen, setSiglaOrigen] = useState('')
+  const [siglaDestino, setSiglaDestino] = useState('')
+  // Cargo destino (opcional — si no se completa, el botón Confirmar no aparece)
+  const [hospitalId, setHospitalId] = useState('')
+  const [escalafonId, setEscalafonId] = useState('')
+  const [puestoCargoId, setPuestoCargoId] = useState('')
+  const { data: hospitales = [] } = useHospitales()
+  const { data: escalafones = [] } = useEscalafonesPorTipoAlta('pof')
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(
+    escalafonId || undefined, 'ambos',
+  )
+
+  const valido = apellido.trim() && nombre.trim() && normalizarCuil(cuil).length >= 10 && siglaOrigen.trim() && siglaDestino.trim()
+
+  function handleAgregar() {
+    if (!valido) return
+    onAgregar({
+      id:           crypto.randomUUID(),
+      apellido:     apellido.trim(),
+      nombre:       nombre.trim(),
+      cuil:         cuil.trim(),
+      siglaOrigen:  siglaOrigen.trim().toUpperCase(),
+      siglaDestino: siglaDestino.trim().toUpperCase(),
+      declaradaAt:  new Date().toISOString(),
+      hospitalId:   hospitalId || undefined,
+      escalafonId:  escalafonId || undefined,
+      puestoCargoId: puestoCargoId || undefined,
+    })
+    setApellido(''); setNombre(''); setCuil('')
+    setSiglaOrigen(''); setSiglaDestino('')
+    setHospitalId(''); setEscalafonId(''); setPuestoCargoId('')
+  }
+
+  return (
+    <div className="border border-blue-200 rounded-xl bg-blue-50 p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="text-2xl leading-none mt-0.5">🔀</span>
+        <div>
+          <p className="text-sm font-bold text-blue-900">Declarar transferencia</p>
+          <p className="text-xs text-blue-700 mt-0.5">
+            Ingresá los datos de la persona que se transfiere. Cuando aparezca en el padrón semanal podrás confirmar la transferencia y asignarle un código de cargo.
+          </p>
+        </div>
+      </div>
+
+      {/* Datos personales */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Apellido <span className="text-danger">*</span></label>
+          <input type="text" value={apellido} onChange={(e) => setApellido(e.target.value)}
+            placeholder="GARCIA" className="h-9 input w-full text-sm" autoFocus />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Nombre <span className="text-danger">*</span></label>
+          <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)}
+            placeholder="JUAN" className="h-9 input w-full text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">CUIL <span className="text-danger">*</span></label>
+          <input type="text" value={cuil} onChange={(e) => setCuil(e.target.value)}
+            placeholder="20-12345678-9" className="h-9 input w-full text-sm font-mono" />
+        </div>
+      </div>
+
+      {/* Siglas */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla de origen <span className="text-danger">*</span></label>
+          <input type="text" value={siglaOrigen} onChange={(e) => setSiglaOrigen(e.target.value)}
+            placeholder="HGAIP" className="h-9 input w-full text-sm font-mono uppercase" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Sigla de destino <span className="text-danger">*</span></label>
+          <input type="text" value={siglaDestino} onChange={(e) => setSiglaDestino(e.target.value)}
+            placeholder="HGATA" className="h-9 input w-full text-sm font-mono uppercase" />
+        </div>
+      </div>
+
+      {/* Cargo destino (opcional — necesario para confirmar) */}
+      <details className="group">
+        <summary className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-900 select-none">
+          ▶ Cargo destino (necesario para confirmar la transferencia)
+        </summary>
+        <div className="mt-3 grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Repartición destino</label>
+            <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setEscalafonId(''); setPuestoCargoId('') }}
+              className="h-9 input w-full text-sm">
+              <option value="">Seleccionar...</option>
+              {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Carrera</label>
+            <select value={escalafonId} onChange={(e) => { setEscalafonId(e.target.value); setPuestoCargoId('') }}
+              className="h-9 input w-full text-sm" disabled={!hospitalId}>
+              <option value="">Seleccionar...</option>
+              {escalafones.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Puesto</label>
+            <select value={puestoCargoId} onChange={(e) => setPuestoCargoId(e.target.value)}
+              className="h-9 input w-full text-sm" disabled={!escalafonId}>
+              <option value="">Seleccionar...</option>
+              {puestosCatalogo.map((p) => <option key={p.id} value={p.id}>{capitalizar(p.nombre)}</option>)}
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+        <button type="button" onClick={handleAgregar} disabled={!valido}
+          className="btn-primary disabled:opacity-40">Agregar transferencia</button>
+      </div>
+    </div>
+  )
+}
+
+// Pestaña completa de transferencias
+function TabTransferencias({
+  transferencias,
+  onAgregar,
+  onEliminar,
+  onConfirmada,
+}: {
+  transferencias: TransferenciaDeclarada[]
+  onAgregar: (t: TransferenciaDeclarada) => void
+  onEliminar: (id: string) => void
+  onConfirmada: (id: string) => void
+}) {
+  const [formAbierto, setFormAbierto] = useState(false)
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-bold text-gray-800">Transferencias declaradas</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Declarás la transferencia antes de que aparezca en el padrón. Cuando el padrón semanal la incluya, podés confirmarla y se asigna el código de cargo.
+          </p>
+        </div>
+        <button type="button" onClick={() => setFormAbierto((v) => !v)}
+          className={`btn-primary ${formAbierto ? 'opacity-60' : ''}`}>
+          {formAbierto ? '▲ Cerrar' : '+ Nueva transferencia'}
+        </button>
+      </div>
+
+      {formAbierto && (
+        <FormTransferencia
+          onAgregar={(t) => { onAgregar(t); setFormAbierto(false) }}
+          onCancelar={() => setFormAbierto(false)}
+        />
+      )}
+
+      {transferencias.length === 0 ? (
+        <div className="rounded-xl border-2 border-dashed border-gray-200 p-10 text-center">
+          <p className="text-sm text-gray-400">No hay transferencias declaradas.</p>
+          <p className="text-xs text-gray-300 mt-1">Usá el botón "+ Nueva transferencia" para agregar.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-200">
+          <table className="w-full text-sm">
+            <thead className="bg-navy text-white text-left">
+              <tr>
+                <th className="px-4 py-3 font-semibold rounded-tl-xl">Persona</th>
+                <th className="px-4 py-3 font-semibold">Origen</th>
+                <th className="px-4 py-3 font-semibold">Destino</th>
+                <th className="px-4 py-3 font-semibold">Declarada</th>
+                <th className="px-4 py-3 font-semibold">Estado padrón</th>
+                <th className="px-4 py-3 rounded-tr-xl" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {transferencias.map((t) => (
+                <FilaTransferencia
+                  key={t.id}
+                  t={t}
+                  onEliminar={() => onEliminar(t.id)}
+                  onConfirmada={() => onConfirmada(t.id)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800">
+        <strong>¿Cómo funciona?</strong> Las transferencias declaradas se guardan localmente.
+        Cada minuto se consulta el padrón por CUIL. Cuando la persona aparece, el estado cambia a
+        <span className="mx-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">● En padrón</span>
+        y podés confirmar la transferencia para asignarle un código de cargo.
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 export function AltaCargosPage() {
+  const navigate = useNavigate()
   const [tab,        setTab]        = useState<'historial' | 'nueva' | 'transferencia'>('historial')
   const [tipoActivo, setTipoActivo] = useState<TipoAlta | null>(null)
   const [pendientes, setPendientes] = useState<ItemPendiente[]>([])
@@ -422,13 +1627,20 @@ export function AltaCargosPage() {
   const [search,     setSearch]     = useState('')
   const [filtroEstado, setFiltroEstado] = useState<SolicitudAltaEstado | ''>('')
   const [confirmacion, setConfirmacion] = useState<ResumenEnvio | null>(null)
+  const [nodoOrg, setNodoOrg] = useState<{ sigla: string; nodoId: string; nodoPath: string } | null>(null)
+  const [transferencias, setTransferencias] = useState<TransferenciaDeclarada[]>(() => {
+    try { return JSON.parse(localStorage.getItem('srrhh_transferencias') ?? '[]') } catch { return [] }
+  })
+
+  useEffect(() => {
+    localStorage.setItem('srrhh_transferencias', JSON.stringify(transferencias))
+  }, [transferencias])
 
   // S13-D: historial ahora lista SolicitudAlta (con estado pendiente/aprobada/
   // rechazada) — el Cargo real recién existe cuando el director aprueba.
   const { data: solicitudesData, refetch: refetchSolicitudes } = useSolicitudesAlta({
     limit: 100,
     ...(filtroEstado && { estado: filtroEstado }),
-    ...(tab === 'transferencia' && { esTransferencia: true }),
     ...(tab === 'historial' && { esTransferencia: false }),
   })
   const solicitudes = solicitudesData?.data ?? []
@@ -438,8 +1650,14 @@ export function AltaCargosPage() {
 
   const crearLote = useCreateSolicitudesAltaBatch()
 
-  function handleAgregar(item: ItemPendiente) {
-    setPendientes((prev) => [...prev, item])
+  function handleAgregar(itemOrItems: ItemPendiente | ItemPendiente[]) {
+    const items = Array.isArray(itemOrItems) ? itemOrItems : [itemOrItems]
+    const itemsFinales = items.map((item) =>
+      tipoActivo === 'estructura' && nodoOrg
+        ? { ...item, nodoOrgId: nodoOrg.nodoId, nodoOrgPath: nodoOrg.nodoPath, nodoOrgSigla: nodoOrg.sigla }
+        : item
+    )
+    setPendientes((prev) => [...prev, ...itemsFinales])
   }
 
   async function handleRegistrarTodos() {
@@ -455,11 +1673,19 @@ export function AltaCargosPage() {
           puestoCargoId:       item.puestoCargoId,
           especialidadPuestoId: item.especialidadPuestoId,
           unificadorPuesto: item.unificadorPuesto,
-          agrupador:        item.agrupador,
+          agrupador:        item.nodoOrgId ?? item.agrupador,
           expediente:       item.expediente || undefined,
           desde:            item.desde,
           cantidad:         item.cantidad,
           etiqueta:         item.etiqueta || undefined,
+          // nodoOrgPath viaja en observaciones para el PDF; cargoOrigenId para POU a POF / editar_estructura
+          observaciones: item.tipo === 'editar_estructura' && item.nodoOrgPath && item.cargoOrigenId
+            ? `nodo:${item.nodoOrgSigla}|${item.nodoOrgId}|${item.nodoOrgPath}|origen:${item.cargoOrigenId}`
+            : item.nodoOrgPath
+            ? `nodo:${item.nodoOrgSigla}|${item.nodoOrgId}|${item.nodoOrgPath}`
+            : item.cargoOrigenId
+            ? `pou_a_pof:${item.cargoOrigenId}`
+            : undefined,
         })),
       })
       // Resumen para el modal (todos los ítems del lote comparten el expediente).
@@ -480,10 +1706,14 @@ export function AltaCargosPage() {
 
   const totalPendientes = pendientes.reduce((acc, p) => acc + p.cantidad, 0)
 
-  const BOTONES: { tipo: TipoAlta; label: string; cls: string }[] = [
+  const BOTONES_DESDE_CERO: { tipo: TipoAlta; label: string; cls: string }[] = [
     { tipo: 'pof',        label: 'Ejecución POF', cls: 'btn-secondary' },
     { tipo: 'pou',        label: 'Ejecución POU', cls: 'btn-outline'   },
     { tipo: 'estructura', label: 'Estructura',    cls: 'btn-outline'   },
+  ]
+  const BOTONES_CONVERSION: { tipo: TipoAlta; label: string; cls: string }[] = [
+    { tipo: 'pou_a_pof',         label: 'POU a POF',         cls: 'btn-outline' },
+    { tipo: 'editar_estructura', label: 'Editar Estructura', cls: 'btn-outline' },
   ]
 
   return (
@@ -491,20 +1721,35 @@ export function AltaCargosPage() {
 
       {/* Tabs */}
       <div className="bg-white rounded-lg shadow-sm">
-        <div className="flex items-center justify-between px-6 pt-5 pb-0">
-          <h1 className="font-primary text-xl font-bold text-gray-900">Alta de Cargos</h1>
           {tab === 'nueva' && (
-            <div className="flex gap-2">
-              {BOTONES.map(({ tipo, label, cls }) => (
-                <button key={tipo} type="button"
-                  onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
-                  className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}>
-                  {tipoActivo === tipo ? `▲ ${label}` : `+ ${label}`}
-                </button>
-              ))}
+            <div className="flex items-center justify-between px-6 pt-5 pb-0">
+              <h1 className="font-primary text-xl font-bold text-gray-900">Alta de Cargos</h1>
+              {tab === 'nueva' && (
+                <div className="flex items-center gap-2">
+                  {BOTONES_DESDE_CERO.map(({ tipo, label, cls }) => (
+                    <button key={tipo} type="button"
+                      onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
+                      className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}>
+                      {tipoActivo === tipo ? `▲ ${label}` : `+ ${label}`}
+                    </button>
+                  ))}
+                  <span className="w-px h-6 bg-gray-300 mx-1" />
+                  {BOTONES_CONVERSION.map(({ tipo, label, cls }) => (
+                    <button key={tipo} type="button"
+                      onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
+                      className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-orange-400' : ''}`}>
+                      {tipoActivo === tipo ? `▲ ${label}` : `🔄 ${label}`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
+          {tab !== 'nueva' && (
+            <div className="flex items-center justify-between px-6 pt-5 pb-0">
+              <h1 className="font-primary text-xl font-bold text-gray-900">Alta de Cargos</h1>
+            </div>
+          )}
 
         {/* Tab bar */}
         <div className="flex gap-0 px-6 mt-4 border-b border-gray-200">
@@ -530,8 +1775,16 @@ export function AltaCargosPage() {
             {(tipoActivo || pendientes.length > 0) && (
               <div className="flex gap-6 items-start">
                 <div className="flex-1 min-w-0">
-                  {tipoActivo && (
+                  {tipoActivo === 'pou' && <BannerNormaPou onVerPou={() => navigate('/pou')} onEditarPou={() => navigate('/pou/carga')} />}
+                  {tipoActivo === 'estructura' && <BannerNodoOrganigrama value={nodoOrg} onChange={setNodoOrg} />}
+                  {tipoActivo && tipoActivo !== 'pou_a_pof' && tipoActivo !== 'editar_estructura' && (
                     <FormAlta key={tipoActivo} tipo={tipoActivo} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                  )}
+                  {tipoActivo === 'pou_a_pof' && (
+                    <FormPouAPof onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                  )}
+                  {tipoActivo === 'editar_estructura' && (
+                    <FormEditarEstructura onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
                   )}
                 </div>
                 <div className="w-72 flex-shrink-0">
@@ -554,11 +1807,20 @@ export function AltaCargosPage() {
                                   <span className="text-xs font-bold text-secondary uppercase">{TIPO_LABEL[item.tipo]}</span>
                                   <span className="text-xs text-gray-400">·</span>
                                   <span className="text-xs font-medium text-gray-700">{item.hospitalSigla}</span>
+                                  {item.cargoOrigenCodigo && (
+                                    <span className="text-xs font-mono text-gray-500">{item.cargoOrigenCodigo}</span>
+                                  )}
                                   {item.cantidad > 1 && (
                                     <span className="text-xs bg-secondary/10 text-secondary px-1.5 py-0.5 rounded font-medium">x{item.cantidad}</span>
                                   )}
                                   {item.etiqueta && (
                                     <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">{item.etiqueta}</span>
+                                  )}
+                                  {item.cargoOrigenOcupado === false && (item.tipo === 'pou_a_pof' || item.tipo === 'editar_estructura') && (
+                                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">vacante</span>
+                                  )}
+                                  {item.tipo === 'editar_estructura' && item.cargoOrigenOcupado && (
+                                    <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">con persona</span>
                                   )}
                                 </div>
                                 <p className="text-xs text-gray-600 font-medium mt-0.5 truncate">{item.puesto}</p>
@@ -602,11 +1864,11 @@ export function AltaCargosPage() {
 
         {/* Contenido pestaña Transferencia */}
         {tab === 'transferencia' && (
-          <HistorialSolicitudes
-            search={search} setSearch={setSearch}
-            filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
-            solicitudes={solicitudesFiltradas}
-            esTransferencia
+          <TabTransferencias
+            transferencias={transferencias}
+            onAgregar={(t) => setTransferencias((prev) => [...prev, t])}
+            onEliminar={(id) => setTransferencias((prev) => prev.filter((t) => t.id !== id))}
+            onConfirmada={(id) => setTransferencias((prev) => prev.filter((t) => t.id !== id))}
           />
         )}
       </div>
@@ -700,6 +1962,62 @@ function ModalConfirmacionEnvio({ resumen, onCerrar, onIrAHistorial }: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+import { usePatchCargoSame } from '../hooks/useCargos'
+
+// ── Celda inline para cargar/editar el código SAME de un cargo ───────────────
+function CeldaCodigoSame({ cargoId, idSial }: { cargoId: string; idSial: string | null }) {
+  const [editando, setEditando] = useState(false)
+  const [valor, setValor] = useState(idSial ?? '')
+  const patch = usePatchCargoSame()
+
+  // Si el idSial viene del servidor (tras invalidación) lo sincronizamos
+  const valorMostrado = idSial ?? '—'
+
+  async function guardar() {
+    const v = valor.trim()
+    if (!v || v === idSial) { setEditando(false); return }
+    await patch.mutateAsync({ id: cargoId, codigoSame: v })
+    setEditando(false)
+  }
+
+  if (editando) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          type="text"
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEditando(false) }}
+          className="h-7 px-2 border border-secondary rounded text-xs font-mono w-28 focus:outline-none focus:ring-1 focus:ring-secondary"
+          placeholder="Ej: 12345678"
+        />
+        <button type="button" onClick={guardar} disabled={patch.isPending}
+          className="text-xs px-2 py-1 rounded bg-secondary text-white hover:bg-secondary/80 disabled:opacity-40">
+          {patch.isPending ? '...' : '✓'}
+        </button>
+        <button type="button" onClick={() => setEditando(false)}
+          className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 group">
+      <span className={`font-mono text-xs ${idSial ? 'text-gray-800 font-medium' : 'text-gray-300'}`}>
+        {valorMostrado}
+      </span>
+      <button
+        type="button"
+        onClick={() => { setValor(idSial ?? ''); setEditando(true) }}
+        className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-secondary hover:text-secondary"
+      >
+        {idSial ? 'Editar' : '+ Cargar'}
+      </button>
     </div>
   )
 }
@@ -1024,12 +2342,13 @@ function CargosHistoricos({
                   </tr>
                   {abierto && (
                     <tr className="bg-gray-50/60">
-                      <td colSpan={7} className="px-4 py-3">
+                      <td colSpan={8} className="px-4 py-3">
                         <div className="overflow-x-auto border border-gray-100 rounded-lg bg-white">
                           <table className="w-full text-xs">
                             <thead className="bg-gray-50 text-gray-600 text-left">
                               <tr>
                                 <th className="px-3 py-2 font-semibold">Código de cargo</th>
+                                <th className="px-3 py-2 font-semibold">Cód. SAME</th>
                                 <th className="px-3 py-2 font-semibold">Tipo de alta</th>
                                 <th className="px-3 py-2 font-semibold">Repartición</th>
                                 <th className="px-3 py-2 font-semibold">Carrera</th>
@@ -1047,6 +2366,11 @@ function CargosHistoricos({
                                 <tr key={f.key}>
                                   <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">
                                     {f.codigo ?? <span className="text-gray-400 font-normal">Aún no creado</span>}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {f.cargoId
+                                      ? <CeldaCodigoSame cargoId={f.cargoId} idSial={f.idSial} />
+                                      : <span className="text-gray-300">—</span>}
                                   </td>
                                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{f.tipoAlta}</td>
                                   <td className="px-3 py-2 text-gray-700">{f.hospital ?? '—'}</td>

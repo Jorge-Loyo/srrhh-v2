@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Cargo, CargoDetail, CargoFilters, PaginatedResponse } from '@srrhh/types'
 import { apiClient } from '@/shared/lib/api-client'
 
@@ -25,5 +25,20 @@ export function useCargo(id: string | undefined) {
       return res.data.data
     },
     enabled: !!id,
+  })
+}
+
+// Actualiza el código SAME (idSial) de un cargo ya creado.
+export function usePatchCargoSame() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, codigoSame }: { id: string; codigoSame: string }) => {
+      const res = await apiClient.patch<{ data: Cargo }>(`/api/v1/cargos/${id}`, { codigoSame })
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes-alta'] })
+      queryClient.invalidateQueries({ queryKey: ['cargos'] })
+    },
   })
 }

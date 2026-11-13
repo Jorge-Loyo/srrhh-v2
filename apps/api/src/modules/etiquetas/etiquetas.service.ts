@@ -54,12 +54,21 @@ const TABLE_MAP = {
 export async function asignarEtiquetaService(etiquetaId: string, body: AsignarEtiquetaBody) {
   const { entidad, entidadId } = body
   const { model, fk } = TABLE_MAP[entidad]
-  // upsert: si ya existe no falla
   await (prisma[model] as any).upsert({
     where: { [`etiquetaId_${fk}`]: { etiquetaId, [fk]: entidadId } },
     create: { etiquetaId, [fk]: entidadId },
     update: {},
   })
+
+  // Propagar siempre al cargo relacionado.
+  const cargoId = await resolverCargoId(entidad, entidadId, etiquetaId)
+  if (cargoId) {
+    await prisma.etiquetaCargo.upsert({
+      where: { etiquetaId_cargoId: { etiquetaId, cargoId } },
+      create: { etiquetaId, cargoId },
+      update: {},
+    })
+  }
 }
 
 export async function desasignarEtiquetaService(etiquetaId: string, body: AsignarEtiquetaBody) {
@@ -68,4 +77,30 @@ export async function desasignarEtiquetaService(etiquetaId: string, body: Asigna
   await (prisma[model] as any).deleteMany({
     where: { etiquetaId, [fk]: entidadId },
   })
+  // No se quita del cargo: la etiqueta le pertenece al cargo independientemente.
+}
+
+/** Resuelve el cargoId a partir de la entidad que recibe la etiqueta. */
+async function resolverCargoId(entidad: AsignarEtiquetaBody['entidad'], entidadId: string, etiquetaId: string): Promise<string | null> {
+  if (entidad === 'cargo') return entidadId
+  if (entidad === 'baja') {
+    const baja = await prisma.baja.findUnique({ where: { id: entidadId }, select: { cargoId: true } })
+    return baja?.cargoId ?? null
+  }
+  if (entidad === 'concurso_cph') {
+    const cph = await prisma.concursoCph.findUnique({ where: { id: entidadId }, select: { concurso: { select: { cargoId: true } } } })
+    return cph?.concurso.cargoId ?? null
+  }
+  if (entidad === 'solicitud_alta') {
+    // La solicitud puede tener N cargos creados; propagar a todos.
+    const s = await prisma.solicitudAlta.findUnique({ where: { id: entidadId }, select: { cargosCreadosIds: true } })
+    if (!s || s.cargosCreadosIds.length === 0) return null
+    // Propagar a todos los cargos del lote (createMany con skipDuplicates).
+    await prisma.etiquetaCargo.createMany({
+      data: s.cargosCreadosIds.map((cargoId) => ({ etiquetaId, cargoId })),
+      skipDuplicates: true,
+    })
+    return null // ya propagado arriba
+  }
+  return null
 }

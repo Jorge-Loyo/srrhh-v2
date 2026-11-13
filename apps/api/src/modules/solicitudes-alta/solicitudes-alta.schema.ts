@@ -18,6 +18,7 @@ export const createSolicitudAltaSchema = z.object({
   desde:            fecha.optional(),
   cantidad:         z.coerce.number().int().min(1).max(50).default(1),
   etiqueta:         z.string().trim().max(100).optional(),
+  observaciones:    z.string().trim().max(500).optional(),
   // S16-8: baja que originó la vacante que esta alta viene a cubrir
   bajaOrigenId:     z.string().uuid().optional(),
   // Transferencia desde otro ministerio — se crea aprobada directamente
@@ -40,6 +41,10 @@ export const grupoPdfQuerySchema = z.object({
   expediente: z.string().trim().min(1).max(150),
 })
 
+export const validarSolicitudAltaSchema = z.object({
+  docRespaldatoria: z.string().trim().min(1).max(300),
+})
+
 export const solicitudesAltaQuerySchema = z.object({
   page:            z.coerce.number().int().min(1).default(1),
   limit:           z.coerce.number().int().min(1).max(100).default(20),
@@ -48,7 +53,8 @@ export const solicitudesAltaQuerySchema = z.object({
   esTransferencia: queryBool.optional(),
 })
 
-export type CreateSolicitudAltaBody       = z.infer<typeof createSolicitudAltaSchema>
+export type CreateSolicitudAltaBody        = z.infer<typeof createSolicitudAltaSchema>
 export type CreateSolicitudesAltaBatchBody = z.infer<typeof createSolicitudesAltaBatchSchema>
-export type SolicitudesAltaQuery     = z.infer<typeof solicitudesAltaQuerySchema>
-export type GrupoPdfQuery            = z.infer<typeof grupoPdfQuerySchema>
+export type SolicitudesAltaQuery           = z.infer<typeof solicitudesAltaQuerySchema>
+export type GrupoPdfQuery                  = z.infer<typeof grupoPdfQuerySchema>
+export type ValidarSolicitudAltaBody       = z.infer<typeof validarSolicitudAltaSchema>

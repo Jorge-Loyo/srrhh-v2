@@ -12,6 +12,10 @@
 # Nota: sin el override local no hay hot-reload ni montajes de src: la API corre el código de la imagen.
 # Para correr el código de la rama, reconstruir: `... up -d --build api`.
 services:
+  # postgres (PG16) deshabilitado: la API usa postgres_sync (PG18) en este override.
+  # scale:0 lo mantiene definido (satisface el depends_on del base) pero no levanta ningún contenedor.
+  postgres:
+    scale: 0
   postgres_sync:
     image: postgres:18-alpine
     container_name: srrhh_postgres18
@@ -47,5 +51,6 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://srrhh_user:srrhh_pass@postgres_sync:5432/srrhh_sync
+      CORS_ORIGINS: ''
 volumes:
   postgres18_sync_data:

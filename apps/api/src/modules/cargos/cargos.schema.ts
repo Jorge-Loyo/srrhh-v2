@@ -126,6 +126,12 @@ export const createCargoSchema = z.object({
 
 export type CreateCargoBody = z.infer<typeof createCargoSchema>
 
+export const patchCargoSchema = z.object({
+  codigoSame: z.string().trim().min(1).max(50),
+})
+
+export type PatchCargoBody = z.infer<typeof patchCargoSchema>
+
 // S7-4: filtros para GET /api/v1/cargos/altas
 export const altasQuerySchema = z.object({
   expediente: z.string().trim().min(1).optional(),

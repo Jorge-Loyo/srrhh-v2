@@ -1265,6 +1265,39 @@ export async function reemplazarOrganigramaService(
   return { filas: filas.length, cargosConduccion }
 }
 
+// Lista todas las siglas que tienen nodos en el organigrama, con su nombre
+// (del catálogo de hospitales si existe, o la sigla como fallback).
+// Incluye las secciones fijas (nivel-central, atencion-primaria) como entradas
+// especiales para que el selector de alta de estructura las muestre.
+export async function listSiglasOrganigramaService(): Promise<
+  { sigla: string; nombre: string; esSeccion: boolean }[]
+> {
+  const siglas = await prisma.organigrama.findMany({
+    distinct: ['sigla'],
+    select: { sigla: true },
+    orderBy: { sigla: 'asc' },
+  })
+  const hospitales = await prisma.hospital.findMany({
+    select: { sigla: true, nombre: true },
+  })
+  const nombrePorSigla = new Map(hospitales.map((h) => [h.sigla, h.nombre]))
+
+  const secciones = [
+    { sigla: 'nivel-central',     nombre: 'Nivel Central',      esSeccion: true },
+    { sigla: 'atencion-primaria', nombre: 'Atención Primaria',  esSeccion: true },
+  ]
+  const hospitalesList = siglas
+    .filter((r) => r.sigla !== 'nivel-central' && r.sigla !== 'atencion-primaria')
+    .map((r) => ({
+      sigla:     r.sigla,
+      nombre:    nombrePorSigla.get(r.sigla) ?? r.sigla,
+      esSeccion: false,
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+
+  return [...secciones, ...hospitalesList]
+}
+
 export async function listOrganigramaUploadsService() {
   return prisma.organigramaUpload.findMany({
     orderBy: { createdAt: 'desc' },

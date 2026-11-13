@@ -14,6 +14,7 @@ export interface NuevoCargoItem {
   especialidad: string | null
   carrera: string | null
   cargo: { id: string; codigo: string | null; idSial: string | null }
+  etiquetas: { id: string; nombre: string; color: string | null }[]
   fechaAlta: string
 }
 

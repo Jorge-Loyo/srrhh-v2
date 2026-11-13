@@ -72,6 +72,22 @@ export async function descargarPdfGrupo(expediente: string): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
+// Valida una solicitud de alta directamente con documento respaldatorio
+// (aprueba la autorización pendiente sin pasar por el director).
+export function useValidarSolicitudAlta() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, docRespaldatoria }: { id: string; docRespaldatoria: string }) => {
+      const res = await apiClient.patch<{ data: unknown }>(`/api/v1/solicitudes-alta/${id}/validar`, { docRespaldatoria })
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes-alta'] })
+      queryClient.invalidateQueries({ queryKey: ['autorizaciones'] })
+    },
+  })
+}
+
 // Envío de "Cargos pendientes" como un LOTE: UNA request → UNA transacción en
 // el backend que crea las N solicitudes + N autorizaciones. Reemplaza el loop
 // de N requests que se pasaba del timeout de 5 s contra Neon.

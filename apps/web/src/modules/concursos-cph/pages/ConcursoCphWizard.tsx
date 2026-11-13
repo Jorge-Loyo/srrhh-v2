@@ -6,7 +6,7 @@
 // que relanza el concurso desde la Etapa 1.
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/shared/lib/api-client'
 import {
@@ -113,6 +113,7 @@ function calcularOrdenMerito(
 
 export function ConcursoCphWizard() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
 
   // Leer concurso real por su ID
   const { data: cphData, isLoading } = useQuery({
@@ -3069,12 +3070,13 @@ export function ConcursoCphWizard() {
       <div className="sticky top-0 z-20 mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
         {/* Breadcrumb — siempre visible, con el toggle del encabezado */}
         <nav className="flex items-center gap-1.5 rounded-t-xl border-b border-gray-100 bg-gray-50/60 px-6 py-2 text-xs text-gray-500">
-          <Link
-            to="/concursos/cph"
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
             className="rounded px-1.5 py-0.5 font-medium text-secondary transition-colors hover:bg-secondary/10"
           >
-            Concursos CPH
-          </Link>
+            ← Atrás
+          </button>
           <span className="text-gray-300">/</span>
           <span className="truncate font-medium text-gray-700">{c.cargo}</span>
           <button
