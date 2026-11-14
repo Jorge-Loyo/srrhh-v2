@@ -40,7 +40,7 @@ function semaforoClass(c: ConcursoCph): string {
   if (c.suspendido || c.estado === 'suspendido') return 'bg-red-500'
   const estado: string = c.estado // puede ser un estado CEETPS (variante 'ceetps')
   if (estado === 'activo' || estado === 'autorizado' || estado === 'en_proceso') return 'bg-green-500'
-  if (estado === 'finalizado') return 'bg-orange-500'
+  if (estado === 'finalizado') return 'bg-gray-400'
   if (estado === 'desierto') return 'bg-red-500'
   return 'bg-gray-300' // no_iniciado / sin_autorizar
 }
@@ -82,14 +82,14 @@ function respaldatoria(c: ConcursoCph): {
     return {
       tipo: 'Baja',
       expediente: eeBaja,
-      badgeClass: 'bg-orange-100 text-orange-700',
+      badgeClass: 'bg-orange-100 text-orange-800',
     }
   }
   const expCargo = c.concurso?.cargo?.expediente
   if (expCargo) {
     return { tipo: 'Ampliación', expediente: expCargo, badgeClass: 'bg-blue-100 text-blue-700' }
   }
-  return { tipo: 'Cobertura', expediente: null, badgeClass: 'bg-purple-100 text-purple-700' }
+  return { tipo: 'Cobertura', expediente: null, badgeClass: 'bg-purple-100 text-purple-800' }
 }
 
 // Las 5 etapas del concurso CPH (mismas que el wizard).
@@ -191,6 +191,14 @@ export interface ConcursosListaTabProps {
   // 'ceetps': misma vista pero sin lo que es solo de CPH (acciones, etiquetas,
   // especialidad, filtros avanzados) y con los estados propios de CEETPS.
   variante?: 'cph' | 'ceetps'
+  // 'concurso': muestra eeConcurso (expediente de concurso Etapa 1) como dato
+  // principal. 'origen': muestra el expediente de baja/ampliación (default,
+  // usado en la bandeja mixta /cargos/concurso donde muchos CPH aún no tienen
+  // eeConcurso porque están en Etapa 1).
+  columnaRespaldatoria?: 'origen' | 'concurso'
+  // true en /concursos/cph: oculta la Etapa 1 del filtro (el backend ya la
+  // excluye con soloEtapa1Superada, así que elegirla devolvería siempre vacío).
+  ocultarEtapa1?: boolean
 }
 
 // Tab "Concursos": el listado principal (filtros + tabla + etiquetado masivo).
@@ -201,6 +209,8 @@ export function ConcursosListaTab({
   descripcion,
   useData = useConcursosCph,
   variante = 'cph',
+  columnaRespaldatoria = 'origen',
+  ocultarEtapa1 = false,
 }: ConcursosListaTabProps = {}) {
   const esCeetps = variante === 'ceetps'
   const [search, setSearch] = useState('')
@@ -431,7 +441,6 @@ export function ConcursosListaTab({
             <h1 className="font-primary text-xl font-bold text-gray-900">{titulo}</h1>
             {descripcion && <p className="text-sm text-gray-500">{descripcion}</p>}
           </div>
-          {!esCeetps && (
           <div className="relative" ref={menuAccionesRef}>
             <button
               onClick={() => setMenuAcciones((v) => !v)}
@@ -445,23 +454,25 @@ export function ConcursosListaTab({
             </button>
             {menuAcciones && (
               <div className="absolute right-0 z-50 mt-1 w-64 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
-                <label
-                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 cursor-pointer ${
-                    importando ? 'opacity-50 pointer-events-none' : ''
-                  }`}
-                >
-                  {importando ? '…' : '↑'} {importando ? 'Importando...' : 'Importar CSV'}
-                  <input
-                    type="file"
-                    accept=".csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      handleImportarCsv(e)
-                      setMenuAcciones(false)
-                    }}
-                    disabled={importando}
-                  />
-                </label>
+                {!esCeetps && (
+                  <label
+                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 cursor-pointer ${
+                      importando ? 'opacity-50 pointer-events-none' : ''
+                    }`}
+                  >
+                    {importando ? '…' : '↑'} {importando ? 'Importando...' : 'Importar CSV'}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleImportarCsv(e)
+                        setMenuAcciones(false)
+                      }}
+                      disabled={importando}
+                    />
+                  </label>
+                )}
                 <button
                   onClick={() => {
                     setShowFlujo(true)
@@ -471,18 +482,20 @@ export function ConcursosListaTab({
                 >
                   📋 Flujo del concurso
                 </button>
-                <button
-                  onClick={() => {
-                    setConFaltantes((v) => !v)
-                    setPage(1)
-                    setMenuAcciones(false)
-                  }}
-                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
-                    conFaltantes ? 'text-orange-700 font-semibold' : 'text-gray-700'
-                  }`}
-                >
-                  ⚠️ {conFaltantes ? 'Quitar filtro: con documentación faltante' : 'Con documentación faltante'}
-                </button>
+                {!esCeetps && (
+                  <button
+                    onClick={() => {
+                      setConFaltantes((v) => !v)
+                      setPage(1)
+                      setMenuAcciones(false)
+                    }}
+                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                      conFaltantes ? 'text-warning font-semibold' : 'text-gray-700'
+                    }`}
+                  >
+                    ⚠️ {conFaltantes ? 'Quitar filtro: con documentación faltante' : 'Con documentación faltante'}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (modoSeleccion) salirModoSeleccion()
@@ -498,7 +511,6 @@ export function ConcursosListaTab({
               </div>
             )}
           </div>
-          )}
         </div>
         {importResult && (
           <div className="text-sm bg-green-50 border border-green-200 rounded px-3 py-2 text-green-800">
@@ -621,7 +633,6 @@ export function ConcursosListaTab({
               <option value="asc">Más antiguo primero</option>
             </select>
           </div>
-          {!esCeetps && (
           <button
             type="button"
             onClick={() => setDrawerAvanzado(true)}
@@ -635,13 +646,8 @@ export function ConcursosListaTab({
               />
             </svg>
             Filtros avanzados
-            {(subEstado ||
-              etapa !== '' ||
-              origen ||
-              personaOm ||
-              validado ||
-              puesto ||
-              conduccion ||
+            {(etapa !== '' ||
+              (!esCeetps && (subEstado || origen || personaOm || validado || puesto || conduccion)) ||
               fechaBajaDesde ||
               fechaBajaHasta ||
               fechaEeConcursoDesde ||
@@ -649,13 +655,8 @@ export function ConcursosListaTab({
               etiquetasFiltro.length > 0) && (
               <span className="bg-secondary/20 text-secondary text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
                 {[
-                  subEstado,
                   etapa !== '',
-                  origen,
-                  personaOm,
-                  validado,
-                  puesto,
-                  conduccion,
+                  ...(!esCeetps ? [subEstado, origen, personaOm, validado, puesto, conduccion] : []),
                   fechaBajaDesde,
                   fechaBajaHasta,
                   fechaEeConcursoDesde,
@@ -664,7 +665,6 @@ export function ConcursosListaTab({
               </span>
             )}
           </button>
-          )}
         </div>
 
         {/* Burbujas de filtros aplicados */}
@@ -862,6 +862,7 @@ export function ConcursosListaTab({
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
                       {!esCeetps && <th className="px-4 py-3 font-semibold">Etiquetas</th>}
+                      <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
                   </thead>
@@ -890,6 +891,25 @@ export function ConcursosListaTab({
                           <td className="px-4 py-3 text-xs">
                             {(() => {
                               const r = respaldatoria(c)
+                              if (columnaRespaldatoria === 'concurso') {
+                                return (
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-mono text-gray-800">
+                                      {c.eeConcurso ?? '—'}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-mono text-gray-400 text-[10px]">
+                                        {r.expediente ?? (r.tipo === 'Cobertura' ? 'Sin doc.' : '—')}
+                                      </span>
+                                      <span
+                                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${r.badgeClass}`}
+                                      >
+                                        {r.tipo}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )
+                              }
                               return (
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-gray-500">
@@ -929,19 +949,17 @@ export function ConcursosListaTab({
                               <span className="badge-info text-xs">Nuevo cargo</span>
                             )}
                             {c.concurso?.motivoConcurso === 'alta_por_baja' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Alta por baja</span>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">Alta por baja</span>
                             )}
                           </td>
-                          {!esCeetps && (
-                            <td className="px-4 py-3">
-                              <EtiquetasControl
-                                entidad="concurso_cph"
-                                entidadId={c.id}
-                                asignadas={c.etiquetas ?? []}
-                                variant="compacto"
-                              />
-                            </td>
-                          )}
+                          <td className="px-4 py-3">
+                            <EtiquetasControl
+                              entidad={esCeetps ? 'concurso_ceetps' : 'concurso_cph'}
+                              entidadId={c.id}
+                              asignadas={c.etiquetas ?? []}
+                              variant="compacto"
+                            />
+                          </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button
@@ -1024,6 +1042,7 @@ export function ConcursosListaTab({
                 />
               </section>
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Sub-estado
@@ -1041,6 +1060,7 @@ export function ConcursosListaTab({
                   ))}
                 </select>
               </section>
+              )}
 
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
@@ -1054,14 +1074,19 @@ export function ConcursosListaTab({
                   className="w-full h-10 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary"
                 >
                   <option value="">Todas las etapas</option>
-                  {ETAPAS.map((nombre, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {i + 1}. {nombre}
-                    </option>
-                  ))}
+                  {ETAPAS.map((nombre, i) => {
+                    const num = i + 1
+                    if (ocultarEtapa1 && num === 1) return null
+                    return (
+                      <option key={num} value={num}>
+                        {num}. {nombre}
+                      </option>
+                    )
+                  })}
                 </select>
               </section>
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Documentación respaldatoria
@@ -1079,7 +1104,9 @@ export function ConcursosListaTab({
                   <option value="cobertura">Cobertura de dotación</option>
                 </select>
               </section>
+              )}
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Persona del orden de mérito
@@ -1096,7 +1123,9 @@ export function ConcursosListaTab({
                   <option value="false">Sin persona elegida</option>
                 </select>
               </section>
+              )}
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Validado contra el padrón
@@ -1113,16 +1142,13 @@ export function ConcursosListaTab({
                   <option value="false">Sin validar</option>
                 </select>
               </section>
+              )}
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Puesto
                 </p>
-                {/* Autocompletar contra el catálogo CPH: solo puestos mapeados
-                    (SearchableSelect solo emite onChange al elegir una opción).
-                    El estado `puesto` guarda el NOMBRE crudo del catálogo (el
-                    mismo string que viaja al backend); `puestoCargoId` guarda
-                    el id para habilitar/poblar la especialidad dependiente. */}
                 <ComboBuscable
                   modo="unico"
                   label=""
@@ -1132,22 +1158,19 @@ export function ConcursosListaTab({
                     const nombre = v[0] ?? ''
                     resetPage(setPuesto)(nombre)
                     setPuestoCargoId(puestosCatalogo.find((p) => p.nombre === nombre)?.id ?? '')
-                    // Al cambiar de puesto, limpiar la especialidad dependiente.
                     resetPage(setEspecialidad)('')
                   }}
                   placeholder={escalafonCphId ? 'Buscar puesto…' : 'Catálogo no disponible'}
                   disabled={!escalafonCphId}
                 />
               </section>
+              )}
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Especialidad del puesto
                 </p>
-                {/* Especialidad DEPENDIENTE del puesto elegido. Deshabilitada
-                    hasta elegir un puesto o si el puesto no tiene especialidades
-                    en el catálogo. Escribe sobre el MISMO estado `especialidad`
-                    (nombre string) que viaja al backend. */}
                 <ComboBuscable
                   modo="unico"
                   label=""
@@ -1164,6 +1187,7 @@ export function ConcursosListaTab({
                   disabled={!puestoCargoId || especialidadesPuesto.length === 0}
                 />
               </section>
+              )}
 
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
@@ -1217,6 +1241,7 @@ export function ConcursosListaTab({
                 </div>
               </section>
 
+              {!esCeetps && (
               <section>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Tipo de cargo
@@ -1233,6 +1258,7 @@ export function ConcursosListaTab({
                   <option value="false">Ejecución</option>
                 </select>
               </section>
+              )}
             </div>
 
             <div className="px-4 py-3 border-t border-gray-200 flex gap-2">

@@ -1652,7 +1652,7 @@ export function ConcursoCphWizard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-auto overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 shrink-0">
-              <span className="text-indigo-500 text-xl">⚙</span>
+              <span className="text-indigo-700 text-xl">⚙</span>
               <div>
                 <h3 className="font-primary font-bold text-gray-900">
                   Criterios del sorteo de jurado
@@ -3362,7 +3362,7 @@ export function ConcursoCphWizard() {
                 <ul className="flex flex-wrap gap-x-4 gap-y-1">
                   {faltantes.map((f) => (
                     <li key={f} className="text-xs text-orange-700 flex items-center gap-1">
-                      <span className="text-orange-400">•</span> {f}
+                      <span className="text-orange-800">•</span> {f}
                     </li>
                   ))}
                 </ul>
@@ -4194,7 +4194,7 @@ export function ConcursoCphWizard() {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="text-sm font-semibold text-indigo-900">Sorteo de jurado</p>
-                          <p className="text-xs text-indigo-600 mt-0.5">
+                          <p className="text-xs text-indigo-800 mt-0.5">
                             Sortea titulares y suplentes entre profesionales de la misma profesión
                             con cargo activo, priorizando la misma unidad organizativa y ampliando
                             al sistema de salud si es necesario.
@@ -4466,7 +4466,7 @@ export function ConcursoCphWizard() {
                                           </span>
                                         )}
                                         {m.esConduccion && (
-                                          <span className="text-indigo-600">
+                                          <span className="text-indigo-800">
                                             👔 Cargo de conducción
                                           </span>
                                         )}
@@ -5002,7 +5002,7 @@ export function ConcursoCphWizard() {
                                 <p className="text-sm font-semibold text-indigo-900">
                                   Presentados al examen
                                 </p>
-                                <p className="text-xs text-indigo-600 mt-0.5">
+                                <p className="text-xs text-indigo-800 mt-0.5">
                                   {cphData.presentadosConfirmados
                                     ? 'Confirmado — la marca de presentes quedó fija.'
                                     : 'Marcá en la tabla quién se presentó y confirmá para congelar la lista.'}
@@ -5068,7 +5068,7 @@ export function ConcursoCphWizard() {
                                 <p className="text-sm font-semibold text-indigo-900">
                                   Orden de mérito
                                 </p>
-                                <p className="text-xs text-indigo-600 mt-0.5">
+                                <p className="text-xs text-indigo-800 mt-0.5">
                                   {cphData.ordenMeritoConfirmado
                                     ? 'Confirmado — el ranking quedó fijo y se generó el acta.'
                                     : 'Asigná la posición a cada presentado y confirmá (la fecha se toma de hoy).'}

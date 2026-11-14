@@ -5,7 +5,7 @@ import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { z } from 'zod'
 import { pouQuerySchema, pouCompararQuerySchema, siglaSchema } from './pou.schema.js'
-import { listPouPorSiglaService, listHospitalesPouService, compararPouService, reemplazarPouService, triangularPouService, listPouCargasService } from './pou.service.js'
+import { listPouPorSiglaService, listHospitalesPouService, compararPouService, reemplazarPouService, triangularPouService, listPouCargasService, comparacionPouService, detalleCargosComparacionService } from './pou.service.js'
 
 export async function pouRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -21,6 +21,26 @@ export async function pouRoutes(app: FastifyInstance) {
   app.get('/comparar', async (request, reply) => {
     const { siglas } = pouCompararQuerySchema.parse(request.query)
     const data = await compararPouService(siglas)
+    return reply.send({ data })
+  })
+
+  app.get('/comparacion/detalle', async (request, reply) => {
+    const { sigla, perfil, especialidad } = z.object({
+      sigla:       z.string().toUpperCase(),
+      perfil:      z.string(),
+      especialidad: z.string(),
+    }).parse(request.query)
+    const data = await detalleCargosComparacionService(sigla, perfil, especialidad)
+    return reply.send({ data })
+  })
+
+  app.get('/comparacion', async (request, reply) => {
+    const { siglas } = z.object({
+      siglas: z.string().optional().transform((s) =>
+        s ? [...new Set(s.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean))] : undefined
+      ),
+    }).parse(request.query)
+    const data = await comparacionPouService(siglas)
     return reply.send({ data })
   })
 

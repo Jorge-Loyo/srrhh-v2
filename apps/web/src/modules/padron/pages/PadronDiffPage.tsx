@@ -344,7 +344,7 @@ export function PadronDiffPage() {
               ? (
                 <span className="ml-1 inline-flex items-center gap-1">
                   {nuevosPendientes > 0 && (
-                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">
+                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-bold">
                       {nuevosPendientes} pendientes
                     </span>
                   )}
@@ -450,7 +450,7 @@ export function PadronDiffPage() {
               key: 'previas' as const,
               label: 'Ya estaban en baja',
               count: summary.bajasPrevias,
-              color: 'text-orange-600',
+              color: 'text-orange-800',
             },
           ]
           // Leyenda del encabezado "Bajas nuevas" (reciclada de la antigua
@@ -466,8 +466,8 @@ export function PadronDiffPage() {
               key: 'en_validacion' as const,
               label: 'En validación vacante',
               count: summary.eliminadosEnValidacion,
-              color: 'text-orange-600',
-              borderColor: 'border-orange-200 bg-orange-50 text-orange-700',
+              color: 'text-orange-800',
+              borderColor: 'border-orange-200 bg-orange-50 text-orange-800',
               icon: 'ℹ',
               leyenda: 'El cargo ya estaba en estado «validación vacante» desde un padrón anterior (la persona ya había sido dada de baja). Como tampoco aparece en el nuevo archivo, se confirma la baja: el cargo pasará a no vigente.',
             },

@@ -10,12 +10,12 @@ import { escalafonLabel } from '@/shared/lib/escalafonLabel'
 // Cada hospital navega a su organigrama. Consume GET /organigrama/vacantes.
 
 const NIVEL_COLOR: Record<string, string> = {
-  'Autoridad Superior': 'bg-purple-100 text-purple-700',
+  'Autoridad Superior': 'bg-purple-100 text-purple-800',
   'Dirección General': 'bg-fuchsia-100 text-fuchsia-700',
   'Gerencia': 'bg-sky-100 text-sky-700',
   'Dirección': 'bg-red-100 text-red-700',
-  'Subdirección': 'bg-orange-100 text-orange-700',
-  'Jefatura de Departamento': 'bg-indigo-100 text-indigo-700',
+  'Subdirección': 'bg-orange-100 text-orange-800',
+  'Jefatura de Departamento': 'bg-indigo-100 text-indigo-800',
   'Jefatura de División': 'bg-violet-100 text-violet-700',
   'Jefatura de Unidad': 'bg-amber-100 text-amber-700',
   'Jefatura de Sección': 'bg-teal-100 text-teal-700',

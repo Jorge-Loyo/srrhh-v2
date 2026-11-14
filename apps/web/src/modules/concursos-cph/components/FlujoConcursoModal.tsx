@@ -147,7 +147,7 @@ export function FlujoConcursoModal({ onClose }: Props) {
                       {TRANSICIONES_CPH.map((t, i) => (
                         <tr key={i} className="hover:bg-gray-50">
                           <td className="px-3 py-2 font-medium text-gray-700">{t.desde.toUpperCase()}</td>
-                          <td className={`px-3 py-2 font-medium ${t.dashed ? 'text-orange-600' : 'text-blue-700'}`}>
+                          <td className={`px-3 py-2 font-medium ${t.dashed ? 'text-orange-800' : 'text-blue-700'}`}>
                             {t.dashed ? '⇢ ' : '→ '}{t.hacia.toUpperCase()}
                           </td>
                           <td className="px-3 py-2 text-gray-500">{t.condicion}</td>

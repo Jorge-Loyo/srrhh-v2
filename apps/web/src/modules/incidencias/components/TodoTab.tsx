@@ -8,8 +8,8 @@ import { useTodoIncidencias, type TipoIncidenciaSlug } from '../hooks/useInciden
 import { fechaCorta } from '../lib/tabsIncidencias'
 
 const CHIP_TIPO: Record<TipoIncidenciaSlug, string> = {
-  'sial-sin-cargo': 'bg-orange-100 text-orange-700 border-orange-200',
-  'baja-sin-concurso': 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'sial-sin-cargo': 'bg-orange-100 text-orange-800 border-orange-200',
+  'baja-sin-concurso': 'bg-indigo-100 text-indigo-800 border-indigo-200',
   'cayo-del-padron': 'bg-red-100 text-red-700 border-red-200',
   'cambio-situacion-revista': 'bg-amber-100 text-amber-700 border-amber-200',
   'cambios-del-puesto': 'bg-sky-100 text-sky-700 border-sky-200',

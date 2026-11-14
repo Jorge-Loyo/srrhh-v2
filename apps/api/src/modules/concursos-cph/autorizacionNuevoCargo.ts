@@ -13,18 +13,23 @@ export interface ConcursoBaseAutorizable {
 }
 
 /**
- * Filtro Prisma (reutilizable por CPH y CEETPS) para los listados de
- * /concursos/cph y /concursos/ceetps: deja afuera los concursos de cargo nuevo
- * que todavía NO pasaron la Etapa 1 (motivo 'nuevo_cargo' y sin autorizado_at).
- * Los demás (incluido motivo NULL) y los nuevo_cargo ya autorizados siguen
- * apareciendo. Se expresa como NOT sobre la relación (subconsulta por id) para
- * que un motivo NULL no se descarte por la lógica de tres valores de SQL.
+ * Filtro Prisma para los listados de /concursos/cph: deja afuera los concursos
+ * de cargo nuevo que todavía NO pasaron la Etapa 1 (motivo 'nuevo_cargo' y sin
+ * autorizado_at). Los demás (incluido motivo NULL) y los nuevo_cargo ya
+ * autorizados siguen apareciendo.
+ *
+ * Se expresa como OR explícito en vez de NOT { is } para evitar el bug de
+ * tres valores de SQL: NOT (NULL = 'nuevo_cargo') = NOT NULL = NULL → fila
+ * descartada. Con OR: motivo IS NULL pasa por la primera rama, nuevo_cargo
+ * autorizado pasa por la segunda.
  */
 export function excluirNuevoCargoSinAutorizar() {
   return {
-    NOT: {
-      concurso: { is: { motivoConcurso: MOTIVO_CONCURSO_NUEVO_CARGO, autorizadoAt: null } },
-    },
+    OR: [
+      { concurso: { is: { motivoConcurso: null } } },
+      { concurso: { is: { motivoConcurso: { not: MOTIVO_CONCURSO_NUEVO_CARGO } } } },
+      { concurso: { is: { motivoConcurso: MOTIVO_CONCURSO_NUEVO_CARGO, autorizadoAt: { not: null } } } },
+    ],
   } as const
 }
 /** Campos del PATCH que pertenecen a las Etapas 2 a 5 del wizard. */

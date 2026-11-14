@@ -14,21 +14,11 @@ export function getAccessToken() {
   return accessToken
 }
 
-// ── Refresh token: persistido en localStorage ──────────────────────────────────
-// El backend lo espera en el body de POST /auth/refresh (no maneja cookies), así
-// que el cliente tiene que guardarlo para poder sobrevivir a un F5. Trade-off de
-// seguridad conocido (localStorage es legible por XSS) — ver PLAN_SCRUM_2026.md
-// backlog: migrar a cookie httpOnly + endpoint /me cuando el equipo lo priorice.
-const REFRESH_TOKEN_KEY = 'srrhh_refresh_token'
-
-export function setRefreshToken(token: string | null) {
-  if (token) localStorage.setItem(REFRESH_TOKEN_KEY, token)
-  else localStorage.removeItem(REFRESH_TOKEN_KEY)
-}
-
-export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_TOKEN_KEY)
-}
+// ── Refresh token: cookie httpOnly gestionada por el browser ──────────────────
+// El backend envía el refresh token en una cookie httpOnly (Set-Cookie) y lo
+// lee automáticamente en /auth/refresh y /auth/logout. El frontend no tiene
+// acceso al valor — withCredentials:true hace que axios incluya la cookie en
+// cada request al mismo origen. Esto elimina el vector XSS de localStorage.
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -53,27 +43,22 @@ export function setOnSessionExpired(cb: () => void) {
   onSessionExpired = cb
 }
 
-// Ante un 401, intenta refrescar la sesión una sola vez antes de desloguear —
-// así se ejercita la rotación de refresh token en cualquier request, no solo
-// en el login. Usa un axios "pelado" (sin estos interceptors) para el propio
-// POST /auth/refresh, para no entrar en loop si ese request también da 401.
-const rawClient = axios.create({ baseURL: API_BASE_URL })
+// Ante un 401, intenta refrescar la sesión una sola vez antes de desloguear.
+// El refresh token viaja automáticamente en la cookie httpOnly — no hay que
+// leerlo ni enviarlo manualmente. Usa un axios "pelado" para el POST /auth/refresh
+// para no entrar en loop si ese request también da 401.
+const rawClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true })
 
 let refreshInFlight: Promise<string | null> | null = null
 
 async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return null
-
   try {
-    const res = await rawClient.post('/api/v1/auth/refresh', { refreshToken })
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = res.data.data
+    const res = await rawClient.post('/api/v1/auth/refresh')
+    const { accessToken: newAccessToken } = res.data.data
     setAccessToken(newAccessToken)
-    setRefreshToken(newRefreshToken)
     return newAccessToken
   } catch {
     setAccessToken(null)
-    setRefreshToken(null)
     return null
   }
 }
@@ -87,8 +72,6 @@ apiClient.interceptors.response.use(
 
     if (status === 401 && !original?._retried && !isRefreshCall) {
       original._retried = true
-      // Coalesce: si ya hay un refresh en curso (varios requests 401 a la vez),
-      // todos esperan el mismo resultado en vez de disparar N refresh en paralelo.
       refreshInFlight ??= refreshAccessToken().finally(() => {
         refreshInFlight = null
       })

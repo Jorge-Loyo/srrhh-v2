@@ -199,7 +199,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
               </p>
             </div>
             <div className="flex items-center gap-2 text-sm">
-              <span className="inline-flex items-center justify-center px-2 py-1 rounded-full bg-orange-100 text-orange-700 font-bold">
+              <span className="inline-flex items-center justify-center px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-bold">
                 {resumen.total} pendientes
               </span>
             </div>
@@ -337,7 +337,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
                                 Vincular a concurso
                               </button>
                               <button
-                                className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                                className="text-xs px-2 py-1 rounded border font-medium transition-colors bg-purple-100 border-purple-300 text-purple-800 hover:bg-purple-200 disabled:opacity-50"
                                 disabled={busy}
                                 onClick={() => setModalCrear(p)}
                               >
@@ -430,7 +430,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
                           <span className="font-normal text-gray-600">{c.literalPuesto}</span>
                         </p>
                         {c.especialidad && (
-                          <p className="text-xs text-indigo-600 font-medium mt-0.5 truncate">{c.especialidad}</p>
+                          <p className="text-xs text-indigo-800 font-medium mt-0.5 truncate">{c.especialidad}</p>
                         )}
                         <p className="text-xs text-gray-500 mt-0.5">
                           {c.hospital}
@@ -447,7 +447,7 @@ export function SialSinCargoTab({ busquedaInicial }: { busquedaInicial?: string 
                           {c.estado}
                         </span>
                         {!c.estaCompleto && (
-                          <span className="text-[10px] text-orange-600 font-medium">⚠ Pendiente de completar</span>
+                          <span className="text-[10px] text-orange-800 font-medium">⚠ Pendiente de completar</span>
                         )}
                         {c.yaDesignado && <span className="text-[10px] text-blue-600 font-medium">Ya tiene designado</span>}
                       </div>

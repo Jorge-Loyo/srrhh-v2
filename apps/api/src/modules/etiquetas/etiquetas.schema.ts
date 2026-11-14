@@ -17,7 +17,7 @@ export const updateEtiquetaSchema = z.object({
   activo: z.boolean().optional(),
 })
 
-const entidadEnum = z.enum(['cargo', 'concurso_cph', 'baja', 'solicitud_alta'])
+const entidadEnum = z.enum(['cargo', 'concurso_cph', 'concurso_ceetps', 'baja', 'solicitud_alta'])
 
 export const asignarEtiquetaSchema = z.object({
   entidad: entidadEnum,

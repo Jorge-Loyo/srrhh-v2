@@ -155,6 +155,22 @@ export function useDotacionEvolucion(filtros: FiltrosDotacionEvolucion) {
   })
 }
 
+// Distribución de cargos por escalafón y sub_estado. `enabled` evita consultar
+// mientras la sección está colapsada.
+export function useDistribucionCargos(enabled: boolean) {
+  return useQuery({
+    queryKey: ['kpis', 'distribucion-cargos'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: import('@srrhh/types').DistribucionCargos }>(
+        '/api/v1/kpis/distribucion-cargos',
+      )
+      return res.data.data
+    },
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
 // Indicadores de cargos: mes actual vs anterior (solo lectura). `enabled` evita
 // consultar mientras la sección está colapsada.
 export interface CargosIndicadoresParams {

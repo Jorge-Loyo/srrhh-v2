@@ -2376,6 +2376,22 @@ export interface DocumentoOrigen {
   esCreacion: boolean
 }
 
+// ─── Distribución de cargos por escalafón y sub_estado (Reportes) ───────────
+// GET /api/v1/kpis/distribucion-cargos
+export interface FilaDistribucionCargos {
+  escalafon: string
+  ocupado: number
+  vacante: number
+  concurso: number
+  validacion_vacante: number
+  total: number
+}
+
+export interface DistribucionCargos {
+  filas: FilaDistribucionCargos[]
+  totales: FilaDistribucionCargos
+}
+
 const limpio = (s: string | null | undefined): string => (s ?? '').trim()
 
 // El alta guarda "expediente o decreto" en un único campo (ej. "DEC-541/MSGC/26").

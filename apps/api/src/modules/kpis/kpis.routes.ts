@@ -26,6 +26,7 @@ import {
   getDotacionEvolucionService,
   exportDotacionEvolucionService,
 } from './kpis.service.js'
+import { getDistribucionCargosService } from './distribucion-cargos.service.js'
 
 export async function kpisRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -102,6 +103,16 @@ export async function kpisRoutes(app: FastifyInstance) {
     const data = await getDotacionEvolucionService(query)
     return reply.send({ data })
   })
+
+  // GET /distribucion-cargos — tabla de cargos por escalafón y sub_estado
+  app.get(
+    '/distribucion-cargos',
+    { preHandler: requirePermiso({ modulo: 'reportes', accion: 'ver' }) },
+    async (_request, reply) => {
+      const data = await getDistribucionCargosService()
+      return reply.send({ data })
+    },
+  )
 
   // GET /dotacion-evolucion/export — Excel con el detalle que respalda el gráfico
   app.get('/dotacion-evolucion/export', async (request, reply) => {

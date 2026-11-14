@@ -5,6 +5,11 @@ import { RouterProvider } from 'react-router-dom'
 import { router } from './app/router'
 import './index.css'
 
+// Migración de seguridad: el refresh token se movió de localStorage a cookie
+// httpOnly. Limpiar la clave vieja de cualquier sesión anterior para no dejar
+// datos sensibles en el browser del usuario.
+localStorage.removeItem('srrhh_refresh_token')
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

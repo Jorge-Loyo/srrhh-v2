@@ -50,8 +50,8 @@ export function CargoDetailPanel() {
     : 'Vacante'
   const subEstadoClase =
     subEstadoCargo === SubEstadoCargo.OCUPADO ? 'bg-blue-100 text-blue-800'
-    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'bg-indigo-100 text-indigo-700'
-    : 'bg-orange-100 text-orange-700'
+    : subEstadoCargo === SubEstadoCargo.CONCURSO ? 'bg-indigo-100 text-indigo-800'
+    : 'bg-orange-100 text-orange-800'
 
   const desdeOcup = ocup?.cargoDesdeFecha
     ? ocup.cargoDesdeFecha.slice(0, 10)
@@ -87,7 +87,7 @@ export function CargoDetailPanel() {
             <div className="flex flex-col items-end gap-2 shrink-0 mt-1">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
                 cargo.estado === EstadoCargo.VIGENTE ? 'bg-green-100 text-green-800' :
-                cargo.estado === EstadoCargo.VALIDACION_VACANTE ? 'bg-orange-100 text-orange-800' :
+                cargo.estado === EstadoCargo.VALIDACION_VACANTE ? 'bg-orange-100 text-orange-800' : // badge-warning
                 'bg-gray-200 text-gray-600'
               }`}>
                 {ESTADO_LABEL[cargo.estado]}
@@ -338,7 +338,7 @@ export function CargoDetailPanel() {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                       c.estado === EstadoConcursoCeetps.FINALIZADO ? 'bg-green-100 text-green-800'
                       : c.estado === EstadoConcursoCeetps.EN_PROCESO ? 'bg-blue-100 text-blue-800'
-                      : c.estado === EstadoConcursoCeetps.AUTORIZADO ? 'bg-indigo-100 text-indigo-700'
+                      : c.estado === EstadoConcursoCeetps.AUTORIZADO ? 'bg-indigo-100 text-indigo-800'
                       : 'bg-gray-100 text-gray-600'
                     }`}>{c.estado}</span>
                   </td>

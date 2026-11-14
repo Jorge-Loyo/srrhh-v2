@@ -198,7 +198,7 @@ export function JuradosTab() {
                                         <span className="text-gray-400"> · {m.especialidad}</span>
                                       )}
                                       {m.esConduccion && (
-                                        <span className="ml-1 rounded bg-indigo-50 px-1 text-[10px] text-indigo-600">
+                                        <span className="ml-1 rounded bg-indigo-100 px-1 text-[10px] text-indigo-800">
                                           conducción
                                         </span>
                                       )}

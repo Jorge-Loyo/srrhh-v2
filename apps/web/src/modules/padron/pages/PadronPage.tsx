@@ -52,11 +52,11 @@ const PC_DOT: Record<PadronColor, string> = {
   yellow: 'bg-yellow-500', purple: 'bg-purple-500', gray: 'bg-gray-400',
 }
 const PC_BADGE: Record<PadronColor, string> = {
-  blue: 'bg-blue-50 border-blue-200 text-blue-700',
-  green: 'bg-green-50 border-green-200 text-green-700',
-  orange: 'bg-orange-50 border-orange-200 text-orange-700',
-  yellow: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-  purple: 'bg-purple-50 border-purple-200 text-purple-700',
+  blue: 'bg-blue-50 border-blue-200 text-blue-800',
+  green: 'bg-green-50 border-green-200 text-green-800',
+  orange: 'bg-orange-50 border-orange-200 text-orange-800',
+  yellow: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+  purple: 'bg-purple-50 border-purple-200 text-purple-800',
   gray: 'bg-gray-50 border-gray-200 text-gray-600',
 }
 
@@ -230,7 +230,7 @@ function ModalReglaNegocio({ onClose }: { onClose: () => void }) {
 
                 {step.nota && (
                   <div className="rounded border border-yellow-200 bg-yellow-50 px-3 py-2">
-                    <p className="text-[10px] text-yellow-700">⚠️ {step.nota}</p>
+                    <p className="text-[10px] text-yellow-800">⚠️ {step.nota}</p>
                   </div>
                 )}
               </div>

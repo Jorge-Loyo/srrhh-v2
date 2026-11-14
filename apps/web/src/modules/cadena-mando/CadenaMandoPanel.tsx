@@ -7,11 +7,11 @@ interface Props {
 }
 
 const TIPO_COLOR: Record<string, string> = {
-  Ministerio:    'bg-purple-100 text-purple-700',
-  'SSEC/DIREJE': 'bg-blue-100 text-blue-700',
-  DG:            'bg-blue-100 text-blue-700',
-  DHOS:          'bg-indigo-100 text-indigo-700',
-  SDHOS:         'bg-indigo-100 text-indigo-700',
+  Ministerio:    'bg-purple-100 text-purple-800',
+  'SSEC/DIREJE': 'bg-blue-100 text-blue-800',
+  DG:            'bg-blue-100 text-blue-800',
+  DHOS:          'bg-indigo-100 text-indigo-800',
+  SDHOS:         'bg-indigo-100 text-indigo-800',
   GO:            'bg-cyan-100 text-cyan-700',
   DEPT:          'bg-teal-100 text-teal-700',
   DIV:           'bg-green-100 text-green-700',

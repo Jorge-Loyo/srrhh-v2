@@ -6,11 +6,11 @@ interface Props {
 
 const TIPO_BADGE: Record<string, string> = {
   R:   'bg-amber-100 text-amber-700',
-  TTR: 'bg-purple-100 text-purple-700',
+  TTR: 'bg-purple-100 text-purple-800',
 }
 
 function tipoBadge(tipo: NodoCadenaRetencion['tipoOrigen']) {
-  if (!tipo) return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">BASE</span>
+  if (!tipo) return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">BASE</span>
   return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${TIPO_BADGE[tipo]}`}>{tipo}</span>
 }
 

@@ -119,6 +119,7 @@ export function etapaCeetps(estado: string, subEstado: string | null): EtapaCeet
   if (subEstado === 'IFACS' || subEstado === 'INSAL') return 4
   if (subEstado === 'DISPO_LLAMADO') return 3
   if (estado === 'autorizado') return 2
+  if (estado === 'en_proceso') return 3 // en_proceso sin sub_estado: piso de etapa 3
   return 1
 }
 
@@ -131,7 +132,12 @@ export function whereEtapaCeetps(etapa: number): Record<string, unknown> | null 
     case 2:
       return { estado: 'autorizado' }
     case 3:
-      return { subEstado: 'DISPO_LLAMADO' }
+      return {
+        OR: [
+          { subEstado: 'DISPO_LLAMADO' },
+          { estado: 'en_proceso', subEstado: null },
+        ],
+      }
     case 4:
       return { subEstado: { in: ['IFACS', 'INSAL'] } }
     case 5:

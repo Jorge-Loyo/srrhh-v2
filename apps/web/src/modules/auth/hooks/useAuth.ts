@@ -3,16 +3,12 @@ import type { Usuario } from '@srrhh/types'
 import {
   apiClient,
   setAccessToken,
-  setRefreshToken,
-  getRefreshToken,
   setOnSessionExpired,
 } from '@/shared/lib/api-client'
 
-// El backend no expone un /me, y POST /auth/refresh solo devuelve tokens nuevos
-// (no el user) — así que además del refreshToken persistimos el user "de
-// confianza" en localStorage para poder reconstruir la sesión en el arranque
-// sin esperar un endpoint que hoy no existe. Ver nota de seguridad en
-// api-client.ts (mismo trade-off: localStorage, no cookie httpOnly).
+// El user se persiste en localStorage para reconstruir la sesión en el
+// arranque (F5) sin un endpoint /me. El refresh token ya NO va en localStorage
+// — viaja en cookie httpOnly gestionada por el browser (ver api-client.ts).
 const USER_KEY = 'srrhh_user'
 
 function persistUser(user: Usuario | null) {
@@ -32,16 +28,10 @@ function readPersistedUser(): Usuario | null {
 interface AuthState {
   user: Usuario | null
   isLoading: boolean
-  /** true mientras se verifica si hay una sesión previa al arrancar la app */
   isCheckingSession: boolean
   login: (identificador: string, password: string) => Promise<void>
   logout: () => void
-  /** Reescribe el user persistido (localStorage + estado) tras editar el
-   * perfil — el backend no tiene /me, así que header y can() se mantienen
-   * consistentes fusionando los campos devueltos por el PATCH. */
   setUser: (patch: Partial<Usuario>) => void
-  /** Intenta restaurar la sesión desde el refreshToken guardado. Se llama una
-   * sola vez, al montar ProtectedRoute. */
   restoreSession: () => Promise<void>
 }
 
@@ -54,12 +44,9 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await apiClient.post('/api/v1/auth/login', { identificador, password })
-      const { accessToken, refreshToken, user } = res.data.data
+      const { accessToken, user } = res.data.data
       setAccessToken(accessToken)
-      setRefreshToken(refreshToken)
       persistUser(user)
-      // Evita que ProtectedRoute dispare un /refresh redundante apenas
-      // navegamos a "/" — la sesión recién se validó acá mismo.
       restoreSessionPromise = Promise.resolve()
       set({ user, isLoading: false, isCheckingSession: false })
     } catch {
@@ -69,13 +56,11 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
-    const rt = getRefreshToken()
-    if (rt) apiClient.post('/api/v1/auth/logout', { refreshToken: rt }).catch(() => {})
+    // El refresh token viaja en cookie httpOnly — el browser lo incluye
+    // automáticamente. El backend lo revoca y limpia la cookie con Set-Cookie.
+    apiClient.post('/api/v1/auth/logout').catch(() => {})
     setAccessToken(null)
-    setRefreshToken(null)
     persistUser(null)
-    // Resetear la promesa para que restoreSession corra de nuevo si el usuario
-    // vuelve a loguearse en la misma pestaña sin recargar.
     restoreSessionPromise = null
     set({ user: null })
     window.location.href = '/login'
@@ -92,31 +77,29 @@ export const useAuth = create<AuthState>((set, get) => ({
   restoreSession: () => restoreSessionOnce(set),
 }))
 
-// Idempotente a propósito: React StrictMode duplica el efecto que dispara
-// restoreSession() en desarrollo, y dos refresh casi simultáneos con el mismo
-// refreshToken activarían la detección de reutilización del backend (revoca
-// toda la familia de tokens). Todas las llamadas comparten la misma promesa.
 let restoreSessionPromise: Promise<void> | null = null
 
 function restoreSessionOnce(set: (partial: Partial<AuthState>) => void): Promise<void> {
   restoreSessionPromise ??= (async () => {
-    const refreshToken = getRefreshToken()
     const persistedUser = readPersistedUser()
 
-    if (!refreshToken || !persistedUser) {
+    if (!persistedUser) {
       set({ isCheckingSession: false })
       return
     }
 
     try {
-      const res = await apiClient.post('/api/v1/auth/refresh', { refreshToken })
-      const { accessToken, refreshToken: newRefreshToken } = res.data.data
+      // El refresh token viaja en la cookie httpOnly — no hay que leerlo.
+      const res = await apiClient.post('/api/v1/auth/refresh')
+      const { accessToken, user: freshUser } = res.data.data
       setAccessToken(accessToken)
-      setRefreshToken(newRefreshToken)
-      set({ user: persistedUser, isCheckingSession: false })
+      // Usar el user fresco del servidor (permisos actualizados) si viene;
+      // fallback al persistido para compatibilidad con versiones anteriores.
+      const user = freshUser ?? persistedUser
+      persistUser(user)
+      set({ user, isCheckingSession: false })
     } catch {
       setAccessToken(null)
-      setRefreshToken(null)
       persistUser(null)
       set({ user: null, isCheckingSession: false })
     }
@@ -125,10 +108,7 @@ function restoreSessionOnce(set: (partial: Partial<AuthState>) => void): Promise
   return restoreSessionPromise
 }
 
-// Si api-client fuerza un logout (401 sin refresh posible, fuera de un
-// componente React), limpia también el estado del store.
 setOnSessionExpired(() => {
-  setRefreshToken(null)
   persistUser(null)
   useAuth.setState({ user: null, isCheckingSession: false })
   window.location.href = '/login'

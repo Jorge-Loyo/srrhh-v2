@@ -1253,6 +1253,7 @@ model ConcursoCeetps {
   escalafon             Escalafon    @relation(fields: [escalafonId], references: [id])
   puestoCargoSolicitado PuestoCargo? @relation(fields: [puestoCargoSolicitadoId], references: [id])
   personaDesignada      Persona?     @relation("PersonaDesignadaCeetps", fields: [personaDesignadaId], references: [id])
+  etiquetas             EtiquetaConcursoCeetps[]
 
   @@index([hospitalId])
   @@index([escalafonId])
@@ -1580,10 +1581,11 @@ model Etiqueta {
   activo    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  cargos    EtiquetaCargo[]
-  concursos EtiquetaConcursoCph[]
-  bajas     EtiquetaBaja[]
-  altas     EtiquetaSolicitudAlta[]
+  cargos          EtiquetaCargo[]
+  concursos       EtiquetaConcursoCph[]
+  concursosCeetps EtiquetaConcursoCeetps[]
+  bajas           EtiquetaBaja[]
+  altas           EtiquetaSolicitudAlta[]
 
   @@map("etiquetas")
 }
@@ -1608,6 +1610,17 @@ model EtiquetaConcursoCph {
 
   @@id([etiquetaId, concursoCphId])
   @@map("etiquetas_concurso_cph")
+}
+
+model EtiquetaConcursoCeetps {
+  etiquetaId       String @map("etiqueta_id") @db.Uuid
+  concursoCeetpsId String @map("concurso_ceetps_id") @db.Uuid
+
+  etiqueta       Etiqueta       @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  concursoCeetps ConcursoCeetps @relation(fields: [concursoCeetpsId], references: [id], onDelete: Cascade)
+
+  @@id([etiquetaId, concursoCeetpsId])
+  @@map("etiquetas_concurso_ceetps")
 }
 
 model EtiquetaBaja {

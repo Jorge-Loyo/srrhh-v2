@@ -726,7 +726,7 @@ function EstadoTree() {
         <div className="flex items-start gap-3">
           <div className="w-28 flex-shrink-0 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-center">
             <div className="text-xs font-bold text-orange-700">EN VALID.</div>
-            <div className="text-[10px] text-orange-500 mt-0.5">previo a baja</div>
+            <div className="text-[10px] text-orange-700 mt-0.5">previo a baja</div>
           </div>
           <div className="flex-1 pt-1">
             <p className="text-xs text-gray-600 mb-2">Estado propio, previo a vigente/no_vigente. Solo se usa en el flujo de alta por baja.</p>

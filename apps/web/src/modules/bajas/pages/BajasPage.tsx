@@ -4,10 +4,10 @@ import { useBajasSialRegistros } from '../hooks/useBajasSial'
 const MOT_COLORS: Record<string, string> = {
   'Jubilación Ordinaria':    'bg-blue-50 text-blue-700 border-blue-200',
   'Fallecimiento':           'bg-gray-100 text-gray-600 border-gray-300',
-  'Cese de Cargo':           'bg-orange-50 text-orange-700 border-orange-200',
-  'Cese':                    'bg-orange-50 text-orange-600 border-orange-200',
+  'Cese de Cargo':           'bg-orange-100 text-orange-800 border-orange-200',
+  'Cese':                    'bg-orange-100 text-orange-800 border-orange-200',
   'Renuncia':                'bg-yellow-50 text-yellow-700 border-yellow-200',
-  'Jubilación por Invalidez':'bg-purple-50 text-purple-700 border-purple-200',
+  'Jubilación por Invalidez':'bg-purple-100 text-purple-800 border-purple-200',
   'Cesantía':                'bg-red-50 text-red-700 border-red-200',
 }
 

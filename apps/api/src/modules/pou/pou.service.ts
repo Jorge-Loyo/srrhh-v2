@@ -37,11 +37,14 @@ export interface PouRow {
 export interface TriangulacionRow {
   sigla: string
   codigo: string
+  estadoCargo: string
+  subEstado: string | null
   unificadorPuesto: string | null
   agrupador: string | null
   especialidadLegacy: string | null
-  tipoConcurso: string
-  fechaVacante: Date
+  fechaVacante: Date | null
+  tieneConcurso: boolean
+  tipoConcurso: string | null
   pouPerfil: string | null
   pouEspecialidad: string | null
   dotacionTotal: number | null
@@ -50,29 +53,220 @@ export interface TriangulacionRow {
   estadoPou: 'CON POU' | 'SIN POU' | 'SUPLENTE' | 'SIN CLASIFICAR'
 }
 
+// ── Comparación POU vs sistema ──────────────────────────────────────────────
+// Devuelve filas agrupadas por sigla+perfil+especialidad con conteos del
+// documento POU y conteos reales de cargos CPH-G* en el sistema.
+// Solo incluye cargos POU: CPH-G, CPH-G-NM, CPH-G-J (guardia + jefes guardia).
+
+export interface ComparacionPouRow {
+  sigla: string
+  perfil: string
+  especialidad: string
+  // Documento POU
+  pouDotacion: number
+  pouActivos: number
+  pouVacantes: number
+  // Sistema (cargos CPH-G* vigentes + validacion_vacante)
+  sistemaTotal: number
+  sistemaOcupado: number
+  sistemaVacante: number
+  sistemaConcurso: number
+  sistemaValidacion: number
+  // Diferencia: pouDotacion - sistemaTotal (negativo = más cargos que POU)
+  diferencia: number
+}
+
+// Mapeo de literal_puesto del cargo → (perfil, especialidad) del documento POU.
+// Los CPH-G tienen unificador_puesto='POU Guardia' y agrupador=NULL, por lo que
+// el matcheo se hace exclusivamente por literal_puesto.
+const CASE_PERFIL = `
+  CASE UPPER(c.literal_puesto)
+    WHEN 'ESPECIALISTA EN LA GUARDIA MEDICO' THEN 'especialista en la guardia medico'
+    WHEN 'PROFESIONAL GUARDIA MEDICO'        THEN 'profesional de la guardia medico'
+    WHEN 'KINESIOLOGO DE GUARDIA'            THEN 'profesional de la salud'
+    WHEN 'BIOQUIMICO DE GUARDIA'             THEN 'profesional de la salud'
+    WHEN 'FARMACEUTICO DE GUARDIA'           THEN 'profesional de la salud'
+    WHEN 'OBSTETRICA DE GUARDIA'             THEN 'profesional de la salud'
+    WHEN 'PSICOLOGO DE GUARDIA'              THEN 'profesional de la salud'
+    WHEN 'ASISTENTE SOCIAL DE GUARDIA'       THEN 'profesional de la salud'
+    WHEN 'TRABAJADOR SOCIAL DE GUARDIA'      THEN 'profesional de la salud'
+    WHEN 'ODONTOLOGO DE GUARDIA'             THEN 'profesional de la salud'
+    WHEN 'BACTERIOLOGO DE GUARDIA'           THEN 'profesional de la salud'
+    WHEN 'FONOAUDIOLOGO DE GUARDIA'          THEN 'profesional de la salud'
+    WHEN 'TERAPISTA OCUPACIONAL DE GUARDIA'  THEN 'profesional de la salud'
+    ELSE CASE
+      WHEN UPPER(c.literal_puesto) LIKE 'JEFE%UNIDAD%'  THEN 'jefe de unidad'
+      WHEN UPPER(c.literal_puesto) LIKE 'JEFE%SECCION%' THEN 'jefe de seccion'
+      ELSE NULL
+    END
+  END
+`
+
+const CASE_ESPECIALIDAD = `
+  CASE UPPER(c.literal_puesto)
+    WHEN 'ESPECIALISTA EN LA GUARDIA MEDICO' THEN unaccent(lower(COALESCE(c.especialidad_legacy,'')))
+    WHEN 'PROFESIONAL GUARDIA MEDICO'        THEN 'sin especialidad'
+    WHEN 'KINESIOLOGO DE GUARDIA'            THEN 'kinesiologo/a'
+    WHEN 'BIOQUIMICO DE GUARDIA'             THEN 'bioquimico/a'
+    WHEN 'FARMACEUTICO DE GUARDIA'           THEN 'farmaceutico/a'
+    WHEN 'OBSTETRICA DE GUARDIA'             THEN 'obstetrica'
+    WHEN 'PSICOLOGO DE GUARDIA'              THEN 'psicologo/a'
+    WHEN 'ASISTENTE SOCIAL DE GUARDIA'       THEN 'trabajador/a social'
+    WHEN 'TRABAJADOR SOCIAL DE GUARDIA'      THEN 'trabajador/a social'
+    WHEN 'ODONTOLOGO DE GUARDIA'             THEN 'odontologo/a'
+    WHEN 'BACTERIOLOGO DE GUARDIA'           THEN 'bacteriologo/a'
+    WHEN 'FONOAUDIOLOGO DE GUARDIA'          THEN 'fonoaudiologia'
+    WHEN 'TERAPISTA OCUPACIONAL DE GUARDIA'  THEN 'terapia ocupacional'
+    ELSE CASE
+      WHEN UPPER(c.literal_puesto) LIKE 'JEFE%UNIDAD%'  THEN 'jefe de unidad'
+      WHEN UPPER(c.literal_puesto) LIKE 'JEFE%SECCION%' THEN 'jefe de seccion'
+      ELSE NULL
+    END
+  END
+`
+
+export interface ComparacionDetalleCargo {
+  codigo: string
+  estado: string
+  subEstado: string | null
+  especialidadLegacy: string | null
+  ocupanteNombre: string | null
+  ocupanteCuil: string | null
+  ocupanteIdSial: string | null
+}
+
+export async function detalleCargosComparacionService(
+  sigla: string, perfil: string, especialidad: string
+): Promise<ComparacionDetalleCargo[]> {
+  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`
+    SELECT c.codigo, c.estado::text, c.sub_estado::text AS sub_estado,
+           c.especialidad_legacy,
+           p.apellido_nombre AS ocupante_nombre,
+           o.cuil AS ocupante_cuil,
+           o.id_sial_rol AS ocupante_id_sial
+    FROM cargos c
+    JOIN hospitales h ON h.id = c.hospital_id
+    LEFT JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
+    LEFT JOIN personas p ON p.id = o.persona_id
+    WHERE h.sigla = $1
+      AND c.unificador_puesto = 'POU Guardia'
+      AND c.estado IN ('vigente','validacion_vacante')
+      AND c.deleted_at IS NULL
+      AND ${CASE_PERFIL} = $2
+      AND ${CASE_ESPECIALIDAD} = $3
+    ORDER BY c.codigo
+  `, sigla, perfil, especialidad)
+
+  return rows.map((r) => ({
+    codigo:           r.codigo as string,
+    estado:           r.estado as string,
+    subEstado:        r.sub_estado as string | null,
+    especialidadLegacy: r.especialidad_legacy as string | null,
+    ocupanteNombre:   r.ocupante_nombre as string | null,
+    ocupanteCuil:     r.ocupante_cuil as string | null,
+    ocupanteIdSial:   r.ocupante_id_sial as string | null,
+  }))
+}
+
+export async function comparacionPouService(siglas?: string[]): Promise<ComparacionPouRow[]> {
+  const conFiltro = siglas && siglas.length > 0
+
+  // $queryRawUnsafe porque la query mezcla SQL estático (CASE) con parámetros
+  // dinámicos (siglas). Los CASE son constantes del módulo — sin input de usuario.
+  // Las siglas vienen del route ya validadas (split+trim+toUpperCase+Set).
+  const filtroSiglaCC = conFiltro
+    ? `AND h.sigla = ANY(ARRAY[${siglas!.map((_, i) => `$${i + 1}`).join(',')}])`
+    : ''
+  const filtroPou = conFiltro
+    ? `WHERE p.sigla = ANY(ARRAY[${siglas!.map((_, i) => `$${i + 1}`).join(',')}])`
+    : ''
+  const params: string[] = conFiltro ? siglas! : []
+
+  const sql = `
+    WITH cargos_clasificados AS (
+      SELECT h.sigla,
+             ${CASE_PERFIL}       AS pou_perfil,
+             ${CASE_ESPECIALIDAD} AS pou_especialidad,
+             c.sub_estado, c.estado
+      FROM cargos c
+      JOIN hospitales h ON h.id = c.hospital_id
+      WHERE c.unificador_puesto = 'POU Guardia'
+        AND c.estado IN ('vigente','validacion_vacante')
+        AND c.deleted_at IS NULL
+        ${filtroSiglaCC}
+    ),
+    cargos_sistema AS (
+      SELECT sigla, pou_perfil, pou_especialidad,
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE sub_estado = 'ocupado')::int    AS ocupado,
+             COUNT(*) FILTER (WHERE sub_estado = 'vacante')::int    AS vacante,
+             COUNT(*) FILTER (WHERE sub_estado = 'concurso')::int   AS concurso,
+             COUNT(*) FILTER (WHERE estado = 'validacion_vacante')::int AS validacion
+      FROM cargos_clasificados
+      WHERE pou_perfil IS NOT NULL
+      GROUP BY sigla, pou_perfil, pou_especialidad
+    ),
+    cargos_pou AS (
+      SELECT h.sigla, p.perfil AS pou_perfil, p.especialidad AS pou_especialidad,
+             p.dotacion_total AS pou_dotacion, p.activos AS pou_activos, p.vacantes AS pou_vacantes
+      FROM pou p
+      JOIN hospitales h ON h.sigla = p.sigla
+      ${filtroPou}
+    )
+    SELECT cp.sigla, cp.pou_perfil AS perfil, cp.pou_especialidad AS especialidad,
+           COALESCE(cp.pou_dotacion,0) AS pou_dotacion, COALESCE(cp.pou_activos,0) AS pou_activos,
+           COALESCE(cp.pou_vacantes,0) AS pou_vacantes, COALESCE(cs.total,0) AS sistema_total,
+           COALESCE(cs.ocupado,0) AS sistema_ocupado, COALESCE(cs.vacante,0) AS sistema_vacante,
+           COALESCE(cs.concurso,0) AS sistema_concurso, COALESCE(cs.validacion,0) AS sistema_validacion,
+           COALESCE(cp.pou_dotacion,0) - COALESCE(cs.total,0) AS diferencia
+    FROM cargos_pou cp
+    LEFT JOIN cargos_sistema cs
+      ON cs.sigla = cp.sigla AND cs.pou_perfil = cp.pou_perfil AND cs.pou_especialidad = cp.pou_especialidad
+    ORDER BY cp.sigla, cp.pou_perfil, cp.pou_especialidad
+  `
+
+  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql, ...params)
+
+  return rows.map((r) => ({
+    sigla:             r.sigla as string,
+    perfil:            r.perfil as string,
+    especialidad:      r.especialidad as string,
+    pouDotacion:       Number(r.pou_dotacion),
+    pouActivos:        Number(r.pou_activos),
+    pouVacantes:       Number(r.pou_vacantes),
+    sistemaTotal:      Number(r.sistema_total),
+    sistemaOcupado:    Number(r.sistema_ocupado),
+    sistemaVacante:    Number(r.sistema_vacante),
+    sistemaConcurso:   Number(r.sistema_concurso),
+    sistemaValidacion: Number(r.sistema_validacion),
+    diferencia:        Number(r.diferencia),
+  }))
+}
+
 export async function triangularPouService(sigla?: string): Promise<TriangulacionRow[]> {
   const rows = sigla
     ? await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, unificador_puesto, agrupador, especialidad_legacy,
-               tipo_concurso, fecha_vacante, pou_perfil, pou_especialidad,
-               dotacion_total, pou_activos, pou_vacantes, estado_pou
+        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
+               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
+               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
         FROM v_pou_triangulacion
-        WHERE sigla = ${sigla}
-        ORDER BY estado_pou, codigo`
+        WHERE sigla = ${sigla}`
     : await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, unificador_puesto, agrupador, especialidad_legacy,
-               tipo_concurso, fecha_vacante, pou_perfil, pou_especialidad,
-               dotacion_total, pou_activos, pou_vacantes, estado_pou
-        FROM v_pou_triangulacion
-        ORDER BY sigla, estado_pou, codigo`
+        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
+               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
+               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
+        FROM v_pou_triangulacion`
   return rows.map((r) => ({
     sigla: r.sigla as string,
     codigo: r.codigo as string,
+    estadoCargo: r.estado_cargo as string,
+    subEstado: r.sub_estado as string | null,
     unificadorPuesto: r.unificador_puesto as string | null,
     agrupador: r.agrupador as string | null,
     especialidadLegacy: r.especialidad_legacy as string | null,
-    tipoConcurso: r.tipo_concurso as string,
-    fechaVacante: r.fecha_vacante as Date,
+    fechaVacante: r.fecha_vacante as Date | null,
+    tieneConcurso: r.tiene_concurso as boolean,
+    tipoConcurso: r.tipo_concurso as string | null,
     pouPerfil: r.pou_perfil as string | null,
     pouEspecialidad: r.pou_especialidad as string | null,
     dotacionTotal: r.dotacion_total as number | null,

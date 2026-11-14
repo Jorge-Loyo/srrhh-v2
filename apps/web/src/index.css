@@ -90,6 +90,14 @@
   .badge-primary {
     @apply badge bg-yellow-100 text-yellow-800;
   }
+  /* Concursos / sorteo / IFACS */
+  .badge-indigo {
+    @apply badge bg-indigo-100 text-indigo-800;
+  }
+  /* TTR / retenciones / cadena de conducción */
+  .badge-purple {
+    @apply badge bg-purple-100 text-purple-800;
+  }
 
   /* Inputs — extraído en S4-8 (ConcursoCphDetail, 27 campos): a partir de
      acá no vale la pena repetir la clase larga en cada input, como sí se

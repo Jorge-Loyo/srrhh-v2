@@ -7,7 +7,7 @@ import { useBajasSialDiff, useAprobarBajasSial, useRechazarBajasSial } from '../
 const TABS = [
   { tipo: 'nuevo',     label: 'Nuevas bajas',   color: 'text-green-700 border-green-500' },
   { tipo: 'eliminado', label: 'Salidas',         color: 'text-red-600 border-red-500' },
-  { tipo: 'modificado',label: 'Modificadas',     color: 'text-orange-600 border-orange-500' },
+  { tipo: 'modificado',label: 'Modificadas',     color: 'text-orange-800 border-orange-500' },
 ] as const
 
 export function BajasSialDiffPage() {
@@ -84,8 +84,8 @@ export function BajasSialDiffPage() {
             <p className="text-xl font-bold text-red-600">−{summary.salidas}</p>
           </div>
           <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2">
-            <p className="text-xs text-orange-500">Registros modificados</p>
-            <p className="text-xl font-bold text-orange-600">~{summary.modificadas}</p>
+            <p className="text-xs text-orange-700">Registros modificados</p>
+            <p className="text-xl font-bold text-orange-800">~{summary.modificadas}</p>
           </div>
         </div>
       </div>
@@ -141,7 +141,7 @@ export function BajasSialDiffPage() {
                   <td className="px-4 py-3 text-gray-600">{d.lit_puesto ?? '—'}</td>
                   <td className="px-4 py-3">
                     {d.mot_baja
-                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700">{d.mot_baja}</span>
+                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 border border-orange-200 text-orange-800">{d.mot_baja}</span>
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">

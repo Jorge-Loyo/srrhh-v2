@@ -363,7 +363,7 @@ export function ConcursoCeetpsDetail() {
               </span>
             )}
             {motivoConcursoLabel(concurso.concurso?.motivoConcurso) && (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
                 {motivoConcursoLabel(concurso.concurso?.motivoConcurso)}
               </span>
             )}

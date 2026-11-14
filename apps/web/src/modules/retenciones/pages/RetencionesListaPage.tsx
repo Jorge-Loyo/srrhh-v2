@@ -180,7 +180,7 @@ export function RetencionesListaPage() {
                                   <span
                                     className={`text-[11px] px-1.5 py-0.5 rounded-full border ${
                                       c.tipoOrigen === 'TTR'
-                                        ? 'bg-purple-100 text-purple-700 border-purple-200'
+                                        ? 'bg-purple-100 text-purple-800 border-purple-200'
                                         : 'bg-blue-100 text-blue-700 border-blue-200'
                                     }`}
                                   >

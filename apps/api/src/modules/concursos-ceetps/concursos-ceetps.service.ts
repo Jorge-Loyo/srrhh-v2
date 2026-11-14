@@ -26,6 +26,7 @@ const include = {
   hospital: true,
   escalafon: true,
   personaDesignada: true,
+  etiquetas: { include: { etiqueta: true } },
 } satisfies Prisma.ConcursoCeetpsInclude
 
 // Campos cuyo valor string YYYY-MM-DD debe convertirse a Date antes de

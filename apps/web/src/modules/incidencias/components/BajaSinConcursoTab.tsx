@@ -168,7 +168,7 @@ export function BajaSinConcursoTab() {
                       <td className="px-4 py-3 text-gray-600">
                         <div>{i.deteccion.texto}</div>
                         <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
                             {i.deteccion.origen === 'baja_sial' ? 'Baja SIAL' : 'Solo padrón'}
                           </span>
                           {i.deteccion.enBajaSial && i.deteccion.ausentePadron && (

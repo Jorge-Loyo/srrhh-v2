@@ -32,6 +32,7 @@ export type BandejaGestionQuery = ConcursosCphQuery & { tipo?: 'cph' | 'ceetps' 
 const includeCeetps = {
   concurso: { include: { cargo: true } },
   hospital: true,
+  etiquetas: { include: { etiqueta: true } },
 } satisfies Prisma.ConcursoCeetpsInclude
 
 type CeetpsRow = Prisma.ConcursoCeetpsGetPayload<{ include: typeof includeCeetps }>
@@ -118,8 +119,10 @@ export function ceetpsToConcursoCphShape(row: CeetpsRow): Record<string, unknown
     // Relaciones expandidas que la tabla lee (concurso.cargo, hospital).
     concurso: row.concurso,
     hospital: row.hospital,
-    // CPH-only: sin etiquetas en CEETPS (la tabla muestra el control vacío).
-    etiquetas: [],
+    etiquetas: row.etiquetas
+      .map((e) => e.etiqueta)
+      .filter((e) => e.activo)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
     // Discriminador para que la UI distinga la fila (link "Ver", badges).
     tipoConcurso: 'ceetps' as const,
   }
@@ -176,16 +179,15 @@ function tieneFiltroCphOnlyActivo(query: BandejaGestionQuery): boolean {
 export async function listBandejaGestionService(query: BandejaGestionQuery) {
   const { tipo, page, limit, ordenarPor = 'fecha_ee_concurso', orden = 'desc' } = query
 
-  // tipo === 'cph': delega 1:1 en el servicio CPH (full fidelity, paginado en
-  // SQL). Ninguna rama nueva: devuelve exactamente lo que /concursos-cph.
+  // tipo === 'cph': delega 1:1 en el servicio CPH con soloEtapa1Superada=true
+  // para que /concursos/cph muestre solo los que ya pasaron la Etapa 1.
   if (tipo === 'cph') {
-    return listConcursosCphService(query)
+    return listConcursosCphService(query, { soloEtapa1Superada: true })
   }
 
-  // tipo === 'ceetps': solo CEETPS mapeados a la forma CPH. Se trae todo (chico)
-  // y se pagina en memoria para no duplicar la lógica de where/paginado.
+  // tipo === 'ceetps': solo CEETPS en Etapa 2+ (estado != sin_autorizar).
   if (tipo === 'ceetps') {
-    const ceetps = await fetchCeetpsMapeados(query)
+    const ceetps = await fetchCeetpsMapeados({ ...query, estado: undefined, _excluirSinAutorizar: true })
     return paginarEnMemoria(ceetps, page, limit, ordenarPor, orden)
   }
 
@@ -223,28 +225,22 @@ async function fetchCphTodos(query: BandejaGestionQuery): Promise<Record<string,
   return acumulado
 }
 
-async function fetchCeetpsMapeados(query: BandejaGestionQuery): Promise<Record<string, unknown>[]> {
-  // Subconjunto de filtros que aplican a CEETPS (los CPH-only se ignoran acá):
-  // hospital(es), estado (solo si es un estado válido del enum CEETPS), search.
-  // El sub-estado es CPH-only (los valores con prefijo de letra son del flujo
-  // CPH), así que no se reenvía a CEETPS.
-  const { hospitalId, hospitalIds, estado, search, etapa } = query
+async function fetchCeetpsMapeados(
+  query: BandejaGestionQuery & { _excluirSinAutorizar?: boolean },
+): Promise<Record<string, unknown>[]> {
+  const { hospitalId, hospitalIds, estado, search, etapa, _excluirSinAutorizar } = query
 
-  // El filtro de estado llega como valor del enum CPH
-  // (no_iniciado/activo/finalizado/suspendido). Solo 'finalizado' es miembro
-  // válido de EstadoConcursoCeetps; reenviar cualquier otro a Prisma dispara
-  // PrismaClientValidationError. Si el estado pedido NO existe en CEETPS,
-  // ninguna fila CEETPS puede matchear → se devuelve vacío sin consultar.
   if (estado && !ESTADOS_CEETPS.has(estado as ConcursoCeetps['estado'])) {
     return []
   }
 
-  // Etapa (stepper): se traduce a un where propio de CEETPS (ver whereEtapaCeetps).
   const whereEtapa = etapa !== undefined ? whereEtapaCeetps(etapa) : undefined
   if (whereEtapa === null) return []
 
   const where: Prisma.ConcursoCeetpsWhereInput = {
     ...(whereEtapa && { AND: [whereEtapa as Prisma.ConcursoCeetpsWhereInput] }),
+    // /concursos/ceetps: excluir sin_autorizar (Etapa 1 no superada)
+    ...(_excluirSinAutorizar && { estado: { not: 'sin_autorizar' } }),
     ...(hospitalIds?.length
       ? { hospitalId: { in: hospitalIds } }
       : hospitalId

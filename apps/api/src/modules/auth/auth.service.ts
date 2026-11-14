@@ -184,8 +184,25 @@ export async function refreshTokenService(body: RefreshBody, signToken: (payload
 
   const accessToken = signToken(buildUserPayload(usuario))
   const newRefreshToken = await createRefreshToken(usuario.id, stored.familyId, ip)
+  const permisos = await getPermisosEfectivos(usuario.roleId, usuario.role.slug)
 
-  return { accessToken, refreshToken: newRefreshToken }
+  return {
+    accessToken,
+    refreshToken: newRefreshToken,
+    user: {
+      id: usuario.id,
+      username: usuario.username,
+      email: usuario.email,
+      cuil: usuario.cuil,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      rol: usuario.role.nombre,
+      rolSlug: usuario.role.slug,
+      roleId: usuario.roleId,
+      hospitalId: usuario.hospitalId,
+      permisos,
+    },
+  }
 }
 
 // ─── logout ──────────────────────────────────────────────────────────────────

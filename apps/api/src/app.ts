@@ -2,6 +2,7 @@ import './config/env.js' // Valida variables al arrancar
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
+import cookie from '@fastify/cookie'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { env } from './config/env.js'
@@ -59,6 +60,7 @@ const app = Fastify({
 
 // Plugins de seguridad
 await app.register(helmet)
+await app.register(cookie)
 await app.register(rateLimit, { max: 200, timeWindow: '1 minute' })
 await app.register(cors, {
   origin: env.CORS_ORIGINS.split(','),

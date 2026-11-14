@@ -22,7 +22,7 @@ import { getApiErrorMessage } from '@/shared/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-type TipoAlta = 'pof' | 'pou' | 'estructura' | 'pou_a_pof' | 'editar_estructura'
+type TipoAlta = 'pof' | 'pou' | 'estructura' | 'pou_a_pof' | 'editar_estructura' | 'mod_pou'
 
 const TIPO_LABEL: Record<TipoAlta, string> = {
   pof:               'Ejecución POF',
@@ -30,6 +30,7 @@ const TIPO_LABEL: Record<TipoAlta, string> = {
   estructura:        'Estructura',
   pou_a_pof:         'POU a POF',
   editar_estructura: 'Editar Estructura',
+  mod_pou:           'Modificación de la POU',
 }
 
 const ESTADO_LABEL: Record<SolicitudAltaEstado, string> = {
@@ -442,12 +443,12 @@ function BannerNormaPou({ onVerPou, onEditarPou }: { onVerPou: () => void; onEdi
   const ultimaCarga = cargas[0] ?? null
 
   return (
-    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+    <div className="mb-4 rounded-lg border border-secondary/30 bg-secondary/5 p-4 space-y-3">
       <div className="flex items-start gap-3">
         <span className="text-2xl leading-none mt-0.5">📋</span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-blue-900">Estás editando la norma de estructura POU</p>
-          <p className="text-xs text-blue-700 mt-0.5">
+          <p className="text-sm font-bold text-gray-900">Estás editando la norma de estructura POU</p>
+          <p className="text-xs text-gray-600 mt-0.5">
             Crear un cargo POU modifica la dotación estructural de <strong>todos los hospitales</strong>.
             El documento que se genera refleja cómo queda la POU completa tras esta edición.
           </p>
@@ -455,10 +456,10 @@ function BannerNormaPou({ onVerPou, onEditarPou }: { onVerPou: () => void; onEdi
       </div>
 
       <div className="flex items-center gap-4 flex-wrap">
-        <div className="text-xs text-blue-800">
+        <div className="text-xs text-gray-700">
           <span className="font-semibold">{hospitales.length}</span> hospital{hospitales.length !== 1 ? 'es' : ''} con datos POU cargados
           {ultimaCarga && (
-            <span className="ml-2 text-blue-600">
+            <span className="ml-2 text-gray-500">
               · Última norma: <span className="font-mono">{ultimaCarga.archivo}</span>{' '}
               ({new Date(ultimaCarga.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })})
             </span>
@@ -467,12 +468,10 @@ function BannerNormaPou({ onVerPou, onEditarPou }: { onVerPou: () => void; onEdi
       </div>
 
       <div className="flex gap-2">
-        <button type="button" onClick={onVerPou}
-          className="text-xs px-3 py-1.5 rounded border border-blue-300 bg-white text-blue-700 hover:bg-blue-100 font-medium transition-colors">
+        <button type="button" onClick={onVerPou} className="btn-outline text-xs px-3 py-1.5">
           Ver norma POU actual →
         </button>
-        <button type="button" onClick={onEditarPou}
-          className="text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-600 text-white hover:bg-blue-700 font-medium transition-colors">
+        <button type="button" onClick={onEditarPou} className="btn-secondary text-xs px-3 py-1.5">
           Actualizar norma POU (subir Excel)
         </button>
       </div>
@@ -559,11 +558,11 @@ function FormPouAPof({ onAgregar, onCancelar }: {
       )}
       <div className="border-t border-gray-100 pt-5 space-y-4">
         {/* Banner informativo */}
-        <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 flex items-start gap-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start gap-3">
           <span className="text-2xl leading-none mt-0.5">🔄</span>
           <div>
-            <p className="text-sm font-bold text-orange-900">Conversión POU → POF</p>
-            <p className="text-xs text-orange-700 mt-0.5">
+            <p className="text-sm font-bold text-gray-900">Conversión POU → POF</p>
+            <p className="text-xs text-gray-600 mt-0.5">
               Seleccioná los cargos POU vigentes a convertir. Si el cargo está ocupado, pasa a POF con la persona. Si está vacante, va a concurso.
             </p>
           </div>
@@ -616,23 +615,23 @@ function FormPouAPof({ onAgregar, onCancelar }: {
             ) : (
               <div className="space-y-2">
                 {seleccionados.map((s) => (
-                  <div key={s.cargoOrigenId} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-orange-50 border border-orange-200">
+                  <div key={s.cargoOrigenId} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-bold text-gray-700">{s.cargoOrigenCodigo ?? '—'}</span>
                         <span className="text-xs text-gray-400">·</span>
                         <span className="text-xs font-medium text-gray-700">{s.hospitalSigla}</span>
                         {s.cargoOrigenOcupado ? (
-                          <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Ocupado</span>
+                          <span className="badge-success">Ocupado</span>
                         ) : (
-                          <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Vacante → concurso</span>
+                          <span className="badge-amber">Vacante → concurso</span>
                         )}
                       </div>
                       <p className="text-xs text-gray-600 mt-0.5 truncate">{s.puesto}{s.especialidad ? ` · ${s.especialidad}` : ''}</p>
                       {s.cargoOrigenPersona && <p className="text-xs text-gray-400 truncate">{s.cargoOrigenPersona}</p>}
                     </div>
                     <button type="button" onClick={() => quitarCargo(s.cargoOrigenId!)}
-                      className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none flex-shrink-0">×</button>
+                      className="text-gray-300 hover:text-danger transition-colors text-lg leading-none flex-shrink-0">×</button>
                   </div>
                 ))}
               </div>
@@ -682,10 +681,11 @@ interface CargoPou {
 }
 
 // ── Modal de búsqueda de cargos POU vigentes ─────────────────────────────────
-function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
+function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados, soloVacantes = false }: {
   onSeleccionar: (c: CargoPou) => void
   onCerrar: () => void
   yaSeleccionados: string[]
+  soloVacantes?: boolean
 }) {
   const [hospitalId, setHospitalId] = useState('')
   const [busqueda, setBusqueda] = useState('')
@@ -699,8 +699,8 @@ function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
     placeholderData: (prev: CargoPou[] | undefined) => prev,
     queryFn: async () => {
       const params: Record<string, string> = { limit: '50', estado: 'vigente' }
-      // Filtrar por unificadorPuesto POU — el endpoint acepta este param
       params.unificadorPuesto = 'POU'
+      if (soloVacantes) params.subEstado = 'vacante'
       if (hospitalId) params.hospitalId = hospitalId
       if (busqueda.length >= 2) params.search = busqueda
       const res = await apiClient.get<{ data: CargoPou[] }>('/api/v1/cargos', { params })
@@ -715,7 +715,7 @@ function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <h2 className="font-primary text-base font-bold text-gray-900">Seleccionar cargo POU</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Cargos POU vigentes — podés seleccionar varios</p>
+            <p className="text-xs text-gray-500 mt-0.5">Cargos POU vigentes{soloVacantes ? ' vacantes' : ''} — podés seleccionar varios</p>
           </div>
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
@@ -749,7 +749,7 @@ function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
                   const yaEsta = yaSeleccionados.includes(c.id)
                   const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
                   return (
-                    <tr key={c.id} className={yaEsta ? 'bg-orange-50' : 'hover:bg-blue-50 cursor-pointer'}
+                    <tr key={c.id} className={yaEsta ? 'bg-gray-100' : 'hover:bg-gray-50 cursor-pointer'}
                       onClick={() => !yaEsta && onSeleccionar(c)}>
                       <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{c.codigo ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600">{c.hospital?.sigla ?? '—'}</td>
@@ -769,7 +769,7 @@ function ModalBuscarCargoPou({ onSeleccionar, onCerrar, yaSeleccionados }: {
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         {yaEsta
-                          ? <span className="text-xs text-orange-600 font-medium">✓ Agregado</span>
+                          ? <span className="badge-amber">✓ Agregado</span>
                           : <span className="text-xs text-secondary font-medium">Seleccionar</span>}
                       </td>
                     </tr>
@@ -864,11 +864,11 @@ function FormEditarEstructura({ onAgregar, onCancelar }: {
       )}
       <div className="border-t border-gray-100 pt-5 space-y-4">
         {/* Banner */}
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 flex items-start gap-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start gap-3">
           <span className="text-2xl leading-none mt-0.5">✏️</span>
           <div>
-            <p className="text-sm font-bold text-indigo-900">Edición de cargo de estructura</p>
-            <p className="text-xs text-indigo-700 mt-0.5">
+            <p className="text-sm font-bold text-gray-900">Edición de cargo de estructura</p>
+            <p className="text-xs text-gray-600 mt-0.5">
               El cargo de estructura seleccionado se da de baja y se crea uno nuevo en el nodo destino.
               Si tiene persona, pasa al nuevo cargo. Si está vacante, va a concurso.
             </p>
@@ -928,7 +928,7 @@ function FormEditarEstructura({ onAgregar, onCancelar }: {
               </div>
             ) : (
               <button type="button" onClick={() => setModalAbierto(true)}
-                className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+                className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-secondary hover:text-secondary transition-colors">
                 + Seleccionar cargo de estructura
               </button>
             )}
@@ -1025,7 +1025,7 @@ function ModalBuscarCargoEstructura({ onSeleccionar, onCerrar }: {
                 {data?.map((c) => {
                   const sub = c.subEstado ?? (c.ocupado ? 'ocupado' : 'vacante')
                   return (
-                    <tr key={c.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => onSeleccionar(c)}>
+                    <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => onSeleccionar(c)}>
                       <td className="px-3 py-2.5 font-mono text-xs text-gray-700">{c.codigo ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600">{c.hospital?.sigla ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-800 max-w-[220px]">
@@ -1054,6 +1054,750 @@ function ModalBuscarCargoEstructura({ onSeleccionar, onCerrar }: {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Sub-form liviano: Agregar cargo POU nuevo ───────────────────────────────
+// Sin expediente/desde/etiqueta propios — los inyecta FormModificacionPou.
+function SubFormAgregarPou({ onAgregar, onCancelar }: {
+  onAgregar: (item: ItemPendiente) => void
+  onCancelar: () => void
+}) {
+  const [hospitalId,    setHospitalId]    = useState('')
+  const [escalafonId,   setEscalafonId]   = useState('')
+  const [modalidadIdx,  setModalidadIdx]  = useState<number | null>(null)
+  const [puestoSel,     setPuestoSel]     = useState<PuestoCatalogoEspecialidad | null>(null)
+  const [especialidadSel, setEspecialidadSel] = useState<PuestoCatalogoEspecialidad | null>(null)
+  const [cantidad,      setCantidad]      = useState(1)
+
+  const { data: hospitales = [] }            = useHospitales()
+  const { data: escalafonesFiltrados = [] }  = useEscalafonesPorTipoAlta('pou')
+  const escNombre        = escalafonesFiltrados.find((e) => e.id === escalafonId)?.nombre ?? ''
+  const escCodigo        = escalafonesFiltrados.find((e) => e.id === escalafonId)?.codigo
+  const opciones         = escalafonId ? opcionesModalidad(escNombre, 'pou') : []
+  const modalidadEfectiva = opciones.length === 1 ? opciones[0]! : (modalidadIdx !== null ? opciones[modalidadIdx] ?? null : null)
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(
+    escalafonId || undefined, 'pou', undefined, pideIncluirAmbosAlta(escCodigo, 'pou'),
+  )
+  const puestos = filtrarPuestosAlta(puestosCatalogo, escCodigo, 'pou')
+  const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+  const { opciones: especialidades, faltanAtpAtc, obligatoria: especialidadObligatoria } =
+    especialidadesPermitidasAlta(puestoSel?.nombre ?? '', especialidadesCatalogo)
+
+  const formCompleto = !!hospitalId && !!escalafonId && !!modalidadEfectiva && !!puestoSel
+    && (!especialidadObligatoria || !!especialidadSel)
+
+  function handleAgregar() {
+    if (!formCompleto || !modalidadEfectiva || !puestoSel) return
+    const hospital = hospitales.find((h) => h.id === hospitalId)
+    const esc      = escalafonesFiltrados.find((e) => e.id === escalafonId)
+    onAgregar({
+      id:               crypto.randomUUID(),
+      tipo:             'pou',
+      hospitalId,
+      hospitalSigla:    hospital?.sigla ?? hospitalId,
+      escalafonId,
+      escalafon:        esc?.nombre ?? escalafonId,
+      puestoCargoId:    puestoSel.id,
+      puesto:           puestoSel.nombre,
+      especialidadPuestoId: especialidadSel?.id,
+      especialidad:     especialidadSel?.nombre ?? '',
+      unificadorPuesto: modalidadEfectiva.unificadorPuesto,
+      agrupador:        modalidadEfectiva.agrupador,
+      expediente:       '',
+      desde:            '',
+      cantidad,
+      etiqueta:         '',
+    })
+    setPuestoSel(null); setEspecialidadSel(null); setCantidad(1)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Repartición <span className="text-danger">*</span></label>
+          <select value={hospitalId} onChange={(e) => { setHospitalId(e.target.value); setPuestoSel(null); setEspecialidadSel(null) }} className="h-10 input w-full">
+            <option value="">Seleccionar...</option>
+            {hospitales.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
+          </select>
+        </div>
+        <SelectorCarreraPuestoEspecialidad
+          modo="unico" resetDependientes
+          mostrar={{ carrera: true, puesto: false, especialidad: false }}
+          requeridos={{ carrera: true }}
+          valor={{ carrera: escalafonId ? [escalafonId] : [], puesto: [], especialidad: [] }}
+          carreraOpciones={opcionesCarreraAlta(escalafonesFiltrados, 'pou')}
+          puestoOpciones={[]} especialidadOpciones={[]}
+          placeholders={{ carrera: 'Seleccionar carrera...' }}
+          onChange={(next) => { setEscalafonId(next.carrera[0] ?? ''); setModalidadIdx(null); setPuestoSel(null); setEspecialidadSel(null) }}
+        />
+      </div>
+      {escalafonId && opciones.length > 1 && (
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Modalidad <span className="text-danger">*</span></label>
+          <div className="flex flex-wrap gap-2">
+            {opciones.map((op, i) => (
+              <button key={i} type="button" onClick={() => { setModalidadIdx(i); setPuestoSel(null); setEspecialidadSel(null) }}
+                className={`px-3 py-1.5 rounded border text-sm font-medium transition-colors ${
+                  modalidadIdx === i ? 'border-secondary bg-secondary text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-secondary hover:text-secondary'
+                }`}>{op.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {escalafonId && (
+        <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+          <SelectorCarreraPuestoEspecialidad
+            modo="unico" resetDependientes
+            mostrar={{ carrera: false, puesto: true, especialidad: true }}
+            requeridos={{ puesto: true, especialidad: true }}
+            ocultarSiVacio={{ especialidad: true }}
+            valor={{ carrera: [], puesto: puestoSel ? [puestoSel.id] : [], especialidad: especialidadSel ? [especialidadSel.id] : [] }}
+            carreraOpciones={[]}
+            puestoOpciones={puestos.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+            especialidadOpciones={puestoSel ? especialidades.map((e) => ({ value: e.id, label: capitalizar(e.nombre) })) : []}
+            placeholders={{ puesto: 'Seleccionar puesto...', especialidad: 'Seleccionar especialidad...' }}
+            onChange={(next, campo) => {
+              if (campo === 'puesto') { setPuestoSel(resolverSeleccionAlta(next.puesto, puestos)); setEspecialidadSel(null) }
+              else { setEspecialidadSel(resolverSeleccionAlta(next.especialidad, especialidades)) }
+            }}
+          />
+          {puestoSel && faltanAtpAtc && (
+            <p className="text-xs font-semibold text-warning">Faltan cargar las especialidades Enfermeros ATP/ATC en el catálogo.</p>
+          )}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-gray-500">Cantidad</label>
+          <button type="button" onClick={() => setCantidad((v) => Math.max(1, v - 1))} className="w-8 h-8 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 font-bold text-lg leading-none">−</button>
+          <span className="w-8 text-center text-sm font-bold text-gray-800">{cantidad}</span>
+          <button type="button" onClick={() => setCantidad((v) => Math.min(50, v + 1))} className="w-8 h-8 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 font-bold text-lg leading-none">+</button>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+          <button type="button" onClick={handleAgregar} disabled={!formCompleto}
+            className="btn-secondary disabled:opacity-40">+ Agregar al expediente</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Sub-form liviano: Modificar / Eliminar cargo POU ─────────────────────────
+// Sin expediente/desde/etiqueta propios.
+function SubFormModificarEliminarPou({ accion, onAgregar, onCancelar }: {
+  accion: 'modificar' | 'eliminar'
+  onAgregar: (item: ItemPendiente) => void
+  onCancelar: () => void
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [cargoOrigen, setCargoOrigen]   = useState<CargoPou | null>(null)
+  const [puestoSel,   setPuestoSel]     = useState<PuestoCatalogoEspecialidad | null>(null)
+  const [especialidadSel, setEspecialidadSel] = useState<PuestoCatalogoEspecialidad | null>(null)
+
+  const { data: puestosCatalogo = [] }       = usePuestosCargoNormalizados(cargoOrigen?.escalafonId ?? undefined, 'pou')
+  const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+
+  const formCompleto = !!cargoOrigen && (accion === 'eliminar' || !!puestoSel)
+
+  function handleAgregar() {
+    if (!cargoOrigen) return
+    onAgregar({
+      id:               crypto.randomUUID(),
+      tipo:             accion === 'eliminar' ? 'pou_a_pof' : 'pou',
+      hospitalId:       cargoOrigen.hospitalId,
+      hospitalSigla:    cargoOrigen.hospital?.sigla ?? cargoOrigen.hospitalId,
+      escalafonId:      cargoOrigen.escalafonId ?? '',
+      escalafon:        cargoOrigen.escalafon?.nombre ?? '',
+      puestoCargoId:    accion === 'modificar' && puestoSel ? puestoSel.id : (cargoOrigen.puestoCargoId ?? ''),
+      puesto:           accion === 'modificar' && puestoSel ? puestoSel.nombre : (cargoOrigen.literalPuesto ?? ''),
+      especialidadPuestoId: accion === 'modificar' ? especialidadSel?.id : undefined,
+      especialidad:     accion === 'modificar' ? (especialidadSel?.nombre ?? '') : (cargoOrigen.especialidad ?? ''),
+      unificadorPuesto: 'POU Guardia',
+      expediente:       '',
+      desde:            '',
+      cantidad:         1,
+      etiqueta:         '',
+      cargoOrigenId:    cargoOrigen.id,
+      cargoOrigenCodigo: cargoOrigen.codigo ?? undefined,
+      cargoOrigenOcupado: false,
+    })
+    setCargoOrigen(null); setPuestoSel(null); setEspecialidadSel(null)
+  }
+
+  return (
+    <>
+      {modalAbierto && (
+        <ModalBuscarCargoPou
+          onSeleccionar={(c) => { setCargoOrigen(c); setModalAbierto(false) }}
+          onCerrar={() => setModalAbierto(false)}
+          yaSeleccionados={cargoOrigen ? [cargoOrigen.id] : []}
+          soloVacantes
+        />
+      )}
+      <div className="space-y-4">
+        <div className={`rounded-lg border p-4 flex items-start gap-3 ${
+          accion === 'eliminar' ? 'border-danger/30 bg-red-50' : 'border-gray-200 bg-gray-50'
+        }`}>
+          <span className="text-2xl leading-none mt-0.5">{accion === 'eliminar' ? '🗑️' : '✏️'}</span>
+          <div>
+            <p className={`text-sm font-bold ${accion === 'eliminar' ? 'text-danger' : 'text-gray-900'}`}>
+              {accion === 'eliminar' ? 'Eliminar cargo POU vacante' : 'Modificar cargo POU vacante'}
+            </p>
+            <p className="text-xs mt-0.5 text-gray-600">
+              {accion === 'eliminar'
+                ? 'El cargo POU seleccionado se dará de baja de la norma. Solo se puede eliminar si está vacante.'
+                : 'Seleccióná el cargo POU vacante y el nuevo puesto/especialidad que tendrá.'}
+            </p>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+            Cargo POU vacante a {accion === 'eliminar' ? 'eliminar' : 'modificar'} <span className="text-danger">*</span>
+          </label>
+          {cargoOrigen ? (
+            <div className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${
+              accion === 'eliminar' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+            }`}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold text-gray-700">{cargoOrigen.codigo ?? '—'}</span>
+                  <span className="text-xs text-gray-400">·</span>
+                  <span className="text-xs font-medium text-gray-700">{cargoOrigen.hospital?.sigla}</span>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Vacante</span>
+                  {accion === 'eliminar' && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Se da de baja</span>}
+                </div>
+                <p className="text-xs text-gray-600 mt-0.5 truncate">
+                  {cargoOrigen.literalPuesto}{cargoOrigen.especialidad ? ` · ${cargoOrigen.especialidad}` : ''}
+                </p>
+              </div>
+              <button type="button" onClick={() => { setCargoOrigen(null); setPuestoSel(null); setEspecialidadSel(null) }}
+                className="text-xs text-gray-400 hover:text-red-500 underline shrink-0">Cambiar</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setModalAbierto(true)}
+              className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-secondary hover:text-secondary transition-colors">
+              + Seleccionar cargo POU vacante
+            </button>
+          )}
+        </div>
+        {accion === 'modificar' && cargoOrigen && (
+          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-500">Nuevo puesto / especialidad</p>
+            <SelectorCarreraPuestoEspecialidad
+              modo="unico" resetDependientes
+              mostrar={{ carrera: false, puesto: true, especialidad: true }}
+              requeridos={{ puesto: true }}
+              ocultarSiVacio={{ especialidad: true }}
+              valor={{ carrera: [], puesto: puestoSel ? [puestoSel.id] : [], especialidad: especialidadSel ? [especialidadSel.id] : [] }}
+              carreraOpciones={[]}
+              puestoOpciones={puestosCatalogo.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+              especialidadOpciones={puestoSel ? especialidadesCatalogo.map((e) => ({ value: e.id, label: capitalizar(e.nombre) })) : []}
+              placeholders={{ puesto: 'Seleccionar nuevo puesto...', especialidad: 'Seleccionar especialidad...' }}
+              onChange={(next, campo) => {
+                if (campo === 'puesto') { setPuestoSel(resolverSeleccionAlta(next.puesto, puestosCatalogo)); setEspecialidadSel(null) }
+                else { setEspecialidadSel(resolverSeleccionAlta(next.especialidad, especialidadesCatalogo)) }
+              }}
+            />
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+          <button type="button" onClick={handleAgregar} disabled={!formCompleto}
+            className="btn-secondary disabled:opacity-40">+ Agregar al expediente</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Sub-form liviano: POU a POF ───────────────────────────────────────────────
+// Sin expediente/desde/etiqueta propios.
+function SubFormPouAPof({ onAgregar, onCancelar }: {
+  onAgregar: (items: ItemPendiente[]) => void
+  onCancelar: () => void
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [seleccionados, setSeleccionados] = useState<ItemPendiente[]>([])
+
+  function agregarCargo(c: CargoPou) {
+    if (seleccionados.some((s) => s.cargoOrigenId === c.id)) return
+    setSeleccionados((prev) => [...prev, {
+      id:               crypto.randomUUID(),
+      tipo:             'pou_a_pof',
+      hospitalId:       c.hospitalId,
+      hospitalSigla:    c.hospital?.sigla ?? c.hospitalId,
+      escalafonId:      c.escalafonId ?? '',
+      escalafon:        c.escalafon?.nombre ?? '',
+      puestoCargoId:    c.puestoCargoId ?? '',
+      puesto:           c.literalPuesto ?? '',
+      especialidad:     c.especialidadPuesto?.nombre ?? c.especialidad ?? '',
+      unificadorPuesto: 'POF',
+      expediente:       '',
+      desde:            '',
+      cantidad:         1,
+      etiqueta:         '',
+      cargoOrigenId:    c.id,
+      cargoOrigenCodigo: c.codigo ?? undefined,
+      cargoOrigenOcupado: c.ocupado ?? false,
+      cargoOrigenPersona: c.personaOcupante?.apellidoNombre ?? undefined,
+    }])
+  }
+
+  function handleAgregar() {
+    if (seleccionados.length === 0) return
+    onAgregar(seleccionados)
+    setSeleccionados([])
+  }
+
+  return (
+    <>
+      {modalAbierto && (
+        <ModalBuscarCargoPou
+          onSeleccionar={(c) => { agregarCargo(c) }}
+          onCerrar={() => setModalAbierto(false)}
+          yaSeleccionados={seleccionados.map((s) => s.cargoOrigenId!).filter(Boolean)}
+        />
+      )}
+      <div className="space-y-4">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start gap-3">
+          <span className="text-2xl leading-none mt-0.5">🔄</span>
+          <div>
+            <p className="text-sm font-bold text-gray-900">Conversión POU → POF</p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Seleccióná los cargos POU vigentes a convertir. Si el cargo está ocupado, pasa a POF con la persona. Si está vacante, va a concurso.
+            </p>
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold text-gray-500">Cargos POU a convertir <span className="text-danger">*</span></label>
+            <button type="button" onClick={() => setModalAbierto(true)}
+              className="text-xs px-3 py-1.5 rounded border border-secondary text-secondary hover:bg-secondary/10 font-medium transition-colors">
+              + Seleccionar cargo POU
+            </button>
+          </div>
+          {seleccionados.length === 0 ? (
+            <button type="button" onClick={() => setModalAbierto(true)}
+              className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-secondary hover:text-secondary transition-colors">
+              + Seleccionar cargo POU
+            </button>
+          ) : (
+            <div className="space-y-2">
+              {seleccionados.map((s) => (
+                <div key={s.cargoOrigenId} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-gray-700">{s.cargoOrigenCodigo ?? '—'}</span>
+                      <span className="text-xs text-gray-400">·</span>
+                      <span className="text-xs font-medium text-gray-700">{s.hospitalSigla}</span>
+                      {s.cargoOrigenOcupado
+                        ? <span className="badge-success">Ocupado</span>
+                        : <span className="badge-amber">Vacante → concurso</span>}
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5 truncate">{s.puesto}{s.especialidad ? ` · ${s.especialidad}` : ''}</p>
+                    {s.cargoOrigenPersona && <p className="text-xs text-gray-400 truncate">{s.cargoOrigenPersona}</p>}
+                  </div>
+                  <button type="button" onClick={() => setSeleccionados((prev) => prev.filter((x) => x.cargoOrigenId !== s.cargoOrigenId))}
+                    className="text-gray-300 hover:text-danger transition-colors text-lg leading-none flex-shrink-0">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+          <button type="button" onClick={handleAgregar} disabled={seleccionados.length === 0}
+            className="btn-secondary disabled:opacity-40">+ Agregar al expediente ({seleccionados.length})</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Formulario Modificación de la POU ──────────────────────────────────────
+// Centraliza las 4 operaciones sobre la norma POU:
+//   1. Agregar cargo POU nuevo (alta desde cero)
+//   2. Modificar cargo POU vacante (cambiar puesto/especialidad)
+//   3. Eliminar cargo POU
+//   4. Pasar POU a POF
+type AccionPou = 'agregar' | 'modificar' | 'eliminar' | 'pou_a_pof'
+
+const ACCIONES_POU: { id: AccionPou; emoji: string; label: string; desc: string; color: string }[] = [
+  { id: 'agregar',   emoji: '➕', label: 'Agregar cargo POU',       desc: 'Crear un nuevo cargo en la norma de POU',                    color: 'border-secondary/40 bg-secondary/5 text-gray-900 hover:border-secondary hover:bg-secondary/10' },
+  { id: 'modificar', emoji: '✏️', label: 'Modificar cargo POU',     desc: 'Cambiar puesto o especialidad de un cargo POU vacante',      color: 'border-gray-300 bg-gray-50 text-gray-900 hover:border-secondary hover:bg-secondary/5' },
+  { id: 'eliminar',  emoji: '🗑️', label: 'Eliminar cargo POU',      desc: 'Dar de baja un cargo POU vacante de la norma',               color: 'border-danger/30 bg-red-50 text-gray-900 hover:border-danger/60 hover:bg-red-100' },
+  { id: 'pou_a_pof', emoji: '🔄', label: 'Pasar POU a POF',         desc: 'Convertir cargos POU vigentes a POF (ocupados o vacantes)',  color: 'border-gray-300 bg-gray-50 text-gray-900 hover:border-secondary hover:bg-secondary/5' },
+]
+
+function FormModificacionPou({ onAgregar, onCancelar }: {
+  onAgregar: (items: ItemPendiente | ItemPendiente[]) => void
+  onCancelar: () => void
+}) {
+  const [expInput, setExpInput]           = useState('')
+  const [expediente, setExpediente]       = useState('')
+  const [expConfirmado, setExpConfirmado] = useState(false)
+  const [desde, setDesde]                 = useState('')
+  const [etiqueta, setEtiqueta]           = useState('')
+  const [accion, setAccion]               = useState<AccionPou | null>(null)
+  const { data: hospitales = [] }         = useHospitalesPou()
+  const { data: cargas = [] }             = usePouCargas()
+  const { data: catalogoEtiquetas = [] }  = useEtiquetas()
+  const ultimaCarga = cargas[0] ?? null
+  const navigate = useNavigate()
+
+  function confirmarExp() {
+    const v = expInput.trim()
+    if (!v) return
+    setExpediente(v)
+    setExpConfirmado(true)
+  }
+
+  // Inyecta expediente/desde/etiqueta del padre y sube al panel; vuelve al selector
+  function agregarConExp(items: ItemPendiente | ItemPendiente[]) {
+    const arr = Array.isArray(items) ? items : [items]
+    onAgregar(arr.map((it) => ({ ...it, expediente, desde, etiqueta })))
+    setAccion(null)
+  }
+
+  return (
+    <div className="border-t border-gray-100 pt-5 space-y-4">
+
+      {/* Banner POU */}
+      <div className="rounded-lg border border-secondary/30 bg-secondary/5 p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl leading-none mt-0.5">📋</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-gray-900">Modificación de la norma de estructura POU</p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Cualquier cambio en la POU afecta la dotación estructural de <strong>todos los hospitales</strong>.
+              Confirmá el expediente una sola vez y luego agregá todas las operaciones que necesites.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="text-xs text-gray-700">
+            <span className="font-semibold">{hospitales.length}</span> hospital{hospitales.length !== 1 ? 'es' : ''} con datos POU
+            {ultimaCarga && (
+              <span className="ml-2 text-gray-500">
+                · Última norma: <span className="font-mono">{ultimaCarga.archivo}</span>{' '}
+                ({new Date(ultimaCarga.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })})
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2 ml-auto">
+            <button type="button" onClick={() => navigate('/pou')}
+              className="btn-outline text-xs px-3 py-1.5">
+              Ver norma POU →
+            </button>
+            <button type="button" onClick={() => navigate('/pou/carga')}
+              className="btn-secondary text-xs px-3 py-1.5">
+              Actualizar norma (Excel)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Paso 1: Expediente único */}
+      {!expConfirmado ? (
+        <div className="flex items-end gap-3 p-4 rounded-lg border-2 border-secondary/30 bg-secondary/5">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-secondary mb-1.5 uppercase tracking-wider">
+              Expediente <span className="text-danger">*</span>
+            </label>
+            <input type="text" value={expInput} onChange={(e) => setExpInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && confirmarExp()}
+              placeholder="EX-2026-32260736-GCABA-DGAYDRH" className="h-10 input w-full" autoFocus />
+          </div>
+          <button type="button" onClick={confirmarExp} disabled={!expInput.trim()}
+            className="btn-primary disabled:opacity-40">Confirmar</button>
+          <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between p-4 rounded-lg border border-green-200 bg-green-50">
+          <div className="flex items-center gap-3">
+            <span className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+            <div>
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Expediente confirmado</p>
+              <p className="text-sm font-bold text-gray-800 mt-0.5">{expediente}</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => { setExpConfirmado(false); setExpInput(expediente); setAccion(null) }}
+            className="text-xs text-gray-400 hover:text-gray-600 underline">Cambiar</button>
+        </div>
+      )}
+
+      {/* Paso 2: Fecha + Etiqueta compartidas */}
+      <div className={`grid grid-cols-2 gap-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Vigente desde <span className="text-danger">*</span></label>
+          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 input w-full" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta del expediente</label>
+          <EtiquetaPicker value={etiqueta} onChange={setEtiqueta} catalogo={catalogoEtiquetas} />
+        </div>
+      </div>
+
+      {/* Paso 3: Selector de acción repetible */}
+      <div className={`space-y-4 transition-opacity ${expConfirmado && desde ? '' : 'opacity-40 pointer-events-none select-none'}`}>
+        {!accion ? (
+          <>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Elegí la operación a agregar</p>
+            <div className="grid grid-cols-2 gap-3">
+              {ACCIONES_POU.map((a) => (
+                <button key={a.id} type="button" onClick={() => setAccion(a.id)}
+                  className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all hover:shadow-md ${a.color}`}>
+                  <span className="text-2xl leading-none mt-0.5">{a.emoji}</span>
+                  <div>
+                    <p className="text-sm font-bold">{a.label}</p>
+                    <p className="text-xs opacity-75 mt-0.5">{a.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button type="button" onClick={onCancelar} className="btn-outline">Cancelar</button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setAccion(null)}
+                className="text-xs text-secondary hover:text-secondary-dark font-semibold underline">← Volver a operaciones</button>
+              <span className="text-gray-300">|</span>
+              <span className="text-xs font-bold text-gray-700">
+                {ACCIONES_POU.find((a) => a.id === accion)?.emoji}{' '}
+                {ACCIONES_POU.find((a) => a.id === accion)?.label}
+              </span>
+            </div>
+            {accion === 'agregar' && (
+              <SubFormAgregarPou onAgregar={agregarConExp} onCancelar={() => setAccion(null)} />
+            )}
+            {(accion === 'modificar' || accion === 'eliminar') && (
+              <SubFormModificarEliminarPou key={accion} accion={accion}
+                onAgregar={agregarConExp} onCancelar={() => setAccion(null)} />
+            )}
+            {accion === 'pou_a_pof' && (
+              <SubFormPouAPof onAgregar={agregarConExp} onCancelar={() => setAccion(null)} />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Sub-formulario: Modificar / Eliminar cargo POU ───────────────────────────
+// Selecciona un cargo POU vacante y lo modifica (cambia puesto/especialidad)
+// o lo elimina (baja). Solo permite operar sobre cargos vacantes.
+function FormModificarEliminarPou({ accion, onAgregar, onCancelar }: {
+  accion: 'modificar' | 'eliminar'
+  onAgregar: (item: ItemPendiente | ItemPendiente[]) => void
+  onCancelar: () => void
+}) {
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [cargoOrigen, setCargoOrigen] = useState<CargoPou | null>(null)
+  const [expInput, setExpInput] = useState('')
+  const [expConfirmado, setExpConfirmado] = useState(false)
+  const [expediente, setExpediente] = useState('')
+  const [desde, setDesde] = useState('')
+  const [etiqueta, setEtiqueta] = useState('')
+  // Solo para modificar: nuevo puesto/especialidad
+  const [puestoSel, setPuestoSel] = useState<PuestoCatalogoEspecialidad | null>(null)
+  const [especialidadSel, setEspecialidadSel] = useState<PuestoCatalogoEspecialidad | null>(null)
+  const { data: catalogoEtiquetas = [] } = useEtiquetas()
+  const { data: puestosCatalogo = [] } = usePuestosCargoNormalizados(
+    cargoOrigen?.escalafonId ?? undefined, 'pou',
+  )
+  const { data: especialidadesCatalogo = [] } = useEspecialidadesDePuestoId(puestoSel?.id)
+
+  function confirmarExp() {
+    const v = expInput.trim()
+    if (!v) return
+    setExpediente(v)
+    setExpConfirmado(true)
+  }
+
+  function handleAgregar() {
+    if (!cargoOrigen || !expConfirmado || !desde) return
+    const tipoItem: TipoAlta = accion === 'eliminar' ? 'pou_a_pof' : 'pou'
+    const item: ItemPendiente = {
+      id:               crypto.randomUUID(),
+      tipo:             tipoItem,
+      hospitalId:       cargoOrigen.hospitalId,
+      hospitalSigla:    cargoOrigen.hospital?.sigla ?? cargoOrigen.hospitalId,
+      escalafonId:      cargoOrigen.escalafonId ?? '',
+      escalafon:        cargoOrigen.escalafon?.nombre ?? '',
+      puestoCargoId:    accion === 'modificar' && puestoSel ? puestoSel.id : (cargoOrigen.puestoCargoId ?? ''),
+      puesto:           accion === 'modificar' && puestoSel ? puestoSel.nombre : (cargoOrigen.literalPuesto ?? ''),
+      especialidadPuestoId: accion === 'modificar' ? especialidadSel?.id : undefined,
+      especialidad:     accion === 'modificar' ? (especialidadSel?.nombre ?? '') : (cargoOrigen.especialidad ?? ''),
+      unificadorPuesto: 'POU Guardia',
+      expediente,
+      desde,
+      cantidad:         1,
+      etiqueta,
+      cargoOrigenId:    cargoOrigen.id,
+      cargoOrigenCodigo: cargoOrigen.codigo ?? undefined,
+      cargoOrigenOcupado: false,
+    }
+    onAgregar(item)
+    setCargoOrigen(null)
+    setExpConfirmado(false)
+    setExpInput('')
+    setExpediente('')
+    setDesde('')
+    setEtiqueta('')
+    setPuestoSel(null)
+    setEspecialidadSel(null)
+  }
+
+  const formCompleto = !!cargoOrigen && expConfirmado && !!desde &&
+    (accion === 'eliminar' || !!puestoSel)
+
+  const colorBanner = accion === 'eliminar'
+    ? 'border-red-200 bg-red-50'
+    : 'border-amber-200 bg-amber-50'
+  const colorTexto = accion === 'eliminar' ? 'text-red-900' : 'text-amber-900'
+  const colorSubTexto = accion === 'eliminar' ? 'text-red-700' : 'text-amber-700'
+
+  return (
+    <>
+      {modalAbierto && (
+        <ModalBuscarCargoPou
+          onSeleccionar={(c) => { setCargoOrigen(c); setModalAbierto(false) }}
+          onCerrar={() => setModalAbierto(false)}
+          yaSeleccionados={cargoOrigen ? [cargoOrigen.id] : []}
+          soloVacantes
+        />
+      )}
+      <div className="space-y-4">
+        {/* Banner */}
+        <div className={`rounded-xl border p-4 flex items-start gap-3 ${colorBanner}`}>
+          <span className="text-2xl leading-none mt-0.5">{accion === 'eliminar' ? '🗑️' : '✏️'}</span>
+          <div>
+            <p className={`text-sm font-bold ${colorTexto}`}>
+              {accion === 'eliminar' ? 'Eliminar cargo POU vacante' : 'Modificar cargo POU vacante'}
+            </p>
+            <p className={`text-xs mt-0.5 ${colorSubTexto}`}>
+              {accion === 'eliminar'
+                ? 'El cargo POU seleccionado se dará de baja de la norma. Solo se puede eliminar si está vacante.'
+                : 'Seleccioná el cargo POU vacante y el nuevo puesto/especialidad que tendrá.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Expediente */}
+        {!expConfirmado ? (
+          <div className="flex items-end gap-3 p-4 rounded-lg border-2 border-secondary/30 bg-secondary/5">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-secondary mb-1.5 uppercase tracking-wider">
+                Expediente <span className="text-danger">*</span>
+              </label>
+              <input type="text" value={expInput} onChange={(e) => setExpInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmarExp()}
+                placeholder="EX-2026-32260736-GCABA-DGAYDRH" className="h-10 input w-full" autoFocus />
+            </div>
+            <button type="button" onClick={confirmarExp} disabled={!expInput.trim()} className="btn-primary disabled:opacity-40">
+              Confirmar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-4 rounded-lg border border-green-200 bg-green-50">
+            <div className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-sm">✓</span>
+              <div>
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Expediente confirmado</p>
+                <p className="text-sm font-bold text-gray-800 mt-0.5">{expediente}</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => { setExpConfirmado(false); setExpInput(expediente) }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline">Cambiar</button>
+          </div>
+        )}
+
+        <div className={`space-y-4 transition-opacity ${expConfirmado ? '' : 'opacity-40 pointer-events-none select-none'}`}>
+          {/* Cargo POU a operar */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+              Cargo POU vacante a {accion === 'eliminar' ? 'eliminar' : 'modificar'} <span className="text-danger">*</span>
+            </label>
+            {cargoOrigen ? (
+              <div className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${
+                accion === 'eliminar' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+              }`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold text-gray-700">{cargoOrigen.codigo ?? '—'}</span>
+                    <span className="text-xs text-gray-400">·</span>
+                    <span className="text-xs font-medium text-gray-700">{cargoOrigen.hospital?.sigla}</span>
+                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Vacante</span>
+                    {accion === 'eliminar' && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Se da de baja</span>}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-0.5 truncate">
+                    {cargoOrigen.literalPuesto}{cargoOrigen.especialidad ? ` · ${cargoOrigen.especialidad}` : ''}
+                  </p>
+                </div>
+                <button type="button" onClick={() => { setCargoOrigen(null); setPuestoSel(null); setEspecialidadSel(null) }}
+                  className="text-xs text-gray-400 hover:text-red-500 underline shrink-0">Cambiar</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setModalAbierto(true)}
+                className="w-full h-12 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-400 hover:border-secondary hover:text-secondary transition-colors">
+                + Seleccionar cargo POU vacante
+              </button>
+            )}
+          </div>
+
+          {/* Nuevo puesto (solo modificar) */}
+          {accion === 'modificar' && cargoOrigen && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-500">Nuevo puesto / especialidad</p>
+              <SelectorCarreraPuestoEspecialidad
+                modo="unico"
+                resetDependientes
+                mostrar={{ carrera: false, puesto: true, especialidad: true }}
+                requeridos={{ puesto: true }}
+                ocultarSiVacio={{ especialidad: true }}
+                valor={{ carrera: [], puesto: puestoSel ? [puestoSel.id] : [], especialidad: especialidadSel ? [especialidadSel.id] : [] }}
+                carreraOpciones={[]}
+                puestoOpciones={puestosCatalogo.map((p) => ({ value: p.id, label: capitalizar(p.nombre) }))}
+                especialidadOpciones={puestoSel ? especialidadesCatalogo.map((e) => ({ value: e.id, label: capitalizar(e.nombre) })) : []}
+                placeholders={{ puesto: 'Seleccionar nuevo puesto...', especialidad: 'Seleccionar especialidad...' }}
+                onChange={(next, campo) => {
+                  if (campo === 'puesto') {
+                    setPuestoSel(resolverSeleccionAlta(next.puesto, puestosCatalogo))
+                    setEspecialidadSel(null)
+                  } else {
+                    setEspecialidadSel(resolverSeleccionAlta(next.especialidad, especialidadesCatalogo))
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          {/* Desde + Etiqueta + botones */}
+          <div className="grid grid-cols-5 gap-4 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Desde <span className="text-danger">*</span></label>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="h-10 input w-full" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Etiqueta</label>
+              <EtiquetaPicker value={etiqueta} onChange={setEtiqueta} catalogo={catalogoEtiquetas} />
+            </div>
+            <div className="col-span-2 flex gap-2">
+              <button type="button" onClick={onCancelar} className="btn-outline flex-1">Cancelar</button>
+              <button type="button" onClick={handleAgregar} disabled={!formCompleto}
+                className="btn-primary flex-1 disabled:opacity-40">+ Agregar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1453,12 +2197,12 @@ function FormTransferencia({ onAgregar, onCancelar }: {
   }
 
   return (
-    <div className="border border-blue-200 rounded-xl bg-blue-50 p-5 space-y-4">
+    <div className="border border-gray-200 rounded-lg bg-gray-50 p-5 space-y-4">
       <div className="flex items-start gap-3">
         <span className="text-2xl leading-none mt-0.5">🔀</span>
         <div>
-          <p className="text-sm font-bold text-blue-900">Declarar transferencia</p>
-          <p className="text-xs text-blue-700 mt-0.5">
+          <p className="text-sm font-bold text-gray-900">Declarar transferencia</p>
+          <p className="text-xs text-gray-600 mt-0.5">
             Ingresá los datos de la persona que se transfiere. Cuando aparezca en el padrón semanal podrás confirmar la transferencia y asignarle un código de cargo.
           </p>
         </div>
@@ -1499,7 +2243,7 @@ function FormTransferencia({ onAgregar, onCancelar }: {
 
       {/* Cargo destino (opcional — necesario para confirmar) */}
       <details className="group">
-        <summary className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-900 select-none">
+        <summary className="cursor-pointer text-xs font-semibold text-secondary hover:text-secondary-dark select-none">
           ▶ Cargo destino (necesario para confirmar la transferencia)
         </summary>
         <div className="mt-3 grid grid-cols-3 gap-3">
@@ -1708,12 +2452,11 @@ export function AltaCargosPage() {
   const totalPendientes = pendientes.reduce((acc, p) => acc + p.cantidad, 0)
 
   const BOTONES_DESDE_CERO: { tipo: TipoAlta; label: string; cls: string }[] = [
-    { tipo: 'pof',        label: 'Ejecución POF', cls: 'btn-secondary' },
-    { tipo: 'pou',        label: 'Ejecución POU', cls: 'btn-outline'   },
-    { tipo: 'estructura', label: 'Estructura',    cls: 'btn-outline'   },
+    { tipo: 'pof',        label: 'Ejecución POF',       cls: 'btn-secondary' },
+    { tipo: 'mod_pou',    label: 'Modificación de la POU', cls: 'btn-outline' },
+    { tipo: 'estructura', label: 'Estructura',           cls: 'btn-outline'   },
   ]
   const BOTONES_CONVERSION: { tipo: TipoAlta; label: string; cls: string }[] = [
-    { tipo: 'pou_a_pof',         label: 'POU a POF',         cls: 'btn-outline' },
     { tipo: 'editar_estructura', label: 'Editar Estructura', cls: 'btn-outline' },
   ]
 
@@ -1738,7 +2481,7 @@ export function AltaCargosPage() {
                   {BOTONES_CONVERSION.map(({ tipo, label, cls }) => (
                     <button key={tipo} type="button"
                       onClick={() => setTipoActivo((prev) => (prev === tipo ? null : tipo))}
-                      className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-orange-400' : ''}`}>
+                      className={`${cls} ${tipoActivo === tipo ? 'ring-2 ring-offset-1 ring-secondary' : ''}`}>
                       {tipoActivo === tipo ? `▲ ${label}` : `🔄 ${label}`}
                     </button>
                   ))}
@@ -1776,13 +2519,12 @@ export function AltaCargosPage() {
             {(tipoActivo || pendientes.length > 0) && (
               <div className="flex gap-6 items-start">
                 <div className="flex-1 min-w-0">
-                  {tipoActivo === 'pou' && <BannerNormaPou onVerPou={() => navigate('/pou')} onEditarPou={() => navigate('/pou/carga')} />}
                   {tipoActivo === 'estructura' && <BannerNodoOrganigrama value={nodoOrg} onChange={setNodoOrg} />}
-                  {tipoActivo && tipoActivo !== 'pou_a_pof' && tipoActivo !== 'editar_estructura' && (
-                    <FormAlta key={tipoActivo} tipo={tipoActivo as TipoAltaCarrera} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                  {tipoActivo === 'mod_pou' && (
+                    <FormModificacionPou onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
                   )}
-                  {tipoActivo === 'pou_a_pof' && (
-                    <FormPouAPof onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
+                  {tipoActivo && tipoActivo !== 'pou_a_pof' && tipoActivo !== 'editar_estructura' && tipoActivo !== 'mod_pou' && (
+                    <FormAlta key={tipoActivo} tipo={tipoActivo as TipoAltaCarrera} onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />
                   )}
                   {tipoActivo === 'editar_estructura' && (
                     <FormEditarEstructura onAgregar={handleAgregar} onCancelar={() => setTipoActivo(null)} />

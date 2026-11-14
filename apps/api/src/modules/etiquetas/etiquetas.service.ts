@@ -47,6 +47,7 @@ export async function deleteEtiquetaService(id: string) {
 const TABLE_MAP = {
   cargo: { model: 'etiquetaCargo' as const, fk: 'cargoId' },
   concurso_cph: { model: 'etiquetaConcursoCph' as const, fk: 'concursoCphId' },
+  concurso_ceetps: { model: 'etiquetaConcursoCeetps' as const, fk: 'concursoCeetpsId' },
   baja: { model: 'etiquetaBaja' as const, fk: 'bajaId' },
   solicitud_alta: { model: 'etiquetaSolicitudAlta' as const, fk: 'solicitudAltaId' },
 } as const
@@ -90,6 +91,10 @@ async function resolverCargoId(entidad: AsignarEtiquetaBody['entidad'], entidadI
   if (entidad === 'concurso_cph') {
     const cph = await prisma.concursoCph.findUnique({ where: { id: entidadId }, select: { concurso: { select: { cargoId: true } } } })
     return cph?.concurso.cargoId ?? null
+  }
+  if (entidad === 'concurso_ceetps') {
+    const ceetps = await prisma.concursoCeetps.findUnique({ where: { id: entidadId }, select: { cargoId: true } })
+    return ceetps?.cargoId ?? null
   }
   if (entidad === 'solicitud_alta') {
     // La solicitud puede tener N cargos creados; propagar a todos.

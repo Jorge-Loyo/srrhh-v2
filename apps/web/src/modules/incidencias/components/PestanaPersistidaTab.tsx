@@ -130,7 +130,7 @@ const CONFIG: Record<PestanaPersistidaSlug, Config> = {
       {
         header: 'Sub-tipo',
         render: (i) => (
-          <span className="inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+          <span className="inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
             {txt(i.subTipo)}
           </span>
         ),

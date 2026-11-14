@@ -101,7 +101,7 @@ export function BajasConsolidasPage() {
                     Archivo procesado — {estado.data.total_registros.toLocaleString('es-AR')} registros.
                     <span className="ml-2 text-green-700 font-semibold">+{estado.data.nuevas} nuevas</span>
                     <span className="ml-2 text-red-600 font-semibold">−{estado.data.salidas} salidas</span>
-                    <span className="ml-2 text-orange-600 font-semibold">~{estado.data.modificadas} modificadas</span>
+                    <span className="ml-2 text-orange-800 font-semibold">~{estado.data.modificadas} modificadas</span>
                   </p>
                   <Link to={`/bajas-consolidadas/${snapshotEnCurso}`} className="btn-primary">
                     Ver diferencias
@@ -145,7 +145,7 @@ export function BajasConsolidasPage() {
                 <th className="px-4 py-3 font-semibold">Registros</th>
                 <th className="px-4 py-3 font-semibold text-green-300">+ Nuevas</th>
                 <th className="px-4 py-3 font-semibold text-red-300">− Salidas</th>
-                <th className="px-4 py-3 font-semibold text-orange-300">~ Modif.</th>
+                <th className="px-4 py-3 font-semibold text-orange-200">~ Modif.</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold" />
               </tr>
@@ -164,7 +164,7 @@ export function BajasConsolidasPage() {
                   <td className="px-4 py-3 font-semibold text-red-600">
                     {s.salidas > 0 ? `−${s.salidas}` : '—'}
                   </td>
-                  <td className="px-4 py-3 font-semibold text-orange-600">
+                  <td className="px-4 py-3 font-semibold text-orange-800">
                     {s.modificadas > 0 ? `~${s.modificadas}` : '—'}
                   </td>
                   <td className="px-4 py-3">

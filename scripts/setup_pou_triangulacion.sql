@@ -23,48 +23,62 @@ INSERT INTO pou_especialidad_mapeo VALUES
   ('ORTOPEDIA Y TRAUMATOLOGIA INFANTIL',                    'TRAUMATOLOGIA')
 ON CONFLICT DO NOTHING;
 
--- NOTA (2026-09-11): se sacaron los UPDATE de normalización de
--- unificador_puesto que estaban acá — pisaban a mayúscula solo 5 valores
--- puntuales, dejando el resto de la dotación (backfileada completa el mismo
--- día desde ref_unificadores_puesto, formato "Cph de Guardia"/"Jefe/a de
--- UNIDAD"/etc.) en un formato distinto e inconsistente dentro de la misma
--- columna. La vista de abajo ahora compara con UPPER() de los dos lados en
--- vez de exigir mayúscula exacta, así funciona con el formato real de la
--- tabla sin tener que reescribir 46.885 filas.
-
--- Vista de triangulación POU vs concursos.
--- Cruza concursos activos con filas POU usando similitud de texto + mapeo explícito.
--- Solo incluye hospitales que tienen datos en la tabla pou.
--- estado_pou:
---   CON POU        → cargo en concurso con fila POU correspondiente
---   SIN POU        → cargo en concurso sin fila POU (médicos de planta, especialidades no cubiertas)
---   SUPLENTE       → cargo suplente de guardia (universo separado, sin POU propio)
---   SIN CLASIFICAR → cargo sin unificador_puesto (datos incompletos)
+-- Vista de triangulación POU vs TODOS los cargos del sistema.
+-- Parte de la tabla `cargos` (no de `concursos`) para incluir TODOS los cargos
+-- de hospitales con datos POU: ocupados, vacantes, en concurso y en validación.
+--
+-- Columnas clave:
+--   estado_cargo   → vigente | no_vigente | validacion_vacante
+--   sub_estado     → ocupado | vacante | concurso | null
+--   tiene_concurso → true si hay al menos un concurso activo para el cargo
+--   estado_pou     → clasificación respecto al documento POU:
+--     CON POU        → cargo con fila POU correspondiente (perfil+especialidad matchean)
+--     SIN POU        → cargo sin fila POU (médicos de planta, especialidades no cubiertas)
+--     SUPLENTE       → cargo suplente de guardia (universo separado, sin POU propio)
+--     SIN CLASIFICAR → cargo sin unificador_puesto (datos incompletos)
 
 CREATE OR REPLACE VIEW v_pou_triangulacion AS
 SELECT
   h.sigla,
   c.codigo,
+  c.estado                                    AS estado_cargo,
+  c.sub_estado,
   c.unificador_puesto,
   c.agrupador,
   c.especialidad_legacy,
-  con.tipo_concurso,
-  con.fecha_vacante,
-  p.perfil          AS pou_perfil,
-  p.especialidad    AS pou_especialidad,
+  -- Fecha de vacante: la del concurso más reciente si existe, sino estado_desde del cargo
+  COALESCE(
+    (SELECT MIN(con.fecha_vacante)
+     FROM concursos con
+     WHERE con.cargo_id = c.id),
+    c.estado_desde
+  )                                           AS fecha_vacante,
+  -- ¿Tiene al menos un concurso registrado?
+  EXISTS (
+    SELECT 1 FROM concursos con WHERE con.cargo_id = c.id
+  )                                           AS tiene_concurso,
+  -- Tipo de concurso del concurso más reciente (si existe)
+  (SELECT con.tipo_concurso::text
+   FROM concursos con
+   WHERE con.cargo_id = c.id
+   ORDER BY con.created_at DESC
+   LIMIT 1)                                   AS tipo_concurso,
+  p.perfil                                    AS pou_perfil,
+  p.especialidad                              AS pou_especialidad,
   p.dotacion_total,
-  p.activos         AS pou_activos,
-  p.vacantes        AS pou_vacantes,
+  p.activos                                   AS pou_activos,
+  p.vacantes                                  AS pou_vacantes,
   CASE
     WHEN UPPER(c.unificador_puesto) = 'SUPLENTE DE GUARDIA' THEN 'SUPLENTE'
     WHEN c.unificador_puesto IS NULL OR c.unificador_puesto = '' THEN 'SIN CLASIFICAR'
     WHEN p.id IS NOT NULL THEN 'CON POU'
     ELSE 'SIN POU'
-  END AS estado_pou
-FROM concursos con
-JOIN cargos c     ON c.id = con.cargo_id
-JOIN hospitales h ON h.id = con.hospital_id
+  END                                         AS estado_pou
+FROM cargos c
+JOIN hospitales h ON h.id = c.hospital_id
+-- Solo hospitales que tienen datos en la tabla pou
 JOIN (SELECT DISTINCT sigla FROM pou) hp ON hp.sigla = h.sigla
+-- Intento de match con fila POU (LEFT JOIN: si no matchea, estado_pou = SIN POU)
 LEFT JOIN pou p ON p.sigla = h.sigla
   AND (
     similarity(unaccent(lower(p.especialidad)), unaccent(lower(COALESCE(c.especialidad_legacy, '')))) = 1
@@ -76,10 +90,12 @@ LEFT JOIN pou p ON p.sigla = h.sigla
     )
   )
   AND (
-    (p.perfil = 'ESPECIALISTA EN LA GUARDIA MEDICO'  AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'       AND UPPER(c.agrupador) = 'MEDICO')
-    OR (p.perfil = 'PROFESIONAL DE LA GUARDIA MEDICO' AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'      AND UPPER(c.agrupador) = 'NO MEDICO')
-    OR (p.perfil = 'PROFESIONAL DE LA SALUD'          AND UPPER(c.unificador_puesto) = 'CPH DE PLANTA'       AND UPPER(c.agrupador) = 'NO MEDICO')
+    (p.perfil = 'ESPECIALISTA EN LA GUARDIA MEDICO'  AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'        AND UPPER(c.agrupador) = 'MEDICO')
+    OR (p.perfil = 'PROFESIONAL DE LA GUARDIA MEDICO' AND UPPER(c.unificador_puesto) = 'CPH DE GUARDIA'       AND UPPER(c.agrupador) = 'NO MEDICO')
+    OR (p.perfil = 'PROFESIONAL DE LA SALUD'          AND UPPER(c.unificador_puesto) = 'CPH DE PLANTA'        AND UPPER(c.agrupador) = 'NO MEDICO')
     OR (p.perfil = 'TECNICO/A DE LA SALUD'            AND UPPER(c.unificador_puesto) = 'TECNICO/A DE LA SALUD')
-    OR (p.perfil = 'Jefe de SECCIÓN'                  AND UPPER(c.unificador_puesto) = 'JEFE/A DE SECCION'   AND UPPER(c.agrupador) = 'JEFES CPH')
-    OR (p.perfil = 'Jefe de UNIDAD'                   AND UPPER(c.unificador_puesto) = 'JEFE/A DE UNIDAD'    AND UPPER(c.agrupador) = 'JEFES CPH')
-  );
+    OR (p.perfil = 'Jefe de SECCIÓN'                  AND UPPER(c.unificador_puesto) = 'JEFE/A DE SECCION'    AND UPPER(c.agrupador) = 'JEFES CPH')
+    OR (p.perfil = 'Jefe de UNIDAD'                   AND UPPER(c.unificador_puesto) = 'JEFE/A DE UNIDAD'     AND UPPER(c.agrupador) = 'JEFES CPH')
+  )
+-- Sin filtro de estado: incluye vigente, no_vigente y validacion_vacante
+ORDER BY h.sigla, estado_pou, c.sub_estado, c.codigo;

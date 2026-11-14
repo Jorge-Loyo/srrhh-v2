@@ -21,7 +21,7 @@ const BADGE: Record<UrgenciaVencimiento, { clase: string; estado: string }> = {
   ok: { clase: 'bg-gray-100 text-gray-600 border-gray-200', estado: 'Vigente' },
   aviso: { clase: 'bg-yellow-100 text-yellow-800 border-yellow-200', estado: 'Por vencer (≤90d)' },
   recordatorio: { clase: 'bg-orange-100 text-orange-800 border-orange-200', estado: 'Por vencer (≤30d)' },
-  critico: { clase: 'bg-orange-100 text-orange-800 border-orange-200', estado: 'Por vencer (≤30d)' },
+  critico:       { clase: 'bg-red-100 text-red-700 border-red-200',         estado: 'Crítico (≤30d)' },
   vencido: { clase: 'bg-red-100 text-red-700 border-red-200', estado: 'Vencido' },
 }
 
@@ -190,7 +190,7 @@ export function VencimientosPage() {
                         <td className="px-4 py-3 whitespace-nowrap text-gray-700">
                           {fmtFecha(v.periodoHasta)}
                           {v.periodoRenovado && (
-                            <span className="ml-1.5 text-[10px] text-purple-600">renovado</span>
+                            <span className="ml-1.5 text-[10px] text-purple-800 font-medium">renovado</span>
                           )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">

@@ -52,17 +52,67 @@ export function usePouComparar(siglas: string[]) {
 export interface TriangulacionRow {
   sigla: string
   codigo: string
+  estadoCargo: string
+  subEstado: string | null
   unificadorPuesto: string | null
   agrupador: string | null
   especialidadLegacy: string | null
-  tipoConcurso: string
-  fechaVacante: string
+  fechaVacante: string | null
+  tieneConcurso: boolean
+  tipoConcurso: string | null
   pouPerfil: string | null
   pouEspecialidad: string | null
   dotacionTotal: number | null
   pouActivos: number | null
   pouVacantes: number | null
   estadoPou: 'CON POU' | 'SIN POU' | 'SUPLENTE' | 'SIN CLASIFICAR'
+}
+
+export interface ComparacionPouRow {
+  sigla: string
+  perfil: string
+  especialidad: string
+  pouDotacion: number
+  pouActivos: number
+  pouVacantes: number
+  sistemaTotal: number
+  sistemaOcupado: number
+  sistemaVacante: number
+  sistemaConcurso: number
+  sistemaValidacion: number
+  diferencia: number
+}
+
+export interface ComparacionDetalleCargo {
+  codigo: string
+  estado: string
+  subEstado: string | null
+  especialidadLegacy: string | null
+  ocupanteNombre: string | null
+  ocupanteCuil: string | null
+  ocupanteIdSial: string | null
+}
+
+export function useDetalleCargosComparacion(params: { sigla: string; perfil: string; especialidad: string } | null) {
+  return useQuery({
+    queryKey: ['pou', 'comparacion', 'detalle', params],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: ComparacionDetalleCargo[] }>('/api/v1/pou/comparacion/detalle', { params: params! })
+      return res.data.data
+    },
+    enabled: !!params,
+  })
+}
+
+export function useComparacionPou(siglas?: string[]) {
+  return useQuery({
+    queryKey: ['pou', 'comparacion', siglas ?? 'todas'],
+    queryFn: async () => {
+      const params = siglas && siglas.length > 0 ? { siglas: siglas.join(',') } : undefined
+      const res = await apiClient.get<{ data: ComparacionPouRow[] }>('/api/v1/pou/comparacion', { params })
+      return res.data.data
+    },
+  })
 }
 
 export function useTriangulacion(sigla?: string) {

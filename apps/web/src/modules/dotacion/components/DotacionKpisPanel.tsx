@@ -4,8 +4,8 @@ import { useDotacionKpis } from '../hooks/useDotacion'
 
 const SIT_COLORS: Record<string, string> = {
   Activo: 'bg-green-500',
-  'Retención de Cargo': 'bg-orange-400',
-  Comisión: 'bg-blue-400',
+  'Retención de Cargo': 'bg-warning',
+  Comisión: 'bg-secondary',
 }
 
 function MiniBar({ pct, className }: { pct: number; className: string }) {
@@ -75,8 +75,8 @@ export function DotacionKpisPanel({ sigla, onFilterSigla, estado, onFilterEstado
                   {[
                     { label: 'Total', val: g?.total, cls: 'bg-gray-50 text-gray-800' },
                     { label: 'Activos', val: g?.activos, cls: 'bg-green-50 text-green-700' },
-                    { label: 'Retención', val: g?.retencion, cls: 'bg-orange-50 text-orange-700' },
-                    { label: 'Comisión', val: g?.comision, cls: 'bg-blue-50 text-blue-700' },
+                    { label: 'Retención', val: g?.retencion, cls: 'bg-orange-100 text-orange-800' },
+                    { label: 'Comisión', val: g?.comision, cls: 'bg-blue-100 text-blue-800' },
                     { label: 'Mujeres', val: g?.mujeres, cls: 'bg-pink-50 text-pink-700' },
                     { label: 'Varones', val: g?.varones, cls: 'bg-sky-50 text-sky-700' },
                   ].map(({ label, val, cls }) => {
