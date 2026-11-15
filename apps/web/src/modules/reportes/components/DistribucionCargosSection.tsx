@@ -5,12 +5,13 @@ function fmt(n: number) {
   return n.toLocaleString('es-AR')
 }
 
-function PctBar({ value, total }: { value: number; total: number }) {
+function Cell({ value, total }: { value: number; total: number }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0
   return (
-    <span className="text-xs text-gray-400 ml-1">
-      {pct}%
-    </span>
+    <div className="flex flex-col items-end leading-tight">
+      <span>{fmt(value)}</span>
+      <span className="text-xs text-gray-400">{pct}%</span>
+    </div>
   )
 }
 
@@ -79,20 +80,16 @@ export function DistribucionCargosSection() {
                     <tr key={fila.escalafon} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="py-2 pr-4 text-gray-800">{fila.escalafon}</td>
                       <td className="py-2 px-3 text-right text-gray-700 tabular-nums">
-                        {fmt(fila.ocupado)}
-                        <PctBar value={fila.ocupado} total={fila.total} />
+                        <Cell value={fila.ocupado} total={fila.total} />
                       </td>
                       <td className="py-2 px-3 text-right text-gray-700 tabular-nums">
-                        {fmt(fila.vacante)}
-                        <PctBar value={fila.vacante} total={fila.total} />
+                        <Cell value={fila.vacante} total={fila.total} />
                       </td>
                       <td className="py-2 px-3 text-right text-gray-700 tabular-nums">
-                        {fmt(fila.concurso)}
-                        <PctBar value={fila.concurso} total={fila.total} />
+                        <Cell value={fila.concurso} total={fila.total} />
                       </td>
                       <td className="py-2 px-3 text-right text-gray-700 tabular-nums">
-                        {fmt(fila.validacion_vacante)}
-                        <PctBar value={fila.validacion_vacante} total={fila.total} />
+                        <Cell value={fila.validacion_vacante} total={fila.total} />
                       </td>
                       <td className="py-2 pl-3 text-right font-semibold text-gray-900 tabular-nums">
                         {fmt(fila.total)}
