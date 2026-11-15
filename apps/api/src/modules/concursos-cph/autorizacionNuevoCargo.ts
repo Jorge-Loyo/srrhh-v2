@@ -30,7 +30,7 @@ export function excluirNuevoCargoSinAutorizar() {
       { concurso: { is: { motivoConcurso: { not: MOTIVO_CONCURSO_NUEVO_CARGO } } } },
       { concurso: { is: { motivoConcurso: MOTIVO_CONCURSO_NUEVO_CARGO, autorizadoAt: { not: null } } } },
     ],
-  } as const
+  }
 }
 /** Campos del PATCH que pertenecen a las Etapas 2 a 5 del wizard. */
 export const CAMPOS_ETAPA_2_EN_ADELANTE = [
