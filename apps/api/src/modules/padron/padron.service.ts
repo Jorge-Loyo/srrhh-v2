@@ -515,6 +515,7 @@ async function calcularDiff(registros: RegistroPython[]) {
     // (si el id existe en actualesMap ya se saltó arriba; un id ausente de
     // actualesMap es un nuevo normal, no hay cargo no-vigente que filtrar)
     const r = nuevosMap.get(idSial)!
+    const cuilYRol = strVal(r['CUIL Y ROL'] ?? r['cuil_y_rol'])
     // Para carreras normales (no desdobladas 24/07), el idSialRol del diff
     // es siempre el idSial — el cuil_y_rol puede venir poblado en el padrón
     // pero ocupaciones.id_sial_rol guarda solo el idSial para estas carreras.
