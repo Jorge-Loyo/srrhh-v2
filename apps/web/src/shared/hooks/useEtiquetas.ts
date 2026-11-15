@@ -9,7 +9,7 @@ import { apiClient } from '@/shared/lib/api-client'
 
 // Entidades a las que se pueden asignar etiquetas (espeja el enum del backend
 // en etiquetas.schema.ts).
-export type EntidadEtiqueta = 'cargo' | 'concurso_cph' | 'baja' | 'solicitud_alta'
+export type EntidadEtiqueta = 'cargo' | 'concurso_cph' | 'concurso_ceetps' | 'baja' | 'solicitud_alta'
 
 // GET /api/v1/etiquetas — solo las activas por defecto.
 export function useEtiquetas() {
