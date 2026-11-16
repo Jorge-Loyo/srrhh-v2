@@ -81,6 +81,7 @@ export interface ComparacionPouRow {
   sistemaConcurso: number
   sistemaValidacion: number
   diferencia: number
+  enNorma: boolean
 }
 
 export interface ComparacionDetalleCargo {
