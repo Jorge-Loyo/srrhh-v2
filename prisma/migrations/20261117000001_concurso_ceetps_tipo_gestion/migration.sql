@@ -8,6 +8,6 @@
 -- a Neon producción). Jorge corre este .sql a mano en Neon Y la marca resuelta
 -- ANTES del push, porque Render corre `prisma migrate deploy` en cada arranque
 -- (Doc/Desarrollo/DEPLOY_PRODUCCION.md sección 7, trampa 1):
---   psql "$NEON_DIRECT" -f prisma/migrations/20261117000000_concurso_ceetps_tipo_gestion/migration.sql
---   DATABASE_URL="$NEON_DIRECT" npx prisma migrate resolve --applied 20261117000000_concurso_ceetps_tipo_gestion --schema=./prisma/schema.prisma
+--   psql "$NEON_DIRECT" -f prisma/migrations/20261117000001_concurso_ceetps_tipo_gestion/migration.sql
+--   DATABASE_URL="$NEON_DIRECT" npx prisma migrate resolve --applied 20261117000001_concurso_ceetps_tipo_gestion --schema=./prisma/schema.prisma
 ALTER TABLE concursos_ceetps ADD COLUMN IF NOT EXISTS tipo_gestion VARCHAR(20);
