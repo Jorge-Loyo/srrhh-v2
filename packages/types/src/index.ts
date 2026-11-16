@@ -660,6 +660,8 @@ export interface NotificacionFilters {
   page?: number
   limit?: number
   tipo?: TipoNotificacion
+  // Varios tipos a la vez (pestañas que agrupan tipos); el hook los manda separados por coma.
+  tipos?: TipoNotificacion[]
   soloNoLeidas?: boolean
 }
 
