@@ -9,6 +9,8 @@ const ORDEN_PERFIL = [
   'profesional de la guardia medico',
   'jefe de seccion',
   'jefe de unidad',
+  'profesional de la salud',
+  'tecnico/a de la salud',
 ]
 
 // Etiquetas legibles para la UI
@@ -17,6 +19,8 @@ const LABEL_PERFIL: Record<string, string> = {
   'profesional de la guardia medico':  'Profesional de la Guardia Médico',
   'jefe de seccion':                   'Jefe de Sección',
   'jefe de unidad':                    'Jefe de Unidad',
+  'profesional de la salud':           'Profesional de la Salud',
+  'tecnico/a de la salud':             'Técnico/a de la Salud',
 }
 
 function badgeDif(dif: number) {
@@ -248,7 +252,10 @@ function BloqueSigla({ sigla, filas }: { sigla: string; filas: ComparacionPouRow
       arr.push(r)
       map.set(r.perfil, arr)
     }
-    return ORDEN_PERFIL.filter((p) => map.has(p)).map((p) => ({ perfil: p, filas: map.get(p)! }))
+    // Los perfiles fuera de ORDEN_PERFIL van al final: descartarlos dejaría el total
+    // de la sigla ("Faltan N cargos") sin filas que lo expliquen.
+    const otros = [...map.keys()].filter((p) => !ORDEN_PERFIL.includes(p)).sort()
+    return [...ORDEN_PERFIL.filter((p) => map.has(p)), ...otros].map((p) => ({ perfil: p, filas: map.get(p)! }))
   }, [filas])
 
   const totalDif = filas.reduce((s, r) => s + r.diferencia, 0)
