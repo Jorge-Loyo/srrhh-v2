@@ -3632,6 +3632,7 @@ const normalizarEsp = (s: string | null | undefined): string =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/\s+/g, '') // quitar espacios: el Excel a veces guarda sin espacios
     .trim()
 
 const soloDigitos = (s: string | null | undefined): string => (s ?? '').replace(/\D/g, '')
@@ -3648,7 +3649,7 @@ const CONCURSO_INDEX_SELECT = {
   concurso: {
     select: {
       cargo: {
-        select: { id: true, codigo: true, idSial: true, escalafonId: true },
+        select: { id: true, codigo: true, idSial: true, escalafonId: true, hospital: { select: { sigla: true } } },
       },
     },
   },
@@ -3697,6 +3698,11 @@ async function resolverConcursoDesignadoPorCuil(
 // Decide si un diff del padrón es "validable" contra un concurso designado:
 // coincide la carrera (escalafón) Y la especialidad. Pura y testeable — se usa
 // tanto en el preview como en el enganche automático del Paso 2.
+//
+// Reglas de especialidad (en orden de prioridad):
+// 1. 'sinespecialidad' en el concurso = wildcard (cualquier especialidad del diff matchea)
+// 2. Match exacto (normalizado sin espacios/tildes)
+// 3. Match parcial: uno contiene al otro (ej. 'pediatria' ⊂ 'pediatria(clinicapediatrica)')
 export function esValidableContraConcurso(args: {
   escalafonDiffId: string | null
   especialidadDiff: string | null | undefined
@@ -3705,10 +3711,12 @@ export function esValidableContraConcurso(args: {
 }): { carreraCoincide: boolean; especialidadCoincide: boolean; validable: boolean } {
   const carreraCoincide =
     !!args.escalafonDiffId && args.escalafonDiffId === (args.escalafonConcursoId ?? null)
+  const nd = normalizarEsp(args.especialidadDiff)
+  const nc = normalizarEsp(args.especialidadConcurso)
   const especialidadCoincide =
-    !!args.especialidadDiff &&
-    !!args.especialidadConcurso &&
-    normalizarEsp(args.especialidadDiff) === normalizarEsp(args.especialidadConcurso)
+    !!nd &&
+    !!nc &&
+    (nc === 'sinespecialidad' || nd === nc || nd.includes(nc) || nc.includes(nd))
   return { carreraCoincide, especialidadCoincide, validable: carreraCoincide && especialidadCoincide }
 }
 
@@ -3807,7 +3815,11 @@ export async function getValidacionesPreviewService(snapshotId: string) {
   const concursoPorCuil = await resolverConcursoDesignadoPorCuil({
     estado: { not: 'finalizado' },
     suspendido: false,
-    OR: [{ inscriptoReservadoId: { not: null } }, { personaDesignadaId: { not: null } }],
+    OR: [
+      { inscriptoReservadoId: { not: null } },
+      { personaDesignadaId: { not: null } },
+      { designadoRefCuil: { not: null } },
+    ],
   })
 
   const detalle = parsed
@@ -3827,6 +3839,19 @@ export async function getValidacionesPreviewService(snapshotId: string) {
         especialidadConcurso: cc.especialidadSolicitada,
       })
 
+      // Sigla: la sigla del diff debe coincidir con la del hospital del cargo del concurso.
+      const siglaCoincide =
+        !!p.siglas && !!cc.concurso?.cargo?.hospital?.sigla &&
+        p.siglas.trim().toUpperCase() === cc.concurso.cargo.hospital.sigla.trim().toUpperCase()
+
+      // CUIL vinculado: el CUIL del diff debe ser exactamente el CUIL declarado
+      // en el concurso (persona designada > inscripto reservado > ref manual).
+      const cuilConcurso =
+        soloDigitos(cc.personaDesignada?.cuil) ||
+        soloDigitos(cc.inscriptoReservado?.cuil) ||
+        soloDigitos(cc.designadoRefCuil)
+      const cuilVinculado = !!p.cuil && !!cuilConcurso && p.cuil === cuilConcurso
+
       const nombre =
         cc.personaDesignada?.apellidoNombre ??
         (cc.inscriptoReservado
@@ -3845,9 +3870,10 @@ export async function getValidacionesPreviewService(snapshotId: string) {
         especialidadConcurso: cc.especialidadSolicitada ?? null,
         carreraCoincide,
         especialidadCoincide,
-        // "Validable": el cruce por CUIL ya matcheó; para el flujo semi-automático
-        // se sugiere validar cuando además coincide carrera Y especialidad.
-        validable: carreraCoincide && especialidadCoincide,
+        siglaCoincide,
+        cuilVinculado,
+        // Validación automática: los 4 checks deben pasar.
+        validable: carreraCoincide && especialidadCoincide && siglaCoincide && cuilVinculado,
         yaValidado: cc.validado,
       }
     })
@@ -4341,16 +4367,11 @@ export async function aprobarDiffNuevoService(
       const especialidadCoincide =
         !!datos.especialidad &&
         !!concursoActual?.especialidadSolicitada &&
-        datos.especialidad
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase()
-          .trim() ===
-          concursoActual.especialidadSolicitada
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase()
-            .trim()
+        normalizarEsp(datos.especialidad) === normalizarEsp(concursoActual.especialidadSolicitada) ||
+        normalizarEsp(concursoActual?.especialidadSolicitada) === 'sinespecialidad' ||
+        (!!datos.especialidad && !!concursoActual?.especialidadSolicitada &&
+          (normalizarEsp(datos.especialidad).includes(normalizarEsp(concursoActual.especialidadSolicitada)) ||
+           normalizarEsp(concursoActual.especialidadSolicitada).includes(normalizarEsp(datos.especialidad))))
       const debeValidar = carreraCoincide && especialidadCoincide && !concursoActual?.validado
       const nombrePersona = datos.ayn || 'La persona'
 

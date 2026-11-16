@@ -69,3 +69,16 @@ export function useRechazarAutorizacion() {
     onSuccess: () => invalidarTodo(queryClient),
   })
 }
+
+// ── Conteo de pendientes por tipo — badges de pestañas en AutorizacionesPage ────
+export function useConteoPorTipo(enabled = true) {
+  return useQuery({
+    queryKey: ['autorizaciones', 'conteo-por-tipo'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Record<string, number> }>('/api/v1/autorizaciones/conteo-por-tipo')
+      return res.data.data
+    },
+    enabled,
+    refetchInterval: 60_000,
+  })
+}

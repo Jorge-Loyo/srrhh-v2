@@ -247,10 +247,14 @@ export const TreeNode = memo(function TreeNode({
               <UserIcon className="w-3 h-3 flex-shrink-0" />
               {capitalizar(node.persona.nombre)}
               {node.persona.cargo && <span className="text-gray-500 ml-1">· {capitalizarEtiqueta(node.persona.cargo)}</span>}
-              {node.persona.codigoCargo && (
-                <span className="font-mono text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded ml-1">
-                  {node.persona.codigoCargo}
-                </span>
+              {node.persona.cargoId && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(`/cargos/${node.persona!.cargoId}`) }}
+                  className="inline-flex items-center gap-1 font-mono text-[10px] bg-gray-100 border border-gray-200 text-gray-500 px-1.5 py-0.5 rounded hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-colors ml-1"
+                >
+                  <BriefcaseIcon className="w-3 h-3" />
+                  {node.persona.codigoCargo ?? 'Ver cargo'}
+                </button>
               )}
             </p>
           ) : node.cargoVacante ? (

@@ -1523,6 +1523,114 @@ export async function getVacantesConduccionService(opts: { sigla?: string; escal
 // automáticamente (un cargo puede tener historial/ocupaciones; su baja la decide
 // RRHH). Este reporte les da visibilidad para que RRHH decida qué hacer con cada
 // uno (darlo de baja, o conservarlo si el nodo volverá).
+// ── Export Excel del organigrama de un hospital ─────────────────────────────
+// Genera un .xlsx con una fila por nodo del árbol en orden jerárquico.
+// Columnas: Nro. Repartición | Tipo | Nivel | N1..N5 (jerarquía) | Estado |
+//           Persona | CUIL | Cargo | Escalafón | Especialidad | Código Cargo
+//
+// Las columnas N1-N5 muestran el nombre de la unidad en su nivel jerárquico
+// correspondiente (las anteriores quedan vacías), lo que permite filtrar y
+// agrupar en Excel sin depender de indentación por espacios.
+
+const XLSXw = require('xlsx') as {
+  utils: {
+    book_new: () => unknown
+    aoa_to_sheet: (data: unknown[][], opts?: unknown) => unknown
+    book_append_sheet: (wb: unknown, ws: unknown, name: string) => void
+  }
+  write: (wb: unknown, opts: Record<string, unknown>) => Buffer
+}
+
+// Niveles jerárquicos reales del organigrama de hospitales (1-5):
+// 1=Hospital (DHOS/SDHOS), 2=Departamento, 3=División, 4=Unidad, 5=Sección
+const NIVEL_EXCEL: Record<string, number> = {
+  DHOS: 1, 'F/N DEJE': 1,
+  SDHOS: 1,
+  DEPT: 2, 'DEPT CA': 2,
+  DIV: 3, 'DIV CA': 3,
+  UNID: 4,
+  SECCION: 5, SECC: 5, 'SECCION CA': 5,
+}
+
+interface ExcelFila {
+  codigoRepa: string
+  tipo: string
+  nivelNum: number
+  n1: string; n2: string; n3: string; n4: string; n5: string
+  estado: string
+  persona: string
+  cuil: string
+  cargo: string
+  escalafon: string
+  especialidad: string
+  codigoCargo: string
+}
+
+function aplanarParaExcel(
+  nodo: OrganigramaNodo,
+  filas: ExcelFila[] = [],
+  ancestros: string[] = [],
+): ExcelFila[] {
+  if (nodo.tipo === 'REGIMEN') {
+    for (const hijo of nodo.hijos) aplanarParaExcel(hijo, filas, ancestros)
+    return filas
+  }
+
+  const nombre = (nodo.nombre ?? nodo.id).trim()
+  const nivelNum = NIVEL_EXCEL[nodo.tipo] ?? Math.min(nodo.nivel, 5)
+
+  // Construir path jerárquico: los ancestros ya calculados + este nodo en su nivel
+  const path = [...ancestros]
+  path[nivelNum - 1] = nombre
+  // Limpiar niveles inferiores al actual (al bajar de rama)
+  for (let i = nivelNum; i < 5; i++) path[i] = ''
+
+  const estado = nodo.persona
+    ? 'Ocupado'
+    : nodo.cargoVacante
+      ? 'Vacante'
+      : 'Sin cargo'
+
+  filas.push({
+    codigoRepa: nodo.id,
+    tipo: nodo.tipo,
+    nivelNum,
+    n1: path[0] ?? '', n2: path[1] ?? '', n3: path[2] ?? '', n4: path[3] ?? '', n5: path[4] ?? '',
+    estado,
+    persona: nodo.persona?.nombre ?? '',
+    cuil: nodo.persona?.cuil ?? '',
+    cargo: nodo.persona?.cargo ?? '',
+    escalafon: nodo.persona?.escalafon ?? '',
+    especialidad: nodo.persona?.especialidadPersona ?? '',
+    codigoCargo: nodo.persona?.codigoCargo ?? nodo.cargoVacante?.codigoCargo ?? '',
+  })
+
+  for (const hijo of nodo.hijos) aplanarParaExcel(hijo, filas, path)
+  return filas
+}
+
+export async function exportOrganigramaExcelService(sigla: string): Promise<Buffer> {
+  const { data: raiz } = await getOrganigramaService({ sigla })
+  const filas = aplanarParaExcel(raiz)
+
+  const HEADERS = [
+    'Nro. Repartición', 'Tipo', 'Nivel',
+    'N1 - Dirección', 'N2 - Departamento', 'N3 - División', 'N4 - Unidad', 'N5 - Sección',
+    'Estado', 'Persona', 'CUIL', 'Cargo', 'Escalafón', 'Especialidad', 'Código Cargo',
+  ]
+  const rows = filas.map((f) => [
+    f.codigoRepa, f.tipo, f.nivelNum,
+    f.n1, f.n2, f.n3, f.n4, f.n5,
+    f.estado, f.persona, f.cuil, f.cargo, f.escalafon, f.especialidad, f.codigoCargo,
+  ])
+
+  const wb = XLSXw.utils.book_new()
+  const ws = XLSXw.utils.aoa_to_sheet([HEADERS, ...rows])
+  ;(ws as any)['!cols'] = [14, 12, 7, 35, 35, 35, 35, 35, 10, 40, 16, 50, 35, 35, 20].map((w) => ({ wch: w }))
+  XLSXw.utils.book_append_sheet(wb, ws, sigla)
+  return XLSXw.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+}
+
 export async function getCargosConduccionHuerfanosService() {
   const huerfanos = await prisma.$queryRaw<Array<{
     id: string

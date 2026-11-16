@@ -26,3 +26,10 @@ export const updateUsuarioSchema = z
   .refine((b) => Object.keys(b).length > 0, { message: 'No hay cambios para guardar' })
 
 export type UpdateUsuarioBody = z.infer<typeof updateUsuarioSchema>
+
+// S25-2: asignación de siglas (hospitalIds) a un supervisor
+export const setSiglasSchema = z.object({
+  hospitalIds: z.array(z.string().uuid()).max(100),
+})
+
+export type SetSiglasBody = z.infer<typeof setSiglasSchema>

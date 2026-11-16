@@ -633,10 +633,12 @@ export interface Usuario {
 
 // S10-1 — Notificaciones persistidas
 export const TipoNotificacion = {
-  CONCURSO_ESTANCADO: 'concurso_estancado',
-  BAJA_PENDIENTE: 'baja_pendiente',
+  CONCURSO_ESTANCADO:     'concurso_estancado',
+  BAJA_PENDIENTE:         'baja_pendiente',
   AUTORIZACION_PENDIENTE: 'autorizacion_pendiente',
-  AUTORIZACION_RESUELTA: 'autorizacion_resuelta',
+  AUTORIZACION_RESUELTA:  'autorizacion_resuelta',
+  CONCURSO_INICIADO:      'concurso_iniciado',
+  VENCIMIENTO_CONDUCCION: 'vencimiento_conduccion',
 } as const
 export type TipoNotificacion = (typeof TipoNotificacion)[keyof typeof TipoNotificacion]
 

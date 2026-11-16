@@ -71,6 +71,8 @@ const RetencionesPage = lazy(() => import('../modules/retenciones/pages/Retencio
 const NotificacionesPage = lazy(() => import('../modules/notificaciones/pages/NotificacionesPage').then((m) => ({ default: m.NotificacionesPage })))
 const AutorizacionesPage = lazy(() => import('../modules/autorizaciones/pages/AutorizacionesPage').then((m) => ({ default: m.AutorizacionesPage })))
 const TareasPage = lazy(() => import('../modules/tareas/pages/TareasPage').then((m) => ({ default: m.TareasPage })))
+const KanbanSgrasvPage = lazy(() => import('../modules/tareas/pages/KanbanSgrasvPage').then((m) => ({ default: m.KanbanSgrasvPage })))
+const KanbanSupervisorPage = lazy(() => import('../modules/tareas/pages/KanbanSupervisorPage').then((m) => ({ default: m.KanbanSupervisorPage })))
 const AreasProgramaticasPage = lazy(() => import('../modules/areas-programaticas/pages/AreasProgramaticasPage').then((m) => ({ default: m.AreasProgramaticasPage })))
 const AreaProgramaticaDetailPage = lazy(() => import('../modules/areas-programaticas/pages/AreaProgramaticaDetailPage').then((m) => ({ default: m.AreaProgramaticaDetailPage })))
 const CesacDetailPage = lazy(() => import('../modules/areas-programaticas/pages/CesacDetailPage').then((m) => ({ default: m.CesacDetailPage })))
@@ -261,9 +263,16 @@ export const router = createBrowserRouter([
             element: <RequirePermiso permiso={{ modulo: 'autorizaciones', accion: 'ver' }} />,
             children: [{ path: 'autorizaciones', element: <AutorizacionesPage /> }],
           },
-          // Tareas pendientes — sin RequirePermiso (abierto a todos, igual que
-          // /perfil). La visibilidad real la resuelve el backend por jerarquía.
+          // Tareas pendientes — sin RequirePermiso (abierto a todos).
           { path: 'tareas', element: <TareasPage /> },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'tareas', accion: 'ver_kanban_sgrasv' }} />,
+            children: [{ path: 'tareas/kanban-sgrasv', element: <KanbanSgrasvPage /> }],
+          },
+          {
+            element: <RequirePermiso permiso={{ modulo: 'tareas', accion: 'ver_kanban_supervisor' }} />,
+            children: [{ path: 'tareas/kanban-supervisor', element: <KanbanSupervisorPage /> }],
+          },
           // Detalle de bajas consolidadas (fuera del layout de Importación).
           { path: 'bajas-consolidadas/:snapshotId', element: <BajasSialDiffPage /> },
           { path: 'kpis', element: <KpisPage /> },

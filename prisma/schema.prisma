@@ -141,6 +141,7 @@ model Hospital {
   bajas            Baja[]
   solicitudesAlta  SolicitudAlta[]
   areaProgramatica AreaProgramatica?
+  supervisorSiglas UsuarioSigla[]   @relation("HospitalSiglas")
 
   @@map("hospitales")
 }
@@ -1427,6 +1428,40 @@ model SolicitudAlta {
   @@map("solicitudes_alta")
 }
 
+// S25: siglas de hospitales asignadas a cada supervisor de concursos.
+// Configuración estable: define qué concursos ve el supervisor en su kanban.
+model UsuarioSigla {
+  usuarioId  String @map("usuario_id") @db.Uuid
+  hospitalId String @map("hospital_id") @db.Uuid
+
+  usuario  Usuario  @relation("UsuarioSiglas", fields: [usuarioId], references: [id], onDelete: Cascade)
+  hospital Hospital @relation("HospitalSiglas", fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, hospitalId])
+  @@index([hospitalId])
+  @@map("usuario_siglas")
+}
+
+// S25: asignación directa de un concurso (CPH o CEETPS) a un supervisor.
+// Temporal/puntual — no modifica la configuración de siglas.
+// usuario_id NULL = sin asignar (pool de SGRASV).
+// referencia_tipo: 'concurso_cph' | 'concurso_ceetps'
+model ConcursoAsignado {
+  referenciaId   String   @map("referencia_id") @db.Uuid
+  referenciaTipo String   @map("referencia_tipo") @db.VarChar(20)
+  usuarioId      String?  @map("usuario_id") @db.Uuid
+  asignadoPorId  String?  @map("asignado_por_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  usuario    Usuario? @relation("ConcursoAsignadoUsuario", fields: [usuarioId], references: [id], onDelete: SetNull)
+  asignadoPor Usuario? @relation("ConcursoAsignadoPor", fields: [asignadoPorId], references: [id], onDelete: SetNull)
+
+  @@id([referenciaId, referenciaTipo])
+  @@index([usuarioId])
+  @@map("concursos_asignados")
+}
+
 // Jerarquía de roles — cimientos para asignación de tareas y permisos en
 // cascada (Sprint 14+). En Sprint 13 solo se crea la tabla y el seed.
 // Un rol puede tener múltiples padres y múltiples hijos.
@@ -1479,6 +1514,9 @@ model Usuario {
   organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
   tareasRecibidas           TareaPendiente[]      @relation("TareaDestinatario")
   tareasCreadas             TareaPendiente[]      @relation("TareaCreadaPor")
+  siglas                    UsuarioSigla[]        @relation("UsuarioSiglas")
+  concursosAsignados        ConcursoAsignado[]    @relation("ConcursoAsignadoUsuario")
+  concursosAsignadosPor     ConcursoAsignado[]    @relation("ConcursoAsignadoPor")
 
   @@map("usuarios")
 }

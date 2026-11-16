@@ -30,6 +30,17 @@ const TIPO_BADGE: Record<string, string> = {
   vencimiento_conduccion: 'badge-warning',
 }
 
+// Pestañas: cada una agrupa uno o más tipos de notificación.
+type TabId = 'todas' | 'autorizaciones' | 'concursos' | 'bajas' | 'vencimientos'
+
+const TABS: { id: TabId; label: string; tipos: TipoNotificacion[] }[] = [
+  { id: 'todas',          label: 'Todas',          tipos: [] },
+  { id: 'autorizaciones', label: 'Autorizaciones',  tipos: ['autorizacion_pendiente', 'autorizacion_resuelta'] },
+  { id: 'concursos',      label: 'Concursos',       tipos: ['concurso_estancado', 'concurso_iniciado'] },
+  { id: 'bajas',          label: 'Bajas',           tipos: ['baja_pendiente'] },
+  { id: 'vencimientos',   label: 'Vencimientos',    tipos: ['vencimiento_conduccion'] },
+]
+
 function formatFecha(iso: string) {
   const [y, m, d] = iso.slice(0, 10).split('-')
   return `${d}/${m}/${y}`
@@ -44,18 +55,34 @@ function formatFechaHora(iso: string) {
 export function NotificacionesPage() {
   const { user } = useAuth()
   const puedeVerAutorizaciones = can(user, 'autorizaciones', 'ver')
-  // Solo para el aviso — el conteo real vive en el badge del header (S13-B).
   const { data: pendientes = 0 } = useAutorizacionesPendientes(puedeVerAutorizaciones)
 
   const [page, setPage]                 = useState(1)
-  const [tipo, setTipo]                 = useState<TipoNotificacion | ''>('')
+  const [tabActiva, setTabActiva]       = useState<TabId>('todas')
   const [soloNoLeidas, setSoloNoLeidas] = useState(false)
   const [seleccionada, setSeleccionada] = useState<Notificacion | null>(null)
+
+  const tiposActivos = TABS.find((t) => t.id === tabActiva)?.tipos ?? []
+
+  // Traemos todas las notificaciones sin filtro de tipo para calcular badges
+  // client-side (evita N+1 requests al backend).
+  const { data: todasData } = useNotificaciones({ page: 1, limit: 200, soloNoLeidas: true })
+  const todasNoLeidas = todasData?.data ?? []
+
+  // Conteo de no leídas por tab (calculado client-side)
+  const conteoPorTab = Object.fromEntries(
+    TABS.map((tab) => [
+      tab.id,
+      tab.tipos.length === 0
+        ? todasNoLeidas.length
+        : todasNoLeidas.filter((n) => tab.tipos.includes(n.tipo as TipoNotificacion)).length,
+    ])
+  ) as Record<TabId, number>
 
   const { data, isLoading } = useNotificaciones({
     page,
     limit: 20,
-    ...(tipo && { tipo }),
+    ...(tiposActivos.length === 1 && { tipo: tiposActivos[0] }),
     ...(soloNoLeidas && { soloNoLeidas: true }),
   })
   const marcarLeida       = useMarcarLeida()
@@ -63,22 +90,29 @@ export function NotificacionesPage() {
   const notificaciones    = data?.data ?? []
   const meta              = data?.meta
 
+  // Filtro client-side para tabs con múltiples tipos (el backend solo acepta uno)
+  const notificacionesFiltradas = tiposActivos.length > 1
+    ? notificaciones.filter((n) => tiposActivos.includes(n.tipo as TipoNotificacion))
+    : notificaciones
+
+  function cambiarTab(tab: TabId) {
+    setTabActiva(tab)
+    setPage(1)
+  }
+
   function abrirNotificacion(n: Notificacion) {
     setSeleccionada(n)
     if (!n.leida) marcarLeida.mutate(n.id)
   }
 
-  // Si la lista se refresca (ej: al marcar leída) mantener la modal sincronizada
-  // con los datos frescos de la misma notificación en vez de mostrar el snapshot viejo.
   useEffect(() => {
     if (!seleccionada) return
     const actualizada = notificaciones.find((n) => n.id === seleccionada.id)
     if (actualizada && actualizada !== seleccionada) setSeleccionada(actualizada)
   }, [notificaciones, seleccionada])
 
-
   return (
-    <div className="max-w-3xl mx-auto space-y-4">
+    <div className="space-y-4">
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -92,12 +126,6 @@ export function NotificacionesPage() {
         </button>
       </div>
 
-      {/* S13-A: el panel de Autorizaciones (CPH + Alta de cargo) se unificó en
-          /autorizaciones — ya no vive acá como pestaña aparte. La pestaña vieja
-          resolvía CPH pegándole a POST /concursos-cph/:id/autorizar, que nunca
-          tocaba la tabla `autorizaciones` nueva y dejaba filas huérfanas en
-          "pendiente" — dejarla activa en paralelo a la página nueva reintroducía
-          ese bug. */}
       {puedeVerAutorizaciones && (
         <Link
           to="/autorizaciones"
@@ -113,36 +141,55 @@ export function NotificacionesPage() {
         </Link>
       )}
 
-      <div className="flex gap-3 flex-wrap">
-        <select
-          className="input text-sm"
-          value={tipo}
-          onChange={(e) => { setTipo(e.target.value as TipoNotificacion | ''); setPage(1) }}
-        >
-          <option value="">Todos los tipos</option>
-          {Object.entries(TIPO_LABELS).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
-          ))}
-        </select>
-        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-          <input
-            type="checkbox"
-            className="checkbox"
-            checked={soloNoLeidas}
-            onChange={(e) => { setSoloNoLeidas(e.target.checked); setPage(1) }}
-          />
-          Solo no leídas
-        </label>
+      {/* Pestañas */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex gap-1 overflow-x-auto">
+          {TABS.map((tab) => {
+            const count = conteoPorTab[tab.id]
+            const activa = tabActiva === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => cambiarTab(tab.id)}
+                className={`flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activa
+                    ? 'border-blue-600 text-blue-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                    activa ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </nav>
       </div>
+
+      {/* Filtro solo no leídas */}
+      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+        <input
+          type="checkbox"
+          className="checkbox"
+          checked={soloNoLeidas}
+          onChange={(e) => { setSoloNoLeidas(e.target.checked); setPage(1) }}
+        />
+        Solo no leídas
+      </label>
 
       {isLoading && <p className="text-sm text-gray-500">Cargando…</p>}
 
-      {!isLoading && notificaciones.length === 0 && (
+      {!isLoading && notificacionesFiltradas.length === 0 && (
         <p className="text-sm text-gray-500 py-8 text-center">Sin notificaciones</p>
       )}
 
       <ul className="space-y-2">
-        {notificaciones.map((n) => (
+        {notificacionesFiltradas.map((n) => (
           <li
             key={n.id}
             onClick={() => abrirNotificacion(n)}
@@ -259,7 +306,7 @@ function NotificacionDetalleModal({ notificacion, onClose }: { notificacion: Not
   )
 }
 
-// ── Detalle del origen — lo concreto que pasó ─────────────────────────────────
+// ── Detalle del origen ────────────────────────────────────────────────────────
 
 function DetalleOrigen({ detalle }: { detalle: NotificacionDetalle }) {
   if (detalle.tipo === 'alta_cargo') {
@@ -305,7 +352,7 @@ function DetalleOrigen({ detalle }: { detalle: NotificacionDetalle }) {
         {concurso.especialidadSolicitada && (
           <div className="flex justify-between"><span className="text-gray-400">Especialidad</span><span className="text-gray-700">{concurso.especialidadSolicitada}</span></div>
         )}
-        <div className="flex justify-between"><span className="text-gray-400">Estado del concurso</span><span className="text-gray-700">{concurso.estadoConcurso}{concurso.subEstado ? ` — ${concurso.subEstado}` : ''}</span></div>
+        <div className="flex justify-between"><span className="text-gray-400">Estado</span><span className="text-gray-700">{concurso.estadoConcurso}{concurso.subEstado ? ` — ${concurso.subEstado}` : ''}</span></div>
       </div>
     )
   }
@@ -317,12 +364,11 @@ function DetalleOrigen({ detalle }: { detalle: NotificacionDetalle }) {
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Concurso CEETPS</p>
         <div className="flex justify-between"><span className="text-gray-400">Cargo</span><span className="font-mono text-gray-700">{concurso.cargo.codigo ?? '—'}</span></div>
         <div className="flex justify-between"><span className="text-gray-400">Hospital</span><span className="text-gray-700">{concurso.hospital.sigla}</span></div>
-        <div className="flex justify-between"><span className="text-gray-400">Estado del concurso</span><span className="text-gray-700">{concurso.estadoConcurso}</span></div>
+        <div className="flex justify-between"><span className="text-gray-400">Estado</span><span className="text-gray-700">{concurso.estadoConcurso}</span></div>
       </div>
     )
   }
 
-  // baja
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-xs">
       <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Baja</p>
