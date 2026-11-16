@@ -4361,18 +4361,14 @@ export async function aprobarDiffNuevoService(
       // Validación (flag INDEPENDIENTE del sub-estado): el cargo del padrón
       // triangula con el concurso si coincide la carrera (escalafón) y la
       // especialidad. `escalafon` ya está resuelto arriba (del diff).
-      const carreraCoincide =
-        !!concursoActual?.concurso?.cargo?.escalafonId &&
-        escalafon.id === concursoActual.concurso.cargo.escalafonId
-      const especialidadCoincide =
-        !!datos.especialidad &&
-        !!concursoActual?.especialidadSolicitada &&
-        normalizarEsp(datos.especialidad) === normalizarEsp(concursoActual.especialidadSolicitada) ||
-        normalizarEsp(concursoActual?.especialidadSolicitada) === 'sinespecialidad' ||
-        (!!datos.especialidad && !!concursoActual?.especialidadSolicitada &&
-          (normalizarEsp(datos.especialidad).includes(normalizarEsp(concursoActual.especialidadSolicitada)) ||
-           normalizarEsp(concursoActual.especialidadSolicitada).includes(normalizarEsp(datos.especialidad))))
-      const debeValidar = carreraCoincide && especialidadCoincide && !concursoActual?.validado
+      // Misma regla que el preview y el enganche automático (una sola fuente de verdad).
+      const { validable } = esValidableContraConcurso({
+        escalafonDiffId: escalafon.id,
+        especialidadDiff: datos.especialidad,
+        escalafonConcursoId: concursoActual?.concurso?.cargo?.escalafonId,
+        especialidadConcurso: concursoActual?.especialidadSolicitada,
+      })
+      const debeValidar = validable && !concursoActual?.validado
       const nombrePersona = datos.ayn || 'La persona'
 
       await tx.concursoCph.update({
