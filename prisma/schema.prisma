@@ -1201,6 +1201,8 @@ model ConcursoCeetps {
   // S20-3: FK al catálogo, nullable igual que puestoSolicitado (texto que reemplaza).
   puestoCargoSolicitadoId String?              @map("puesto_cargo_solicitado_id") @db.Uuid
   dispoLlamado            String?              @map("dispo_llamado") @db.VarChar(500)
+  // Etapa 2: centralizado | descentralizado (igual que ConcursoCph.tipoGestion)
+  tipoGestion             String?              @map("tipo_gestion") @db.VarChar(20)
   // Carga horaria en hs (Enfermería/Técnicos) — máx. 2 dígitos, igual al mask
   // del legacy (SeguimientoCeetpsDetail.jsx).
   cargaHoraria            Int?                 @map("carga_horaria") @db.SmallInt

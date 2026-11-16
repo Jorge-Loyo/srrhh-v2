@@ -340,7 +340,8 @@ export function ConcursoCeetpsDetail() {
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div>
             <h1 className="font-primary text-xl font-bold text-gray-900">
-              {concurso.puestoSolicitado ?? 'Concurso CEETPS'}
+              {concurso.concurso?.cargo?.codigo ? `${concurso.concurso.cargo.codigo} — ` : ''}
+              {concurso.puestoSolicitado ?? concurso.concurso?.cargo?.literalPuesto ?? 'Concurso CEETPS'}
             </h1>
             <p className="text-sm text-gray-500">
               {concurso.hospital?.sigla ?? '—'} · {concurso.escalafon ? escalafonLabel(concurso.escalafon.nombre) : '—'} ·{' '}

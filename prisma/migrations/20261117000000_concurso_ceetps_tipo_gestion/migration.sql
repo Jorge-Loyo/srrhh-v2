@@ -1,0 +1,13 @@
+-- Wizard CEETPS (réplica del de CPH), Etapa 2: tipo de gestión del concurso
+-- (centralizado | descentralizado), igual que concursos_cph.tipo_gestion.
+-- Solo agrega 1 columna nullable.
+--
+-- Idempotente: ADD COLUMN IF NOT EXISTS, así re-ejecutarla no falla.
+--
+-- MANUAL: NO ejecutar con `prisma migrate dev/deploy` (el backend local apunta
+-- a Neon producción). Jorge corre este .sql a mano en Neon Y la marca resuelta
+-- ANTES del push, porque Render corre `prisma migrate deploy` en cada arranque
+-- (Doc/Desarrollo/DEPLOY_PRODUCCION.md sección 7, trampa 1):
+--   psql "$NEON_DIRECT" -f prisma/migrations/20261117000000_concurso_ceetps_tipo_gestion/migration.sql
+--   DATABASE_URL="$NEON_DIRECT" npx prisma migrate resolve --applied 20261117000000_concurso_ceetps_tipo_gestion --schema=./prisma/schema.prisma
+ALTER TABLE concursos_ceetps ADD COLUMN IF NOT EXISTS tipo_gestion VARCHAR(20);

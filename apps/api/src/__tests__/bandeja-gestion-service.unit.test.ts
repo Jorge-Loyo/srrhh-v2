@@ -89,6 +89,15 @@ describe('listBandejaGestionService — filtros CPH-only excluyen CEETPS en modo
   })
 })
 
+describe('listBandejaGestionService — búsqueda en CEETPS', () => {
+  it('busca también por código de cargo, persona y hospital (como CPH)', async () => {
+    await listBandejaGestionService(query({ tipo: 'ceetps', search: 'TEC-POF-004408' }))
+    const where = JSON.stringify(concursoCeetps.findMany.mock.calls[0][0].where)
+    expect(where).toContain('"codigo":{"contains":"TEC-POF-004408"')
+    expect(where).toContain('apellidoNombre')
+  })
+})
+
 describe('listBandejaGestionService — etapa en CEETPS', () => {
   it('tipo ceetps + etapa 2 consulta CEETPS con el where de etapa y marca la etapa en las filas', async () => {
     concursoCeetps.findMany.mockResolvedValue([

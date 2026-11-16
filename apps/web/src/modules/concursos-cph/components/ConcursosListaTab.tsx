@@ -60,9 +60,13 @@ function semaforoLabel(c: ConcursoCph): string {
 // ConcursoCeetps → van al detalle CEETPS (/concursos/ceetps/:id). Las filas CPH
 // (sin ese campo, o 'cph') van al wizard CPH como siempre. Evita la navegación
 // rota que apuntaba todo a /concursos/cph/:id/wizard con un id CEETPS.
-function concursoDetalleHref(c: ConcursoCph): string {
+// Filas CEETPS: el wizard CEETPS. Desde la bandeja de Gestión de Cargos, con las 5
+// etapas; dentro del módulo Concursos CEETPS (variante 'ceetps'), desde la etapa 2.
+function concursoDetalleHref(c: ConcursoCph, variante: 'cph' | 'ceetps' = 'cph'): string {
   const tipo = (c as ConcursoCph & { tipoConcurso?: string }).tipoConcurso
-  if (tipo === 'ceetps') return `/concursos/ceetps/${c.id}`
+  if (tipo === 'ceetps') {
+    return variante === 'ceetps' ? `/concursos/ceetps/${c.id}/etapas` : `/concursos/ceetps/${c.id}/wizard`
+  }
   return `/concursos/cph/${c.id}/wizard`
 }
 
@@ -970,7 +974,7 @@ export function ConcursosListaTab({
                               >
                                 ⓘ
                               </button>
-                              <Link to={concursoDetalleHref(c)} className="btn-outline">
+                              <Link to={concursoDetalleHref(c, variante)} className="btn-outline">
                                 Ver
                               </Link>
                             </div>
@@ -1010,7 +1014,7 @@ export function ConcursosListaTab({
         )}
       </div>
       {showFlujo && <FlujoConcursoModal onClose={() => setShowFlujo(false)} />}
-      {detalle && <DetalleConcursoModal concurso={detalle} onClose={() => setDetalle(null)} />}
+      {detalle && <DetalleConcursoModal concurso={detalle} variante={variante} onClose={() => setDetalle(null)} />}
 
       {/* Drawer de filtros avanzados — mismo patrón visual que /dotacion */}
       {drawerAvanzado && (
@@ -1313,9 +1317,11 @@ export function ConcursosListaTab({
 // tabla (escalafón, cargo, hospital completo, persona, expedientes, etc.).
 function DetalleConcursoModal({
   concurso: c,
+  variante,
   onClose,
 }: {
   concurso: ConcursoCph
+  variante: 'cph' | 'ceetps'
   onClose: () => void
 }) {
   const r = respaldatoria(c)
@@ -1378,7 +1384,7 @@ function DetalleConcursoModal({
           </dl>
         </div>
         <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
-          <Link to={concursoDetalleHref(c)} className="btn-primary text-sm">
+          <Link to={concursoDetalleHref(c, variante)} className="btn-primary text-sm">
             Abrir concurso
           </Link>
           <button onClick={onClose} className="btn-outline text-sm">

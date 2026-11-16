@@ -6,7 +6,7 @@ import { useNotificacionesNoLeidas } from '../../../modules/notificaciones/hooks
 import { useAutorizacionesPendientes } from '../../../modules/autorizaciones/hooks/useAutorizaciones'
 import { useTareasPendientes } from '../../../modules/tareas/hooks/useTareas'
 import { can } from '../../lib/can'
-import { itemGestionActivo } from '../../lib/sidebarActivo'
+import { itemGestionActivo, bajasActivo, organigramaActivo } from '../../lib/sidebarActivo'
 import { SuspenseFallback } from '../SuspenseFallback'
 
 // Permisos por pestaña `tab:*`: el sidebar oculta exactamente lo que el layout
@@ -199,7 +199,8 @@ export function AppShell() {
           {/* Organigrama — GATE NUEVO (organigrama/ver). "Área Programática"
               (S23-7) vive adentro como pestaña del módulo (OrganigramaLayout). */}
           {verOrganigrama && (
-            <NavLink to="/organigrama" className={itemClass} title={collapsed ? 'Organigrama' : undefined}>
+            <NavLink to="/organigrama"
+              className={() => itemClass({ isActive: organigramaActivo(location.pathname) })} title={collapsed ? 'Organigrama' : undefined}>
               <span className="text-base shrink-0">🏢</span>
               {!collapsed && <span className="truncate">Organigrama</span>}
             </NavLink>
@@ -227,7 +228,7 @@ export function AppShell() {
           {verBajas && (
             <NavLink to={bajasSubitems[0].to} end
               className={() => `flex items-center gap-3 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                location.pathname.startsWith('/bajas') ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
+                bajasActivo(location.pathname) ? 'bg-primary text-black' : 'text-gray-700 hover:bg-gray-100'
               }`}
               title={collapsed ? 'Bajas' : undefined}>
               <span className="text-base shrink-0">🗑️</span>

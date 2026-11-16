@@ -55,6 +55,7 @@ const NuevaBajaPage = lazy(() => import('../modules/cargos/pages/NuevaBajaPage')
 const ConcursosCphPage = lazy(() => import('../modules/concursos-cph/pages/ConcursosCphPage').then((m) => ({ default: m.ConcursosCphPage })))
 const ConcursoCphWizard = lazy(() => import('../modules/concursos-cph/pages/ConcursoCphWizard').then((m) => ({ default: m.ConcursoCphWizard })))
 const ConcursosCeetpsPage = lazy(() => import('../modules/concursos-ceetps/pages/ConcursosCeetpsPage').then((m) => ({ default: m.ConcursosCeetpsPage })))
+const ConcursoCeetpsWizard = lazy(() => import('../modules/concursos-ceetps/pages/ConcursoCeetpsWizard').then((m) => ({ default: m.ConcursoCeetpsWizard })))
 const ConcursoCeetpsDetail = lazy(() => import('../modules/concursos-ceetps/pages/ConcursoCeetpsDetail').then((m) => ({ default: m.ConcursoCeetpsDetail })))
 const KpisPage = lazy(() => import('../modules/kpis/pages/KpisPage').then((m) => ({ default: m.KpisPage })))
 const BajasPage = lazy(() => import('../modules/bajas/pages/BajasPage').then((m) => ({ default: m.BajasPage })))
@@ -230,6 +231,8 @@ export const router = createBrowserRouter([
           { path: 'concursos/cph/:id/wizard', element: <ConcursoCphWizard /> },
           { path: 'concursos/ceetps', element: <ConcursosCeetpsPage /> },
           { path: 'concursos/ceetps/:id', element: <ConcursoCeetpsDetail /> },
+          { path: 'concursos/ceetps/:id/wizard', element: <ConcursoCeetpsWizard /> },
+          { path: 'concursos/ceetps/:id/etapas', element: <ConcursoCeetpsWizard desdeEtapa={2} /> },
           // Bajas con pestañas sincronizadas con la URL (BajasLayout + Outlet):
           // Bajas / Validación / Vinculaciones. Cada una conserva su ruta.
           {

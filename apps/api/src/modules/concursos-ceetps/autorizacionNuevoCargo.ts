@@ -17,6 +17,7 @@ export { MENSAJE_BLOQUEO_ETAPA_2, esNuevoCargoSinAutorizar, excluirNuevoCargoSin
 export const CAMPOS_ETAPA_2_EN_ADELANTE_CEETPS = [
   'fechaAutorizacion',
   'dispoLlamado',
+  'tipoGestion',
   'fechaIfacs',
   'fechaInsal',
   'expedienteDesignacion',

@@ -252,7 +252,12 @@ async function fetchCeetpsMapeados(
         { expedienteConcurso: { contains: search, mode: 'insensitive' } },
         { puestoSolicitado: { contains: search, mode: 'insensitive' } },
         { concurso: { cargo: { literalPuesto: { contains: search, mode: 'insensitive' } } } },
+        // Mismos campos que la búsqueda CPH: código de cargo, persona y hospital.
+        { concurso: { cargo: { codigo: { contains: search, mode: 'insensitive' } } } },
+        { concurso: { persona: { apellidoNombre: { contains: search, mode: 'insensitive' } } } },
         { hospital: { sigla: { contains: search, mode: 'insensitive' } } },
+        { hospital: { nombre: { contains: search, mode: 'insensitive' } } },
+        { observaciones: { contains: search, mode: 'insensitive' } },
       ],
     }),
   }
