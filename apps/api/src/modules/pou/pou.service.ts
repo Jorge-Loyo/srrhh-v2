@@ -152,7 +152,6 @@ export async function detalleCargosComparacionService(
       AND c.unificador_puesto = 'POU Guardia'
       AND c.estado IN ('vigente','validacion_vacante')
       AND c.deleted_at IS NULL
-      AND c.codigo NOT LIKE 'SG-%'
       AND ${CASE_PERFIL} = $2
       AND ${CASE_ESPECIALIDAD} = $3
     ORDER BY c.codigo
@@ -194,7 +193,6 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
       WHERE c.unificador_puesto = 'POU Guardia'
         AND c.estado IN ('vigente','validacion_vacante')
         AND c.deleted_at IS NULL
-        AND c.codigo NOT LIKE 'SG-%'
         ${filtroSiglaCC}
     ),
     cargos_sistema AS (
