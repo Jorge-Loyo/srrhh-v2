@@ -214,7 +214,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
       FROM pou p
       JOIN hospitales h ON h.sigla = p.sigla
       ${filtroPou}
-    )
+    ),
     -- Cargos en sistema que no matchearon ninguna fila POU (pou_perfil IS NULL)
     cargos_sin_norma AS (
       SELECT sigla, pou_especialidad,
