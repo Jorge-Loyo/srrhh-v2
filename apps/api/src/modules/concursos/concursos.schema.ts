@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { TipoConcurso } from '@srrhh/types'
+import { EstadoConcursoCeetps, EstadoConcursoCph, TipoConcurso } from '@srrhh/types'
 import { concursosCphQuerySchema } from '../concursos-cph/concursos-cph.schema.js'
 // MotivoConcurso viene del cliente Prisma (nuevo_cargo/alta_por_baja, S14-1)
 // — no confundir con el MotivoConcurso de @srrhh/types (concepto legacy
@@ -55,6 +55,9 @@ export type BandejaConcursosQuery = z.infer<typeof bandejaConcursosQuerySchema>
 // filtrar CPH / CEETPS / ambos. Ver bandeja-gestion.service.ts (opción i).
 export const bandejaGestionQuerySchema = concursosCphQuerySchema.extend({
   tipo: z.enum(['cph', 'ceetps']).optional(),
+  // CPH y CEETPS tienen estados propios (solo `finalizado` se repite): el
+  // servicio aplica cada estado solo al tipo al que pertenece.
+  estado: z.union([z.nativeEnum(EstadoConcursoCph), z.nativeEnum(EstadoConcursoCeetps)]).optional(),
 })
 
 export type BandejaGestionQuerySchema = z.infer<typeof bandejaGestionQuerySchema>

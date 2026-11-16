@@ -107,12 +107,35 @@ describe('listBandejaGestionService — etapa en CEETPS', () => {
         fechaAutorizacion: null, fechaIfacs: null, fechaInsal: null, expedienteDesignacion: null,
         resolucionDesignacion: null, codigoSial: null, cantidadCargos: 1, personaDesignadaId: null,
         cambioEspecialidad: false, observaciones: null, createdAt: new Date(), updatedAt: new Date(),
-        concurso: null, hospital: null,
+        concurso: null, hospital: null, etiquetas: [],
       },
     ])
     const res = await listBandejaGestionService(query({ tipo: 'ceetps', etapa: 2 }))
     const where = concursoCeetps.findMany.mock.calls[0][0].where
-    expect(where).toEqual({ AND: [{ estado: 'autorizado' }] })
+    expect(where).toEqual({ AND: [{ estado: 'autorizado' }], estado: { not: 'sin_autorizar' } })
     expect((res.data[0] as { etapa: number }).etapa).toBe(2)
+  })
+
+  it('tipo ceetps respeta el estado pedido (no lo descarta) y excluye sin_autorizar', async () => {
+    concursoCeetps.findMany.mockResolvedValue([])
+    await listBandejaGestionService(query({ tipo: 'ceetps', estado: 'finalizado' }))
+    const where = concursoCeetps.findMany.mock.calls[0][0].where
+    expect(where.estado).toBe('finalizado')
+  })
+
+  it('un estado solo de CEETPS (autorizado) no se le pasa a CPH: ni tipo=cph ni el modo mixto lo consultan', async () => {
+    const res = await listBandejaGestionService(query({ tipo: 'cph', estado: 'autorizado' as never }))
+    expect(listConcursosCphService).not.toHaveBeenCalled()
+    expect(res.data).toEqual([])
+
+    await listBandejaGestionService(query({ estado: 'autorizado' as never }))
+    expect(listConcursosCphService).not.toHaveBeenCalled()
+    expect(concursoCeetps.findMany.mock.calls.at(-1)?.[0].where.estado).toBe('autorizado')
+  })
+
+  it('tipo ceetps con estado sin_autorizar devuelve vacío: esa vista nunca muestra la etapa 1', async () => {
+    const res = await listBandejaGestionService(query({ tipo: 'ceetps', estado: 'sin_autorizar' }))
+    expect(concursoCeetps.findMany).not.toHaveBeenCalled()
+    expect(res.data).toEqual([])
   })
 })

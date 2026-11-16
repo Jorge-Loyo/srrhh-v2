@@ -865,7 +865,6 @@ export function ConcursosListaTab({
                       <th className="px-4 py-3 font-semibold">Etapa</th>
                       <th className="px-4 py-3 font-semibold">Sub-estado</th>
                       <th className="px-4 py-3 font-semibold">Motivo</th>
-                      {!esCeetps && <th className="px-4 py-3 font-semibold">Etiquetas</th>}
                       <th className="px-4 py-3 font-semibold">Etiquetas</th>
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
