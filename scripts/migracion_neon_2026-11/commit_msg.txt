@@ -1,0 +1,16 @@
+chore(db): migracion completa vieja→nueva + sprint reparacion cerrado
+
+R-9: codigos correlativos a cargos sin codigo (25 asignados)
+R-10: actualizacion bajas 001xxx (210 validacion_vacante, 18 no_vigente)
+R-11: migracion Neon vieja (ep-aged-water) → nueva (ep-little-river)
+  - 4.074 cargos historicos HIS- insertados
+  - 3.926 ocupaciones cerradas migradas
+  - 2.853 bajas migradas (tabla bajas_id_map como puente)
+  - 516 concursos con baja vinculada
+  - 25.884 filas padron_historico gap completadas
+  - 48.998 filas padron_historico nov-08 desde dotacion.xlsx
+  - kpis_dotacion_snapshot recalculado (492 filas, 11 cortes)
+
+Scripts archivados en scripts/migracion_neon_2026-11/
+Estado final Neon nueva: cargos=62072, ocupaciones=59479,
+bajas=2931, padron_historico=239815
