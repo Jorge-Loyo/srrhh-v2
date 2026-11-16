@@ -218,6 +218,7 @@ export function ConcursoCphWizard() {
           partidaPresupuestaria?: string | null
           cargaHoraria?: number | null
           fechaPaseParalelo?: string | Date | null
+          especialidad?: string | null
           persona?: { apellidoNombre?: string | null; numeroDoc?: string | null; cuil?: string | null } | null
         }
       }
@@ -235,7 +236,10 @@ export function ConcursoCphWizard() {
       cargo: c?.cargo?.codigo ?? '',
       puesto: c?.cargo?.literalPuesto ?? '—',
       reparticion: c?.cargo?.descripcionRepa ?? null,
+      // Especialidad de la baja: priorizar baja.especialidad (campo real de la baja),
+      // luego especialidadSolicitada del concurso, y como último recurso la del cargo.
       especialidad:
+        baja?.especialidad ??
         cphData.especialidadSolicitada ??
         (c?.cargo as any)?.especialidadLegacy ??
         c?.cargo?.especialidad ??
@@ -285,6 +289,7 @@ export function ConcursoCphWizard() {
               partidaPresupuestaria?: string | null
               cargaHoraria?: number | null
               fechaPaseParalelo?: string | Date | null
+              especialidad?: string | null
             }
           }
         | undefined
@@ -300,7 +305,12 @@ export function ConcursoCphWizard() {
     // resueltos en el memo `concurso` (cuilBaja / especialidad) para no volver
     // a traerlos ni duplicar la lógica de fallback.
     const cuilBajaResuelto = concurso?.cuilBaja ?? ''
-    const especialidadBajaResuelto = concurso?.especialidad ?? ''
+    // Especialidad de la baja: priorizar baja.especialidad (campo real de la baja),
+    // luego especialidadSolicitada del concurso, y como último recurso la del cargo.
+    const especialidadBajaResuelto =
+      bajaDatos?.especialidad ??
+      concurso?.especialidad ??
+      ''
     // Documento de origen (Baja | Creación) según el motivo del concurso. No toca
     // eeBaja: solo cambia el rótulo/valor mostrado en la Etapa 1.
     const concursoBase = cphData?.concurso as unknown as
