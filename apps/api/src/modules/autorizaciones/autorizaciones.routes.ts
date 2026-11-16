@@ -5,6 +5,7 @@ import { autorizacionesQuerySchema, resolverAutorizacionSchema } from './autoriz
 import {
   listAutorizacionesService,
   countPendientesService,
+  conteoPorTipoService,
   aprobarAutorizacionService,
   rechazarAutorizacionService,
 } from './autorizaciones.service.js'
@@ -40,6 +41,15 @@ export async function autorizacionesRoutes(app: FastifyInstance) {
     const user  = request.user as { rolSlug: string }
     const count = await countPendientesService(user.rolSlug)
     return reply.send({ count })
+  })
+
+  // GET /conteo-por-tipo — badges de pestañas en AutorizacionesPage
+  app.get('/conteo-por-tipo', {
+    preHandler: requirePermiso({ modulo: 'autorizaciones', accion: 'ver' }),
+  }, async (request, reply) => {
+    const user = request.user as { rolSlug: string }
+    const data = await conteoPorTipoService(user.rolSlug)
+    return reply.send({ data })
   })
 
   // POST /:id/aprobar

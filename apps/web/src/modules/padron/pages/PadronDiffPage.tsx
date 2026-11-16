@@ -276,9 +276,8 @@ export function PadronDiffPage() {
                 </span>
               </div>
               <p className="text-xs text-gray-500 mb-3">
-                Estos concursos triangulan con un cargo nuevo del padrón (por CUIL, carrera y
-                especialidad). Se marcan como validados al aprobar y vincular el cargo en la
-                pestaña «Nuevos».
+                Estos concursos triangulan con un cargo nuevo del padrón (CUIL vinculado + carrera + especialidad + sigla).
+                Solo se validan automáticamente los que cumplen los 4 checks. Los demás quedan en Incidencias para revisión manual.
               </p>
               <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
                 {validaciones.data.detalle.map((v) => (
@@ -305,27 +304,30 @@ export function PadronDiffPage() {
                         </span>
                       ) : (
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                          Revisar
+                          → Incidencias
                         </span>
                       )}
-                      <span
-                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                          v.carreraCoincide
-                            ? 'bg-green-50 text-green-700 border-green-200'
-                            : 'bg-gray-100 text-gray-500 border-gray-200'
-                        }`}
-                      >
-                        Carrera {v.carreraCoincide ? '✓' : '✗'}
-                      </span>
-                      <span
-                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                          v.especialidadCoincide
-                            ? 'bg-green-50 text-green-700 border-green-200'
-                            : 'bg-gray-100 text-gray-500 border-gray-200'
-                        }`}
-                      >
-                        Especialidad {v.especialidadCoincide ? '✓' : '✗'}
-                      </span>
+                      {(['carreraCoincide', 'especialidadCoincide', 'siglaCoincide', 'cuilVinculado'] as const).map((key) => {
+                        const labels: Record<string, string> = {
+                          carreraCoincide: 'Carrera',
+                          especialidadCoincide: 'Especialidad',
+                          siglaCoincide: 'Sigla',
+                          cuilVinculado: 'CUIL',
+                        }
+                        const ok = (v as any)[key] as boolean
+                        return (
+                          <span
+                            key={key}
+                            className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                              ok
+                                ? 'bg-green-50 text-green-700 border-green-200'
+                                : 'bg-gray-100 text-gray-500 border-gray-200'
+                            }`}
+                          >
+                            {labels[key]} {ok ? '✓' : '✗'}
+                          </span>
+                        )
+                      })}
                     </span>
                   </div>
                 ))}

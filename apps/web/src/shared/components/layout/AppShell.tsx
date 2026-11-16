@@ -103,13 +103,15 @@ export function AppShell() {
   const verConcursosCph  = can(user, 'concursos-cph', 'ver')
   const verConcursosCeetps = can(user, 'concursos-ceetps', 'ver')
   const verIncidencias   = can(user, 'incidencias', 'ver')
+  const verKanbanSgrasv      = can(user, 'tareas', 'ver_kanban_sgrasv')
+  const verKanbanSupervisor  = can(user, 'tareas', 'ver_kanban_supervisor')
 
   const verImportacion   = importacionSubitems.length > 0
   const verConfiguracion = configuracionSubitems.length > 0
 
   // Un grupo es visible si al menos uno de sus ítems lo es.
   const grupoVisualizacion = verInicio || verReportes || verKpis || verDotacion || verOrganigrama || verPou || verPersonas || verBajas || verRetenciones || verCargos
-  const grupoGestion       = verGestionCargos || verConcursosCph || verConcursosCeetps || verIncidencias
+  const grupoGestion       = verGestionCargos || verConcursosCph || verConcursosCeetps || verIncidencias || verKanbanSgrasv || verKanbanSupervisor
   const grupoVistaAdmin    = verImportacion || verConfiguracion
 
   const gestionActivo = itemGestionActivo(location.pathname)
@@ -288,13 +290,27 @@ export function AppShell() {
             </NavLink>
           )}
 
-          {/* Incidencias — cola de id_sial nuevos pendientes de gestionar
-              tras aprobar el padrón (crear cargo / vincular o crear concurso /
-              transferencia / sin código). */}
+          {/* Incidencias */}
           {verIncidencias && (
             <NavLink to="/incidencias" className={itemClass} title={collapsed ? 'Incidencias' : undefined}>
               <span className="text-base shrink-0">📌</span>
               {!collapsed && <span className="truncate">Incidencias</span>}
+            </NavLink>
+          )}
+
+          {/* Kanban SGRASV — gestión de concursos por supervisor */}
+          {verKanbanSgrasv && (
+            <NavLink to="/tareas/kanban-sgrasv" className={itemClass} title={collapsed ? 'Gestión concursos' : undefined}>
+              <span className="text-base shrink-0">🗃️</span>
+              {!collapsed && <span className="truncate">Gestión concursos</span>}
+            </NavLink>
+          )}
+
+          {/* Kanban supervisor — vista propia del supervisor */}
+          {verKanbanSupervisor && (
+            <NavLink to="/tareas/kanban-supervisor" className={itemClass} title={collapsed ? 'Mi kanban' : undefined}>
+              <span className="text-base shrink-0">📋</span>
+              {!collapsed && <span className="truncate">Mi kanban</span>}
             </NavLink>
           )}
 

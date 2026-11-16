@@ -139,3 +139,77 @@ export async function setUsuarioActivo(id: string, activo: boolean, requestingUs
   })
   return toUsuarioDto(row)
 }
+
+// ─── S25-2: siglas y supervisores ────────────────────────────────────────────
+
+const SLUG_SGRASV = 'sgrasv_5ac494e'
+const SLUG_SUPERVISOR = 'supervision_de_concursos_4ff21d6'
+
+// GET /supervisores — usuarios con rol supervisor o sgrasv, con sus siglas expandidas
+export async function getSupervisoresService() {
+  const usuarios = await prisma.usuario.findMany({
+    where: {
+      activo: true,
+      role: { slug: { in: [SLUG_SGRASV, SLUG_SUPERVISOR] } },
+    },
+    select: {
+      ...USUARIO_SELECT,
+      siglas: {
+        select: {
+          hospital: { select: { id: true, sigla: true, nombre: true } },
+        },
+      },
+    },
+    orderBy: [{ role: { slug: 'asc' } }, { apellido: 'asc' }],
+  })
+
+  return usuarios.map(({ siglas, role, ...rest }) => ({
+    ...rest,
+    rol: role.nombre,
+    rolSlug: role.slug,
+    siglas: siglas.map((s) => ({
+      hospitalId: s.hospital.id,
+      sigla: s.hospital.sigla,
+      nombre: s.hospital.nombre,
+    })),
+  }))
+}
+
+// PUT /usuarios/:id/siglas — reemplaza el set completo de siglas en una tx
+export async function setSiglasService(usuarioId: string, hospitalIds: string[]) {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: usuarioId },
+    select: { id: true, role: { select: { slug: true } } },
+  })
+  if (!usuario) throw AppError.notFound('Usuario no encontrado')
+  if (![SLUG_SGRASV, SLUG_SUPERVISOR].includes(usuario.role.slug)) {
+    throw AppError.badRequest('Solo se pueden asignar siglas a supervisores o SGRASV')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.usuarioSigla.deleteMany({ where: { usuarioId } })
+    if (hospitalIds.length > 0) {
+      await tx.usuarioSigla.createMany({
+        data: hospitalIds.map((hospitalId) => ({ usuarioId, hospitalId })),
+        skipDuplicates: true,
+      })
+    }
+    return tx.usuarioSigla.findMany({
+      where: { usuarioId },
+      select: { hospital: { select: { id: true, sigla: true, nombre: true } } },
+    })
+  })
+}
+
+// GET /usuarios/me/siglas — siglas del usuario logueado
+export async function getMisSiglasService(usuarioId: string) {
+  const siglas = await prisma.usuarioSigla.findMany({
+    where: { usuarioId },
+    select: { hospital: { select: { id: true, sigla: true, nombre: true } } },
+  })
+  return siglas.map((s) => ({
+    hospitalId: s.hospital.id,
+    sigla: s.hospital.sigla,
+    nombre: s.hospital.nombre,
+  }))
+}

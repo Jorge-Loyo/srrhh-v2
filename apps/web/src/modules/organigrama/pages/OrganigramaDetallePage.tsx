@@ -2,10 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ChartBarSquareIcon, ArrowLeftIcon, ArrowPathIcon, ExclamationTriangleIcon,
-  ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon, XMarkIcon,
+  ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon, XMarkIcon, ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import { useOrganigrama, type Seccion } from '../hooks/useOrganigrama'
 import { getApiErrorMessage } from '@/shared/lib/utils'
+import { apiClient } from '@/shared/lib/api-client'
 import VacantesModal from '../components/VacantesModal'
 import PersonaModal from '../components/PersonaModal'
 import { TreeNode, type PersonaSeleccionada } from '../components/OrganigramaTreeNode'
@@ -43,6 +44,7 @@ export function OrganigramaDetallePage() {
   const [searchIndex, setSearchIndex] = useState(-1);
   const [jumpSignal, setJumpSignal] = useState<{ id: string; path: string[]; nonce: number } | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [descargando, setDescargando] = useState(false)
   const jumpNonceRef = useRef(0)
 
   const params = seccion ? { seccion } : sigla ? { sigla } : null
@@ -82,6 +84,25 @@ export function OrganigramaDetallePage() {
     jumpNonceRef.current += 1
     setJumpSignal({ id: v.id, path: v.idPath || [], nonce: jumpNonceRef.current })
   }, [])
+
+  async function descargarExcel() {
+    if (!sigla) return
+    setDescargando(true)
+    try {
+      const res = await apiClient.get(`/api/v1/organigrama/export-excel`, {
+        params: { sigla },
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(res.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `organigrama_${sigla}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setDescargando(false)
+    }
+  }
 
   const goToMatch = useCallback(
     (delta: number) => {
@@ -148,6 +169,17 @@ export function OrganigramaDetallePage() {
                 <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-600 text-white text-[10px] font-bold">{vacantes.length}</span>
               )}
             </button>
+
+            {sigla && data && (
+              <button
+                onClick={descargarExcel}
+                disabled={descargando}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 transition-colors disabled:opacity-50"
+              >
+                <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                {descargando ? 'Generando...' : 'Excel'}
+              </button>
+            )}
 
             <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
               {(

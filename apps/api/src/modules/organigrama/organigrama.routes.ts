@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import { organigramaQuerySchema } from './organigrama.schema.js'
-import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, listSiglasOrganigramaService, getVacantesConduccionService, getCargosConduccionHuerfanosService } from './organigrama.service.js'
+import { getOrganigramaService, reemplazarOrganigramaService, listOrganigramaUploadsService, listSiglasOrganigramaService, getVacantesConduccionService, getCargosConduccionHuerfanosService, exportOrganigramaExcelService } from './organigrama.service.js'
 
 export async function organigramaRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -41,6 +41,20 @@ export async function organigramaRoutes(app: FastifyInstance) {
       return reply.send({ data: result })
     }
   )
+
+  // Export Excel del organigrama de un hospital por sigla.
+  app.get('/export-excel', async (request, reply) => {
+    const q = request.query as { sigla?: string }
+    if (!q.sigla || !/^[A-Za-z0-9]{2,10}$/.test(q.sigla)) {
+      return reply.status(400).send({ error: 'Se requiere sigla válida' })
+    }
+    const sigla = q.sigla.toUpperCase()
+    const buffer = await exportOrganigramaExcelService(sigla)
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="organigrama_${sigla}.xlsx"`)
+      .send(buffer)
+  })
 
   app.post(
     '/upload',

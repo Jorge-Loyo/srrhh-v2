@@ -187,6 +187,258 @@ export async function listTareasService(userId: string, rolSlug: string, query: 
   return { data, meta: { total, page, limit, pages: Math.ceil(total / limit) } }
 }
 
+// ─── S25-3: GET /kanban-sgrasv ───────────────────────────────────────────────
+// Una columna por supervisor (sgrasv + supervision_de_concursos) + columna
+// "sin_asignar". Cada tarjeta incluye tipo (cph/ceetps), diasSinMovimiento,
+// subEstado, hospital.sigla, cargo.codigo.
+
+const SLUG_SGRASV     = 'sgrasv_5ac494e'
+const SLUG_SUPERVISOR = 'supervision_de_concursos_4ff21d6'
+
+const TARJETA_CARGO_SELECT = {
+  select: {
+    id: true,
+    codigo: true,
+    literalPuesto: true,
+    hospital: { select: { id: true, sigla: true } },
+  },
+} as const
+
+function diasDesde(fecha: Date): number {
+  return Math.floor((Date.now() - fecha.getTime()) / 86_400_000)
+}
+
+function colorBadge(dias: number): 'verde' | 'naranja' | 'rojo' {
+  if (dias < 7)  return 'verde'
+  if (dias <= 30) return 'naranja'
+  return 'rojo'
+}
+
+function tarjetaCph(c: {
+  id: string; estado: string; subEstado: string | null; subEstado3: string | null
+  pendienteAutorizacion: boolean; updatedAt: Date
+  cargo: { id: string; codigo: string | null; literalPuesto: string | null; hospital: { id: string; sigla: string } }
+}) {
+  const dias = diasDesde(c.updatedAt)
+  return {
+    id: c.id, tipo: 'cph' as const,
+    estado: c.estado, subEstado: c.subEstado3 ?? c.subEstado,
+    pendienteAutorizacion: c.pendienteAutorizacion,
+    cargo: { id: c.cargo.id, codigo: c.cargo.codigo, literalPuesto: c.cargo.literalPuesto },
+    hospital: c.cargo.hospital,
+    diasSinMovimiento: dias, colorBadge: colorBadge(dias),
+  }
+}
+
+function tarjetaCeetps(c: {
+  id: string; estado: string; subEstado: string | null; updatedAt: Date
+  cargo: { id: string; codigo: string | null; literalPuesto: string | null; hospital: { id: string; sigla: string } }
+}) {
+  const dias = diasDesde(c.updatedAt)
+  return {
+    id: c.id, tipo: 'ceetps' as const,
+    estado: c.estado, subEstado: c.subEstado,
+    pendienteAutorizacion: false,
+    cargo: { id: c.cargo.id, codigo: c.cargo.codigo, literalPuesto: c.cargo.literalPuesto },
+    hospital: c.cargo.hospital,
+    diasSinMovimiento: dias, colorBadge: colorBadge(dias),
+  }
+}
+
+export async function getKanbanSgrasvService() {
+  // 1. Supervisores (sgrasv + supervision_de_concursos)
+  const supervisores = await prisma.usuario.findMany({
+    where: { activo: true, role: { slug: { in: [SLUG_SGRASV, SLUG_SUPERVISOR] } } },
+    select: {
+      id: true, nombre: true, apellido: true, username: true,
+      role: { select: { slug: true, nombre: true } },
+      siglas: { select: { hospital: { select: { id: true, sigla: true, nombre: true } } } },
+    },
+    orderBy: [{ role: { slug: 'asc' } }, { apellido: 'asc' }],
+  })
+
+  // 2. Asignaciones activas
+  const asignaciones = await prisma.concursoAsignado.findMany({
+    where: { usuarioId: { not: null } },
+    select: { referenciaId: true, referenciaTipo: true, usuarioId: true },
+  })
+  const asigMap = new Map(asignaciones.map((a) => [`${a.referenciaId}:${a.referenciaTipo}`, a.usuarioId!]))
+
+  // 3. Concursos activos (no finalizados)
+  const [cphs, ceetps] = await Promise.all([
+    prisma.concursoCph.findMany({
+      where: { estado: { notIn: ['finalizado', 'suspendido'] } },
+      select: {
+        id: true, estado: true, subEstado: true, subEstado3: true,
+        pendienteAutorizacion: true, updatedAt: true,
+        cargo: TARJETA_CARGO_SELECT,
+      },
+    }),
+    prisma.concursoCeetps.findMany({
+      where: { estado: { notIn: ['finalizado', 'desierto'] } },
+      select: {
+        id: true, estado: true, subEstado: true, updatedAt: true,
+        cargo: TARJETA_CARGO_SELECT,
+      },
+    }),
+  ])
+
+  // 4. Siglas de hospitales → supervisor natural
+  const siglaRows = await prisma.usuarioSigla.findMany({
+    where: { usuario: { role: { slug: { in: [SLUG_SGRASV, SLUG_SUPERVISOR] } } } },
+    select: { usuarioId: true, hospitalId: true },
+  })
+  const siglaMap = new Map<string, string>() // hospitalId → usuarioId
+  for (const s of siglaRows) siglaMap.set(s.hospitalId, s.usuarioId)
+
+  // 5. Armar columnas
+  type Tarjeta = ReturnType<typeof tarjetaCph> | ReturnType<typeof tarjetaCeetps>
+  const columnas = new Map<string, Tarjeta[]>()
+  const sinAsignar: Tarjeta[] = []
+
+  for (const sup of supervisores) columnas.set(sup.id, [])
+
+  function clasificar(id: string, tipo: 'concurso_cph' | 'concurso_ceetps', hospitalId: string, tarjeta: Tarjeta) {
+    const key = `${id}:${tipo}`
+    const asignadoA = asigMap.get(key)
+    if (asignadoA) {
+      columnas.get(asignadoA)?.push(tarjeta) ?? sinAsignar.push(tarjeta)
+    } else {
+      const natural = siglaMap.get(hospitalId)
+      if (natural && columnas.has(natural)) columnas.get(natural)!.push(tarjeta)
+      else sinAsignar.push(tarjeta)
+    }
+  }
+
+  for (const c of cphs)   clasificar(c.id, 'concurso_cph',    c.cargo.hospital.id, tarjetaCph(c))
+  for (const c of ceetps) clasificar(c.id, 'concurso_ceetps', c.cargo.hospital.id, tarjetaCeetps(c))
+
+  // 6. Respuesta
+  return {
+    sinAsignar,
+    columnas: supervisores.map((sup) => ({
+      usuario: {
+        id: sup.id, nombre: sup.nombre, apellido: sup.apellido,
+        username: sup.username, rolSlug: sup.role.slug,
+      },
+      siglas: sup.siglas.map((s) => s.hospital),
+      concursos: columnas.get(sup.id) ?? [],
+    })),
+  }
+}
+
+// ─── S25-4: POST /asignar ─────────────────────────────────────────────────────
+export async function asignarConcursoService(
+  referenciaId: string,
+  referenciaTipo: 'concurso_cph' | 'concurso_ceetps',
+  usuarioId: string | null,
+  solicitanteId: string,
+  solicitanteRolSlug: string,
+) {
+  // Validar que el destino sea descendiente del solicitante (o null = liberar)
+  if (usuarioId !== null) {
+    const descendientes = await slugsDescendientes(solicitanteRolSlug)
+    const destino = await prisma.usuario.findUnique({
+      where: { id: usuarioId },
+      select: { role: { select: { slug: true } } },
+    })
+    if (!destino) throw AppError.notFound('Usuario destino no encontrado')
+    // Admin puede asignar a cualquiera; el resto solo a descendientes
+    if (solicitanteRolSlug !== 'admin' && !descendientes.includes(destino.role.slug)) {
+      throw AppError.forbidden('Solo podés asignar a supervisores bajo tu jerarquía')
+    }
+  }
+
+  // Upsert en concursos_asignados
+  return prisma.concursoAsignado.upsert({
+    where: { referenciaId_referenciaTipo: { referenciaId, referenciaTipo } },
+    create: { referenciaId, referenciaTipo, usuarioId, asignadoPorId: solicitanteId },
+    update: { usuarioId, asignadoPorId: solicitanteId, updatedAt: new Date() },
+  })
+}
+
+// ─── S25-5: GET /kanban-supervisor ───────────────────────────────────────────
+// Concursos visibles = siglas propias UNION asignados directamente.
+// Agrupados en 5 columnas: no_iniciado, pendiente_autorizacion, en_proceso,
+// finalizado, novedades.
+export async function getKanbanSupervisorService(usuarioId: string, novedadesDias: number) {
+  // IDs de hospitales del supervisor
+  const siglaRows = await prisma.usuarioSigla.findMany({
+    where: { usuarioId },
+    select: { hospitalId: true },
+  })
+  const hospitalIds = siglaRows.map((s) => s.hospitalId)
+
+  // Asignaciones directas
+  const asignados = await prisma.concursoAsignado.findMany({
+    where: { usuarioId },
+    select: { referenciaId: true, referenciaTipo: true },
+  })
+  const asigCphIds    = asignados.filter((a) => a.referenciaTipo === 'concurso_cph').map((a) => a.referenciaId)
+  const asigCeetpsIds = asignados.filter((a) => a.referenciaTipo === 'concurso_ceetps').map((a) => a.referenciaId)
+
+  const novedadesDesde = new Date(Date.now() - novedadesDias * 86_400_000)
+
+  const [cphs, ceetps] = await Promise.all([
+    prisma.concursoCph.findMany({
+      where: {
+        OR: [
+          ...(hospitalIds.length > 0 ? [{ cargo: { hospitalId: { in: hospitalIds } } }] : []),
+          ...(asigCphIds.length > 0  ? [{ id: { in: asigCphIds } }] : []),
+        ],
+      },
+      select: {
+        id: true, estado: true, subEstado: true, subEstado3: true,
+        pendienteAutorizacion: true, updatedAt: true,
+        cargo: TARJETA_CARGO_SELECT,
+      },
+    }),
+    prisma.concursoCeetps.findMany({
+      where: {
+        OR: [
+          ...(hospitalIds.length > 0  ? [{ cargo: { hospitalId: { in: hospitalIds } } }] : []),
+          ...(asigCeetpsIds.length > 0 ? [{ id: { in: asigCeetpsIds } }] : []),
+        ],
+      },
+      select: {
+        id: true, estado: true, subEstado: true, updatedAt: true,
+        cargo: TARJETA_CARGO_SELECT,
+      },
+    }),
+  ])
+
+  // Columnas
+  const cols = {
+    no_iniciado:            [] as ReturnType<typeof tarjetaCph | typeof tarjetaCeetps>[],
+    pendiente_autorizacion: [] as ReturnType<typeof tarjetaCph | typeof tarjetaCeetps>[],
+    en_proceso:             [] as ReturnType<typeof tarjetaCph | typeof tarjetaCeetps>[],
+    finalizado:             [] as ReturnType<typeof tarjetaCph | typeof tarjetaCeetps>[],
+    novedades:              [] as ReturnType<typeof tarjetaCph | typeof tarjetaCeetps>[],
+  }
+
+  for (const c of cphs) {
+    const t = tarjetaCph(c)
+    if (c.estado === 'no_iniciado')                                    cols.no_iniciado.push(t)
+    else if (c.pendienteAutorizacion)                                  cols.pendiente_autorizacion.push(t)
+    else if (c.estado === 'activo')                                    cols.en_proceso.push(t)
+    else if (c.estado === 'finalizado' || c.estado === 'suspendido')   cols.finalizado.push(t)
+    if (c.estado !== 'finalizado' && c.estado !== 'suspendido' && c.updatedAt >= novedadesDesde)
+      cols.novedades.push(t)
+  }
+
+  for (const c of ceetps) {
+    const t = tarjetaCeetps(c)
+    if (c.estado === 'sin_autorizar')                                  cols.no_iniciado.push(t)
+    else if (c.estado === 'autorizado')                                cols.pendiente_autorizacion.push(t)
+    else if (c.estado === 'en_proceso')                                cols.en_proceso.push(t)
+    else if (c.estado === 'finalizado' || c.estado === 'desierto')     cols.finalizado.push(t)
+    if (c.estado !== 'finalizado' && c.estado !== 'desierto' && c.updatedAt >= novedadesDesde)
+      cols.novedades.push(t)
+  }
+
+  return { novedadesDias, columnas: cols }
+}
+
 // ─── GET /pendientes — contador para el badge del header ─────────────────────
 export async function countTareasPendientesService(userId: string, rolSlug: string) {
   const visibles = await tareasVisiblesWhere(userId, rolSlug)

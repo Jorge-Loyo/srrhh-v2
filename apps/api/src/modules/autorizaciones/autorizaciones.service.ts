@@ -165,6 +165,17 @@ export async function countPendientesService(rolSlug: string) {
   })
 }
 
+// ─── GET /conteo-por-tipo — badges de pestañas en AutorizacionesPage ─────────
+export async function conteoPorTipoService(rolSlug: string) {
+  const where = { ...(!esAdmin(rolSlug) && { resolverPorRolSlug: rolSlug }), estado: 'pendiente' as const }
+  const filas = await prisma.autorizacion.groupBy({
+    by: ['tipo'],
+    where,
+    _count: { tipo: true },
+  })
+  return Object.fromEntries(filas.map((f) => [f.tipo, f._count.tipo]))
+}
+
 // ─── POST /:id/aprobar ───────────────────────────────────────────────────────
 export async function aprobarAutorizacionService(
   id: string,
