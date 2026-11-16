@@ -20,11 +20,27 @@ const { listConcursosCeetpsService } = await import('../modules/concursos-ceetps
 const { concursosCphQuerySchema } = await import('../modules/concursos-cph/concursos-cph.schema.js')
 const { concursosCeetpsQuerySchema } = await import('../modules/concursos-ceetps/concursos-ceetps.schema.js')
 
-/** Evalúa el filtro NOT{concurso:{is:{motivoConcurso, autorizadoAt:null}}} contra una fila. */
+type CondicionMotivo = null | string | { not: string }
+type RamaConcurso = { concurso: { is: { motivoConcurso: CondicionMotivo; autorizadoAt?: { not: null } } } }
+
+/**
+ * Evalúa el filtro (OR de ramas sobre concurso) contra una fila, con la semántica
+ * de SQL: un `not` sobre un motivo NULL no se cumple (NULL <> x es desconocido),
+ * por eso el motivo NULL entra por su propia rama.
+ */
 function pasaFiltro(c: { motivoConcurso: string | null; autorizadoAt: Date | null }): boolean {
-  const is = excluirNuevoCargoSinAutorizar().NOT.concurso.is
-  const coincide = c.motivoConcurso === is.motivoConcurso && c.autorizadoAt === is.autorizadoAt
-  return !coincide
+  const ramas = excluirNuevoCargoSinAutorizar().OR as RamaConcurso[]
+  return ramas.some(({ concurso: { is } }) => {
+    const m = is.motivoConcurso
+    const motivoOk =
+      m === null
+        ? c.motivoConcurso === null
+        : typeof m === 'string'
+          ? c.motivoConcurso === m
+          : c.motivoConcurso !== null && c.motivoConcurso !== m.not
+    const autorizadoOk = is.autorizadoAt === undefined || c.autorizadoAt !== null
+    return motivoOk && autorizadoOk
+  })
 }
 
 beforeEach(() => vi.clearAllMocks())

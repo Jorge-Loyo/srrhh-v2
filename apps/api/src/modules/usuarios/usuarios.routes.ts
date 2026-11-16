@@ -19,7 +19,12 @@ export async function usuariosRoutes(app: FastifyInstance) {
   await app.register(async (sub) => {
     sub.addHook('preHandler', authenticate)
 
-    sub.get('/supervisores', async (_request, reply) => {
+    sub.get('/supervisores', {
+      preHandler: requirePermiso([
+        { modulo: 'tareas', accion: 'ver_kanban_sgrasv' },
+        { modulo: 'tareas', accion: 'asignar_concurso' },
+      ]),
+    }, async (_request, reply) => {
       const data = await getSupervisoresService()
       return reply.send({ data })
     })

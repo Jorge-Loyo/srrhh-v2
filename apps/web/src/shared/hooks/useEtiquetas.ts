@@ -27,7 +27,8 @@ export function useEtiquetas() {
 
 // Invalida el catálogo de etiquetas más las vistas que muestran etiquetas de la
 // entidad afectada, para que las etiquetas asignadas se refresquen. Para
-// 'concurso_cph' invalida las queries de concursos (lista + detalle del wizard);
+// 'concurso_cph' / 'concurso_ceetps' invalidan las queries de concursos (listas,
+// bandeja de gestión y detalle del wizard);
 // para 'cargo' invalida las queries de cargos (lista, detalle y modales).
 function invalidarPorEntidad(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -37,7 +38,14 @@ function invalidarPorEntidad(
   switch (entidad) {
     case 'concurso_cph':
       queryClient.invalidateQueries({ queryKey: ['concursos-cph'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['concursos-cph-etapa2'], exact: false })
       queryClient.invalidateQueries({ queryKey: ['concurso-cph-wizard'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['bandeja-gestion'], exact: false })
+      break
+    case 'concurso_ceetps':
+      queryClient.invalidateQueries({ queryKey: ['concursos-ceetps'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['concurso-ceetps-wizard'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['bandeja-gestion'], exact: false })
       break
     case 'cargo':
       queryClient.invalidateQueries({ queryKey: ['cargos'], exact: false })
