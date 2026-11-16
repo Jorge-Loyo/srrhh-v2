@@ -35,6 +35,7 @@ function cargoRow(n: number, over: Record<string, unknown> = {}) {
     escalafon: { nombre: 'Carrera Profesional' },
     puestoCargo: { nombre: 'Médico' },
     especialidadPuesto: { nombre: 'Clínica' },
+    etiquetas: [] as { etiqueta: { id: string; nombre: string; color: string | null } }[],
     ...over,
   }
 }
@@ -134,7 +135,7 @@ describe('listNuevosCargosService — filtros', () => {
     expect(or[0]).toEqual({ expediente: { contains: 'EX-2026', mode: 'insensitive' } })
     expect(or[1]).toEqual({ cargo: { expediente: { contains: 'EX-2026', mode: 'insensitive' } } })
     const campos = or[2].cargo.OR.map((o: Record<string, unknown>) => Object.keys(o)[0])
-    expect(campos).toEqual(['codigo', 'literalPuesto', 'especialidadLegacy', 'puestoCargo', 'especialidadPuesto'])
+    expect(campos).toEqual(['codigo', 'literalPuesto', 'especialidadLegacy', 'puestoCargo', 'especialidadPuesto', 'etiquetas'])
   })
 })
 

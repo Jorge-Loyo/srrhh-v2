@@ -148,6 +148,8 @@ function solicitud(opts: { cr: string | null; cantidad: number; literal?: string
     unificadorPuesto: null, regimen: null, expediente: opts.expediente === undefined ? 'EX-1' : opts.expediente,
     desde: null, cantidad: opts.cantidad,
     hospital: { sigla: 'HGAT' }, escalafon: { nombre: 'CPH' }, codigoRegistro: opts.cr ? { codigo: opts.cr } : null, puestoCargo: null,
+    // La aprobación propaga las etiquetas de la solicitud a los cargos creados.
+    etiquetas: [] as { etiquetaId: string }[],
   }
 }
 
@@ -219,7 +221,7 @@ describe('aprobar alta_cargo — concursos automáticos (Paso 3)', () => {
 
   it('cargo con tipo null (CR fuera de CPH/CEETPS): no crea concurso, no rompe y lo informa', async () => {
     ctx.solicitud = solicitud({ cr: '99', cantidad: 2 })
-    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as Record<string, number>
+    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as unknown as Record<string, number>
     expect(r).toMatchObject({ concursosCreados: 0, concursosSinTipo: 2 })
     expect(db.cargos).toHaveLength(2)
     expect(db.concursos).toHaveLength(0)
@@ -229,7 +231,7 @@ describe('aprobar alta_cargo — concursos automáticos (Paso 3)', () => {
 
   it('solicitud sin código de registro: tipo null, sin concurso', async () => {
     ctx.solicitud = solicitud({ cr: null, cantidad: 1 })
-    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as Record<string, number>
+    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as unknown as Record<string, number>
     expect(r).toMatchObject({ concursosCreados: 0, concursosSinTipo: 1 })
   })
 
@@ -246,7 +248,7 @@ describe('aprobar alta_cargo — concursos automáticos (Paso 3)', () => {
     ctx.solicitud = solicitud({ cr: '37', cantidad: 1 })
     // Un concurso abierto preexistente sobre el cargo que se va a crear (cargo1).
     db.cph.push({ cargoId: 'cargo1', estado: 'activo', concurso: { motivoConcurso: 'nuevo_cargo', autorizadoAt: null } })
-    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as Record<string, number>
+    const r = (await aprobarAutorizacionService('aut1', 'u1', 'r')) as unknown as Record<string, number>
     expect(r).toMatchObject({ concursosCreados: 0, concursosYaExistentes: 1 })
     expect(db.concursos).toHaveLength(0)
   })
