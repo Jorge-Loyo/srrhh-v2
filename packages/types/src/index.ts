@@ -561,6 +561,7 @@ export interface ConcursoCeetps {
   puestoCargoSolicitadoId: string | null
   puestoSolicitado: string | null
   dispoLlamado: string | null
+  tipoGestion: 'centralizado' | 'descentralizado' | null
   // ── Carga horaria / apertura (Enfermería/Técnicos) ──────────────────────
   // Usados por los documentos exportables (Validación/Autorización).
   cargaHoraria: number | null
@@ -659,6 +660,8 @@ export interface NotificacionFilters {
   page?: number
   limit?: number
   tipo?: TipoNotificacion
+  // Varios tipos a la vez (pestañas que agrupan tipos); el hook los manda separados por coma.
+  tipos?: TipoNotificacion[]
   soloNoLeidas?: boolean
 }
 
@@ -1655,6 +1658,7 @@ export interface PatchConcursoCeetpsRequest {
   puestoCargoSolicitadoId?: string | null
   puestoSolicitado?: string | null
   dispoLlamado?: string | null
+  tipoGestion?: 'centralizado' | 'descentralizado' | null
   // ── Carga horaria / apertura ──────────────────────────────────────────────
   cargaHoraria?: number | null
   apertura2x18?: boolean

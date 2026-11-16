@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import type { Notificacion, NotificacionDetalle, TipoNotificacion } from '@srrhh/types'
 import {
   useNotificaciones,
+  useNotificacionesNoLeidasPorTipo,
   useMarcarLeida,
   useMarcarTodasLeidas,
   useNotificacionDetalle,
@@ -64,36 +65,32 @@ export function NotificacionesPage() {
 
   const tiposActivos = TABS.find((t) => t.id === tabActiva)?.tipos ?? []
 
-  // Traemos todas las notificaciones sin filtro de tipo para calcular badges
-  // client-side (evita N+1 requests al backend).
-  const { data: todasData } = useNotificaciones({ page: 1, limit: 200, soloNoLeidas: true })
-  const todasNoLeidas = todasData?.data ?? []
+  // No leídas por tipo: una sola consulta agrupada en el servidor (no depende de
+  // la paginación del listado).
+  const { data: noLeidasPorTipo = {} } = useNotificacionesNoLeidasPorTipo()
 
-  // Conteo de no leídas por tab (calculado client-side)
+  // Conteo de no leídas por tab: 'todas' suma todos los tipos.
   const conteoPorTab = Object.fromEntries(
     TABS.map((tab) => [
       tab.id,
-      tab.tipos.length === 0
-        ? todasNoLeidas.length
-        : todasNoLeidas.filter((n) => tab.tipos.includes(n.tipo as TipoNotificacion)).length,
+      (tab.tipos.length === 0 ? Object.keys(noLeidasPorTipo) : tab.tipos).reduce(
+        (acc, tipo) => acc + (noLeidasPorTipo[tipo] ?? 0),
+        0,
+      ),
     ])
   ) as Record<TabId, number>
 
+  // El filtro por tipo(s) lo aplica el backend, así total y paginación son los de la pestaña.
   const { data, isLoading } = useNotificaciones({
     page,
     limit: 20,
-    ...(tiposActivos.length === 1 && { tipo: tiposActivos[0] }),
+    ...(tiposActivos.length > 0 && { tipos: tiposActivos }),
     ...(soloNoLeidas && { soloNoLeidas: true }),
   })
   const marcarLeida       = useMarcarLeida()
   const marcarTodasLeidas = useMarcarTodasLeidas()
   const notificaciones    = data?.data ?? []
   const meta              = data?.meta
-
-  // Filtro client-side para tabs con múltiples tipos (el backend solo acepta uno)
-  const notificacionesFiltradas = tiposActivos.length > 1
-    ? notificaciones.filter((n) => tiposActivos.includes(n.tipo as TipoNotificacion))
-    : notificaciones
 
   function cambiarTab(tab: TabId) {
     setTabActiva(tab)
@@ -184,12 +181,12 @@ export function NotificacionesPage() {
 
       {isLoading && <p className="text-sm text-gray-500">Cargando…</p>}
 
-      {!isLoading && notificacionesFiltradas.length === 0 && (
+      {!isLoading && notificaciones.length === 0 && (
         <p className="text-sm text-gray-500 py-8 text-center">Sin notificaciones</p>
       )}
 
       <ul className="space-y-2">
-        {notificacionesFiltradas.map((n) => (
+        {notificaciones.map((n) => (
           <li
             key={n.id}
             onClick={() => abrirNotificacion(n)}

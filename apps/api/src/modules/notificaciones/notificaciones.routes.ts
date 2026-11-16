@@ -4,6 +4,7 @@ import { notificacionesQuerySchema } from './notificaciones.schema.js'
 import {
   listNotificacionesService,
   countNoLeidasService,
+  countNoLeidasPorTipoService,
   marcarLeidaService,
   marcarTodasLeidasService,
   materializarAlertasEstancamiento,
@@ -30,6 +31,13 @@ export async function notificacionesRoutes(app: FastifyInstance) {
     const user = request.user as { rolSlug: string }
     const count = await countNoLeidasService(user.rolSlug)
     return reply.send({ count })
+  })
+
+  // GET /no-leidas/por-tipo — no leídas por tipo (badges de las pestañas)
+  app.get('/no-leidas/por-tipo', async (request, reply) => {
+    const user = request.user as { rolSlug: string }
+    const data = await countNoLeidasPorTipoService(user.rolSlug)
+    return reply.send({ data })
   })
 
   // PATCH /leer-todas — marcar todas las del rol como leídas

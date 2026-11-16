@@ -21,10 +21,24 @@ export function useNotificaciones(filters: NotificacionFilters = {}) {
     queryFn: async () => {
       const res = await apiClient.get<PaginatedResponse<Notificacion>>(
         '/api/v1/notificaciones',
-        { params: filters }
+        { params: { ...filters, tipos: filters.tipos?.join(',') } }
       )
       return res.data
     },
+  })
+}
+
+// ── No leídas por tipo (badges de las pestañas) ───────────────────────────────
+export function useNotificacionesNoLeidasPorTipo() {
+  return useQuery({
+    queryKey: ['notificaciones', 'no-leidas-por-tipo'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Record<string, number> }>(
+        '/api/v1/notificaciones/no-leidas/por-tipo'
+      )
+      return res.data.data
+    },
+    refetchInterval: 60_000,
   })
 }
 

@@ -45,6 +45,7 @@ export function avisoAutorizacionNuevoCargo(
 export const CAMPOS_CEETPS_BLOQUEADOS_POR_AUTORIZACION = [
   'fechaAutorizacion',
   'dispoLlamado',
+  'tipoGestion',
   'fechaIfacs',
   'fechaInsal',
   'expedienteDesignacion',

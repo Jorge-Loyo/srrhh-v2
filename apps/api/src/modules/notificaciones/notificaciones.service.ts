@@ -41,12 +41,13 @@ function esAdmin(rolSlug: string): boolean {
 
 // ─── S10-2: listado paginado (propias del rol del usuario; admin: todas) ─────
 export async function listNotificacionesService(rolSlug: string, query: NotificacionesQuery) {
-  const { page, limit, tipo, soloNoLeidas } = query
+  const { page, limit, tipo, tipos, soloNoLeidas } = query
   const offset = (page - 1) * limit
 
   const where = {
     // Admin ve todas (sin filtro por rolSlug); el resto, solo las de su rol.
     ...(esAdmin(rolSlug) ? {} : { rolSlug }),
+    ...(tipos && { tipo: { in: tipos } }),
     ...(tipo && { tipo }),
     ...(soloNoLeidas && { leida: false }),
   }
@@ -69,6 +70,16 @@ export async function countNoLeidasService(rolSlug: string) {
   return prisma.notificacion.count({
     where: { leida: false, ...(esAdmin(rolSlug) ? {} : { rolSlug }) },
   })
+}
+
+// No leídas agrupadas por tipo, en una sola consulta (badges de las pestañas).
+export async function countNoLeidasPorTipoService(rolSlug: string): Promise<Record<string, number>> {
+  const filas = await prisma.notificacion.groupBy({
+    by: ['tipo'],
+    where: { leida: false, ...(esAdmin(rolSlug) ? {} : { rolSlug }) },
+    _count: { _all: true },
+  })
+  return Object.fromEntries(filas.map((f) => [f.tipo, f._count._all]))
 }
 
 // ─── S10-2: marcar una como leída ───────────────────────────────────────────

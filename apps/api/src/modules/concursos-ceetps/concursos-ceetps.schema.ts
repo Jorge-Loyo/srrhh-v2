@@ -42,6 +42,8 @@ export const patchConcursoCeetpsSchema = z
     puestoCargoSolicitadoId: z.string().uuid().nullable(),
     puestoSolicitado: z.string().trim().max(200).nullable(),
     dispoLlamado: z.string().trim().max(500).nullable(),
+    // Etapa 2: mismos valores que concursos-cph (tipoGestion).
+    tipoGestion: z.enum(['centralizado', 'descentralizado']).nullable(),
     // ── Carga horaria / apertura (Enfermería/Técnicos) ──────────────────────
     cargaHoraria: z.number().int().min(0).max(99).nullable(),
     apertura2x18: z.boolean(),

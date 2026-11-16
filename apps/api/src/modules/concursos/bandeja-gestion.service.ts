@@ -1,4 +1,5 @@
 import { Prisma, type ConcursoCeetps } from '@prisma/client'
+import { EstadoConcursoCeetps, EstadoConcursoCph } from '@srrhh/types'
 import { prisma } from '../../shared/prisma.js'
 import type { ConcursosCphQuery } from '../concursos-cph/concursos-cph.schema.js'
 import { listConcursosCphService } from '../concursos-cph/concursos-cph.service.js'
@@ -25,7 +26,17 @@ import { etapaCeetps, whereEtapaCeetps } from '../concursos-ceetps/concursosCeet
 // merge in-memory es aceptable y evita el paginado interleaved entre dos tablas.
 
 // Filtros de la bandeja rica = los mismos de ConcursoCph + discriminador `tipo`.
-export type BandejaGestionQuery = ConcursosCphQuery & { tipo?: 'cph' | 'ceetps' }
+export type BandejaGestionQuery = Omit<ConcursosCphQuery, 'estado'> & {
+  tipo?: 'cph' | 'ceetps'
+  estado?: EstadoConcursoCph | EstadoConcursoCeetps
+}
+
+// Un estado pedido solo existe en uno de los dos tipos (salvo `finalizado`): si
+// no es de CPH, ese tipo no tiene filas que mostrar y no se le puede pasar a
+// Prisma (PrismaClientValidationError).
+const ESTADOS_CPH = new Set<string>(Object.values(EstadoConcursoCph))
+const estadoAplicaACph = (estado?: string) => !estado || ESTADOS_CPH.has(estado)
+const comoQueryCph = (q: BandejaGestionQuery) => q as ConcursosCphQuery
 
 // Include CEETPS: lo mínimo para poblar las columnas de la tabla reutilizada
 // (cargo para puesto/especialidad/repartición, hospital para la sigla).
@@ -145,7 +156,7 @@ function fechaOrden(item: Record<string, unknown>, ordenarPor: string): number {
 // (no_iniciado/activo/suspendido) NO existe en CEETPS: solo 'finalizado'
 // solapa entre ambos. Pasar un valor CPH crudo a prisma.concursoCeetps rompe
 // con PrismaClientValidationError (no devuelve vacío), así que hay que filtrar.
-const ESTADOS_CEETPS = new Set<ConcursoCeetps['estado']>([
+const ESTADOS_CEETPS = new Set<string>([
   'sin_autorizar',
   'autorizado',
   'en_proceso',
@@ -182,12 +193,13 @@ export async function listBandejaGestionService(query: BandejaGestionQuery) {
   // tipo === 'cph': delega 1:1 en el servicio CPH con soloEtapa1Superada=true
   // para que /concursos/cph muestre solo los que ya pasaron la Etapa 1.
   if (tipo === 'cph') {
-    return listConcursosCphService(query, { soloEtapa1Superada: true })
+    if (!estadoAplicaACph(query.estado)) return paginarEnMemoria([], page, limit, ordenarPor, orden)
+    return listConcursosCphService(comoQueryCph(query), { soloEtapa1Superada: true })
   }
 
   // tipo === 'ceetps': solo CEETPS en Etapa 2+ (estado != sin_autorizar).
   if (tipo === 'ceetps') {
-    const ceetps = await fetchCeetpsMapeados({ ...query, estado: undefined, _excluirSinAutorizar: true })
+    const ceetps = await fetchCeetpsMapeados({ ...query, _excluirSinAutorizar: true })
     return paginarEnMemoria(ceetps, page, limit, ordenarPor, orden)
   }
 
@@ -201,7 +213,7 @@ export async function listBandejaGestionService(query: BandejaGestionQuery) {
   // OCULTAN — así el filtro no "fuga" filas CEETPS que no matchean. Sin filtro
   // CPH-only, se incluyen los CEETPS (aplicando solo hospital/estado/search).
   const [cphTodos, ceetps] = await Promise.all([
-    fetchCphTodos(query),
+    estadoAplicaACph(query.estado) ? fetchCphTodos(query) : Promise.resolve([]),
     tieneFiltroCphOnlyActivo(query) ? Promise.resolve([]) : fetchCeetpsMapeados(query),
   ])
   const combinado = [...cphTodos, ...ceetps]
@@ -217,7 +229,7 @@ async function fetchCphTodos(query: BandejaGestionQuery): Promise<Record<string,
   const limit = 200
   // Loop de páginas defensivo: normalmente una sola iteración.
   for (;;) {
-    const res = await listConcursosCphService({ ...query, page, limit })
+    const res = await listConcursosCphService({ ...comoQueryCph(query), page, limit })
     acumulado.push(...(res.data as unknown as Record<string, unknown>[]))
     if (page >= res.meta.pages || res.data.length === 0) break
     page += 1
@@ -230,9 +242,11 @@ async function fetchCeetpsMapeados(
 ): Promise<Record<string, unknown>[]> {
   const { hospitalId, hospitalIds, estado, search, etapa, _excluirSinAutorizar } = query
 
-  if (estado && !ESTADOS_CEETPS.has(estado as ConcursoCeetps['estado'])) {
+  if (estado && !ESTADOS_CEETPS.has(estado)) {
     return []
   }
+  // La vista CEETPS excluye sin_autorizar (Etapa 1): pedirlo no puede pisar la exclusión.
+  if (_excluirSinAutorizar && estado === 'sin_autorizar') return []
 
   const whereEtapa = etapa !== undefined ? whereEtapaCeetps(etapa) : undefined
   if (whereEtapa === null) return []
@@ -246,13 +260,18 @@ async function fetchCeetpsMapeados(
       : hospitalId
         ? { hospitalId }
         : {}),
-    ...(estado && { estado: estado as ConcursoCeetps['estado'] }),
+    ...(estado && { estado: estado as unknown as ConcursoCeetps['estado'] }),
     ...(search && {
       OR: [
         { expedienteConcurso: { contains: search, mode: 'insensitive' } },
         { puestoSolicitado: { contains: search, mode: 'insensitive' } },
         { concurso: { cargo: { literalPuesto: { contains: search, mode: 'insensitive' } } } },
+        // Mismos campos que la búsqueda CPH: código de cargo, persona y hospital.
+        { concurso: { cargo: { codigo: { contains: search, mode: 'insensitive' } } } },
+        { concurso: { persona: { apellidoNombre: { contains: search, mode: 'insensitive' } } } },
         { hospital: { sigla: { contains: search, mode: 'insensitive' } } },
+        { hospital: { nombre: { contains: search, mode: 'insensitive' } } },
+        { observaciones: { contains: search, mode: 'insensitive' } },
       ],
     }),
   }

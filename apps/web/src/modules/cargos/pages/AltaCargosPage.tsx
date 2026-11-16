@@ -138,6 +138,15 @@ interface ItemPendiente {
   cargoOrigenCodigo?: string
   cargoOrigenOcupado?: boolean
   cargoOrigenPersona?: string
+  // Operación sobre la norma POU (Modificación de la POU). Viaja en el marcador de
+  // `observaciones` para que "eliminar", "modificar" y "pasar a POF" no queden
+  // indistinguibles. Sin valor = pasar POU a POF.
+  operacionPou?: 'modificar' | 'eliminar'
+}
+
+// Marcador que acompaña al cargo POU origen en `observaciones`.
+function marcadorCargoPou(item: Pick<ItemPendiente, 'cargoOrigenId' | 'operacionPou'>): string {
+  return `${item.operacionPou ? `pou_${item.operacionPou}` : 'pou_a_pof'}:${item.cargoOrigenId}`
 }
 
 // ── Selector de etiqueta ─────────────────────────────────────────────────────
@@ -1223,6 +1232,7 @@ function SubFormModificarEliminarPou({ accion, onAgregar, onCancelar }: {
       cargoOrigenId:    cargoOrigen.id,
       cargoOrigenCodigo: cargoOrigen.codigo ?? undefined,
       cargoOrigenOcupado: false,
+      operacionPou:     accion,
     })
     setCargoOrigen(null); setPuestoSel(null); setEspecialidadSel(null)
   }
@@ -1643,6 +1653,7 @@ function FormModificarEliminarPou({ accion, onAgregar, onCancelar }: {
       cargoOrigenId:    cargoOrigen.id,
       cargoOrigenCodigo: cargoOrigen.codigo ?? undefined,
       cargoOrigenOcupado: false,
+      operacionPou:     accion === 'eliminar' || accion === 'modificar' ? accion : undefined,
     }
     onAgregar(item)
     setCargoOrigen(null)
@@ -2429,7 +2440,7 @@ export function AltaCargosPage() {
             : item.nodoOrgPath
             ? `nodo:${item.nodoOrgSigla}|${item.nodoOrgId}|${item.nodoOrgPath}`
             : item.cargoOrigenId
-            ? `pou_a_pof:${item.cargoOrigenId}`
+            ? marcadorCargoPou(item)
             : undefined,
         })),
       })

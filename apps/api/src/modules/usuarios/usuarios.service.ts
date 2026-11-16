@@ -152,8 +152,13 @@ export async function getSupervisoresService() {
       activo: true,
       role: { slug: { in: [SLUG_SGRASV, SLUG_SUPERVISOR] } },
     },
+    // Solo lo que usa el kanban: sin email, CUIL ni hospital (datos personales).
     select: {
-      ...USUARIO_SELECT,
+      id: true,
+      username: true,
+      nombre: true,
+      apellido: true,
+      role: { select: { nombre: true, slug: true } },
       siglas: {
         select: {
           hospital: { select: { id: true, sigla: true, nombre: true } },

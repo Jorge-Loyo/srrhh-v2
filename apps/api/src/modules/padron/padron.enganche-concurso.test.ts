@@ -76,6 +76,27 @@ describe('esValidableContraConcurso — guarda carrera + especialidad', () => {
       }).validable,
     ).toBe(false)
   })
+
+  it("'sinespecialidad' en el concurso es comodín, pero el diff igual tiene que traer especialidad", () => {
+    const base = { escalafonDiffId: ESC_A, escalafonConcursoId: ESC_A, especialidadConcurso: 'Sin especialidad' }
+    expect(esValidableContraConcurso({ ...base, especialidadDiff: 'Cardiología' }).validable).toBe(true)
+    expect(esValidableContraConcurso({ ...base, especialidadDiff: null }).validable).toBe(false)
+    expect(esValidableContraConcurso({ ...base, especialidadDiff: '' }).validable).toBe(false)
+  })
+
+  // Regla vigente (documentada en el servicio): uno contiene al otro. Deja pasar
+  // 'pediatria' ⊂ 'pediatria (clinica pediatrica)' pero TAMBIÉN 'cirugia' ⊂
+  // 'cirugia cardiovascular'. Si el negocio quiere match exacto, cambiar acá.
+  it('especialidad parcial (uno contiene al otro) coincide: regla vigente', () => {
+    const base = { escalafonDiffId: ESC_A, escalafonConcursoId: ESC_A }
+    expect(
+      esValidableContraConcurso({ ...base, especialidadDiff: 'Pediatría (Clínica Pediátrica)', especialidadConcurso: 'Pediatría' })
+        .validable,
+    ).toBe(true)
+    expect(
+      esValidableContraConcurso({ ...base, especialidadDiff: 'Cirugía Cardiovascular', especialidadConcurso: 'Cirugía' }).validable,
+    ).toBe(true)
+  })
 })
 
 // ─── Integración transaccional (requiere DB — la corre Jorge) ────────────────

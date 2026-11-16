@@ -42,6 +42,7 @@ function filaCeetps(overrides: Record<string, unknown> = {}) {
     updatedAt: UPDATED,
     concurso: { cargo: { literalPuesto: 'Administrativo', especialidadLegacy: 'Admin' } },
     hospital: { sigla: 'HGA' },
+    etiquetas: [],
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fila Prisma parcial para test puro
   } as any
