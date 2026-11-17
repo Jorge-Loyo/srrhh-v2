@@ -88,6 +88,7 @@ export interface HechoRow {
   tiene_ocupante_vigente: boolean
   ocupacion_hasta: Date | null
   ocupacion_desde_ult: Date | null
+  ocupacion_id_sial_rol: string | null
   tipo_origen: string | null
   concurso_activo: boolean
   pendiente_autorizacion: boolean
@@ -189,9 +190,10 @@ occ AS (
   ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST, o.desde DESC NULLS LAST
 ),
 occ_max AS (
-  SELECT o.cargo_id, max(o.hasta) AS ultima_hasta, max(o.desde) AS ultima_desde
+  SELECT DISTINCT ON (o.cargo_id)
+         o.cargo_id, o.hasta AS ultima_hasta, o.desde AS ultima_desde, o.id_sial_rol AS ultima_id_sial_rol
   FROM ocupaciones o JOIN cand ON cand.id = o.cargo_id
-  GROUP BY o.cargo_id
+  ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST, o.desde DESC NULLS LAST
 ),
 elim_hist AS (
   SELECT o.cargo_id, max(s.fecha_asignada) AS fecha_baja_padron
@@ -266,7 +268,8 @@ bf AS (
   ORDER BY b.cargo_id, b.fecha_baja DESC, b.created_at DESC
 )
 SELECT
-  cand.id AS cargo_id, cand.codigo, cand.id_sial,
+  cand.id AS cargo_id, cand.codigo,
+  COALESCE(cand.id_sial, bs.id_sial, occ_max.ultima_id_sial_rol) AS id_sial,
   cand.estado::text AS estado, cand.sub_estado::text AS sub_estado, cand.estado_desde,
   cand.literal_puesto, cand.especialidad_legacy,
   h.sigla AS hospital_sigla, e.nombre AS carrera, cr.codigo AS codigo_registro,
@@ -274,6 +277,7 @@ SELECT
   (occ.cargo_id IS NOT NULL AND occ.occ_hasta IS NULL) AS tiene_ocupante_vigente,
   occ_max.ultima_hasta AS ocupacion_hasta,
   occ_max.ultima_desde AS ocupacion_desde_ult,
+  occ_max.ultima_id_sial_rol AS ocupacion_id_sial_rol,
   cand.tipo_origen,
   (conc.concurso_activo IS TRUE) AS concurso_activo,
   (conc.pendiente_autorizacion IS TRUE) AS pendiente_autorizacion,
