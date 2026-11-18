@@ -641,6 +641,8 @@ export function NuevaBajaPage() {
       generaConcurso: conConcurso,
       ...(conConcurso && {
         tipoConcurso: tipoConcursoSeleccionado,
+        // La API lo exige para tipoConcurso = ceetps (siembra el ConcursoCeetps hijo).
+        escalafonId: cargo!.escalafonId,
         // Propaga el tipo elegido en "Origen" al concurso que se genera.
         motivoConcurso: origenToMotivoConcurso(origen),
       }),
@@ -759,7 +761,11 @@ export function NuevaBajaPage() {
       }
     } catch (e: any) {
       const status = e?.response?.status
-      const msg = e?.response?.data?.message ?? e?.message ?? ''
+      const data = e?.response?.data
+      const detalle = data?.error?.details
+        ? Object.values<string[]>(data.error.details).flat().join(' · ')
+        : ''
+      const msg = detalle || data?.message || data?.error?.message || e?.message || ''
       // 409: ya existe concurso abierto para este cargo — ir directo a él
       if (status === 409 && conConcurso && cargo) {
         try {
