@@ -12,7 +12,6 @@ import { BajaSinConcursoTab } from '../components/BajaSinConcursoTab'
 import { BloqueadosTab } from '../components/BloqueadosTab'
 import { TodoTab } from '../components/TodoTab'
 import { PestanaPersistidaTab } from '../components/PestanaPersistidaTab'
-import { PanelConciliacion } from '../components/PanelConciliacion'
 
 // Incidencias como conciliación de la dotación: pestañas Todo / SIAL sin cargo /
 // Baja sin concurso, visibles para quien tenga `incidencias/ver`. Solo se monta
@@ -95,14 +94,6 @@ export function IncidenciasPage() {
           El último padrón aprobado fue marcado como posible exportación parcial: los cargos "ausentes del padrón"
           pueden ser falsos positivos.
         </div>
-      )}
-
-      {resumen && (
-        <PanelConciliacion
-          key={activa}
-          conciliacion={resumen.conciliacion}
-          abiertoInicial={activa === 'baja-sin-concurso'}
-        />
       )}
 
       {activa === 'todo' && (

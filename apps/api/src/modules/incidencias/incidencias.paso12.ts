@@ -12,7 +12,7 @@
 //       no-null. NO toca BD.
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
-import { sqlCargoGestionable } from './incidencias.baja-sin-concurso.js'
+import { sqlCargoGestionable } from './incidencias.gestionable.js'
 import {
   clasificarCayoDelPadron,
   clasificarCambioSituacionRevista,

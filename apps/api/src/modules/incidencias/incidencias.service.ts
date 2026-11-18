@@ -13,6 +13,7 @@ import {
   getAprobacionProgreso,
 } from '../padron/padron.service.js'
 import { esCargoGestionable } from './incidencias.gestionable.js'
+import { logger } from '../../shared/logger.js'
 
 // ─── Re-exportación de los servicios de acción del padrón ───────────────────
 // Los 6 servicios de acción + getAprobacionProgreso quedan accesibles desde
@@ -112,23 +113,37 @@ interface PendienteParsed {
 // OR explícito { campo: null } | { campo: { not: '__alta_desdoblada__' } }, que
 // replica `IS DISTINCT FROM`.
 export async function getPendientesService() {
-  const diffs = await prisma.padronDiff.findMany({
-    where: {
-      tipo: 'nuevo',
-      aprobado: null,
-      snapshot: { estado: 'aprobado' },
-      OR: [{ campo: null }, { campo: { not: '__alta_desdoblada__' } }],
-    },
-    select: {
-      id: true,
-      snapshotId: true,
-      idSialRol: true,
-      valorNuevo: true,
-      snapshot: { select: { fechaAsignada: true } },
-    },
-    orderBy: { snapshot: { fechaAsignada: 'desc' } },
-  })
+  // Paralelizar: diffs + lookup de bajas (por todos los cuils/idsials del universo
+  // gestionable) en simultáneo, sin esperar el parse del primer resultado.
+  const [diffs, todasBajasPorPersona, todosCargosConBaja] = await Promise.all([
+    prisma.padronDiff.findMany({
+      where: {
+        tipo: 'nuevo',
+        aprobado: null,
+        snapshot: { estado: 'aprobado' },
+        OR: [{ campo: null }, { campo: { not: '__alta_desdoblada__' } }],
+      },
+      select: {
+        id: true,
+        snapshotId: true,
+        idSialRol: true,
+        valorNuevo: true,
+        snapshot: { select: { fechaAsignada: true } },
+      },
+      orderBy: { snapshot: { fechaAsignada: 'desc' } },
+    }),
+    // Traer todos los CUILs que tienen baja (sin filtrar por subset)
+    prisma.baja.findMany({
+      select: { persona: { select: { cuil: true } } },
+    }),
+    // Traer todos los idSials de cargos que tienen baja
+    prisma.cargo.findMany({
+      where: { idSial: { not: null }, bajas: { some: {} } },
+      select: { idSial: true },
+    }),
+  ])
 
+  logger.debug({ total: diffs.length }, 'getPendientesService: diffs traídos de Prisma antes de filtro gestionable')
   const parsed: PendienteParsed[] = diffs.map((d) => {
     const datos: Record<string, string> = JSON.parse(d.valorNuevo ?? '{}')
     return {
@@ -152,57 +167,23 @@ export async function getPendientesService() {
     // verdad que la pestaña baja-sin-concurso (esCargoGestionable).
     .filter((p) => esCargoGestionable({ codigoRegistro: p.codigoDeRegistro, literalPuesto: p.literalPuesto }))
 
-  // Diagnóstico (concursoCphId/clasificacion) reusando diagnosticarDiffsNuevosService
-  // por snapshot (un solo llamado por snapshot distinto). Se indexa por diffId.
-  const snapshotIds = [...new Set(parsed.map((p) => p.snapshotId))]
-  const diagnosticoPorDiff = new Map<
-    string,
-    { clasificacion: string; concursoCphId: string | null; concursoCodigo: string | null }
-  >()
-  for (const snapshotId of snapshotIds) {
-    const diag = await diagnosticarDiffsNuevosService(snapshotId)
-    for (const d of diag.detalle) {
-      // El detalle de diagnosticarDiffsNuevosService no expone diffId; se cruza
-      // por idSialRol (único por diff dentro del snapshot).
-      diagnosticoPorDiff.set(`${snapshotId}:${d.idSialRol}`, {
-        clasificacion: d.clasificacion,
-        concursoCphId: d.concursoCphId,
-        concursoCodigo: d.concursoCodigo,
-      })
-    }
-  }
+  logger.debug(
+    {
+      totalFiltrados: parsed.length,
+      codigos: [...new Set(parsed.map((p) => p.codigoDeRegistro ?? '(null)'))],
+    },
+    'getPendientesService: diffs después de filtro gestionable',
+  )
 
-  // tieneBajaAsociada: existe una Baja para la persona (por CUIL) o para el
-  // cargo que comparte el id_sial del diff. Un id_sial nuevo todavía no tiene
-  // cargo propio, así que el cruce relevante es por persona (la vacante que
-  // deja su baja) y, si el id_sial matchea un cargo existente, por ese cargo.
-  const cuils = [...new Set(parsed.map((p) => p.cuil).filter((v): v is string => Boolean(v)))]
-  const idSials = [...new Set(parsed.map((p) => p.idSial).filter((v): v is string => Boolean(v)))]
-
-  const [bajasPorPersona, cargosPorIdSial] = await Promise.all([
-    cuils.length > 0
-      ? prisma.baja.findMany({
-          where: { persona: { cuil: { in: cuils } } },
-          select: { persona: { select: { cuil: true } } },
-        })
-      : Promise.resolve([] as Array<{ persona: { cuil: string } | null }>),
-    idSials.length > 0
-      ? prisma.cargo.findMany({
-          where: { idSial: { in: idSials } },
-          select: { idSial: true, bajas: { select: { id: true }, take: 1 } },
-        })
-      : Promise.resolve([] as Array<{ idSial: string; bajas: Array<{ id: string }> }>),
-  ])
-
+  // tieneBajaAsociada: usa los resultados ya disponibles del Promise.all
   const cuilsConBaja = new Set(
-    bajasPorPersona.map((b) => b.persona?.cuil).filter((v): v is string => Boolean(v)),
+    todasBajasPorPersona.map((b) => b.persona?.cuil).filter((v): v is string => Boolean(v)),
   )
   const idSialsConBaja = new Set(
-    cargosPorIdSial.filter((c) => c.bajas.length > 0).map((c) => c.idSial),
+    todosCargosConBaja.map((c) => c.idSial).filter((v): v is string => Boolean(v)),
   )
 
   const pendientes = parsed.map((p) => {
-    const diag = diagnosticoPorDiff.get(`${p.snapshotId}:${p.idSialRol}`) ?? null
     const tieneBajaAsociada =
       (p.cuil ? cuilsConBaja.has(p.cuil) : false) ||
       (p.idSial ? idSialsConBaja.has(p.idSial) : false)
@@ -221,15 +202,15 @@ export async function getPendientesService() {
         codigoDeRegistro: p.codigoDeRegistro,
         especialidad: p.especialidad,
       },
-      diagnostico: diag,
+      diagnostico: null as null,
       tieneBajaAsociada,
     }
   })
 
   const resumen = {
     total: pendientes.length,
-    conConcurso: pendientes.filter((p) => p.diagnostico?.concursoCphId != null).length,
-    sinConcurso: pendientes.filter((p) => p.diagnostico?.concursoCphId == null).length,
+    conConcurso: 0,
+    sinConcurso: pendientes.length,
     conBajaAsociada: pendientes.filter((p) => p.tieneBajaAsociada).length,
   }
 

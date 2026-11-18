@@ -19,7 +19,7 @@ export interface TabIncidencias {
 
 export const TABS_INCIDENCIAS: TabIncidencias[] = [
   { id: 'todo', slug: 'todo', label: 'Todo' },
-  { id: 'sial-sin-cargo', slug: 'sial-sin-cargo', label: 'SIAL sin cargo' },
+  { id: 'sial-sin-cargo', slug: 'sial-sin-cargo', label: 'Nuevos puestos sin cargo' },
   { id: 'baja-sin-concurso', slug: 'baja-sin-concurso', label: 'Baja sin concurso' },
   { id: 'cayo-del-padron', slug: 'cayo-del-padron', label: 'Cayó del padrón' },
   { id: 'cambio-situacion-revista', slug: 'cambio-situacion-revista', label: 'Cambió la situación de revista' },

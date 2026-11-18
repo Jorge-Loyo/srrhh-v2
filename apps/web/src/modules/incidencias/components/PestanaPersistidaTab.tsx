@@ -4,6 +4,7 @@ import { ComboBuscable } from '@/shared/components/selectores/ComboBuscable'
 import { opcionesCarreraConCodigosSeparados } from '@/shared/lib/carreraEtiqueta'
 import { useCodigosRegistro, useEscalafones } from '@/shared/hooks/useCatalogos'
 import { escalafonLabel } from '@/shared/lib/escalafonLabel'
+import { capitalizarEtiqueta } from '@/shared/lib/utils'
 import {
   usePestanaPersistida,
   type PestanaPersistidaSlug,
@@ -53,12 +54,12 @@ const COLS_COMUNES: ColumnaExtra[] = [
   { header: 'ID SIAL', render: (i) => <span className="font-mono text-xs text-gray-600">{txt(i.idSial)}</span> },
   { header: 'Código', render: (i) => <span className="font-mono text-xs text-gray-600">{txt(i.codigo)}</span> },
   { header: 'Hospital', render: (i) => <span className="text-gray-600">{txt(i.hospitalSigla)}</span> },
-  { header: 'Carrera', render: (i) => <span className="text-gray-600">{txt(i.carrera)}</span> },
+  { header: 'Carrera', render: (i) => <span className="text-gray-600">{capitalizarEtiqueta(i.carrera)}</span> },
   {
     header: 'Persona',
     render: (i) => (
       <div>
-        <div className="font-medium text-gray-800">{txt(i.personaNombre)}</div>
+        <div className="font-medium text-gray-800">{capitalizarEtiqueta(i.personaNombre) || '—'}</div>
         {i.personaCuil && <div className="text-xs text-gray-400">{i.personaCuil}</div>}
       </div>
     ),
@@ -72,7 +73,7 @@ const CONFIG: Record<PestanaPersistidaSlug, Config> = {
     vacio: 'No hay cargos que hayan caído del padrón en el último padrón aprobado.',
     columnas: [
       ...COLS_COMUNES,
-      { header: 'Puesto', render: (i) => <span className="text-gray-600">{txt(i.puesto)}</span> },
+      { header: 'Puesto', render: (i) => <span className="text-gray-600">{capitalizarEtiqueta(i.puesto)}</span> },
       { header: 'Detalle', render: (i) => <span className="text-gray-600">{txt(i.detalle)}</span> },
     ],
   },
@@ -95,11 +96,11 @@ const CONFIG: Record<PestanaPersistidaSlug, Config> = {
         header: 'Puesto (ant → nuevo)',
         render: (i) => (
           <div className="text-gray-700">
-            <span>{txt(i.puestoAnterior ?? i.puesto)}</span>
+            <span>{capitalizarEtiqueta(i.puestoAnterior ?? i.puesto)}</span>
             {(i.puestoNuevo || i.puestoAnterior) && (
               <>
                 <span className="text-gray-400"> → </span>
-                <span>{txt(i.puestoNuevo ?? i.puesto)}</span>
+                <span>{capitalizarEtiqueta(i.puestoNuevo ?? i.puesto)}</span>
               </>
             )}
           </div>
@@ -109,11 +110,11 @@ const CONFIG: Record<PestanaPersistidaSlug, Config> = {
         header: 'Especialidad (ant → nueva)',
         render: (i) => (
           <div className="text-gray-700">
-            <span>{txt(i.especialidadAnterior ?? i.especialidad)}</span>
+            <span>{capitalizarEtiqueta(i.especialidadAnterior ?? i.especialidad)}</span>
             {(i.especialidadNueva || i.especialidadAnterior) && (
               <>
                 <span className="text-gray-400"> → </span>
-                <span>{txt(i.especialidadNueva ?? i.especialidad)}</span>
+                <span>{capitalizarEtiqueta(i.especialidadNueva ?? i.especialidad)}</span>
               </>
             )}
           </div>
@@ -136,7 +137,7 @@ const CONFIG: Record<PestanaPersistidaSlug, Config> = {
         ),
       },
       ...COLS_COMUNES,
-      { header: 'Puesto', render: (i) => <span className="text-gray-600">{txt(i.puesto)}</span> },
+      { header: 'Puesto', render: (i) => <span className="text-gray-600">{capitalizarEtiqueta(i.puesto)}</span> },
       { header: 'Detalle', render: (i) => <span className="text-gray-600">{txt(i.detalle)}</span> },
     ],
   },

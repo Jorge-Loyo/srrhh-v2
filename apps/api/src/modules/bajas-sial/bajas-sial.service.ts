@@ -379,6 +379,21 @@ export async function aprobarBajasSialService(id: string, usuarioId: string) {
     `UPDATE baja_sial_snapshots SET estado = 'aprobado', aprobado_por = $1::uuid, aprobado_at = now() WHERE id = $2::uuid`,
     usuarioId, id
   )
+
+  // Si un cargo está en validacion_vacante y figura en esta baja SIAL,
+  // revertirlo a vigente: la baja SIAL es la señal real; el validacion_vacante
+  // fue declarado prematuramente. Queda como vigente vacante sin concurso
+  // (baja_sin_concurso en la próxima lectura del snapshot de incidencias).
+  await prisma.$executeRawUnsafe(`
+    UPDATE cargos
+    SET estado = 'vigente', sub_estado = 'vacante', estado_desde = now()
+    WHERE deleted_at IS NULL
+      AND estado = 'validacion_vacante'
+      AND id_sial IN (
+        SELECT r.cargo FROM baja_sial_registros r WHERE r.snapshot_id = $1::uuid
+      )
+  `, id)
+
   return { ok: true, snapshotId: id }
 }
 

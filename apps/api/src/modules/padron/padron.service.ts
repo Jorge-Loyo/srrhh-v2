@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+﻿import { randomUUID } from 'node:crypto'
 import { Agent as HttpAgent } from 'node:http'
 import { Agent as HttpsAgent } from 'node:https'
 import FormData from 'form-data'
@@ -4857,8 +4857,8 @@ export async function buscarConcursosParaDiffService(
   if (!diff || diff.snapshotId !== snapshotId) throw AppError.notFound('Diff no encontrado')
 
   const datos: Record<string, string> = JSON.parse(diff.valorNuevo ?? '{}')
+  const cuilDiff = cuilDe(datos) ?? null
 
-  // Resolver hospital y escalafón del diff para pre-filtrar
   const hospital = datos.siglas
     ? await prisma.hospital.findUnique({ where: { sigla: datos.siglas }, select: { id: true } })
     : null
@@ -4876,7 +4876,6 @@ export async function buscarConcursosParaDiffService(
     escalafonId = esc?.id ?? null
   }
 
-  // Búsqueda libre por texto en literal_puesto, hospital sigla/nombre, código cargo
   let searchIds: string[] | undefined
   if (q) {
     const like = `%${q}%`
@@ -4907,6 +4906,8 @@ export async function buscarConcursosParaDiffService(
       resolucionDesignacion: true,
       eeConcurso: true,
       personaDesignadaId: true,
+      especialidadSolicitada: true,
+      designadoRefCuil: true,
       cargo: {
         select: {
           id: true,
@@ -4918,32 +4919,62 @@ export async function buscarConcursosParaDiffService(
       },
       hospital: { select: { sigla: true, nombre: true } },
       concurso: { select: { expediente: true } },
+      personaDesignada: { select: { cuil: true } },
+      inscriptoReservado: { select: { cuil: true } },
     },
     orderBy: { updatedAt: 'desc' },
-    take: 30,
+    take: 50,
   })
 
-  // Filtrar por escalafón si se pudo resolver (post-query para no complicar el where)
   const filtrados = escalafonId
     ? concursos.filter((c) => c.cargo.escalafonId === escalafonId)
     : concursos
 
-  return filtrados.map((c) => ({
-    id: c.id,
-    estado: c.estado,
-    estaCompleto: !!c.resolucionDesignacion,
-    yaDesignado: !!c.personaDesignadaId,
-    eeConcurso: c.eeConcurso,
-    expediente: c.concurso.expediente,
-    codigoCargo: c.cargo.codigo,
-    literalPuesto: c.cargo.literalPuesto,
-    especialidad: c.cargo.especialidadLegacy,
-    hospital: c.hospital.sigla,
-  }))
+  const normStr = (s: string | null | undefined) =>
+    (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
+  const puestoDiff = normStr(datos.literal_puesto)
+  const espDiff = normStr(datos.especialidad)
+
+  return filtrados.map((c) => {
+    const cuilDesignado =
+      soloDigitos(c.personaDesignada?.cuil) ||
+      soloDigitos(c.inscriptoReservado?.cuil) ||
+      soloDigitos(c.designadoRefCuil) ||
+      null
+    const cuilCoincide = !!(cuilDiff && cuilDesignado && cuilDiff === cuilDesignado)
+
+    const puestoConcurso = normStr(c.cargo.literalPuesto)
+    const matchPuesto =
+      !!puestoDiff &&
+      !!puestoConcurso &&
+      (puestoConcurso.includes(puestoDiff) || puestoDiff.includes(puestoConcurso))
+
+    const espConcurso = normStr(c.especialidadSolicitada ?? c.cargo.especialidadLegacy)
+    const matchEspecialidad =
+      !espConcurso ||
+      espConcurso === 'sinespecialidad' ||
+      (!!espDiff && (espConcurso.includes(espDiff) || espDiff.includes(espConcurso)))
+
+    const esSugerido = matchPuesto && matchEspecialidad
+
+    return {
+      id: c.id,
+      estado: c.estado,
+      estaCompleto: !!c.resolucionDesignacion,
+      yaDesignado: !!c.personaDesignadaId,
+      eeConcurso: c.eeConcurso,
+      expediente: c.concurso.expediente,
+      codigoCargo: c.cargo.codigo,
+      literalPuesto: c.cargo.literalPuesto,
+      especialidad: c.especialidadSolicitada ?? c.cargo.especialidadLegacy,
+      hospital: c.hospital.sigla,
+      cuilCoincide,
+      matchPuesto,
+      esSugerido,
+    }
+  })
 }
-
-// ─── S2-8: rechazar snapshot ──────────────────────────────────────────────────
-
 export async function rechazarSnapshotService(id: string) {
   const snapshot = await getSnapshotOrThrow(id)
   if (snapshot.estado !== 'pendiente')

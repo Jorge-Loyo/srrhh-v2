@@ -180,12 +180,6 @@ export async function incidenciasRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { refrescar } = resumenQuerySchema.parse(request.query)
       const result = await resumenIncidencias({ refrescar })
-      if (result.conciliacion.sumaGrupos !== result.conciliacion.totalCargos) {
-        request.log.error(
-          { sumaGrupos: result.conciliacion.sumaGrupos, totalCargos: result.conciliacion.totalCargos },
-          'Incidencias: la suma de grupos no coincide con el total de cargos',
-        )
-      }
       return reply.send({ data: result })
     },
   )

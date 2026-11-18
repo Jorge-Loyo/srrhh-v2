@@ -60,7 +60,6 @@ export const bajaSinConcursoQuerySchema = z.object({
   ...paginacion,
   q: qSchema,
   carrera: z.string().trim().max(100).optional(),
-  origen: z.enum(['baja_sial', 'padron']).optional(),
   estadoCargo: z.enum(['vigente', 'validacion_vacante']).optional(),
   refrescar: refrescarSchema,
 })

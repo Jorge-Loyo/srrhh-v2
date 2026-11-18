@@ -1,55 +1,58 @@
-// Acceso a datos de la pestaña "Baja sin concurso" (SOLO LECTURA). La query
-// reúne HECHOS por cargo candidato; la decisión de grupo la toma la función pura
-// `clasificarCargo`. Ver .agents/tasks/incidencias-tabs/design.md §5 y §6.
+// Pestaña "Baja sin concurso" — SOLO LECTURA.
+//
+// Lógica: arranca desde la baja SIAL (último snapshot pendiente/aprobado) y
+// filtra en cascada:
+//   1. Solo registros que tienen cargo en el sistema (cruce id_sial → cargos.codigo no null)
+//   2. Sacar no_vigente  → ya dados de baja históricamente
+//   3. Sacar con concurso activo (CPH o CEETPS que cuenta) → ya gestionados
+//   4. Sacar con baja confirmada o anulada → ya procesados formalmente
+//
+// Lo que queda: vigente (ocupado o vacante) o validacion_vacante, sin concurso
+// activo, sin baja formal cerrada. Pueden tener baja en borrador
+// (resolucion_a_la_firma) — se muestran igual porque todavía no confirmaron nada.
+//
+// Acciones posibles desde la UI: iniciar concurso, declarar no vigente,
+// declarar vacante (validacion_vacante).
+
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../shared/prisma.js'
-import { ANEXO_II_83 } from '../padron/derivarRegimen.js'
 import {
   sqlEstadoCphActivo,
   sqlEstadoCeetpsActivo,
   sqlConcursoAutorizadoParaContar,
 } from '../cargos/concursoActivo.regla.js'
-import { CODIGOS_REGISTRO_GESTIONABLES_PLENOS } from './incidencias.gestionable.js'
-import {
-  clasificarCargo,
-  contarGrupos,
-  resolverDeteccion,
-  describirDeteccion,
-  calcularDiasSinCubrir,
-  normalizarBusqueda,
-  coincideCarrera,
-  coincideBusqueda,
-  type CargoFacts,
-  type GrupoCargo,
-  type Deteccion,
-} from './incidencias.clasificacion.js'
+import { normalizarBusqueda, coincideBusqueda } from './incidencias.clasificacion.js'
 
 // ─── Tipos del contrato ──────────────────────────────────────────────────────
 
 export interface BajaSinConcursoItem {
   cargoId: string
-  codigo: string | null
-  idSial: string | null
+  codigo: string                      // siempre presente (filtro 1 lo garantiza)
+  idSial: string
   hospitalSigla: string | null
   carrera: string | null
-  codigoRegistro?: string | null
+  codigoRegistro: string | null
   puesto: string | null
   especialidad: string | null
-  persona: { cuil: string | null; nombre: string | null } | null
   estadoCargo: 'vigente' | 'validacion_vacante'
   subEstado: 'ocupado' | 'vacante' | 'concurso' | null
-  estadoDesde: string | null
-  deteccion: Deteccion & {
-    texto: string
+  // Persona: ocupante vigente si existe, sino datos de la baja SIAL
+  persona: { cuil: string | null; nombre: string | null } | null
+  // Datos de la baja SIAL
+  bajaSial: {
+    cargoHasta: string | null
     motBaja: string | null
     docRespBaja: string | null
+    fechaArchivo: string              // fecha del snapshot
   }
-  diasSinCubrir: number | null
+  // Baja formal en el sistema (borrador resolucion_a_la_firma si existe)
   bajaFormal: {
+    id: string
     estado: 'resolucion_a_la_firma' | 'pendiente' | 'confirmada' | 'anulada'
     generaConcurso: boolean
+    eeBaja: string | null
   } | null
-  tuvoConcursoCerrado: boolean
+  diasDesdeBaja: number | null
 }
 
 export interface ContextoIncidencias {
@@ -62,19 +65,21 @@ export interface ContextoIncidencias {
   ultimaBajaSial: { fechaArchivo: string; estado: 'pendiente' | 'aprobado' } | null
 }
 
-export interface ConteosBase {
-  totalCargos: number
-  noVigente: number
-  ocupado: number
-  vigenteSinOcupante: number
-  validacionVacante: number
+export interface SnapshotBajaSinConcurso {
+  generadoAt: Date
+  items: BajaSinConcursoItem[]
+  contexto: ContextoIncidencias
 }
 
-// Fila cruda de la query de hechos (snake_case, como la devuelve Postgres).
-export interface HechoRow {
+const iso = (d: Date | null | undefined): string | null =>
+  d ? d.toISOString().slice(0, 10) : null
+
+// ─── Query principal ─────────────────────────────────────────────────────────
+
+interface RawRow {
   cargo_id: string
-  codigo: string | null
-  id_sial: string | null
+  codigo: string
+  id_sial: string
   estado: string
   sub_estado: string | null
   estado_desde: Date | null
@@ -82,260 +87,193 @@ export interface HechoRow {
   especialidad_legacy: string | null
   hospital_sigla: string | null
   carrera: string | null
-  codigo_registro?: string | null
-  persona_cuil: string | null
-  persona_nombre: string | null
-  tiene_ocupante_vigente: boolean
-  ocupacion_hasta: Date | null
-  ocupacion_desde_ult: Date | null
-  ocupacion_id_sial_rol: string | null
-  tipo_origen: string | null
-  concurso_activo: boolean
-  pendiente_autorizacion: boolean
-  tuvo_concurso_cerrado: boolean
-  alta_pendiente: boolean
-  en_baja_sial: boolean
+  codigo_registro: string | null
+  // ocupante vigente
+  ocup_cuil: string | null
+  ocup_nombre: string | null
+  // datos baja SIAL
   bs_cuil: string | null
   bs_ayn: string | null
   bs_cargo_hasta: Date | null
-  mot_baja: string | null
-  doc_resp_baja: string | null
-  bs_primera_fecha: Date | null
-  ausente_ultimo_padron: boolean
-  fecha_baja_padron: Date | null
-  baja_estado: string | null
-  baja_genera_concurso: boolean | null
+  bs_mot_baja: string | null
+  bs_doc_resp_baja: string | null
+  bs_fecha_archivo: Date
+  // baja formal más reciente no confirmada/anulada (o null si no hay)
+  bf_id: string | null
+  bf_estado: string | null
+  bf_genera_concurso: boolean | null
+  bf_ee_baja: string | null
 }
 
-export interface SnapshotIncidencias {
-  generadoAt: Date
-  hechos: HechoRow[]
-  conteos: ConteosBase
-  contexto: ContextoIncidencias
-  // Fecha de archivo de la última carga SIAL (para el fallback de fechaDeteccion).
-  ultimaBajaFechaArchivo: string | null
-}
-
-const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null)
-
-// ─── Predicado SQL "gestionable" (espejo de esCargoGestionable) ──────────────
-// Devuelve un EXISTS sobre codigos_registro para el cargo `c`, equivalente al
-// helper puro `esCargoGestionable` (incidencias.gestionable.ts): PLENOS entran
-// completos; el '83' entra solo si el literal normalizado del puesto ∈ ANEXO_II_83.
-//
-// Normalización del literal en SQL = regla de @srrhh/normalizacion aplicada al
-// '83': minúscula + sin acento + espacios colapsados + trim. Se usa
-// `lower(unaccent(...))` (la extensión `unaccent` está instalada, ver migración
-// 20261003000003_unaccent_search_config) más `regexp_replace('\s+',' ')` + btrim.
-// unaccent() también quita la tilde de la ñ (ñ→n), a diferencia del TS que la
-// mantiene; como NINGUNO de los 9 literales de ANEXO_II_83 tiene ñ, ambos lados
-// dan EXACTAMENTE los mismos 9 match (ver reporte.md). Las listas se inyectan con
-// Prisma.join desde CODIGOS_REGISTRO_GESTIONABLES_PLENOS y ANEXO_II_83 (una sola
-// fuente de verdad, sin hardcodear dos veces).
-export function sqlCargoGestionable(alias: string): Prisma.Sql {
-  const c = Prisma.raw(alias)
-  const plenos = Prisma.join([...CODIGOS_REGISTRO_GESTIONABLES_PLENOS])
-  const anexoII = Prisma.join([...ANEXO_II_83])
-  return Prisma.sql`EXISTS (
-    SELECT 1 FROM codigos_registro cr
-    WHERE cr.id = ${c}.codigo_registro_id
-      AND (
-        cr.codigo IN (${plenos})
-        OR (
-          cr.codigo = '83'
-          AND btrim(regexp_replace(lower(unaccent(${c}.literal_puesto)), '\\s+', ' ', 'g')) IN (${anexoII})
-        )
-      )
-  )`
-}
-
-// ─── Queries (solo lectura, sin parámetros de usuario) ───────────────────────
-
-// IMPORTANTE: el cuerpo de esta query es el mismo de la vista temporal
-// v_inc_hechos de scripts/sql/validacion-incidencias.sql. Si se cambia una,
-// cambiar la otra.
-async function obtenerHechosCandidatos(): Promise<HechoRow[]> {
-  return prisma.$queryRaw<HechoRow[]>`
-WITH ult_padron AS (
-  SELECT id, fecha_asignada, total_registros, ratio_tamano, advertencia_tamano
-  FROM padron_snapshots
-  WHERE estado::text = 'aprobado'
-  ORDER BY fecha_asignada DESC
-  LIMIT 1
-),
+async function obtenerItems(): Promise<BajaSinConcursoItem[]> {
+  const rows = await prisma.$queryRaw<RawRow[]>`
+WITH
+-- Último snapshot de baja SIAL (pendiente o aprobado)
 ult_baja AS (
-  SELECT id, fecha_archivo, estado::text AS estado
+  SELECT id, fecha_archivo
   FROM baja_sial_snapshots
   WHERE estado::text IN ('pendiente', 'aprobado')
   ORDER BY fecha_archivo DESC
   LIMIT 1
 ),
+-- Todos los registros del último snapshot
+bs AS (
+  SELECT DISTINCT ON (r.cargo)
+    r.cargo       AS id_sial,
+    r.cuil        AS bs_cuil,
+    r.ayn         AS bs_ayn,
+    r.cargo_hasta AS bs_cargo_hasta,
+    r.mot_baja    AS bs_mot_baja,
+    r.doc_resp_baja AS bs_doc_resp_baja,
+    u.fecha_archivo AS bs_fecha_archivo
+  FROM baja_sial_registros r
+  JOIN ult_baja u ON u.id = r.snapshot_id
+  ORDER BY r.cargo, r.cargo_hasta DESC NULLS LAST
+),
+-- Cargos del sistema que cruzan con la baja SIAL y tienen codigo (filtro 1)
 cand AS (
-  SELECT c.*
+  SELECT c.id, c.codigo, c.id_sial, c.estado::text AS estado,
+         c.sub_estado::text AS sub_estado, c.estado_desde,
+         c.literal_puesto, c.especialidad_legacy,
+         c.hospital_id, c.escalafon_id, c.codigo_registro_id
   FROM cargos c
+  JOIN bs ON bs.id_sial = c.id_sial
   WHERE c.deleted_at IS NULL
-    AND ${sqlCargoGestionable('c')}
-    AND (
-      c.estado::text = 'validacion_vacante'
-      OR (c.estado::text = 'vigente'
-          AND NOT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL))
+    AND c.codigo IS NOT NULL
+    -- Filtro 2: sacar no_vigente
+    AND c.estado::text != 'no_vigente'
+    -- Filtro 3: sacar con concurso activo que cuenta
+    AND NOT EXISTS (
+      SELECT 1 FROM concursos_cph cph
+      JOIN concursos co ON co.id = cph.concurso_id
+      WHERE cph.cargo_id = c.id
+        AND ${Prisma.raw(sqlEstadoCphActivo('cph'))}
+        AND ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))}
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM concursos_ceetps ce
+      JOIN concursos co ON co.id = ce.concurso_id
+      WHERE ce.cargo_id = c.id
+        AND ${Prisma.raw(sqlEstadoCeetpsActivo('ce'))}
+        AND ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))}
+    )
+    -- Filtro 4: sacar con baja confirmada o anulada
+    AND NOT EXISTS (
+      SELECT 1 FROM bajas b
+      WHERE b.cargo_id = c.id
+        AND b.estado::text IN ('confirmada', 'anulada')
     )
 ),
-occ AS (
+-- Ocupante vigente de cada candidato
+ocup AS (
   SELECT DISTINCT ON (o.cargo_id)
-         o.cargo_id, o.hasta AS occ_hasta, p.cuil AS persona_cuil, p.apellido_nombre AS persona_nombre
+    o.cargo_id,
+    p.cuil  AS ocup_cuil,
+    p.apellido_nombre AS ocup_nombre
   FROM ocupaciones o
   JOIN cand ON cand.id = o.cargo_id
   JOIN personas p ON p.id = o.persona_id
-  ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST, o.desde DESC NULLS LAST
+  WHERE o.hasta IS NULL
+  ORDER BY o.cargo_id
 ),
-occ_max AS (
-  SELECT DISTINCT ON (o.cargo_id)
-         o.cargo_id, o.hasta AS ultima_hasta, o.desde AS ultima_desde, o.id_sial_rol AS ultima_id_sial_rol
-  FROM ocupaciones o JOIN cand ON cand.id = o.cargo_id
-  ORDER BY o.cargo_id, (o.hasta IS NULL) DESC, o.hasta DESC NULLS LAST, o.desde DESC NULLS LAST
-),
-elim_hist AS (
-  SELECT o.cargo_id, max(s.fecha_asignada) AS fecha_baja_padron
-  FROM padron_diff d
-  JOIN padron_snapshots s ON s.id = d.snapshot_id AND s.estado::text = 'aprobado'
-  JOIN ocupaciones o ON o.id_sial_rol = d.id_sial_rol
-  JOIN cand ON cand.id = o.cargo_id
-  WHERE d.tipo::text = 'eliminado' AND d.campo IS NULL
-  GROUP BY o.cargo_id
-),
-elim_ult AS (
-  SELECT o.cargo_id
-  FROM padron_diff d
-  JOIN ult_padron u ON u.id = d.snapshot_id
-  JOIN ocupaciones o ON o.id_sial_rol = d.id_sial_rol
-  JOIN cand ON cand.id = o.cargo_id
-  WHERE d.tipo::text = 'eliminado'
-  UNION
-  SELECT cand.id
-  FROM padron_diff d
-  JOIN ult_padron u ON u.id = d.snapshot_id
-  JOIN cand ON cand.id_sial = d.id_sial_rol
-  WHERE d.tipo::text = 'eliminado'
-),
-alta_pend AS (
-  SELECT DISTINCT cand.id AS cargo_id
-  FROM padron_diff d
-  JOIN padron_snapshots s ON s.id = d.snapshot_id AND s.estado::text = 'aprobado'
-  JOIN cand ON cand.id_sial IS NOT NULL
-           AND (d.id_sial_rol = cand.id_sial OR starts_with(d.id_sial_rol, cand.id_sial || '-'))
-  WHERE d.tipo::text = 'nuevo' AND d.aprobado IS NULL
-    AND (d.campo IS NULL OR d.campo <> '__alta_desdoblada__')
-),
-bs AS (
-  SELECT DISTINCT ON (r.cargo)
-         r.cargo AS id_sial, r.cuil AS bs_cuil, r.ayn AS bs_ayn, r.cargo_hasta AS bs_cargo_hasta,
-         r.mot_baja, r.doc_resp_baja
-  FROM baja_sial_registros r
-  JOIN ult_baja u ON u.id = r.snapshot_id
-  JOIN cand ON cand.id_sial = r.cargo
-  ORDER BY r.cargo, r.cargo_hasta DESC NULLS LAST
-),
-bs_primera AS (
-  SELECT d.cargo AS id_sial, min(s.fecha_archivo) AS bs_primera_fecha
-  FROM baja_sial_diffs d
-  JOIN baja_sial_snapshots s ON s.id = d.snapshot_id
-  WHERE d.tipo::text = 'nuevo' AND s.estado::text IN ('pendiente', 'aprobado')
-    AND d.cargo IN (SELECT id_sial FROM cand WHERE id_sial IS NOT NULL)
-  GROUP BY d.cargo
-),
-conc AS (
-  SELECT x.cargo_id,
-         bool_or(x.activo AND x.cuenta)     AS concurso_activo,
-         bool_or(x.activo AND NOT x.cuenta) AS pendiente_autorizacion,
-         bool_or(NOT x.activo)              AS tuvo_concurso_cerrado
-  FROM (
-    SELECT cph.cargo_id, ${Prisma.raw(sqlEstadoCphActivo('cph'))} AS activo,
-           ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))} AS cuenta
-      FROM concursos_cph cph JOIN concursos co ON co.id = cph.concurso_id
-      WHERE cph.cargo_id IN (SELECT id FROM cand)
-    UNION ALL
-    SELECT ce.cargo_id, ${Prisma.raw(sqlEstadoCeetpsActivo('ce'))} AS activo,
-           ${Prisma.raw(sqlConcursoAutorizadoParaContar('co'))} AS cuenta
-      FROM concursos_ceetps ce JOIN concursos co ON co.id = ce.concurso_id
-      WHERE ce.cargo_id IN (SELECT id FROM cand)
-  ) x
-  GROUP BY x.cargo_id
-),
+-- Baja formal más reciente en borrador (resolucion_a_la_firma) si existe
 bf AS (
-  SELECT DISTINCT ON (b.cargo_id) b.cargo_id, b.estado::text AS baja_estado, b.genera_concurso
-  FROM bajas b JOIN cand ON cand.id = b.cargo_id
-  ORDER BY b.cargo_id, b.fecha_baja DESC, b.created_at DESC
+  SELECT DISTINCT ON (b.cargo_id)
+    b.cargo_id,
+    b.id          AS bf_id,
+    b.estado::text AS bf_estado,
+    b.genera_concurso AS bf_genera_concurso,
+    b.ee_baja     AS bf_ee_baja
+  FROM bajas b
+  JOIN cand ON cand.id = b.cargo_id
+  WHERE b.estado::text = 'resolucion_a_la_firma'
+  ORDER BY b.cargo_id, b.created_at DESC
 )
 SELECT
-  cand.id AS cargo_id, cand.codigo,
-  COALESCE(cand.id_sial, bs.id_sial, occ_max.ultima_id_sial_rol) AS id_sial,
-  cand.estado::text AS estado, cand.sub_estado::text AS sub_estado, cand.estado_desde,
-  cand.literal_puesto, cand.especialidad_legacy,
-  h.sigla AS hospital_sigla, e.nombre AS carrera, cr.codigo AS codigo_registro,
-  occ.persona_cuil, occ.persona_nombre,
-  (occ.cargo_id IS NOT NULL AND occ.occ_hasta IS NULL) AS tiene_ocupante_vigente,
-  occ_max.ultima_hasta AS ocupacion_hasta,
-  occ_max.ultima_desde AS ocupacion_desde_ult,
-  occ_max.ultima_id_sial_rol AS ocupacion_id_sial_rol,
-  cand.tipo_origen,
-  (conc.concurso_activo IS TRUE) AS concurso_activo,
-  (conc.pendiente_autorizacion IS TRUE) AS pendiente_autorizacion,
-  (conc.tuvo_concurso_cerrado IS TRUE) AS tuvo_concurso_cerrado,
-  (alta_pend.cargo_id IS NOT NULL) AS alta_pendiente,
-  (bs.id_sial IS NOT NULL) AS en_baja_sial,
-  bs.bs_cuil, bs.bs_ayn, bs.bs_cargo_hasta, bs.mot_baja, bs.doc_resp_baja, bs_primera.bs_primera_fecha,
-  (elim_ult.cargo_id IS NOT NULL) AS ausente_ultimo_padron,
-  elim_hist.fecha_baja_padron,
-  bf.baja_estado, bf.genera_concurso AS baja_genera_concurso
+  cand.id           AS cargo_id,
+  cand.codigo,
+  cand.id_sial,
+  cand.estado,
+  cand.sub_estado,
+  cand.estado_desde,
+  cand.literal_puesto,
+  cand.especialidad_legacy,
+  h.sigla           AS hospital_sigla,
+  e.nombre          AS carrera,
+  cr.codigo         AS codigo_registro,
+  ocup.ocup_cuil,
+  ocup.ocup_nombre,
+  bs.bs_cuil,
+  bs.bs_ayn,
+  bs.bs_cargo_hasta,
+  bs.bs_mot_baja,
+  bs.bs_doc_resp_baja,
+  bs.bs_fecha_archivo,
+  bf.bf_id,
+  bf.bf_estado,
+  bf.bf_genera_concurso,
+  bf.bf_ee_baja
 FROM cand
-LEFT JOIN hospitales h   ON h.id = cand.hospital_id
-LEFT JOIN escalafones e  ON e.id = cand.escalafon_id
+JOIN bs              ON bs.id_sial    = cand.id_sial
+LEFT JOIN hospitales h   ON h.id      = cand.hospital_id
+LEFT JOIN escalafones e  ON e.id      = cand.escalafon_id
 LEFT JOIN codigos_registro cr ON cr.id = cand.codigo_registro_id
-LEFT JOIN occ            ON occ.cargo_id = cand.id
-LEFT JOIN occ_max        ON occ_max.cargo_id = cand.id
-LEFT JOIN conc           ON conc.cargo_id = cand.id
-LEFT JOIN alta_pend      ON alta_pend.cargo_id = cand.id
-LEFT JOIN bs             ON bs.id_sial = cand.id_sial
-LEFT JOIN bs_primera     ON bs_primera.id_sial = cand.id_sial
-LEFT JOIN elim_ult       ON elim_ult.cargo_id = cand.id
-LEFT JOIN elim_hist      ON elim_hist.cargo_id = cand.id
-LEFT JOIN bf             ON bf.cargo_id = cand.id`
+LEFT JOIN ocup       ON ocup.cargo_id = cand.id
+LEFT JOIN bf         ON bf.cargo_id   = cand.id
+ORDER BY bs.bs_cargo_hasta ASC NULLS LAST, cand.codigo
+`
+
+  const hoy = new Date()
+  return rows.map((r): BajaSinConcursoItem => {
+    const fechaBaja = iso(r.bs_cargo_hasta)
+    const diasDesdeBaja = fechaBaja
+      ? (() => {
+          const [y, m, d] = fechaBaja.split('-').map(Number)
+          const ref = Date.UTC(y, m - 1, d)
+          const h = Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate())
+          return Math.max(0, Math.floor((h - ref) / 86_400_000))
+        })()
+      : null
+
+    const persona =
+      r.ocup_cuil || r.ocup_nombre
+        ? { cuil: r.ocup_cuil, nombre: r.ocup_nombre }
+        : r.bs_cuil || r.bs_ayn
+          ? { cuil: r.bs_cuil, nombre: r.bs_ayn }
+          : null
+
+    return {
+      cargoId: r.cargo_id,
+      codigo: r.codigo,
+      idSial: r.id_sial,
+      hospitalSigla: r.hospital_sigla,
+      carrera: r.carrera,
+      codigoRegistro: r.codigo_registro,
+      puesto: r.literal_puesto,
+      especialidad: r.especialidad_legacy,
+      estadoCargo: r.estado as 'vigente' | 'validacion_vacante',
+      subEstado: r.sub_estado as BajaSinConcursoItem['subEstado'],
+      persona,
+      bajaSial: {
+        cargoHasta: fechaBaja,
+        motBaja: r.bs_mot_baja,
+        docRespBaja: r.bs_doc_resp_baja,
+        fechaArchivo: iso(r.bs_fecha_archivo) as string,
+      },
+      bajaFormal: r.bf_id
+        ? {
+            id: r.bf_id,
+            estado: r.bf_estado as NonNullable<BajaSinConcursoItem['bajaFormal']>['estado'],
+            generaConcurso: r.bf_genera_concurso ?? false,
+            eeBaja: r.bf_ee_baja,
+          }
+        : null,
+      diasDesdeBaja,
+    }
+  })
 }
 
-async function obtenerConteosBase(): Promise<ConteosBase> {
-  const rows = await prisma.$queryRaw<
-    Array<{
-      total_cargos: bigint
-      no_vigente: bigint
-      ocupado: bigint
-      vigente_sin_ocupante: bigint
-      validacion_vacante: bigint
-    }>
-  >`
-SELECT
-  count(*)                                                            AS total_cargos,
-  count(*) FILTER (WHERE c.estado::text = 'no_vigente')               AS no_vigente,
-  count(*) FILTER (WHERE c.estado::text = 'vigente' AND oc.tiene)     AS ocupado,
-  count(*) FILTER (WHERE c.estado::text = 'vigente' AND NOT oc.tiene) AS vigente_sin_ocupante,
-  count(*) FILTER (WHERE c.estado::text = 'validacion_vacante')       AS validacion_vacante
-FROM cargos c
-CROSS JOIN LATERAL (
-  SELECT EXISTS (SELECT 1 FROM ocupaciones o WHERE o.cargo_id = c.id AND o.hasta IS NULL) AS tiene
-) oc
-WHERE c.deleted_at IS NULL
-  AND ${sqlCargoGestionable('c')}`
-  const r = rows[0]
-  return {
-    totalCargos: Number(r?.total_cargos ?? 0),
-    noVigente: Number(r?.no_vigente ?? 0),
-    ocupado: Number(r?.ocupado ?? 0),
-    vigenteSinOcupante: Number(r?.vigente_sin_ocupante ?? 0),
-    validacionVacante: Number(r?.validacion_vacante ?? 0),
-  }
-}
-
-async function obtenerContexto(): Promise<{ contexto: ContextoIncidencias; ultimaBajaFechaArchivo: string | null }> {
+async function obtenerContexto(): Promise<ContextoIncidencias> {
   const [padron, baja] = await Promise.all([
     prisma.padronSnapshot.findFirst({
       where: { estado: 'aprobado' },
@@ -349,243 +287,93 @@ async function obtenerContexto(): Promise<{ contexto: ContextoIncidencias; ultim
     }),
   ])
   return {
-    contexto: {
-      ultimoPadron: padron
-        ? {
-            fechaAsignada: iso(padron.fechaAsignada) as string,
-            totalRegistros: padron.totalRegistros ?? 0,
-            ratioTamano: padron.ratioTamano ?? null,
-            advertenciaTamano: padron.advertenciaTamano ?? null,
-          }
-        : null,
-      ultimaBajaSial: baja
-        ? { fechaArchivo: iso(baja.fechaArchivo) as string, estado: baja.estado as 'pendiente' | 'aprobado' }
-        : null,
-    },
-    ultimaBajaFechaArchivo: baja ? iso(baja.fechaArchivo) : null,
+    ultimoPadron: padron
+      ? {
+          fechaAsignada: iso(padron.fechaAsignada) as string,
+          totalRegistros: padron.totalRegistros ?? 0,
+          ratioTamano: padron.ratioTamano ?? null,
+          advertenciaTamano: padron.advertenciaTamano ?? null,
+        }
+      : null,
+    ultimaBajaSial: baja
+      ? { fechaArchivo: iso(baja.fechaArchivo) as string, estado: baja.estado as 'pendiente' | 'aprobado' }
+      : null,
   }
 }
 
-// ─── Caché en proceso con single-flight (design §6.2) ────────────────────────
+// ─── Caché en proceso (single-flight, TTL 45s) ───────────────────────────────
 
 export const CACHE_TTL_MS = 45_000
 
-export interface CacheDeps {
-  ahora?: () => number
-  cargar?: () => Promise<SnapshotIncidencias>
-}
-
-async function cargarSnapshot(): Promise<SnapshotIncidencias> {
-  const [hechos, conteos, ctx] = await Promise.all([
-    obtenerHechosCandidatos(),
-    obtenerConteosBase(),
-    obtenerContexto(),
-  ])
-  return {
-    generadoAt: new Date(),
-    hechos,
-    conteos,
-    contexto: ctx.contexto,
-    ultimaBajaFechaArchivo: ctx.ultimaBajaFechaArchivo,
-  }
-}
-
-let cache: { valor: SnapshotIncidencias; en: number } | null = null
-let enCurso: Promise<SnapshotIncidencias> | null = null
+let cache: { valor: SnapshotBajaSinConcurso; en: number } | null = null
+let enCurso: Promise<SnapshotBajaSinConcurso> | null = null
 
 export function _resetCacheIncidencias(): void {
   cache = null
   enCurso = null
 }
 
+async function cargarSnapshot(): Promise<SnapshotBajaSinConcurso> {
+  const [items, contexto] = await Promise.all([obtenerItems(), obtenerContexto()])
+  return { generadoAt: new Date(), items, contexto }
+}
+
 export async function obtenerSnapshotIncidencias(
   opts: { refrescar?: boolean } = {},
-  deps: CacheDeps = {},
-): Promise<SnapshotIncidencias> {
-  const ahora = deps.ahora ?? Date.now
-  const cargar = deps.cargar ?? cargarSnapshot
+): Promise<SnapshotBajaSinConcurso> {
+  const ahora = Date.now
   if (!opts.refrescar && cache && ahora() - cache.en < CACHE_TTL_MS) return cache.valor
   if (enCurso) return enCurso
   const t = ahora()
-  const p = cargar().then(
-    (valor) => {
-      cache = { valor, en: t }
-      enCurso = null
-      return valor
-    },
-    (err) => {
-      enCurso = null // no se cachea el error
-      throw err
-    },
+  const p = cargarSnapshot().then(
+    (valor) => { cache = { valor, en: t }; enCurso = null; return valor },
+    (err)   => { enCurso = null; throw err },
   )
   enCurso = p
   return p
 }
 
-// ─── Construcción de ítems ───────────────────────────────────────────────────
-
-export function factsDeHecho(h: HechoRow): CargoFacts {
-  return {
-    estado: h.estado,
-    tieneOcupanteVigente: h.tiene_ocupante_vigente,
-    concursoActivo: h.concurso_activo,
-    pendienteAutorizacion: h.pendiente_autorizacion,
-    altaPendiente: h.alta_pendiente,
-    enBajaSial: h.en_baja_sial,
-    ausenteUltimoPadron: h.ausente_ultimo_padron,
-  }
-}
-
-export function construirItem(h: HechoRow, ultimaBajaFechaArchivo: string | null, hoy: Date): BajaSinConcursoItem {
-  const det = resolverDeteccion({
-    estado: h.estado,
-    estadoDesde: iso(h.estado_desde),
-    fechaBajaPadronDiff: iso(h.fecha_baja_padron),
-    ocupacionDesdeUlt: iso(h.ocupacion_desde_ult),
-    ocupacionHasta: iso(h.ocupacion_hasta),
-    enBajaSial: h.en_baja_sial,
-    bsCargoHasta: iso(h.bs_cargo_hasta),
-    bsPrimeraFecha: iso(h.bs_primera_fecha),
-    bsFechaArchivoUltima: ultimaBajaFechaArchivo,
-    ausenteUltimoPadron: h.ausente_ultimo_padron,
-  })
-  const cuil = h.persona_cuil ?? h.bs_cuil
-  const nombre = h.persona_nombre ?? h.bs_ayn
-  const referencia = det.fechaBaja ?? (det.origen === 'baja_sial' ? det.fechaDeteccion : null) ?? det.fechaPadron
-  return {
-    cargoId: h.cargo_id,
-    codigo: h.codigo,
-    idSial: h.id_sial,
-    hospitalSigla: h.hospital_sigla,
-    carrera: h.carrera,
-    codigoRegistro: h.codigo_registro ?? null,
-    puesto: h.literal_puesto,
-    especialidad: h.especialidad_legacy,
-    persona: cuil || nombre ? { cuil: cuil ?? null, nombre: nombre ?? null } : null,
-    estadoCargo: h.estado as 'vigente' | 'validacion_vacante',
-    subEstado: h.sub_estado as BajaSinConcursoItem['subEstado'],
-    estadoDesde: iso(h.estado_desde),
-    deteccion: {
-      ...det,
-      texto: describirDeteccion(det),
-      motBaja: h.mot_baja,
-      docRespBaja: h.doc_resp_baja,
-    },
-    diasSinCubrir: calcularDiasSinCubrir(referencia, hoy),
-    bajaFormal: h.baja_estado
-      ? {
-          estado: h.baja_estado as NonNullable<BajaSinConcursoItem['bajaFormal']>['estado'],
-          generaConcurso: h.baja_genera_concurso ?? false,
-        }
-      : null,
-    tuvoConcursoCerrado: h.tuvo_concurso_cerrado,
-  }
-}
-
-// Todos los ítems del grupo baja_sin_concurso, sin filtrar ni paginar.
-export function itemsBajaSinConcurso(snap: SnapshotIncidencias, hoy = new Date()): BajaSinConcursoItem[] {
-  const out: BajaSinConcursoItem[] = []
-  for (const h of snap.hechos) {
-    if (clasificarCargo(factsDeHecho(h)) === 'baja_sin_concurso') {
-      out.push(construirItem(h, snap.ultimaBajaFechaArchivo, hoy))
-    }
-  }
-  return out
-}
-
-export interface ConciliacionGrupos {
-  totalCargos: number
-  dotacion: number
-  grupos: Record<GrupoCargo, number>
-  sumaGrupos: number
-  porOrigenBaja: { baja_sial: number; padron: number }
-}
-
-export function calcularConciliacion(snap: SnapshotIncidencias, hoy = new Date()): ConciliacionGrupos {
-  const cand = contarGrupos(snap.hechos.map(factsDeHecho))
-  const grupos: Record<GrupoCargo, number> = {
-    ...cand,
-    no_vigente: snap.conteos.noVigente,
-    ocupado: snap.conteos.ocupado,
-  }
-  const sumaGrupos = Object.values(grupos).reduce((a, b) => a + b, 0)
-  const items = itemsBajaSinConcurso(snap, hoy)
-  return {
-    totalCargos: snap.conteos.totalCargos,
-    dotacion: snap.conteos.totalCargos - snap.conteos.noVigente,
-    grupos,
-    sumaGrupos,
-    porOrigenBaja: {
-      baja_sial: items.filter((i) => i.deteccion.origen === 'baja_sial').length,
-      padron: items.filter((i) => i.deteccion.origen === 'padron').length,
-    },
-  }
-}
-
-// ─── Listado filtrado / paginado ─────────────────────────────────────────────
+// ─── Filtrado / paginado ─────────────────────────────────────────────────────
 
 export interface FiltrosBajaSinConcurso {
   page: number
   pageSize: number
   q?: string
   carrera?: string
-  origen?: 'baja_sial' | 'padron'
   estadoCargo?: 'vigente' | 'validacion_vacante'
 }
 
-export function filtrarPorQueryYCarrera<T extends { carrera: string | null; codigoRegistro?: string | null }>(
-  items: T[],
-  f: { q?: string; carrera?: string },
-  campos: (i: T) => { nombre?: string | null; cuil?: string | null; idSial?: string | null; codigo?: string | null },
-): T[] {
+export function listarBajaSinConcursoDeSnapshot(
+  snap: SnapshotBajaSinConcurso,
+  f: FiltrosBajaSinConcurso,
+) {
   const qNorm = normalizarBusqueda(f.q)
-  return items.filter((i) => {
-    if (!coincideCarrera(f.carrera, i.carrera, i.codigoRegistro)) return false
-    return coincideBusqueda(campos(i), qNorm)
+
+  const filtrados = snap.items.filter((i) => {
+    if (f.estadoCargo && i.estadoCargo !== f.estadoCargo) return false
+    if (f.carrera && (i.codigoRegistro ?? '').trim() !== f.carrera) return false
+    return coincideBusqueda(
+      { nombre: i.persona?.nombre, cuil: i.persona?.cuil, idSial: i.idSial, codigo: i.codigo },
+      qNorm,
+    )
   })
-}
 
-export const camposBusquedaBaja = (i: BajaSinConcursoItem) => ({
-  nombre: i.persona?.nombre,
-  cuil: i.persona?.cuil,
-  idSial: i.idSial,
-  codigo: i.codigo,
-})
-
-// días desc (nulls al final), desempate por código.
-export function ordenarBajas(items: BajaSinConcursoItem[]): BajaSinConcursoItem[] {
-  return [...items].sort((a, b) => {
-    if (a.diasSinCubrir == null && b.diasSinCubrir != null) return 1
-    if (a.diasSinCubrir != null && b.diasSinCubrir == null) return -1
-    if (a.diasSinCubrir != null && b.diasSinCubrir != null && a.diasSinCubrir !== b.diasSinCubrir) {
-      return b.diasSinCubrir - a.diasSinCubrir
-    }
-    return (a.codigo ?? '').localeCompare(b.codigo ?? '')
-  })
-}
-
-export function listarBajaSinConcursoDeSnapshot(snap: SnapshotIncidencias, f: FiltrosBajaSinConcurso, hoy = new Date()) {
-  const base = filtrarPorQueryYCarrera(itemsBajaSinConcurso(snap, hoy), f, camposBusquedaBaja).filter(
-    (i) => !f.estadoCargo || i.estadoCargo === f.estadoCargo,
-  )
-  const porOrigen = {
-    baja_sial: base.filter((i) => i.deteccion.origen === 'baja_sial').length,
-    padron: base.filter((i) => i.deteccion.origen === 'padron').length,
-  }
-  const filtrados = ordenarBajas(base.filter((i) => !f.origen || i.deteccion.origen === f.origen))
   const total = filtrados.length
   const pages = Math.max(1, Math.ceil(total / f.pageSize))
   const start = (f.page - 1) * f.pageSize
+
   return {
     items: filtrados.slice(start, start + f.pageSize),
     meta: { total, page: f.page, pageSize: f.pageSize, pages },
     generadoAt: snap.generadoAt.toISOString(),
-    porOrigen,
     contexto: snap.contexto,
   }
 }
 
-export async function listarBajaSinConcurso(f: FiltrosBajaSinConcurso, opts: { refrescar?: boolean } = {}) {
+export async function listarBajaSinConcurso(
+  f: FiltrosBajaSinConcurso,
+  opts: { refrescar?: boolean } = {},
+) {
   const snap = await obtenerSnapshotIncidencias(opts)
   return listarBajaSinConcursoDeSnapshot(snap, f)
 }
