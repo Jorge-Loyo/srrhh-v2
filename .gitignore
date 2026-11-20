@@ -60,6 +60,10 @@ fix_*.js
 debug_*.mjs
 debug_*.py
 analisis_*.sql
+tmp_*.py
+tmp_*.ts
+tmp_*.js
+tmp_*.txt
 .commitmsg
 
 # Archivos temporales
