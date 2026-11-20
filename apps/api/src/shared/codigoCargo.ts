@@ -45,8 +45,8 @@ export interface PuestoCargoResuelto {
 
 export interface ParamsPrefijoCargo {
   escalafon: string | null
-  unificadorPuesto: string | null
-  agrupador: string | null
+  /** Literal del puesto (texto libre del cargo). Reemplaza agrupador/unificadorPuesto. */
+  literalPuesto?: string | null
   puestoCargo?: PuestoCargoResuelto | null
   // Jefe de Departamento/División/Sección/Unidad de CPH: el catálogo no
   // distingue Planta/Guardia para estos 4 puestos (modalidad='ambos'). Heurística
@@ -73,53 +73,42 @@ export function prefijoDeCargo(params: ParamsPrefijoCargo): string {
 
 /** Generador con acrónimos MSGC (FEAT-004). Solo con NOMENCLATURA_CODIGO_CARGO=msgc (base ya recodificada). */
 export function prefijoDeCargoMsgc(params: ParamsPrefijoCargo): string {
-  const esc  = normStr(params.escalafon)
-  const unif = normStr(params.unificadorPuesto)
-  const agr  = normStr(params.agrupador)
-  const pc   = params.puestoCargo
+  const esc = normStr(params.escalafon)
+  const lit = normStr(params.literalPuesto)
+  const pc  = params.puestoCargo
 
-  // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
-  // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
-  // como modalidad 'pof' (bug histórico del import).
   const nombrePc = normStr(pc?.nombre)
-  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
-  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
+  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || lit.includes('GUARDIA')
+  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : lit.includes('POU'))
 
-  // Nombre canónico del catálogo cuando está disponible — más confiable que
-  // el agrupador de texto libre del Excel para distinguir Director/Jefe.
-  const nombrePuesto = pc ? normStr(pc.nombre) : agr
-  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (unif.includes('JEFATURA') || agr.includes('JEFE') || agr.includes('DIRECTOR'))
+  const nombrePuesto = pc ? normStr(pc.nombre) : lit
+  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (lit.includes('JEFATURA') || lit.includes('JEFE') || lit.includes('DIRECTOR'))
 
   const cr = params.codigoRegistro?.trim() ? params.codigoRegistro.trim().toUpperCase() : crDesdeEscalafon(esc)
 
   if (cr !== null) {
-    const literalPuesto = pc ? pc.nombre : (params.agrupador ?? '')
+    const litPuesto = pc ? pc.nombre : (params.literalPuesto ?? '')
     let acron: string | null = null
     if (cr === '37' || cr === '22') {
-      // CPH: la jerarquía sale del nombre del puesto; Planta/Guardia de la modalidad.
       const esDirector = esConduccion && nombrePuesto.includes('DIRECTOR')
       const esSub = esDirector && nombrePuesto.includes('SUB')
-      const esJefe = !esDirector && (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE'))
+      const esJefe = !esDirector && (esConduccion || lit.includes('JEFATURA') || lit.includes('JEFE'))
       let planta: string = esPou ? 'Guardia' : 'Planta'
-      // Fallback: jefatura con catálogo sin resolver (modalidad='ambos', sin "guardia" en el
-      // nombre) — heurística de especialidad. Sin ningún dato, Planta (CPH-J-POF).
       if (esJefe && !esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
         planta = params.tieneEspecialidad ? 'Planta' : 'Guardia'
       }
       acron = acronimoMsgc({
         cr,
-        literalPuesto,
+        literalPuesto: litPuesto,
         plantaGuardia: planta,
         nivelConduccion: esSub ? 'SDHOS' : esDirector ? 'DHOS' : esJefe ? 'SECC' : '',
         tieneLineaArbol: params.tieneLineaArbol ?? (esDirector || esJefe),
       })
     } else {
-      const conduccionExtendida =
-        esConduccion || agr.includes('JEFE') || unif.includes('JEFE') || unif.includes('JEFATURA')
-        || agr.includes('GERENCIAL') || unif.includes('GERENCIAL')
+      const conduccionExtendida = esConduccion || lit.includes('JEFE') || lit.includes('JEFATURA') || lit.includes('GERENCIAL')
       acron = acronimoMsgc({
         cr,
-        literalPuesto,
+        literalPuesto: litPuesto,
         plantaGuardia: null,
         nivelConduccion: '',
         tieneLineaArbol: params.tieneLineaArbol ?? conduccionExtendida,
@@ -166,22 +155,14 @@ function prefijoLegacy(esc: string): string {
 // producción (CPH-POF/POU, TEC-POF/POU, RG-CG, AS-MIN/SS/DG/DGA, RES, PT, CT, PG, RME, MO).
 // Retirar cuando la base nueva (recodificada) esté en producción y se haya pasado a `msgc`.
 export function prefijoDeCargoLegacy(params: ParamsPrefijoCargo): string {
-  const esc  = normStr(params.escalafon)
-  const unif = normStr(params.unificadorPuesto)
-  const agr  = normStr(params.agrupador)
-  const pc   = params.puestoCargo
-  // POU (guardia) vs POF (planta). "guardia" en el NOMBRE del puesto o en el
-  // unificador manda SIEMPRE, aunque el catálogo tenga el puesto mal cargado
-  // como modalidad 'pof' (bug histórico del import: muchos puestos "...de
-  // guardia" quedaron pof → su código salía CPH-POF-* en vez de CPH-POU-*).
-  // Una guardia es POU por definición, así que el literal del puesto prevalece.
+  const esc = normStr(params.escalafon)
+  const lit = normStr(params.literalPuesto)
+  const pc  = params.puestoCargo
   const nombrePc = normStr(pc?.nombre)
-  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || unif.includes('GUARDIA')
-  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : unif.includes('POU'))
-  // Nombre canónico del catálogo cuando está disponible — más confiable que
-  // el agrupador de texto libre del Excel para distinguir Director/Jefe.
-  const nombrePuesto = pc ? normStr(pc.nombre) : agr
-  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (unif.includes('JEFATURA') || agr.includes('JEFE') || agr.includes('DIRECTOR'))
+  const esGuardiaPorNombre = nombrePc.includes('GUARDIA') || lit.includes('GUARDIA')
+  const esPou = esGuardiaPorNombre || (pc ? pc.modalidad === 'pou' : lit.includes('POU'))
+  const nombrePuesto = pc ? normStr(pc.nombre) : lit
+  const esConduccion = pc ? pc.tipoPuesto === 'conduccion' : (lit.includes('JEFATURA') || lit.includes('JEFE') || lit.includes('DIRECTOR'))
 
   // ── CPH (Médicos) ──────────────────────────────────────────────────────────
   // "Nueva Carrera Prof. Hosp" (escalafón estable código 22, ver migración
@@ -194,12 +175,8 @@ export function prefijoDeCargoLegacy(params: ParamsPrefijoCargo): string {
     || esc.includes('PROF. HOSP') || esc.includes('PROFESIONAL HOSP')) {
     if (esConduccion && nombrePuesto.includes('DIRECTOR') && nombrePuesto.includes('SUB')) return 'CPH-SD'
     if (esConduccion && nombrePuesto.includes('DIRECTOR'))                                  return 'CPH-D'
-    if (esConduccion || unif.includes('JEFATURA') || agr.includes('JEFE')) {
-      // Jefe de guardia vs jefe de planta — se determina por la modalidad.
+    if (esConduccion || lit.includes('JEFATURA') || lit.includes('JEFE')) {
       if (esPou) return 'CPH-J-POU'
-      // Fallback: catálogo sin resolver (modalidad='ambos', sin "guardia" en
-      // el nombre) — usar la heurística de especialidad (ver comentario del
-      // parámetro tieneEspecialidad).
       if (!esGuardiaPorNombre && pc?.modalidad === 'ambos' && params.tieneEspecialidad !== undefined) {
         return params.tieneEspecialidad ? 'CPH-J-POF' : 'CPH-J-POU'
       }
@@ -214,10 +191,6 @@ export function prefijoDeCargoLegacy(params: ParamsPrefijoCargo): string {
 
   // ── CEETPS / Técnicos ──────────────────────────────────────────────────────
   if (esc.includes('CEETPS') || esc.includes('TEC')) {
-    // Jefatura de un área/depto técnico → prefijo distinguible (como CPH-J-*),
-    // para que el filtro "Solo jefes" la reconozca por el código aunque esté
-    // vacante (el JCAT que la distinguiría vive en la ocupación, que no existe
-    // en un cargo vacante). Agregado en S24 al derivar jefaturas técnicas.
     if (esConduccion) return esPou ? 'TEC-J-POU' : 'TEC-J-POF'
     return esPou ? 'TEC-POU' : 'TEC-POF'
   }
@@ -228,18 +201,18 @@ export function prefijoDeCargoLegacy(params: ParamsPrefijoCargo): string {
   // dotacion-rrhh/Doc/REGLAS_NEGOCIO.MD §13.1 ("83 | Escalafón General" /
   // "83 | Servicios"), detectado en vivo tras el `prisma migrate reset`.
   if (esc.includes('GENERAL') || esc === 'EG' || esc.includes('ADMINISTRATIVA')) {
-    if (agr.includes('GERENCIAL') || unif.includes('GERENCIAL')) return 'EG-G'
-    if (agr.includes('DIRECTOR') || unif.includes('DIRECTOR'))   return 'EG-D'
-    if (agr.includes('JEFE') || unif.includes('JEFE'))           return 'EG-J'
+    if (lit.includes('GERENCIAL'))                                        return 'EG-G'
+    if (lit.includes('DIRECTOR'))                                         return 'EG-D'
+    if (lit.includes('JEFE'))                                             return 'EG-J'
     return 'EG'
   }
 
   // ── Autoridades Superiores ─────────────────────────────────────────────────
   if (esc.includes('AUTORIDAD') || esc === 'AS') {
-    if (agr.includes('MINISTRO') || unif.includes('MINISTRO'))           return 'AS-MIN'
-    if (agr.includes('SUBSECRETAR') || unif.includes('SUBSECRETAR'))     return 'AS-SS'
-    if (agr.includes('ADJUNTA') || unif.includes('ADJUNTA'))             return 'AS-DGA'
-    if (agr.includes('DIRECTOR GENERAL') || unif.includes('DIR. GENERAL')) return 'AS-DG'
+    if (lit.includes('MINISTRO'))                                         return 'AS-MIN'
+    if (lit.includes('SUBSECRETAR'))                                      return 'AS-SS'
+    if (lit.includes('ADJUNTA'))                                          return 'AS-DGA'
+    if (lit.includes('DIRECTOR GENERAL') || lit.includes('DIR. GENERAL')) return 'AS-DG'
     return 'AS-DG'
   }
 

@@ -222,10 +222,9 @@ export async function derivarCargosConduccionService(
     const puestoId = await resolverPuestoConduccion(escalafon.id, tipoInfo.literal)
     const prefijo = prefijoDeCargo({
       escalafon: escalafon.nombre,
-      unificadorPuesto: 'jefatura',
-      agrupador: tipoInfo.literal,
+      literalPuesto: tipoInfo.literal,
       puestoCargo: { nombre: tipoInfo.literal, tipoPuesto: 'conduccion', modalidad: 'pof' },
-      tieneLineaArbol: true, // el cargo nace de una línea del organigrama
+      tieneLineaArbol: true,
     })
     // Derivación automática del código de registro desde el escalafón del nodo.
     // El organigrama no trae texto de CR → se pasa null y la cascada entra por

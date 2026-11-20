@@ -88,12 +88,10 @@ interface OrganigramaNodo {
 // decenas de cargos por árbol (los que matchean codigoRepa de esta jerarquía
 // puntual), no vale la pena un where anidado con 4 ramas de OR distintas.
 //
-// ── Identificación de jefatura por JCAT (reemplaza unificador_puesto) ────────
-// El pipeline v2 del Dotaneitor (Sprint 22) ELIMINÓ `unificador_puesto`, que es
-// lo que esta función usaba antes para decidir si un cargo es de conducción.
-// Ahora se usa el JCAT (`ocupaciones.codigo_jefaturas`), que es el identificador
-// real de la jefatura y el que el pipeline v2 sí conserva (lo mapea a
-// `cargo_jefatura` vía la tabla `jcat_cargo_jefatura`). Las familias:
+// ── Identificación de jefatura por JCAT ────────────────────────────────────
+// El pipeline v2 del Dotaneitor (Sprint 22) usa JCAT para identificar jefaturas.
+// El JCAT (`ocupaciones.codigo_jefaturas`) es el identificador real de la
+// jefatura, mapeado a `cargo_jefatura` vía `jcat_cargo_jefatura`. Familias:
 //   P = Carrera Profesional de la Salud (cod_reg 37)
 //   G = Régimen Gerencial sobre carrera profesional (cod_reg 37)
 //   Z = Jefaturas operativas: enfermería/administrativo/técnicos (cod_reg 83/85/87)
@@ -340,7 +338,6 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
       id: true,
       codigo: true,
       literalPuesto: true,
-      unificadorPuesto: true,
       especialidadLegacy: true,
       especialidadPuesto: { select: { nombre: true } },
       escalafon: { select: { nombre: true } },
@@ -369,9 +366,9 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         },
       },
     },
-    // Mismo orden que la app vieja (codigo_reparticion, codigo_registro, unificador_puesto)
-    // para que, si dos cargos matchean el mismo nodo, gane siempre el mismo.
-    orderBy: [{ codigoRepa: 'asc' }, { unificadorPuesto: 'asc' }],
+    // Orden: codigoRepa primero para que cargos de la misma repartición
+    // queden juntos; literalPuesto como desempate secundario.
+    orderBy: [{ codigoRepa: 'asc' }, { literalPuesto: 'asc' }],
   })
 
   // Ordenar por rango jerárquico de conducción: cuando una repartición tiene

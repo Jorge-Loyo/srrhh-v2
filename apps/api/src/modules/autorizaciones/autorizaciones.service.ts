@@ -605,8 +605,6 @@ async function _aprobarAltaCargo(
 
     const prefijo = prefijoDeCargo({
       escalafon:        solicitud.escalafon.nombre,
-      unificadorPuesto: solicitud.unificadorPuesto ?? null,
-      agrupador:        solicitud.agrupador ?? null,
       puestoCargo:      solicitud.puestoCargo,
       tieneEspecialidad: Boolean(solicitud.especialidadPuestoId),
       codigoRegistro:   solicitud.codigoRegistro?.codigo ?? null,
@@ -643,8 +641,6 @@ async function _aprobarAltaCargo(
         especialidadPuestoId: solicitud.especialidadPuestoId,
         literalPuesto:    solicitud.literalPuesto,
         especialidadLegacy: solicitud.especialidad ?? null,
-        agrupador:        solicitud.agrupador ?? null,
-        unificadorPuesto: solicitud.unificadorPuesto ?? null,
         regimen:          solicitud.regimen ?? null,
         expediente:       solicitud.expediente ?? null,
         fechaDesde:       solicitud.desde ?? null,

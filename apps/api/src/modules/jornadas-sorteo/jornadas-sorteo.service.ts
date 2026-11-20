@@ -24,14 +24,13 @@ function derivarCategoria(params: {
   codigo: string | null
   literalPuesto: string | null
   escalafon: string | null
-  unificadorPuesto: string | null
 }): { tipoCargo: 'conduccion' | 'ejecucion'; modalidad: 'pou' | 'pof'; esMedico: boolean } {
   const esConduccion =
     esConduccionPorPrefijo(params.codigo) || esConduccionPorLiteral(params.literalPuesto)
   const cod = normStr(params.codigo)
-  const unif = normStr(params.unificadorPuesto)
+  const lit = normStr(params.literalPuesto)
   const modalidad: 'pou' | 'pof' =
-    cod.includes('POU') || unif.includes('POU') || unif.includes('GUARDIA') ? 'pou' : 'pof'
+    cod.includes('POU') || lit.includes('POU') || lit.includes('GUARDIA') ? 'pou' : 'pof'
   const esc = normStr(params.escalafon)
   const esMedico =
     esc.includes('MEDICO') ||
@@ -56,7 +55,6 @@ const concursoSelect = {
         select: {
           codigo: true,
           literalPuesto: true,
-          unificadorPuesto: true,
           escalafon: { select: { nombre: true } },
         },
       },
@@ -82,7 +80,6 @@ function mapConcurso(c: {
     cargo: {
       codigo: string | null
       literalPuesto: string | null
-      unificadorPuesto: string | null
       escalafon: { nombre: string } | null
     } | null
     hospital: { sigla: string; nombre: string } | null
@@ -103,7 +100,6 @@ function mapConcurso(c: {
     codigo: c.concurso?.cargo?.codigo ?? null,
     literalPuesto: c.puestoSolicitado ?? c.concurso?.cargo?.literalPuesto ?? null,
     escalafon: c.concurso?.cargo?.escalafon?.nombre ?? null,
-    unificadorPuesto: c.concurso?.cargo?.unificadorPuesto ?? null,
   })
 
   return {

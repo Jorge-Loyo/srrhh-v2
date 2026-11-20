@@ -11,8 +11,6 @@ export const createSolicitudAltaSchema = z.object({
   // se completan en el backend a partir del nombre canónico de estos ids.
   puestoCargoId:       z.string().uuid(),
   especialidadPuestoId: z.string().uuid().optional(),
-  agrupador:        z.string().trim().max(150).optional(),
-  unificadorPuesto: z.string().trim().max(200).optional(),
   regimen:          z.string().trim().max(50).optional(),
   expediente:       z.string().trim().max(150).optional(),
   desde:            fecha.optional(),

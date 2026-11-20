@@ -1,9 +1,7 @@
 import { z } from 'zod'
-import { TipoConcurso } from '@srrhh/types'
 // MotivoConcurso del cliente Prisma (nuevo_cargo/alta_por_baja/retencion_de_cargo/
-// cobertura_dotacion, S-tipo-concurso) — el dropdown "Origen" de la baja lo manda
-// para que el concurso que se genera guarde el tipo. No confundir con el
-// MotivoConcurso legacy de @srrhh/types.
+// cobertura_dotacion) — el dropdown "Origen" de la baja lo manda para que el
+// concurso que se genera guarde el motivo.
 import { MotivoConcurso } from '@prisma/client'
 
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD requerido')
@@ -43,29 +41,20 @@ export const createBajaSchema = z
     tipificadorOrigen: z.string().trim().max(200).optional(),
     // opcional en borrador — el usuario decide en paso 2
     generaConcurso: z.boolean().optional(),
+    // Cuando generaConcurso = false: destino del cargo ('vigente_vacante' | 'no_vigente')
+    destinoCargo: z.enum(['vigente_vacante', 'no_vigente']).optional(),
     eeBaja: z.string().trim().max(500).optional(),
     partida: z.string().trim().max(100).optional(),
     docRespaldatoria: z.string().trim().max(500).optional(),
     fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
     cargaHoraria: z.coerce.number().int().min(1).max(99).optional(),
-    tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
     motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
-    escalafonId: z.string().uuid().optional(),
     observaciones: z.string().trim().max(2000).optional(),
     // Especialidad elegida cuando el cargo la trae vacía — se persiste en la
     // baja y alimenta como semilla la carátula del concurso que se genere.
     especialidad: z.string().trim().max(200).optional().nullable(),
     estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
   })
-  // Solo validar concurso cuando NO es borrador
-  .refine(
-    (d) => d.estado === 'resolucion_a_la_firma' || !d.generaConcurso || !!d.tipoConcurso,
-    { message: 'tipoConcurso es requerido cuando generaConcurso es true', path: ['tipoConcurso'] }
-  )
-  .refine(
-    (d) => d.tipoConcurso !== TipoConcurso.CEETPS || !!d.escalafonId,
-    { message: 'escalafonId es requerido cuando tipoConcurso es ceetps', path: ['escalafonId'] }
-  )
 
 export type CreateBajaBody = z.infer<typeof createBajaSchema>
 
@@ -78,30 +67,19 @@ const updateBajaBase = z.object({
   motivo: z.string().trim().max(500).optional(),
   tipificadorOrigen: z.string().trim().max(200).optional(),
   generaConcurso: z.boolean().optional(),
+  destinoCargo: z.enum(['vigente_vacante', 'no_vigente']).optional(),
   eeBaja: z.string().trim().max(500).optional(),
   partida: z.string().trim().max(100).optional(),
   docRespaldatoria: z.string().trim().max(500).optional(),
   fechaPaseParalelo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
   cargaHoraria: z.coerce.number().int().min(1).max(99).optional(),
-  tipoConcurso: z.nativeEnum(TipoConcurso).optional(),
   motivoConcurso: z.nativeEnum(MotivoConcurso).optional(),
-  escalafonId: z.string().uuid().optional(),
   observaciones: z.string().trim().max(2000).optional(),
-  // Especialidad elegida cuando el cargo la trae vacía — se persiste en la
-  // baja y alimenta como semilla la carátula del concurso que se genere.
   especialidad: z.string().trim().max(200).optional().nullable(),
   estado: z.enum(['resolucion_a_la_firma', 'pendiente', 'confirmada', 'anulada']).optional(),
 })
 
 export const updateBajaSchema = updateBajaBase
-  .refine(
-    (d) => !d.generaConcurso || !d.estado || d.estado === 'resolucion_a_la_firma' || !!d.tipoConcurso,
-    { message: 'tipoConcurso es requerido cuando generaConcurso es true y se confirma', path: ['tipoConcurso'] }
-  )
-  .refine(
-    (d) => d.tipoConcurso !== TipoConcurso.CEETPS || !!d.escalafonId,
-    { message: 'escalafonId es requerido cuando tipoConcurso es ceetps', path: ['escalafonId'] }
-  )
 
 export type UpdateBajaBody = z.infer<typeof updateBajaSchema>
 

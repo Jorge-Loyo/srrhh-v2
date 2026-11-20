@@ -105,7 +105,8 @@ export async function createConcursoTx(
       motivo: body.motivo ?? null,
       motivoConcurso: body.motivoConcurso ?? null,
       expediente: body.expediente ?? null,
-      tipoConcurso: body.tipoConcurso,
+      // tipoConcurso puede ser null cuando viene de una baja: se define en Etapa 1
+      tipoConcurso: body.tipoConcurso ?? null,
       registradoPorId: usuarioId,
     },
   })

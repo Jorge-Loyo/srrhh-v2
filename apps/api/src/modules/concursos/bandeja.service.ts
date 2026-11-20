@@ -75,7 +75,7 @@ export async function listBandejaConcursosService(query: BandejaConcursosQuery) 
     : undefined
 
   const where: Prisma.ConcursoWhereInput = {
-    // La bandeja es de concursos reales; `sin_concurso` no se lista.
+    // La bandeja lista solo concursos reales (cph o ceetps).
     tipoConcurso: tipo ?? { in: ['cph', 'ceetps'] },
     ...(hospitalId && { hospitalId }),
     ...(motivo && { motivoConcurso: motivo as never }),

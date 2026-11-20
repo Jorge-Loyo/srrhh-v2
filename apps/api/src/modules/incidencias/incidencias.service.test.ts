@@ -228,8 +228,6 @@ describe('aprobarDiffNuevoService — Opción A §5.3 (padron_historico + KPI de
       cargo: {
         literalPuesto: 'Médico',
         especialidadLegacy: 'Clínica',
-        agrupador: null,
-        unificadorPuesto: null,
         hospital: { sigla: 'HOSP' },
         escalafon: { nombre: 'Profesional' },
       },

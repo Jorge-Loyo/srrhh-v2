@@ -48,7 +48,6 @@ export type TipoDiff = (typeof TipoDiff)[keyof typeof TipoDiff]
 export const TipoConcurso = {
   CPH: 'cph',
   CEETPS: 'ceetps',
-  SIN_CONCURSO: 'sin_concurso',
 } as const
 export type TipoConcurso = (typeof TipoConcurso)[keyof typeof TipoConcurso]
 
@@ -338,7 +337,7 @@ export interface Concurso {
   fechaVacante: string
   motivo: string | null
   expediente: string | null
-  tipoConcurso: TipoConcurso
+  tipoConcurso: TipoConcurso | null
   motivoConcurso: string | null
   // Paso 2a: fecha en que SGRASV autorizó un concurso de cargo nuevo (null = sin autorizar)
   autorizadoAt?: string | null
@@ -855,7 +854,7 @@ export interface SolicitudAltaCargoCreado {
   especialidad: string | null
   codigoRegistro: string | null
   // Concurso del cargo (null si no tiene). detalleId = ConcursoCph.id / ConcursoCeetps.id.
-  concurso: { tipo: 'cph' | 'ceetps' | 'sin_concurso'; detalleId: string | null } | null
+  concurso: { tipo: 'cph' | 'ceetps'; detalleId: string | null } | null
 }
 
 export interface RoleJerarquia {
@@ -1539,8 +1538,7 @@ export interface ConcursoCeetpsFilters {
 export interface ConcursoBandejaItem {
   // id del Concurso base (no de la extensión)
   id: string
-  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)
-  cargoId: string
+  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)  cargoId: string
   hospitalId: string
   hospitalSigla: string | null
   // Carrera/Puesto: literalPuesto del cargo (snapshot) con fallback al puesto
@@ -1626,7 +1624,6 @@ export interface CreateCargoRequest {
 }
 
 // S5-4 — POST /api/v1/bajas
-// S5-5: tipoConcurso requerido cuando generaConcurso = true
 export interface CreateBajaRequest {
   cargoId: string
   hospitalId: string
@@ -1636,8 +1633,8 @@ export interface CreateBajaRequest {
   motivo?: string
   tipificadorOrigen?: string
   generaConcurso?: boolean
-  tipoConcurso?: TipoConcurso
-  escalafonId?: string
+  // Cuando generaConcurso = false: destino del cargo
+  destinoCargo?: 'vigente_vacante' | 'no_vigente'
   especialidad?: string | null
   observaciones?: string
 }

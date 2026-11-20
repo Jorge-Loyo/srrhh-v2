@@ -4,7 +4,6 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type { BajasQuery, CamposDiferidosBody, CreateBajaBody, VinculacionQuery } from './bajas.schema.js'
 import { createConcursoTx } from '../concursos/concursos.service.js'
-import { TipoConcurso } from '@srrhh/types'
 import { datosTrasConfirmar } from './bajas.validacion.helpers.js'
 import { recalcularSubEstado } from '../cargos/subEstado.repo.js'
 
@@ -171,16 +170,8 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
       // semilla la carátula del concurso que se genere.
       const especialidadBaja = body.especialidad ?? baja.especialidad ?? undefined
 
-      if (generaConcurso && body.tipoConcurso) {
-        // Con concurso: cargo pasa a vigente (vacante esperando designación)
-        if (body.tipoConcurso === TipoConcurso.CPH) {
-          // PS16D: 'desierto' ya no es un estado — una ronda desierta queda
-          // registrada en concursoCphDesierto con estado='activo'+suspendido=true
-          const abierto = await tx.concursoCph.findFirst({
-            where: { cargoId: baja.cargoId, estado: { not: 'finalizado' }, suspendido: false },
-          })
-          if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
-        }
+    if (generaConcurso) {
+        // Con concurso: cargo pasa a vigente vacante (sub_estado 'concurso' lo setea createConcursoTx)
         await tx.cargo.update({
           where: { id: baja.cargoId },
           data: { estado: 'vigente', estadoDesde: new Date() },
@@ -200,23 +191,32 @@ export async function updateBajaService(id: string, body: CreateBajaBody, usuari
             fechaVacante: fechaVacanteUpdate,
             motivo: body.motivo ?? baja.motivo ?? undefined,
             motivoConcurso: body.motivoConcurso,
-            tipoConcurso: body.tipoConcurso,
-            escalafonId: body.escalafonId,
+            // tipoConcurso null: se define en Etapa 1 del concurso
+            tipoConcurso: undefined,
             fechaBaja: fechaVacanteUpdate,
             eeBaja: body.eeBaja ?? baja.eeBaja ?? undefined,
-            // Semilla de la carátula: la especialidad de la baja. El usuario
-            // puede cambiarla después en la caratulación del concurso.
             especialidadSolicitada: especialidadBaja,
           },
           usuarioId,
           id
         )
       } else {
-        // Sin concurso: cargo pasa a no_vigente (baja definitiva) -> sub_estado null
-        await tx.cargo.update({
-          where: { id: baja.cargoId },
-          data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
-        })
+        // Sin concurso: destino del cargo según lo que eligió el operador
+        const destino = body.destinoCargo ?? 'no_vigente'
+        if (destino === 'vigente_vacante') {
+          // Cargo queda vigente vacante (ej. se cubre por designación directa)
+          const subEstado = await recalcularSubEstado(tx, baja.cargoId, 'vigente')
+          await tx.cargo.update({
+            where: { id: baja.cargoId },
+            data: { estado: 'vigente', estadoDesde: new Date(), subEstado },
+          })
+        } else {
+          // Cargo pasa a no vigente (baja definitiva)
+          await tx.cargo.update({
+            where: { id: baja.cargoId },
+            data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
+          })
+        }
       }
 
       // En ambos casos la baja queda confirmada automáticamente
@@ -882,16 +882,8 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
     // S5-5/S5-7: aplicar lógica de negocio según genera_concurso
     // generaConcurso puede ser undefined si el borrador no pasó por paso 2 —
     // en ese caso tratarlo como false (baja sin concurso) hasta que se confirme
-    if (body.generaConcurso === true && body.tipoConcurso) {
-      // Con concurso: cargo pasa a vigente (vacante esperando designación)
-      if (body.tipoConcurso === TipoConcurso.CPH) {
-        // PS16D: 'desierto' ya no es un estado — una ronda desierta queda
-        // registrada en concursoCphDesierto con estado='activo'+suspendido=true
-        const abierto = await tx.concursoCph.findFirst({
-          where: { cargoId: body.cargoId, estado: { not: 'finalizado' }, suspendido: false },
-        })
-        if (abierto) throw AppError.conflict('Ya existe un concurso CPH abierto para este cargo')
-      }
+    if (body.generaConcurso === true) {
+      // Con concurso: cargo pasa a vigente vacante (sub_estado 'concurso' lo setea createConcursoTx)
       await tx.cargo.update({
         where: { id: body.cargoId },
         data: { estado: 'vigente', estadoDesde: new Date() },
@@ -909,23 +901,30 @@ export async function createBajaService(body: CreateBajaBody, usuarioId: string)
           fechaVacante: fechaVacanteCreate,
           motivo: body.motivo,
           motivoConcurso: body.motivoConcurso,
-          tipoConcurso: body.tipoConcurso,
-          escalafonId: body.escalafonId,
+          // tipoConcurso null: se define en Etapa 1 del concurso
+          tipoConcurso: undefined,
           fechaBaja: fechaVacanteCreate,
           eeBaja: body.eeBaja,
-          // Semilla de la carátula: la especialidad de la baja. El usuario
-          // puede cambiarla después en la caratulación del concurso.
           especialidadSolicitada: body.especialidad ?? undefined,
         },
         usuarioId,
         baja.id
       )
     } else {
-      // Sin concurso: cargo pasa a no_vigente (baja definitiva) -> sub_estado null
-      await tx.cargo.update({
-        where: { id: body.cargoId },
-        data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
-      })
+      // Sin concurso: destino del cargo según lo que eligió el operador
+      const destino = body.destinoCargo ?? 'no_vigente'
+      if (destino === 'vigente_vacante') {
+        const subEstado = await recalcularSubEstado(tx, body.cargoId, 'vigente')
+        await tx.cargo.update({
+          where: { id: body.cargoId },
+          data: { estado: 'vigente', estadoDesde: new Date(), subEstado },
+        })
+      } else {
+        await tx.cargo.update({
+          where: { id: body.cargoId },
+          data: { estado: 'no_vigente', estadoDesde: new Date(), subEstado: null },
+        })
+      }
     }
 
     // S17-2: baja nace confirmada — SGRASV ya tiene la potestad, no necesita

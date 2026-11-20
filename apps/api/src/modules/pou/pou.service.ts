@@ -39,8 +39,6 @@ export interface TriangulacionRow {
   codigo: string
   estadoCargo: string
   subEstado: string | null
-  unificadorPuesto: string | null
-  agrupador: string | null
   especialidadLegacy: string | null
   fechaVacante: Date | null
   tieneConcurso: boolean
@@ -78,9 +76,12 @@ export interface ComparacionPouRow {
   enNorma: boolean
 }
 
-// Mapeo de literal_puesto del cargo → (perfil, especialidad) del documento POU.
-// Los CPH-G tienen unificador_puesto='POU Guardia' y agrupador=NULL, por lo que
-// el matcheo se hace exclusivamente por literal_puesto.
+// Criterio POU Guardia: cargos CPH-G identificados por literal_puesto.
+// Reemplaza el viejo unificador_puesto = 'POU Guardia' (columna dropeada).
+const COND_POU_GUARDIA = `(
+  UPPER(c.literal_puesto) LIKE '%GUARDIA%'
+  OR UPPER(c.literal_puesto) LIKE '%GUARDIA MEDICO%'
+)`
 const CASE_PERFIL = `
   CASE UPPER(c.literal_puesto)
     WHEN 'ESPECIALISTA EN LA GUARDIA MEDICO' THEN 'especialista en la guardia medico'
@@ -151,7 +152,7 @@ export async function detalleCargosComparacionService(
     LEFT JOIN ocupaciones o ON o.cargo_id = c.id AND o.hasta IS NULL
     LEFT JOIN personas p ON p.id = o.persona_id
     WHERE h.sigla = $1
-      AND c.unificador_puesto = 'POU Guardia'
+      AND ${COND_POU_GUARDIA}
       AND c.estado IN ('vigente','validacion_vacante')
       AND c.deleted_at IS NULL
       AND ${CASE_PERFIL} = $2
@@ -192,7 +193,7 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
              c.sub_estado, c.estado
       FROM cargos c
       JOIN hospitales h ON h.id = c.hospital_id
-      WHERE c.unificador_puesto = 'POU Guardia'
+      WHERE ${COND_POU_GUARDIA}
         AND c.estado IN ('vigente','validacion_vacante')
         AND c.deleted_at IS NULL
         ${filtroSiglaCC}
@@ -268,35 +269,67 @@ export async function comparacionPouService(siglas?: string[]): Promise<Comparac
 }
 
 export async function triangularPouService(sigla?: string): Promise<TriangulacionRow[]> {
-  const rows = sigla
-    ? await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
-               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
-               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
-        FROM v_pou_triangulacion
-        WHERE sigla = ${sigla}`
-    : await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT sigla, codigo, estado_cargo, sub_estado, unificador_puesto, agrupador,
-               especialidad_legacy, fecha_vacante, tiene_concurso, tipo_concurso,
-               pou_perfil, pou_especialidad, dotacion_total, pou_activos, pou_vacantes, estado_pou
-        FROM v_pou_triangulacion`
+  const filtroSigla = sigla ? `AND h.sigla = '${sigla.replace(/'/g, "''")}'` : ''
+
+  // Reemplaza v_pou_triangulacion (dropeada en Fase 1 junto con agrupador/
+  // unificador_puesto). Identifica cargos POU por literal_puesto LIKE '%GUARDIA%'.
+  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`
+    SELECT
+      h.sigla                                          AS sigla,
+      c.codigo                                         AS codigo,
+      c.estado::text                                   AS estado_cargo,
+      c.sub_estado::text                               AS sub_estado,
+      c.especialidad_legacy                            AS especialidad_legacy,
+      c.fecha_vacante                                  AS fecha_vacante,
+      EXISTS (
+        SELECT 1 FROM concursos_cph cc WHERE cc.cargo_id = c.id
+        UNION ALL
+        SELECT 1 FROM concursos_ceetps ce WHERE ce.cargo_id = c.id
+      )                                                AS tiene_concurso,
+      CASE
+        WHEN EXISTS (SELECT 1 FROM concursos_cph cc WHERE cc.cargo_id = c.id)    THEN 'cph'
+        WHEN EXISTS (SELECT 1 FROM concursos_ceetps ce WHERE ce.cargo_id = c.id) THEN 'ceetps'
+        ELSE NULL
+      END                                              AS tipo_concurso,
+      ${CASE_PERFIL}                                   AS pou_perfil,
+      ${CASE_ESPECIALIDAD}                             AS pou_especialidad,
+      p.dotacion_total                                 AS dotacion_total,
+      p.activos                                        AS pou_activos,
+      p.vacantes                                       AS pou_vacantes,
+      CASE
+        WHEN p.id IS NOT NULL                          THEN 'CON POU'
+        WHEN UPPER(c.literal_puesto) LIKE '%SUPLENTE%' THEN 'SUPLENTE'
+        WHEN ${CASE_PERFIL} IS NOT NULL                THEN 'SIN POU'
+        ELSE 'SIN CLASIFICAR'
+      END                                              AS estado_pou
+    FROM cargos c
+    JOIN hospitales h ON h.id = c.hospital_id
+    LEFT JOIN pou p
+      ON  p.sigla = h.sigla
+      AND p.perfil       = ${CASE_PERFIL}
+      AND p.especialidad = ${CASE_ESPECIALIDAD}
+    WHERE ${COND_POU_GUARDIA}
+      AND c.estado IN ('vigente', 'validacion_vacante')
+      AND c.deleted_at IS NULL
+      ${filtroSigla}
+    ORDER BY h.sigla, c.codigo
+  `)
+
   return rows.map((r) => ({
-    sigla: r.sigla as string,
-    codigo: r.codigo as string,
-    estadoCargo: r.estado_cargo as string,
-    subEstado: r.sub_estado as string | null,
-    unificadorPuesto: r.unificador_puesto as string | null,
-    agrupador: r.agrupador as string | null,
+    sigla:             r.sigla as string,
+    codigo:            r.codigo as string,
+    estadoCargo:       r.estado_cargo as string,
+    subEstado:         r.sub_estado as string | null,
     especialidadLegacy: r.especialidad_legacy as string | null,
-    fechaVacante: r.fecha_vacante as Date | null,
-    tieneConcurso: r.tiene_concurso as boolean,
-    tipoConcurso: r.tipo_concurso as string | null,
-    pouPerfil: r.pou_perfil as string | null,
-    pouEspecialidad: r.pou_especialidad as string | null,
-    dotacionTotal: r.dotacion_total as number | null,
-    pouActivos: r.pou_activos as number | null,
-    pouVacantes: r.pou_vacantes as number | null,
-    estadoPou: r.estado_pou as TriangulacionRow['estadoPou'],
+    fechaVacante:      r.fecha_vacante as Date | null,
+    tieneConcurso:     Boolean(r.tiene_concurso),
+    tipoConcurso:      r.tipo_concurso as string | null,
+    pouPerfil:         r.pou_perfil as string | null,
+    pouEspecialidad:   r.pou_especialidad as string | null,
+    dotacionTotal:     r.dotacion_total != null ? Number(r.dotacion_total) : null,
+    pouActivos:        r.pou_activos != null ? Number(r.pou_activos) : null,
+    pouVacantes:       r.pou_vacantes != null ? Number(r.pou_vacantes) : null,
+    estadoPou:         r.estado_pou as TriangulacionRow['estadoPou'],
   }))
 }
 

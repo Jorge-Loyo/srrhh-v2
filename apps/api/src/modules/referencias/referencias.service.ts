@@ -3,14 +3,10 @@ import { prisma } from '../../shared/prisma.js'
 import { AppError } from '../../shared/errors/AppError.js'
 import type {
   RefListQuery,
-  AgrupadorBody,
-  UnificadorPuestoBody,
-  EspecialidadCuilBody,
   AbreviaturaTecnicaBody,
   AbreviaturaTituloBody,
   CorreccionLitPuestoBody,
   CorreccionEspecialidadBody,
-  EspecialidadPorPuestoBody,
   ConectorMinusculaBody,
   SufijoOrdinalBody,
   JcatCargoJefaturaBody,
@@ -39,114 +35,6 @@ async function ejecutar<T>(fn: () => Promise<T>, entidad: string): Promise<T> {
     }
     throw error
   }
-}
-
-// ── RefAgrupador ────────────────────────────────────────────────────────────
-export async function listAgrupadores(query: RefListQuery) {
-  const { skip, take, page, limit } = paginar(query, 500)
-  const [rows, total] = await Promise.all([
-    prisma.refAgrupador.findMany({ skip, take, orderBy: { agrupador: 'asc' } }),
-    prisma.refAgrupador.count(),
-  ])
-  return { rows, total, page, limit }
-}
-export async function createAgrupador(body: AgrupadorBody) {
-  return ejecutar(
-    () =>
-      prisma.refAgrupador.create({
-        data: {
-          cruce: body.cruce,
-          escalafon: body.escalafon,
-          litPuesto: body.litPuesto,
-          agrupador: body.agrupador,
-          activo: body.activo,
-        },
-      }),
-    'agrupador'
-  )
-}
-export async function updateAgrupador(id: string, body: Partial<AgrupadorBody>) {
-  return ejecutar(() => prisma.refAgrupador.update({ where: { id }, data: body }), 'agrupador')
-}
-export async function deleteAgrupador(id: string) {
-  await ejecutar(() => prisma.refAgrupador.delete({ where: { id } }), 'agrupador')
-}
-
-// ── RefUnificadorPuesto ─────────────────────────────────────────────────────
-export async function listUnificadoresPuesto(query: RefListQuery) {
-  const { skip, take, page, limit } = paginar(query, 500)
-  const [rows, total] = await Promise.all([
-    prisma.refUnificadorPuesto.findMany({ skip, take, orderBy: { unificador: 'asc' } }),
-    prisma.refUnificadorPuesto.count(),
-  ])
-  return { rows, total, page, limit }
-}
-export async function createUnificadorPuesto(body: UnificadorPuestoBody) {
-  return ejecutar(
-    () =>
-      prisma.refUnificadorPuesto.create({
-        data: {
-          cruce: body.cruce,
-          litCodReg: body.litCodReg,
-          litPuesto: body.litPuesto,
-          unificador: body.unificador,
-          activo: body.activo,
-        },
-      }),
-    'unificador de puesto'
-  )
-}
-export async function updateUnificadorPuesto(id: string, body: Partial<UnificadorPuestoBody>) {
-  return ejecutar(
-    () => prisma.refUnificadorPuesto.update({ where: { id }, data: body }),
-    'unificador de puesto'
-  )
-}
-export async function deleteUnificadorPuesto(id: string) {
-  await ejecutar(() => prisma.refUnificadorPuesto.delete({ where: { id } }), 'unificador de puesto')
-}
-
-// ── RefEspecialidadCuil (49k+ filas — con búsqueda, sin ella no es usable) ──
-export async function listEspecialidadesCuil(query: RefListQuery) {
-  const { skip, take, page, limit } = paginar(query, 50)
-  const where = query.search
-    ? {
-        OR: [
-          { cuil: { contains: query.search, mode: 'insensitive' as const } },
-          { especialidad: { contains: query.search, mode: 'insensitive' as const } },
-          { cuilYRol: { contains: query.search, mode: 'insensitive' as const } },
-        ],
-      }
-    : {}
-  const [rows, total] = await Promise.all([
-    prisma.refEspecialidadCuil.findMany({ where, skip, take, orderBy: { especialidad: 'asc' } }),
-    prisma.refEspecialidadCuil.count({ where }),
-  ])
-  return { rows, total, page, limit }
-}
-export async function createEspecialidadCuil(body: EspecialidadCuilBody) {
-  return ejecutar(
-    () =>
-      prisma.refEspecialidadCuil.create({
-        data: {
-          tipo: body.tipo,
-          cuil: body.cuil,
-          cuilYRol: body.cuilYRol,
-          especialidad: body.especialidad,
-          activo: body.activo,
-        },
-      }),
-    'especialidad por CUIL'
-  )
-}
-export async function updateEspecialidadCuil(id: string, body: Partial<EspecialidadCuilBody>) {
-  return ejecutar(
-    () => prisma.refEspecialidadCuil.update({ where: { id }, data: body }),
-    'especialidad por CUIL'
-  )
-}
-export async function deleteEspecialidadCuil(id: string) {
-  await ejecutar(() => prisma.refEspecialidadCuil.delete({ where: { id } }), 'especialidad por CUIL')
 }
 
 // ── RefAbreviaturaTecnica ───────────────────────────────────────────────────
@@ -266,42 +154,6 @@ export async function deleteCorreccionEspecialidad(id: string) {
   await ejecutar(
     () => prisma.refCorreccionEspecialidad.delete({ where: { id } }),
     'corrección de especialidad'
-  )
-}
-
-// ── RefEspecialidadPorPuesto ────────────────────────────────────────────────
-export async function listEspecialidadesPorPuesto(query: RefListQuery) {
-  const { skip, take, page, limit } = paginar(query, 500)
-  const [rows, total] = await Promise.all([
-    prisma.refEspecialidadPorPuesto.findMany({ skip, take, orderBy: { agrupador: 'asc' } }),
-    prisma.refEspecialidadPorPuesto.count(),
-  ])
-  return { rows, total, page, limit }
-}
-export async function createEspecialidadPorPuesto(body: EspecialidadPorPuestoBody) {
-  return ejecutar(
-    () =>
-      prisma.refEspecialidadPorPuesto.create({
-        data: {
-          agrupador: body.agrupador,
-          especialidad: body.especialidad,
-          purezaPct: body.purezaPct,
-          activo: body.activo,
-        },
-      }),
-    'especialidad por puesto'
-  )
-}
-export async function updateEspecialidadPorPuesto(id: string, body: Partial<EspecialidadPorPuestoBody>) {
-  return ejecutar(
-    () => prisma.refEspecialidadPorPuesto.update({ where: { id }, data: body }),
-    'especialidad por puesto'
-  )
-}
-export async function deleteEspecialidadPorPuesto(id: string) {
-  await ejecutar(
-    () => prisma.refEspecialidadPorPuesto.delete({ where: { id } }),
-    'especialidad por puesto'
   )
 }
 

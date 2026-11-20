@@ -206,24 +206,33 @@ export async function getPersonaSialRolesService(id: string) {
       idSialRol: string
       cargoId: string
       codigoCargo: string | null
+      codigoRegistro: string | null
       literalPuesto: string | null
+      especialidadNombre: string | null
       hospitalSigla: string
       desde: Date | null
+      hasta: Date | null
+      situacionRevista: string | null
     }[]
   >`
     SELECT
-      o.id_sial_rol AS "idSialRol",
-      o.cargo_id    AS "cargoId",
-      c.codigo      AS "codigoCargo",
-      c.literal_puesto AS "literalPuesto",
-      h.sigla       AS "hospitalSigla",
-      o.desde
+      o.id_sial_rol        AS "idSialRol",
+      o.cargo_id           AS "cargoId",
+      c.codigo             AS "codigoCargo",
+      cr.codigo            AS "codigoRegistro",
+      c.literal_puesto     AS "literalPuesto",
+      ep.nombre            AS "especialidadNombre",
+      h.sigla              AS "hospitalSigla",
+      o.desde,
+      o.hasta,
+      o.situacion_revista  AS "situacionRevista"
     FROM ocupaciones o
-    JOIN cargos c    ON c.id = o.cargo_id
-    JOIN hospitales h ON h.id = c.hospital_id
+    JOIN cargos c             ON c.id = o.cargo_id
+    JOIN hospitales h         ON h.id = c.hospital_id
+    LEFT JOIN codigos_registro cr ON cr.id = c.codigo_registro_id
+    LEFT JOIN especialidades_puesto ep ON ep.id = c.especialidad_puesto_id
     WHERE o.persona_id = ${id}::uuid
-      AND o.hasta IS NULL
-    ORDER BY o.desde DESC NULLS LAST
+    ORDER BY (o.hasta IS NULL) DESC, o.desde DESC NULLS LAST
   `
 }
 

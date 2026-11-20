@@ -704,7 +704,7 @@ export async function generarPdfGrupoSolicitudesAltaService(
   const solicitudes = await getGrupoSolicitudesAltaService(expediente)
 
   const esPou = solicitudes.some((s) =>
-    (s.unificadorPuesto ?? '').toUpperCase().includes('POU'),
+    (s.literalPuesto ?? '').toUpperCase().includes('GUARDIA'),
   )
   const esEstructura = solicitudes.some((s) =>
     parsearNodoOrg(s.observaciones ?? null) !== null,

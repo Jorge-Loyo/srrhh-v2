@@ -3,12 +3,6 @@ import { authenticate } from '../../shared/middleware/auth.middleware.js'
 import { requirePermiso } from '../../shared/middleware/permisos.middleware.js'
 import {
   refListQuerySchema,
-  agrupadorSchema,
-  agrupadorUpdateSchema,
-  unificadorPuestoSchema,
-  unificadorPuestoUpdateSchema,
-  especialidadCuilSchema,
-  especialidadCuilUpdateSchema,
   abreviaturaTecnicaSchema,
   abreviaturaTecnicaUpdateSchema,
   abreviaturaTituloSchema,
@@ -17,8 +11,6 @@ import {
   correccionLitPuestoUpdateSchema,
   correccionEspecialidadSchema,
   correccionEspecialidadUpdateSchema,
-  especialidadPorPuestoSchema,
-  especialidadPorPuestoUpdateSchema,
   conectorMinusculaSchema,
   conectorMinusculaUpdateSchema,
   sufijoOrdinalSchema,
@@ -27,14 +19,10 @@ import {
   jcatCargoJefaturaUpdateSchema,
 } from './referencias.schema.js'
 import {
-  listAgrupadores, createAgrupador, updateAgrupador, deleteAgrupador,
-  listUnificadoresPuesto, createUnificadorPuesto, updateUnificadorPuesto, deleteUnificadorPuesto,
-  listEspecialidadesCuil, createEspecialidadCuil, updateEspecialidadCuil, deleteEspecialidadCuil,
   listAbreviaturasTecnicas, createAbreviaturaTecnica, updateAbreviaturaTecnica, deleteAbreviaturaTecnica,
   listAbreviaturasTitulo, createAbreviaturaTitulo, updateAbreviaturaTitulo, deleteAbreviaturaTitulo,
   listCorreccionesLitPuesto, createCorreccionLitPuesto, updateCorreccionLitPuesto, deleteCorreccionLitPuesto,
   listCorreccionesEspecialidad, createCorreccionEspecialidad, updateCorreccionEspecialidad, deleteCorreccionEspecialidad,
-  listEspecialidadesPorPuesto, createEspecialidadPorPuesto, updateEspecialidadPorPuesto, deleteEspecialidadPorPuesto,
   listConectoresMinuscula, createConectorMinuscula, updateConectorMinuscula, deleteConectorMinuscula,
   listSufijosOrdinales, createSufijoOrdinal, updateSufijoOrdinal, deleteSufijoOrdinal,
   listJcatCargoJefatura, createJcatCargoJefatura, updateJcatCargoJefatura, deleteJcatCargoJefatura,
@@ -51,60 +39,6 @@ export async function referenciasRoutes(app: FastifyInstance) {
     'preHandler',
     requirePermiso({ modulo: 'configuracion', accion: 'gestionar_referencias' })
   )
-
-  // ── /agrupadores ────────────────────────────────────────────────────────
-  app.get('/agrupadores', async (request, reply) => {
-    const query = refListQuerySchema.parse(request.query)
-    return reply.send({ data: await listAgrupadores(query) })
-  })
-  app.post('/agrupadores', async (request, reply) => {
-    const body = agrupadorSchema.parse(request.body)
-    return reply.status(201).send({ data: await createAgrupador(body) })
-  })
-  app.patch<{ Params: { id: string } }>('/agrupadores/:id', async (request, reply) => {
-    const body = agrupadorUpdateSchema.parse(request.body)
-    return reply.send({ data: await updateAgrupador(request.params.id, body) })
-  })
-  app.delete<{ Params: { id: string } }>('/agrupadores/:id', async (request, reply) => {
-    await deleteAgrupador(request.params.id)
-    return reply.send({ ok: true })
-  })
-
-  // ── /unificadores-puesto ────────────────────────────────────────────────
-  app.get('/unificadores-puesto', async (request, reply) => {
-    const query = refListQuerySchema.parse(request.query)
-    return reply.send({ data: await listUnificadoresPuesto(query) })
-  })
-  app.post('/unificadores-puesto', async (request, reply) => {
-    const body = unificadorPuestoSchema.parse(request.body)
-    return reply.status(201).send({ data: await createUnificadorPuesto(body) })
-  })
-  app.patch<{ Params: { id: string } }>('/unificadores-puesto/:id', async (request, reply) => {
-    const body = unificadorPuestoUpdateSchema.parse(request.body)
-    return reply.send({ data: await updateUnificadorPuesto(request.params.id, body) })
-  })
-  app.delete<{ Params: { id: string } }>('/unificadores-puesto/:id', async (request, reply) => {
-    await deleteUnificadorPuesto(request.params.id)
-    return reply.send({ ok: true })
-  })
-
-  // ── /especialidades-cuil ────────────────────────────────────────────────
-  app.get('/especialidades-cuil', async (request, reply) => {
-    const query = refListQuerySchema.parse(request.query)
-    return reply.send({ data: await listEspecialidadesCuil(query) })
-  })
-  app.post('/especialidades-cuil', async (request, reply) => {
-    const body = especialidadCuilSchema.parse(request.body)
-    return reply.status(201).send({ data: await createEspecialidadCuil(body) })
-  })
-  app.patch<{ Params: { id: string } }>('/especialidades-cuil/:id', async (request, reply) => {
-    const body = especialidadCuilUpdateSchema.parse(request.body)
-    return reply.send({ data: await updateEspecialidadCuil(request.params.id, body) })
-  })
-  app.delete<{ Params: { id: string } }>('/especialidades-cuil/:id', async (request, reply) => {
-    await deleteEspecialidadCuil(request.params.id)
-    return reply.send({ ok: true })
-  })
 
   // ── /abreviaturas-tecnicas ──────────────────────────────────────────────
   app.get('/abreviaturas-tecnicas', async (request, reply) => {
@@ -175,24 +109,6 @@ export async function referenciasRoutes(app: FastifyInstance) {
   })
   app.delete<{ Params: { id: string } }>('/correcciones-especialidad/:id', async (request, reply) => {
     await deleteCorreccionEspecialidad(request.params.id)
-    return reply.send({ ok: true })
-  })
-
-  // ── /especialidad-por-puesto ────────────────────────────────────────────
-  app.get('/especialidad-por-puesto', async (request, reply) => {
-    const query = refListQuerySchema.parse(request.query)
-    return reply.send({ data: await listEspecialidadesPorPuesto(query) })
-  })
-  app.post('/especialidad-por-puesto', async (request, reply) => {
-    const body = especialidadPorPuestoSchema.parse(request.body)
-    return reply.status(201).send({ data: await createEspecialidadPorPuesto(body) })
-  })
-  app.patch<{ Params: { id: string } }>('/especialidad-por-puesto/:id', async (request, reply) => {
-    const body = especialidadPorPuestoUpdateSchema.parse(request.body)
-    return reply.send({ data: await updateEspecialidadPorPuesto(request.params.id, body) })
-  })
-  app.delete<{ Params: { id: string } }>('/especialidad-por-puesto/:id', async (request, reply) => {
-    await deleteEspecialidadPorPuesto(request.params.id)
     return reply.send({ ok: true })
   })
 
