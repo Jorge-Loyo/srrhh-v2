@@ -2,6 +2,7 @@ import type { TipoCarga } from '../carga-semanal.schema.js'
 import { TIPOS_CON_PREVIEW } from '../carga-semanal.schema.js'
 import { marcarSesionError, marcarSesionCompletada, registrarResumenParcial } from '../carga-semanal.service.js'
 import type { ResolucionesConfirmar } from '../carga-semanal.service.js'
+import { prisma } from '../../../shared/prisma.js'
 
 /**
  * Despacha el preview (fase 1) de un tipo dentro de una sesión.
@@ -91,6 +92,19 @@ export async function despacharConfirmar(
       })
 
     await Promise.all(tareas)
+
+    // Registrar corrida en sync_corridas
+    const sesion = await prisma.dimCargaSesion.findUnique({
+      where: { id: sesionId },
+      select: { informe: true, archivos: { select: { sha256: true } } },
+    })
+    await prisma.syncCorrida.create({
+      data: {
+        modo: 'carga_semanal',
+        excelSha256: sesion?.archivos[0]?.sha256 ?? null,
+        resumen: (sesion?.informe ?? {}) as any,
+      },
+    })
 
     // Marcar completado con informe consolidado
     await marcarSesionCompletada(sesionId, { confirmado: true, tipos: tiposEnSesion })
