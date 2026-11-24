@@ -61,6 +61,7 @@ export interface ResumenCargosSalud {
   totalFilas: number
   dimPuestos: { nuevos: number; modificados: number; eliminados: number }
   dimPersonas: { nuevas: number; modificadas: number }
+  dimActividadHechos: { aAbrir: number; aCerrar: number }
   advertencias: AdvertenciaFila[]
 }
 
@@ -289,6 +290,38 @@ export async function parsearYDiffearCargosSalud(
     }
   }
 
+  // dim_actividad_hechos — actividades a abrir (puestos nuevos) y cerrar (puestos eliminados)
+  const idsNuevosPuestos = diffs
+    .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'nuevo')
+    .map((d) => d.clave)
+  const idsEliminadosPuestos = diffs
+    .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'eliminado')
+    .map((d) => d.clave)
+
+  // Actividades abiertas existentes para los eliminados (para saber cuáles se van a cerrar)
+  const actividadesAbiertas = idsEliminadosPuestos.length > 0
+    ? await prisma.dimActividadHechos.findMany({
+        where: { idSialRol: { in: idsEliminadosPuestos }, fechaHasta: null },
+        select: { idSialRol: true, situacionRevista: true },
+      })
+    : []
+  const mapaActividadesAbiertas = new Map(actividadesAbiertas.map((a) => [a.idSialRol, a]))
+
+  for (const id of idsNuevosPuestos) {
+    diffs.push({
+      sesionId, tablaAfectada: 'dim_actividad_hechos', tipoDiff: 'nuevo', clave: id,
+      campo: 'fecha_desde', valorAnterior: null, valorNuevo: new Date().toISOString().slice(0, 10),
+    })
+  }
+  for (const id of idsEliminadosPuestos) {
+    if (mapaActividadesAbiertas.has(id)) {
+      diffs.push({
+        sesionId, tablaAfectada: 'dim_actividad_hechos', tipoDiff: 'eliminado', clave: id,
+        campo: 'fecha_hasta', valorAnterior: null, valorNuevo: new Date().toISOString().slice(0, 10),
+      })
+    }
+  }
+
   // 4. Persistir diffs y actualizar conteo de filas
   await Promise.all([
     (async () => {
@@ -309,6 +342,10 @@ export async function parsearYDiffearCargosSalud(
     dimPersonas: {
       nuevas:      diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'nuevo').length,
       modificadas: diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'modificado').length,
+    },
+    dimActividadHechos: {
+      aAbrir:  diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'nuevo').length,
+      aCerrar: diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'eliminado').length,
     },
     advertencias,
   }

@@ -77,6 +77,9 @@ function PanelRevision({
   const personasNuevas = diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'nuevo').length
   const personasMod    = diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'modificado').length
 
+  const actividadesAAbrir  = diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'nuevo')
+  const actividadesACerrar = diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'eliminado')
+
   const informe = sesion.informe as Record<string, unknown> | null
 
   async function handleConfirmar() {
@@ -118,10 +121,12 @@ function PanelRevision({
           {/* Cards resumen */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Puestos nuevos',     valor: puestosNuevos.length,     color: 'text-green-700 bg-green-50' },
-              { label: 'Puestos modificados', valor: modPorClave.size,         color: 'text-yellow-700 bg-yellow-50' },
-              { label: 'Puestos eliminados',  valor: puestosEliminados.length, color: 'text-red-700 bg-red-50' },
-              { label: 'Personas nuevas',     valor: personasNuevas,           color: 'text-blue-700 bg-blue-50' },
+              { label: 'Puestos nuevos',       valor: puestosNuevos.length,       color: 'text-green-700 bg-green-50' },
+              { label: 'Puestos modificados',   valor: modPorClave.size,           color: 'text-yellow-700 bg-yellow-50' },
+              { label: 'Puestos eliminados',    valor: puestosEliminados.length,   color: 'text-red-700 bg-red-50' },
+              { label: 'Personas nuevas',       valor: personasNuevas,             color: 'text-blue-700 bg-blue-50' },
+              { label: 'Actividades a abrir',   valor: actividadesAAbrir.length,   color: 'text-emerald-700 bg-emerald-50' },
+              { label: 'Actividades a cerrar',  valor: actividadesACerrar.length,  color: 'text-orange-700 bg-orange-50' },
             ].map((c) => (
               <div key={c.label} className={`rounded-lg p-3 ${c.color}`}>
                 <p className="text-2xl font-bold tabular-nums">{c.valor.toLocaleString('es-AR')}</p>
@@ -263,6 +268,62 @@ function PanelRevision({
           )}
 
           {/* Acciones */}
+
+          {/* Tabla de hechos: actividades a abrir */}
+          {actividadesAAbrir.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                🟢 Actividades a abrir en tabla de hechos — {actividadesAAbrir.length}
+              </h3>
+              <div className="overflow-x-auto max-h-40 overflow-y-auto border rounded text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium text-gray-600">id_sial_rol</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-gray-600">fecha_desde</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actividadesAAbrir.map((d) => (
+                      <tr key={d.id} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 font-mono text-gray-700">{d.clave}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{d.valorNuevo ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Tabla de hechos: actividades a cerrar */}
+          {actividadesACerrar.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                🟠 Actividades a cerrar en tabla de hechos — {actividadesACerrar.length}
+              </h3>
+              <div className="overflow-x-auto max-h-40 overflow-y-auto border rounded text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium text-gray-600">id_sial_rol</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-gray-600">fecha_hasta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actividadesACerrar.map((d) => (
+                      <tr key={d.id} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 font-mono text-gray-700">{d.clave}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{d.valorNuevo ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Acciones reales */}
           <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
             <button
               type="button"

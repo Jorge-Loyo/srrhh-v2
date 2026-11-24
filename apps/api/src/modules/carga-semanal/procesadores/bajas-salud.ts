@@ -133,6 +133,16 @@ export async function parsearYDiffearBajasSalud(
   const diffs: DiffInput[] = []
   let aCerrar = 0
 
+  // dim_actividad_hechos — detectar cuáles tienen actividad abierta y se van a cerrar
+  const idsConFechaHasta = filas.filter((f) => f.cargoHasta).map((f) => f.idSialRol)
+  const actividadesAbiertas = idsConFechaHasta.length > 0
+    ? await prisma.dimActividadHechos.findMany({
+        where: { idSialRol: { in: idsConFechaHasta }, fechaHasta: null },
+        select: { idSialRol: true },
+      })
+    : []
+  const idsConActividadAbierta = new Set(actividadesAbiertas.map((a) => a.idSialRol))
+
   for (const f of filas) {
     const actual = mapaActual.get(f.idSialRol)
     if (!actual) {
@@ -156,6 +166,17 @@ export async function parsearYDiffearBajasSalud(
       }
     }
     if (f.cargoHasta) aCerrar++
+  }
+
+  // Generar diffs de dim_actividad_hechos para trazabilidad en el panel
+  for (const f of filas) {
+    if (f.cargoHasta && idsConActividadAbierta.has(f.idSialRol)) {
+      diffs.push({
+        sesionId, tablaAfectada: 'dim_actividad_hechos', tipoDiff: 'eliminado',
+        clave: f.idSialRol, campo: 'fecha_hasta',
+        valorAnterior: null, valorNuevo: f.cargoHasta.toISOString().slice(0, 10),
+      })
+    }
   }
 
   await Promise.all([
