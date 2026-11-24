@@ -348,7 +348,7 @@ export async function adjuntarCargosCreados<T extends { cargosCreadosIds: string
       especialidad:   c.especialidadPuesto?.nombre ?? c.especialidadLegacy ?? null,
       codigoRegistro: c.codigoRegistro?.codigo ?? null,
       concurso: co
-        ? { tipo: co.tipoConcurso, detalleId: co.concursoCph?.id ?? co.concursoCeetps?.id ?? null }
+        ? { tipo: co.tipoConcurso!, detalleId: co.concursoCph?.id ?? co.concursoCeetps?.id ?? null }
         : null,
     })
   }

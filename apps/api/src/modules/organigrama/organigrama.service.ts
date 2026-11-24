@@ -1101,12 +1101,12 @@ export async function reemplazarOrganigramaService(
   })) {
     const key = `${r.sigla}|${canonUniverso(r.universoTotalizador)}`
     if (!regimenSetPorSiglaUniverso.has(key)) regimenSetPorSiglaUniverso.set(key, new Set())
-    regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo)
+    regimenSetPorSiglaUniverso.get(key)!.add(r.regimenEmpleo!)
 
     const keyTipo = `${r.sigla}|${canonUniverso(r.universoTotalizador)}|${normalizarHeader(r.tipo ?? '')}`
     if (!regimenSetPorSiglaUniversoTipo.has(keyTipo))
       regimenSetPorSiglaUniversoTipo.set(keyTipo, new Set())
-    regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo)
+    regimenSetPorSiglaUniversoTipo.get(keyTipo)!.add(r.regimenEmpleo!)
   }
   const regimenPorSiglaUniverso = new Map<string, string>()
   for (const [key, set] of regimenSetPorSiglaUniverso) {
@@ -1153,9 +1153,9 @@ export async function reemplazarOrganigramaService(
           pendientes.push({
             codigoReparticion: f.codigoReparticion,
             tipo: f.tipo,
-            descRep: f.descRep,
+            descRep: f.descRep ?? null,
             sigla: f.sigla,
-            universoSugerido: f.universoTotalizador,
+            universoSugerido: f.universoTotalizador ?? '',
           })
         }
       }

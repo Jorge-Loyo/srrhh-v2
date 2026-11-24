@@ -1898,6 +1898,7 @@ export async function getDesignacionEstadoService(id: string) {
   //    flujo (un concurso puede estar validado con pasos de Etapa 5 pendientes),
   //    así que NO se recalcula ni se toca subEstado acá.
   if (estado === 'validado' && !concurso.validado) {
+    if (!persona) throw new Error('invariante: estado validado requiere persona')
     await prisma.concursoCph.update({
       where: { id },
       data: {

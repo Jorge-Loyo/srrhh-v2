@@ -458,7 +458,6 @@ async function calcularDiff(registros: RegistroPython[]) {
       especialidadLegacy: true,
       codigoRepa: true,
       descripcionRepa: true,
-      agrupamiento: true,
       codigoRegistro: { select: { codigo: true } },
       hospital: { select: { sigla: true } },
       escalafon: { select: { nombre: true } },
@@ -485,7 +484,7 @@ async function calcularDiff(registros: RegistroPython[]) {
   })
 
   const actualesMap = new Map<string, (typeof cargosActuales)[number]>()
-  for (const c of cargosActuales) actualesMap.set(c.idSial, c)
+  for (const c of cargosActuales) if (c.idSial) actualesMap.set(c.idSial, c)
 
   const nuevosIds = new Set(nuevosMap.keys())
   const actualesIds = new Set(actualesMap.keys())
@@ -790,7 +789,6 @@ async function calcularDiff(registros: RegistroPython[]) {
               especialidadLegacy: true,
               codigoRepa: true,
               descripcionRepa: true,
-              agrupamiento: true,
               codigoRegistro: { select: { codigo: true } },
               hospital: { select: { sigla: true } },
               escalafon: { select: { nombre: true } },
@@ -828,7 +826,6 @@ async function calcularDiff(registros: RegistroPython[]) {
           especialidadLegacy: true,
           codigoRepa: true,
           descripcionRepa: true,
-          agrupamiento: true,
           codigoRegistro: { select: { codigo: true } },
           hospital: { select: { sigla: true } },
           escalafon: { select: { nombre: true } },
@@ -2521,7 +2518,6 @@ export async function aprobarSnapshotService(
             regimen: datos.regimen || null,
             codigoRepa: datos.codigo_repa || null,
             descripcionRepa: datos.descripcion_repa || null,
-            agrupamiento: datos.agrupamiento || null,
             codigoRegistroId: decisionCrDesd.codigoRegistroId,
             regimenId: decisionRegDesd.regimenId,
             ...(motivosDesd.length > 0
@@ -2604,7 +2600,7 @@ export async function aprobarSnapshotService(
         personaId: persona.id,
         cargoId: cargo.id,
         idSialRol,
-        cuil: cuilDe(datos),
+        cuil: cuilDe(datos) ?? null,
         situacionRevista: datos.situacion_de_revista ?? null,
         codigoJefaturas: datos.codigo_jefaturas || null,
         cargoJefaturaPuestoId: datos.cargo_jefatura_puesto_id || null,
@@ -4230,7 +4226,6 @@ export async function aprobarDiffNuevoService(
           regimen: datos.regimen || null,
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
-          agrupamiento: datos.agrupamiento || null,
           createdById: usuarioId,
         },
       })) as CargoRow
@@ -4401,10 +4396,6 @@ export async function aprobarDiffNuevoService(
             hospitalSigla: ocupacionFinal.cargo.hospital.sigla,
             literalPuesto: ocupacionFinal.cargo.literalPuesto,
             especialidad: ocupacionFinal.cargo.especialidadLegacy ?? null,
-            // FASE 5: ocupaciones.estado_persona se eliminó (columna viva
-            // muerta). El histórico conserva su columna como dato inmutable que
-            // v2 ya no puebla → null.
-            estadoPersona: null,
             situacionRevista: ocupacionFinal.situacionRevista,
           },
         })
@@ -4639,7 +4630,6 @@ export async function rechazarDiffNuevoService(snapshotId: string, diffId: strin
           regimen: datos.regimen || null,
           codigoRepa: datos.codigo_repa || null,
           descripcionRepa: datos.descripcion_repa || null,
-          agrupamiento: datos.agrupamiento || null,
         },
       })) as CargoRow
     }

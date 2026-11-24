@@ -196,8 +196,8 @@ async function procesarSnapshot(
   `, new Date(fechaArchivo))
 
   const diffs: {
-    id: string; snapshot_id: string; tipo: string; cargo: string; cuil: string
-    ayn: string; escalafon: string | null; lit_puesto: string | null
+    id: string; snapshot_id: string; tipo: string; cargo: string; cuil: string | null
+    ayn: string | null; escalafon: string | null; lit_puesto: string | null
     mot_baja: string | null; cargo_hasta: Date | null
     existe_en_personas: boolean; tiene_ocup_activa: boolean
     cod_registro: string | null; hospital: string | null
@@ -249,10 +249,10 @@ async function procesarSnapshot(
     }
   }
 
-  const cuils = [...new Set(diffs.map((d) => cuilPuro(d.cuil)).filter(Boolean))]
+  const cuils = [...new Set(diffs.map((d) => cuilPuro(d.cuil ?? '')).filter(Boolean))]
   const { enPersonas, conOcupActiva, datosCargo } = await triangular(cuils)
   for (const d of diffs) {
-    const c = cuilPuro(d.cuil)
+    const c = cuilPuro(d.cuil ?? '')
     d.existe_en_personas = enPersonas.has(c)
     d.tiene_ocup_activa  = conOcupActiva.has(c)
     if (d.tiene_ocup_activa) {
