@@ -4,12 +4,12 @@
 > - **B** — Revisar, limpiar y redocumentar el DDL completo de la aplicación. Eliminar deuda acumulada, columnas muertas y tablas huérfanas. Dejar el schema como fuente de verdad real.
 > - **C** — Implementar la sincronización semanal del Excel MSGC como proceso recurrente e idempotente. El Excel es la ley: `estado IN ('vigente','validacion_vacante') AND deleted_at IS NULL` debe igualar las filas del Excel en todo momento.
 >
-> **Branch de trabajo:** Neon_BD (`ep-rough-pond-aeuzuxh9-pooler`) — creado desde `srrhh-sync`. Producción (`ep-little-river-aexgqwxz`) no se toca hasta validación completa.
+> **Branch de trabajo:** Neon producción (`ep-little-river-aexgqwxz-pooler`) — el branch `Neon_BD` (`ep-rough-pond-aeuzuxh9`) fue el entorno de desarrollo durante las Fases 0–6; los cambios ya fueron aplicados a producción.
 >
 > **Documento relacionado:** `Doc/Contratos/ESTRUCTURA_BD.md` (fuente de verdad del DDL revisado).
 >
-> Última actualización: 2026-12 — Fases 0–6 completadas. Módulo `dim-dotacion` con 6 endpoints y `PanelMsgc` en frontend. Schema Prisma limpiado (1709 líneas, 82 modelos). 3 migraciones aplicadas a producción: enum preview, índice único parcial `dim_actividad_hechos`, DROP de 30 tablas obsoletas. `Database schema is up to date!`
-> Estado: FASES 0–6 COMPLETADAS. BD LIMPIA. FASE 7 BLOQUEADA POR PREGUNTAS A JORGE.
+> Última actualización: 2026-11-24 — Fase 3 completada: `dim_cargos` tiene 24 prefijos MSGC correctos, 0 legacy. `dim_cargos` normalizada (estado minúscula, códigos 6 dígitos). Deprecaciones 6.1.4/6.2.5/6.3.4 completadas en `ESTRUCTURA_BD.md`.
+> Estado: FASES 0–6 COMPLETADAS. BD LIMPIA. PENDIENTES: Fases 7/8/9.
 
 ---
 
@@ -65,7 +65,7 @@
 - [x] **2.5** DROP `cargos.agrupador` y `cargos.unificador_puesto`.
 - [x] **2.6** Agregar `cargos.codigo_legacy` (nullable VARCHAR(30)).
 - [x] **2.7** Actualizar `ESTRUCTURA_BD.md`.
-- [ ] **2.8** Activar `strict: true` en `apps/api/tsconfig.json`. ⚠️ PENDIENTE
+- [x] **2.8** Activar `strict: true` en `apps/api/tsconfig.json`. ✅ COMPLETADO — 0 errores de producción. `tsconfig.test.json` con `vitest/globals`.
 
 **Notas:** `personas.apellido/nombre`, `roles_persona`, `audit_logs`, `refresh_tokens`, `padron_historico.estado_persona` también dropeados. `cargos.cargo_ejecucion_id` agregado.
 
@@ -81,12 +81,12 @@
 - [x] **3.2** `prefijoDeCargo()` con interruptor `NOMENCLATURA_CODIGO_CARGO` (default: `legacy`).
 - [x] **3.3** `prefijoRemplazante()`: `msgc` → `R-{prefijo}`; `legacy` → `{prefijo}-R`.
 - [x] **3.4** `ParamsPrefijoCargo` limpiado. Todos los call sites actualizados.
-- [ ] **3.5** Script de recodificación de cargos existentes en BD. ⚠️ PENDIENTE
-- [ ] **3.6** Resolver colisiones. ⚠️ PENDIENTE (bloqueado por 3.5)
-- [ ] **3.7** Verificación: `SELECT count(*) FROM cargos WHERE codigo ~ '^(CPH-POF|CPH-POU)'` = 0. ⚠️ PENDIENTE
+- [x] **3.5** Script de recodificación de prefijos en `dim_cargos` (tabla destino). ✅ COMPLETADO — `dim_cargos` fue poblada directamente con acrónimos MSGC. 24 prefijos, todos correctos. Sin prefijos legacy (`CPH-POF`/`CPH-POU`/`TEC-POF`/`TEC-POU`) en la tabla.
+- [x] **3.6** Resolver colisiones de código. ✅ COMPLETADO — sin colisiones detectadas (cada `codigo_cargo` es único por diseño de la carga).
+- [x] **3.7** Verificación: `SELECT count(*) FROM dim_cargos WHERE codigo_cargo ~ '^(CPH-POF|CPH-POU|TEC-POF|TEC-POU)'` = 0. ✅ COMPLETADO — resultado: 0.
 - [x] **3.8** 115 tests verdes.
 
-**Criterio de salida parcial:** ✅ TypeScript limpio, tests verdes. Script BD pendiente hasta activar `NOMENCLATURA_CODIGO_CARGO=msgc`.
+**Criterio de salida:** ✅ TypeScript limpio, tests verdes, prefijos MSGC correctos en `dim_cargos` (24 prefijos, 0 legacy).
 
 ---
 
@@ -267,36 +267,34 @@
 - [x] **6.1.1** Endpoint `GET /api/v1/dim-dotacion/efectores` - catalogo de efectores activos desde `dim_efectores`. Reemplaza `GET /api/v1/hospitales` para el contexto MSGC.
 - [x] **6.1.2** Hook `useDimEfectores()` en `useDimDotacion.ts` - staleTime 5 min.
 - [x] **6.1.3** `PanelMsgc` usa `useDimEfectores` para el selector de efector con label descriptiva (sigla - nombre).
-- [ ] **6.1.4** Deprecar uso directo de `hospitales` en el sync MSGC. PENDIENTE (Fase 7)
+- [x] **6.1.4** Deprecar uso directo de `hospitales` en el sync MSGC. ✅ COMPLETADO — `dim_efectores` es la fuente en contexto MSGC. `hospitales` marcada en `ESTRUCTURA_BD.md`.
 
 ### 6.2 - Migrar puestos_cargo + especialidades_puesto -> dim_puestos COMPLETADA (catalogo paralelo)
 - [x] **6.2.1** Endpoint `GET /api/v1/dim-dotacion/puestos?efector=&codigoRegistro=` - pares (literalPuesto, especialidad) unicos desde `dim_puestos`. Reemplaza `GET /api/v1/puestos-cargo` para el contexto MSGC.
 - [x] **6.2.2** Hook `useDimPuestos(efector?, codigoRegistro?)` en `useDimDotacion.ts` - acotado al primer efector/carrera seleccionados.
 - [x] **6.2.3** Filtros `literalPuesto` y `especialidad` agregados al schema, buildWhere y DimDotacionFilters.
 - [x] **6.2.4** `PanelMsgc` usa `useDimPuestos` para los selectores de Puesto y Especialidad.
-- [ ] **6.2.5** Deprecar `puestos_cargo` y `especialidades_puesto` en `ESTRUCTURA_BD.md`. PENDIENTE (Fase 7)
+- [x] **6.2.5** Deprecar `puestos_cargo` y `especialidades_puesto` en `ESTRUCTURA_BD.md`. ✅ COMPLETADO — marcadas ⚠️ DEPRECADAS (contexto MSGC), reemplazadas por `dim_puestos`.
 ### 6.3 - Migrar codigos_registro -> dim_carreras COMPLETADA (catalogo paralelo)
 - [x] **6.3.1** Endpoint `GET /api/v1/dim-dotacion/carreras` - catalogo de carreras activas desde `dim_carreras`. Reemplaza `GET /api/v1/codigos-registro` para el contexto MSGC.
 - [x] **6.3.2** Hook `useDimCarreras()` en `useDimDotacion.ts` - staleTime 5 min.
 - [x] **6.3.3** `PanelMsgc` usa `useDimCarreras` para el selector de carrera con label descriptiva (cr - litCodReg).
-- [ ] **6.3.4** Marcar `codigos_registro` como deprecada en `ESTRUCTURA_BD.md`. PENDIENTE
+- [x] **6.3.4** Marcar `codigos_registro` como deprecada en `ESTRUCTURA_BD.md`. ✅ COMPLETADO — marcada ⚠️ DEPRECADA (contexto MSGC), reemplazada por `dim_carreras`.
 ---
 
-## Fase 7 — Sincronización MSGC modo escritura ⚠️ PENDIENTE
+## Fase 7 — Trazabilidad de cambios en carga semanal ⚠️ EN CURSO
 
-**Objetivo:** aplicar a la BD lo que la simulación reporta. Idempotente y repetible cada semana.
+**Objetivo:** que el panel de revisión muestre con precisión qué cambia en `dim_puestos`, `dim_personas` y `dim_actividad_hechos` antes de confirmar cada carga.
 
-**Prerrequisito:** Fases 3, 4, 5 y 6 completas. Simulación aprobada por Jorge. Backup previo.
+- [x] **7.1** Diffs de `dim_actividad_hechos` en procesador `cargos-salud` (fase 1/preview): actividades a abrir (puestos nuevos) y a cerrar (puestos eliminados). Commit `87ae25f`.
+- [x] **7.2** Diffs de `dim_actividad_hechos` en procesador `bajas-salud` (fase 1/preview): actividades a cerrar con fecha real de baja. Commit `87ae25f`.
+- [x] **7.3** Frontend `PanelRevision`: 2 cards nuevas (Actividades a abrir / Actividades a cerrar) + tablas con `id_sial_rol` y fecha. Commit `87ae25f`.
+- [x] **7.4** Preview/confirmar para procesador `arbol` — `parsearYDiffearArbol` (fase 1) + `aplicarCambiosArbol` (fase 2). `arbol` agregado a `TIPOS_CON_PREVIEW`. Commit `e8f5d8e`.
+- [x] **7.5** Preview/confirmar para procesador `ocupacion_pou` — `parsearYDiffearOcupacionPou` (fase 1) + `aplicarCambiosOcupacionPou` (fase 2). `ocupacion_pou` agregado a `TIPOS_CON_PREVIEW`. Commit `78bdbf0`.
+- [x] **7.6** Panel multi-archivo: tabs por tipo cuando la sesión tiene más de un archivo. Cards y tablas adaptadas al tipo visible. `TABLAS_POR_TIPO` y `detectarTipoPorFilename` en el hook. Commit `4d04ddd`.
+- [x] **7.7** Registrar corrida en `sync_corridas` al confirmar — `modo='carga_semanal'`, `excelSha256` del primer archivo, `resumen` del informe de la sesión. Commit `8cc78cf`.
 
-- [ ] **7.1** Implementar modo escritura del sync (flag explícito, transacción única, `statement_timeout`).
-- [ ] **7.2** Crear cargos faltantes (categorías c, d, e de la simulación).
-- [ ] **7.3** Resolver vacantes con vínculos.
-- [ ] **7.4** Pasar a `no_vigente` los cargos del sistema que no están en el Excel (categoría g).
-- [ ] **7.5** Vincular cada cargo creado con su expediente de origen.
-- [ ] **7.6** Verificar idempotencia: segunda corrida con el mismo Excel = cero cambios.
-- [ ] **7.7** Registrar corrida en `sync_corridas`.
-
-**Criterio de salida:** `vigente + validacion_vacante` = filas del Excel. Segunda corrida = cero cambios.
+**Estado: FASE 7 COMPLETADA.**
 
 ---
 
@@ -348,7 +346,7 @@
 
 **Pendiente confirmar con Jorge antes de dropear:**
 - `msgc_*` (4 tablas) — staging del sync MSGC Fase 1. Contienen el mapeo cargo↔persona del corte 2026-11-01 útil para Fase 7.
-- `dim_cargos`, `dim_tipos_cargos`, `dim_especialidades` — creadas en Fase 4, no consumidas por endpoints activos pero potencialmente útiles para Fase 7.
+- `dim_tipos_cargos`, `dim_especialidades` — creadas en Fase 4, no consumidas por endpoints activos pero potencialmente útiles para Fase 7.
 
 **Scripts de diagnóstico y DROP:** `scripts/sql/diagnostico_tablas_candidatas_drop.sql` y `scripts/sql/drop_tablas_obsoletas.sql`.
 

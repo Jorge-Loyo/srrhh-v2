@@ -98,7 +98,7 @@ export async function despacharConfirmar(
       where: { id: sesionId },
       select: { informe: true, archivos: { select: { sha256: true } } },
     })
-    await prisma.syncCorrida.create({
+    await prisma.dimSyncCorrida.create({
       data: {
         modo: 'carga_semanal',
         excelSha256: sesion?.archivos[0]?.sha256 ?? null,

@@ -1,7 +1,7 @@
 # Arranque local — SRRHH v2
 
-> Cómo levantar la aplicación completa en esta máquina. Actualizado 2026-11-xx para reflejar
-> el setup vigente: la API usa **`srrhh_sync` (Postgres 18 local)**, no Neon ni el postgres 16 viejo.
+> Cómo levantar la aplicación completa en esta máquina. Actualizado 2026-11-24 para reflejar
+> el setup vigente: la API usa **Neon producción (`ep-little-river-aexgqwxz`)** vía `docker-compose.override.yml`.
 
 ---
 
@@ -14,11 +14,11 @@ wsl
 cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
 
 # Arranque normal (hot-reload activo: cambios en apps/api/src recargan solos)
-docker compose -f docker-compose.yml -f docker-compose.localdb.yml -f docker-compose.override.yml up -d
+docker compose up -d
 
 # Con --build SOLO si cambiaron dependencias (package.json / pnpm-lock.yaml)
 # o prisma/schema.prisma (el cliente Prisma se genera al construir la imagen):
-docker compose -f docker-compose.yml -f docker-compose.localdb.yml -f docker-compose.override.yml up -d --build
+docker compose up -d --build
 ```
 
 Verificar que quedó sano:
@@ -27,8 +27,7 @@ Verificar que quedó sano:
 curl -s http://localhost:3000/health     # API  -> {"status":"ok",...}
 curl -s http://localhost:5001/health     # Dotaneitor
 docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
-# Debe mostrar: srrhh_api, srrhh_dotaneitor, srrhh_postgres18
-# srrhh_postgres (PG16) NO debe aparecer — está deshabilitado con scale:0
+# Debe mostrar: srrhh_api, srrhh_dotaneitor, srrhh_postgres
 ```
 
 ### 2) Frontend (Vite) — terminal WSL nº 2
@@ -64,28 +63,26 @@ docker compose -f docker-compose.yml -f docker-compose.localdb.yml -f docker-com
 ## Arquitectura de lo que se levanta
 
 ```
-Postgres 18 (srrhh_sync, Docker)  ←→  API Fastify (Docker, hot-reload)  ←→  Web Vite (WSL, nativo)
-                                   ←→  Dotaneitor Python (Docker)
+Neon producción (ep-little-river-aexgqwxz)  ←→  API Fastify (Docker, hot-reload)  ←→  Web Vite (WSL, nativo)
+                                              ←→  Dotaneitor Python (Docker)
 ```
 
-| Contenedor        | Imagen             | Puerto host | Base de datos                  |
-| ----------------- | ------------------ | ----------- | ------------------------------ |
-| `srrhh_postgres18`| postgres:18-alpine | 5434        | `srrhh_sync`                   |
-| `srrhh_api`       | srrhh-legacy-api   | 3000        | `postgres_sync:5432/srrhh_sync`|
-| `srrhh_dotaneitor`| (Dockerfile local) | 5001        | `postgres_sync:5432/srrhh_sync`|
+| Contenedor        | Imagen             | Puerto host | Base de datos                                    |
+| ----------------- | ------------------ | ----------- | ------------------------------------------------ |
+| `srrhh_postgres`  | postgres:16-alpine | 5432        | `srrhh_db` (levanta pero la API no lo usa)       |
+| `srrhh_api`       | srrhh-legacy-api   | 3000        | Neon `ep-little-river-aexgqwxz` (vía override)  |
+| `srrhh_dotaneitor`| (Dockerfile local) | 5001        | Neon `ep-little-river-aexgqwxz` (vía override)  |
 
-**Por qué PG18 y no el PG16 viejo:** Neon (producción) corre PG18. Un dump de `pg_dump 18` no se
-restaura de forma segura en PG16. `srrhh_postgres` (PG16) está definido en `docker-compose.yml`
-para satisfacer el `depends_on` del base, pero `docker-compose.localdb.yml` lo deshabilita con
-`scale: 0` — nunca levanta.
+**Por qué Neon en local:** el sprint de reestructuración de BD consolidó todo en Neon producción.
+No hay BD local activa — `srrhh_postgres` (PG16) levanta para satisfacer el `depends_on` del compose
+pero la API lo ignora porque `docker-compose.override.yml` sobreescribe `DATABASE_URL` con Neon.
 
-**Por qué tres compose files:**
+**Compose files:**
 
 | Archivo                        | Qué aporta                                                              |
 | ------------------------------ | ----------------------------------------------------------------------- |
 | `docker-compose.yml`           | Definición base: postgres16, api, dotaneitor                            |
-| `docker-compose.localdb.yml`   | Deshabilita postgres16, levanta postgres18 (`srrhh_sync`), fija `DATABASE_URL` |
-| `docker-compose.override.yml`  | Hot-reload (volúmenes src), CORS con puerto 5180, polling de FS         |
+| `docker-compose.override.yml`  | `DATABASE_URL` → Neon, hot-reload (volúmenes src), CORS 5180, polling  |
 
 ---
 
@@ -94,7 +91,7 @@ para satisfacer el `depends_on` del base, pero `docker-compose.localdb.yml` lo d
 ### `.env` (raíz del repo — para API nativa fuera de Docker)
 
 ```
-DATABASE_URL="postgresql://srrhh_user:srrhh_pass@localhost:5434/srrhh_sync"
+DATABASE_URL="postgresql://neondb_owner:npg_Sse7auT1knHB@ep-little-river-aexgqwxz-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 ```
 
 Solo se usa cuando corrés `pnpm --filter api dev` directamente en WSL/Windows (sin Docker).
@@ -102,12 +99,13 @@ El contenedor `srrhh_api` **ignora este archivo** — toma sus vars del compose.
 
 ### `docker-compose.override.yml` (local, no commitear cambios con secretos)
 
-Solo contiene hot-reload y CORS — **no toca `DATABASE_URL`**, eso lo maneja `localdb.yml`:
+Contiene `DATABASE_URL` → Neon, hot-reload y CORS:
 
 ```yaml
 services:
   api:
     environment:
+      DATABASE_URL: postgresql://neondb_owner:npg_Sse7auT1knHB@ep-little-river-aexgqwxz-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
       CORS_ORIGINS: http://localhost:5173,http://localhost:5180
       CHOKIDAR_USEPOLLING: 'true'
     volumes:
@@ -115,17 +113,13 @@ services:
       - ./packages/types/src:/repo/packages/types/src
       - ./packages/utils/src:/repo/packages/utils/src
       - ./prisma:/repo/prisma
-  dotaneitor:
-    command: uvicorn main:app --host 0.0.0.0 --port 5001 --reload
-    volumes:
-      - ./services/dotaneitor:/app
 ```
 
 ---
 
 ## Primera vez / BD vacía — migraciones y seed
 
-Si `srrhh_postgres18` acaba de crearse (volumen nuevo) o la BD está vacía:
+Neon ya tiene datos y migraciones aplicadas. Solo necesario si se trabaja contra una BD nueva:
 
 ```bash
 # Desde WSL, con los contenedores arriba:
@@ -161,7 +155,7 @@ El seed es idempotente (`upsert`) — se puede repetir sin duplicar nada.
 | API health            | http://localhost:3000/health                                                |
 | Dotaneitor            | http://localhost:5001                                                       |
 | Dotaneitor health     | http://localhost:5001/health                                                |
-| Postgres sync (psql)  | `localhost:5434` — usuario `srrhh_user`, pass `srrhh_pass`, db `srrhh_sync` |
+| Neon (psql/Studio)    | `ep-little-river-aexgqwxz-pooler.c-2.us-east-2.aws.neon.tech` — ver `.env` |
 
 ---
 
@@ -172,7 +166,7 @@ El seed es idempotente (`upsert`) — se puede repetir sin duplicar nada.
 pnpm --filter @srrhh/api exec tsc --noEmit
 pnpm --filter @srrhh/web exec tsc --noEmit
 
-# Prisma Studio (explorar la BD con UI) — apunta a srrhh_sync via .env
+# Prisma Studio (explorar la BD con UI) — apunta a Neon via .env
 pnpm db:studio
 
 # Re-correr seed (idempotente)
@@ -190,8 +184,8 @@ docker exec srrhh_api printenv | grep DATABASE
 | ------- | ----- | -------- |
 | `docker: command not found` | Estás en Git Bash/PowerShell, no en WSL | Escribí `wsl` primero |
 | Login: "Usuario o contraseña incorrectos" + log `table 'public.usuarios' does not exist` | BD vacía, faltan migraciones | Correr migraciones y seed (ver sección anterior) |
-| `srrhh_postgres` aparece en `docker ps` | Se levantó sin `docker-compose.localdb.yml` | Bajar todo y levantar con los tres `-f` |
-| La API usa `postgres:5432/srrhh_db` en vez de `postgres_sync:5432/srrhh_sync` | Idem anterior | `docker exec srrhh_api printenv \| grep DATABASE` para confirmar; levantar con los tres compose files |
+| Login: 500 Internal Server Error | `docker-compose.override.yml` tiene URL de Neon vieja | Verificar que `DATABASE_URL` en el override apunta a `ep-little-river-aexgqwxz` |
+| La API usa `postgres:5432/srrhh_db` en vez de Neon | `docker-compose.override.yml` no se aplicó | `docker exec srrhh_api printenv \| grep DATABASE` para confirmar; `docker compose up -d` desde la raíz del repo |
 | Error de CORS en el browser | El origin del frontend no está en `CORS_ORIGINS` | Verificar `docker-compose.override.yml` tiene el puerto correcto y que se levantó con ese archivo |
 | `vite` arranca en `5173` aunque se pidió `5180` | Se usó `pnpm ... dev -- --port 5180` (el `--` extra hace que vite no reciba el flag) | Usar `pnpm --filter @srrhh/web exec vite --port 5180` |
 | `"vite" no se reconoce` en Git Bash/PowerShell | `node_modules/` se instaló desde WSL (binarios Linux) | Correr el front desde WSL, o reinstalar desde Windows |

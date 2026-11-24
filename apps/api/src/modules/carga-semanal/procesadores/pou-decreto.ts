@@ -129,7 +129,7 @@ export async function procesarPouDecreto(sesionId: string, buffer: Buffer, marca
   if (!filas.length) throw new Error('No se encontraron filas válidas en la hoja del decreto')
 
   // 2. Cargar mapeo nombre → sigla
-  const mapeos = await prisma.pouDecretoMapeoHospital.findMany()
+  const mapeos = await prisma.dimPouDecretoMapeo.findMany()
   if (!mapeos.length) {
     throw new Error(
       'La tabla pou_decreto_mapeo_hospital está vacía. Ejecutar seed_pou_decreto_mapeo.sql primero.',
@@ -161,7 +161,7 @@ export async function procesarPouDecreto(sesionId: string, buffer: Buffer, marca
   }
 
   // 3. Cargar estado actual para calcular diffs
-  const actuales = await prisma.pouDecreto.findMany({
+  const actuales = await prisma.dimPouDecreto.findMany({
     select: { sigla: true, perfil: true, especialidad: true, dotacionDiaria: true, dotacionSem: true },
   })
   type ActualRow = (typeof actuales)[number]
@@ -216,7 +216,7 @@ export async function procesarPouDecreto(sesionId: string, buffer: Buffer, marca
     async (tx) => {
       for (let i = 0; i < filasResueltas.length; i += LOTE) {
         for (const f of filasResueltas.slice(i, i + LOTE)) {
-          await tx.pouDecreto.upsert({
+          await tx.dimPouDecreto.upsert({
             where: { sigla_perfil_especialidad: { sigla: f.sigla, perfil: f.perfil, especialidad: f.especialidad } },
             create: {
               sigla:          f.sigla,
@@ -233,7 +233,7 @@ export async function procesarPouDecreto(sesionId: string, buffer: Buffer, marca
         }
       }
 
-      await tx.pouDecretoCarga.create({
+      await tx.dimPouDecretoCarga.create({
         data: { sesionId, archivo: nombreHoja, filas: filasResueltas.length },
       })
     },

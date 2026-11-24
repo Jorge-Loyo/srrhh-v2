@@ -5,7 +5,7 @@
 > real de cada tabla: filas, columnas vivas/muertas, índices, decisiones de limpieza.
 >
 > Estado: FASES 0–2 COMPLETADAS. Fase 3 TypeScript completa (BD pendiente).
-> Última actualización: 2026-12 — Verificación contra `schema.prisma` real. Columnas dropeadas confirmadas.
+> Última actualización: 2026-11-24 — `dim_cargos` normalizada: `estado` en minúscula (`vigente`/`validacion_vacante`), `codigo_cargo` repaddeado a 6 dígitos. Deprecaciones 6.1.4/6.2.5/6.3.4 pendientes.
 
 ---
 
@@ -44,9 +44,10 @@
 - **Uso:** catálogo de escalafones. FK desde `cargos`, `codigos_registro`, `puestos_cargo`, etc.
 - **Columnas a revisar:** ninguna.
 
-### `codigos_registro` ✅ VIVA
+### `codigos_registro` ⚠️ DEPRECADA (contexto MSGC)
 - **Filas:** ~20
 - **Uso:** mapeo código numérico SIAL → escalafón canónico. Fuente de verdad para resolver escalafón al procesar el padrón.
+- **Reemplazada por:** `dim_carreras` en el contexto MSGC (Fase 6.3). Sigue viva para flujos operativos no-MSGC.
 - **Columnas a revisar:** ninguna.
 
 ### `regimenes` ✅ VIVA
@@ -54,14 +55,16 @@
 - **Uso:** clasificación de grupos de cargos. FK desde `cargos.regimen_id`.
 - **Columnas a revisar:** ninguna.
 
-### `puestos_cargo` ✅ VIVA
+### `puestos_cargo` ⚠️ DEPRECADA (contexto MSGC)
 - **Filas:** ~300
 - **Uso:** catálogo normalizado de puestos por escalafón. FK desde `cargos`, `solicitudes_alta`, `concursos_cph`, `concursos_ceetps`.
+- **Reemplazada por:** `dim_puestos` en el contexto MSGC (Fase 6.2). Sigue viva para flujos operativos no-MSGC.
 - **Columnas a revisar:** `pendiente_curar` — ¿cuántos registros tienen este flag en true?
 
-### `especialidades_puesto` ✅ VIVA
+### `especialidades_puesto` ⚠️ DEPRECADA (contexto MSGC)
 - **Filas:** ~295
 - **Uso:** especialidades válidas por puesto. FK desde `cargos`, `solicitudes_alta`, `concursos_cph`.
+- **Reemplazada por:** `dim_puestos` en el contexto MSGC (Fase 6.2). Sigue viva para flujos operativos no-MSGC.
 - **Columnas a revisar:** `pendiente_curar`, `grupo` (S25 — ¿poblado?).
 
 ### `jcat_cargo_jefatura` ✅ VIVA
@@ -461,9 +464,19 @@ Orden de precedencia (la primera regla que aplica gana):
 - **Filas:** 47.278
 - **Contenido:** una fila por CUIL único con id_sial, id_sial_rol, situacion_revista, especialidad.
 
-### `msgc_cargos`
+### `dim_cargos` 🆕
+- **PK:** `codigo_cargo` VARCHAR — formato `PREFIJO-NNNNNN` (6 dígitos con ceros, ej: `CPH-P-002315`)
 - **Filas:** 53.064
-- **Contenido:** una fila por código de cargo con todos los atributos del Excel.
+- **Dominio:** MSGC — reemplazará a `cargos` como fuente de verdad de cargos del sistema.
+- **`cargo_id_sistema`:** UUID FK a `cargos.id` del sistema operativo (puede ser NULL para cargos sin equivalente).
+- **`estado`:** valores normalizados `vigente` / `validacion_vacante` / `no_vigente` (minúscula, sin tilde). Los `no_vigente` aparecerán a partir de la primera carga semanal.
+- **Columnas:** `codigo_cargo`, `codigo_registro`, `literal_puesto`, `efector`, `modalidad`, `estado`, `sub_estado`, `especialidad_cargo`, `cargo_id_sistema`, `tipo_cargo_id`, `especialidad_id`, `dia_pou`, `jornada_enfermeria`
+- **Fixes aplicados (2026-11-24):** `estado` normalizado a minúscula (52.274 + 790 filas); `codigo_cargo` repaddeado a 6 dígitos (2.588 filas). Scripts: `scripts/fix-dim-cargos-normalizar.mjs`, `scripts/sql/fix_dim_cargos_padding.sql`.
+- **Pendiente:** recodificación de prefijos legacy (Fase 3.5).
+
+### `msgc_cargos` ⚠️ STAGING
+- **Filas:** 53.064
+- **Contenido:** tabla de staging del sync MSGC Fase 1. Contiene el mapeo cargo↔persona del corte 2026-11-01. Útil para Fase 7. No dropear hasta completar Fase 7.
 
 ### `msgc_hechos_cargo_persona`
 - **Filas:** 53.064
@@ -514,3 +527,4 @@ Orden de precedencia (la primera regla que aplica gana):
 | 2026-12 | `dim_puestos`: eliminadas columnas `id_sial`, `cuil`, `cuil_anterior`. Arquitectura esquema estrella documentada. `id_sial_rol` corregido a formato corto (máx 12 chars) en `dim_puestos` y `ocupaciones`. |
 | 2026-12 | `dim_efectores` creada (79 filas: 64 activos, 15 inactivos). 15 DGAH eliminadas. FK `dim_puestos.efector` y `dim_cargos.efector` validadas. `dim_cargos.sigla` renombrada a `efector`. Tarea 4.1 completada. |
 | 2026-12 | Regla de clasificación `tipo_cargo` documentada: formacion (docentes/residentes por CR) → estructura (jcat P60/P61) → conduccion (jcat no nulo) → ejecucion (jcat NULL). Los literales orgánicos en CR=25/60 son correctos por diseño. |
+| 2026-11-24 | `dim_cargos` documentada: PK `codigo_cargo` formato `PREFIJO-NNNNNN`, dominio MSGC, FK `cargo_id_sistema → cargos.id`. Fixes: `estado` normalizado a minúscula, `codigo_cargo` repaddeado a 6 dígitos. `codigos_registro`, `puestos_cargo`, `especialidades_puesto` marcadas como deprecadas en contexto MSGC (reemplazadas por `dim_carreras`, `dim_puestos`). |

@@ -100,7 +100,7 @@ function parsearBuffer(buffer: Buffer): FilaPouBase[] {
 }
 
 async function calcularDiffs(sesionId: string, filas: FilaPouBase[]): Promise<DiffInput[]> {
-  const actuales = await prisma.pou.findMany({
+  const actuales = await prisma.dimPouOcupacion.findMany({
     select: { sigla: true, perfil: true, especialidad: true, dotacionTotal: true, activos: true, vacantes: true },
   })
   const mapaActual = new Map(actuales.map((r) => [`${r.sigla}|${r.perfil}|${r.especialidad}`, r]))
@@ -176,7 +176,7 @@ export async function aplicarCambiosOcupacionPou(
     async (tx) => {
       for (let i = 0; i < filas.length; i += LOTE) {
         for (const f of filas.slice(i, i + LOTE)) {
-          await tx.pou.upsert({
+          await tx.dimPouOcupacion.upsert({
             where: { sigla_perfil_especialidad: { sigla: f.sigla, perfil: f.perfil, especialidad: f.especialidad } },
             create: {
               sigla: f.sigla, descripcionSigla: f.descripcionSigla, perfil: f.perfil,

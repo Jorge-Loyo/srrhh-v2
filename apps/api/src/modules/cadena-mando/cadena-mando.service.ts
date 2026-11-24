@@ -30,7 +30,7 @@ export async function getCadenaMandoService(
     codigoRepa = params.codigoRepa
   }
 
-  const nodoInicial = await prisma.organigrama.findUnique({ where: { codigoReparticion: codigoRepa } })
+  const nodoInicial = await prisma.dimOrganigrama.findUnique({ where: { codigoReparticion: codigoRepa } })
   if (!nodoInicial) throw AppError.notFound(`No se encontró nodo de organigrama para repartición: ${codigoRepa}`)
 
   const rows = await prisma.$queryRaw<Array<{

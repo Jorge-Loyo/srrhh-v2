@@ -35,7 +35,7 @@ model Hospital {
   @@map("hospitales")
 }
 
-model Organigrama {
+model DimOrganigrama {
   id                  String  @id @default(uuid()) @db.Uuid
   lvl                 Int
   tipo                String  @db.VarChar(50)
@@ -51,18 +51,18 @@ model Organigrama {
   @@index([sigla])
   @@index([padre])
   @@index([universoTotalizador])
-  @@map("organigramas")
+  @@map("dim_organigrama")
 }
 
-model OrganigramaUpload {
+model DimOrganigramaUpload {
   id          String   @id @default(uuid()) @db.Uuid
   filename    String   @db.VarChar(255)
   filas       Int
   subidoPorId String?  @map("subido_por_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  subidoPor   Usuario? @relation("OrganigramaUploadSubidoPor", fields: [subidoPorId], references: [id])
+  subidoPor   Usuario? @relation("DimOrganigramaUploadSubidoPor", fields: [subidoPorId], references: [id])
 
-  @@map("organigrama_uploads")
+  @@map("dim_organigrama_uploads")
 }
 
 model AreaProgramatica {
@@ -120,22 +120,40 @@ model KpisDotacionSnapshot {
   @@map("kpis_dotacion_snapshot")
 }
 
-model Pou {
-  id               String  @id @default(uuid()) @db.Uuid
-  sigla            String  @db.VarChar(10)
-  descripcionSigla String? @map("descripcion_sigla") @db.VarChar(100)
-  perfil           String  @db.VarChar(50)
-  especialidad     String  @db.VarChar(100)
-  dotacionDiaria   Int?    @map("dotacion_diaria")
-  dotacionSem      Int?    @map("dotacion_sem")
-  dotacionTotal    Int?    @map("dotacion_total")
+model DimPouOcupacion {
+  id               String   @id @default(uuid()) @db.Uuid
+  sigla            String   @db.VarChar(10)
+  descripcionSigla String?  @map("descripcion_sigla") @db.VarChar(100)
+  perfil           String   @db.VarChar(50)
+  especialidad     String   @db.VarChar(100)
+  dotacionDiaria   Int?     @map("dotacion_diaria")
+  dotacionSem      Int?     @map("dotacion_sem")
+  dotacionTotal    Int?     @map("dotacion_total")
   activos          Int?
   tecnicos         Int?
   vacantes         Int?
+  efector          DimEfectores @relation(fields: [sigla], references: [sigla])
+  puestos          DimPouOcupacionPuesto[]
 
   @@unique([sigla, perfil, especialidad])
   @@index([sigla])
-  @@map("pou")
+  @@map("dim_pou_ocupacion")
+}
+
+/// Mapeo entre una fila de dim_pou_ocupacion y los puestos individuales de dim_puestos.
+/// Se puebla al confirmar la carga semanal de POU.
+/// Los puestos sin match quedan sin fila aquí (vacantes o perfiles sin cargo activo).
+model DimPouOcupacionPuesto {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pouId       String          @map("pou_id") @db.Uuid
+  idSialRol   String          @map("id_sial_rol") @db.VarChar(30)
+  vinculadoManualmente Boolean @default(false) @map("vinculado_manualmente")
+  pou         DimPouOcupacion @relation(fields: [pouId], references: [id])
+  puesto      DimPuestos      @relation(fields: [idSialRol], references: [idSialRol])
+
+  @@unique([pouId, idSialRol])
+  @@index([idSialRol])
+  @@map("dim_pou_ocupacion_puestos")
 }
 
 model Escalafon {
@@ -895,7 +913,7 @@ model Usuario {
   concursosAsignados        ConcursoAsignado[]    @relation("ConcursoAsignadoUsuario")
   desiertosCph              ConcursoCphDesierto[] @relation("DesiertoRegistradoPor")
   jornadasSorteoCreadas     JornadaSorteo[]       @relation("JornadasSorteoCreadas")
-  organigramaUploads        OrganigramaUpload[]   @relation("OrganigramaUploadSubidoPor")
+  organigramaUploads        DimOrganigramaUpload[]   @relation("DimOrganigramaUploadSubidoPor")
   snapshotsAprobados        PadronSnapshot[]      @relation("SnapshotAprobadoPor")
   snapshotsProcesados       PadronSnapshot[]      @relation("SnapshotProcesadoPor")
   pouCargas                 PouCarga[]
@@ -1270,14 +1288,14 @@ model BajaSialRegistro {
   @@map("baja_sial_registros")
 }
 
-model SyncCorrida {
+model DimSyncCorrida {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   creadoEn    DateTime @default(now()) @map("creado_en") @db.Timestamptz(6)
   modo        String   @db.VarChar(20)
   excelSha256 String?  @map("excel_sha256") @db.VarChar(64)
   resumen     Json?
 
-  @@map("sync_corridas")
+  @@map("dim_sync_corridas")
 }
 
 // =============================================================================
@@ -1299,8 +1317,9 @@ model DimEfectores {
   enHospitales       Boolean     @default(false) @map("en_hospitales")
   cargos             DimCargos[]
   puestos            DimPuestos[]
-  pouDecretoMapeos   PouDecretoMapeoHospital[]
-  pouDecretos        PouDecreto[]
+  pouDecretoMapeos   DimPouDecretoMapeo[]
+  pouDecretos        DimPouDecreto[]
+  pouOcupacion       DimPouOcupacion[]
 
   @@map("dim_efectores")
 }
@@ -1440,6 +1459,7 @@ model DimPuestos {
   bajasExist       DateTime?   @map("bajas_exist") @db.Date
   carrera          DimCarreras?  @relation(fields: [codigoRegistro], references: [codigoRegistro])
   efector          DimEfectores? @relation(fields: [hospitalSigla], references: [sigla])
+  pouOcupacion     DimPouOcupacionPuesto[]
 
   @@index([hospitalSigla])
   @@map("dim_puestos")
@@ -1558,7 +1578,7 @@ model DimCargaSesion {
   diffs            DimCargaDiff[]
   snapshots        DimCargaPadronSnapshot[]
   kpis             DimCargaKpisPeriodo[]
-  pouDecretoCargas PouDecretoCarga[]
+  pouDecretoCargas DimPouDecretoCarga[]
 
   @@index([tipo, estado])
   @@index([fechaArchivo])
@@ -1659,18 +1679,18 @@ model DimCargaKpisPeriodo {
 
 /// Mapeo fijo nombre-en-POU-decreto → sigla en dim_efectores.
 /// Se carga una sola vez con seed; no cambia salvo nuevo hospital.
-model PouDecretoMapeoHospital {
+model DimPouDecretoMapeo {
   nombrePou String       @id @map("nombre_pou") @db.VarChar(300)
   sigla     String       @db.VarChar(20)
   efector   DimEfectores @relation(fields: [sigla], references: [sigla])
 
   @@index([sigla])
-  @@map("pou_decreto_mapeo_hospital")
+  @@map("dim_pou_decreto_mapeo")
 }
 
 /// Dotación normativa del decreto (por hospital, perfil y especialidad).
 /// Fuente: POU_DECRETO 315-22 y modificaciones - HISTORICO.xlsx
-model PouDecreto {
+model DimPouDecreto {
   id             Int          @id @default(autoincrement())
   sigla          String       @db.VarChar(20)
   perfil         String       @db.VarChar(100)
@@ -1683,11 +1703,11 @@ model PouDecreto {
 
   @@unique([sigla, perfil, especialidad])
   @@index([sigla])
-  @@map("pou_decreto")
+  @@map("dim_pou_decreto")
 }
 
 /// Registro de cada carga del archivo POU histórico (decreto).
-model PouDecretoCarga {
+model DimPouDecretoCarga {
   id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sesionId  String         @map("sesion_id") @db.Uuid
   archivo   String         @db.VarChar(500)
@@ -1696,7 +1716,7 @@ model PouDecretoCarga {
   sesion    DimCargaSesion @relation(fields: [sesionId], references: [id])
 
   @@index([createdAt])
-  @@map("pou_decreto_cargas")
+  @@map("dim_pou_decreto_cargas")
 }
 
 model PouEspecialidadMapeo {

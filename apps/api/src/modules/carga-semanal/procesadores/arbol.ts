@@ -113,20 +113,20 @@ async function parsearBuffer(buffer: Buffer): Promise<FilaArbol[]> {
 
 async function completarUniversoYRegimen(filas: FilaArbol[]): Promise<void> {
   const historial = new Map<string, { regimenEmpleo: string | null; universoTotalizador: string | null }>()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
   })) {
     historial.set(r.codigoReparticion, { regimenEmpleo: r.regimenEmpleo, universoTotalizador: r.universoTotalizador })
   }
 
   const hospitalTipoPorSigla = new Map<string, string | null>()
-  for (const h of await prisma.hospital.findMany({ select: { sigla: true, tipo: true } })) {
+  for (const h of await prisma.dimEfectores.findMany({ select: { sigla: true, tipo: true } })) {
     hospitalTipoPorSigla.set(h.sigla, h.tipo)
   }
 
   const regimenSetPorSUT = new Map<string, Set<string>>()
   const regimenSetPorSU  = new Map<string, Set<string>>()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { sigla: true, universoTotalizador: true, regimenEmpleo: true, tipo: true },
     where: { regimenEmpleo: { not: '' } },
   })) {
@@ -204,7 +204,7 @@ export async function parsearYDiffearArbol(
   const filas = await parsearBuffer(buffer)
   await completarUniversoYRegimen(filas)
 
-  const actuales = await prisma.organigrama.findMany({
+  const actuales = await prisma.dimOrganigrama.findMany({
     select: { codigoReparticion: true, descRep: true, padre: true },
   })
   const mapaActual = new Map(actuales.map((r) => [r.codigoReparticion, r]))
@@ -265,9 +265,9 @@ export async function aplicarCambiosArbol(
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.organigrama.deleteMany()
+      await tx.dimOrganigrama.deleteMany()
       for (let i = 0; i < insertData.length; i += LOTE) {
-        await tx.organigrama.createMany({ data: insertData.slice(i, i + LOTE) })
+        await tx.dimOrganigrama.createMany({ data: insertData.slice(i, i + LOTE) })
       }
     },
     { timeout: 120_000 },

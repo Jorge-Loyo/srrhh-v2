@@ -248,7 +248,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   // === 1. Estructura del árbol ===
   // mode: 'insensitive' porque el dump MySQL legacy puede tener cualquier casing
   // en universo_totalizador (ej. 'Nivel Central' vs 'NIVEL CENTRAL').
-  const rows = await prisma.organigrama.findMany({
+  const rows = await prisma.dimOrganigrama.findMany({
     where: sigla
       ? { sigla }
       : {
@@ -291,7 +291,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
         .map((r) => r.codigo_reparticion)
         .filter((c) => !yaIncluidos.has(c))
       if (codigosFaltantes.length > 0) {
-        const nodosFaltantes = await prisma.organigrama.findMany({
+        const nodosFaltantes = await prisma.dimOrganigrama.findMany({
           where: { codigoReparticion: { in: codigosFaltantes } },
         })
         for (const n of nodosFaltantes) rows.push(n)
@@ -589,7 +589,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
   ]
   const padresFuera =
     codigosPadresFuera.length > 0
-      ? await prisma.organigrama.findMany({
+      ? await prisma.dimOrganigrama.findMany({
           where: { codigoReparticion: { in: codigosPadresFuera } },
         })
       : []
@@ -720,7 +720,7 @@ export async function getOrganigramaService(query: OrganigramaQuery): Promise<{
     )
     if (!raiz && padres.size === 1) {
       const anchorCod = [...padres][0]!
-      const anchor = await prisma.organigrama.findUnique({
+      const anchor = await prisma.dimOrganigrama.findUnique({
         where: { codigoReparticion: anchorCod },
       })
       if (anchor) {
@@ -986,7 +986,7 @@ function normalizarDescRep(v: string | null): string | null {
 function normalizarFilaExcel(
   norm: Record<string, unknown>,
   numeroFila: number,
-): Prisma.OrganigramaCreateManyInput {
+): Prisma.DimOrganigramaCreateManyInput {
   const lvlRaw = celda(norm, 'lvl')
   const tipo = celda(norm, 'tipo')
   const codigoReparticion = celda(norm, 'codigo_reparticion')
@@ -1074,7 +1074,7 @@ export async function reemplazarOrganigramaService(
     string,
     { regimenEmpleo: string | null; universoTotalizador: string | null }
   >()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
   })) {
     historial.set(r.codigoReparticion, {
@@ -1083,7 +1083,7 @@ export async function reemplazarOrganigramaService(
     })
   }
   const hospitalTipoPorSigla = new Map<string, string | null>()
-  for (const h of await prisma.hospital.findMany({ select: { sigla: true, tipo: true } })) {
+  for (const h of await prisma.dimEfectores.findMany({ select: { sigla: true, tipo: true } })) {
     hospitalTipoPorSigla.set(h.sigla, h.tipo)
   }
 
@@ -1095,7 +1095,7 @@ export async function reemplazarOrganigramaService(
   // dentro de un mismo TIPO (ej. "DIV CA") el régimen es consistente. Se usa
   // como fallback cuando sigla|universo no alcanza (ver loop de pendientes).
   const regimenSetPorSiglaUniversoTipo = new Map<string, Set<string>>()
-  for (const r of await prisma.organigrama.findMany({
+  for (const r of await prisma.dimOrganigrama.findMany({
     select: { sigla: true, universoTotalizador: true, regimenEmpleo: true, tipo: true },
     where: { regimenEmpleo: { not: '' } },
   })) {
@@ -1217,15 +1217,15 @@ export async function reemplazarOrganigramaService(
   // grandes (4.000+ filas en lotes de 500 = ~9 roundtrips).
   await prisma.$transaction(
     async (tx) => {
-      await tx.organigrama.deleteMany()
+      await tx.dimOrganigrama.deleteMany()
       for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
-        await tx.organigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
+        await tx.dimOrganigrama.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
       }
     },
     { timeout: 120_000 },
   )
 
-  await prisma.organigramaUpload.create({
+  await prisma.dimOrganigramaUpload.create({
     data: {
       filename: filename ?? 'desconocido',
       filas: filas.length,
@@ -1269,12 +1269,12 @@ export async function reemplazarOrganigramaService(
 export async function listSiglasOrganigramaService(): Promise<
   { sigla: string; nombre: string; esSeccion: boolean }[]
 > {
-  const siglas = await prisma.organigrama.findMany({
+  const siglas = await prisma.dimOrganigrama.findMany({
     distinct: ['sigla'],
     select: { sigla: true },
     orderBy: { sigla: 'asc' },
   })
-  const hospitales = await prisma.hospital.findMany({
+  const hospitales = await prisma.dimEfectores.findMany({
     select: { sigla: true, nombre: true },
   })
   const nombrePorSigla = new Map(hospitales.map((h) => [h.sigla, h.nombre]))
@@ -1296,7 +1296,7 @@ export async function listSiglasOrganigramaService(): Promise<
 }
 
 export async function listOrganigramaUploadsService() {
-  return prisma.organigramaUpload.findMany({
+  return prisma.dimOrganigramaUpload.findMany({
     orderBy: { createdAt: 'desc' },
     take: 50,
     select: {

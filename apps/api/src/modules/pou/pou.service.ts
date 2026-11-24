@@ -334,14 +334,14 @@ export async function triangularPouService(sigla?: string): Promise<Triangulacio
 }
 
 export async function listPouPorSiglaService(sigla: string): Promise<PouRow[]> {
-  return prisma.pou.findMany({
+  return prisma.dimPouOcupacion.findMany({
     where: { sigla },
     orderBy: [{ perfil: 'asc' }, { especialidad: 'asc' }],
   })
 }
 
 export async function listHospitalesPouService(): Promise<string[]> {
-  const rows = await prisma.pou.findMany({
+  const rows = await prisma.dimPouOcupacion.findMany({
     distinct: ['sigla'],
     select: { sigla: true },
     orderBy: { sigla: 'asc' },
@@ -350,7 +350,7 @@ export async function listHospitalesPouService(): Promise<string[]> {
 }
 
 export async function compararPouService(siglas: string[]): Promise<PouRow[]> {
-  return prisma.pou.findMany({
+  return prisma.dimPouOcupacion.findMany({
     where: { sigla: { in: siglas } },
     orderBy: [{ perfil: 'asc' }, { especialidad: 'asc' }, { sigla: 'asc' }],
   })
@@ -368,7 +368,7 @@ export async function compararPouService(siglas: string[]): Promise<PouRow[]> {
 const SHEET_NAME = 'base'
 const LOTE_UPLOAD = 500
 
-const COLUMN_MAPPING: { header: string; field: keyof Prisma.PouCreateManyInput; tipo: 'string' | 'int'; occurrence?: number }[] = [
+const COLUMN_MAPPING: { header: string; field: keyof Prisma.DimPouOcupacionCreateManyInput; tipo: 'string' | 'int'; occurrence?: number }[] = [
   { header: 'SIGLA', field: 'sigla', tipo: 'string' },
   { header: 'Descrip. Sigla', field: 'descripcionSigla', tipo: 'string' },
   { header: 'PERFIL', field: 'perfil', tipo: 'string' },
@@ -453,7 +453,7 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
     throw AppError.badRequest(`Faltan columnas en la hoja "Base": ${faltantesHeader.join(', ')}`)
   }
 
-  const filas: Prisma.PouCreateManyInput[] = []
+  const filas: Prisma.DimPouOcupacionCreateManyInput[] = []
   const vistos = new Set<string>()
 
   // La fila 1 es el header; el resto son datos (numeroFila = 1-based, igual que el Excel).
@@ -513,9 +513,9 @@ export async function reemplazarPouService(buffer: Buffer, nombreArchivo: string
   // Sin $transaction envolvente a propósito — mismo criterio que
   // reemplazarOrganigramaService: son miles de filas potenciales y el timeout
   // default de una transacción interactiva de Prisma es 5s.
-  await prisma.pou.deleteMany()
+  await prisma.dimPouOcupacion.deleteMany()
   for (let i = 0; i < filas.length; i += LOTE_UPLOAD) {
-    await prisma.pou.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
+    await prisma.dimPouOcupacion.createMany({ data: filas.slice(i, i + LOTE_UPLOAD) })
   }
 
   await prisma.$executeRaw`
