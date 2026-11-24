@@ -169,7 +169,7 @@ function canonicalizarLiteralPuesto(literalNorm: string, modalidad: ModalidadPue
 export async function resolverPuestoCargoId(
   tx: TxCatalogo,
   cache: CatalogoPuestosCache,
-  params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto: string | null },
+  params: { escalafonId: string; literalPuesto: string | null; unificadorPuesto?: string | null },
 ): Promise<PuestoCargoInfo> {
   const literalRaw = (params.literalPuesto ?? '').trim() || SIN_ESPECIFICAR
 
