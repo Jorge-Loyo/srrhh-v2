@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada } from '../carga-semanal.service.js'
+import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
 
 import { normalizarTexto } from '@srrhh/utils'
 
@@ -70,37 +70,41 @@ function parsearFilaBase(row: Record<string, unknown>): FilaPouBase | null {
   }
 }
 
-// ─── Procesador principal ─────────────────────────────────────────────────────
+// ─── Tipos de resumen ────────────────────────────────────────────────────────
+
+export interface ResumenOcupacionPou {
+  totalFilas: number
+  pou: { nuevos: number; modificados: number; eliminados: number }
+}
+
+// ─── Helpers compartidos ──────────────────────────────────────────────────────
 
 const LOTE = 200
 
-export async function procesarOcupacionPou(sesionId: string, buffer: Buffer, marcarCompletado = true): Promise<void> {
-  // 1. Parsear Excel — hoja "Base"
+type DiffInput = {
+  sesionId: string; tablaAfectada: string
+  tipoDiff: 'nuevo' | 'modificado' | 'eliminado'
+  clave: string; campo?: string
+  valorAnterior?: string | null; valorNuevo?: string | null
+}
+
+function parsearBuffer(buffer: Buffer): FilaPouBase[] {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   const hojaBase = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'base')
   if (!hojaBase) throw new Error('No se encontró la hoja "Base" en el archivo')
-
   const ws = wb.Sheets[hojaBase]
   const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, unknown>[]
-
-  const filas = rawRows
-    .map(parsearFilaBase)
-    .filter((f): f is FilaPouBase => f !== null)
-
+  const filas = rawRows.map(parsearFilaBase).filter((f): f is FilaPouBase => f !== null)
   if (!filas.length) throw new Error('La hoja Base no tiene filas válidas')
+  return filas
+}
 
-  // 2. Cargar estado actual de pou para calcular diffs
+async function calcularDiffs(sesionId: string, filas: FilaPouBase[]): Promise<DiffInput[]> {
   const actuales = await prisma.pou.findMany({
     select: { sigla: true, perfil: true, especialidad: true, dotacionTotal: true, activos: true, vacantes: true },
   })
   const mapaActual = new Map(actuales.map((r) => [`${r.sigla}|${r.perfil}|${r.especialidad}`, r]))
 
-  type DiffInput = {
-    sesionId: string; tablaAfectada: string
-    tipoDiff: 'nuevo' | 'modificado' | 'eliminado'
-    clave: string; campo?: string
-    valorAnterior?: string | null; valorNuevo?: string | null
-  }
   const diffs: DiffInput[] = []
   const clavesEnArchivo = new Set<string>()
 
@@ -108,7 +112,6 @@ export async function procesarOcupacionPou(sesionId: string, buffer: Buffer, mar
     const clave = `${f.sigla}|${f.perfil}|${f.especialidad}`
     clavesEnArchivo.add(clave)
     const actual = mapaActual.get(clave)
-
     if (!actual) {
       diffs.push({ sesionId, tablaAfectada: 'pou', tipoDiff: 'nuevo', clave })
     } else {
@@ -123,13 +126,52 @@ export async function procesarOcupacionPou(sesionId: string, buffer: Buffer, mar
           valorAnterior: String(actual.vacantes ?? ''), valorNuevo: String(f.vacantes ?? '') })
     }
   }
-
   for (const clave of mapaActual.keys()) {
     if (!clavesEnArchivo.has(clave))
       diffs.push({ sesionId, tablaAfectada: 'pou', tipoDiff: 'eliminado', clave })
   }
+  return diffs
+}
 
-  // 3. Upsert tabla pou en lotes
+// ─── FASE 1: parsear + calcular diff (sin escribir datos de negocio) ──────────
+
+export async function parsearYDiffearOcupacionPou(
+  sesionId: string,
+  buffer: Buffer,
+): Promise<ResumenOcupacionPou> {
+  const filas = parsearBuffer(buffer)
+  const diffs = await calcularDiffs(sesionId, filas)
+
+  await Promise.all([
+    (async () => {
+      for (let i = 0; i < diffs.length; i += LOTE) {
+        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+      }
+    })(),
+    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
+  ])
+
+  const resumen: ResumenOcupacionPou = {
+    totalFilas: filas.length,
+    pou: {
+      nuevos:      diffs.filter((d) => d.tipoDiff === 'nuevo').length,
+      modificados: diffs.filter((d) => d.tipoDiff === 'modificado').length,
+      eliminados:  diffs.filter((d) => d.tipoDiff === 'eliminado').length,
+    },
+  }
+
+  await marcarSesionPendiente(sesionId, { tipo: 'ocupacion_pou', ...resumen })
+  return resumen
+}
+
+// ─── FASE 2: aplicar cambios (escribe en BD, se llama al confirmar) ──────────
+
+export async function aplicarCambiosOcupacionPou(
+  sesionId: string,
+  buffer: Buffer,
+): Promise<void> {
+  const filas = parsearBuffer(buffer)
+
   await prisma.$transaction(
     async (tx) => {
       for (let i = 0; i < filas.length; i += LOTE) {
@@ -137,25 +179,13 @@ export async function procesarOcupacionPou(sesionId: string, buffer: Buffer, mar
           await tx.pou.upsert({
             where: { sigla_perfil_especialidad: { sigla: f.sigla, perfil: f.perfil, especialidad: f.especialidad } },
             create: {
-              sigla:            f.sigla,
-              descripcionSigla: f.descripcionSigla,
-              perfil:           f.perfil,
-              especialidad:     f.especialidad,
-              dotacionDiaria:   f.dotacionDiaria,
-              dotacionSem:      f.dotacionSem,
-              dotacionTotal:    f.dotacionTotal,
-              activos:          f.activos,
-              tecnicos:         f.tecnicos,
-              vacantes:         f.vacantes,
+              sigla: f.sigla, descripcionSigla: f.descripcionSigla, perfil: f.perfil,
+              especialidad: f.especialidad, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
+              dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
             },
             update: {
-              descripcionSigla: f.descripcionSigla,
-              dotacionDiaria:   f.dotacionDiaria,
-              dotacionSem:      f.dotacionSem,
-              dotacionTotal:    f.dotacionTotal,
-              activos:          f.activos,
-              tecnicos:         f.tecnicos,
-              vacantes:         f.vacantes,
+              descripcionSigla: f.descripcionSigla, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
+              dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
             },
           })
         }
@@ -164,27 +194,8 @@ export async function procesarOcupacionPou(sesionId: string, buffer: Buffer, mar
     { timeout: 60_000 },
   )
 
-  // 4. Insertar diffs
-  for (let i = 0; i < diffs.length; i += LOTE) {
-    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-  }
-
-  // 5. Actualizar conteo real de filas
-  await prisma.dimCargaArchivo.updateMany({
-    where: { sesionId },
-    data: { filas: filas.length },
-  })
-
-  // 6. Informe
-  const resumen = {
+  await marcarSesionCompletada(sesionId, {
     tipo: 'ocupacion_pou',
     totalFilas: filas.length,
-    pou: {
-      nuevos:      diffs.filter((d) => d.tipoDiff === 'nuevo').length,
-      modificados: diffs.filter((d) => d.tipoDiff === 'modificado').length,
-      eliminados:  diffs.filter((d) => d.tipoDiff === 'eliminado').length,
-    },
-  }
-  if (marcarCompletado) await marcarSesionCompletada(sesionId, resumen)
-  return resumen as any
+  })
 }

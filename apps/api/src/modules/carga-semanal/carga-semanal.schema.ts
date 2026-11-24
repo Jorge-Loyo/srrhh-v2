@@ -4,7 +4,7 @@ export const TIPOS_CARGA = ['cargos_salud', 'bajas_salud', 'arbol', 'ocupacion_p
 export type TipoCarga = (typeof TIPOS_CARGA)[number]
 
 // Tipos que pasan por flujo preview/confirmar
-export const TIPOS_CON_PREVIEW = new Set<TipoCarga>(['cargos_salud', 'bajas_salud', 'arbol'])
+export const TIPOS_CON_PREVIEW = new Set<TipoCarga>(['cargos_salud', 'bajas_salud', 'arbol', 'ocupacion_pou'])
 
 const PATRONES_TIPO: Array<{ patron: RegExp; tipo: TipoCarga }> = [
   { patron: /cargos[_\s-]*salud/i,  tipo: 'cargos_salud' },

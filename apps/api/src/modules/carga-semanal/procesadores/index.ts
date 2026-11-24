@@ -35,9 +35,9 @@ export async function despacharPreview(
         break
       }
       case 'ocupacion_pou': {
-        const { procesarOcupacionPou } = await import('./ocupacion-pou.js')
-        const hayPreview = tiposEnSesion.some((t) => TIPOS_CON_PREVIEW.has(t))
-        await procesarOcupacionPou(sesionId, buffer, !hayPreview)
+        const { parsearYDiffearOcupacionPou } = await import('./ocupacion-pou.js')
+        const resumen = await parsearYDiffearOcupacionPou(sesionId, buffer)
+        await registrarResumenParcial(sesionId, tipo, resumen as any, tiposEnSesion)
         break
       }
       case 'pou_decreto': {
@@ -82,6 +82,10 @@ export async function despacharConfirmar(
           case 'arbol': {
             const { aplicarCambiosArbol } = await import('./arbol.js')
             return aplicarCambiosArbol(sesionId, buffer)
+          }
+          case 'ocupacion_pou': {
+            const { aplicarCambiosOcupacionPou } = await import('./ocupacion-pou.js')
+            return aplicarCambiosOcupacionPou(sesionId, buffer)
           }
         }
       })
