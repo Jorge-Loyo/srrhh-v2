@@ -41,6 +41,33 @@ export const COLOR_ESTADO: Record<EstadoCarga, string> = {
   error:                  'bg-red-100 text-red-800',
 }
 
+// Tablas afectadas por cada tipo de carga
+export const TABLAS_POR_TIPO: Record<TipoCarga, string[]> = {
+  cargos_salud:  ['dim_puestos', 'dim_personas', 'dim_actividad_hechos'],
+  bajas_salud:   ['dim_puestos', 'dim_personas', 'dim_actividad_hechos'],
+  arbol:         ['organigramas'],
+  ocupacion_pou: ['pou'],
+  pou_decreto:   [],
+}
+
+// Detecta el tipo de un archivo por su nombre (mismo patrón que el backend)
+const PATRONES_TIPO: Array<{ patron: RegExp; tipo: TipoCarga }> = [
+  { patron: /cargos[_\s-]*salud/i,  tipo: 'cargos_salud' },
+  { patron: /bajas[_\s-]*salud/i,   tipo: 'bajas_salud' },
+  { patron: /arbol[_\s-]*salud/i,   tipo: 'arbol' },
+  { patron: /ocupacion[_\s-]*pou/i, tipo: 'ocupacion_pou' },
+  { patron: /pou[_\s-]*decreto/i,   tipo: 'pou_decreto' },
+  { patron: /decreto[_\s-]*315/i,   tipo: 'pou_decreto' },
+  { patron: /historico.*pou/i,       tipo: 'pou_decreto' },
+]
+
+export function detectarTipoPorFilename(filename: string): TipoCarga | null {
+  for (const { patron, tipo } of PATRONES_TIPO) {
+    if (patron.test(filename)) return tipo
+  }
+  return null
+}
+
 export interface CargaDiff {
   id: string
   tablaAfectada: string

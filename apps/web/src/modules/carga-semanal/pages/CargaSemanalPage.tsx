@@ -16,6 +16,8 @@ import {
   LABEL_TIPO,
   ICONO_TIPO,
   COLOR_ESTADO,
+  TABLAS_POR_TIPO,
+  detectarTipoPorFilename,
   type TipoCarga,
   type CargaDiff,
   type ResolucionesConfirmar,
@@ -56,29 +58,48 @@ function PanelRevision({
   const [modResol, setModResol] = useState<Record<string, 'nuevo' | 'actual'>>({})
   const [delResol, setDelResol] = useState<Record<string, 'eliminar' | 'mantener'>>({})
 
+  // Tab activo: inferido de los archivos de la sesión
+  const tiposEnSesion: TipoCarga[] = sesionData?.data
+    ? (sesionData.data.archivos
+        .map((a) => detectarTipoPorFilename(a.filename))
+        .filter((t): t is TipoCarga => t !== null))
+    : []
+  const [tabActiva, setTabActiva] = useState<TipoCarga | null>(null)
+  const tipoVisible = tabActiva ?? tiposEnSesion[0] ?? null
+
   if (loadingSesion || loadingDiffs) {
     return <p className="text-sm text-gray-400 py-4">Cargando análisis de cambios...</p>
   }
 
   if (!sesion) return null
 
-  // Agrupar diffs por tabla y tipo
-  const puestosNuevos    = diffs.filter((d) => d.tablaAfectada === 'dim_puestos'  && d.tipoDiff === 'nuevo')
-  const puestosEliminados = diffs.filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'eliminado')
-  // Modificados: agrupar por clave (puede haber múltiples campos)
+  // Diffs filtrados al tipo visible
+  const tablasDelTipo = tipoVisible ? TABLAS_POR_TIPO[tipoVisible] : []
+  const diffsDelTipo  = diffs.filter((d) => tablasDelTipo.includes(d.tablaAfectada))
+
+  // Agrupar diffs del tipo visible
+  const puestosNuevos     = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'nuevo')
+  const puestosEliminados = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'eliminado')
   const modPorClave = new Map<string, CargaDiff[]>()
-  diffs
+  diffsDelTipo
     .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'modificado')
     .forEach((d) => {
       if (!modPorClave.has(d.clave)) modPorClave.set(d.clave, [])
       modPorClave.get(d.clave)!.push(d)
     })
 
-  const personasNuevas = diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'nuevo').length
-  const personasMod    = diffs.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'modificado').length
+  const personasNuevas     = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'nuevo').length
+  const personasMod        = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_personas' && d.tipoDiff === 'modificado').length
+  const actividadesAAbrir  = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'nuevo')
+  const actividadesACerrar = diffsDelTipo.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'eliminado')
 
-  const actividadesAAbrir  = diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'nuevo')
-  const actividadesACerrar = diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'eliminado')
+  // Diffs de árbol y POU (no dependen de dim_puestos)
+  const organNuevos     = diffsDelTipo.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'nuevo').length
+  const organMod        = diffsDelTipo.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'modificado').length
+  const organEliminados = diffsDelTipo.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'eliminado').length
+  const pouNuevos       = diffsDelTipo.filter((d) => d.tablaAfectada === 'pou' && d.tipoDiff === 'nuevo').length
+  const pouMod          = diffsDelTipo.filter((d) => d.tablaAfectada === 'pou' && d.tipoDiff === 'modificado').length
+  const pouEliminados   = diffsDelTipo.filter((d) => d.tablaAfectada === 'pou' && d.tipoDiff === 'eliminado').length
 
   const informe = sesion.informe as Record<string, unknown> | null
 
@@ -101,10 +122,12 @@ function PanelRevision({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-gray-900">
-            Revisión de cambios — {LABEL_TIPO[sesion.tipo as TipoCarga]}
+            Revisión de cambios
+            {tiposEnSesion.length === 1 && ` — ${LABEL_TIPO[tiposEnSesion[0]!]}`}
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            {sesion.archivos[0]?.filename} · {sesion.archivos[0]?.filas?.toLocaleString('es-AR')} filas
+            {sesion.archivos.map((a) => a.filename).join(' · ')}
+            {sesion.archivos[0]?.filas != null && ` · ${sesion.archivos[0].filas.toLocaleString('es-AR')} filas`}
           </p>
         </div>
         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${COLOR_ESTADO[sesion.estado]}`}>
@@ -112,28 +135,68 @@ function PanelRevision({
         </span>
       </div>
 
+      {/* Tabs por tipo — solo si hay más de un archivo */}
+      {tiposEnSesion.length > 1 && (
+        <div className="flex gap-1 border-b border-gray-200">
+          {tiposEnSesion.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTabActiva(t)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+                tipoVisible === t
+                  ? 'border-blue-500 text-blue-700 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {ICONO_TIPO[t]} {LABEL_TIPO[t]}
+            </button>
+          ))}
+        </div>
+      )}
+
       {sesion.estado === 'procesando' && (
         <p className="text-sm text-gray-400 animate-pulse">Calculando diferencias...</p>
       )}
 
       {sesion.estado === 'pendiente_confirmacion' && (
         <>
-          {/* Cards resumen */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Puestos nuevos',       valor: puestosNuevos.length,       color: 'text-green-700 bg-green-50' },
-              { label: 'Puestos modificados',   valor: modPorClave.size,           color: 'text-yellow-700 bg-yellow-50' },
-              { label: 'Puestos eliminados',    valor: puestosEliminados.length,   color: 'text-red-700 bg-red-50' },
-              { label: 'Personas nuevas',       valor: personasNuevas,             color: 'text-blue-700 bg-blue-50' },
-              { label: 'Actividades a abrir',   valor: actividadesAAbrir.length,   color: 'text-emerald-700 bg-emerald-50' },
-              { label: 'Actividades a cerrar',  valor: actividadesACerrar.length,  color: 'text-orange-700 bg-orange-50' },
-            ].map((c) => (
-              <div key={c.label} className={`rounded-lg p-3 ${c.color}`}>
-                <p className="text-2xl font-bold tabular-nums">{c.valor.toLocaleString('es-AR')}</p>
-                <p className="text-xs mt-0.5">{c.label}</p>
+          {/* Cards resumen — adaptadas al tipo visible */}
+          {(() => {
+            const cards =
+              tipoVisible === 'cargos_salud' || tipoVisible === 'bajas_salud'
+                ? [
+                    { label: 'Puestos nuevos',       valor: puestosNuevos.length,      color: 'text-green-700 bg-green-50' },
+                    { label: 'Puestos modificados',  valor: modPorClave.size,          color: 'text-yellow-700 bg-yellow-50' },
+                    { label: 'Puestos eliminados',   valor: puestosEliminados.length,  color: 'text-red-700 bg-red-50' },
+                    { label: 'Personas nuevas',      valor: personasNuevas,            color: 'text-blue-700 bg-blue-50' },
+                    { label: 'Actividades a abrir',  valor: actividadesAAbrir.length,  color: 'text-emerald-700 bg-emerald-50' },
+                    { label: 'Actividades a cerrar', valor: actividadesACerrar.length, color: 'text-orange-700 bg-orange-50' },
+                  ]
+                : tipoVisible === 'arbol'
+                ? [
+                    { label: 'Reparticiones nuevas',      valor: organNuevos,     color: 'text-green-700 bg-green-50' },
+                    { label: 'Reparticiones modificadas', valor: organMod,        color: 'text-yellow-700 bg-yellow-50' },
+                    { label: 'Reparticiones eliminadas',  valor: organEliminados, color: 'text-red-700 bg-red-50' },
+                  ]
+                : tipoVisible === 'ocupacion_pou'
+                ? [
+                    { label: 'Filas nuevas',      valor: pouNuevos,     color: 'text-green-700 bg-green-50' },
+                    { label: 'Filas modificadas', valor: pouMod,        color: 'text-yellow-700 bg-yellow-50' },
+                    { label: 'Filas eliminadas',  valor: pouEliminados, color: 'text-red-700 bg-red-50' },
+                  ]
+                : []
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {cards.map((c) => (
+                  <div key={c.label} className={`rounded-lg p-3 ${c.color}`}>
+                    <p className="text-2xl font-bold tabular-nums">{c.valor.toLocaleString('es-AR')}</p>
+                    <p className="text-xs mt-0.5">{c.label}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )
+          })()}
 
           {/* Advertencias del informe */}
           {Array.isArray((informe as any)?.advertencias) && (informe as any).advertencias.length > 0 && (
@@ -315,6 +378,68 @@ function PanelRevision({
                       <tr key={d.id} className="border-t border-gray-100">
                         <td className="px-3 py-1.5 font-mono text-gray-700">{d.clave}</td>
                         <td className="px-3 py-1.5 text-gray-500">{d.valorNuevo ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Tabla: diffs de árbol */}
+          {(tipoVisible === 'arbol') && diffsDelTipo.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                Cambios en organigrama — {diffsDelTipo.length}
+              </h3>
+              <div className="overflow-x-auto max-h-48 overflow-y-auto border rounded text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      {['cod_rep', 'Tipo', 'Campo', 'Anterior', 'Nuevo'].map((h) => (
+                        <th key={h} className="px-3 py-1.5 text-left font-medium text-gray-600">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diffsDelTipo.map((d) => (
+                      <tr key={d.id} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 font-mono text-gray-700">{d.clave}</td>
+                        <td className="px-3 py-1.5">{LABEL_DIFF[d.tipoDiff as keyof typeof LABEL_DIFF]}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{d.campo ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-400 line-through">{d.valorAnterior ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-800">{d.valorNuevo ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Tabla: diffs de POU */}
+          {(tipoVisible === 'ocupacion_pou') && diffsDelTipo.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                Cambios en ocupación POU — {diffsDelTipo.length}
+              </h3>
+              <div className="overflow-x-auto max-h-48 overflow-y-auto border rounded text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      {['Clave (sigla|perfil|esp)', 'Tipo', 'Campo', 'Anterior', 'Nuevo'].map((h) => (
+                        <th key={h} className="px-3 py-1.5 text-left font-medium text-gray-600">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diffsDelTipo.map((d) => (
+                      <tr key={d.id} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 font-mono text-gray-700 max-w-[200px] truncate" title={d.clave}>{d.clave}</td>
+                        <td className="px-3 py-1.5">{LABEL_DIFF[d.tipoDiff as keyof typeof LABEL_DIFF]}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{d.campo ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-400 line-through">{d.valorAnterior ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-800">{d.valorNuevo ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
