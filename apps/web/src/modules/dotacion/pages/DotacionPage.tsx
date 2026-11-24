@@ -398,7 +398,6 @@ function PanelMsgc() {
           )}
         </div>
       )}
-      </>)}
     </div>
   )
 }
