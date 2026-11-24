@@ -383,42 +383,31 @@ export async function listConcursosCphService(
 // Paso 5b: datos del salto por orden de mérito para el GET del concurso (null si no hubo).
 async function armarSaltoOm(c: { id: string; saltoOmAt: Date | null; saltoOmIntegranteId: string | null }) {
   if (!c.saltoOmAt) return null
-  const [integrante, auditoria] = await Promise.all([
-    c.saltoOmIntegranteId
-      ? prisma.ordenMeritoIntegrante.findUnique({
-          where: { id: c.saltoOmIntegranteId },
-          select: {
-            id: true,
-            posicion: true,
-            apellidoNombre: true,
-            cuil: true,
-            ordenMerito: {
-              select: {
-                id: true,
-                concursoCph: {
-                  select: {
-                    id: true,
-                    tipoGestion: true,
-                    concurso: { select: { cargo: { select: { codigo: true } } } },
-                  },
+  const integrante = c.saltoOmIntegranteId
+    ? await prisma.ordenMeritoIntegrante.findUnique({
+        where: { id: c.saltoOmIntegranteId },
+        select: {
+          id: true,
+          posicion: true,
+          apellidoNombre: true,
+          cuil: true,
+          ordenMerito: {
+            select: {
+              id: true,
+              concursoCph: {
+                select: {
+                  id: true,
+                  tipoGestion: true,
+                  concurso: { select: { cargo: { select: { codigo: true } } } },
                 },
               },
             },
           },
-        })
-      : null,
-    prisma.auditLog.findFirst({
-      where: { entidad: 'concurso_cph_om', entidadId: c.id, accion: 'designar_desde_om' },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        cambios: true,
-        usuario: { select: { nombre: true, apellido: true, username: true } },
-      },
-    }),
-  ])
-  const cambios = (auditoria?.cambios ?? {}) as Record<string, unknown>
+        },
+      })
+    : null
+  // audit_logs dropeada — sin auditoria
   const origen = integrante?.ordenMerito.concursoCph
-  const u = auditoria?.usuario
   return {
     at: c.saltoOmAt,
     integrante: integrante
@@ -430,19 +419,17 @@ async function armarSaltoOm(c: { id: string; saltoOmAt: Date | null; saltoOmInte
         }
       : {
           id: c.saltoOmIntegranteId ?? '',
-          posicion: Number(cambios.posicion ?? 0),
-          apellidoNombre: String(cambios.apellidoNombre ?? ''),
-          cuil: String(cambios.cuil ?? ''),
+          posicion: 0,
+          apellidoNombre: '',
+          cuil: '',
         },
-    ordenMeritoId: integrante?.ordenMerito.id ?? (cambios.ordenMeritoId as string | undefined) ?? null,
+    ordenMeritoId: integrante?.ordenMerito.id ?? null,
     concursoOrigen: origen
       ? { id: origen.id, codigo: origen.concurso?.cargo?.codigo ?? null }
-      : cambios.concursoOrigenId
-        ? { id: String(cambios.concursoOrigenId), codigo: (cambios.concursoOrigenCodigo as string | undefined) ?? null }
-        : null,
-    tipoGestionOrigen: origen?.tipoGestion ?? (cambios.tipoGestionOrigen as string | undefined) ?? null,
-    pasosResueltos: Array.isArray(cambios.pasosResueltos) ? (cambios.pasosResueltos as string[]) : [],
-    usuario: u ? [u.nombre, u.apellido].filter(Boolean).join(' ') || u.username : null,
+      : null,
+    tipoGestionOrigen: origen?.tipoGestion ?? null,
+    pasosResueltos: [],
+    usuario: null,
   }
 }
 export async function getConcursoCphByIdService(id: string) {

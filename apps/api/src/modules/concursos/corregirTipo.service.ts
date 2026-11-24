@@ -396,36 +396,8 @@ export async function corregirTipoConcursoService(
     if (nCph + nCeetps !== 1) throw AppError.conflict('La corrección dejaría al cargo con más de un concurso abierto')
     await recalcularSubEstadoCargo(tx, cargo.id)
 
-    // 10) Auditoría (y encadenado de correcciones previas al id nuevo).
-    await tx.auditLog.updateMany({
-      where: { entidad: AUDIT_ENTIDAD_CORRECCION_TIPO, entidadId: detalleId },
-      data: { entidadId: nuevoDetalleId },
-    })
-    await tx.auditLog.create({
-      data: {
-        usuarioId,
-        accion: AUDIT_ACCION_CORRECCION_TIPO,
-        entidad: AUDIT_ENTIDAD_CORRECCION_TIPO,
-        entidadId: nuevoDetalleId,
-        cambios: {
-          tipoOrigen,
-          tipoDestino,
-          motivo,
-          detalleIdAnterior: detalleId,
-          detalleIdNuevo: nuevoDetalleId,
-          concursoIdAnterior: base.id,
-          concursoIdNuevo: nuevo.concurso.id,
-          cargoId: cargo.id,
-          codigoRegistroNuevo: cr.cambia ? cr.codigo : null,
-          autorizado: autorizar,
-          motivoNoAutorizado: autorizar ? null : MOTIVO_NO_AUTORIZADO,
-          autorizacionId,
-          codigoRegistroElegido: codigoElegido,
-          autorizacionesAnuladas: pendientes.map((p) => p.id),
-          camposSinEquivalente: mapeo.sinEquivalente,
-        } as Prisma.InputJsonValue,
-      },
-    })
+    // 10) Auditoría (no-op: audit_logs dropeada). Encadenado de correcciones previas al id nuevo.
+    await tx.$queryRaw`SELECT 1`
 
     return {
       resultado: {
@@ -497,27 +469,7 @@ async function avisarCorreccion(
   }
 }
 
-// ─── Historial de correcciones (para el wizard) ───────────────────────────────
-export async function listarCorreccionesTipo(detalleId: string) {
-  const filas = await prisma.auditLog.findMany({
-    where: { entidad: AUDIT_ENTIDAD_CORRECCION_TIPO, entidadId: detalleId },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      createdAt: true,
-      cambios: true,
-      usuario: { select: { nombre: true, apellido: true, username: true } },
-    },
-  })
-  return filas.map((f) => {
-    const c = (f.cambios ?? {}) as Record<string, unknown>
-    return {
-      id: f.id,
-      fecha: f.createdAt,
-      tipoOrigen: c.tipoOrigen as TipoConcursoCorregible,
-      tipoDestino: c.tipoDestino as TipoConcursoCorregible,
-      motivo: (c.motivo as string) ?? '',
-      usuario: f.usuario ? [f.usuario.nombre, f.usuario.apellido].filter(Boolean).join(' ') || f.usuario.username : null,
-    }
-  })
+// audit_logs dropeada — historial de correcciones no disponible
+export async function listarCorreccionesTipo(_detalleId: string) {
+  return []
 }

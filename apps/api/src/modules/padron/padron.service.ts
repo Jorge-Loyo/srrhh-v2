@@ -2853,14 +2853,10 @@ export async function aprobarSnapshotService(
             } | null
             if (cargoActual && cargoActual.escalafonId !== escDestino.id) {
               const litNuevo = (updateCargo['literalPuesto'] ?? cargoActual.literalPuesto) || null
-              const unifNuevo =
-                (updateCargo['unificadorPuesto'] ?? cargoActual.unificadorPuesto) || null
-              const espNuevo =
-                (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
+              const espNuevo = (updateCargo['especialidadLegacy'] ?? cargoActual.especialidadLegacy) || null
               const puesto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: escDestino.id,
                 literalPuesto: litNuevo,
-                unificadorPuesto: unifNuevo,
               })
               // Bug A: preferir el id del Dotaneitor si cuelga del puesto DESTINO;
               // si no valida, cae al fallback por texto (resolución actual).
@@ -2996,14 +2992,10 @@ export async function aprobarSnapshotService(
                     : decisionRegU.revision.motivo
                 ).slice(0, 200)
               }
-              const unif =
-                ((updateCargo['unificadorPuesto'] as string | null) ??
-                  cargoActualP.unificadorPuesto) ||
-                null
+              const unif = ((updateCargo['unificadorPuesto'] as string | null) ?? null) || null
               const puestoReResuelto = await resolverPuestoCargoId(tx, catalogoPuestos, {
                 escalafonId: cargoActualP.escalafonId,
                 literalPuesto: litNuevo,
-                unificadorPuesto: unif,
               })
               // Solo si el puesto REALMENTE cambió (evita reasignar entre
               // duplicados homónimos y escribir de más).

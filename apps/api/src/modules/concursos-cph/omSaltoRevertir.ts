@@ -65,18 +65,7 @@ export async function revertirSaltoOm(
     },
   })
   await recalcularSubEstadoCargo(tx, destino.cargoId)
-  await tx.auditLog.create({
-    data: {
-      usuarioId,
-      accion: AUDIT_ACCION_REVERTIR_SALTO_OM,
-      entidad: AUDIT_ENTIDAD_SALTO_OM,
-      entidadId: destinoId,
-      cambios: {
-        integranteId,
-        subEstadoAnterior: destino.subEstado,
-        subEstadoNuevo: calc.subEstado,
-      },
-    },
-  })
+  // Auditoría (no-op: audit_logs dropeada)
+  await tx.$queryRaw`SELECT 1`
   return true
 }
