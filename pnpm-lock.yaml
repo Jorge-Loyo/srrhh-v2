@@ -63,6 +63,9 @@ importers:
       '@srrhh/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@srrhh/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@types/bcrypt':
         specifier: ^5.0.2
         version: 5.0.2

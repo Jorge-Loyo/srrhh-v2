@@ -352,6 +352,44 @@
 - **Columnas:** `codigo_registro`, `lit_cod_reg`, `escalafon`, `activo`
 - **Origen:** poblada desde `codigos_registro` + `escalafones` del sistema.
 
+### Modelo de negocio: relación cargo ↔ puesto ↔ persona
+
+**Dos instituciones, dos dominios:**
+- **Hacienda** gestiona los *puestos* — crea, modifica y da de baja puestos en el padrón semanal. `dim_puestos` refleja su dominio.
+- **MSGC** gestiona los *cargos* — crea cargos, concursa quién los ocupa. `dim_cargos` refleja su dominio.
+
+**El vínculo cargo ↔ puesto se hace por persona:**
+- Todo puesto necesita una persona.
+- En un concurso se designa una persona → el cargo queda en espera hasta que esa persona aparezca en un nuevo puesto del padrón.
+- El link `dim_cargos → dim_tipos_cargos` se hace por `(codigo_registro, literal_puesto)`. En producción puede haber diferencias de nomenclatura entre lo que declara MSGC y lo que carga Hacienda — eso es esperado y no rompe el esquema.
+- La lógica de resolución cargo↔puesto por persona está implementada en las tablas operativas y se reformulará en Fase 5.
+
+**`dim_tipos_cargos` como catálogo maestro:**
+- Se puebla desde `dim_puestos` (padrón real de Hacienda) — es la fuente más completa y granular.
+- `dim_cargos.literal_puesto` puede diferir del nombre en `dim_tipos_cargos` — es el nombre declarado por MSGC al crear el cargo. No es la fuente del catálogo.
+- Ejemplo válido: `dim_tipos_cargos` tiene "medico de planta" con especialidad "cardiologia". El padrón trae "medico de planta" sin especialidad. Ambos linkean al mismo tipo. No es inconsistencia.
+
+#### Regla de clasificación `tipo_cargo` en `dim_tipos_cargos`
+
+Orden de precedencia (la primera regla que aplica gana):
+
+| Prioridad | Condición | `tipo_cargo` |
+|---|---|---|
+| 1 | CR en `dim_carreras` con `escalafon` o `lit_cod_reg` ILIKE `%Docente%` o `%Residencia%` | `formacion` |
+| 2 | `jcat` existe en `jcat_cargo_jefatura` con `familia = 'P'` y `cod_puesto IN ('01','03')` | `estructura` |
+| 3 | `jcat` tiene cualquier valor no nulo (esté o no en `jcat_cargo_jefatura`) | `conduccion` |
+| 4 | `jcat` es NULL | `ejecucion` |
+
+**Sin hardcodeo**: todas las condiciones se derivan de la BD en runtime.
+- Regla 1: leer CRs desde `dim_carreras`
+- Regla 2: leer jcats de estructura desde `jcat_cargo_jefatura WHERE familia = 'P' AND cod_puesto IN ('01','03')`
+
+**Fuente del `jcat`**: `dim_puestos.jcat`. Para cada `(codigo_registro, literal_puesto)` se toma el `jcat` más frecuente entre todos los `dim_puestos` que comparten esos valores.
+
+**Caso borde confirmado**: `M26` (capellán, CR=83, baja 2016) no existe en `jcat_cargo_jefatura` pero tiene valor → regla 3 → `conduccion`.
+
+**Nota:** los literales orgánicos (`div ...`, `secc ...`, `unid ...`, `dept ...`) en CR=25/60 son correctos por diseño — son los nombres de las unidades que esos cargos conducen.
+
 ### `dim_puestos` 🆕
 - **PK:** `id_sial_rol` VARCHAR(12) (formato corto: `{id_sial}-{rol}`, ej: `001758874-10`)
 - **Filas:** 65.046
@@ -475,3 +513,4 @@
 | 2026-12 | Verificación contra `schema.prisma` real. Fases 0–2 confirmadas completas. Fase 3 TypeScript completa (script BD pendiente). |
 | 2026-12 | `dim_puestos`: eliminadas columnas `id_sial`, `cuil`, `cuil_anterior`. Arquitectura esquema estrella documentada. `id_sial_rol` corregido a formato corto (máx 12 chars) en `dim_puestos` y `ocupaciones`. |
 | 2026-12 | `dim_efectores` creada (79 filas: 64 activos, 15 inactivos). 15 DGAH eliminadas. FK `dim_puestos.efector` y `dim_cargos.efector` validadas. `dim_cargos.sigla` renombrada a `efector`. Tarea 4.1 completada. |
+| 2026-12 | Regla de clasificación `tipo_cargo` documentada: formacion (docentes/residentes por CR) → estructura (jcat P60/P61) → conduccion (jcat no nulo) → ejecucion (jcat NULL). Los literales orgánicos en CR=25/60 son correctos por diseño. |

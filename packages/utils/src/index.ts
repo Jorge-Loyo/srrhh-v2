@@ -61,6 +61,18 @@ export function formatNumber(num: number): string {
 }
 
 /**
+ * Normaliza texto para almacenamiento en tablas dim_*:
+ * minúsculas, sin acentos, trim. Preserva null.
+ * NO aplicar a claves técnicas (idSialRol, cuil, codRep, sigla, etc.)
+ */
+export function normalizarTexto(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null
+  const s = v.trim()
+  if (s === '') return null
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+/**
  * Capitaliza la primera letra de cada palabra
  */
 export function titleCase(str: string): string {

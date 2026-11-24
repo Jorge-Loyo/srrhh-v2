@@ -48,16 +48,18 @@ export const AUXILIARES_ENFERMERIA_85 = new Set<string>(['auxiliar de enfermeria
  * Los 9 literales reales del Anexo II del CR '83' (1 compuesto + 8 simples).
  * NO incluir variantes separadas del 'ayudante' ni match por prefijo.
  */
+// Sincronizado con ANEXO_II_EXCEL de acronimoMsgc.ts (misma fuente de verdad).
+// Capellán y Chofer de funcionario SALEN; Radio operador y Radio operador de emergencias ENTRAN.
 export const ANEXO_II_83 = new Set<string>([
-  'radioperador',
-  'oxigenista',
-  'morguero',
-  'cuidador enfermero de animales',
-  'chofer de funcionario',
-  'chofer de ambulancia',
-  'capellan',
-  'camillero',
   'ayudante de laboratorio, hemoterapia, farmacia y drogueria',
+  'camillero',
+  'chofer de ambulancia',
+  'chofer de ambulancias',
+  'cuidador enfermero de animales',
+  'morguero',
+  'oxigenista',
+  'radio operador',
+  'radio operador de emergencias',
 ])
 
 /**

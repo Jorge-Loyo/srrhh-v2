@@ -28,6 +28,7 @@ const OrganigramaHomePage = lazy(() => import('../modules/organigrama/pages/Orga
 const OrganigramaDetallePage = lazy(() => import('../modules/organigrama/pages/OrganigramaDetallePage').then((m) => ({ default: m.OrganigramaDetallePage })))
 const OrganigramaArbolPage = lazy(() => import('../modules/organigrama/pages/OrganigramaArbolPage').then((m) => ({ default: m.OrganigramaArbolPage })))
 const OrganigramaLayout = lazy(() => import('../modules/organigrama/components/OrganigramaLayout').then((m) => ({ default: m.OrganigramaLayout })))
+const CargaSemanalPage = lazy(() => import('../modules/carga-semanal/pages/CargaSemanalPage').then((m) => ({ default: m.CargaSemanalPage })))
 const PouHomePage = lazy(() => import('../modules/pou/pages/PouHomePage').then((m) => ({ default: m.PouHomePage })))
 const PouDetallePage = lazy(() => import('../modules/pou/pages/PouDetallePage').then((m) => ({ default: m.PouDetallePage })))
 const PouComparativaPage = lazy(() => import('../modules/pou/pages/PouComparativaPage').then((m) => ({ default: m.PouComparativaPage })))
@@ -120,6 +121,10 @@ export const router = createBrowserRouter([
               {
                 element: <RequirePermiso permiso={{ modulo: 'configuracion', accion: 'tab:carga-pou' }} />,
                 children: [{ path: 'pou/carga', element: <PouCargaPage /> }],
+              },
+              {
+                element: <RequirePermiso permiso={{ modulo: 'carga_semanal', accion: 'ver' }} />,
+                children: [{ path: 'carga-semanal', element: <CargaSemanalPage /> }],
               },
             ],
           },
