@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada } from '../carga-semanal.service.js'
+import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
 import {
   esFilaArea,
   inferirUniversoTotalizador,
@@ -72,12 +72,26 @@ function parsearFila(row: Record<string, unknown>, i: number): FilaArbol | null 
   }
 }
 
-// ─── Procesador principal ─────────────────────────────────────────────────────
+// ─── Tipos de resumen ────────────────────────────────────────────────────────
+
+export interface ResumenArbol {
+  totalFilas: number
+  organigramas: { nuevos: number; modificados: number; eliminados: number }
+  dimEfectores: { actualizados: number }
+}
+
+// ─── Helpers compartidos ──────────────────────────────────────────────────────
 
 const LOTE = 500
 
-export async function procesarArbol(sesionId: string, buffer: Buffer, marcarCompletado = true): Promise<void> {
-  // 1. Parsear Excel
+type DiffInput = {
+  sesionId: string; tablaAfectada: string
+  tipoDiff: 'nuevo' | 'modificado' | 'eliminado'
+  clave: string; campo?: string
+  valorAnterior?: string | null; valorNuevo?: string | null
+}
+
+async function parsearBuffer(buffer: Buffer): Promise<FilaArbol[]> {
   const wb = XLSX.read(buffer, { type: 'buffer' })
   if (!wb.SheetNames.length) throw new Error('El archivo no tiene hojas')
   const ws = wb.Sheets[wb.SheetNames[0]!]
@@ -89,15 +103,15 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
 
   if (!filas.length) throw new Error('El archivo no tiene filas válidas')
 
-  // Verificar duplicados
   const vistos = new Set<string>()
   for (const f of filas) {
     if (vistos.has(f.codRep)) throw new Error(`COD_REP duplicado en el archivo: ${f.codRep}`)
     vistos.add(f.codRep)
   }
+  return filas
+}
 
-  // 2. Heredar universo_totalizador y regimen_empleo del historial
-  //    (mismo mecanismo que reemplazarOrganigramaService)
+async function completarUniversoYRegimen(filas: FilaArbol[]): Promise<void> {
   const historial = new Map<string, { regimenEmpleo: string | null; universoTotalizador: string | null }>()
   for (const r of await prisma.organigrama.findMany({
     select: { codigoReparticion: true, regimenEmpleo: true, universoTotalizador: true },
@@ -110,7 +124,6 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
     hospitalTipoPorSigla.set(h.sigla, h.tipo)
   }
 
-  // Mapa sigla|universo|tipo → régimen (para inferencia)
   const regimenSetPorSUT = new Map<string, Set<string>>()
   const regimenSetPorSU  = new Map<string, Set<string>>()
   for (const r of await prisma.organigrama.findMany({
@@ -127,15 +140,14 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
   const regimenPorSU  = new Map([...regimenSetPorSU.entries()].filter(([, s]) => s.size === 1).map(([k, s]) => [k, [...s][0]!]))
   const regimenPorSUT = new Map([...regimenSetPorSUT.entries()].filter(([, s]) => s.size === 1).map(([k, s]) => [k, [...s][0]!]))
 
-  // Completar universo y régimen
   const pendientes: string[] = []
   for (const f of filas) {
     const hist = historial.get(f.codRep)
-    if (!f['universoTotalizador' as keyof FilaArbol]) {
+    if (!(f as any).universoTotalizador) {
       (f as any).universoTotalizador = hist?.universoTotalizador ?? inferirUniversoTotalizador(f.sigla, f.tipo, hospitalTipoPorSigla)
     }
     const univ = (f as any).universoTotalizador as string
-    if (!f['regimenEmpleo' as keyof FilaArbol]) {
+    if (!(f as any).regimenEmpleo) {
       const inferido =
         regimenPorSUT.get(`${f.sigla}|${canonUniverso(univ)}|${f.tipo.trim().toLowerCase()}`) ??
         regimenPorSU.get(`${f.sigla}|${canonUniverso(univ)}`) ??
@@ -156,23 +168,12 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
     )
   }
 
-  // Canonización final
   for (const f of filas) {
     ;(f as any).regimenEmpleo = canonizarRegimenEmpleo(f.descRep, (f as any).regimenEmpleo ?? null)
   }
+}
 
-  // 3. Cargar estado actual para calcular diffs
-  const actuales = await prisma.organigrama.findMany({
-    select: { codigoReparticion: true, descRep: true, tipo: true, padre: true },
-  })
-  const mapaActual = new Map(actuales.map((r) => [r.codigoReparticion, r]))
-
-  type DiffInput = {
-    sesionId: string; tablaAfectada: string
-    tipoDiff: 'nuevo' | 'modificado' | 'eliminado'
-    clave: string; campo?: string
-    valorAnterior?: string | null; valorNuevo?: string | null
-  }
+function calcularDiffs(sesionId: string, filas: FilaArbol[], mapaActual: Map<string, { descRep: string | null; padre: string | null }>): DiffInput[] {
   const diffs: DiffInput[] = []
   const codsEnArchivo = new Set(filas.map((f) => f.codRep))
 
@@ -191,19 +192,75 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
     if (!codsEnArchivo.has(cod))
       diffs.push({ sesionId, tablaAfectada: 'organigramas', tipoDiff: 'eliminado', clave: cod })
   }
+  return diffs
+}
 
-  // 4. Swap atómico organigramas (mismo patrón que reemplazarOrganigramaService)
+// ─── FASE 1: parsear + calcular diff (sin escribir datos de negocio) ──────────
+
+export async function parsearYDiffearArbol(
+  sesionId: string,
+  buffer: Buffer,
+): Promise<ResumenArbol> {
+  const filas = await parsearBuffer(buffer)
+  await completarUniversoYRegimen(filas)
+
+  const actuales = await prisma.organigrama.findMany({
+    select: { codigoReparticion: true, descRep: true, padre: true },
+  })
+  const mapaActual = new Map(actuales.map((r) => [r.codigoReparticion, r]))
+
+  const diffs = calcularDiffs(sesionId, filas, mapaActual)
+
+  await Promise.all([
+    (async () => {
+      for (let i = 0; i < diffs.length; i += LOTE) {
+        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+      }
+    })(),
+    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
+  ])
+
+  const resumen: ResumenArbol = {
+    totalFilas: filas.length,
+    organigramas: {
+      nuevos:      diffs.filter((d) => d.tipoDiff === 'nuevo').length,
+      modificados: diffs.filter((d) => d.tipoDiff === 'modificado').length,
+      eliminados:  diffs.filter((d) => d.tipoDiff === 'eliminado').length,
+    },
+    dimEfectores: { actualizados: 0 },
+  }
+
+  await marcarSesionPendiente(sesionId, { tipo: 'arbol', ...resumen })
+  return resumen
+}
+
+// ─── FASE 2: aplicar cambios (escribe en BD, se llama al confirmar) ──────────
+
+export async function aplicarCambiosArbol(
+  sesionId: string,
+  buffer: Buffer,
+): Promise<void> {
+  const filas = await parsearBuffer(buffer)
+  await completarUniversoYRegimen(filas)
+
+  // Leer diffs de fase 1 para saber qué siglas cambiaron desc_rep
+  const diffsGuardados = await prisma.dimCargaDiff.findMany({
+    where: { sesionId, tablaAfectada: 'organigramas', tipoDiff: 'modificado', campo: 'desc_rep' },
+    select: { clave: true, valorNuevo: true },
+  })
+  const codsCambiados = new Set(diffsGuardados.map((d) => d.clave))
+
   const insertData = filas.map((f) => ({
-    lvl:                  f.lvl,
-    tipo:                 f.tipo,
-    codigoReparticion:    f.codRep,
-    descRep:              f.descRep,
-    sigla:                f.sigla,
-    padre:                f.padre,
-    path:                 f.path,
-    pathNombres:          f.pathNombres,
-    universoTotalizador:  (f as any).universoTotalizador ?? null,
-    regimenEmpleo:        (f as any).regimenEmpleo ?? null,
+    lvl:                 f.lvl,
+    tipo:                f.tipo,
+    codigoReparticion:   f.codRep,
+    descRep:             f.descRep,
+    sigla:               f.sigla,
+    padre:               f.padre,
+    path:                f.path,
+    pathNombres:         f.pathNombres,
+    universoTotalizador: (f as any).universoTotalizador ?? null,
+    regimenEmpleo:       (f as any).regimenEmpleo ?? null,
   }))
 
   await prisma.$transaction(
@@ -216,12 +273,10 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
     { timeout: 120_000 },
   )
 
-  // 5. Sync dim_efectores — actualizar nombre/descRep para siglas conocidas
-  const siglasCambiadas = filas.filter((f) => {
-    const actual = mapaActual.get(f.codRep)
-    return actual && actual.descRep !== f.descRep
-  })
-  const siglasPorActualizar = [...new Set(siglasCambiadas.map((f) => f.sigla))]
+  // Sync dim_efectores para siglas cuyo desc_rep cambió
+  const siglasPorActualizar = [...new Set(
+    filas.filter((f) => codsCambiados.has(f.codRep)).map((f) => f.sigla),
+  )]
   let efectoresActualizados = 0
   for (const sigla of siglasPorActualizar) {
     const nodo = filas.find((f) => f.sigla === sigla && f.lvl <= 3)
@@ -233,39 +288,12 @@ export async function procesarArbol(sesionId: string, buffer: Buffer, marcarComp
     efectoresActualizados += result.count
   }
 
-  // 6. Insertar diffs
-  for (let i = 0; i < diffs.length; i += LOTE) {
-    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-  }
-
-  // 7. Actualizar conteo real de filas
-  await prisma.dimCargaArchivo.updateMany({
-    where: { sesionId },
-    data: { filas: filas.length },
-  })
-
-  // 8. Informe
-  if (marcarCompletado) {
-    await marcarSesionCompletada(sesionId, {
-      tipo: 'arbol',
-      totalFilas: filas.length,
-      organigramas: {
-        nuevos:      diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'nuevo').length,
-        modificados: diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'modificado').length,
-        eliminados:  diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'eliminado').length,
-      },
-      dimEfectores: { actualizados: efectoresActualizados },
-    })
-  }
-
-  return {
+  await marcarSesionCompletada(sesionId, {
     tipo: 'arbol',
     totalFilas: filas.length,
     organigramas: {
-      nuevos:      diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'nuevo').length,
-      modificados: diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'modificado').length,
-      eliminados:  diffs.filter((d) => d.tablaAfectada === 'organigramas' && d.tipoDiff === 'eliminado').length,
+      nuevos:      diffsGuardados.length > 0 ? undefined : 0,
     },
     dimEfectores: { actualizados: efectoresActualizados },
-  } as any
+  })
 }

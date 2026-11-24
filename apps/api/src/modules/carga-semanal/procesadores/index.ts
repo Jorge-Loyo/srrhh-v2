@@ -29,9 +29,9 @@ export async function despacharPreview(
       }
       // Tipos sin preview: procesan directo y marcan completado solo si no hay tipos con preview en la sesión
       case 'arbol': {
-        const { procesarArbol } = await import('./arbol.js')
-        const hayPreview = tiposEnSesion.some((t) => TIPOS_CON_PREVIEW.has(t))
-        await procesarArbol(sesionId, buffer, !hayPreview)
+        const { parsearYDiffearArbol } = await import('./arbol.js')
+        const resumen = await parsearYDiffearArbol(sesionId, buffer)
+        await registrarResumenParcial(sesionId, tipo, resumen as any, tiposEnSesion)
         break
       }
       case 'ocupacion_pou': {
@@ -78,6 +78,10 @@ export async function despacharConfirmar(
           case 'bajas_salud': {
             const { aplicarCambiosBajasSalud } = await import('./bajas-salud.js')
             return aplicarCambiosBajasSalud(sesionId, buffer, resoluciones)
+          }
+          case 'arbol': {
+            const { aplicarCambiosArbol } = await import('./arbol.js')
+            return aplicarCambiosArbol(sesionId, buffer)
           }
         }
       })

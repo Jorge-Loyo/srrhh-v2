@@ -94,7 +94,7 @@ export async function registrarResumenParcial(
 
   // Tipos con preview que están en esta sesión
   const tiposConPreviewEnSesion = tiposEnSesion.filter((t) =>
-    ['cargos_salud', 'bajas_salud'].includes(t),
+    ['cargos_salud', 'bajas_salud', 'arbol'].includes(t),
   )
   // Todos los tipos con preview ya tienen su resumen?
   const todosListos = tiposConPreviewEnSesion.every((t) => informeNuevo[t] !== undefined)
