@@ -899,6 +899,7 @@ model Usuario {
   snapshotsAprobados        PadronSnapshot[]      @relation("SnapshotAprobadoPor")
   snapshotsProcesados       PadronSnapshot[]      @relation("SnapshotProcesadoPor")
   pouCargas                 PouCarga[]
+  dimCargaSesiones          DimCargaSesion[]      @relation("DimCargaSesionUsuario")
   solicitudesAlta           SolicitudAlta[]       @relation("SolicitudAltaSolicitadaPor")
   sorteosJuradoConfirmados  SorteoJurado[]        @relation("SorteoJuradoConfirmadoPor")
   sorteosJuradoGenerados    SorteoJurado[]        @relation("SorteoJuradoGeneradoPor")
@@ -1279,39 +1280,6 @@ model SyncCorrida {
   @@map("sync_corridas")
 }
 
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model backfill_vv_audit {
-  cargo_id              String?   @db.Uuid
-  ocupacion_id          String?   @db.Uuid
-  persona_id            String?   @db.Uuid
-  estado_anterior       String?
-  estado_desde_anterior DateTime? @db.Date
-  baja_id               String?   @db.Uuid
-  corrida_at            DateTime  @default(now()) @db.Timestamptz(6)
-
-  @@ignore
-}
-
-// =============================================================================
-// TABLAS AUXILIARES DE MIGRACION
-// =============================================================================
-
-model BajasIdMap {
-  bajaIdViejo String @id @map("baja_id_viejo") @db.Uuid
-  bajaIdNuevo String @map("baja_id_nuevo") @db.Uuid
-
-  @@map("bajas_id_map")
-}
-
-model DesdobladoMapeoCargos {
-  idSialRol      String    @id @map("id_sial_rol")
-  codigoCargo    String?   @map("codigo_cargo")
-  codigoRegistro String?   @map("codigo_registro")
-  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@map("desdoblado_mapeo_cargos")
-}
-
 // =============================================================================
 // ESQUEMA ESTRELLA MSGC (Procesador_Meta4)
 // =============================================================================
@@ -1331,64 +1299,117 @@ model DimEfectores {
   enHospitales       Boolean     @default(false) @map("en_hospitales")
   cargos             DimCargos[]
   puestos            DimPuestos[]
+  pouDecretoMapeos   PouDecretoMapeoHospital[]
+  pouDecretos        PouDecreto[]
 
   @@map("dim_efectores")
 }
 
 model DimCarreras {
-  codigoRegistro String      @id @map("codigo_registro") @db.VarChar(10)
-  litCodReg      String      @map("lit_cod_reg") @db.VarChar(150)
-  escalafon      String?     @db.VarChar(150)
-  activo         Boolean     @default(true)
+  codigoRegistro String           @id @map("codigo_registro") @db.VarChar(10)
+  litCodReg      String           @map("lit_cod_reg") @db.VarChar(150)
+  escalafon      String?          @db.VarChar(150)
+  activo         Boolean          @default(true)
+  cargos         DimCargos[]
   puestos        DimPuestos[]
+  tiposCargos    DimTiposCargos[]
+  gestionable    DimGestionables?
 
   @@map("dim_carreras")
 }
 
-model DimCargos {
-  codigoCargo       String       @id @map("codigo_cargo") @db.VarChar(30)
-  codigoRegistro    String?      @map("codigo_registro") @db.VarChar(10)
-  carrera           String?      @db.VarChar(150)
-  efector           String?      @db.VarChar(20)
-  nombreCargo       String?      @map("nombre_cargo")
-  tipo              String?      @db.VarChar(50)
-  plantaGuardia     String?      @map("planta_guardia") @db.VarChar(50)
-  estado            String?      @db.VarChar(30)
-  situacion         String?      @db.VarChar(30)
-  acronimo          String?      @db.VarChar(10)
-  especialidadCargo String?      @map("especialidad_cargo")
-  nivelConduccion   String?      @map("nivel_conduccion") @db.VarChar(50)
-  universo          String?
-  lineaPou          String?      @map("linea_pou")
-  reparticion       String?
-  unidadArbol       String?      @map("unidad_arbol")
-  bloque            String?      @db.VarChar(50)
-  sumaEnTotal       String?      @map("suma_en_total") @db.VarChar(5)
-  cargoIdSistema    String?      @map("cargo_id_sistema") @db.Uuid
-  dimEfector        DimEfectores? @relation(fields: [efector], references: [sigla])
+model DimGestionables {
+  codigoRegistro  String      @id @map("codigo_registro") @db.VarChar(10)
+  tipoConcurso    String?     @map("tipo_concurso") @db.VarChar(10)
+  generaCargos    Boolean     @default(true) @map("genera_cargos")
+  supervisada     Boolean     @default(false)
+  regimenOverride String?     @map("regimen_override") @db.VarChar(100)
+  activo          Boolean     @default(true)
+  carrera         DimCarreras @relation(fields: [codigoRegistro], references: [codigoRegistro])
 
-  @@index([acronimo])
+  @@index([tipoConcurso])
+  @@map("dim_gestionables")
+}
+
+model DimCargos {
+  codigoCargo       String             @id @map("codigo_cargo") @db.VarChar(30)
+  codigoRegistro    String?            @map("codigo_registro") @db.VarChar(10)
+  // FKs normalizadas — fuente de verdad para carrera, tipo y especialidad
+  tipoCargoid       Int?               @map("tipo_cargo_id")
+  especialidadId    Int?               @map("especialidad_id")
+  // Campos operativos
+  efector           String?            @db.VarChar(20)
+  modalidad         String?            @db.VarChar(10)
+  estado            String?            @db.VarChar(30)
+  subEstado         String?            @map("sub_estado") @db.VarChar(30)
+  diaPou            String?            @map("dia_pou") @db.VarChar(20)
+  cargoIdSistema    String?            @map("cargo_id_sistema") @db.Uuid
+  // Jornada contractual enfermería (CR 87 / 85 con puesto de enfermería)
+  jornadaEnfermeria    String?         @map("jornada_enfermeria") @db.VarChar(3)
+  // Legacy — reemplazados por FKs. Mantener hasta producción.
+  literalPuestoLegacy  String?         @map("literal_puesto") @db.VarChar(150)
+  especialidadLegacy   String?         @map("especialidad_cargo")
+  // Relaciones
+  dimCarrera        DimCarreras?       @relation(fields: [codigoRegistro], references: [codigoRegistro])
+  dimEfector        DimEfectores?      @relation(fields: [efector], references: [sigla])
+  dimTipoCargo      DimTiposCargos?    @relation(fields: [tipoCargoid], references: [id])
+  dimEspecialidad   DimEspecialidades? @relation(fields: [especialidadId], references: [id])
+
   @@index([cargoIdSistema])
-  @@index([carrera])
+  @@index([codigoRegistro])
   @@index([efector])
+  @@index([tipoCargoid])
+  @@index([especialidadId])
+  @@index([modalidad])
+  @@index([subEstado])
   @@map("dim_cargos")
 }
 
+model DimTiposCargos {
+  id             Int               @id @default(autoincrement())
+  codigoRegistro String            @map("codigo_registro") @db.VarChar(10)
+  nombre         String            @db.VarChar(200)
+  tipoCargo      String            @default("ejecucion") @map("tipo_cargo") @db.VarChar(20)
+  activo         Boolean           @default(true)
+  carrera        DimCarreras       @relation(fields: [codigoRegistro], references: [codigoRegistro])
+  especialidades DimEspecialidades[]
+  cargos         DimCargos[]
+
+  @@unique([codigoRegistro, nombre])
+  @@index([codigoRegistro])
+  @@index([tipoCargo])
+  @@map("dim_tipos_cargos")
+}
+
+model DimEspecialidades {
+  id           Int            @id @default(autoincrement())
+  tipoCargoid  Int            @map("tipo_cargo_id")
+  nombre       String         @db.VarChar(200)
+  activo       Boolean        @default(true)
+  tipoCargo    DimTiposCargos @relation(fields: [tipoCargoid], references: [id])
+  cargos       DimCargos[]
+
+  @@unique([tipoCargoid, nombre])
+  @@index([tipoCargoid])
+  @@map("dim_especialidades")
+}
+
 model DimPersonas {
-  cuil            String    @id @db.VarChar(11)
-  idSial          String?   @map("id_sial") @db.VarChar(20)
-  apellidoNombre  String?   @map("apellido_nombre") @db.VarChar(200)
-  fechaNacimiento DateTime? @map("fecha_nacimiento") @db.Date
-  sexo            String?   @db.VarChar(10)
-  especialidad    String?   @db.VarChar(200)
-  antiguedadDesde DateTime? @map("antiguedad_desde") @db.Date
-  telefono        String?   @db.VarChar(20)
-  mailPersonal    String?   @map("mail_personal") @db.VarChar(255)
-  mailLaboral     String?   @map("mail_laboral") @db.VarChar(255)
-  domicilio       String?   @db.VarChar(255)
-  localidad       String?   @db.VarChar(150)
-  provincia       String?   @db.VarChar(100)
+  cuil             String    @id @db.VarChar(11)
+  idSial           String?   @map("id_sial") @db.VarChar(20)
+  apellidoNombre   String?   @map("apellido_nombre") @db.VarChar(200)
+  fechaNacimiento  DateTime? @map("fecha_nacimiento") @db.Date
+  sexo             String?   @db.VarChar(10)
+  especialidad     String?   @db.VarChar(200)
+  antiguedadDesde  DateTime? @map("antiguedad_desde") @db.Date
+  telefono         String?   @db.VarChar(20)
+  mailPersonal     String?   @map("mail_personal") @db.VarChar(255)
+  mailLaboral      String?   @map("mail_laboral") @db.VarChar(255)
+  domicilio        String?   @db.VarChar(255)
+  localidad        String?   @db.VarChar(150)
+  provincia        String?   @db.VarChar(100)
   saludPrimerCargo DateTime? @map("salud_1er_cargo") @db.Date
+  activo           Boolean   @default(true)
 
   @@map("dim_personas")
 }
@@ -1424,7 +1445,7 @@ model DimPuestos {
   @@map("dim_puestos")
 }
 
-model FactAsignaciones {
+model DimActividadHechos {
   id               Int       @id @default(autoincrement())
   idSialRol        String    @map("id_sial_rol") @db.VarChar(50)
   idSial           String?   @map("id_sial") @db.VarChar(20)
@@ -1439,7 +1460,7 @@ model FactAsignaciones {
   @@index([cuil])
   @@index([esActual])
   @@index([idSialRol])
-  @@map("fact_asignaciones")
+  @@map("dim_actividad_hechos")
 }
 
 model MsgcCargos {
@@ -1506,24 +1527,6 @@ model MsgcPuestos {
   @@unique([literalPuesto, especialidad])
   @@map("msgc_puestos")
 }
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model organigramas_backup_pre_arbol {
-  id                   String? @db.Uuid
-  lvl                  Int?
-  tipo                 String? @db.VarChar(50)
-  codigo_reparticion   String? @db.VarChar(20)
-  universo_totalizador String? @db.VarChar(100)
-  regimen_empleo       String? @db.VarChar(200)
-  desc_rep             String? @db.VarChar(200)
-  sigla                String? @db.VarChar(20)
-  padre                String? @db.VarChar(100)
-  path                 String? @db.VarChar(600)
-  path_nombres         String? @db.VarChar(1200)
-
-  @@ignore
-}
-
 model PouCarga {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   archivo   String   @db.VarChar(500)
@@ -1536,6 +1539,166 @@ model PouCarga {
   @@map("pou_cargas")
 }
 
+// =============================================================================
+// CARGA SEMANAL DE ARCHIVOS
+// =============================================================================
+
+model DimCargaSesion {
+  id           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo         TipoCargaSemanal
+  fechaArchivo DateTime?                 @map("fecha_archivo") @db.Date
+  estado       EstadoCargaSemanal        @default(procesando)
+  errorMsg     String?                   @map("error_msg")
+  informe      Json?
+  usuarioId    String?                   @map("usuario_id") @db.Uuid
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  finalizadoAt DateTime?                 @map("finalizado_at") @db.Timestamptz(6)
+  usuario      Usuario?                  @relation("DimCargaSesionUsuario", fields: [usuarioId], references: [id])
+  archivos         DimCargaArchivo[]
+  diffs            DimCargaDiff[]
+  snapshots        DimCargaPadronSnapshot[]
+  kpis             DimCargaKpisPeriodo[]
+  pouDecretoCargas PouDecretoCarga[]
+
+  @@index([tipo, estado])
+  @@index([fechaArchivo])
+  @@index([createdAt])
+  @@map("dim_carga_sesiones")
+}
+
+model DimCargaArchivo {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sesionId  String         @map("sesion_id") @db.Uuid
+  filename  String         @db.VarChar(255)
+  filas     Int            @default(0)
+  sha256    String?        @db.VarChar(64)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  sesion    DimCargaSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@index([sesionId])
+  @@map("dim_carga_archivos")
+}
+
+model DimCargaDiff {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sesionId      String         @map("sesion_id") @db.Uuid
+  tablaAfectada String         @map("tabla_afectada") @db.VarChar(50)
+  tipoDiff      TipoDiff       @map("tipo_diff")
+  /// clave primaria de la fila afectada (id_sial_rol, cuil, cod_rep, etc.)
+  clave         String         @db.VarChar(50)
+  campo         String?        @db.VarChar(100)
+  valorAnterior String?        @map("valor_anterior")
+  valorNuevo    String?        @map("valor_nuevo")
+  sesion        DimCargaSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@index([sesionId])
+  @@index([sesionId, tablaAfectada])
+  @@index([sesionId, tipoDiff])
+  @@index([clave])
+  @@map("dim_carga_diffs")
+}
+
+/// Foto completa del padrón en cada carga semanal.
+/// Permite reconstruir el estado en cualquier fecha y responder:
+/// ¿qué cargos tuvo una persona? ¿quién ocupó un cargo? ¿cómo evolucionó un puesto?
+model DimCargaPadronSnapshot {
+  id               Int            @id @default(autoincrement())
+  sesionId         String         @map("sesion_id") @db.Uuid
+  fechaCorte       DateTime       @map("fecha_corte") @db.Date
+  /// Identificador del rol en SIAL (clave del padrón Hacienda)
+  idSialRol        String         @map("id_sial_rol") @db.VarChar(12)
+  cuil             String?        @db.VarChar(11)
+  apellidoNombre   String?        @map("apellido_nombre") @db.VarChar(200)
+  codigoRegistro   String?        @map("codigo_registro") @db.VarChar(10)
+  litCodReg        String?        @map("lit_cod_reg") @db.VarChar(150)
+  codRep           String?        @map("cod_rep") @db.VarChar(10)
+  descRep          String?        @map("desc_rep") @db.VarChar(200)
+  literalPuesto    String?        @map("literal_puesto") @db.VarChar(200)
+  especialidad     String?        @db.VarChar(200)
+  situacionRevista String?        @map("situacion_revista") @db.VarChar(50)
+  jcat             String?        @db.VarChar(10)
+  cargoDesde       DateTime?      @map("cargo_desde") @db.Date
+  cargoHasta       DateTime?      @map("cargo_hasta") @db.Date
+  sesion           DimCargaSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@index([sesionId])
+  @@index([fechaCorte])
+  @@index([cuil])
+  @@index([idSialRol])
+  @@index([codigoRegistro])
+  @@index([codRep])
+  @@index([fechaCorte, codigoRegistro])
+  @@index([cuil, fechaCorte])
+  @@map("dim_carga_padron_snapshot")
+}
+
+/// Métricas agregadas por período (mes/año), carrera y efector.
+/// Permite comparar evolución entre períodos y años.
+model DimCargaKpisPeriodo {
+  id            Int            @id @default(autoincrement())
+  sesionId      String         @map("sesion_id") @db.Uuid
+  fechaCorte    DateTime       @map("fecha_corte") @db.Date
+  anio          Int
+  mes           Int
+  codigoRegistro String?       @map("codigo_registro") @db.VarChar(10)
+  efector       String?        @db.VarChar(20)
+  totalActivos  Int            @default(0) @map("total_activos")
+  totalVacantes Int            @default(0) @map("total_vacantes")
+  totalNuevos   Int            @default(0) @map("total_nuevos")
+  totalBajas    Int            @default(0) @map("total_bajas")
+  totalPersonas Int            @default(0) @map("total_personas")
+  sesion        DimCargaSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@unique([fechaCorte, codigoRegistro, efector])
+  @@index([sesionId])
+  @@index([anio, mes])
+  @@index([codigoRegistro])
+  @@index([efector])
+  @@map("dim_carga_kpis_periodo")
+}
+
+/// Mapeo fijo nombre-en-POU-decreto → sigla en dim_efectores.
+/// Se carga una sola vez con seed; no cambia salvo nuevo hospital.
+model PouDecretoMapeoHospital {
+  nombrePou String       @id @map("nombre_pou") @db.VarChar(300)
+  sigla     String       @db.VarChar(20)
+  efector   DimEfectores @relation(fields: [sigla], references: [sigla])
+
+  @@index([sigla])
+  @@map("pou_decreto_mapeo_hospital")
+}
+
+/// Dotación normativa del decreto (por hospital, perfil y especialidad).
+/// Fuente: POU_DECRETO 315-22 y modificaciones - HISTORICO.xlsx
+model PouDecreto {
+  id             Int          @id @default(autoincrement())
+  sigla          String       @db.VarChar(20)
+  perfil         String       @db.VarChar(100)
+  especialidad   String       @db.VarChar(200)
+  dotacionDiaria Int?         @map("dotacion_diaria")
+  dotacionSem    Int?         @map("dotacion_sem")
+  resolucion     String?      @db.VarChar(100)
+  vigenteDesde   DateTime?    @map("vigente_desde") @db.Date
+  efector        DimEfectores @relation(fields: [sigla], references: [sigla])
+
+  @@unique([sigla, perfil, especialidad])
+  @@index([sigla])
+  @@map("pou_decreto")
+}
+
+/// Registro de cada carga del archivo POU histórico (decreto).
+model PouDecretoCarga {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sesionId  String         @map("sesion_id") @db.Uuid
+  archivo   String         @db.VarChar(500)
+  filas     Int
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  sesion    DimCargaSesion @relation(fields: [sesionId], references: [id])
+
+  @@index([createdAt])
+  @@map("pou_decreto_cargas")
+}
+
 model PouEspecialidadMapeo {
   especialidadPou   String @map("especialidad_pou") @db.VarChar(100)
   especialidadCargo String @map("especialidad_cargo") @db.VarChar(200)
@@ -1544,317 +1707,6 @@ model PouEspecialidadMapeo {
   @@map("pou_especialidad_mapeo")
 }
 
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_consistencia_grupos {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_dni_extranjeros {
-  persona_id  String?   @db.Uuid
-  cuil_prev   String?   @db.VarChar(11)
-  dni_prev    String?   @db.VarChar(20)
-  tipo_prev   String?   @db.VarChar(10)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_fantasmas_jcat {
-  cargo_id          String?      @db.Uuid
-  id_sial           String?      @db.VarChar(50)
-  cargo_estado_prev EstadoCargo?
-  ocupacion_id      String?      @db.Uuid
-  ocup_hasta_prev   DateTime?    @db.Date
-  respaldo_ts       DateTime?    @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_farma_generico {
-  id                     String?   @db.Uuid
-  id_sial                String?   @db.VarChar(50)
-  puesto_cargo_id        String?   @db.Uuid
-  especialidad_puesto_id String?   @db.Uuid
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_fix_audino {
-  id                     String?   @db.Uuid
-  id_sial                String?   @db.VarChar(50)
-  especialidad_puesto_id String?   @db.Uuid
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_fix_lombardo {
-  id                     String?   @db.Uuid
-  puesto_cargo_id        String?   @db.Uuid
-  especialidad_puesto_id String?   @db.Uuid
-  literal_puesto         String?   @db.VarChar(200)
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_fix_puesto_cph {
-  id                     String?   @db.Uuid
-  id_sial                String?   @db.VarChar(50)
-  puesto_cargo_id        String?   @db.Uuid
-  especialidad_puesto_id String?   @db.Uuid
-  literal_puesto         String?   @db.VarChar(200)
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_fusion_obstetrica {
-  cargo_id    String?   @db.Uuid
-  id_sial     String?   @db.VarChar(50)
-  esp_prev    String?   @db.Uuid
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupo_farmacia {
-  id          String?   @db.Uuid
-  nombre      String?   @db.VarChar(200)
-  grupo       String?   @db.VarChar(120)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupo_fono {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupo_kinesio {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_guardia {
-  id          String?   @db.Uuid
-  nombre      String?   @db.VarChar(200)
-  grupo       String?   @db.VarChar(120)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_jefediv {
-  id          String?   @db.Uuid
-  nombre      String?   @db.VarChar(200)
-  grupo       String?   @db.VarChar(120)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_jefedpto {
-  id          String?   @db.Uuid
-  nombre      String?   @db.VarChar(200)
-  grupo       String?   @db.VarChar(120)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_jefeunidad {
-  id          String?   @db.Uuid
-  nombre      String?   @db.VarChar(200)
-  grupo       String?   @db.VarChar(120)
-  respaldo_ts DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_medplanta {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_grupos_micro_bacterio {
-  id     String? @db.Uuid
-  nombre String? @db.VarChar(200)
-  grupo  String? @db.VarChar(120)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_guardia_pof {
-  id                     String?   @db.Uuid
-  id_sial                String?   @db.VarChar(50)
-  puesto_cargo_id        String?   @db.Uuid
-  especialidad_puesto_id String?   @db.Uuid
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_hist_farma {
-  id             String?   @db.Uuid
-  id_sial_rol    String?   @db.VarChar(50)
-  literal_puesto String?   @db.VarChar(200)
-  respaldo_ts    DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_medrano {
-  id                     String?   @db.Uuid
-  id_sial                String?   @db.VarChar(50)
-  puesto_cargo_id        String?   @db.Uuid
-  especialidad_puesto_id String?   @db.Uuid
-  respaldo_ts            DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_odonto_grupo {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_bk_psico_grupo {
-  id              String?   @db.Uuid
-  nombre          String?   @db.VarChar(200)
-  grupo           String?   @db.VarChar(120)
-  puesto_cargo_id String?   @db.Uuid
-  respaldo_ts     DateTime? @db.Timestamptz(6)
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_esp_cruce {
-  cuil         String?
-  cuil_rol     String?
-  especialidad String?
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_esp_snapshot {
-  id String? @db.Uuid
-
-  @@ignore
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model tmp_oct {
-  id_sial                String?
-  cuil                   String?
-  cuil_y_rol             String?
-  ayn                    String?
-  fecha_nacimiento       String?
-  edad                   String?
-  sexo                   String?
-  tipo_doc               String?
-  numero_doc             String?
-  codigo_repa            String?
-  descripcion_repa       String?
-  siglas                 String?
-  universo_totalizador   String?
-  tipo_de_hospital_sigla String?
-  monovalencia           String?
-  escalafon              String?
-  codigo_de_registro     String?
-  literal_cr             String?
-  regimen                String?
-  situacion_de_revista   String?
-  puesto                 String?
-  literal_puesto         String?
-  especialidad           String?
-  codigo_jefaturas       String?
-  jefe_escalafon         String?
-  cargo_jefatura         String?
-  documentacion_jefatura String?
-  comentarios_jefaturas  String?
-  escritorio             String?
-  pou_desde              String?
-  dia                    String?
-  documentacion_pou      String?
-  sr_doc_respald         String?
-  sr_comentario          String?
-  comision               String?
-  repa_comision          String?
-  cr_comentario          String?
-  cod_agrupamiento       String?
-  agrupamiento           String?
-  cod_situacion          String?
-  telefono               String?
-  mail_personal          String?
-  mail_laboral           String?
-  domicilio              String?
-  localidad              String?
-  provincia              String?
-  fecha_bloqueo          String?
-  bloqueo_comentario     String?
-  bloq_motivo            String?
-  cargo_desde            String?
-  cargo_hasta            String?
-  documentacion_del_rol  String?
-  documentacion_baja     String?
-  antiguedad             String?
-  cod_familia            String?
-  lit_familia            String?
-
-  @@ignore
-}
 
 enum EstadoCargo {
   vigente
@@ -1977,4 +1829,19 @@ enum TipoNotificacion {
   autorizacion_pendiente
   autorizacion_resuelta
   vencimiento_conduccion
+}
+
+enum TipoCargaSemanal {
+  cargos_salud
+  bajas_salud
+  arbol
+  ocupacion_pou
+  pou_decreto
+}
+
+enum EstadoCargaSemanal {
+  procesando
+  completado
+  error
+  pendiente_confirmacion
 }

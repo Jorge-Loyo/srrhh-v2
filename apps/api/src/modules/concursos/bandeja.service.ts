@@ -39,7 +39,6 @@ export function toBandejaItem(row: BandejaRow): ConcursoBandejaItem {
   return {
     id: row.id,
     tipo: row.tipoConcurso as ConcursoBandejaItem['tipo'],
-    cargoId: row.cargoId,
     hospitalId: row.hospitalId,
     hospitalSigla: row.hospital?.sigla ?? null,
     puesto: row.cargo?.literalPuesto ?? puestoExt,

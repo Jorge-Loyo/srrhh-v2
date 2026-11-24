@@ -123,39 +123,7 @@ export async function deleteCorreccionLitPuesto(id: string) {
   )
 }
 
-// ── RefCorreccionEspecialidad ───────────────────────────────────────────────
-export async function listCorreccionesEspecialidad(query: RefListQuery) {
-  const { skip, take, page, limit } = paginar(query, 500)
-  const [rows, total] = await Promise.all([
-    prisma.refCorreccionEspecialidad.findMany({ skip, take, orderBy: { original: 'asc' } }),
-    prisma.refCorreccionEspecialidad.count(),
-  ])
-  return { rows, total, page, limit }
-}
-export async function createCorreccionEspecialidad(body: CorreccionEspecialidadBody) {
-  return ejecutar(
-    () =>
-      prisma.refCorreccionEspecialidad.create({
-        data: { original: body.original, correccion: body.correccion, activo: body.activo },
-      }),
-    'corrección de especialidad'
-  )
-}
-export async function updateCorreccionEspecialidad(
-  id: string,
-  body: Partial<CorreccionEspecialidadBody>
-) {
-  return ejecutar(
-    () => prisma.refCorreccionEspecialidad.update({ where: { id }, data: body }),
-    'corrección de especialidad'
-  )
-}
-export async function deleteCorreccionEspecialidad(id: string) {
-  await ejecutar(
-    () => prisma.refCorreccionEspecialidad.delete({ where: { id } }),
-    'corrección de especialidad'
-  )
-}
+// refCorreccionEspecialidad fue dropeada — funciones eliminadas
 
 // ── RefConectorMinuscula ────────────────────────────────────────────────────
 export async function listConectoresMinuscula(query: RefListQuery) {

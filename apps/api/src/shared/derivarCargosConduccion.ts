@@ -278,7 +278,6 @@ export async function derivarCargosConduccionService(
           regimenId: decisionReg.regimenId,
           revisionDato,
           revisionMotivo,
-          agrupador: jcat ? `jcat:${jcat}` : null,
         },
       })
       res.detalle.push({ codigoRepa: nodo.codigo_reparticion, codigo, frio })

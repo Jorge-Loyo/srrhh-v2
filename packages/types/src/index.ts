@@ -1538,7 +1538,7 @@ export interface ConcursoCeetpsFilters {
 export interface ConcursoBandejaItem {
   // id del Concurso base (no de la extensión)
   id: string
-  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)  cargoId: string
+  tipo: TipoConcurso // 'cph' | 'ceetps' (discriminador de la bandeja)
   hospitalId: string
   hospitalSigla: string | null
   // Carrera/Puesto: literalPuesto del cargo (snapshot) con fallback al puesto

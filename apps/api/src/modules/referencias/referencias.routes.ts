@@ -22,7 +22,6 @@ import {
   listAbreviaturasTecnicas, createAbreviaturaTecnica, updateAbreviaturaTecnica, deleteAbreviaturaTecnica,
   listAbreviaturasTitulo, createAbreviaturaTitulo, updateAbreviaturaTitulo, deleteAbreviaturaTitulo,
   listCorreccionesLitPuesto, createCorreccionLitPuesto, updateCorreccionLitPuesto, deleteCorreccionLitPuesto,
-  listCorreccionesEspecialidad, createCorreccionEspecialidad, updateCorreccionEspecialidad, deleteCorreccionEspecialidad,
   listConectoresMinuscula, createConectorMinuscula, updateConectorMinuscula, deleteConectorMinuscula,
   listSufijosOrdinales, createSufijoOrdinal, updateSufijoOrdinal, deleteSufijoOrdinal,
   listJcatCargoJefatura, createJcatCargoJefatura, updateJcatCargoJefatura, deleteJcatCargoJefatura,
@@ -91,24 +90,6 @@ export async function referenciasRoutes(app: FastifyInstance) {
   })
   app.delete<{ Params: { id: string } }>('/correcciones-lit-puesto/:id', async (request, reply) => {
     await deleteCorreccionLitPuesto(request.params.id)
-    return reply.send({ ok: true })
-  })
-
-  // ── /correcciones-especialidad ──────────────────────────────────────────
-  app.get('/correcciones-especialidad', async (request, reply) => {
-    const query = refListQuerySchema.parse(request.query)
-    return reply.send({ data: await listCorreccionesEspecialidad(query) })
-  })
-  app.post('/correcciones-especialidad', async (request, reply) => {
-    const body = correccionEspecialidadSchema.parse(request.body)
-    return reply.status(201).send({ data: await createCorreccionEspecialidad(body) })
-  })
-  app.patch<{ Params: { id: string } }>('/correcciones-especialidad/:id', async (request, reply) => {
-    const body = correccionEspecialidadUpdateSchema.parse(request.body)
-    return reply.send({ data: await updateCorreccionEspecialidad(request.params.id, body) })
-  })
-  app.delete<{ Params: { id: string } }>('/correcciones-especialidad/:id', async (request, reply) => {
-    await deleteCorreccionEspecialidad(request.params.id)
     return reply.send({ ok: true })
   })
 

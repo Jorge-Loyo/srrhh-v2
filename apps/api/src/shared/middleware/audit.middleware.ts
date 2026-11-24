@@ -138,18 +138,7 @@ export async function auditLog(request: FastifyRequest, reply: FastifyReply, pay
       response: maskBody(parsearPayload(payload)),
     }) as Prisma.InputJsonValue
 
-    await prisma.auditLog.create({
-      data: {
-        usuarioId: user?.id ?? null,
-        accion,
-        entidad,
-        entidadId,
-        metodo: request.method,
-        ruta: rutaCompleta.slice(0, 300),
-        cambios,
-        ip: request.ip,
-      },
-    })
+    await prisma.$queryRaw`SELECT 1` // auditLog dropeado — no-op
   } catch {
     // Nunca romper el request por un fallo al auditar (mismo criterio que el
     // middleware legacy — logging silencioso, best-effort).
