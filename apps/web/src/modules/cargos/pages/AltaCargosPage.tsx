@@ -3135,7 +3135,7 @@ function CargosHistoricos({
                                   <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{f.desde ? f.desde.slice(0, 10) : '—'}</td>
                                   <td className="px-3 py-2"><span className={`${ESTADO_BADGE[f.estado]} text-xs`}>{ESTADO_LABEL[f.estado]}</span></td>
                                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">
-                                    {f.tipoConcurso === null ? '—' : f.tipoConcurso === 'sin_concurso' ? 'Sin concurso' : f.tipoConcurso === 'cph' ? 'CPH' : 'CEETPS'}
+                                    {f.tipoConcurso === null ? '—' : f.tipoConcurso === 'cph' ? 'CPH' : 'CEETPS'}
                                   </td>
                                   <td className="px-3 py-2">
                                     {/* Cargo real ya creado (solicitud aprobada) → Ver cargo; si tiene

@@ -31,7 +31,7 @@ export function tipoAltaLabel(unificadorPuesto: string | null): string {
   return u
 }
 
-export type TipoConcursoFila = 'cph' | 'ceetps' | 'sin_concurso'
+export type TipoConcursoFila = 'cph' | 'ceetps'
 
 export interface FilaCargoHistorico {
   /** Clave única de la fila. */
@@ -75,7 +75,7 @@ export function filasPorCargo(solicitudes: SolicitudAlta[]): FilaCargoHistorico[
     if (creados.length > 0) {
       for (const c of creados) {
         const rutaConcurso =
-          c.concurso && c.concurso.tipo !== 'sin_concurso' && c.concurso.detalleId
+          c.concurso && c.concurso.detalleId
             ? rutaCaratular({ tipo: c.concurso.tipo, detalleId: c.concurso.detalleId })
             : null
         filas.push({
@@ -92,7 +92,7 @@ export function filasPorCargo(solicitudes: SolicitudAlta[]): FilaCargoHistorico[
           etiquetas,
           desde: c.fechaDesde ?? s.desde,
           estado: s.estado,
-          tipoConcurso: c.concurso?.tipo ?? 'sin_concurso',
+          tipoConcurso: c.concurso?.tipo ?? null,
           rutaConcurso,
         })
       }
