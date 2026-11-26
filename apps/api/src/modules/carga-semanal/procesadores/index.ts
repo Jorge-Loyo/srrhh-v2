@@ -4,6 +4,39 @@ import { marcarSesionError, marcarSesionCompletada, registrarResumenParcial } fr
 import type { ResolucionesConfirmar } from '../carga-semanal.service.js'
 import { prisma } from '../../../shared/prisma.js'
 
+async function calcularConciliacion(sesionId: string) {
+  // Snapshot de esta sesión
+  const totalNuevo = await prisma.dimCargaPadronSnapshot.count({ where: { sesionId } })
+
+  // Sesión completada anterior con snapshot (la más reciente antes de esta)
+  const sesionActual = await prisma.dimCargaSesion.findUnique({
+    where: { id: sesionId },
+    select: { createdAt: true },
+  })
+  const sesionAnterior = sesionActual
+    ? await prisma.dimCargaSesion.findFirst({
+        where: { estado: 'completado', createdAt: { lt: sesionActual.createdAt } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      })
+    : null
+
+  const totalAnterior = sesionAnterior
+    ? await prisma.dimCargaPadronSnapshot.count({ where: { sesionId: sesionAnterior.id } })
+    : null
+
+  // Movimientos desde diffs de dim_puestos
+  const [altas, bajas] = await Promise.all([
+    prisma.dimCargaDiff.count({ where: { sesionId, tablaAfectada: 'dim_puestos', tipoDiff: 'nuevo' } }),
+    prisma.dimCargaDiff.count({ where: { sesionId, tablaAfectada: 'dim_puestos', tipoDiff: 'eliminado' } }),
+  ])
+
+  const delta = totalAnterior !== null ? totalNuevo - totalAnterior : null
+  const concilia = delta !== null ? delta === altas - bajas : null
+
+  return { totalAnterior, totalNuevo, altas, bajas, delta, concilia }
+}
+
 /**
  * Despacha el preview (fase 1) de un tipo dentro de una sesión.
  * tiposEnSesion: todos los tipos que forman parte de esta sesión (para saber cuándo marcar pendiente_confirmacion).
@@ -95,8 +128,11 @@ export async function despacharConfirmar(
       console.log(`[carga-semanal] confirmar ${tipo} OK`)
     }
 
+    // Conciliación: total anterior + movimientos = total nuevo
+    const conciliacion = await calcularConciliacion(sesionId)
+
     // Marcar completado con informe consolidado
-    await marcarSesionCompletada(sesionId, { confirmado: true, tipos: tiposEnSesion })
+    await marcarSesionCompletada(sesionId, { confirmado: true, tipos: tiposEnSesion, conciliacion })
     console.log(`[carga-semanal] sesión ${sesionId} completada`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

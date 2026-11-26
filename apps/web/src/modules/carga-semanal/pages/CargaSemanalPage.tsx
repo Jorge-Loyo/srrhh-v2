@@ -15,9 +15,40 @@ import {
 } from '../hooks/useCargaSemanal'
 import { useQueryClient } from '@tanstack/react-query'
 
+function CardConciliacion({ informe }: { informe: Record<string, unknown> | null }) {
+  const c = (informe?.conciliacion as any) ?? null
+  if (!c) return null
+  const ok = c.concilia === true
+  const na = c.totalAnterior === null
+  return (
+    <div className={`mt-2 rounded p-3 text-xs space-y-1 ${
+      na ? 'bg-gray-50 border border-gray-200 text-gray-500'
+      : ok ? 'bg-green-50 border border-green-200 text-green-800'
+      : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
+    }`}>
+      <p className="font-semibold">
+        {na ? '📊 Conciliación (primer corte)' : ok ? '✅ Conciliación OK' : '⚠️ Conciliación con diferencia'}
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        <span>Corte anterior:</span><span className="font-mono">{c.totalAnterior?.toLocaleString('es-AR') ?? '—'}</span>
+        <span>Altas:</span>          <span className="font-mono text-green-700">+{c.altas?.toLocaleString('es-AR') ?? 0}</span>
+        <span>Bajas:</span>          <span className="font-mono text-red-700">−{c.bajas?.toLocaleString('es-AR') ?? 0}</span>
+        <span>Corte nuevo:</span>    <span className="font-mono font-semibold">{c.totalNuevo?.toLocaleString('es-AR') ?? '—'}</span>
+        {!na && (
+          <>
+            <span>Delta real:</span>  <span className="font-mono">{c.delta >= 0 ? '+' : ''}{c.delta?.toLocaleString('es-AR')}</span>
+            <span>Delta esperado:</span><span className="font-mono">{((c.altas ?? 0) - (c.bajas ?? 0)) >= 0 ? '+' : ''}{((c.altas ?? 0) - (c.bajas ?? 0)).toLocaleString('es-AR')}</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function CargaSemanalPage() {
   const navigate  = useNavigate()
   const inputRef  = useRef<HTMLInputElement>(null)
+  const [expandido, setExpandido] = useState<Record<string, boolean>>({})
   const [archivosSeleccionados, setArchivosSeleccionados] = useState<File[]>([])
   const [error, setError] = useState('')
 
@@ -175,7 +206,11 @@ export function CargaSemanalPage() {
                 </tr>
               </thead>
               <tbody>
-                {sesiones.map((s) => (
+                {sesiones.map((s) => {
+                  const informe = s.informe as Record<string, unknown> | null
+                  const tieneConciliacion = !!(informe?.conciliacion)
+                  return (
+                  <>
                   <tr key={s.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-3 py-2 text-xs whitespace-nowrap">
                       <span className="mr-1">{ICONO_TIPO[s.tipo]}</span>{LABEL_TIPO[s.tipo]}
@@ -205,6 +240,15 @@ export function CargaSemanalPage() {
                     </td>
                     <td className="px-3 py-2 text-xs">
                       <div className="flex gap-2 items-center justify-end">
+                        {s.estado === 'completado' && tieneConciliacion && (
+                          <button
+                            type="button"
+                            className="px-2 py-1 rounded bg-gray-100 text-gray-600 text-xs hover:bg-gray-200"
+                            onClick={() => setExpandido((p) => ({ ...p, [s.id]: !p[s.id] }))}
+                          >
+                            {expandido[s.id] ? '▲ ocultar' : '▼ conciliación'}
+                          </button>
+                        )}
                         {s.estado === 'pendiente_confirmacion' && (
                           <button
                             type="button"
@@ -236,7 +280,16 @@ export function CargaSemanalPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  {expandido[s.id] && tieneConciliacion && (
+                    <tr key={`${s.id}-conc`} className="bg-gray-50">
+                      <td colSpan={7} className="px-4 pb-3">
+                        <CardConciliacion informe={informe} />
+                      </td>
+                    </tr>
+                  )}
+                  </>
+                  )
+                })}
               </tbody>
             </table>
           </div>
