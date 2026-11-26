@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
 import type { ResolucionesConfirmar } from '../carga-semanal.service.js'
 import { normalizarTexto } from '@srrhh/utils'
+import { clasificarGestionablesBulk } from './gestionables.js'
 
 const require = createRequire(import.meta.url)
 const XLSX = require('xlsx') as {
@@ -62,6 +62,7 @@ export interface ResumenCargosSalud {
   dimPuestos: { nuevos: number; modificados: number; eliminados: number }
   dimPersonas: { nuevas: number; modificadas: number }
   dimActividadHechos: { aAbrir: number; aCerrar: number }
+  gestionables: { puestosNuevos: number }
   advertencias: AdvertenciaFila[]
 }
 
@@ -227,6 +228,7 @@ export async function parsearYDiffearCargosSalud(
   // 2. Cargar estado actual en memoria
   const [puestosActuales, personasActuales] = await Promise.all([
     prisma.dimPuestos.findMany({
+      where: { padronExist: { not: null } },
       select: {
         idSialRol: true, literalPuesto: true, especialidad: true,
         codigoRegistro: true, codRep: true, hospitalSigla: true, situacionRevista: true,
@@ -260,12 +262,13 @@ export async function parsearYDiffearCargosSalud(
     if (!actual) {
       diffs.push({ sesionId, tablaAfectada: 'dim_puestos', tipoDiff: 'nuevo', clave: f.idSialRol })
     } else {
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'literal_puesto',    actual.literalPuesto,    f.litPuesto)
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'especialidad',      actual.especialidad,     f.especialidad)
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'codigo_registro',   actual.codigoRegistro,   f.codReg)
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'cod_rep',           actual.codRep,           f.codRep)
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'situacion_revista', actual.situacionRevista, f.sitRev)
-      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'efector',           actual.hospitalSigla,    f.sigla)
+      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'literal_puesto',    norm(actual.literalPuesto),    f.litPuesto)
+      if (f.especialidad !== null)
+        diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'especialidad',    norm(actual.especialidad),     f.especialidad)
+      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'codigo_registro',   actual.codigoRegistro,         f.codReg)
+      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'cod_rep',           actual.codRep,                 f.codRep)
+      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'situacion_revista', norm(actual.situacionRevista), f.sitRev)
+      diffCampo(diffs, sesionId, 'dim_puestos', f.idSialRol, 'efector',           actual.hospitalSigla,          f.sigla)
     }
 
     // dim_personas (primera aparición por CUIL)
@@ -276,7 +279,6 @@ export async function parsearYDiffearCargosSalud(
         diffs.push({ sesionId, tablaAfectada: 'dim_personas', tipoDiff: 'nuevo', clave: f.cuil })
       } else {
         diffCampo(diffs, sesionId, 'dim_personas', f.cuil, 'apellido_nombre', actualP.apellidoNombre, f.apellidoNombre)
-        diffCampo(diffs, sesionId, 'dim_personas', f.cuil, 'sexo',            actualP.sexo,           f.sexo)
         diffCampo(diffs, sesionId, 'dim_personas', f.cuil, 'mail_laboral',    actualP.mailLaboral,    f.mailLaboral)
         diffCampo(diffs, sesionId, 'dim_personas', f.cuil, 'telefono',        actualP.telefono,       f.telefono)
       }
@@ -297,6 +299,16 @@ export async function parsearYDiffearCargosSalud(
   const idsEliminadosPuestos = diffs
     .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'eliminado')
     .map((d) => d.clave)
+
+  // Clasificar gestionables una sola vez para el resumen del preview
+  const mapaFilasPreview = new Map(filas.map((f) => [f.idSialRol, f]))
+  const clasificacionPreview = await clasificarGestionablesBulk(
+    idsNuevosPuestos.map((id) => ({
+      id,
+      codigoRegistro: mapaFilasPreview.get(id)?.codReg ?? null,
+      literalPuesto:  mapaFilasPreview.get(id)?.litPuesto ?? null,
+    }))
+  )
 
   // Actividades abiertas existentes para los eliminados (para saber cuáles se van a cerrar)
   const actividadesAbiertas = idsEliminadosPuestos.length > 0
@@ -322,15 +334,11 @@ export async function parsearYDiffearCargosSalud(
     }
   }
 
-  // 4. Persistir diffs y actualizar conteo de filas
-  await Promise.all([
-    (async () => {
-      for (let i = 0; i < diffs.length; i += LOTE) {
-        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-      }
-    })(),
-    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
-  ])
+  // 4. Persistir diffs y actualizar conteo de filas (en serie para no saturar Neon)
+  for (let i = 0; i < diffs.length; i += LOTE) {
+    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+  }
+  await prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } })
 
   const resumen: ResumenCargosSalud = {
     totalFilas: filas.length,
@@ -347,13 +355,101 @@ export async function parsearYDiffearCargosSalud(
       aAbrir:  diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'nuevo').length,
       aCerrar: diffs.filter((d) => d.tablaAfectada === 'dim_actividad_hechos' && d.tipoDiff === 'eliminado').length,
     },
+    gestionables: {
+      puestosNuevos: idsNuevosPuestos.filter((id) => clasificacionPreview.get(id) != null).length,
+    },
     advertencias,
   }
 
-  // 5. Marcar sesión como pendiente de confirmación
-  await marcarSesionPendiente(sesionId, { tipo: 'cargos_salud', ...resumen, advertencias })
-
+  // 5. Marcar sesión como pendiente de confirmación — lo hace registrarResumenParcial en index.ts
   return resumen
+}
+
+// ─── helpers SQL bulk ─────────────────────────────────────────────────────────
+
+// Ejecuta un INSERT ... ON CONFLICT DO UPDATE en un solo round-trip
+async function bulkUpsertPuestos(filas: FilaCargo[], fechaCorte: Date): Promise<void> {
+  if (!filas.length) return
+  const { Prisma } = await import('@prisma/client')
+  // Deduplicar por id_sial_rol (última fila gana)
+  const porId = new Map<string, FilaCargo>()
+  for (const f of filas) porId.set(f.idSialRol, f)
+  const unicas = [...porId.values()]
+  for (let i = 0; i < unicas.length; i += LOTE) {
+    const lote = unicas.slice(i, i + LOTE)
+    const values = lote.map((f) => Prisma.sql`(
+      ${f.idSialRol}, ${f.litPuesto}, ${f.especialidad}, ${f.codReg}, ${f.codRep},
+      ${f.descRep}, ${f.jcat}, ${f.sitRev}, ${f.cargoDesde}, ${f.cargoHasta},
+      ${f.docRespAlta}, ${f.docRespBaja}, ${f.srDocRespald}, ${f.bloqDesde}, ${f.blMotivo},
+      ${f.escritorio}, ${f.pouDesde}, ${f.dia}, ${f.docResp}, ${fechaCorte},
+      (SELECT sigla FROM dim_efectores WHERE sigla = ${f.sigla} LIMIT 1)
+    )`)
+    await prisma.$executeRaw`
+      INSERT INTO dim_puestos
+        (id_sial_rol, literal_puesto, especialidad, codigo_registro, cod_rep,
+         desc_rep, jcat, situacion_revista, puesto_desde, puesto_hasta,
+         doc_respald_alta, doc_resp_baja, sr_doc_respald, bloq_desde, bl_motivo,
+         escritorio, pou_desde, dia, doc_resp, padron_exist, efector)
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT (id_sial_rol) DO UPDATE SET
+        literal_puesto     = EXCLUDED.literal_puesto,
+        especialidad       = COALESCE(EXCLUDED.especialidad, dim_puestos.especialidad),
+        codigo_registro    = EXCLUDED.codigo_registro,
+        cod_rep            = EXCLUDED.cod_rep,
+        desc_rep           = EXCLUDED.desc_rep,
+        jcat               = EXCLUDED.jcat,
+        efector            = EXCLUDED.efector,
+        situacion_revista  = EXCLUDED.situacion_revista,
+        puesto_desde       = EXCLUDED.puesto_desde,
+        puesto_hasta       = EXCLUDED.puesto_hasta,
+        doc_respald_alta   = EXCLUDED.doc_respald_alta,
+        doc_resp_baja      = EXCLUDED.doc_resp_baja,
+        sr_doc_respald     = EXCLUDED.sr_doc_respald,
+        bloq_desde         = EXCLUDED.bloq_desde,
+        bl_motivo          = EXCLUDED.bl_motivo,
+        escritorio         = EXCLUDED.escritorio,
+        pou_desde          = EXCLUDED.pou_desde,
+        dia                = EXCLUDED.dia,
+        doc_resp           = EXCLUDED.doc_resp,
+        padron_exist       = EXCLUDED.padron_exist
+    `
+  }
+}
+
+async function bulkUpsertPersonas(filas: FilaCargo[], fechaCorte: Date): Promise<void> {
+  if (!filas.length) return
+  const { Prisma } = await import('@prisma/client')
+  // deduplicar por cuil
+  const porCuil = new Map<string, FilaCargo>()
+  for (const f of filas) { if (f.cuil) porCuil.set(f.cuil, f) }
+  const unicas = [...porCuil.values()]
+  for (let i = 0; i < unicas.length; i += LOTE) {
+    const lote = unicas.slice(i, i + LOTE)
+    const values = lote.map((f) => Prisma.sql`(
+      ${f.cuil}, ${f.apellidoNombre}, ${f.fecNacim}, ${f.sexo},
+      ${f.telefono}, ${f.mailPersonal}, ${f.mailLaboral},
+      ${f.domicilio}, ${f.localidad}, ${f.provincia}, ${f.saludPrimerCargo}, ${true}
+    )`)
+    await prisma.$executeRaw`
+      INSERT INTO dim_personas
+        (cuil, apellido_nombre, fecha_nacimiento, sexo,
+         telefono, mail_personal, mail_laboral,
+         domicilio, localidad, provincia, salud_1er_cargo, activo)
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT (cuil) DO UPDATE SET
+        apellido_nombre    = EXCLUDED.apellido_nombre,
+        fecha_nacimiento   = EXCLUDED.fecha_nacimiento,
+        sexo               = EXCLUDED.sexo,
+        telefono           = EXCLUDED.telefono,
+        mail_personal      = EXCLUDED.mail_personal,
+        mail_laboral       = EXCLUDED.mail_laboral,
+        domicilio          = EXCLUDED.domicilio,
+        localidad          = EXCLUDED.localidad,
+        provincia          = EXCLUDED.provincia,
+        salud_1er_cargo    = EXCLUDED.salud_1er_cargo,
+        activo             = true
+    `
+  }
 }
 
 // ─── FASE 2: aplicar cambios (escribe en BD, se llama al confirmar) ───────────
@@ -363,100 +459,53 @@ export async function aplicarCambiosCargosSalud(
   buffer: Buffer,
   resoluciones: ResolucionesConfirmar,
 ): Promise<void> {
-  // Re-parsear el buffer (ya fue validado en fase 1)
+  console.log(`[cargos-salud] iniciando aplicar sesión ${sesionId}`)
+
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true })
   const ws = wb.Sheets[wb.SheetNames[0]!]
   const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, unknown>[]
   const filas = rawRows.map(parsearFila).filter((f) => f.idSialRol.length > 0)
   const fechaCorte = new Date()
+  console.log(`[cargos-salud] ${filas.length} filas parseadas`)
 
-  // Leer diffs ya calculados en fase 1
   const diffs = await prisma.dimCargaDiff.findMany({
     where: { sesionId },
-    select: { tipoDiff: true, clave: true, tablaAfectada: true, campo: true },
+    select: { tipoDiff: true, clave: true, tablaAfectada: true },
   })
+  console.log(`[cargos-salud] ${diffs.length} diffs cargados`)
 
+  const nuevosPuestosSet = new Set(
+    diffs.filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'nuevo').map((d) => d.clave)
+  )
   const eliminadosPuestos = diffs
     .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'eliminado')
     .map((d) => d.clave)
-
-  const nuevosPuestos = diffs
-    .filter((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'nuevo')
-    .map((d) => d.clave)
-
   const modResol = resoluciones.modificados ?? {}
   const delResol = resoluciones.eliminados ?? {}
 
-  // Construir upserts respetando resoluciones
-  const upsertsPuestos: Parameters<typeof prisma.dimPuestos.upsert>[0][] = []
-  const upsertsPersonas: Parameters<typeof prisma.dimPersonas.upsert>[0][] = []
-  const cuilsVistos = new Set<string>()
+  // Filtrar filas respetando resolución 'actual' (no pisar)
+  const filasAplicar = filas.filter((f) => {
+    const esMod = diffs.some((d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'modificado' && d.clave === f.idSialRol)
+    return !(esMod && modResol[f.idSialRol] === 'actual')
+  })
 
-  for (const f of filas) {
-    // Si el puesto está modificado y el usuario eligió 'actual', no pisamos
-    const estaModificado = diffs.some(
-      (d) => d.tablaAfectada === 'dim_puestos' && d.tipoDiff === 'modificado' && d.clave === f.idSialRol,
-    )
-    if (estaModificado && modResol[f.idSialRol] === 'actual') continue
+  // dim_puestos — bulk upsert SQL (1 query por lote de 500)
+  console.log(`[cargos-salud] upsert dim_puestos (${filasAplicar.length} filas)...`)
+  await bulkUpsertPuestos(filasAplicar, fechaCorte)
+  console.log(`[cargos-salud] dim_puestos OK`)
 
-    upsertsPuestos.push({
-      where: { idSialRol: f.idSialRol },
-      create: {
-        idSialRol: f.idSialRol, literalPuesto: f.litPuesto, especialidad: f.especialidad,
-        codigoRegistro: f.codReg, codRep: f.codRep, descRep: f.descRep, jcat: f.jcat,
-        hospitalSigla: f.sigla, situacionRevista: f.sitRev, puestoDesde: f.cargoDesde,
-        puestoHasta: f.cargoHasta, docRespaldAlta: f.docRespAlta, docRespBaja: f.docRespBaja,
-        srDocRespald: f.srDocRespald, bloqDesde: f.bloqDesde, blMotivo: f.blMotivo,
-        escritorio: f.escritorio, pouDesde: f.pouDesde, dia: f.dia, docResp: f.docResp,
-        padronExist: fechaCorte,
-      },
-      update: {
-        literalPuesto: f.litPuesto, especialidad: f.especialidad, codigoRegistro: f.codReg,
-        codRep: f.codRep, descRep: f.descRep, jcat: f.jcat, hospitalSigla: f.sigla,
-        situacionRevista: f.sitRev, puestoDesde: f.cargoDesde, puestoHasta: f.cargoHasta,
-        docRespaldAlta: f.docRespAlta, docRespBaja: f.docRespBaja, srDocRespald: f.srDocRespald,
-        bloqDesde: f.bloqDesde, blMotivo: f.blMotivo, escritorio: f.escritorio,
-        pouDesde: f.pouDesde, dia: f.dia, docResp: f.docResp, padronExist: fechaCorte,
-      },
-    })
+  // dim_personas — bulk upsert SQL (1 query por lote de 500)
+  console.log(`[cargos-salud] upsert dim_personas...`)
+  await bulkUpsertPersonas(filasAplicar, fechaCorte)
+  console.log(`[cargos-salud] dim_personas OK`)
 
-    if (f.cuil && !cuilsVistos.has(f.cuil)) {
-      cuilsVistos.add(f.cuil)
-      upsertsPersonas.push({
-        where: { cuil: f.cuil },
-        create: {
-          cuil: f.cuil, apellidoNombre: f.apellidoNombre, fechaNacimiento: f.fecNacim,
-          sexo: f.sexo, telefono: f.telefono, mailPersonal: f.mailPersonal,
-          mailLaboral: f.mailLaboral, domicilio: f.domicilio, localidad: f.localidad,
-          provincia: f.provincia, saludPrimerCargo: f.saludPrimerCargo, activo: true,
-        },
-        update: {
-          apellidoNombre: f.apellidoNombre, fechaNacimiento: f.fecNacim, sexo: f.sexo,
-          telefono: f.telefono, mailPersonal: f.mailPersonal, mailLaboral: f.mailLaboral,
-          domicilio: f.domicilio, localidad: f.localidad, provincia: f.provincia,
-          saludPrimerCargo: f.saludPrimerCargo, activo: true,
-        },
-      })
-    }
-  }
-
-  // Puestos a eliminar (respetando resolución 'mantener')
+  const nuevosPuestos = [...nuevosPuestosSet]
   const idsAEliminar = eliminadosPuestos.filter((id) => delResol[id] !== 'mantener')
-
-  await prisma.$transaction(
-    async (tx) => {
-      for (let i = 0; i < upsertsPuestos.length; i += LOTE) {
-        for (const u of upsertsPuestos.slice(i, i + LOTE)) await tx.dimPuestos.upsert(u)
-      }
-      for (let i = 0; i < upsertsPersonas.length; i += LOTE) {
-        for (const u of upsertsPersonas.slice(i, i + LOTE)) await tx.dimPersonas.upsert(u)
-      }
-    },
-    { timeout: 300_000 },
-  )
+  const mapaFilas = new Map(filas.map((f) => [f.idSialRol, f]))
 
   // Cerrar actividad de puestos eliminados
   if (idsAEliminar.length > 0) {
+    console.log(`[cargos-salud] cerrando actividad de ${idsAEliminar.length} puestos eliminados...`)
     await prisma.dimActividadHechos.updateMany({
       where: { idSialRol: { in: idsAEliminar }, fechaHasta: null },
       data: { fechaHasta: fechaCorte },
@@ -472,7 +521,6 @@ export async function aplicarCambiosCargosSalud(
     })
     const yaAbiertosSet = new Set(yaAbiertos.map((r) => r.idSialRol))
 
-    const mapaFilas = new Map(filas.map((f) => [f.idSialRol, f]))
     const nuevasActividades = nuevosPuestos
       .filter((id) => mapaFilas.has(id) && !yaAbiertosSet.has(id))
       .map((id) => {
@@ -491,7 +539,55 @@ export async function aplicarCambiosCargosSalud(
     }
   }
 
-  // Snapshot y KPIs
+  // 8.1 — Puestos nuevos: gestionables → dim_incidencias, no gestionables → dim_cargos
+  if (nuevosPuestos.length > 0) {
+    const itemsParaClasificar = nuevosPuestos
+      .map((id) => ({ id, codigoRegistro: mapaFilas.get(id)?.codReg ?? null, literalPuesto: mapaFilas.get(id)?.litPuesto ?? null }))
+    const clasificacion = await clasificarGestionablesBulk(itemsParaClasificar)
+
+    const incidenciasNuevas: { tipo: 'puesto_nuevo_gestionable'; sesionId: string; idSialRol: string; codigoRegistro: string; efector: string; literalPuesto: string; especialidad: string | null; cuil: string | null }[] = []
+    const cargosNuevos: { codigoCargo: string; codigoRegistro: string | null; efector: string; literalPuestoLegacy: string | null; especialidadLegacy: string | null; estado: string; subEstado: string }[] = []
+
+    for (const id of nuevosPuestos) {
+      const f = mapaFilas.get(id)
+      if (!f || !f.sigla) continue
+      const tipoConcurso = clasificacion.get(id)
+
+      if (tipoConcurso) {
+        incidenciasNuevas.push({
+          tipo:           'puesto_nuevo_gestionable',
+          sesionId,
+          idSialRol:      id,
+          codigoRegistro: f.codReg ?? '',
+          efector:        f.sigla,
+          literalPuesto:  f.litPuesto ?? '',
+          especialidad:   f.especialidad,
+          cuil:           f.cuil || null,
+        })
+      } else {
+        cargosNuevos.push({
+          codigoCargo:         id,
+          codigoRegistro:      f.codReg,
+          efector:             f.sigla,
+          literalPuestoLegacy: f.litPuesto,
+          especialidadLegacy:  f.especialidad,
+          estado:              'vigente',
+          subEstado:           f.cuil ? 'ocupado' : 'vacante',
+        })
+      }
+    }
+
+    for (let i = 0; i < incidenciasNuevas.length; i += LOTE) {
+      await prisma.dimIncidencia.createMany({ data: incidenciasNuevas.slice(i, i + LOTE), skipDuplicates: true })
+    }
+    for (let i = 0; i < cargosNuevos.length; i += LOTE) {
+      await prisma.dimCargos.createMany({ data: cargosNuevos.slice(i, i + LOTE), skipDuplicates: true })
+    }
+    console.log(`[cargos-salud] gestionables OK`)
+  }
+
+  // Snapshot
+  console.log(`[cargos-salud] snapshot...`)
   const snapshotData = filas.map((f) => ({
     sesionId, fechaCorte, idSialRol: f.idSialRol, cuil: f.cuil || null,
     apellidoNombre: f.apellidoNombre || null, codigoRegistro: f.codReg,
@@ -502,8 +598,10 @@ export async function aplicarCambiosCargosSalud(
   for (let i = 0; i < snapshotData.length; i += LOTE) {
     await prisma.dimCargaPadronSnapshot.createMany({ data: snapshotData.slice(i, i + LOTE) })
   }
+  console.log(`[cargos-salud] snapshot OK`)
 
-  type KpiKey = string
+  // KPIs
+  console.log(`[cargos-salud] KPIs...`)
   const kpisMap = new Map<KpiKey, { codigoRegistro: string | null; efector: string | null; activos: Set<string>; personas: Set<string> }>()
   for (const f of filas) {
     const key = `${f.codReg ?? 'NULL'}|${f.sigla ?? 'NULL'}`
@@ -526,17 +624,7 @@ export async function aplicarCambiosCargosSalud(
       update: { sesionId, totalActivos: entry.activos.size, totalPersonas: entry.personas.size },
     })
   }
+  console.log(`[cargos-salud] KPIs OK`)
 
-  await marcarSesionCompletada(sesionId, {
-    tipo: 'cargos_salud',
-    fechaCorte: fechaCorte.toISOString(),
-    totalFilas: filas.length,
-    dimPuestos: {
-      escritos:   upsertsPuestos.length,
-      eliminados: idsAEliminar.length,
-    },
-    dimPersonas: { escritas: upsertsPersonas.length },
-    snapshot:    { filas: snapshotData.length },
-    kpis:        { grupos: kpisMap.size },
-  })
+  // (aplicar no cambia estado — lo hace despacharConfirmar)
 }

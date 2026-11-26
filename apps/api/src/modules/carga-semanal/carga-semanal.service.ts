@@ -80,34 +80,34 @@ export async function registrarResumenParcial(
   sesionId: string,
   tipo: TipoCarga,
   resumen: Record<string, unknown>,
-  tiposEnSesion: TipoCarga[],
+  tiposEnSesion: TipoCarga[] = [],
 ): Promise<void> {
-  // Leer informe actual
+  // UPDATE atómico: merge de la sub-clave sin race condition
+  await prisma.$executeRaw`
+    UPDATE dim_carga_sesiones
+    SET informe = COALESCE(informe, '{}'::jsonb) || jsonb_build_object(${tipo}::text, ${JSON.stringify(resumen)}::jsonb)
+    WHERE id = ${sesionId}::uuid
+  `
+
+  // Leer el informe actualizado para decidir si marcar pendiente_confirmacion
   const sesion = await prisma.dimCargaSesion.findUnique({
     where: { id: sesionId },
     select: { informe: true, estado: true },
   })
   if (!sesion) return
 
-  const informeActual = (sesion.informe as Record<string, unknown> | null) ?? {}
-  const informeNuevo = { ...informeActual, [tipo]: resumen }
-
-  // Tipos con preview que están en esta sesión
+  const informeActual = (sesion.informe as Record<string, unknown>) ?? {}
   const tiposConPreviewEnSesion = tiposEnSesion.filter((t) =>
     ['cargos_salud', 'bajas_salud', 'arbol', 'ocupacion_pou'].includes(t),
   )
-  // Todos los tipos con preview ya tienen su resumen?
-  const todosListos = tiposConPreviewEnSesion.every((t) => informeNuevo[t] !== undefined)
+  const todosListos = tiposConPreviewEnSesion.every((t) => informeActual[t] !== undefined)
 
-  await prisma.dimCargaSesion.update({
-    where: { id: sesionId },
-    data: {
-      informe: informeNuevo as any,
-      ...(todosListos && sesion.estado === 'procesando'
-        ? { estado: 'pendiente_confirmacion' }
-        : {}),
-    },
-  })
+  if (todosListos && sesion.estado === 'procesando') {
+    await prisma.dimCargaSesion.update({
+      where: { id: sesionId },
+      data: { estado: 'pendiente_confirmacion' },
+    })
+  }
 }
 
 export async function crearSesionService(params: {
@@ -166,13 +166,11 @@ export async function descartarSesionService(sesionId: string): Promise<void> {
     select: { estado: true },
   })
   if (!sesion) throw AppError.notFound(`Sesión ${sesionId} no encontrada`)
-  if (sesion.estado !== 'pendiente_confirmacion') {
-    throw AppError.badRequest(`Solo se pueden descartar sesiones en estado pendiente_confirmacion`)
+  if (!['pendiente_confirmacion', 'error', 'procesando'].includes(sesion.estado)) {
+    throw AppError.badRequest(`No se puede descartar una sesión en estado ${sesion.estado}`)
   }
-  await prisma.dimCargaSesion.update({
-    where: { id: sesionId },
-    data: { estado: 'error', errorMsg: 'Descartado por el usuario', finalizadoAt: new Date() },
-  })
+  // Eliminar en cascada (diffs, archivos, snapshots, kpis)
+  await prisma.dimCargaSesion.delete({ where: { id: sesionId } })
 }
 
 export async function marcarSesionCompletada(

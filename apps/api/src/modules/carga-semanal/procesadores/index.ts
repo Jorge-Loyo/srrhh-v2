@@ -66,50 +66,41 @@ export async function despacharConfirmar(
   resoluciones: ResolucionesConfirmar,
 ): Promise<void> {
   try {
-    // Aplicar en paralelo todos los tipos con preview que tienen buffer
-    const tareas = tiposEnSesion
-      .filter((t) => TIPOS_CON_PREVIEW.has(t) && buffers.has(t))
-      .map(async (tipo) => {
-        const buffer = buffers.get(tipo)!
-        switch (tipo) {
-          case 'cargos_salud': {
-            const { aplicarCambiosCargosSalud } = await import('./cargos-salud.js')
-            return aplicarCambiosCargosSalud(sesionId, buffer, resoluciones)
-          }
-          case 'bajas_salud': {
-            const { aplicarCambiosBajasSalud } = await import('./bajas-salud.js')
-            return aplicarCambiosBajasSalud(sesionId, buffer, resoluciones)
-          }
-          case 'arbol': {
-            const { aplicarCambiosArbol } = await import('./arbol.js')
-            return aplicarCambiosArbol(sesionId, buffer)
-          }
-          case 'ocupacion_pou': {
-            const { aplicarCambiosOcupacionPou } = await import('./ocupacion-pou.js')
-            return aplicarCambiosOcupacionPou(sesionId, buffer)
-          }
+    // Aplicar en serie (Neon no tolera conexiones paralelas)
+    for (const tipo of tiposEnSesion.filter((t) => TIPOS_CON_PREVIEW.has(t) && buffers.has(t))) {
+      const buffer = buffers.get(tipo)!
+      console.log(`[carga-semanal] iniciando confirmar ${tipo} para sesión ${sesionId}`)
+      switch (tipo) {
+        case 'cargos_salud': {
+          const { aplicarCambiosCargosSalud } = await import('./cargos-salud.js')
+          await aplicarCambiosCargosSalud(sesionId, buffer, resoluciones)
+          break
         }
-      })
-
-    await Promise.all(tareas)
-
-    // Registrar corrida en sync_corridas
-    const sesion = await prisma.dimCargaSesion.findUnique({
-      where: { id: sesionId },
-      select: { informe: true, archivos: { select: { sha256: true } } },
-    })
-    await prisma.dimSyncCorrida.create({
-      data: {
-        modo: 'carga_semanal',
-        excelSha256: sesion?.archivos[0]?.sha256 ?? null,
-        resumen: (sesion?.informe ?? {}) as any,
-      },
-    })
+        case 'bajas_salud': {
+          const { aplicarCambiosBajasSalud } = await import('./bajas-salud.js')
+          await aplicarCambiosBajasSalud(sesionId, buffer, resoluciones)
+          break
+        }
+        case 'arbol': {
+          const { aplicarCambiosArbol } = await import('./arbol.js')
+          await aplicarCambiosArbol(sesionId, buffer)
+          break
+        }
+        case 'ocupacion_pou': {
+          const { aplicarCambiosOcupacionPou } = await import('./ocupacion-pou.js')
+          await aplicarCambiosOcupacionPou(sesionId, buffer)
+          break
+        }
+      }
+      console.log(`[carga-semanal] confirmar ${tipo} OK`)
+    }
 
     // Marcar completado con informe consolidado
     await marcarSesionCompletada(sesionId, { confirmado: true, tipos: tiposEnSesion })
+    console.log(`[carga-semanal] sesión ${sesionId} completada`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[carga-semanal] confirmar falló sesión ${sesionId}:`, msg, err instanceof Error ? err.stack : '')
     await marcarSesionError(sesionId, msg)
     throw err
   }

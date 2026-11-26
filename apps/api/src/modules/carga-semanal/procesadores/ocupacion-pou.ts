@@ -1,7 +1,5 @@
 import { createRequire } from 'node:module'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
-
 import { normalizarTexto } from '@srrhh/utils'
 
 const require = createRequire(import.meta.url)
@@ -142,14 +140,10 @@ export async function parsearYDiffearOcupacionPou(
   const filas = parsearBuffer(buffer)
   const diffs = await calcularDiffs(sesionId, filas)
 
-  await Promise.all([
-    (async () => {
-      for (let i = 0; i < diffs.length; i += LOTE) {
-        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-      }
-    })(),
-    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
-  ])
+  for (let i = 0; i < diffs.length; i += LOTE) {
+    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+  }
+  await prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } })
 
   const resumen: ResumenOcupacionPou = {
     totalFilas: filas.length,
@@ -160,7 +154,6 @@ export async function parsearYDiffearOcupacionPou(
     },
   }
 
-  await marcarSesionPendiente(sesionId, { tipo: 'ocupacion_pou', ...resumen })
   return resumen
 }
 
@@ -172,30 +165,54 @@ export async function aplicarCambiosOcupacionPou(
 ): Promise<void> {
   const filas = parsearBuffer(buffer)
 
-  await prisma.$transaction(
-    async (tx) => {
-      for (let i = 0; i < filas.length; i += LOTE) {
-        for (const f of filas.slice(i, i + LOTE)) {
-          await tx.dimPouOcupacion.upsert({
-            where: { sigla_perfil_especialidad: { sigla: f.sigla, perfil: f.perfil, especialidad: f.especialidad } },
-            create: {
-              sigla: f.sigla, descripcionSigla: f.descripcionSigla, perfil: f.perfil,
-              especialidad: f.especialidad, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
-              dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
-            },
-            update: {
-              descripcionSigla: f.descripcionSigla, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
-              dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
-            },
-          })
-        }
-      }
-    },
-    { timeout: 60_000 },
-  )
+  for (let i = 0; i < filas.length; i += LOTE) {
+    for (const f of filas.slice(i, i + LOTE)) {
+      await prisma.dimPouOcupacion.upsert({
+        where: { sigla_perfil_especialidad: { sigla: f.sigla, perfil: f.perfil, especialidad: f.especialidad } },
+        create: {
+          sigla: f.sigla, descripcionSigla: f.descripcionSigla, perfil: f.perfil,
+          especialidad: f.especialidad, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
+          dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
+        },
+        update: {
+          descripcionSigla: f.descripcionSigla, dotacionDiaria: f.dotacionDiaria, dotacionSem: f.dotacionSem,
+          dotacionTotal: f.dotacionTotal, activos: f.activos, tecnicos: f.tecnicos, vacantes: f.vacantes,
+        },
+      })
+    }
+  }
 
-  await marcarSesionCompletada(sesionId, {
-    tipo: 'ocupacion_pou',
-    totalFilas: filas.length,
+  // 8.2 — Poblar dim_pou_ocupacion_puestos con join automático
+  // Match: dim_pou_ocupacion(sigla, perfil, especialidad)
+  //      ↔ dim_puestos(hospital_sigla, literal_puesto, especialidad)
+  // Solo inserta filas nuevas (skipDuplicates). No toca vinculado_manualmente=true.
+  const pouRows = await prisma.dimPouOcupacion.findMany({
+    select: { id: true, sigla: true, perfil: true, especialidad: true },
   })
+  const puestosRows = await prisma.dimPuestos.findMany({
+    select: { idSialRol: true, hospitalSigla: true, literalPuesto: true, especialidad: true },
+    where: { hospitalSigla: { not: null } },
+  })
+
+  // Mapa (sigla|perfil|especialidad) → pouId
+  const mapaPou = new Map(pouRows.map((r) => [`${r.sigla}|${r.perfil}|${r.especialidad}`, r.id]))
+
+  const vinculaciones: { pouId: string; idSialRol: string; vinculadoManualmente: false }[] = []
+  for (const p of puestosRows) {
+    if (!p.hospitalSigla || !p.literalPuesto) continue
+    const clave = `${p.hospitalSigla}|${p.literalPuesto}|${p.especialidad ?? ''}`
+    const pouId = mapaPou.get(clave)
+    if (pouId) {
+      vinculaciones.push({ pouId, idSialRol: p.idSialRol, vinculadoManualmente: false })
+    }
+  }
+
+  for (let i = 0; i < vinculaciones.length; i += LOTE) {
+    await prisma.dimPouOcupacionPuesto.createMany({
+      data: vinculaciones.slice(i, i + LOTE),
+      skipDuplicates: true,
+    })
+  }
+
+  // (aplicar no cambia estado — lo hace despacharConfirmar)
 }

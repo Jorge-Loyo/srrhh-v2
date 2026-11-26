@@ -50,6 +50,7 @@ import { unidadesFijasRoutes } from './modules/areas-programaticas/unidades-fija
 import { incidenciasRoutes } from './modules/incidencias/incidencias.routes.js'
 import { cargaSemanalRoutes } from './modules/carga-semanal/carga-semanal.routes.js'
 import { dimDotacionRoutes } from './modules/dim-dotacion/dim-dotacion.routes.js'
+import { dimIncidenciasRoutes } from './modules/dim-incidencias/dim-incidencias.routes.js'
 
 const app = Fastify({
   logger: {
@@ -153,6 +154,7 @@ await app.register(unidadesFijasRoutes,    { prefix: '/api/v1/unidades-fijas' })
 await app.register(incidenciasRoutes,      { prefix: '/api/v1/incidencias' })
 await app.register(cargaSemanalRoutes,     { prefix: '/api/v1/carga-semanal' })
 await app.register(dimDotacionRoutes,      { prefix: '/api/v1/dim-dotacion' })
+await app.register(dimIncidenciasRoutes,   { prefix: '/api/v1/dim-incidencias' })
 
 // Start
 try {

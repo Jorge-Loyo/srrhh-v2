@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
 import type { ResolucionesConfirmar } from '../carga-semanal.service.js'
 import { normalizarTexto } from '@srrhh/utils'
+import { clasificarGestionablesBulk } from './gestionables.js'
 
 const require = createRequire(import.meta.url)
 const XLSX = require('xlsx') as {
@@ -42,6 +42,7 @@ export interface ResumenBajasSalud {
   totalFilas: number
   dimPuestos: { nuevos: number; modificados: number }
   dimActividadHechos: { aCerrar: number }
+  gestionables: { bajas: number }
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
@@ -179,14 +180,10 @@ export async function parsearYDiffearBajasSalud(
     }
   }
 
-  await Promise.all([
-    (async () => {
-      for (let i = 0; i < diffs.length; i += LOTE) {
-        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-      }
-    })(),
-    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
-  ])
+  for (let i = 0; i < diffs.length; i += LOTE) {
+    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+  }
+  await prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } })
 
   const resumen: ResumenBajasSalud = {
     totalFilas: filas.length,
@@ -195,9 +192,15 @@ export async function parsearYDiffearBajasSalud(
       modificados: new Set(diffs.filter((d) => d.tipoDiff === 'modificado').map((d) => d.clave)).size,
     },
     dimActividadHechos: { aCerrar },
+    gestionables: {
+      bajas: (await clasificarGestionablesBulk(
+        filas
+          .filter((f) => f.cargoHasta)
+          .map((f) => ({ id: f.idSialRol, codigoRegistro: f.codReg, literalPuesto: f.litPuesto }))
+      ).then((m) => [...m.values()].filter((v) => v != null).length)),
+    },
   }
 
-  await marcarSesionPendiente(sesionId, { tipo: 'bajas_salud', ...resumen })
   return resumen
 }
 
@@ -208,75 +211,106 @@ export async function aplicarCambiosBajasSalud(
   buffer: Buffer,
   _resoluciones: ResolucionesConfirmar,
 ): Promise<void> {
-  // Bajas no tienen resoluciones por fila — se aplican todas
+  const { Prisma } = await import('@prisma/client')
   const filas = parsearBuffer(buffer)
   const fechaCorte = new Date()
+  console.log(`[bajas-salud] iniciando aplicar sesión ${sesionId}, ${filas.length} filas`)
 
-  await prisma.$transaction(
-    async (tx) => {
-      // dim_puestos — campos de baja
-      for (let i = 0; i < filas.length; i += LOTE) {
-        for (const f of filas.slice(i, i + LOTE)) {
-          await tx.dimPuestos.upsert({
-            where: { idSialRol: f.idSialRol },
-            create: {
-              idSialRol:   f.idSialRol,
-              puestoHasta: f.cargoHasta,
-              motivoBaja:  f.motBaja,
-              docRespBaja: f.docRespBaja,
-              bajasExist:  fechaCorte,
-            },
-            update: {
-              puestoHasta: f.cargoHasta,
-              motivoBaja:  f.motBaja,
-              docRespBaja: f.docRespBaja,
-              bajasExist:  fechaCorte,
-            },
-          })
-        }
-      }
+  // dim_puestos — bulk upsert SQL (1 query por lote)
+  console.log(`[bajas-salud] upsert dim_puestos...`)
+  // Deduplicar por id_sial_rol
+  const porId = new Map<string, FilaBaja>()
+  for (const f of filas) porId.set(f.idSialRol, f)
+  const filasUnicas = [...porId.values()]
+  for (let i = 0; i < filasUnicas.length; i += LOTE) {
+    const lote = filasUnicas.slice(i, i + LOTE)
+    const values = lote.map((f) => Prisma.sql`(${f.idSialRol}, ${f.cargoHasta}, ${f.motBaja}, ${f.docRespBaja}, ${fechaCorte})`)
+    await prisma.$executeRaw`
+      INSERT INTO dim_puestos (id_sial_rol, puesto_hasta, motivo_baja, doc_resp_baja, bajas_exist)
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT (id_sial_rol) DO UPDATE SET
+        puesto_hasta = EXCLUDED.puesto_hasta,
+        motivo_baja  = EXCLUDED.motivo_baja,
+        doc_resp_baja = EXCLUDED.doc_resp_baja,
+        bajas_exist  = EXCLUDED.bajas_exist
+    `
+  }
+  console.log(`[bajas-salud] dim_puestos OK`)
 
-      // dim_personas — marcar inactivo
-      const cuilsUnicos = [...new Set(filas.filter((f) => f.cuil).map((f) => f.cuil))]
-      for (let i = 0; i < cuilsUnicos.length; i += LOTE) {
-        for (const cuil of cuilsUnicos.slice(i, i + LOTE)) {
-          const f = filas.find((x) => x.cuil === cuil)!
-          await tx.dimPersonas.upsert({
-            where: { cuil },
-            create: {
-              cuil,
-              apellidoNombre:  f.apellidoNombre,
-              fechaNacimiento: f.fecNacim,
-              sexo:            f.sexo,
-              activo:          false,
-            },
-            update: {
-              apellidoNombre:  f.apellidoNombre,
-              fechaNacimiento: f.fecNacim,
-              sexo:            f.sexo,
-              activo:          false,
-            },
-          })
-        }
-      }
-    },
-    { timeout: 180_000 },
-  )
-
-  // Cerrar dim_actividad_hechos con la fecha de baja real de cada puesto
-  let actividadCerrada = 0
-  for (let i = 0; i < filas.length; i += LOTE) {
-    for (const f of filas.slice(i, i + LOTE)) {
-      if (!f.cargoHasta) continue
-      const result = await prisma.dimActividadHechos.updateMany({
-        where: { idSialRol: f.idSialRol, fechaHasta: null },
-        data:  { fechaHasta: f.cargoHasta },
+  // dim_personas — marcar inactivo en bulk
+  const cuilsUnicos = [...new Set(filas.filter((f) => f.cuil).map((f) => f.cuil))]
+  if (cuilsUnicos.length > 0) {
+    for (let i = 0; i < cuilsUnicos.length; i += LOTE) {
+      await prisma.dimPersonas.updateMany({
+        where: { cuil: { in: cuilsUnicos.slice(i, i + LOTE) } },
+        data: { activo: false },
       })
-      actividadCerrada += result.count
     }
   }
+  console.log(`[bajas-salud] dim_personas OK`)
+
+  // dim_actividad_hechos — cerrar en bulk por fecha de baja de cada puesto
+  // Usamos SQL para hacer un UPDATE con JOIN en un solo round-trip por lote
+  console.log(`[bajas-salud] cerrando actividad_hechos...`)
+  const filasConBaja = filas.filter((f) => f.cargoHasta)
+  for (let i = 0; i < filasConBaja.length; i += LOTE) {
+    const lote = filasConBaja.slice(i, i + LOTE)
+    const values = lote.map((f) => Prisma.sql`(${f.idSialRol}::text, ${f.cargoHasta}::timestamptz)`)
+    await prisma.$executeRaw`
+      UPDATE dim_actividad_hechos AS dah
+      SET fecha_hasta = v.fecha_hasta
+      FROM (VALUES ${Prisma.join(values)}) AS v(id_sial_rol, fecha_hasta)
+      WHERE dah.id_sial_rol = v.id_sial_rol AND dah.fecha_hasta IS NULL
+    `
+  }
+  console.log(`[bajas-salud] actividad_hechos OK`)
+
+  // dim_cargos + incidencias para gestionables
+  console.log(`[bajas-salud] gestionables...`)
+  if (filasConBaja.length > 0) {
+    const idsConBaja = filasConBaja.map((f) => f.idSialRol)
+
+    // Resolver codigo_cargo via dim_actividad_hechos (el link id_sial_rol → dim_cargos)
+    const actividades = await prisma.dimActividadHechos.findMany({
+      where: { idSialRol: { in: idsConBaja }, codigoCargo: { not: null } },
+      select: { idSialRol: true, codigoCargo: true },
+    })
+    const codigosCargo = [...new Set(actividades.map((a) => a.codigoCargo!))]
+    if (codigosCargo.length > 0) {
+      await prisma.dimCargos.updateMany({
+        where: { codigoCargo: { in: codigosCargo } },
+        data:  { estado: 'validacion_vacante', subEstado: 'vacante' },
+      })
+    }
+
+    const clasificacion = await clasificarGestionablesBulk(
+      filasConBaja.map((f) => ({ id: f.idSialRol, codigoRegistro: f.codReg, literalPuesto: f.litPuesto }))
+    )
+
+    const incidenciasNuevas: { tipo: 'baja_gestionable'; sesionId: string; idSialRol: string; codigoRegistro: string; efector: string; literalPuesto: string; especialidad: null; cuil: string | null }[] = []
+    for (const f of filasConBaja) {
+      if (!f.sigla) continue
+      if (clasificacion.get(f.idSialRol) != null) {
+        incidenciasNuevas.push({
+          tipo:           'baja_gestionable',
+          sesionId,
+          idSialRol:      f.idSialRol,
+          codigoRegistro: f.codReg ?? '',
+          efector:        f.sigla,
+          literalPuesto:  f.litPuesto ?? '',
+          especialidad:   null,
+          cuil:           f.cuil || null,
+        })
+      }
+    }
+    for (let i = 0; i < incidenciasNuevas.length; i += LOTE) {
+      await prisma.dimIncidencia.createMany({ data: incidenciasNuevas.slice(i, i + LOTE), skipDuplicates: true })
+    }
+  }
+  console.log(`[bajas-salud] gestionables OK`)
 
   // Snapshot
+  console.log(`[bajas-salud] snapshot...`)
   const snapshotData = filas.map((f) => ({
     sesionId, fechaCorte,
     idSialRol:        f.idSialRol,
@@ -296,12 +330,7 @@ export async function aplicarCambiosBajasSalud(
   for (let i = 0; i < snapshotData.length; i += LOTE) {
     await prisma.dimCargaPadronSnapshot.createMany({ data: snapshotData.slice(i, i + LOTE) })
   }
+  console.log(`[bajas-salud] snapshot OK`)
 
-  await marcarSesionCompletada(sesionId, {
-    tipo: 'bajas_salud',
-    fechaCorte: fechaCorte.toISOString(),
-    totalFilas: filas.length,
-    dimActividadHechos: { cerrados: actividadCerrada },
-    snapshot: { filas: snapshotData.length },
-  })
+  // (aplicar no cambia estado — lo hace despacharConfirmar)
 }

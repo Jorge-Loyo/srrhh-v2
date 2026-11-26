@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { normalizarTexto } from '@srrhh/normalizacion'
 import { prisma } from '../../../shared/prisma.js'
-import { marcarSesionCompletada, marcarSesionPendiente } from '../carga-semanal.service.js'
+import { marcarSesionCompletada } from '../carga-semanal.service.js'
 import {
   esFilaArea,
   inferirUniversoTotalizador,
@@ -211,14 +211,10 @@ export async function parsearYDiffearArbol(
 
   const diffs = calcularDiffs(sesionId, filas, mapaActual)
 
-  await Promise.all([
-    (async () => {
-      for (let i = 0; i < diffs.length; i += LOTE) {
-        await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
-      }
-    })(),
-    prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } }),
-  ])
+  for (let i = 0; i < diffs.length; i += LOTE) {
+    await prisma.dimCargaDiff.createMany({ data: diffs.slice(i, i + LOTE) })
+  }
+  await prisma.dimCargaArchivo.updateMany({ where: { sesionId }, data: { filas: filas.length } })
 
   const resumen: ResumenArbol = {
     totalFilas: filas.length,
@@ -230,7 +226,6 @@ export async function parsearYDiffearArbol(
     dimEfectores: { actualizados: 0 },
   }
 
-  await marcarSesionPendiente(sesionId, { tipo: 'arbol', ...resumen })
   return resumen
 }
 
@@ -263,15 +258,13 @@ export async function aplicarCambiosArbol(
     regimenEmpleo:       (f as any).regimenEmpleo ?? null,
   }))
 
-  await prisma.$transaction(
-    async (tx) => {
-      await tx.dimOrganigrama.deleteMany()
-      for (let i = 0; i < insertData.length; i += LOTE) {
-        await tx.dimOrganigrama.createMany({ data: insertData.slice(i, i + LOTE) })
-      }
-    },
-    { timeout: 120_000 },
-  )
+  // Deduplicar por codigoReparticion por si el archivo tiene repetidos tras el filtro de AREA
+  const insertDedup = [...new Map(insertData.map((r) => [r.codigoReparticion, r])).values()]
+
+  await prisma.$executeRaw`TRUNCATE TABLE dim_organigrama`
+  for (let i = 0; i < insertDedup.length; i += LOTE) {
+    await prisma.dimOrganigrama.createMany({ data: insertDedup.slice(i, i + LOTE) })
+  }
 
   // Sync dim_efectores para siglas cuyo desc_rep cambió
   const siglasPorActualizar = [...new Set(

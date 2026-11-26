@@ -927,7 +927,7 @@ model Usuario {
   hospital                  Hospital?             @relation(fields: [hospitalId], references: [id])
   role                      Role                  @relation(fields: [roleId], references: [id])
 
-  @@map("usuarios")
+  @@map("dim_usuarios")
 }
 
 model Role {
@@ -1320,6 +1320,8 @@ model DimEfectores {
   pouDecretoMapeos   DimPouDecretoMapeo[]
   pouDecretos        DimPouDecreto[]
   pouOcupacion       DimPouOcupacion[]
+  incidencias        DimIncidencia[]
+  concursos          DimConcurso[]
 
   @@map("dim_efectores")
 }
@@ -1483,70 +1485,6 @@ model DimActividadHechos {
   @@map("dim_actividad_hechos")
 }
 
-model MsgcCargos {
-  codigoCargo       String                   @id @map("codigo_cargo") @db.VarChar(30)
-  codigoRegistro    String?                  @map("codigo_registro") @db.VarChar(10)
-  carrera           String?                  @db.VarChar(150)
-  sigla             String?                  @db.VarChar(20)
-  nombreCargo       String?                  @map("nombre_cargo") @db.VarChar(200)
-  tipo              String?                  @db.VarChar(50)
-  plantaGuardia     String?                  @map("planta_guardia") @db.VarChar(50)
-  estado            String?                  @db.VarChar(30)
-  situacion         String?                  @db.VarChar(30)
-  acronimo          String?                  @db.VarChar(10)
-  especialidadCargo String?                  @map("especialidad_cargo") @db.VarChar(200)
-  nivelConduccion   String?                  @map("nivel_conduccion") @db.VarChar(50)
-  universo          String?
-  lineaPou          String?                  @map("linea_pou")
-  reparticion       String?
-  unidadArbol       String?                  @map("unidad_arbol")
-  bloque            String?                  @db.VarChar(50)
-  sumaEnTotal       String?                  @map("suma_en_total") @db.VarChar(5)
-  hechos            MsgcHechosCargoPersona[]
-
-  @@map("msgc_cargos")
-}
-
-model MsgcHechosCargoPersona {
-  id               Int           @id @default(autoincrement())
-  codigoCargo      String        @map("codigo_cargo") @db.VarChar(30)
-  cuil             String?       @db.VarChar(11)
-  puestoId         Int?          @map("puesto_id")
-  idSialRol        String?       @map("id_sial_rol") @db.VarChar(50)
-  situacion        String?       @db.VarChar(30)
-  cargoIdSistema   String?       @map("cargo_id_sistema") @db.Uuid
-  personaIdSistema String?       @map("persona_id_sistema") @db.Uuid
-  cargo            MsgcCargos    @relation(fields: [codigoCargo], references: [codigoCargo], onDelete: NoAction, onUpdate: NoAction)
-  persona          MsgcPersonas? @relation(fields: [cuil], references: [cuil], onDelete: NoAction, onUpdate: NoAction)
-  puesto           MsgcPuestos?  @relation(fields: [puestoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([codigoCargo])
-  @@index([cuil])
-  @@index([cargoIdSistema])
-  @@map("msgc_hechos_cargo_persona")
-}
-
-model MsgcPersonas {
-  cuil             String                   @id @db.VarChar(11)
-  apellidoNombre   String?                  @map("apellido_nombre") @db.VarChar(200)
-  idSial           String?                  @map("id_sial") @db.VarChar(50)
-  idSialRol        String?                  @map("id_sial_rol") @db.VarChar(50)
-  situacionRevista String?                  @map("situacion_revista") @db.VarChar(50)
-  especialidad     String?                  @db.VarChar(200)
-  hechos           MsgcHechosCargoPersona[]
-
-  @@map("msgc_personas")
-}
-
-model MsgcPuestos {
-  id            Int                      @id @default(autoincrement())
-  literalPuesto String                   @map("literal_puesto") @db.VarChar(200)
-  especialidad  String?                  @db.VarChar(200)
-  hechos        MsgcHechosCargoPersona[]
-
-  @@unique([literalPuesto, especialidad])
-  @@map("msgc_puestos")
-}
 model PouCarga {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   archivo   String   @db.VarChar(500)
@@ -1579,6 +1517,8 @@ model DimCargaSesion {
   snapshots        DimCargaPadronSnapshot[]
   kpis             DimCargaKpisPeriodo[]
   pouDecretoCargas DimPouDecretoCarga[]
+  incidencias      DimIncidencia[]
+  dimConcursos     DimConcurso[]
 
   @@index([tipo, estado])
   @@index([fechaArchivo])
@@ -1654,6 +1594,93 @@ model DimCargaPadronSnapshot {
 
 /// Métricas agregadas por período (mes/año), carrera y efector.
 /// Permite comparar evolución entre períodos y años.
+// =============================================================================
+// DIM INCIDENCIAS Y CONCURSOS
+// =============================================================================
+
+model DimIncidencia {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo           TipoIncidencia
+  estado         EstadoIncidencia @default(pendiente)
+  sesionId       String           @map("sesion_id") @db.Uuid
+  idSialRol      String?          @map("id_sial_rol") @db.VarChar(12)
+  codigoRegistro String           @map("codigo_registro") @db.VarChar(10)
+  efector        String           @db.VarChar(20)
+  literalPuesto  String           @map("literal_puesto") @db.VarChar(200)
+  especialidad   String?          @db.VarChar(200)
+  cuil           String?          @db.VarChar(11)
+  codigoCargo    String?          @map("codigo_cargo") @db.VarChar(30)
+  concursoId     String?          @unique @map("concurso_id") @db.Uuid
+  resolucion     String?          @db.VarChar(500)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sesion         DimCargaSesion   @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  efectorRel     DimEfectores     @relation(fields: [efector], references: [sigla])
+  concurso       DimConcurso?     @relation(fields: [concursoId], references: [id])
+  @@index([sesionId])
+  @@index([tipo, estado])
+  @@index([efector, codigoRegistro])
+  @@index([idSialRol])
+  @@map("dim_incidencias")
+}
+
+model DimConcurso {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo           TipoConcurso
+  motivoOrigen   String             @map("motivo_origen") @db.VarChar(30)
+  efector        String             @db.VarChar(20)
+  codigoRegistro String             @map("codigo_registro") @db.VarChar(10)
+  literalPuesto  String             @map("literal_puesto") @db.VarChar(200)
+  especialidad   String?            @db.VarChar(200)
+  codigoCargo    String?            @map("codigo_cargo") @db.VarChar(30)
+  estado         String             @default("no_iniciado") @db.VarChar(20)
+  observaciones  String?
+  sesionId       String?            @map("sesion_id") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  efectorRel     DimEfectores       @relation(fields: [efector], references: [sigla])
+  sesion         DimCargaSesion?    @relation(fields: [sesionId], references: [id], onDelete: SetNull)
+  incidencia     DimIncidencia?
+  cph            DimConcursoCph?
+  ceetps         DimConcursoCeetps?
+  @@index([tipo, estado])
+  @@index([efector, codigoRegistro])
+  @@index([sesionId])
+  @@map("dim_concurso")
+}
+
+model DimConcursoCph {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  concursoId        String      @unique @map("concurso_id") @db.Uuid
+  eeBaja            String?     @map("ee_baja") @db.VarChar(150)
+  fechaBaja         DateTime?   @map("fecha_baja") @db.Date
+  eeConcurso        String?     @map("ee_concurso") @db.VarChar(150)
+  fechaEeConcurso   DateTime?   @map("fecha_ee_concurso") @db.Date
+  ifAutorizacion    String?     @map("if_autorizacion") @db.VarChar(150)
+  fechaAutorizacion DateTime?   @map("fecha_autorizacion") @db.Date
+  tipoGestion       String?     @map("tipo_gestion") @db.VarChar(20)
+  subEstado         String?     @map("sub_estado") @db.VarChar(50)
+  subEstado3        String?     @map("sub_estado_3") @db.VarChar(50)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  concurso          DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  @@map("dim_concurso_cph")
+}
+
+model DimConcursoCeetps {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  concursoId          String      @unique @map("concurso_id") @db.Uuid
+  expedienteConcurso  String?     @map("expediente_concurso") @db.VarChar(150)
+  fechaCaratulacion   DateTime?   @map("fecha_caratulacion") @db.Date
+  ifAutorizacion      String?     @map("if_autorizacion") @db.VarChar(150)
+  fechaAutorizacion   DateTime?   @map("fecha_autorizacion") @db.Date
+  tipoGestion         String?     @map("tipo_gestion") @db.VarChar(20)
+  subEstado           String?     @map("sub_estado") @db.VarChar(50)
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  concurso            DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  @@map("dim_concurso_ceetps")
+}
 model DimCargaKpisPeriodo {
   id            Int            @id @default(autoincrement())
   sesionId      String         @map("sesion_id") @db.Uuid
@@ -1864,4 +1891,15 @@ enum EstadoCargaSemanal {
   completado
   error
   pendiente_confirmacion
+}
+
+enum TipoIncidencia {
+  baja_gestionable
+  puesto_nuevo_gestionable
+}
+
+enum EstadoIncidencia {
+  pendiente
+  resuelta
+  descartada
 }

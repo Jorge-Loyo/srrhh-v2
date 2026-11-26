@@ -100,17 +100,25 @@ export async function cargaSemanalRoutes(app: FastifyInstance) {
       }
       if (buffersMapa.size > 0) bufferStore.set(sesion.id, buffersMapa)
 
-      // Lanzar todos los previews en paralelo (background)
-      setImmediate(() => {
-        Promise.all(
-          archivosConTipo.map((a) =>
-            despacharPreview(sesion.id, a.tipo, a.buffer, tiposEnSesion).catch((err) => {
-              const msg = err instanceof Error ? err.message : String(err)
-              console.error(`[carga-semanal] preview ${a.tipo} falló para sesión ${sesion.id}:`, msg)
-              marcarSesionError(sesion.id, msg).catch(console.error)
-            }),
-          ),
-        )
+      const ORDEN: TipoCarga[] = ['bajas_salud', 'cargos_salud', 'ocupacion_pou', 'arbol', 'pou_decreto']
+      const archivosOrdenados = [...archivosConTipo].sort(
+        (a, b) => ORDEN.indexOf(a.tipo) - ORDEN.indexOf(b.tipo),
+      )
+
+      // Lanzar todos los previews en SERIE (evita saturar el pool de conexiones de Neon)
+      setImmediate(async () => {
+        for (const a of archivosOrdenados) {
+          console.log(`[carga-semanal] iniciando preview ${a.tipo} para sesión ${sesion.id}`)
+          try {
+            await despacharPreview(sesion.id, a.tipo, a.buffer, tiposEnSesion)
+            console.log(`[carga-semanal] preview ${a.tipo} OK`)
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            const stack = err instanceof Error ? err.stack : ''
+            console.error(`[carga-semanal] preview ${a.tipo} falló para sesión ${sesion.id}:`, msg)
+            console.error(stack)
+          }
+        }
       })
 
       return reply.status(202).send({
@@ -149,6 +157,10 @@ export async function cargaSemanalRoutes(app: FastifyInstance) {
 
       const buffersMapa = bufferStore.get(id)
       if (!buffersMapa || buffersMapa.size === 0) {
+        await prisma.dimCargaSesion.update({
+          where: { id },
+          data: { estado: 'error', errorMsg: 'El servidor fue reiniciado y el archivo ya no está disponible. Volvé a subir los archivos.' },
+        })
         throw new AppError("NOT_FOUND", "El buffer del archivo ya no esta disponible (el servidor fue reiniciado). Por favor vuelva a subir el archivo.", 410)
       }
 
@@ -158,6 +170,11 @@ export async function cargaSemanalRoutes(app: FastifyInstance) {
         .filter((t): t is TipoCarga => t !== null)
 
       const resoluciones: ResolucionesConfirmar = body?.resoluciones ?? {}
+
+      await prisma.dimCargaSesion.update({
+        where: { id },
+        data: { estado: 'procesando' },
+      })
 
       setImmediate(() => {
         despacharConfirmar(id, tiposEnSesion, buffersMapa, resoluciones)
