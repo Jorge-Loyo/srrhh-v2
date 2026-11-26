@@ -79,10 +79,12 @@ CREATE TABLE IF NOT EXISTS "pou_especialidad_mapeo" (
 );
 
 -- ─── 6. dim_organigrama_uploads (FK actualizada al nuevo nombre) ──────────────
--- La tabla ya fue renombrada en el paso 1. Solo aseguramos que la FK apunte a dim_usuarios.
--- Si la FK ya existe con el nombre viejo, la recreamos.
+-- Producción puede tener la FK con el nombre viejo o el nuevo según cuándo se aplicó el rename.
+-- Dropeamos ambas variantes antes de recrear para garantizar idempotencia.
 ALTER TABLE "dim_organigrama_uploads"
   DROP CONSTRAINT IF EXISTS "organigrama_uploads_subido_por_id_fkey";
+ALTER TABLE "dim_organigrama_uploads"
+  DROP CONSTRAINT IF EXISTS "dim_organigrama_uploads_subido_por_id_fkey";
 ALTER TABLE "dim_organigrama_uploads"
   ADD CONSTRAINT "dim_organigrama_uploads_subido_por_id_fkey"
     FOREIGN KEY ("subido_por_id") REFERENCES "dim_usuarios"("id")
