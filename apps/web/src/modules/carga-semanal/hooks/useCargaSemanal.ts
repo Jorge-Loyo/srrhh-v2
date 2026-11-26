@@ -83,7 +83,7 @@ export interface ResolucionesConfirmar {
   eliminados?: Record<string, 'eliminar' | 'mantener'>
 }
 
-export function useCargaSesiones(params?: { tipo?: TipoCarga; estado?: EstadoCarga }) {
+export function useCargaSesiones(params?: { tipo?: TipoCarga; estado?: EstadoCarga; limit?: number }) {
   return useQuery({
     queryKey: ['carga-semanal', 'sesiones', params],
     queryFn: async () => {
