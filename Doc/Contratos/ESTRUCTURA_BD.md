@@ -5,7 +5,7 @@
 > real de cada tabla: filas, columnas vivas/muertas, índices, decisiones de limpieza.
 >
 > Estado: FASES 0–2 COMPLETADAS. Fase 3 TypeScript completa (BD pendiente).
-> Última actualización: 2026-11-24 — `dim_cargos` normalizada: `estado` en minúscula (`vigente`/`validacion_vacante`), `codigo_cargo` repaddeado a 6 dígitos. Deprecaciones 6.1.4/6.2.5/6.3.4 pendientes.
+> Última actualización: 2027-01 — Fase 5 operativa en producción. Primera confirmación exitosa. `dim_actividad_hechos` corregida: 48.606 actividades abiertas. Columnas reales documentadas: `efector` (no `hospital_sigla`), `salud_1er_cargo` (no `salud_primer_cargo`). Fixes de arquitectura Neon serverless documentados.
 
 ---
 
@@ -408,7 +408,7 @@ Orden de precedencia (la primera regla que aplica gana):
 | `desc_rep` | VARCHAR(200) | Descripción repartición, minúsculas sin tildes |
 | `jcat` | VARCHAR(10) | Solo jefaturas (~5.106 filas) |
 | `doc_respald_alta` | VARCHAR(200) | Documento de alta |
-| `efector` | VARCHAR(15) | Sigla del efector (antes `hospital_sigla`) |
+| `efector` | VARCHAR(15) | Sigla del efector. **Nombre real de columna en BD: `efector`** (no `hospital_sigla`). FK → `dim_efectores.sigla` via subquery para evitar FK violation con siglas inexistentes. |
 | `situacion_revista` | VARCHAR(50) | Minúsculas, sincronizado con padrón |
 | `puesto_desde` | DATE | 100% poblado |
 | `puesto_hasta` | DATE | NULL = activo |
@@ -447,7 +447,7 @@ Orden de precedencia (la primera regla que aplica gana):
 | `domicilio` | VARCHAR(255) | Minúsculas sin tildes |
 | `localidad` | VARCHAR(150) | Minúsculas sin tildes |
 | `provincia` | VARCHAR(100) | Minúsculas sin tildes |
-| `salud_1er_cargo` | DATE | Fecha primer cargo en salud |
+| `salud_1er_cargo` | DATE | Fecha primer cargo en salud. **Nombre real de columna en BD: `salud_1er_cargo`** (no `salud_primer_cargo`). |
 | `activo` | BOOLEAN | — |
 
 - **Columnas eliminadas:** `apellido`, `nombre` (separados) — reemplazados por `apellido_nombre`
@@ -456,7 +456,24 @@ Orden de precedencia (la primera regla que aplica gana):
 - **Contenido:** vincula `id_sial_rol` ↔ `cuil` con `fecha_desde` / `fecha_hasta`. Historial completo de asignaciones.
 - **`es_actual`:** columna calculada (`fecha_hasta IS NULL`).
 
-### `msgc_puestos`
+### `dim_actividad_hechos` 🆕
+- **Filas:** 65.253 total, **48.606 abiertas** (`fecha_hasta IS NULL`) post-fix 2027-01
+- **Índice único parcial:** `WHERE fecha_hasta IS NULL` sobre `id_sial_rol` — garantiza una sola actividad abierta por puesto a nivel BD (migración `20261209000000_dim_actividad_hechos_unique_abierta`).
+- **Fix 2027-01:** 42.210 actividades tenían `fecha_desde = fecha_hasta` (bug de carga del 08-11 que abrió y cerró actividades el mismo día). Corregidas con `UPDATE ... SET fecha_hasta = NULL WHERE id IN (SELECT DISTINCT ON (id_sial_rol) ...)`. Resultado: 48.606 abiertas (antes 6.401). Quedan 116 puestos activos sin actividad abierta (datos sucios históricos).
+- **Apertura:** cuando un puesto aparece nuevo en cargos (`fecha_desde = fecha_corte`, `fecha_hasta = NULL`).
+- **Cierre con fecha real:** cuando bajas registra `cargoHasta`.
+- **Cierre con `fechaCorte`:** cuando un puesto desaparece del padrón de cargos.
+
+### Notas de arquitectura Neon serverless (críticas)
+
+> Estas restricciones aplican a **todos** los procesadores de carga semanal.
+
+- **Sin `$transaction` con upserts en loop** — Neon serverless no tolera transacciones largas. Causa `Transaction not found`. Reemplazar con operaciones directas en serie.
+- **Sin `Promise.all` con múltiples queries** — Neon cierra conexiones por inactividad (`Error { kind: Closed }`). Todo debe ser en serie.
+- **Bulk SQL pattern:** `INSERT ... ON CONFLICT DO UPDATE` con `Prisma.join(values)` en lotes de 500. Requiere deduplicación previa (Postgres no acepta el mismo valor de PK dos veces en el mismo comando).
+- **FK en `dim_puestos.efector`:** referencia a `dim_efectores.sigla`. El bulk insert usa subquery `(SELECT sigla FROM dim_efectores WHERE sigla = $1 LIMIT 1)` para evitar FK violation con siglas inexistentes.
+- **Buffer en memoria:** el `bufferStore` se pierde con cada rebuild del container. Sesiones en `pendiente_confirmacion` devuelven 410 tras rebuild — deben descartarse y re-subirse.
+- **Orden de confirmación:** `ocupacion_pou` → `bajas_salud` → `cargos_salud` → `arbol`.
 - **Filas:** 1.595
 - **Contenido:** catálogo de literal_puesto + especialidad del Excel MSGC.
 
@@ -528,3 +545,4 @@ Orden de precedencia (la primera regla que aplica gana):
 | 2026-12 | `dim_efectores` creada (79 filas: 64 activos, 15 inactivos). 15 DGAH eliminadas. FK `dim_puestos.efector` y `dim_cargos.efector` validadas. `dim_cargos.sigla` renombrada a `efector`. Tarea 4.1 completada. |
 | 2026-12 | Regla de clasificación `tipo_cargo` documentada: formacion (docentes/residentes por CR) → estructura (jcat P60/P61) → conduccion (jcat no nulo) → ejecucion (jcat NULL). Los literales orgánicos en CR=25/60 son correctos por diseño. |
 | 2026-11-24 | `dim_cargos` documentada: PK `codigo_cargo` formato `PREFIJO-NNNNNN`, dominio MSGC, FK `cargo_id_sistema → cargos.id`. Fixes: `estado` normalizado a minúscula, `codigo_cargo` repaddeado a 6 dígitos. `codigos_registro`, `puestos_cargo`, `especialidades_puesto` marcadas como deprecadas en contexto MSGC (reemplazadas por `dim_carreras`, `dim_puestos`). |
+| 2027-01 | Fase 5 operativa en producción. Primera confirmación exitosa (sesión `fa3e1a5d`) con los 4 tipos. `dim_puestos.efector` documentado como nombre real de columna (no `hospital_sigla`). `dim_personas.salud_1er_cargo` documentado como nombre real (no `salud_primer_cargo`). `dim_actividad_hechos` corregida: fix 42.210 actividades con `fecha_desde = fecha_hasta` → 48.606 abiertas. Notas de arquitectura Neon serverless agregadas (sin `$transaction`, sin `Promise.all`, bulk SQL en lotes de 500, FK via subquery). Estado de tablas post-confirmación documentado en `SPRINT_BD_REESTRUCTURACION.md` §5.8. |

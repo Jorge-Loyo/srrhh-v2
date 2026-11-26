@@ -8,8 +8,8 @@
 >
 > **Documento relacionado:** `Doc/Contratos/ESTRUCTURA_BD.md` (fuente de verdad del DDL revisado).
 >
-> Última actualización: 2026-11-24 — Fase 3 completada: `dim_cargos` tiene 24 prefijos MSGC correctos, 0 legacy. `dim_cargos` normalizada (estado minúscula, códigos 6 dígitos). Deprecaciones 6.1.4/6.2.5/6.3.4 completadas en `ESTRUCTURA_BD.md`.
-> Estado: FASES 0–6 COMPLETADAS. BD LIMPIA. PENDIENTES: Fases 7/8/9.
+> Última actualización: 2027-01 — Fase 5 completada: primera confirmación exitosa (sesión `fa3e1a5d`) con los 4 tipos (ocupacion_pou, bajas_salud, cargos_salud, arbol). Procesadores reescritos con bulk SQL. Fix `dim_actividad_hechos`: 48.606 actividades abiertas. Estado de tablas post-confirmación documentado.
+> Estado: FASES 0–8 COMPLETADAS. FASE 5 OPERATIVA EN PRODUCCIÓN. PENDIENTE: Fase 9.
 
 ---
 
@@ -205,7 +205,7 @@
 - [x] **5.2.11** Prisma client regenerado con los nuevos modelos `dim_carga_*`.
 - [x] **5.2.12** Módulo registrado en `app.ts` bajo `/api/v1/carga-semanal`.
 
-### 5.3 — Procesador: cargos_salud ✅ COMPLETADA (flujo preview/confirmar)
+### 5.3 — Procesador: cargos_salud ✅ COMPLETADA Y OPERATIVA EN PRODUCCIÓN
 - [x] **5.3.1** Parser del Excel `Cargos_salud` — 50 columnas mapeadas a tipos TypeScript, fechas `4000-01-01` normalizadas a null.
 - [x] **5.3.2** Upsert `dim_puestos` en lotes de 500 — compara contra estado actual, genera diffs por campo (literal_puesto, especialidad, codigo_registro, cod_rep, situacion_revista, efector).
 - [x] **5.3.3** Upsert `dim_personas` — una entrada por CUIL, actualiza apellido_nombre, sexo, contacto, domicilio.
@@ -219,13 +219,15 @@
 - [x] **5.3.11** Bug fix: `dim_actividad_hechos` ahora abre filas para puestos nuevos (antes solo cerraba eliminados).
 - [x] **5.3.12** Migración `20261209000000_dim_actividad_hechos_unique_abierta` — índice único parcial `WHERE fecha_hasta IS NULL` sobre `id_sial_rol` para garantizar integridad a nivel BD.
 
-### 5.4 — Procesador: bajas_salud ✅ COMPLETADA (flujo preview/confirmar)
+### 5.4 — Procesador: bajas_salud ✅ COMPLETADA Y OPERATIVA EN PRODUCCIÓN
 - [x] **5.4.1** Parser del Excel `Bajas_salud` — 31 columnas incluyendo MOT_BAJA, CARGO_HASTA.
 - [x] **5.4.2** Upsert `dim_puestos` con campos de baja: puesto_hasta, motivo_baja, doc_resp_baja, bajas_exist.
 - [x] **5.4.3** Upsert `dim_personas` — actualiza datos básicos, marca activo=false.
 - [x] **5.4.4** Cierre `dim_actividad_hechos` — setea fecha_hasta con la fecha de baja real de cada puesto.
 - [x] **5.4.5** Snapshot parcial y diffs generados.
 - [x] **5.4.6** Flujo dos fases: `parsearYDiffearBajasSalud` (fase 1 — preview) + `aplicarCambiosBajasSalud` (fase 2 — confirmar). Sin resoluciones por fila (bajas se aplican todas).
+- [x] **5.4.7** Reescritura con bulk SQL: `dim_puestos` INSERT ON CONFLICT en lotes de 500 con deduplicación por `id_sial_rol`. `dim_personas` updateMany bulk por CUILs únicos. `dim_actividad_hechos` UPDATE FROM (VALUES ...) bulk con fecha real de baja. Logs en cada paso.
+- [x] **5.4.8** Bugs corregidos durante primera confirmación: `filasConBaja` declarada dos veces (eliminada duplicación); columna real `efector` (no `hospital_sigla`) en `dim_puestos`; columna real `salud_1er_cargo` (no `salud_primer_cargo`) en `dim_personas`; deduplicación de `id_sial_rol` con `Map` antes del bulk insert; FK violation en `efector` resuelta con subquery `SELECT sigla FROM dim_efectores WHERE sigla = $1`.
 
 ### 5.5 — Procesador: arbol ✅ COMPLETADA
 - [x] **5.5.1** Parser del Excel `Arbol_Salud` — 8 columnas, filas AREA descartadas, desc_rep normalizado.
@@ -246,7 +248,28 @@
 - [x] **5.7.5** `CargaSemanalPage` refactorizada — muestra `PanelRevision` automáticamente al subir un archivo; botón "Revisar" en el historial para sesiones `pendiente_confirmacion` huérfanas.
 - [x] **5.7.6** Historial actualizado con estado `pendiente_confirmacion` (badge azul).
 
-**Criterio de salida:** los 4 procesadores operativos. Subida desde UI genera informe con diffs y actualiza `dim_*`. `dim_carga_padron_snapshot` permite responder: cargos de una persona, personas de un cargo, evolución mensual por carrera.
+**Criterio de salida:** ✅ ALCANZADO. Los 4 procesadores operativos. Primera confirmación exitosa (sesión `fa3e1a5d`, 2027-01) con los 4 tipos. Subida desde UI genera informe con diffs y actualiza `dim_*`. `dim_carga_padron_snapshot` permite responder: cargos de una persona, personas de un cargo, evolución mensual por carrera.
+
+### 5.8 — Estado de tablas post-primera-confirmación (sesión `fa3e1a5d`) ✅
+
+| Tabla | Total | Detalle |
+|---|---|---|
+| `dim_puestos` | 65.336 | 49.292 en padrón activo, 16.105 con baja |
+| `dim_personas` | 50.694 | 47.228 activas, 3.466 inactivas |
+| `dim_actividad_hechos` | 48.606 abiertas | Fix aplicado: 42.210 actividades con `fecha_desde = fecha_hasta` (bug carga 08-11) reabiertas |
+| `dim_incidencias` | 2.099 | Bajas gestionables |
+| `dim_cargos` | 53.064 | 790 en `validacion_vacante` |
+| `dim_carga_padron_snapshot` | 65.692 filas | KPIs: 458 combinaciones |
+
+**Fix `dim_actividad_hechos` (2027-01):** detectadas 42.210 actividades con `fecha_desde = fecha_hasta` (bug de la carga del 08-11 que abrió y cerró actividades el mismo día). Fix: `UPDATE dim_actividad_hechos SET fecha_hasta = NULL WHERE id IN (SELECT DISTINCT ON (id_sial_rol) id ... ORDER BY id_sial_rol, fecha_desde DESC)` — reabre la última actividad cerrada incorrectamente por puesto. Resultado: 48.606 abiertas (antes 6.401). Quedan 116 puestos activos sin actividad abierta (datos sucios históricos, no críticos).
+
+**Fixes de arquitectura aplicados durante confirmación:**
+- `$transaction` con upserts en loop → reemplazado por operaciones directas en serie (Neon serverless no tolera transacciones largas).
+- `Promise.all` con múltiples queries → serializado (Neon cierra conexiones por inactividad).
+- Upserts individuales (~49k filas) → bulk SQL `INSERT ... ON CONFLICT DO UPDATE` en lotes de 500.
+- `registrarResumenParcial` con parámetro `tiposEnSesion` hecho opcional (default `[]`). Eliminadas llamadas desde los `aplicar*` para evitar que el estado vuelva a `pendiente_confirmacion`.
+- Endpoint `/confirmar`: cuando no hay buffer (410), marca la sesión como `error` con mensaje claro antes de lanzar la excepción.
+- Frontend `handleConfirmar`: try/catch con `setError` para mostrar errores al usuario.
 
 ---
 
@@ -298,30 +321,37 @@
 
 ---
 
-## Fase 8 — Proceso semanal MSGC automatizado ⚠️ PENDIENTE
+## Fase 8 — Incidencias y concursos dim_* ✅ COMPLETADA
 
-**Objetivo:** que la carga de un Excel nuevo actualice los cargos automáticamente.
+**Objetivo:** que la carga semanal detecte automáticamente puestos nuevos y bajas gestionables, los registre en `dim_incidencias`, y vincule POU con `dim_puestos`.
 
-- [ ] **8.1** Endpoint `POST /api/v1/msgc/sync` — recibe el Excel, corre simulación, devuelve reporte.
-- [ ] **8.2** Endpoint `POST /api/v1/msgc/sync/aplicar` — aplica los cambios tras aprobación.
-- [ ] **8.3** Reporte semanal: delta contra corrida anterior, desglose por acrónimo, sin datos personales.
-- [ ] **8.4** Agregar modelos `msgc_*` al `schema.prisma` para consultas desde el API.
-- [ ] **8.5** Re-resolver FKs de cargo en `msgc_hechos_cargo_persona` (quedaron en null).
-- [ ] **8.6** Documentar el proceso en `Contrato_Padron.md` (sección MSGC).
+- [x] **8.1** Puestos nuevos gestionables → `dim_incidencias { tipo: puesto_nuevo_gestionable }`. No gestionables → `dim_cargos { codigoCargo: idSialRol }`. Preview muestra `gestionables.puestosNuevos`.
+- [x] **8.2** Vinculación automática POU↔dim_puestos al confirmar `ocupacion_pou`: JOIN `(sigla, perfil, especialidad)` ↔ `(hospitalSigla, literalPuesto, especialidad)` → `dim_pou_ocupacion_puestos.createMany` con `skipDuplicates`.
+- [x] **8.3** Bajas gestionables → `dim_incidencias { tipo: baja_gestionable }`. Puente `dim_actividad_hechos` para resolver `codigo_cargo`. `dim_cargos.updateMany` → `validacion_vacante`. Preview muestra `gestionables.bajas`.
+- [x] **8.4** DROP tablas `msgc_cargos`, `msgc_hechos_cargo_persona`, `msgc_personas`, `msgc_puestos` — eliminadas de BD y schema.
+- [x] **8.5** Documentación: sección "Carga semanal dim_* — Flujo de decisiones (Fase 8)" en `Contrato_Padron.md`.
+- [x] **8.6** Helper `gestionables.ts` — `clasificarGestionablesBulk()` con cache en memoria. Fuente de verdad: `dim_gestionables`. Sin hardcodeo en procesadores.
+- [x] **8.7** Schema: modelos `DimIncidencia`, `DimConcurso`, `DimConcursoCph`, `DimConcursoCeetps`, enums `TipoIncidencia`, `EstadoIncidencia`. Relaciones inversas en `DimEfectores` y `DimCargaSesion`.
+- [x] **8.8** Fix build Vercel: `TipoConcursoFila` = `'cph' | 'ceetps'` (sin `'sin_concurso'`). Corregido en `historicoCargos.ts`, test y `AltaCargosPage.tsx`.
+- [x] **8.9** `dim_gestionables` corregida: CR 24 eliminado, CR 23 → CPH, CR 83 → CEETPS/`Nueva Carrera Administrativa`, CR 85 → `regimen_override: CEETPS`.
+- [x] **8.10** Tabla `usuarios` renombrada a `dim_usuarios` — todas las tablas del nuevo diagrama tienen prefijo `dim_`.
 
-**Criterio de salida:** carga de un Excel nuevo actualiza los cargos. Reporte generado sin datos personales.
+**Criterio de salida:** ✅ Carga semanal genera incidencias automáticas. `dim_*` 100% consistente. Build sin errores.
 
 ---
 
-## Fase 9 — Verificación final y documentación ⚠️ PENDIENTE
+## Fase 9 — Frontend incidencias + concursos dim_* ⚠️ PENDIENTE
 
-- [ ] **9.1** Conteo final: `vigente + validacion_vacante` = filas del Excel, desglose por acrónimo.
-- [ ] **9.2** Cero cargos con prefijo viejo.
-- [ ] **9.3** Recalcular `sub_estado` de todos los cargos.
-- [ ] **9.4** Revisar KPIs de dotación — re-correr backfills si alguna migración los afectó.
-- [ ] **9.5** `ESTRUCTURA_BD.md` actualizado con el schema final y tablas deprecadas marcadas.
-- [ ] **9.6** `Contrato_Datos.md` actualizado.
-- [ ] **9.7** Aplicar cambios a producción siguiendo `DEPLOY_PRODUCCION.md §7`.
+**Objetivo:** pantalla de gestión de incidencias y concursos generados por la carga semanal.
+
+- [ ] **9.1** Listado de `dim_incidencias` pendientes — filtros por tipo, efector, carrera. Badge de cantidad en el menú.
+- [ ] **9.2** Acción "Iniciar concurso" desde una incidencia → crea `dim_concurso` + `dim_concurso_cph` o `dim_concurso_ceetps` (Etapa 1). Incidencia pasa a `resuelta`.
+- [ ] **9.3** Acción "Descartar" desde una incidencia → estado `descartada` con motivo opcional.
+- [ ] **9.4** Listado de `dim_concurso` — filtros por tipo, estado, efector. Vista detalle con campos de Etapa 1.
+- [ ] **9.5** Endpoints API: `GET /api/v1/dim-incidencias`, `POST /api/v1/dim-incidencias/:id/iniciar-concurso`, `POST /api/v1/dim-incidencias/:id/descartar`, `GET /api/v1/dim-concursos`.
+- [ ] **9.6** `ESTRUCTURA_BD.md` actualizado con schema final (incluye `dim_usuarios`, tablas nuevas Fase 8).
+- [ ] **9.7** `Contrato_Datos.md` actualizado.
+- [ ] **9.8** Aplicar cambios a producción siguiendo `DEPLOY_PRODUCCION.md §7`.
 
 ---
 
@@ -442,9 +472,9 @@ Fase 6 (integración dim_* → reemplazo tablas operativas)
     ↓
 Fase 7 (sync MSGC escritura)
     ↓
-Fase 8 (proceso semanal automatizado)
+Fase 8 ✅ (incidencias y concursos dim_*)
     ↓
-Fase 9 (verificación + deploy a producción)
+Fase 9 (frontend incidencias + concursos + deploy)
 ```
 
 ---

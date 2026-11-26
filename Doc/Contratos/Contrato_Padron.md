@@ -274,3 +274,98 @@ Todas se leen desde Postgres al arrancar Dotaneitor. Se pueden actualizar con SQ
 - `Cargo`: idSial, codigo, hospitalId, escalafonId, literalPuesto, especialidadLegacy, agrupador, unificadorPuesto, estado (vigente/no_vigente/validacion_vacante)
 - `Ocupacion`: personaId, cargoId, idSialRol, cuilYRol, hasta (null = vigente)
 - `Persona`: cuil, apellidoNombre, activo
+
+---
+
+## Carga semanal dim_* — Flujo de decisiones (Fase 8)
+
+> Última actualización: Fase 8 completada.
+> Este flujo complementa el padrón legacy. Opera sobre las tablas `dim_*` y no modifica `cargos`, `ocupaciones` ni `personas`.
+> Todas las tablas del nuevo diagrama tienen prefijo `dim_` (incluida `dim_usuarios`, renombrada desde `usuarios`).
+
+### Fuente de verdad de carreras gestionables
+
+La tabla `dim_gestionables` define qué códigos de registro generan concurso y de qué tipo:
+
+| codigo_registro | tipo_concurso | regimen_override                       | Condición extra         |
+|-----------------|---------------|----------------------------------------|-------------------------|
+| 22              | CPH           | Nueva Carrera Profesional Hospitalaria | —                       |
+| 23              | CPH           | Salud - Guardias                       | —                       |
+| 37              | CPH           | Nueva Carrera Profesional Hospitalaria | —                       |
+| 83              | CEETPS        | Nueva Carrera Administrativa           | Solo literales Anexo II |
+| 85              | CEETPS        | CEETPS                                 | —                       |
+| 87              | CEETPS        | Nueva Carrera de Enfermería            | —                       |
+
+El helper `clasificarGestionablesBulk()` (`procesadores/gestionables.ts`) consulta esta tabla con cache en memoria. Es la única fuente de verdad — no hay lógica hardcodeada en el código.
+
+---
+
+### 8.1 — Puestos nuevos en cargos_salud (al confirmar)
+
+Al confirmar una carga `cargos_salud`, para cada `id_sial_rol` detectado como **nuevo** en el diff:
+
+```
+¿Es gestionable? (dim_gestionables)
+  ├─ SÍ → crear dim_incidencias { tipo: 'puesto_nuevo_gestionable', estado: 'pendiente' }
+  └─ NO → crear dim_cargos { codigoCargo: idSialRol, estado: 'vigente', subEstado: ocupado|vacante }
+```
+
+El preview (fase 1) ya muestra `gestionables.puestosNuevos` para informar al usuario antes de confirmar.
+
+---
+
+### 8.3 — Bajas en bajas_salud (al confirmar)
+
+Al confirmar una carga `bajas_salud`, para cada fila con `cargoHasta` poblado:
+
+```
+1. Resolver codigo_cargo via dim_actividad_hechos (puente id_sial_rol → codigo_cargo)
+2. dim_cargos.updateMany → estado: 'validacion_vacante', subEstado: 'vacante'
+3. ¿Es gestionable? (dim_gestionables)
+     ├─ SÍ → crear dim_incidencias { tipo: 'baja_gestionable', estado: 'pendiente' }
+     └─ NO → solo actualiza estado (no genera incidencia)
+```
+
+El preview muestra `gestionables.bajas` para informar antes de confirmar.
+
+---
+
+### 8.2 — Vinculación POU↔dim_puestos (al confirmar ocupacion_pou)
+
+Al confirmar una carga `ocupacion_pou`, después de hacer upsert en `dim_pou_ocupacion`:
+
+```
+JOIN automático:
+  dim_pou_ocupacion(sigla, perfil, especialidad)
+  ↔ dim_puestos(hospital_sigla, literal_puesto, especialidad)
+
+→ INSERT INTO dim_pou_ocupacion_puestos (pou_id, id_sial_rol, vinculado_manualmente=false)
+   ON CONFLICT DO NOTHING  (skipDuplicates)
+```
+
+Las filas con `vinculado_manualmente=true` (vinculación manual desde el front) nunca se tocan.
+
+---
+
+### Tablas involucradas
+
+| Tabla                      | Rol                                                              |
+|----------------------------|------------------------------------------------------------------|
+| `dim_gestionables`         | Fuente de verdad de carreras gestionables (CPH/CEETPS)          |
+| `dim_incidencias`          | Registro de bajas y puestos nuevos gestionables pendientes       |
+| `dim_concurso`             | Padre del concurso generado desde una incidencia                 |
+| `dim_concurso_cph`         | Campos Etapa 1 CPH                                               |
+| `dim_concurso_ceetps`      | Campos Etapa 1 CEETPS                                            |
+| `dim_cargos`               | Cargos no gestionables creados automáticamente                   |
+| `dim_actividad_hechos`     | Puente id_sial_rol → codigo_cargo para actualizar dim_cargos     |
+| `dim_pou_ocupacion_puestos`| Mapeo POU ↔ dim_puestos (automático + manual)                    |
+
+---
+
+### Estados de dim_incidencias
+
+| estado      | Significado                                              |
+|-------------|----------------------------------------------------------|
+| `pendiente` | Generada por la carga, esperando acción del sector       |
+| `resuelta`  | Se creó un concurso o se tomó una decisión               |
+| `descartada`| El sector decidió no actuar sobre esta incidencia        |

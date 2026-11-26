@@ -8,6 +8,75 @@ Monorepo pnpm + Turborepo. Stack: Fastify 5 + Prisma + PostgreSQL (backend), Rea
 - pnpm 9+
 - Docker + Docker Compose
 
+## Arranque local
+
+### 1. Frontend (siempre igual, independiente de la BD)
+
+```bash
+# Desde WSL
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy/apps/web
+npx vite --port 5180
+# → http://localhost:5180
+```
+
+### 2. API — elegir a qué BD apuntar
+
+#### Producción (`srrhh-sync` / `ep-little-river`)
+```bash
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose up -d api
+```
+
+#### Laboratorio — branch Neon con datos reales para pruebas (`ep-crimson-band`)
+```bash
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.laboratorio.yml up -d api
+```
+
+#### Reestructuración BD (`Neon_BD` / `ep-rough-pond`)
+```bash
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.neonbd.yml up -d api
+```
+
+#### BD local PostgreSQL (sin Neon)
+```bash
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.localdb.yml up -d api
+```
+
+### 3. Verificar que levantó
+
+```bash
+curl http://localhost:3000/health
+# Verificar a qué branch Neon apunta:
+docker exec srrhh_api node -e "const u=process.env.DATABASE_URL;console.log(u?.match(/ep-[a-z0-9-]+/)?.[0])"
+```
+
+### 4. Rebuild del API (después de cambios en el código)
+
+```bash
+# Producción
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose build api && docker compose up -d api
+
+# Laboratorio
+cd /mnt/c/Desarrollo/SRH/SRRHH-Legacy
+docker compose -f docker-compose.yml -f docker-compose.laboratorio.yml build api && \
+docker compose -f docker-compose.yml -f docker-compose.laboratorio.yml up -d api
+```
+
+### Mapa de branches Neon
+
+| Entorno | Branch Neon | Override |
+|---|---|---|
+| Producción | `srrhh-sync` (`ep-little-river`) | ninguno |
+| Laboratorio | `laboratorio` (`ep-crimson-band`) | `docker-compose.laboratorio.yml` |
+| Reestructuración | `Neon_BD` (`ep-rough-pond`) | `docker-compose.neonbd.yml` |
+| Local | PostgreSQL en Docker | `docker-compose.localdb.yml` |
+
+---
+
 ## Setup inicial
 
 ```bash
