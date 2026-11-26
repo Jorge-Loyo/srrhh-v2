@@ -1625,60 +1625,69 @@ model DimIncidencia {
 }
 
 model DimConcurso {
-  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tipo           TipoConcurso
-  motivoOrigen   String             @map("motivo_origen") @db.VarChar(30)
-  efector        String             @db.VarChar(20)
-  codigoRegistro String             @map("codigo_registro") @db.VarChar(10)
-  literalPuesto  String             @map("literal_puesto") @db.VarChar(200)
-  especialidad   String?            @db.VarChar(200)
-  codigoCargo    String?            @map("codigo_cargo") @db.VarChar(30)
-  estado         String             @default("no_iniciado") @db.VarChar(20)
-  observaciones  String?
-  sesionId       String?            @map("sesion_id") @db.Uuid
-  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
-  efectorRel     DimEfectores       @relation(fields: [efector], references: [sigla])
-  sesion         DimCargaSesion?    @relation(fields: [sesionId], references: [id], onDelete: SetNull)
-  incidencia     DimIncidencia?
-  cph            DimConcursoCph?
-  ceetps         DimConcursoCeetps?
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo                TipoConcurso
+  motivoOrigen        String             @map("motivo_origen") @db.VarChar(30)
+  efector             String             @db.VarChar(20)
+  codigoRegistro      String             @map("codigo_registro") @db.VarChar(10)
+  literalPuesto       String             @map("literal_puesto") @db.VarChar(200)
+  especialidad        String?            @db.VarChar(200)
+  codigoCargo         String?            @map("codigo_cargo") @db.VarChar(30)
+  estado              String             @default("no_iniciado") @db.VarChar(20)
+  observaciones       String?
+  sesionId            String?            @map("sesion_id") @db.Uuid
+  /// UUID del registro en `concursos` (legacy). Sin FK formal para no acoplar mundos.
+  concursoLegacyId    String?            @map("concurso_legacy_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  efectorRel          DimEfectores       @relation(fields: [efector], references: [sigla])
+  sesion              DimCargaSesion?    @relation(fields: [sesionId], references: [id], onDelete: SetNull)
+  incidencia          DimIncidencia?
+  cph                 DimConcursoCph?
+  ceetps              DimConcursoCeetps?
   @@index([tipo, estado])
   @@index([efector, codigoRegistro])
   @@index([sesionId])
+  @@index([concursoLegacyId])
   @@map("dim_concurso")
 }
 
 model DimConcursoCph {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  concursoId        String      @unique @map("concurso_id") @db.Uuid
-  eeBaja            String?     @map("ee_baja") @db.VarChar(150)
-  fechaBaja         DateTime?   @map("fecha_baja") @db.Date
-  eeConcurso        String?     @map("ee_concurso") @db.VarChar(150)
-  fechaEeConcurso   DateTime?   @map("fecha_ee_concurso") @db.Date
-  ifAutorizacion    String?     @map("if_autorizacion") @db.VarChar(150)
-  fechaAutorizacion DateTime?   @map("fecha_autorizacion") @db.Date
-  tipoGestion       String?     @map("tipo_gestion") @db.VarChar(20)
-  subEstado         String?     @map("sub_estado") @db.VarChar(50)
-  subEstado3        String?     @map("sub_estado_3") @db.VarChar(50)
-  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  concurso          DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  id                      String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  concursoId              String      @unique @map("concurso_id") @db.Uuid
+  eeBaja                  String?     @map("ee_baja") @db.VarChar(150)
+  fechaBaja               DateTime?   @map("fecha_baja") @db.Date
+  eeConcurso              String?     @map("ee_concurso") @db.VarChar(150)
+  fechaEeConcurso         DateTime?   @map("fecha_ee_concurso") @db.Date
+  ifAutorizacion          String?     @map("if_autorizacion") @db.VarChar(150)
+  fechaAutorizacion       DateTime?   @map("fecha_autorizacion") @db.Date
+  tipoGestion             String?     @map("tipo_gestion") @db.VarChar(20)
+  subEstado               String?     @map("sub_estado") @db.VarChar(50)
+  subEstado3              String?     @map("sub_estado_3") @db.VarChar(50)
+  /// UUID del registro en `concursos_cph` (legacy). Sin FK formal.
+  concursoCphLegacyId     String?     @map("concurso_cph_legacy_id") @db.Uuid
+  createdAt               DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  concurso                DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  @@index([concursoCphLegacyId])
   @@map("dim_concurso_cph")
 }
 
 model DimConcursoCeetps {
-  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  concursoId          String      @unique @map("concurso_id") @db.Uuid
-  expedienteConcurso  String?     @map("expediente_concurso") @db.VarChar(150)
-  fechaCaratulacion   DateTime?   @map("fecha_caratulacion") @db.Date
-  ifAutorizacion      String?     @map("if_autorizacion") @db.VarChar(150)
-  fechaAutorizacion   DateTime?   @map("fecha_autorizacion") @db.Date
-  tipoGestion         String?     @map("tipo_gestion") @db.VarChar(20)
-  subEstado           String?     @map("sub_estado") @db.VarChar(50)
-  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  concurso            DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  id                        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  concursoId                String      @unique @map("concurso_id") @db.Uuid
+  expedienteConcurso        String?     @map("expediente_concurso") @db.VarChar(150)
+  fechaCaratulacion         DateTime?   @map("fecha_caratulacion") @db.Date
+  ifAutorizacion            String?     @map("if_autorizacion") @db.VarChar(150)
+  fechaAutorizacion         DateTime?   @map("fecha_autorizacion") @db.Date
+  tipoGestion               String?     @map("tipo_gestion") @db.VarChar(20)
+  subEstado                 String?     @map("sub_estado") @db.VarChar(50)
+  /// UUID del registro en `concursos_ceetps` (legacy). Sin FK formal.
+  concursoCeetpsLegacyId    String?     @map("concurso_ceetps_legacy_id") @db.Uuid
+  createdAt                 DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  concurso                  DimConcurso @relation(fields: [concursoId], references: [id], onDelete: Cascade)
+  @@index([concursoCeetpsLegacyId])
   @@map("dim_concurso_ceetps")
 }
 model DimCargaKpisPeriodo {
