@@ -1600,8 +1600,8 @@ model DimCargaPadronSnapshot {
 
 model DimIncidencia {
   id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tipo           TipoIncidencia
-  estado         EstadoIncidencia @default(pendiente)
+  tipo           DimTipoIncidencia
+  estado         DimEstadoIncidencia @default(pendiente)
   sesionId       String           @map("sesion_id") @db.Uuid
   idSialRol      String?          @map("id_sial_rol") @db.VarChar(12)
   codigoRegistro String           @map("codigo_registro") @db.VarChar(10)
@@ -1893,12 +1893,12 @@ enum EstadoCargaSemanal {
   pendiente_confirmacion
 }
 
-enum TipoIncidencia {
+enum DimTipoIncidencia {
   baja_gestionable
   puesto_nuevo_gestionable
 }
 
-enum EstadoIncidencia {
+enum DimEstadoIncidencia {
   pendiente
   resuelta
   descartada
